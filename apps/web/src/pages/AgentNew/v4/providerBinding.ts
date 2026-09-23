@@ -25,8 +25,8 @@ import { managedChannelRank } from '@/lib/agentCreate/managedRank'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
 
 // The two service frameworks that are handed a model provider at install.
-// NarraNexus manages its own providers from inside its UI and takes nothing
-// from us; the external three never install at all.
+// One whose runtime manages its own providers takes nothing from us; the
+// external three never install at all.
 export const bindsModelAtCreate = (
     framework: AgentFramework
 ): framework is 'openclaw' | 'hermes' =>

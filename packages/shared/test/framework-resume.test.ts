@@ -47,7 +47,6 @@ test('frameworks with no resume-by-id form return null', () => {
         'gemini-cli',
         'openclaw',
         'hermes',
-        'narranexus',
         'dify',
         'langflow',
         'a2a'

@@ -1,6 +1,6 @@
 import {
     envTextFromExtras,
-    frameworkCapability,
+    frameworkKind,
     parseEnvText
 } from '@manyfold/shared'
 import type { FC } from 'react'
@@ -68,7 +68,7 @@ export const AgentEnvVars: FC<Props> = ({ agent, onAgentUpdated }) => {
     // sprite-hosted service framework. On a daemon every framework spawns per
     // turn (hermes included), so env applies on the next turn (#781).
     const needsRestart =
-        frameworkCapability(agent.framework).kind === 'service' &&
+        frameworkKind(agent.framework) === 'service' &&
         agent.runtime === 'sprites'
 
     const pending = useMemo(

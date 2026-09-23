@@ -1,3 +1,4 @@
+import { isExternal, listFrameworks } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntimeSummary,
@@ -22,15 +23,6 @@ const statusTone: Record<AgentStatus, BadgeTone> = {
     failed: 'error'
 }
 
-const ALL_FRAMEWORKS: AgentFramework[] = [
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'pi',
-    'openclaw',
-    'hermes',
-    'narranexus'
-]
 const ALL_STATUSES: AgentStatus[] = ['pending', 'running', 'stopped', 'failed']
 
 type AgentsSortKey =
@@ -49,6 +41,12 @@ const AgentsList: FC = (): ReactNode => {
     const [error, setError] = useState<string | null>(null)
     const [userMap, setUserMap] = useState<Record<string, SdkUserSummary>>({})
 
+    // Every framework that runs on a host of ours, read at render: an edition
+    // registers its own at boot.
+    const filterFrameworks = useMemo(
+        () => listFrameworks().filter((framework) => !isExternal(framework)),
+        []
+    )
     const [frameworkFilter, setFrameworkFilter] = useState<Set<AgentFramework>>(
         new Set()
     )
@@ -170,7 +168,7 @@ const AgentsList: FC = (): ReactNode => {
                             <span className='text-caption-sm text-label'>
                                 {t('admin.agents.filters.framework')}:
                             </span>
-                            {ALL_FRAMEWORKS.map((fw) => {
+                            {filterFrameworks.map((fw) => {
                                 const active = frameworkFilter.has(fw)
                                 return (
                                     <button

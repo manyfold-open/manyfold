@@ -10,9 +10,10 @@ const normalizeGaPath = (pathname: string): string =>
         .map((segment) => (parseObjectId(segment) ? ':id' : segment))
         .join('/')
 
-// GA4 wants an absolute URL, and it must not carry the login hand-off
-// fragment (`#session=` / `#nmtoken=`) — hence a signature that has nowhere
-// to put a hash, plus the same query/path redaction Sentry already uses.
+// GA4 wants an absolute URL, and it must not carry a login hand-off fragment
+// (`#session=`, or another product's hand-off) — hence a signature that has
+// nowhere to put a hash, plus the same query/path redaction Sentry already
+// uses.
 export const gaPageLocation = (
     origin: string,
     pathname: string,

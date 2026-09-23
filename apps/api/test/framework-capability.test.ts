@@ -1,4 +1,5 @@
 import {
+    AgentFramework,
     AgentRuntime,
     CoreFramework,
     externalSteps,
@@ -14,6 +15,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 
 // ADR-0006 behaviour-preserving snapshot. The framework-capability module must
 // reproduce the answer every migrated call site computed before the refactor.
@@ -27,7 +29,7 @@ interface Expected {
     configSubdir: string | null
 }
 
-const GROUND_TRUTH: Record<CoreFramework, Expected> = {
+const CORE_GROUND_TRUTH: Record<CoreFramework, Expected> = {
     'claude-code': {
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
@@ -58,18 +60,23 @@ const GROUND_TRUTH: Record<CoreFramework, Expected> = {
         runtimes: ['sprites', 'k8s', 'daemon'],
         configSubdir: null
     },
-    narranexus: {
-        kind: 'service',
-        runtimes: ['sprites', 'k8s'],
-        configSubdir: null
-    },
     dify: { kind: 'external', runtimes: ['external'], configSubdir: null },
     langflow: { kind: 'external', runtimes: ['external'], configSubdir: null },
     a2a: { kind: 'external', runtimes: ['external'], configSubdir: null }
 }
 
+// Plus the frameworks this file registers.
+const GROUND_TRUTH: Record<string, Expected> = {
+    ...CORE_GROUND_TRUTH,
+    narranexus: {
+        kind: 'service',
+        runtimes: ['sprites', 'k8s'],
+        configSubdir: null
+    }
+}
+
 const ALL_RUNTIMES: AgentRuntime[] = ['sprites', 'k8s', 'daemon', 'external']
-const frameworks = Object.keys(GROUND_TRUTH) as CoreFramework[]
+const frameworks = Object.keys(GROUND_TRUTH) as AgentFramework[]
 
 test('frameworkCapability reproduces kind / runtimes / configHome for every framework', () => {
     for (const f of frameworks) {

@@ -1,3 +1,4 @@
+import { nativeUiAlwaysOn } from '@manyfold/shared'
 import type { AgentControlUiUrlResponse } from '@manyfold/shared'
 import { captureMessage } from '@sentry/react'
 import type { SdkAgent } from '@manyfold/sdk'
@@ -57,8 +58,8 @@ const renderPopupError = (
 
 // Open a runtime's dashboard / control UI in a new tab. Server-side
 // `getControlUiUrl` mints the URL (with audit log) for any framework that
-// has one — narranexus / openclaw / hermes — and rejects with a clear
-// error for disabled / unsupported runtimes.
+// has one, and rejects with a clear error for disabled / unsupported
+// runtimes.
 //
 // Must be invoked synchronously inside a click handler; the empty popup
 // is opened first and then navigated, because browsers suppress popups
@@ -114,13 +115,12 @@ export const openDashboardInPopup = (
 }
 
 // Whether this agent exposes a dashboard/control UI at all. Frameworks differ:
-// narranexus always has one, openclaw and hermes gate it behind a toggle, and
-// every other framework has none.
+// some always have one, openclaw and hermes gate it behind a toggle, and every
+// other framework has none.
 export const agentHasDashboard = (agent: SdkAgent): boolean => {
     if (!agent.ingressHost || !agent.runtimeId) return false
+    if (nativeUiAlwaysOn(agent.framework)) return true
     switch (agent.framework) {
-        case 'narranexus':
-            return true
         case 'openclaw':
             return agent.controlUiEnabled
         case 'hermes':

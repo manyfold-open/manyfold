@@ -1895,8 +1895,8 @@ export interface AutomationSummary {
     model: string | null
     deliveryChannelId: string | null
     deliveryTarget: AutomationDeliveryTarget | null
-    // True when the row mirrors an external framework object (a NarraNexus
-    // job) and is read-only in Manyfold surfaces.
+    // True when the row mirrors an external framework's scheduled job and is
+    // read-only in Manyfold surfaces.
     managed: boolean
     nextRunAt: string | null
     lastRunAt: string | null
@@ -2374,7 +2374,7 @@ export type SandboxServiceStatus =
     | 'failed'
 
 // A sprites.dev managed service registered on a sandbox's sprite. `managed`
-// flags Manyfold's own framework services (hermes/openclaw/narranexus), which
+// flags Manyfold's own framework services (one per service framework), which
 // are surfaced read-only and cannot be deleted from the host detail surface.
 export interface SandboxServiceSummary {
     name: string

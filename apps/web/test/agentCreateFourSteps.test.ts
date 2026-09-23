@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { listFrameworks } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
     DaemonHostSummary,
@@ -24,7 +25,7 @@ import {
     runtimeShort
 } from '../src/pages/AgentNew/v4/summaryLabels'
 import {
-    FRAMEWORK_GROUPS,
+    frameworkGroups,
     canUseSubscription,
     hasWorkspace,
     installsAtCreate,
@@ -42,6 +43,7 @@ import {
     buildMachineOptions,
     buildNewMachineOptions
 } from '../src/pages/AgentNew/v4/machineOptions'
+import { FIXTURE_FRAMEWORK } from './fixture-framework'
 
 const runtime = (
     over: Partial<AgentRuntimeSummary> & Pick<AgentRuntimeSummary, 'id'>
@@ -102,13 +104,19 @@ const access = (over: Partial<RuntimeAccessSummary>): RuntimeAccessSummary =>
         ...over
     }) as RuntimeAccessSummary
 
-test('the ten types are split into exactly two groups, by where they run', () => {
-    assert.equal(FRAMEWORK_GROUPS.length, 2)
-    const entries = FRAMEWORK_GROUPS.flatMap((g) => g.entries)
-    assert.equal(entries.length, 10)
+test('every type sits in exactly one of two groups, by where it runs', () => {
+    const groups = frameworkGroups()
+    assert.equal(groups.length, 2)
+    const entries = groups.flatMap((g) => g.entries)
+    assert.deepEqual(
+        entries.map((entry) => entry.framework).sort(),
+        [...listFrameworks()].sort()
+    )
+    // An edition's framework follows the coding CLIs.
+    assert.equal(groups[0].entries[4].framework, FIXTURE_FRAMEWORK)
     // The group boundary IS the step ② fork: everything in the first group
     // asks about a machine, everything in the second about a service.
-    for (const group of FRAMEWORK_GROUPS)
+    for (const group of groups)
         for (const entry of group.entries)
             assert.equal(
                 runsOnOurMachine(entry.framework),
@@ -118,7 +126,7 @@ test('the ten types are split into exactly two groups, by where they run', () =>
 })
 
 test('only the CLIs that carry their own sign-in advertise a subscription', () => {
-    for (const entry of FRAMEWORK_GROUPS.flatMap((g) => g.entries))
+    for (const entry of frameworkGroups().flatMap((g) => g.entries))
         assert.equal(
             entry.subscriptionKey !== undefined,
             canUseSubscription(entry.framework),
@@ -131,7 +139,7 @@ test('no row line ranks what a framework is good at', () => {
     // rejected three-group taxonomy was made of, and they are false here:
     // Claude Code orchestrates, OpenClaw writes code.
     const banned = /assistant|orchestrat|writes code|general-purpose/i
-    for (const entry of FRAMEWORK_GROUPS.flatMap((g) => g.entries))
+    for (const entry of frameworkGroups().flatMap((g) => g.entries))
         assert.ok(!banned.test(entry.identityKey), entry.identityKey)
 })
 
@@ -276,9 +284,9 @@ test('a cloud computer nobody bought reads as needing a plan, and stays', () => 
     assert.equal(cloud?.disabled, true)
 })
 
-test('the one framework that cannot use a daemon says so on that row', () => {
-    const narra = buildNewMachineOptions({
-        framework: 'narranexus',
+test('a framework that cannot use a daemon says so on that row', () => {
+    const noDaemon = buildNewMachineOptions({
+        framework: FIXTURE_FRAMEWORK,
         access: access({})
     })
     const claude = buildNewMachineOptions({
@@ -286,7 +294,7 @@ test('the one framework that cannot use a daemon says so on that row', () => {
         access: access({})
     })
     assert.equal(
-        narra.find((o) => o.kind === 'ownComputer')?.disabled,
+        noDaemon.find((o) => o.kind === 'ownComputer')?.disabled,
         true
     )
     assert.equal(
@@ -442,12 +450,12 @@ test('overrunning replaces the cost line rather than adding a second one', () =>
     assert.equal(creatingPrimary(76, 75, cost, tt).fine, 'web.agentNewV4.primary.tookLonger')
 })
 
-// A service framework (OpenClaw / Hermes / NarraNexus) is installed at
+// A service framework (OpenClaw, Hermes, an edition's) is installed at
 // step ④, with the agent, because the install needs the provider step ③ has
 // not asked yet. Seen on staging [2026-09-16]: installing OpenClaw at step ②
 // answered 500, `cannot resolve base_url for openclaw provider ''`.
 test('a service framework installs at create, and its rows owe no sign-in', () => {
-    for (const fw of ['openclaw', 'hermes', 'narranexus'] as const)
+    for (const fw of ['openclaw', 'hermes', FIXTURE_FRAMEWORK])
         assert.equal(installsAtCreate(fw), true, fw)
     for (const fw of ['claude-code', 'codex', 'gemini-cli', 'pi'] as const)
         assert.equal(installsAtCreate(fw), false, fw)
@@ -604,8 +612,8 @@ test('a step ③ answer carries its binding for a framework installed at create 
         withBinding({ kind: 'runtime-local', profileId: 'p1', label: 'me' }, 'codex', providers),
         { kind: 'runtime-local', profileId: 'p1', label: 'me' }
     )
-    // NarraNexus takes no provider from us at all.
-    assert.deepEqual(withBinding({ kind: 'platform' }, 'narranexus', providers), {
+    // A framework whose runtime manages its providers takes none from us.
+    assert.deepEqual(withBinding({ kind: 'platform' }, FIXTURE_FRAMEWORK, providers), {
         kind: 'platform'
     })
     assert.equal(withBinding({ kind: 'platform' }, 'hermes', [managedAnthropic]), null)
@@ -711,13 +719,13 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     )
     assert.deepEqual(
         serviceCreateBody({
-            framework: 'narranexus',
+            framework: FIXTURE_FRAMEWORK,
             sandboxId: 'sb-1',
             name: 'N',
             workspace: '/srv/n',
             cost: { kind: 'platform' }
         }),
-        { name: 'N', framework: 'narranexus', runtime: 'sprites', sandboxId: 'sb-1', workspace: '/srv/n' }
+        { name: 'N', framework: FIXTURE_FRAMEWORK, runtime: 'sprites', sandboxId: 'sb-1', workspace: '/srv/n' }
     )
 })
 

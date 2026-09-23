@@ -545,10 +545,6 @@ const flattenAgentGroups = (
     return items
 }
 
-// Whether this agent currently has a reachable dashboard. Mirrors the
-// server-side preconditions in `getControlUiUrl`: framework-specific gating
-// (controlUiEnabled for openclaw, dashboardEnabled for hermes, always on for
-// narranexus) plus an ingress host and a runtimeId to mint against.
 const FrameworkLogoIcon: FC<{
     framework: SdkAgent['framework']
     className?: string

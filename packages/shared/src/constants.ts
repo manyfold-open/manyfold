@@ -143,7 +143,8 @@ export const ACCOUNT_SCOPE_HEADER = 'x-account-scope'
 // Per-request header carrying the caller's NetMind loginToken (a JWT) to the
 // NetMind billing proxy routes. The token is browser-held and forwarded on each
 // balance/recharge call; the API re-signs it as `loginToken: Bearer` to NetMind
-// and NEVER stores or logs it (mirrors NarraNexus's X-Netmind-Token contract).
+// and NEVER stores or logs it (the same X-Netmind-Token contract NetMind's own
+// clients use).
 export const NETMIND_TOKEN_HEADER = 'x-netmind-token'
 
 export const NETMIND_PROXY_BASE_URL = 'https://3avtktubfdf842bfx2fk.netmind.xyz'
@@ -190,20 +191,3 @@ export const codingAgentWorkspacePath = (
     const home = runtime === 'k8s' ? K8S_HOME_BASE : SPRITE_HOME_BASE
     return codingAgentWorkspacePathForHome(home, agentId)
 }
-
-// NarraNexus's BASE_WORKING_PATH defaults to `/data/workspaces` inside the
-// container (Dockerfile.manyfold) — K8s mounts a PVC at /data. On sprite the
-// container shares the sprite VM's filesystem, so the bootstrap overrides
-// BASE_WORKING_PATH to live under sprite $HOME so workspace contents persist
-// across suspend/resume.
-//
-// The per-agent workspace dir follows NarraNexus's own convention:
-//   `<BASE_WORKING_PATH>/<agent_id>_<mf_user_id>`
-// (see backend/routes/manyfold_files.py and POST /manyfold/agents).
-export const NARRANEXUS_K8S_BASE_WORKING_PATH = '/data/workspaces'
-export const NARRANEXUS_SPRITE_BASE_WORKING_PATH = `${SPRITE_HOME_BASE}/.narranexus/data/workspaces`
-
-export const narraNexusBaseWorkingPath = (runtime: AgentRuntime): string =>
-    runtime === 'sprites'
-        ? NARRANEXUS_SPRITE_BASE_WORKING_PATH
-        : NARRANEXUS_K8S_BASE_WORKING_PATH

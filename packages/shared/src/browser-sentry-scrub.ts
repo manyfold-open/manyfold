@@ -24,7 +24,7 @@ interface EventFields {
 
 const REDACTED = 'REDACTED'
 const QUERY_KEYS = new Set(['key', 'env', 'cmd'])
-const FRAGMENT_KEYS = new Set(['session', 'nmtoken'])
+const FRAGMENT_KEYS = ['session']
 const URL_FIELDS = new Set([
     'url',
     'from',
@@ -43,10 +43,18 @@ const QUERY_FIELDS = new Set([
 const FRAGMENT_FIELDS = new Set(['fragment', 'url.fragment', 'http.fragment'])
 
 export const createBrowserSentryScrubber = (
-    options: { removedQueryParams?: readonly string[] } = {}
+    options: {
+        removedQueryParams?: readonly string[]
+        redactedFragmentParams?: readonly string[]
+    } = {}
 ) => {
     const removed = new Set(
         (options.removedQueryParams ?? []).map((key) => key.toLowerCase())
+    )
+    const fragmentKeys = new Set(
+        [...FRAGMENT_KEYS, ...(options.redactedFragmentParams ?? [])].map(
+            (key) => key.toLowerCase()
+        )
     )
 
     const scrubParams = (
@@ -94,7 +102,7 @@ export const createBrowserSentryScrubber = (
             changed = scrubParams(url.searchParams, QUERY_KEYS) || changed
             if (url.hash) {
                 const fragment = new URLSearchParams(url.hash.slice(1))
-                if (scrubParams(fragment, FRAGMENT_KEYS)) {
+                if (scrubParams(fragment, fragmentKeys)) {
                     url.hash = fragment.toString()
                     changed = true
                 }
@@ -151,7 +159,7 @@ export const createBrowserSentryScrubber = (
             } else if (QUERY_FIELDS.has(normalized)) {
                 result[key] = scrubQuery(value, QUERY_KEYS, '?')
             } else if (FRAGMENT_FIELDS.has(normalized)) {
-                result[key] = scrubQuery(value, FRAGMENT_KEYS, '#')
+                result[key] = scrubQuery(value, fragmentKeys, '#')
             } else if (
                 URL_FIELDS.has(normalized) &&
                 typeof value === 'string'

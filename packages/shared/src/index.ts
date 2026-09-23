@@ -106,9 +106,6 @@ export {
     codingAgentWorkspacePath,
     codingAgentWorkspacePathForHome,
     codingAgentHomeRootForWorkspacePath,
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
-    narraNexusBaseWorkingPath,
     runtimeKindLabel,
     DEFAULT_PLAN_ID
 } from './constants'
@@ -532,6 +529,12 @@ export {
 } from './agent-progress'
 export type { AgentCreateStep, AgentCreateEvent } from './agent-progress'
 export { coreFrameworks } from './frameworks/core'
+export {
+    NARRANEXUS_K8S_BASE_WORKING_PATH,
+    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
+    narraNexusBaseWorkingPath,
+    narraNexusFrameworkDefinition
+} from './frameworks/narranexus'
 export type { CoreVersionedFramework } from './frameworks/core'
 export { UnknownFrameworkError } from './frameworks/definition'
 export type {
@@ -548,7 +551,10 @@ export {
 } from './frameworks/registry'
 export {
     credentialsManagedByRuntime,
+    nativeUiAlwaysOn,
+    schedulesMirrored,
     frameworkCapability,
+    frameworkKind,
     supportsRuntime,
     isExternal,
     isServiceFrameworkName,

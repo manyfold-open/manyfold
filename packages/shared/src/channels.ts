@@ -159,7 +159,8 @@ export interface LarkChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
     botName?: string | null
@@ -219,7 +220,8 @@ export interface TelegramChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -248,7 +250,8 @@ export interface SlackChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -283,7 +286,8 @@ export interface DiscordChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -310,7 +314,8 @@ export interface MatrixChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -360,7 +365,8 @@ export interface WhatsappChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -422,7 +428,8 @@ export interface GithubChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -452,7 +459,8 @@ export interface LineChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -497,7 +505,8 @@ export interface GoogleChatChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -541,7 +550,8 @@ export interface MsTeamsChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -587,7 +597,8 @@ export interface IMessageChannelConfig {
     // channel-driven turn. On by default; set false to disable.
     contextProjection?: boolean
     // Agent-managed reply: forward structured source context and let the
-    // agent deliver via its own channel tools (narranexus only). Off by default.
+    // agent deliver via its own channel tools (only frameworks that take
+    // managed replies). Off by default.
     agentManagedReply?: boolean
     resetOnIdleMins?: number | null
 }
@@ -730,8 +741,8 @@ export interface ChannelSummary {
     label: string
     status: ChannelStatus
     config: ChannelConfig
-    // True when the row mirrors an external framework binding (a NarraNexus
-    // channel credential) and is read-only in Manyfold surfaces.
+    // True when the row mirrors an external framework's channel binding and
+    // is read-only in Manyfold surfaces.
     managed: boolean
     inboundUrl: string
     lastConnectedAt: string | null

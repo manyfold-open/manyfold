@@ -3,8 +3,6 @@ import {
     AgentRuntimeSummary,
     CreateAgentBody,
     K8S_HOME_BASE,
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     OFFICIAL_PROVIDER_BASE_URL,
     SPRITE_HOME_BASE,
     UserModelProvider,
@@ -47,10 +45,10 @@ import {
     isCreateableFramework,
     isExternalFramework,
     isK8sOnlyFramework,
-    REUSE_FRAMEWORKS,
     defaultPersistentModelProvider,
     persistentModelProvidersFor,
     reuseRuntimeKindsFor,
+    reusesRuntimes,
     remoteIdHintFor,
     remoteIdLabelFor,
     remoteIdPlaceholderFor,
@@ -61,6 +59,7 @@ import {
     type RuntimeMode
 } from '@/lib/agentCreate/frameworkOptions'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
+import { presentedWorkspacePath } from '@/lib/frameworkPresentation'
 import { preferredSavedProviderFor } from '@/lib/agentCreate/providerHelpers'
 import { flattenSavedModels } from '@/lib/agentCreate/savedModels'
 import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
@@ -167,7 +166,7 @@ const FrameworkGrid: FC<{
     onChange: (next: AgentFramework) => void
 }> = ({ value, onChange }) => {
     const { t } = useI18n()
-    const localizedFrameworkOptions = frameworkOptions.map((option) => ({
+    const localizedFrameworkOptions = frameworkOptions().map((option) => ({
         ...option,
         description: t(option.descriptionKey)
     }))
@@ -366,20 +365,22 @@ const defaultWorkspaceFor = (
         if (framework === 'openclaw')
             return `${SPRITE_HOME_BASE}/.openclaw/workspace`
         if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
-        if (framework === 'narranexus')
-            return `${NARRANEXUS_SPRITE_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-        return `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+        return (
+            presentedWorkspacePath(framework, 'sprites') ??
+            `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+        )
     }
     if (framework === 'openclaw') return `${K8S_HOME_BASE}/.openclaw/workspace`
     if (framework === 'hermes') return `${K8S_HOME_BASE}/.hermes`
-    if (framework === 'narranexus')
-        return `${NARRANEXUS_K8S_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-    return `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+    return (
+        presentedWorkspacePath(framework, 'k8s') ??
+        `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+    )
 }
 
 const AgentNewBInline: FC = (): ReactNode => {
     const { t } = useI18n()
-    const localizedFrameworkOptions = frameworkOptions.map((option) => ({
+    const localizedFrameworkOptions = frameworkOptions().map((option) => ({
         ...option,
         description: t(option.descriptionKey)
     }))
@@ -643,7 +644,7 @@ const AgentNewBInline: FC = (): ReactNode => {
             runtimes.filter(
                 (r) =>
                     r.framework === framework &&
-                    REUSE_FRAMEWORKS.has(r.framework) &&
+                    reusesRuntimes(r.framework) &&
                     r.kind !== null &&
                     reuseRuntimeKindsFor(r.framework).has(r.kind) &&
                     r.status === 'ready'

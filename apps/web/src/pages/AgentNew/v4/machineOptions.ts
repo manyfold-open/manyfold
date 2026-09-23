@@ -28,7 +28,7 @@ export type SignInCost =
     // A daemon host signs in on the user's own computer, so it is already done
     // if they have ever signed in there.
     | 'already-if-signed-in'
-    // A service framework (OpenClaw / Hermes / NarraNexus) never signs in —
+    // A service framework such as OpenClaw or Hermes never signs in —
     // it is handed its provider when installed, and in this flow that install
     // happens at step ④ with the agent (`installsAtCreate`). Its rows owe no
     // sign-in, so the cost column says what they owe instead.
@@ -251,9 +251,9 @@ export const buildNewMachineOptions = (args: {
         },
         {
             kind: 'ownComputer',
-            // The capability matrix has exactly one forbidden cell today
-            // (NarraNexus cannot run on a daemon host). Ask it rather than
-            // restating it, so the row follows the backend if that changes.
+            // Not every framework runs on a daemon host. Ask the capability
+            // matrix rather than restating it, so the row follows the
+            // backend if that changes.
             disabled: !supportsRuntime(framework, 'daemon'),
             signInCost: 'already-if-signed-in'
         }

@@ -68,6 +68,13 @@ export interface FrameworkDefinition extends FrameworkCapability {
         servedBy: 'framework'
         maxDownloadBytes?: number
     }
+    // 'always': every agent opens the runtime's own UI (a control UI link the
+    // API mints).
+    nativeUi?: 'always'
+    // 'mirrored': the framework runs its own schedules, which its sync
+    // mirrors into read-only automations; the platform's scheduler never
+    // runs its agents. Absent means 'platform'.
+    schedules?: 'platform' | 'mirrored'
 }
 
 export class UnknownFrameworkError extends Error {

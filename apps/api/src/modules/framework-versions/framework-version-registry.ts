@@ -71,9 +71,7 @@ export interface FrameworkVersionDescriptor {
     serviceName?: string
 }
 
-const CORE_DESCRIPTORS: Partial<
-    Record<CoreVersionedFramework, FrameworkVersionDescriptor>
-> = {
+const CORE_DESCRIPTORS = {
     'claude-code': {
         framework: 'claude-code',
         runtimeKind: 'coding',
@@ -130,7 +128,7 @@ const CORE_DESCRIPTORS: Partial<
             'git -C "$HOME/.hermes/hermes-agent" describe --tags 2>/dev/null || true',
         serviceName: 'hermes'
     }
-}
+} satisfies Record<CoreVersionedFramework, FrameworkVersionDescriptor>
 
 // Descriptors of frameworks whose module registers them through
 // FrameworkExtensionsRegistry (ADR-0034).

@@ -4,6 +4,7 @@
 import '@/lib/attribution'
 // Sentry next so it is initialised before anything else can throw.
 import { Sentry, SentryUserSync } from '@/lib/sentry'
+import '@/lib/editionFrameworks'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

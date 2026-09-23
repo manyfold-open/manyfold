@@ -2,25 +2,29 @@ import {
     AgentRuntimeSummary,
     CreateAgentBody,
     K8S_HOME_BASE,
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     SPRITE_HOME_BASE,
     UserExternalAgentProviderSummary,
     UserModelProvider,
     UserModelProviderSummary,
     externalSteps,
     brandFor,
+    credentialsManagedByRuntime,
     frameworkUpgradeMode,
     isModelConfigFramework,
     lookupBuiltIn,
     normalizeAgentName,
     providerSupportsTarget,
     runtimeAuthSupported,
+    listFrameworks,
     listVersionedFrameworks,
     supportsRuntime,
     validateAgentName
 } from '@manyfold/shared'
-import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
+import type {
+    AgentFramework,
+    AgentRuntime,
+    DaemonHostSummary
+} from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -92,8 +96,8 @@ import {
     isExternalFramework,
     isK8sOnlyFramework,
     persistentModelProvidersFor,
-    REUSE_FRAMEWORKS,
     reuseRuntimeKindsFor,
+    reusesRuntimes,
     supportsSandbox,
     usesConfigurableModelProvider,
     remoteIdHintFor,
@@ -104,6 +108,7 @@ import {
     type RuntimeMode
 } from '@/lib/agentCreate/frameworkOptions'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
+import { presentedWorkspacePath } from '@/lib/frameworkPresentation'
 import { flattenSavedModels } from '@/lib/agentCreate/savedModels'
 import {
     AGENT_NEW_RUNTIME_VIEW_KEY,
@@ -323,16 +328,11 @@ const RuntimeAgentIcons: FC<{
         role='img'
         aria-label={label}
     >
-        {frameworks.map((framework) => {
-            const option =
-                frameworkOptions.find((opt) => opt.value === framework) ??
-                frameworkOptions[0]
-            return (
-                <ShortcutTooltip key={framework} label={option.label}>
-                    <FrameworkLogo framework={framework} className='h-7 w-7' />
-                </ShortcutTooltip>
-            )
-        })}
+        {frameworks.map((framework) => (
+            <ShortcutTooltip key={framework} label={frameworkLabel(framework)}>
+                <FrameworkLogo framework={framework} className='h-7 w-7' />
+            </ShortcutTooltip>
+        ))}
     </span>
 )
 
@@ -488,8 +488,8 @@ const RuntimeTargetCard: FC<{
 }
 
 // The coding CLIs every sprite image ships; the only frameworks a sandbox
-// installs or upgrades in place. The other sandbox frameworks (OpenClaw,
-// Hermes, NarraNexus) arrive with their first agent.
+// installs or upgrades in place. The other sandbox frameworks (the service
+// ones) arrive with their first agent.
 const SANDBOX_CLI_FRAMEWORKS: AgentFramework[] = [
     'claude-code',
     'codex',
@@ -500,6 +500,9 @@ const sandboxFrameworks = (): AgentFramework[] =>
     listVersionedFrameworks().filter((framework) =>
         supportsRuntime(framework, 'sprites')
     )
+// Every framework that runs on this kind of host, core ones first.
+const frameworksOn = (runtime: AgentRuntime): AgentFramework[] =>
+    listFrameworks().filter((framework) => supportsRuntime(framework, runtime))
 
 const targetHeadCell = 'px-3 py-2 font-medium'
 const targetBodyCell = 'text-caption text-muted px-3 py-2'
@@ -780,7 +783,7 @@ const ExternalAgentSection: FC<ExternalAgentSectionProps> = ({
 
 const AgentNew: FC = (): ReactNode => {
     const { t } = useI18n()
-    const localizedFrameworkOptions = frameworkOptions.map((option) => ({
+    const localizedFrameworkOptions = frameworkOptions().map((option) => ({
         ...option,
         description: t(option.descriptionKey)
     }))
@@ -1061,7 +1064,7 @@ const AgentNew: FC = (): ReactNode => {
             runtimes.filter(
                 (r) =>
                     r.framework === framework &&
-                    REUSE_FRAMEWORKS.has(r.framework) &&
+                    reusesRuntimes(r.framework) &&
                     r.kind !== null &&
                     reuseRuntimeKindsFor(r.framework).has(r.kind) &&
                     r.status === 'ready'
@@ -1477,9 +1480,10 @@ const AgentNew: FC = (): ReactNode => {
     // providers, so a Cloud pick is always an explicit provider: the same
     // PATCH the agent's own credentials dialog issues, and because the stored
     // credential belongs to the runtime it lands for every agent on it. The
-    // frameworks without that list (openclaw, hermes, the external ones,
-    // narranexus — none of them configurable) simply inherit; the API rejects
-    // a credentials change for the last two anyway.
+    // frameworks without that list (openclaw, hermes, the external ones and
+    // those whose runtime manages its own providers — none of them
+    // configurable) simply inherit; the API rejects a credentials change for
+    // the last two kinds anyway.
     const providerInherited =
         runtimeMode === 'existing' && !isModelConfigFramework(framework)
 
@@ -1541,8 +1545,8 @@ const AgentNew: FC = (): ReactNode => {
         // picked yet.
         if (runtimeMode === 'sandbox' && !attachSandboxHostId) return false
         if (runtimeMode === 'persistent') return false
-        // NarraNexus manages its provider in its own UI; nothing to pick.
-        if (framework === 'narranexus') return true
+        // The runtime manages its provider in its own UI; nothing to pick.
+        if (credentialsManagedByRuntime(framework)) return true
         return pickerIsValid(picker)
     })()
 
@@ -2433,14 +2437,12 @@ const AgentNew: FC = (): ReactNode => {
                   defaultCodingWorkspaceValue(pickedRuntime))
                 : t('web.agentNew.runtimeSelect')
             : runtimeMode === 'sandbox'
-              ? framework === 'narranexus'
-                  ? `${NARRANEXUS_SPRITE_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-                  : `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+              ? (presentedWorkspacePath(framework, 'sprites') ??
+                `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`)
               : framework === 'openclaw'
                 ? '/home/node/.openclaw/workspace'
-                : framework === 'narranexus'
-                  ? `${NARRANEXUS_K8S_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-                  : `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+                : (presentedWorkspacePath(framework, 'k8s') ??
+                  `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`)
     const customWorkspaceRequested = requestedWorkspacePath.length > 0
 
     const createRuntimeDefaultWorkspaceValue = (
@@ -2450,16 +2452,18 @@ const AgentNew: FC = (): ReactNode => {
             if (framework === 'openclaw')
                 return `${SPRITE_HOME_BASE}/.openclaw/workspace`
             if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
-            if (framework === 'narranexus')
-                return `${NARRANEXUS_SPRITE_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-            return `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+            return (
+                presentedWorkspacePath(framework, 'sprites') ??
+                `${SPRITE_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+            )
         }
         if (framework === 'openclaw')
             return `${K8S_HOME_BASE}/.openclaw/workspace`
         if (framework === 'hermes') return `${K8S_HOME_BASE}/.hermes`
-        if (framework === 'narranexus')
-            return `${NARRANEXUS_K8S_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-        return `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+        return (
+            presentedWorkspacePath(framework, 'k8s') ??
+            `${K8S_HOME_BASE}/.manyfold/workspaces/{agent-id}`
+        )
     }
 
     const existingRuntimeDefaultWorkspaceValue = (
@@ -2467,14 +2471,10 @@ const AgentNew: FC = (): ReactNode => {
     ): string => {
         if (runtime.framework === 'openclaw')
             return openclawWorkspaceFor(runtime, normalizedName)
-        if (runtime.framework === 'narranexus') {
-            const base =
-                runtime.kind === 'sprites'
-                    ? NARRANEXUS_SPRITE_BASE_WORKING_PATH
-                    : NARRANEXUS_K8S_BASE_WORKING_PATH
-            return `${base}/{agent-id}_<mf-user>`
-        }
-        return defaultCodingWorkspaceValue(runtime)
+        return (
+            presentedWorkspacePath(runtime.framework, runtime.kind) ??
+            defaultCodingWorkspaceValue(runtime)
+        )
     }
 
     // One workspace row serves the whole picker, so it resolves the default of
@@ -2827,8 +2827,9 @@ const AgentNew: FC = (): ReactNode => {
     )
     // The provider section of a framework without a Local side, in the
     // Cloud / Local section's shape: OpenClaw and Hermes get the saved
-    // providers of both vendors under Anthropic / OpenAI chips; NarraNexus,
-    // which takes no provider from Manyfold, gets the one card saying so.
+    // providers of both vendors under Anthropic / OpenAI chips; a framework
+    // whose runtime manages its own providers takes none from Manyfold and
+    // gets the one card saying so.
     const renderCreateRuntimeSettings = (): ReactNode => {
         if (providerInherited)
             return (
@@ -2840,7 +2841,7 @@ const AgentNew: FC = (): ReactNode => {
                     })}
                 </p>
             )
-        if (framework === 'narranexus')
+        if (credentialsManagedByRuntime(framework))
             return (
                 <ProviderFamilySection
                     chips={[]}
@@ -4069,14 +4070,9 @@ const AgentNew: FC = (): ReactNode => {
                                                 )}
                                             >
                                                 <RuntimeAgentIcons
-                                                    frameworks={[
-                                                        'claude-code',
-                                                        'codex',
-                                                        'gemini-cli',
-                                                        'openclaw',
-                                                        'hermes',
-                                                        'narranexus'
-                                                    ]}
+                                                    frameworks={frameworksOn(
+                                                        'sprites'
+                                                    )}
                                                     label={t(
                                                         'web.agentNew.deployableAgentsFull'
                                                     )}
@@ -4089,14 +4085,9 @@ const AgentNew: FC = (): ReactNode => {
                                                 )}
                                             >
                                                 <RuntimeAgentIcons
-                                                    frameworks={[
-                                                        'claude-code',
-                                                        'codex',
-                                                        'gemini-cli',
-                                                        'openclaw',
-                                                        'hermes',
-                                                        'narranexus'
-                                                    ]}
+                                                    frameworks={frameworksOn(
+                                                        'k8s'
+                                                    )}
                                                     label={t(
                                                         'web.agentNew.deployableAgentsFull'
                                                     )}
@@ -4110,13 +4101,9 @@ const AgentNew: FC = (): ReactNode => {
                                                 )}
                                             >
                                                 <RuntimeAgentIcons
-                                                    frameworks={[
-                                                        'claude-code',
-                                                        'codex',
-                                                        'gemini-cli',
-                                                        'openclaw',
-                                                        'hermes'
-                                                    ]}
+                                                    frameworks={frameworksOn(
+                                                        'daemon'
+                                                    )}
                                                     label={t(
                                                         'web.agentNew.deployableAgentsShort'
                                                     )}

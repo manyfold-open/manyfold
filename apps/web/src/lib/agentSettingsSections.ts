@@ -1,5 +1,5 @@
 import {
-    frameworkCapability,
+    frameworkKind,
     frameworkMcpSupport,
     isSkillFramework
 } from '@manyfold/shared'
@@ -57,7 +57,7 @@ export const supportsSection = (
 ): boolean => {
     const sprite = agent.runtime === 'sprites'
     const deliverable = sprite || agent.runtime === 'daemon'
-    const coding = frameworkCapability(agent.framework).kind === 'coding'
+    const coding = frameworkKind(agent.framework) === 'coding'
     switch (id) {
         case 'overview':
         case 'permissions':
@@ -125,7 +125,7 @@ export const sectionPreconditionKey = (
     id: AgentSettingsSectionId
 ): string | null => {
     if (supportsSection(agent, id)) return null
-    const coding = frameworkCapability(agent.framework).kind === 'coding'
+    const coding = frameworkKind(agent.framework) === 'coding'
     switch (id) {
         case 'environment':
             return agent.runtime === 'daemon' && agent.framework === 'openclaw'

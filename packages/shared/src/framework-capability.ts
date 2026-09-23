@@ -49,6 +49,12 @@ export const frameworkCapability = (
     framework: AgentFramework
 ): FrameworkCapability => requireFrameworkDefinition(framework)
 
+// undefined for an id this build does not register, where frameworkCapability
+// throws: what display code asks of a framework read off an API row.
+export const frameworkKind = (
+    framework: AgentFramework
+): FrameworkKind | undefined => frameworkDefinition(framework)?.kind
+
 export const supportsRuntime = (
     framework: AgentFramework,
     runtime: AgentRuntime
@@ -63,6 +69,16 @@ export const isExternal = (framework: AgentFramework): boolean =>
 export const credentialsManagedByRuntime = (
     framework: AgentFramework
 ): boolean => frameworkDefinition(framework)?.credentials === 'runtime-ui'
+
+// Every agent opens the runtime's own UI, with no toggle in front of it
+// (FrameworkDefinition.nativeUi 'always').
+export const nativeUiAlwaysOn = (framework: AgentFramework): boolean =>
+    frameworkDefinition(framework)?.nativeUi === 'always'
+
+// The framework runs its own schedules and the platform runs none for its
+// agents (FrameworkDefinition.schedules 'mirrored').
+export const schedulesMirrored = (framework: AgentFramework): boolean =>
+    frameworkDefinition(framework)?.schedules === 'mirrored'
 
 export const frameworkMcpSupport = (
     framework: AgentFramework

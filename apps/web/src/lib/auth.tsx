@@ -26,6 +26,7 @@ import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { GoogleColor } from '@/lib/brandIcons'
 import { NetmindMark } from '@/lib/brandMarks'
 import { setNetmindConfig } from '@/lib/netmindAuth/config'
+import { extraAuthHandoffs } from '@/lib/auth-handoffs-extra'
 
 type AuthProviderKind = 'native'
 
@@ -390,16 +391,16 @@ const NativeAuthProvider: FC<{
         }
         const boot = async (): Promise<void> => {
             const fragment = parseAuthFragment()
-            // A NarraNexus → Manyfold hand-off (#nmtoken=) is AUTHORITATIVE:
-            // trade the NetMind token for our session, replacing any stale one.
-            // On failure we sign OUT rather than fall through to an existing
-            // session — that would silently authenticate the previous user.
-            if (fragment.nmtoken) {
+            // A hand-off from another product is AUTHORITATIVE: trade its
+            // credential for our session, replacing any stale one. On failure
+            // we sign OUT rather than fall through to an existing session —
+            // that would silently authenticate the previous user.
+            if (fragment.handoff) {
                 scrubFragment()
                 try {
                     const res = await postAuth<AuthSessionResponse>(
-                        apiPaths.AUTH_NETMIND,
-                        { loginToken: fragment.nmtoken }
+                        fragment.handoff.exchangePath,
+                        fragment.handoff.body
                     )
                     storeSession(res.token)
                     await loadMe(res.token)
@@ -882,10 +883,20 @@ const postAuth = async <T,>(path: string, body: unknown): Promise<T> => {
     return data as T
 }
 
+// A sign-in another product hands over (lib/auth-handoffs-extra). It rides
+// the fragment, not the query, so it never reaches a server log.
+export interface AuthHandoff {
+    fragmentParam: string
+    // The API route that trades the credential for a session, and the body
+    // field it goes in.
+    exchangePath: string
+    credentialField: string
+}
+
 interface AuthFragment {
     token?: string
     error?: string
-    nmtoken?: string
+    handoff?: { exchangePath: string; body: Record<string, string> }
 }
 
 const parseAuthFragment = (): AuthFragment => {
@@ -895,10 +906,20 @@ const parseAuthFragment = (): AuthFragment => {
     return {
         token: params.get('session') ?? undefined,
         error: params.get('error') ?? undefined,
-        // NarraNexus → Manyfold hand-off: a NetMind loginToken to exchange for a
-        // session. In the fragment (not the query) so it never hits server logs.
-        nmtoken: params.get('nmtoken') ?? undefined
+        handoff: handoffIn(params)
     }
+}
+
+const handoffIn = (params: URLSearchParams): AuthFragment['handoff'] => {
+    for (const handoff of extraAuthHandoffs) {
+        const credential = params.get(handoff.fragmentParam)
+        if (credential)
+            return {
+                exchangePath: handoff.exchangePath,
+                body: { [handoff.credentialField]: credential }
+            }
+    }
+    return undefined
 }
 
 const scrubFragment = (): void => {

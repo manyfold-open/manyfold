@@ -11,8 +11,8 @@ export const generateRandomString = (length = 8): string => {
 }
 
 // DES-CBC encrypt with key === IV, PKCS7, hex output — the exact protocol
-// NetMind's emailLogin expects (ported from Arena/NarraNexus; Web Crypto
-// cannot do DES, hence crypto-js).
+// NetMind's emailLogin expects (ported from Arena; Web Crypto cannot do DES,
+// hence crypto-js).
 export const encryptPassword = (message: string, key = '01234567'): string => {
     const keyHex = CryptoJS.enc.Utf8.parse(key)
     const encrypted = CryptoJS.DES.encrypt(message, keyHex, {

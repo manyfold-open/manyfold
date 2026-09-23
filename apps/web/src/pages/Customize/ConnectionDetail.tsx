@@ -5,7 +5,7 @@ import {
     ConnectionProvider,
     GithubConnectionReposResponse,
     UserConnectionSummary,
-    frameworkCapability
+    frameworkKind
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -612,7 +612,7 @@ const LinkedAgentsPanel: FC<{ connection: UserConnectionSummary }> = ({
         () =>
             agents.filter(
                 (agent) =>
-                    frameworkCapability(agent.framework).kind !== 'service' &&
+                    frameworkKind(agent.framework) !== 'service' &&
                     connectionRef(agent, extrasKey) !== connection.id
             ),
         [agents, connection.id, extrasKey]

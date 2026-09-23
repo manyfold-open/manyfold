@@ -16,7 +16,9 @@ import {
     WorkflowIcon,
     ZapIcon
 } from '@/components/icons'
-import type { FrameworkChoice } from '@/lib/agentCreate/frameworkOptions'
+import { isCoreFramework } from '@manyfold/shared'
+import type { AgentFramework, CoreFramework } from '@manyfold/shared'
+import { frameworkPresentation } from '@/lib/frameworkPresentation'
 
 export type CapabilityId =
     | 'general'
@@ -55,15 +57,21 @@ export const CAPABILITY_ICON: Record<CapabilityId, LucideIcon> = {
     protocol: NetworkIcon
 }
 
-export const FRAMEWORK_CAPABILITIES: Record<FrameworkChoice, CapabilityId[]> = {
+const FRAMEWORK_CAPABILITIES: Record<CoreFramework, CapabilityId[]> = {
     'claude-code': ['general', 'code', 'terminal'],
     codex: ['code', 'fastIteration'],
     'gemini-cli': ['code', 'multimodal'],
     pi: ['code', 'terminal', 'lightweight'],
     hermes: ['assistant', 'research', 'lightweight'],
     openclaw: ['personalAssistant', 'channels', 'calendarEmail'],
-    narranexus: ['multiAgent', 'memory', 'channels'],
     dify: ['visualBuilder', 'connectApp'],
     langflow: ['visualBuilder', 'connectApp'],
     a2a: ['protocol', 'connectApp']
 }
+
+export const capabilitiesFor = (
+    framework: AgentFramework
+): readonly CapabilityId[] =>
+    isCoreFramework(framework)
+        ? FRAMEWORK_CAPABILITIES[framework]
+        : (frameworkPresentation(framework)?.capabilities ?? [])
