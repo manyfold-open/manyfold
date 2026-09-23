@@ -529,12 +529,6 @@ export {
 } from './agent-progress'
 export type { AgentCreateStep, AgentCreateEvent } from './agent-progress'
 export { coreFrameworks } from './frameworks/core'
-export {
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
-    narraNexusBaseWorkingPath,
-    narraNexusFrameworkDefinition
-} from './frameworks/narranexus'
 export type { CoreVersionedFramework } from './frameworks/core'
 export { UnknownFrameworkError } from './frameworks/definition'
 export type {

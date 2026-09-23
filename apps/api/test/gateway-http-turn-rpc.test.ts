@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
+import { FIXTURE, FixtureChatAdapter } from './helpers/fixture-framework'
 import type {
     ApiChatAdapterContext,
     ApiChatResumeContext,
@@ -14,10 +14,10 @@ import type {
 // request the API would have sent, and what may licence a `done` on the
 // replayed stream.
 //
-// NarraNexus is the framework that still takes this transport: openclaw chat
-// became ACP-only in ADR-0027 O9. The wire payload still says
-// `framework: 'openclaw'` because that is the daemon-side dispatcher key both
-// frameworks share (contract row narranexus × sprites × turn-rpc, #555).
+// Only a framework an edition registers still takes this transport — openclaw
+// chat became ACP-only in ADR-0027 O9 — so a fixture framework drives it here.
+// The wire payload says `framework: 'openclaw'` because that is the daemon-side
+// dispatcher key every gateway framework shares (#555).
 
 const deltaLine = (text: string, id?: string): string =>
     `${JSON.stringify({
@@ -74,7 +74,7 @@ const buildHarness = (script: {
         recoveryFsForAgent: async () => ({ fs: { locate: async () => null } })
     }
     const telemetry = { event: () => {} }
-    const adapter = new NarraNexusChatAdapter(
+    const adapter = new FixtureChatAdapter(
         db as never,
         {} as never,
         pricing as never,
@@ -93,7 +93,7 @@ const ctx = (extra: Partial<ApiChatAdapterContext> = {}): ApiChatAdapterContext 
         runtimeId: 'art_1',
         sessionId: 'cts_1',
         messageId: 'msg_1',
-        framework: 'narranexus',
+        framework: FIXTURE,
         runtimeKind: 'sprites',
         model: null,
         modelOverride: null,
@@ -147,14 +147,14 @@ const userMsg = {
     contentBlocks: [{ type: 'text', text: 'hi' }]
 } as never
 
-const asAny = (a: NarraNexusChatAdapter): Record<string, unknown> => a as never
+const asAny = (a: FixtureChatAdapter): Record<string, unknown> => a as never
 
 test('turn.start requires a runner and capability and never calls direct HTTP', async () => {
     for (const [feature, runner] of [[true, 'dh_runner'], [false, 'dh_runner'], [true, undefined]] as const) {
         const { adapter } = buildHarness({ lines: [], result: { ok: {} } })
         const routes: string[] = []
         const a = asAny(adapter)
-        a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'narranexus', displayModel: 'gpt-x' })
+        a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: 'gpt-x' })
         a.daemonSupportsTurnRpc = async () => feature
         a.sendViaTurnRpc = async function* () { routes.push('turn'); yield { type: 'done', finalMessageId: 'msg_1' } }
         const send = drain(adapter.sendMessage(ctx({ runnerDaemonId: runner }), userMsg))
@@ -174,7 +174,7 @@ test('the daemon gets the exact request the API would have sent', async () => {
         a.resolveRuntime = async () => ({
             ingressHost: 'gw.sprites.app',
             gatewayToken: 'gw_tok',
-            modelId: 'narranexus',
+            modelId: 'fixture-model',
             displayModel: 'gpt-x'
         })
         a.daemonSupportsTurnRpc = async () => true
@@ -195,7 +195,7 @@ test('the daemon gets the exact request the API would have sent', async () => {
             stream: boolean
             messages: Array<{ role: string; content: string }>
         }
-        assert.equal(body.model, 'narranexus')
+        assert.equal(body.model, 'fixture-model')
         assert.equal(body.stream, true)
         assert.equal(body.messages.at(-1)?.content, 'hi')
 
@@ -280,9 +280,60 @@ test('a gateway turn cancelled during setup never reaches the runner', async () 
     const controller = new AbortController()
     controller.abort()
     const a = asAny(h.adapter)
-    a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'narranexus', displayModel: null })
+    a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: null })
     a.daemonSupportsTurnRpc = async () => true
     const events = await drain(h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner', abortSignal: controller.signal }), userMsg))
     assert.equal(h.calls.length, 0)
     assert.equal(events.at(-1)?.type, 'error')
+})
+
+test('an owned structured pool exhaustion is marked on the error', async () => {
+    const { adapter } = buildHarness({
+        lines: [],
+        result: {
+            error: 'openclaw gateway 503 Service Unavailable: {"error":{"message":"No available accounts: no available accounts"}}'
+        }
+    })
+    const a = asAny(adapter)
+    a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: null })
+    a.daemonSupportsTurnRpc = async () => true
+    const events = await drain(
+        adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+    )
+    const error = events.find((event) => event.type === 'error')
+    assert.ok(error && error.type === 'error')
+    assert.equal(error.managedChannelFailure, 'account_pool_empty')
+})
+
+// A framework that names no channel on the wire keeps the body to the base
+// keys, whatever channel the turn came from.
+test('a gateway adapter that does not name the channel adds no channel fields', () => {
+    const { adapter } = buildHarness({ lines: [], result: { ok: {} } })
+    const plain = adapter as unknown as {
+        channelBodyFields(
+            ctx: ApiChatAdapterContext,
+            message: unknown
+        ): Record<string, unknown>
+    }
+    assert.deepEqual(
+        plain.channelBodyFields(
+            ctx({
+                channelSource: {
+                    provider: 'lark',
+                    chatId: 'oc_room1',
+                    chatType: 'group',
+                    senderId: 'ou_sender1',
+                    senderName: 'Alice',
+                    messageId: 'om_msg1',
+                    threadId: null,
+                    replyToMessageId: null,
+                    isMention: true,
+                    replyToken: null,
+                    mirrored: false
+                }
+            }),
+            userMsg
+        ),
+        {}
+    )
 })

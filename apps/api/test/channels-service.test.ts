@@ -10,12 +10,12 @@ import type {
     NewChannelRow
 } from '@manyfold/db'
 import { ChannelsService } from '../src/modules/channels/channels.service'
-import { narraNexusChannels } from '../src/modules/narranexus/channels/narranexus-channels'
+import { FIXTURE, fixtureChannels } from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
 
-const narraNexusExtensions = extensionsWith({
-    framework: 'narranexus',
-    channels: narraNexusChannels
+const fixtureExtensions = extensionsWith({
+    framework: FIXTURE,
+    channels: fixtureChannels
 }) as never
 import { LarkChannelProvider } from '../src/modules/channels/providers/lark.provider'
 
@@ -78,7 +78,7 @@ test('ChannelsService.create activates and starts Lark websocket channels', asyn
                     ? 'https://api.example.com'
                     : undefined
         } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     const created = await service.create('user-1', {
@@ -132,7 +132,7 @@ test('ChannelsService.create rejects Lark mention gating without botName', async
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     await assert.rejects(
@@ -219,7 +219,7 @@ test('ChannelsService.test restarts an active Lark websocket before giving up', 
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     const result = await service.test('user-1', 'channel-1')
@@ -296,7 +296,7 @@ const makeRegisterHarness = (
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
     return { service, row: () => row }
 }
@@ -420,7 +420,7 @@ const makeRebindHarness = (
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
     return { service, row: () => row, rebinds, reloads }
 }
@@ -460,9 +460,10 @@ test('update with the current agentId skips the rebind sweep', async () => {
 
 // agentManagedReply suppresses Manyfold's own delivery, so every path that can
 // establish the (agent, config) pair must refuse a combination where nothing
-// can deliver: only narranexus agents on providers NarraNexus can send through.
+// can deliver: only agents whose framework delivers its own replies, on
+// providers that framework can send through.
 
-test('create rejects agentManagedReply for a non-narranexus agent', async () => {
+test('create rejects agentManagedReply for an agent whose framework cannot deliver', async () => {
     const db = {
         select: () => ({
             from: () => ({
@@ -493,7 +494,7 @@ test('create rejects agentManagedReply for a non-narranexus agent', async () => 
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     await assert.rejects(
@@ -510,11 +511,11 @@ test('create rejects agentManagedReply for a non-narranexus agent', async () => 
             credentials: { appSecret: 'secret' }
         } satisfies CreateChannelBody),
         /not supported for this agent's framework/,
-        'a non-narranexus agent has no channel send tools — the flag would silence the channel'
+        'an agent without channel send tools would leave the flagged channel silent'
     )
 })
 
-test('create rejects agentManagedReply on a provider NarraNexus cannot send through', async () => {
+test('create rejects agentManagedReply on a provider the framework cannot send through', async () => {
     const db = {
         select: () => ({
             from: () => ({
@@ -523,7 +524,7 @@ test('create rejects agentManagedReply on a provider NarraNexus cannot send thro
                         {
                             id: 'agent-1',
                             name: 'Agent One',
-                            framework: 'narranexus'
+                            framework: FIXTURE
                         }
                     ]
                 })
@@ -546,7 +547,7 @@ test('create rejects agentManagedReply on a provider NarraNexus cannot send thro
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     await assert.rejects(
@@ -558,15 +559,15 @@ test('create rejects agentManagedReply on a provider NarraNexus cannot send thro
             credentials: null
         } as never),
         /not supported for provider "matrix"/,
-        'matrix has no NarraNexus WorkingSource — the turn would stay owner-chat while delivery is suppressed'
+        'the framework cannot deliver on an unmirrored matrix room — delivery would be suppressed with nobody sending'
     )
 })
 
-// The same guard has to let the mirror through: the sync mapper renders a
-// narramessenger binding as a matrix row with the flag already on, and the
-// reconcile loop swallows a rejection here as a warn — so refusing it would not
+// The same guard has to let the mirror through: a framework's sync can render
+// one of its own bindings as a matrix row with the flag already on, and a
+// reconcile loop swallows a rejection as a warn — so refusing it would not
 // disable the switch, it would stop that channel from syncing at all.
-test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus binding', async () => {
+test('create accepts agentManagedReply on a matrix row that mirrors the framework binding', async () => {
     const db = {
         select: () => ({
             from: () => ({
@@ -575,7 +576,7 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
                         {
                             id: 'agent-1',
                             name: 'Agent One',
-                            framework: 'narranexus'
+                            framework: FIXTURE
                         }
                     ]
                 })
@@ -604,7 +605,7 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
         { get: () => undefined } as never,
-        narraNexusExtensions
+        fixtureExtensions
     )
 
     // Only the guard is under test here; the reload/get tail needs a whole
@@ -616,7 +617,7 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
             {
                 agentId: 'agent-1',
                 provider: 'matrix',
-                label: 'NarraNexus Matrix',
+                label: 'Mirrored Matrix',
                 config: {
                     homeserver: 'https://matrix.example',
                     agentManagedReply: true
@@ -624,11 +625,7 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
                 credentials: null
             } as never,
             {
-                origin: {
-                    kind: 'narranexus',
-                    runtimeId: 'rt-1',
-                    nxAgentId: 'nx-1'
-                }
+                origin: { kind: FIXTURE, runtimeId: 'rt-1' }
             }
         )
         .catch(() => {})
@@ -639,7 +636,7 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
     )
 })
 
-test('update rejects flipping agentManagedReply on for a non-narranexus agent', async () => {
+test('update rejects flipping agentManagedReply on for an agent whose framework cannot deliver', async () => {
     const h = makeRebindHarness([
         { id: 'agent-1', name: 'Agent One', framework: 'codex' }
     ])
@@ -658,7 +655,7 @@ test('update rejects flipping agentManagedReply on for a non-narranexus agent', 
     )
 })
 
-test('update rejects rebinding a flag-on channel away from narranexus before mutating', async () => {
+test('update rejects rebinding a flag-on channel to a framework that cannot deliver, before mutating', async () => {
     const h = makeRebindHarness(
         [{ id: 'agent-2', name: 'Agent Two', framework: 'claude-code' }],
         { configJson: { agentManagedReply: true } }
@@ -677,9 +674,9 @@ test('update rejects rebinding a flag-on channel away from narranexus before mut
     assert.equal(h.row().agentId, 'agent-1')
 })
 
-test('update allows rebinding a flag-on channel to another narranexus agent', async () => {
+test('update allows rebinding a flag-on channel to another agent that delivers its own replies', async () => {
     const h = makeRebindHarness(
-        [{ id: 'agent-2', name: 'Agent Two', framework: 'narranexus' }],
+        [{ id: 'agent-2', name: 'Agent Two', framework: FIXTURE }],
         { configJson: { agentManagedReply: true } }
     )
 

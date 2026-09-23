@@ -17,12 +17,6 @@ test('the session token in the login fragment is redacted', () => {
     assert.match(scrubbed, /REDACTED/)
 })
 
-test('the NarraNexus hand-off token is redacted', () => {
-    const scrubbed = scrubSentryUrl('https://manyfold.ai/#nmtoken=NMSECRET')
-    assert.doesNotMatch(scrubbed, /NMSECRET/)
-    assert.match(scrubbed, /REDACTED/)
-})
-
 test('other fragment values survive alongside a redacted one', () => {
     const scrubbed = scrubSentryUrl(
         'https://manyfold.ai/login#session=SECRET&error=denied'
@@ -59,11 +53,14 @@ test('event request url and referer are both scrubbed', () => {
     const event = scrubSentryEvent({
         request: {
             url: 'https://manyfold.ai/login#session=SECRET',
-            headers: { Referer: 'https://manyfold.ai/#nmtoken=NMSECRET' }
+            headers: { Referer: 'https://manyfold.ai/login#session=REFSECRET' }
         }
     } as Event)
     assert.doesNotMatch(event.request?.url ?? '', /SECRET/)
-    assert.doesNotMatch(String(event.request?.headers?.['Referer']), /NMSECRET/)
+    assert.doesNotMatch(
+        String(event.request?.headers?.['Referer']),
+        /REFSECRET/
+    )
 })
 
 test('navigation breadcrumbs are scrubbed on both ends', () => {

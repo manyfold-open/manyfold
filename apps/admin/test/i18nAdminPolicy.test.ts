@@ -84,7 +84,6 @@ const protectedLiterals = [
     'Gemini',
     'Hermes',
     'OpenClaw',
-    'NarraNexus',
     'API',
     'CLI',
     'Anthropic',

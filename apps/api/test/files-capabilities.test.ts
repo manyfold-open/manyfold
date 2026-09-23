@@ -3,7 +3,7 @@ import {
     FILES_UPLOAD_MAX_BYTES
 } from '@manyfold/shared'
 import test from 'node:test'
-import './helpers/narranexus-definition'
+import { FIXTURE } from './helpers/fixture-framework'
 import assert from 'node:assert/strict'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { Agent, FileRoot } from '@manyfold/db'
@@ -77,13 +77,10 @@ test('managed k8s reports a streaming atomic write', () => {
     assert.equal(c.atomicWrite, true)
 })
 
-test('narranexus roots report uploads as impossible', () => {
-    const c = caps(
-        agent({ framework: 'narranexus' }),
-        root({ writable: false })
-    )
+test('framework-served roots report uploads as impossible', () => {
+    const c = caps(agent({ framework: FIXTURE }), root({ writable: false }))
     assert.equal(c.maxUploadBytes, 0)
-    assert.equal(c.maxDownloadBytes, 64 * 1024 * 1024)
+    assert.equal(c.maxDownloadBytes, 8 * 1024 * 1024)
 })
 
 test('assertUploadWithinLimit enforces the global ceiling on capless transports', () => {
@@ -120,15 +117,12 @@ test('assertUploadWithinLimit names the limit it rejected against', () => {
 
 // a read-only root must not accept a zero-byte upload either
 test('assertUploadWithinLimit rejects any upload to a read-only root', () => {
-    const c = caps(
-        agent({ framework: 'narranexus' }),
-        root({ writable: false })
-    )
+    const c = caps(agent({ framework: FIXTURE }), root({ writable: false }))
     assert.throws(
         () =>
             assertUploadWithinLimit(c, 1, {
                 rootId: 'workspace',
-                transport: 'narranexus'
+                transport: FIXTURE
             }),
         (err: unknown) => err instanceof PayloadTooLargeException
     )

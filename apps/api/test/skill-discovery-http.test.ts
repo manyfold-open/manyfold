@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-version'
 import {
     SkillDiscoveryService,
     type DiscoveryRepo
@@ -246,11 +245,11 @@ test('fixed CLI and allowlisted framework catalog consumers retain their scoped 
         {
             getCachedFrameworkDefaultVersions: async () => ({
                 defaults: {},
-                sourceRepos: { narranexus: 'user-supplied/untrusted' }
+                sourceRepos: { hermes: 'user-supplied/untrusted' }
             })
         } as never
     )
-    await versions.refreshFramework('narranexus')
+    await versions.refreshFramework('hermes')
     assert.equal(calls.length, 2)
     assert.ok(
         calls[0].url.startsWith(
@@ -259,7 +258,7 @@ test('fixed CLI and allowlisted framework catalog consumers retain their scoped 
     )
     assert.ok(
         calls[1].url.startsWith(
-            'https://api.github.com/repos/NetMindAI-Open/NarraNexus/tags?'
+            'https://api.github.com/repos/NousResearch/hermes-agent/tags?'
         )
     )
     assert.ok(

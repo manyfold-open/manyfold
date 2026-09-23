@@ -1,5 +1,4 @@
 import test from 'node:test'
-import './helpers/narranexus-definition'
 import assert from 'node:assert/strict'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 
@@ -146,17 +145,17 @@ test('reconcile k8s/claude-code: no INSERT when live id has no matching internal
 
 // Scenario 1c: a service framework on sprites lists the FRAMEWORK's own state,
 // not the agents table, so an unknown live id is a real agent the user created
-// outside Manyfold (e.g. in the NarraNexus UI) — not a corrupt row. It must be
-// adopted: managed automations and channels are keyed off agents.internalId, so
-// a job/binding owned by an unadopted agent can never mirror (it silently never
-// fires, because NEXUS_EXTERNAL_TRIGGERS already handed its clock to Manyfold).
-test('reconcile sprites/narranexus: adopts a framework-native live agent', async () => {
+// outside Manyfold (e.g. in the framework's own UI) — not a corrupt row. It
+// must be adopted: managed automations and channels are keyed off
+// agents.internalId, so a job/binding owned by an unadopted agent can never
+// mirror.
+test('reconcile sprites/service framework: adopts a framework-native live agent', async () => {
     // awake sprite: a service-framework listing is skipped outright while the
     // VM sleeps, so the adoption path only exists on a running sprite
     const primary = fakeDbAgent({
         id: 'agent-1',
         internalId: 'agent-1',
-        framework: 'narranexus',
+        framework: 'hermes',
         spriteStatus: 'running'
     })
     const db = makeDb([primary])
@@ -172,9 +171,9 @@ test('reconcile sprites/narranexus: adopts a framework-native live agent', async
                     extras: {}
                 },
                 {
-                    id: 'nx_native_1',
-                    name: 'NexusGuard',
-                    workspace: '/home/sprite/.narranexus/data/workspaces/nx',
+                    id: 'native_1',
+                    name: 'NativeGuard',
+                    workspace: '/home/sprite/.hermes/workspaces/native',
                     model: null,
                     extras: {}
                 }
@@ -183,15 +182,13 @@ test('reconcile sprites/narranexus: adopts a framework-native live agent', async
     }
 
     const svc = new AgentReconcileService(db as never, registry as never)
-    await svc.reconcileRuntime(
-        fakeRuntime({ framework: 'narranexus' }) as never
-    )
+    await svc.reconcileRuntime(fakeRuntime({ framework: 'hermes' }) as never)
 
-    assert.equal(db.inserts.length, 1, 'the NX-native agent must be adopted')
-    assert.equal(db.inserts[0].internalId, 'nx_native_1')
-    assert.equal(db.inserts[0].name, 'NexusGuard')
+    assert.equal(db.inserts.length, 1, 'the native agent must be adopted')
+    assert.equal(db.inserts[0].internalId, 'native_1')
+    assert.equal(db.inserts[0].name, 'NativeGuard')
     assert.equal(db.inserts[0].runtimeId, 'rt-1')
-    assert.equal(db.inserts[0].framework, 'narranexus')
+    assert.equal(db.inserts[0].framework, 'hermes')
 })
 
 // Scenario 2: clean state — internalId === id

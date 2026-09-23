@@ -7,7 +7,7 @@ const runtimeRow = {
     id: 'rt-1',
     userId: 'user-1',
     name: 'main',
-    framework: 'narranexus',
+    framework: 'hermes',
     kind: 'sprites',
     status: 'ready'
 }
@@ -26,7 +26,7 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
     const agentRow = {
         id: 'agent-1',
         userId: 'user-1',
-        framework: 'narranexus',
+        framework: 'hermes',
         runtime: 'sprites',
         runtimeId: 'rt-1',
         spriteName: 'sprite-1',

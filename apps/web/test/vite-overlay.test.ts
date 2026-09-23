@@ -99,6 +99,27 @@ const hookOf =
             {}
         )
 
+test('an overlay folder resolves to its index, never to the folder', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mf-overlay-'))
+    const baseSrc = join(root, 'web', 'src')
+    const overlaySrc = join(root, 'web-cloud', 'src')
+    const folder = join(overlaySrc, 'frameworks', 'fixture')
+    mkdirSync(baseSrc, { recursive: true })
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'index.ts'), 'export const fixture = 1\n')
+
+    const resolveId = hookOf(overlayResolver(baseSrc, overlaySrc))
+    assert.equal(
+        await resolveId(
+            join(baseSrc, 'frameworks', 'fixture'),
+            join(overlaySrc, 'frameworks-extra.ts')
+        ),
+        join(folder, 'index.ts')
+    )
+
+    rmSync(root, { recursive: true, force: true })
+})
+
 // Seen on the cloud admin dev server [2026-09-08]: handing the overlay its
 // base counterpart is not enough on its own. The dev server fetches that base
 // back by its own URL, a request that names the HTML entry as its importer,

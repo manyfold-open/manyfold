@@ -16,6 +16,6 @@ reconnects, and improves runner support for agents with custom workspaces.
 - **Longer resume window.** Completed execution buffers remain available for
   60 minutes, giving the platform time to finish draining or resume a turn
   across rolling deploys and transient disconnects.
-- **Custom workspace support.** Runner daemons recognise NarraNexus workspace
-  roots, preventing `outside allowed roots` failures for co-resident coding
+- **Custom workspace support.** Runner daemons recognise the workspace roots of
+  gateway frameworks, preventing `outside allowed roots` failures for co-resident coding
   agents.

@@ -212,7 +212,6 @@ test('default skills skip unsupported frameworks and external runtimes before re
     )
     for (const framework of [
         'openclaw',
-        'narranexus',
         'dify',
         'langflow',
         'a2a'

@@ -23,7 +23,6 @@ Use the framework that matches the job:
 | Pi | Open-source coding CLI for many model vendors. Runs on a sandbox, Kubernetes, or your own computer, on a saved provider or a vendor API key (Anthropic, OpenAI or Google Gemini), or on its own sign-in there — a Claude, ChatGPT or Copilot subscription. |
 | Hermes Agent | Connector-heavy workflows and background work. |
 | OpenClaw | Tool-rich agent applications that need services, gateways, or scheduled jobs. |
-| NarraNexus | Narrative-driven agent workspaces with native provider and chat management. |
 
 ## Choose where it runs
 

@@ -67,8 +67,8 @@ framework's base URL and model options. Pi takes `--pi-api-key` together with
 `--pi-provider anthropic|openai|google`, the vendor the key belongs to.
 
 This command does not create daemon, Kubernetes, cloud-computer, external,
-Hermes, OpenClaw, or NarraNexus agents. Use the web **New agent** flow for the
-full framework/runtime matrix. To add another framework agent to an existing
+Hermes, or OpenClaw agents. Use the web **New agent** flow for the full
+framework/runtime matrix. To add another framework agent to an existing
 multi-agent runtime, use `mf runtime agents add`.
 
 ## Update or delete an agent

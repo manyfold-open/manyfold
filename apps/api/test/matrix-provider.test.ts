@@ -8,7 +8,12 @@ import type {
 } from '@manyfold/db'
 import type { ChannelsRepository } from '../src/modules/channels/channels.repository'
 import { MatrixChannelProvider } from '../src/modules/channels/providers/matrix.provider'
-import { narraNexusChannels } from '../src/modules/narranexus/channels/narranexus-channels'
+import {
+    FIXTURE,
+    FIXTURE_MSGTYPE,
+    FIXTURE_PLACEHOLDER,
+    fixtureChannels
+} from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const makeChannel = (overrides: Partial<ChannelRow> = {}): ChannelRow => ({
@@ -108,10 +113,7 @@ class FakeMatrixRepo {
 const providerFor = (repo = new FakeMatrixRepo()): MatrixChannelProvider =>
     new MatrixChannelProvider(
         repo as unknown as ChannelsRepository,
-        extensionsWith({
-            framework: 'narranexus',
-            channels: narraNexusChannels
-        })
+        extensionsWith({ framework: FIXTURE, channels: fixtureChannels })
     )
 
 test('matrix validateConfig and validateCredentials normalize inputs', () => {
@@ -2225,12 +2227,13 @@ const matrixDelivery = (
     ...overrides
 })
 
-// NarraMessenger sends a file as one custom-msgtype event carrying text and
-// media, plus a plain-text hint for clients that do not understand it. Matrix
-// has no capability negotiation, so the dialect arrives unasked — and the
-// generic branch drops unknown msgtypes, which meant the real payload was
-// discarded and the placeholder forwarded to the agent as the user's message.
-const compoundNormalize = (
+// A framework's own Matrix client may speak a msgtype of its own on the rooms
+// it mirrors, and announce it with a plain-text placeholder for clients that
+// do not understand it. Matrix has no capability negotiation, so the dialect
+// arrives unasked — and the generic branch drops unknown msgtypes, which
+// would discard the real payload and forward the placeholder as the user's
+// message.
+const dialectNormalize = (
     provider: ReturnType<typeof providerFor>
 ): ((
     ctx: unknown,
@@ -2240,12 +2243,7 @@ const compoundNormalize = (
 ) => {
     text?: string
     isMention?: boolean
-    attachments?: Array<{
-        url: string
-        name: string
-        contentType: string | null
-        size: number | null
-    }>
+    attachments?: Array<{ url: string; name: string }>
 } | null) =>
     (
         provider as unknown as {
@@ -2258,61 +2256,53 @@ const compoundNormalize = (
         }
     ).normalizeMessage.bind(provider)
 
-const NARRANEXUS_ORIGIN = {
-    kind: 'narranexus' as const,
-    runtimeId: 'rt-1',
-    nxAgentId: 'nx-1'
-}
+const FIXTURE_ORIGIN = { kind: FIXTURE, runtimeId: 'rt-1' }
 
-const compoundEvent = (
+const dialectEvent = (
     contentOverrides: Record<string, unknown> = {}
 ): Record<string, unknown> => ({
     type: 'm.room.message',
-    event_id: '$compound1',
+    event_id: '$dialect1',
     sender: '@alice:matrix.example.org',
     content: {
-        msgtype: 'ai.netmind.compound',
-        body: 'compound message',
-        'ai.netmind.compound': {
-            text: 'look at this',
-            media_url: 'mxc://matrix.example.org/abc123',
-            mime_type: 'image/png',
-            file_name: 'cat.png',
-            size: 8870
-        },
+        msgtype: FIXTURE_MSGTYPE,
+        body: 'dialect message',
+        text: 'look at this',
+        url: 'mxc://matrix.example.org/abc123',
         ...contentOverrides
     }
 })
 
-test('a mirrored channel parses the narramessenger compound payload', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
+const placeholderEvent = (): Record<string, unknown> => ({
+    type: 'm.room.message',
+    event_id: '$hint1',
+    sender: '@alice:matrix.example.org',
+    content: { msgtype: 'm.text', body: FIXTURE_PLACEHOLDER }
+})
+
+test('a mirrored channel parses its framework dialect', () => {
+    const normalize = dialectNormalize(providerFor())
     const result = normalize(
         {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
+            channel: makeChannel({ origin: FIXTURE_ORIGIN }),
             config: baseConfig({ mentionOnly: false }),
             credentials
         },
         '!room:matrix.example.org',
-        compoundEvent(),
+        dialectEvent(),
         new Set<string>()
     )
     assert.equal(result?.text, 'look at this')
-    assert.deepEqual(result?.attachments, [
-        {
-            url: 'mxc://matrix.example.org/abc123',
-            name: 'cat.png',
-            contentType: 'image/png',
-            size: 8870
-        }
-    ])
+    assert.deepEqual(
+        result?.attachments?.map((a) => a.url),
+        ['mxc://matrix.example.org/abc123']
+    )
 })
 
-// The dialect must not leak into a user's own Matrix connector: the origin test
-// is the same one that decides matrix means narramessenger at all.
+// The dialect must not leak into a user's own Matrix connector: the origin is
+// what says whose client is on the other end.
 test('a user-built matrix channel still drops the unknown msgtype', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
+    const normalize = dialectNormalize(providerFor())
     const result = normalize(
         {
             channel: makeChannel(),
@@ -2320,38 +2310,34 @@ test('a user-built matrix channel still drops the unknown msgtype', () => {
             credentials
         },
         '!room:matrix.example.org',
-        compoundEvent(),
+        dialectEvent(),
         new Set<string>()
     )
     assert.equal(result, null)
 })
 
-// Mentions ride on the compound event itself, so group gating has to read them
+// Mentions ride on the dialect event itself, so group gating has to read them
 // from there or an @-addressed file goes unanswered.
-test('compound mentions are read from the same event', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
-    const result = normalize(
-        {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
-            config: baseConfig({ mentionOnly: true }),
-            credentials
-        },
+test('dialect mentions are read from the same event', () => {
+    const normalize = dialectNormalize(providerFor())
+    const ctx = {
+        channel: makeChannel({ origin: FIXTURE_ORIGIN }),
+        config: baseConfig({ mentionOnly: true }),
+        credentials
+    }
+    const addressed = normalize(
+        ctx,
         '!room:matrix.example.org',
-        compoundEvent({
+        dialectEvent({
             'm.mentions': { user_ids: ['@bot:matrix.example.org'] }
         }),
         new Set<string>()
     )
-    assert.equal(result?.isMention, true)
+    assert.equal(addressed?.isMention, true)
     const unaddressed = normalize(
-        {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
-            config: baseConfig({ mentionOnly: true }),
-            credentials
-        },
+        ctx,
         '!room:matrix.example.org',
-        compoundEvent(),
+        dialectEvent(),
         new Set<string>()
     )
     assert.equal(
@@ -2361,64 +2347,26 @@ test('compound mentions are read from the same event', () => {
     )
 })
 
-// The hint and its compound are two events with two event ids, so forwarding
-// both turns one file into two turns — and the hint is the half with no file.
-test('the compound hint is dropped in a mirrored channel', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
+// The placeholder and its dialect event are two events with two event ids, so
+// forwarding both turns one file into two turns — and the placeholder is the
+// half with no file.
+test('the dialect placeholder is dropped in a mirrored channel', () => {
+    const normalize = dialectNormalize(providerFor())
     const result = normalize(
         {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
+            channel: makeChannel({ origin: FIXTURE_ORIGIN }),
             config: baseConfig({ mentionOnly: false }),
             credentials
         },
         '!room:matrix.example.org',
-        {
-            type: 'm.room.message',
-            event_id: '$hint1',
-            sender: '@alice:matrix.example.org',
-            content: {
-                msgtype: 'm.text',
-                body: '[internal hint] process compound $compound1'
-            }
-        },
+        placeholderEvent(),
         new Set<string>()
     )
     assert.equal(result, null)
 })
 
-// The hint is untrusted, user-visible text. Matching on a prefix would let
-// anyone silence their own message by opening it with the same words.
-test('a user message that merely starts like the hint is not swallowed', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
-    for (const body of [
-        '[internal hint] process compound $compound1 and also please help me',
-        '[internal hint] process compound not-an-event-id',
-        '[internal hint] process compound'
-    ]) {
-        const result = normalize(
-            {
-                channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
-                config: baseConfig({ mentionOnly: false }),
-                credentials
-            },
-            '!room:matrix.example.org',
-            {
-                type: 'm.room.message',
-                event_id: '$user1',
-                sender: '@alice:matrix.example.org',
-                content: { msgtype: 'm.text', body }
-            },
-            new Set<string>()
-        )
-        assert.equal(result?.text, body, `must survive: ${body}`)
-    }
-})
-
-test('the hint stays a normal message on a user-built matrix channel', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
+test('the placeholder stays a normal message on a user-built matrix channel', () => {
+    const normalize = dialectNormalize(providerFor())
     const result = normalize(
         {
             channel: makeChannel(),
@@ -2426,69 +2374,12 @@ test('the hint stays a normal message on a user-built matrix channel', () => {
             credentials
         },
         '!room:matrix.example.org',
-        {
-            type: 'm.room.message',
-            event_id: '$hint2',
-            sender: '@alice:matrix.example.org',
-            content: {
-                msgtype: 'm.text',
-                body: '[internal hint] process compound $compound1'
-            }
-        },
+        placeholderEvent(),
         new Set<string>()
     )
     assert.equal(
         result?.text,
-        '[internal hint] process compound $compound1',
+        FIXTURE_PLACEHOLDER,
         'outside a mirror this is just text someone typed'
     )
-})
-
-test('a compound carrying neither text nor media is dropped', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
-    const result = normalize(
-        {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
-            config: baseConfig({ mentionOnly: false }),
-            credentials
-        },
-        '!room:matrix.example.org',
-        {
-            type: 'm.room.message',
-            event_id: '$empty',
-            sender: '@alice:matrix.example.org',
-            content: {
-                msgtype: 'ai.netmind.compound',
-                'ai.netmind.compound': { text: '   ' }
-            }
-        },
-        new Set<string>()
-    )
-    assert.equal(result, null)
-})
-
-test('a text-only compound still produces a turn', () => {
-    const provider = providerFor()
-    const normalize = compoundNormalize(provider)
-    const result = normalize(
-        {
-            channel: makeChannel({ origin: NARRANEXUS_ORIGIN }),
-            config: baseConfig({ mentionOnly: false }),
-            credentials
-        },
-        '!room:matrix.example.org',
-        {
-            type: 'm.room.message',
-            event_id: '$textonly',
-            sender: '@alice:matrix.example.org',
-            content: {
-                msgtype: 'ai.netmind.compound',
-                'ai.netmind.compound': { text: 'just words' }
-            }
-        },
-        new Set<string>()
-    )
-    assert.equal(result?.text, 'just words')
-    assert.equal(result?.attachments, undefined)
 })

@@ -5,7 +5,7 @@ date: '2026-08-06'
 
 ## CLI 0.22.4 — Reliable long-running Hermes and OpenClaw turns
 
-This patch stops active Hermes, OpenClaw, and NarraNexus turns from being
+This patch stops active Hermes, OpenClaw, and other service framework turns from being
 mistaken for stalled work when they run beyond the old fixed deadline.
 
 ### Highlights

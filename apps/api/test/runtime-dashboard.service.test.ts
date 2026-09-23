@@ -6,7 +6,7 @@ import {
     InternalServerErrorException
 } from '@nestjs/common'
 import { RuntimeDashboardService } from '../src/modules/agent-runtimes/orchestration/runtime-dashboard.service'
-import { narraNexusControlUi } from '../src/modules/narranexus/dashboard/narranexus-deep-link'
+import { FIXTURE, fixtureControlUi } from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const runtime = (patch: Record<string, unknown> = {}) => ({
@@ -183,14 +183,14 @@ test('getControlUiUrl builds openclaw URL with #token fragment', async () => {
     assert.equal(details.agentId, null)
 })
 
-test('getControlUiUrl narranexus falls back to primaryAgentId for the URL and audit log', async () => {
+test('getControlUiUrl mints an agent-scoped link for the runtime primary agent by default', async () => {
     // B3 regression: previously agentId in audit was the caller-supplied
     // value (null here) while the URL embedded primaryAgentId — diverged.
     const audits: Array<Record<string, unknown>> = []
     const service = serviceFor({
         runtimes: runtimesFor([
             runtime({
-                framework: 'narranexus',
+                framework: FIXTURE,
                 primaryAgentId: 'agent-1',
                 userId: 'mf_owner'
             })
@@ -207,20 +207,17 @@ test('getControlUiUrl narranexus falls back to primaryAgentId for the URL and au
         'mf_owner',
         false
     )
-    assert.match(url, /^https:\/\/agent-1\.example\.test\/#v=1&/)
-    assert.match(url, /token=gw-secret/)
-    assert.match(url, /user=mf_owner/)
-    assert.match(url, /agent=agent-internal-1/)
+    assert.equal(url, 'https://agent-1.example.test/ui?agent=agent-internal-1')
     const details = audits[0].meta as Record<string, unknown>
     assert.equal(details.agentId, 'agent-1')
 })
 
-test('getControlUiUrl narranexus honors explicit agentId over primaryAgentId', async () => {
+test('getControlUiUrl honors an explicit agentId over the primary agent', async () => {
     const audits: Array<Record<string, unknown>> = []
     const service = serviceFor({
         runtimes: runtimesFor([
             runtime({
-                framework: 'narranexus',
+                framework: FIXTURE,
                 primaryAgentId: 'agent-1',
                 userId: 'mf_owner'
             })
@@ -600,10 +597,7 @@ const serviceFor = (deps: {
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,
         (deps.openclawBootstrap ?? {}) as never,
-        extensionsWith({
-            framework: 'narranexus',
-            controlUi: narraNexusControlUi
-        })
+        extensionsWith({ framework: FIXTURE, controlUi: fixtureControlUi })
     )
 
 // Bypass the agent-row/account/client assembly (integration concern) so the
@@ -740,7 +734,7 @@ const dbFor = (opts: {
 }
 
 // Crypto mock that returns a fixed plaintext on decrypt, used by the
-// openclaw / narranexus / sprite-hermes mint paths.
+// openclaw / edition framework / sprite-hermes mint paths.
 const cryptoReturning = (plain: string): unknown => ({
     decrypt: () => plain
 })

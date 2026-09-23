@@ -108,10 +108,15 @@ export interface WorksWithChip {
     runtime?: 'sandbox' | 'cloud' | 'own' | 'external'
 }
 
-export const WORKS_WITH_ROWS: ReadonlyArray<{
+/* The rows, with an edition's framework chips (seo/worksWithEdition). The
+   post-build renderer runs under tsx, where that slot is always the core
+   file, so it passes the edition's chips in; the page takes the default. */
+export const worksWithRows = (
+    editionFrameworks: readonly WorksWithChip[] = worksWithEditionFrameworks
+): ReadonlyArray<{
     labelKey: string
     chips: ReadonlyArray<WorksWithChip>
-}> = [
+}> => [
     /* Every framework the platform runs, not a curated six: the row's whole
        job is to let a reader find the one they already use, and a shortened
        list fails exactly the person it is meant to reassure. Dify and
@@ -127,7 +132,7 @@ export const WORKS_WITH_ROWS: ReadonlyArray<{
             { name: 'Pi', framework: 'pi' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
-            ...worksWithEditionFrameworks,
+            ...editionFrameworks,
             { name: 'Dify', framework: 'dify' },
             { name: 'Langflow', framework: 'langflow' },
             { name: 'A2A', framework: 'a2a' }
