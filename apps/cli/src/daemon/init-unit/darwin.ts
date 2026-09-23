@@ -55,14 +55,6 @@ export const parsePlistProgramArgs = (text: string): string[] | null => {
     )
 }
 
-export const parsePlistConfigDir = (text: string): string | null => {
-    const value =
-        /<key>MF_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(
-            text
-        )?.[1]
-    return value === undefined ? null : xmlUnescape(value)
-}
-
 export const buildPlist = (ctx: InstallContext): string => {
     const path = [
         `${ctx.home}/.local/bin`,

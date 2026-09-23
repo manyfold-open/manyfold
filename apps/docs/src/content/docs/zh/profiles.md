@@ -15,8 +15,7 @@ profile。
 
 1. Root option：`--profile <name>`
 2. 环境变量：`MF_PROFILE`
-3. Binary channel 默认值：stable 使用 `default`，dev 使用 `dev`（CLI 0.24 之前的
-   dev binary 使用 `staging`）
+3. Binary channel 默认值：stable 使用 `default`，dev 使用 `dev`
 
 ```sh
 mf --profile default whoami
@@ -103,8 +102,7 @@ CLI 0.22 移除了旧的 flat config 和 daemon fallback。升级后：
 3. 在 **设置 → Self-owned computers** 签发新的机器 token。
 4. 运行 `mf daemon register`，然后启动 daemon。
 
-已有的 `~/.manyfold/workspaces` 和 `~/.manyfold/skills` data 会保留。`mf doctor`
-会列出旧布局遗留的文件；它们可能仍保存着旧的 credential，新 profile 可用后请删除。
+已有的 `~/.manyfold/workspaces` 和 `~/.manyfold/skills` data 会保留。
 
 ## 另请参阅
 

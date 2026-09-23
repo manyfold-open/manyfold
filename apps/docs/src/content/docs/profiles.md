@@ -16,8 +16,7 @@ Selection follows this order:
 
 1. Root option: `--profile <name>`
 2. Environment variable: `MF_PROFILE`
-3. Binary channel default: `default` for stable, `dev` for dev (dev binaries
-   used `staging` before CLI 0.24)
+3. Binary channel default: `default` for stable, `dev` for dev
 
 ```sh
 mf --profile default whoami
@@ -109,8 +108,7 @@ CLI 0.22 removed the old flat config and daemon fallbacks. After upgrading:
 4. Run `mf daemon register`, then start the daemon.
 
 Existing `~/.manyfold/workspaces` and `~/.manyfold/skills` data remains in
-place. `mf doctor` lists any files the old layout left behind; they may still
-hold old credentials, so delete them once the new profile works.
+place.
 
 ## See also
 

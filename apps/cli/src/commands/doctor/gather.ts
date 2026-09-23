@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { delimiter, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { buildApiError } from '@manyfold/sdk'
 import type { DaemonHostSummary } from '@manyfold/shared'
 import { apiPaths, profilePaths } from '@manyfold/shared'
@@ -11,7 +11,6 @@ import { type DaemonConfig, daemonPathsFor } from '@/daemon/config'
 import { BINARY_FOR_FRAMEWORK } from '@/daemon/detect'
 import {
     initUnitFileName,
-    parseInitUnitConfigDir,
     parseInitUnitProgram,
     profileOfInitUnitFile,
     type Scope
@@ -46,15 +45,6 @@ import type {
 } from './types'
 
 const SCOPES: Scope[] = ['user', 'system']
-
-// Pre-profile layout (CLI 0.21 and earlier) at the config root: nothing reads
-// it any more, but it can still hold old credentials.
-const LEGACY_ROOT_ENTRY =
-    /^(?:config(?:\.[a-z0-9][a-z0-9_-]{0,31})?\.json|daemon(?:\.[a-z0-9][a-z0-9_-]{0,31})?)$/
-const LEGACY_UNIT_FILE: Partial<Record<NodeJS.Platform, string>> = {
-    darwin: 'ai.manyfold.daemon.plist',
-    linux: 'mf-daemon.service'
-}
 
 const LOG_TAIL_LINES = 400
 
@@ -239,26 +229,6 @@ const mfOnPath = async (deps: DoctorDeps): Promise<PathEntry[]> => {
     return entries
 }
 
-const legacyPaths = async (deps: DoctorDeps): Promise<string[]> => {
-    let names: string[] = []
-    try {
-        names = await readdir(deps.configDir)
-    } catch {
-        names = []
-    }
-    const found = names
-        .filter((name) => LEGACY_ROOT_ENTRY.test(name))
-        .sort()
-        .map((name) => join(deps.configDir, name))
-    const unitFile = LEGACY_UNIT_FILE[deps.platform]
-    if (deps.unitDirs && unitFile)
-        for (const scope of SCOPES) {
-            const path = join(deps.unitDirs[scope], unitFile)
-            if (await exists(path)) found.push(path)
-        }
-    return found
-}
-
 const unitFileProfiles = async (deps: DoctorDeps): Promise<string[]> => {
     if (!deps.unitDirs) return []
     const names = new Set<string>()
@@ -419,11 +389,10 @@ export const gatherMachine = async (
     http: HttpProbe,
     self: string | null
 ): Promise<MachineFacts> => {
-    const [update, onPath, legacy, overrides, terminal, frameworks, hooks] =
+    const [update, onPath, overrides, terminal, frameworks, hooks] =
         await Promise.all([
             updateFact(deps),
             mfOnPath(deps),
-            legacyPaths(deps),
             overridesFact(deps, input, http),
             deps.ptySupport(),
             Promise.all(
@@ -439,11 +408,9 @@ export const gatherMachine = async (
         ])
     return {
         build: deps.build,
-        configDir: resolve(deps.configDir),
         update,
         self,
         mfOnPath: onPath,
-        legacy,
         overrides,
         terminal,
         frameworks: frameworks.flatMap((f) =>
@@ -501,8 +468,7 @@ const unitFact = async (
             active: false,
             invocation: null,
             programExists: null,
-            programRealpath: null,
-            configDir: null
+            programRealpath: null
         }
     const programArgs = parseInitUnitProgram(deps.platform, text)
     const invocation = programArgs?.length ? invocationOf(programArgs) : null
@@ -525,10 +491,7 @@ const unitFact = async (
         active: status.active,
         invocation,
         programExists,
-        programRealpath,
-        configDir:
-            parseInitUnitConfigDir(deps.platform, text) ??
-            join(deps.home, '.manyfold')
+        programRealpath
     }
 }
 

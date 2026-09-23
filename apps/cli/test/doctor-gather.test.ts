@@ -159,8 +159,7 @@ const seedProfile = async (
 const writeUnit = async (
     dir: string,
     profile: string,
-    programArgs: string[],
-    configDir?: string
+    programArgs: string[]
 ): Promise<void> => {
     const ctx = {
         scope: 'user' as const,
@@ -169,8 +168,7 @@ const writeUnit = async (
         user: 'test',
         group: 'test',
         errLogPath: '/tmp/daemon.err.log',
-        profile,
-        ...(configDir ? { configDir } : {})
+        profile
     }
     await writeFile(
         join(dir, initUnitFileName(process.platform, profile)),
@@ -295,23 +293,15 @@ test('--profile narrows the run to that profile', async () => {
     })
 })
 
-test('loose modes and legacy files are found; .DS_Store is not legacy', async (t) => {
+test('profile files readable by others are found', async (t) => {
     if (!POSIX) return t.skip('modes are POSIX-only')
     await withRoot(async (root) => {
         const dir = await seedProfile(root.configDir, 'default')
         await chmod(join(dir, 'config.json'), 0o644)
-        await writeFile(join(root.configDir, 'config.json'), '{}')
-        await mkdir(join(root.configDir, 'daemon.staging'))
-        await writeFile(join(root.configDir, '.DS_Store'), '')
-        await writeFile(join(root.configDir, 'update-channel.json'), '{}')
         const report = await runDoctor(deps(root), input())
         const permissions = check(report, 'profile.permissions', 'default')
         assert.equal(permissions.status, 'warn')
         assert.match(permissions.detail, /config\.json is 0644 \(want 0600\)/)
-        assert.deepEqual(check(report, 'config.legacy').data?.paths, [
-            join(root.configDir, 'config.json'),
-            join(root.configDir, 'daemon.staging')
-        ])
     })
 })
 
@@ -507,14 +497,12 @@ test('daemons sharing one program run its --version once', async (t) => {
         await writeFile(program, '#!/bin/sh\n', { mode: 0o755 })
         for (const name of ['default', 'accept']) {
             await seedProfile(root.configDir, name, { daemon: true })
-            // accept's unit predates MF_CONFIG_DIR in units: its daemon
-            // reads the default dir, not this one.
-            await writeUnit(
-                root.unitDirs.user,
-                name,
-                [program, 'daemon', 'start', '--foreground'],
-                name === 'default' ? root.configDir : undefined
-            )
+            await writeUnit(root.unitDirs.user, name, [
+                program,
+                'daemon',
+                'start',
+                '--foreground'
+            ])
         }
         let spawned = 0
         const report = await runDoctor(
@@ -530,15 +518,6 @@ test('daemons sharing one program run its --version once', async (t) => {
         assert.equal(spawned, 1)
         for (const name of ['default', 'accept'])
             assert.equal(check(report, 'daemon.version', name).status, 'warn')
-        assert.equal(
-            check(report, 'daemon.autostart', 'default').status,
-            'pass'
-        )
-        const stale = check(report, 'daemon.autostart', 'accept')
-        assert.equal(stale.status, 'warn')
-        assert.equal(
-            stale.data?.unitConfigDir,
-            join(root.home, '.manyfold')
-        )
+        assert.equal(check(report, 'daemon.autostart', 'accept').status, 'pass')
     })
 })

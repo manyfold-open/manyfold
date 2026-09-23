@@ -35,7 +35,6 @@ const build = (overrides: Partial<BuildInfo> = {}): BuildInfo => ({
 
 const machine = (overrides: Partial<MachineFacts> = {}): MachineFacts => ({
     build: build(),
-    configDir: '/cfg',
     update: {
         kind: 'checked',
         channel: 'stable',
@@ -45,7 +44,6 @@ const machine = (overrides: Partial<MachineFacts> = {}): MachineFacts => ({
     },
     self: MF,
     mfOnPath: [{ path: MF, realpath: MF }],
-    legacy: [],
     overrides: {
         apiUrl: null,
         token: null,
@@ -112,7 +110,6 @@ const unit = (
     invocation: null,
     programExists: null,
     programRealpath: null,
-    configDir: null,
     ...overrides
 })
 
@@ -122,8 +119,7 @@ const LIVE_UNIT = unit('user', {
     active: true,
     invocation: [MF],
     programExists: true,
-    programRealpath: MF,
-    configDir: '/cfg'
+    programRealpath: MF
 })
 
 const profile = (overrides: Partial<ProfileFacts> = {}): ProfileFacts => {
@@ -260,13 +256,12 @@ test('a missing channel-default profile names the profiles that exist', () => {
     )
     const checks = run(dev, {
         all: [dev, ...others],
-        ctx: { currentProfile: 'dev', bakedChannel: 'dev' }
+        ctx: { currentProfile: 'dev' }
     })
     const config = find(checks, 'profile.config')
     assert.equal(config.status, 'warn')
-    assert.match(config.detail, /staging, accept/)
-    assert.match(config.detail, /dev builds used 'staging'/)
-    assert.match(config.fix ?? '', /export MF_PROFILE=staging/)
+    assert.match(config.detail, /this machine has staging, accept$/)
+    assert.match(config.fix ?? '', /export MF_PROFILE=<name>/)
     assert.equal(
         checks.some((c) => c.status === 'fail'),
         false
@@ -677,7 +672,10 @@ test('a dead registration fails whether or not the daemon runs', () => {
         'daemon.registration'
     )
     assert.equal(preProfile.status, 'fail')
-    assert.match(preProfile.detail, /predates per-profile state/)
+    assert.equal(
+        preProfile.detail,
+        'the registration is incomplete: it has no profile, channel'
+    )
 })
 
 test('a registration serving another deployment than the sign-in is flagged', () => {
@@ -807,7 +805,7 @@ test('a coding agent on the PATH that the daemon did not detect is reported', ()
     assert.match(frameworks.detail, /\/Users\/test\/\.volta\/bin/)
 })
 
-test('machine checks: updates, PATH, legacy files', () => {
+test('machine checks: updates and PATH', () => {
     const checks = (overrides: Partial<MachineFacts>) =>
         machineChecks(machine(overrides), context())
     const update = find(
@@ -861,17 +859,6 @@ test('machine checks: updates, PATH, legacy files', () => {
     assert.equal(find(checks({ mfOnPath: [] }), 'cli.path').status, 'warn')
     assert.equal(find(checks({ self: null }), 'cli.path').status, 'skip')
 
-    const legacy = find(
-        checks({
-            legacy: [
-                '/Users/test/.manyfold/config.json',
-                '/Users/test/.manyfold/daemon'
-            ]
-        }),
-        'config.legacy'
-    )
-    assert.equal(legacy.status, 'warn')
-    assert.match(legacy.detail, /^2 items from the pre-profile layout/)
 })
 
 test('machine checks: overrides in this shell', () => {
@@ -1026,24 +1013,4 @@ test('a local deployment that is down is one finding with a way out', () => {
     const connection = find(checks, 'daemon.connection')
     assert.equal(connection.status, 'skip')
     assert.match(connection.detail, /see API/)
-})
-
-test('a unit that hands its daemon another config dir is flagged', () => {
-    const stale = find(
-        run(
-            registered({
-                units: {
-                    user: { ...LIVE_UNIT, configDir: '/Users/test/.manyfold' },
-                    system: unit('system')
-                }
-            })
-        ),
-        'daemon.autostart'
-    )
-    assert.equal(stale.status, 'warn')
-    assert.match(
-        stale.detail,
-        /reads \/Users\/test\/\.manyfold, not \/cfg where this profile lives/
-    )
-    assert.match(stale.fix ?? '', /MF_CONFIG_DIR/)
 })

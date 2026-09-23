@@ -8,7 +8,6 @@ import { buildUnit, parseExecStart } from '../src/daemon/init-unit/linux'
 import {
     initUnitDirs,
     initUnitFileName,
-    parseInitUnitConfigDir,
     profileOfInitUnitFile,
     type InstallContext,
     type Scope
@@ -75,11 +74,6 @@ test('unit file names map back to their profile', () => {
         assert.equal(profileOfInitUnitFile(platform, file), 'team-a')
     }
     assert.equal(
-        profileOfInitUnitFile('darwin', 'ai.manyfold.daemon.plist'),
-        null
-    )
-    assert.equal(profileOfInitUnitFile('linux', 'mf-daemon.service'), null)
-    assert.equal(
         profileOfInitUnitFile('darwin', 'ai.manyfold.daemon.Bad Name.plist'),
         null
     )
@@ -108,21 +102,6 @@ test('a custom config dir travels into the unit, and only then', () => {
         assert.deepEqual(
             parsePlistProgramArgs(buildPlist(custom)),
             plain.programArgs
-        )
-    }
-})
-
-test('the config dir a unit hands its daemon reads back', () => {
-    for (const platform of ['darwin', 'linux'] as const) {
-        const build = platform === 'darwin' ? buildPlist : buildUnit
-        const custom = { ...context('user'), configDir: '/srv/mf state/<cfg>' }
-        assert.equal(
-            parseInitUnitConfigDir(platform, build(custom)),
-            '/srv/mf state/<cfg>'
-        )
-        assert.equal(
-            parseInitUnitConfigDir(platform, build(context('user'))),
-            null
         )
     }
 })

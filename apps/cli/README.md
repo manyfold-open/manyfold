@@ -113,8 +113,7 @@ that is the opt-in mechanism, not the default.
 
 Select a profile with `--profile <name>` or `MF_PROFILE=<name>`; without
 either, a stable binary uses `default` and a dev binary uses `dev`, so the two
-channels never share credentials by accident (dev binaries used `staging`
-before CLI 0.24; that profile stays reachable with `--profile staging`). Names must match
+channels never share credentials by accident. Names must match
 `[a-z0-9][a-z0-9_-]{0,31}`. `default` is a name like any other — it has no
 special paths. Init units are per profile too
 (`ai.manyfold.daemon.<name>` / `mf-daemon-<name>.service`), so daemons for

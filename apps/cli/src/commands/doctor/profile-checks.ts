@@ -148,18 +148,11 @@ const configCheck = (
                 fix: 'mf setup',
                 data
             })
-        const staging = ctx.bakedChannel === 'dev' && others.includes('staging')
         return check(
             'warn',
-            `the default profile '${p.name}' is not set up; this machine has ${others.join(', ')}${
-                staging
-                    ? "; dev builds used 'staging' as their default before CLI 0.24"
-                    : ''
-            }`,
+            `the default profile '${p.name}' is not set up; this machine has ${others.join(', ')}`,
             {
-                fix: staging
-                    ? 'export MF_PROFILE=staging, or set this one up with mf login'
-                    : 'pass --profile <name> or export MF_PROFILE=<name>, or set this one up with mf login',
+                fix: 'pass --profile <name> or export MF_PROFILE=<name>, or set this one up with mf login',
                 data
             }
         )
@@ -318,9 +311,7 @@ const authCheck = (p: ProfileFacts, ctx: DoctorContext): DoctorCheck => {
         const label =
             who.kind === 'agent-runtime'
                 ? `agent ${who.agentId} (agent runtime token)`
-                : who.kind === 'legacy-runtime'
-                  ? `${who.email} (legacy runtime token)`
-                  : (who.email ?? who.userId ?? 'an unknown identity')
+                : (who.email ?? who.userId ?? 'an unknown identity')
         return check('pass', `signed in as ${label}`, {
             data: {
                 kind: who.kind ?? null,
@@ -367,17 +358,16 @@ const registrationCheck = (
             fix: `delete ${p.paths.daemonConfigPath}, then ${reRegisterFix(mf)}`
         })
     const raw = p.registration.value
-    if (!nonEmpty(raw.profile) || !nonEmpty(raw.channel))
-        return check(
-            'fail',
-            'the registration predates per-profile state (CLI 0.21 and earlier), so the daemon refuses to start',
-            { fix: reRegisterFix(mf) }
-        )
+    const missing: string[] = []
+    if (!nonEmpty(raw.profile)) missing.push('profile')
+    if (!nonEmpty(raw.channel)) missing.push('channel')
+    if (!nonEmpty(raw.token)?.startsWith('ldt_')) missing.push('daemon token')
+    if (!nonEmpty(raw.apiUrl)) missing.push('API URL')
     const reg = usableRegistration(p)
     if (!reg)
         return check(
             'fail',
-            'the registration is incomplete: it has no daemon token or API URL',
+            `the registration is incomplete: it has no ${missing.join(', ')}`,
             { fix: reRegisterFix(mf) }
         )
     const data = {
@@ -817,17 +807,6 @@ const autostartCheck = (
             'fail',
             `the autostart unit runs ${program}, which no longer exists`,
             { fix: restart, data }
-        )
-    // Units written before they carried MF_CONFIG_DIR start their daemon on
-    // the default dir, where this profile's registration is not.
-    if (unit.configDir && unit.configDir !== machine.configDir)
-        return check(
-            'warn',
-            `the autostart unit's daemon reads ${unit.configDir}, not ${machine.configDir} where this profile lives`,
-            {
-                fix: `${restart}, from a shell with the MF_CONFIG_DIR the daemon should use`,
-                data: { ...data, unitConfigDir: unit.configDir }
-            }
         )
     const onPath = machine.mfOnPath[0]
     if (

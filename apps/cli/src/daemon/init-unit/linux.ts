@@ -40,18 +40,7 @@ const buildExecStart = (programArgs: string[]): string =>
 // installed unit runs.
 export const parseExecStart = (text: string): string[] | null => {
     const line = /^ExecStart=(.*)$/m.exec(text)?.[1]
-    return line === undefined ? null : splitSystemdWords(line)
-}
-
-export const parseUnitConfigDir = (text: string): string | null => {
-    for (const [, line] of text.matchAll(/^Environment=(.*)$/gm))
-        for (const word of splitSystemdWords(line))
-            if (word.startsWith('MF_CONFIG_DIR='))
-                return word.slice('MF_CONFIG_DIR='.length)
-    return null
-}
-
-const splitSystemdWords = (line: string): string[] => {
+    if (line === undefined) return null
     const args: string[] = []
     let i = 0
     while (i < line.length) {

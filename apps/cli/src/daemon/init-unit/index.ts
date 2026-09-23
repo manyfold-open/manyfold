@@ -173,15 +173,6 @@ export const parseInitUnitProgram = (
         ? darwin.parsePlistProgramArgs(text)
         : linux.parseExecStart(text)
 
-// The config dir the unit hands its daemon; null means the default.
-export const parseInitUnitConfigDir = (
-    platform: NodeJS.Platform,
-    text: string
-): string | null =>
-    platform === 'darwin'
-        ? darwin.parsePlistConfigDir(text)
-        : linux.parseUnitConfigDir(text)
-
 export interface ExecSurvival {
     survive: boolean
     reason: string

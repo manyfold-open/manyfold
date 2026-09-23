@@ -10,8 +10,18 @@ import { buildProgram } from '../src/program'
 // systemd about the profile's units.
 const PROFILE = 'status-cmd-test'
 
+const REGISTRATION = {
+    apiUrl: 'https://api.status.test/api',
+    token: 'ldt_status-fixture',
+    daemonId: 'dh_status',
+    daemonUuid: 'uuid-status',
+    profile: PROFILE,
+    channel: 'stable'
+}
+
 const statusJson = async (
-    respond: () => Response
+    respond: () => Response,
+    registration: Record<string, unknown> = REGISTRATION
 ): Promise<{ apiError?: string; daemon: unknown; out: string }> => {
     const base = await mkdtemp(join(tmpdir(), 'mf-daemon-status-'))
     const configDir = join(base, 'config')
@@ -19,18 +29,9 @@ const statusJson = async (
     await mkdir(home, { recursive: true })
     const paths = profilePaths(configDir, PROFILE)
     await mkdir(paths.daemonDir, { recursive: true, mode: 0o700 })
-    await writeFile(
-        paths.daemonConfigPath,
-        JSON.stringify({
-            apiUrl: 'https://api.status.test/api',
-            token: 'ldt_status-fixture',
-            daemonId: 'dh_status',
-            daemonUuid: 'uuid-status',
-            profile: PROFILE,
-            channel: 'stable'
-        }),
-        { mode: 0o600 }
-    )
+    await writeFile(paths.daemonConfigPath, JSON.stringify(registration), {
+        mode: 0o600
+    })
     const previous = {
         MF_CONFIG_DIR: process.env.MF_CONFIG_DIR,
         HOME: process.env.HOME
@@ -91,4 +92,12 @@ test('daemon status reports an API refusal without the response body', async () 
             )
     )
     assert.equal(envelope.apiError, 'HTTP 401: token revoked')
+})
+
+test('daemon status rejects a registration daemon start rejects, with the same error', async () => {
+    const { profile: _profile, channel: _channel, ...incomplete } = REGISTRATION
+    await assert.rejects(
+        statusJson(() => new Response('{}', { status: 200 }), incomplete),
+        /daemon registration at .+ predates the per-profile layout/
+    )
 })

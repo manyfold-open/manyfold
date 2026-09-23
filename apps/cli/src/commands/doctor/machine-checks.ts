@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import type { AuthWhoamiResponse } from '@manyfold/shared'
 import { BINARY_FOR_FRAMEWORK } from '@/daemon/detect'
-import { describeFailure, hostOf, plural } from './describe'
+import { describeFailure, hostOf } from './describe'
 import { isManyfoldHealth } from './gather'
 import type {
     CheckId,
@@ -93,28 +93,6 @@ const pathCheck = (facts: MachineFacts): DoctorCheck => {
             `remove the ones you no longer use, e.g. ${others[0].path}`
         )
     return check('pass', `mf on your PATH is this binary (${first.path})`)
-}
-
-const legacyCheck = ({ legacy }: MachineFacts): DoctorCheck => {
-    if (legacy.length === 0)
-        return machineCheck(
-            'config.legacy',
-            'legacy files',
-            'pass',
-            'nothing left from the pre-profile layout'
-        )
-    return machineCheck(
-        'config.legacy',
-        'legacy files',
-        'warn',
-        `${plural(legacy.length, 'item')} from the pre-profile layout (CLI 0.21 and earlier) ${
-            legacy.length === 1 ? 'is' : 'are'
-        } no longer read and may still hold old credentials: ${legacy.join(', ')}`,
-        {
-            fix: 'once mf profile list shows the profiles you need, delete them (unload an old autostart unit first)',
-            data: { paths: legacy }
-        }
-    )
 }
 
 const identityOf = (
@@ -313,7 +291,6 @@ export const machineChecks = (
 ): DoctorCheck[] => [
     updateCheck(facts),
     pathCheck(facts),
-    legacyCheck(facts),
     overridesCheck(facts),
     terminalCheck(facts, ctx),
     frameworksCheck(facts, ctx),

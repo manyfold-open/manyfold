@@ -6,7 +6,7 @@ import { apiPaths } from '@manyfold/shared'
 import {
     daemonChannelWarning,
     daemonPaths,
-    loadDaemonConfig
+    loadDaemonConfigForStart
 } from '@/daemon/config'
 import { queryDaemonHealth } from '@/daemon/control'
 import { getInitUnitStatus, type InitUnitInfo } from '@/daemon/init-unit'
@@ -26,7 +26,7 @@ export const registerDaemonStatus = (program: Command): void => {
     jsonOption(
         program.command('status').description('Show local daemon status')
     ).action(async (opts: { json?: boolean }) => {
-        const config = await loadDaemonConfig()
+        const config = await loadDaemonConfigForStart()
         if (!config) {
             emit(opts, { configured: false }, () =>
                 console.log(kleur.yellow('no daemon configured'))
