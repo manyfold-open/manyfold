@@ -1,5 +1,15 @@
 # @manyfold/cli
 
+## 4.3.0
+
+### Minor Changes
+
+- [#504](https://github.com/manyfold-open/manyfold/pull/504) [`be6917f`](https://github.com/manyfold-open/manyfold/commit/be6917f8c354b65f2aef8def171e295d117cfc90) Thanks [@yingca1](https://github.com/yingca1)! - New `mf doctor`: one command that finds what is wrong with this machine's mf setup and says how to fix each problem. It checks the install (update available, which `mf` your PATH resolves to, `--api-url`/`--token`/`MF_*` overrides in this shell), then every profile on the machine: its sign-in and API (unreachable, not a Manyfold API — with the `/api` URL it should have been — database down, redirected to a sign-in page, rejected token and why), and its daemon (registration, process, autostart unit, a daemon still running an older binary than the one on disk, why it is offline from the last WebSocket close, coding agents on your PATH the daemon did not detect). Only `--profile` narrows it to one profile. It exits 1 when a check fails, with the report on stdout either way; `--json` gives the same report for scripts. A profile nobody uses (not current, no daemon, no autostart unit) can only warn. It writes nothing locally and never prints a token. The docs now give `dev` as the default profile of dev binaries.
+
+### Patch Changes
+
+- [#504](https://github.com/manyfold-open/manyfold/pull/504) [`be6917f`](https://github.com/manyfold-open/manyfold/commit/be6917f8c354b65f2aef8def171e295d117cfc90) Thanks [@yingca1](https://github.com/yingca1)! - The daemon no longer redials about once a second when the API turns its registration away. The API accepts the WebSocket upgrade and only then refuses a revoked, deleted, unbound or too-old daemon, and the reconnect backoff reset on every upgrade; it now resets only once the server takes the hello, and a refusal (close 4401, 4403, 4404, 4406 or 4409) is logged with its fix and retried slowly, from one minute up to one attempt every 15 minutes, so a machine registered again still comes back on its own. A rejected heartbeat is now logged with its status and error message (when the problem starts, changes and clears, not every 15 s) instead of being ignored, and a heartbeat times out after 15 s instead of piling up. `mf daemon start` passes `MF_CONFIG_DIR` into the autostart unit, so a daemon on a custom config dir no longer starts on the default one and exits forever. An invalid `MF_HTTP_TIMEOUT` stops the command with an error instead of silently using 30 s. `mf daemon status` no longer puts the API's raw response body into `apiError`; it reports the status and the error message. It also validates the registration the way `mf daemon start` does, and fails with the same error on one that start refuses, instead of showing it as configured.
+
 ## 4.2.0
 
 ### Minor Changes
