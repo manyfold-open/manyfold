@@ -33,7 +33,15 @@ export const HUMAN_HELP_GROUPS: readonly HumanHelpGroup[] = [
     },
     {
         title: 'Access and local tools',
-        commands: ['auth', 'daemon', 'profile', 'update', 'version', 'help']
+        commands: [
+            'auth',
+            'daemon',
+            'profile',
+            'update',
+            'version',
+            'doctor',
+            'help'
+        ]
     }
 ] as const
 
@@ -43,6 +51,7 @@ const ROOT_EXAMPLES = [
     'mf agent list',
     'mf runtime list',
     'mf daemon status',
+    'mf doctor',
     'mf <command> --help'
 ] as const
 

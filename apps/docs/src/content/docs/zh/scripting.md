@@ -70,6 +70,9 @@ else
 fi
 ```
 
+`mf doctor` 是唯一的例外：有任何检查失败时退出码为 `1`，但报告仍输出到 stdout，
+stderr 为空。脚本请读取 `mf doctor --json` 中的 `ok` 或每项检查的 `status`。
+
 ## 不提供 JSON mode 的命令
 
 以下命令使用 raw stream、interactive flow 或 long-lived process，因此不提供 JSON：
@@ -99,7 +102,7 @@ printf '%s' "$MF_CI_TOKEN" |
 ## Timeout 和版本漂移
 
 `MF_HTTP_TIMEOUT` 控制普通 API 请求。纯数字表示秒，也支持 `ms`、`s`、`m` 和
-`h` duration suffix。
+`h` duration suffix。其它取值会让命令在发出请求之前报错退出。
 
 诊断输出应包含 `mf --version`，并按已安装 binary 验证语法：
 

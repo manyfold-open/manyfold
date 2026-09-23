@@ -105,6 +105,7 @@ mf daemon start               # install autostart unit and start (default: login
 mf daemon stop                # stop the daemon (and the execs it owns), remove its autostart unit
 mf daemon stop --keep-execs   # stop the daemon but leave running execs for the next one to adopt
 mf daemon doctor              # diagnose registration / framework detection issues
+mf doctor                     # check every profile's daemon, sign-in and API, with a fix for each problem
 mf daemon hooks status        # claude / codex session hooks (see below)
 ```
 
@@ -265,11 +266,16 @@ its terminals.
 
 ## Troubleshooting
 
+Run `mf doctor` first. It checks each profile's registration, the daemon process
+and its autostart unit, whether the daemon still runs the binary on disk, and
+why it is offline, and prints the fix for each problem. It detects most of the
+cases below.
+
 - **`daemon register requires --token <token>`** — the command was run without a token. Re-copy the full command from the web UI.
 - **`token must start with ldt_`** — the token was truncated during copy. Re-copy it.
 - **Machine stays offline** — confirm the daemon process is alive (`mf daemon status`) and that outbound HTTPS to `api.manyfold.ai` is reachable from the machine.
 - **Token already bound** — each token can register exactly one machine. Issue a new token for additional machines.
-- **Revoking a machine** — open **Settings → Self-owned computers** and click **Revoke**. Agents bound to that machine are marked stopped; workspace files on the machine itself are kept.
+- **Revoking a machine** — open **Settings → Self-owned computers** and click **Revoke**. Agents bound to that machine are marked stopped; workspace files on the machine itself are kept. The daemon still running there logs why it was turned away and backs off to one connection attempt every 15 minutes; stop it with `mf daemon stop`, or register the machine again to reconnect.
 - **`systemd not available`** on Linux — your environment doesn't have a usable user systemd session (common in WSL1 and minimal containers). Run `mf daemon start --foreground` in a long-lived shell, or use `--system` (requires sudo and a system-level systemd).
 - **Daemon shows `manual` in Connected machines** — the daemon was started without `mf daemon start` (for example via `--foreground` or by an old version of the CLI). Run `mf daemon stop && mf daemon start` to register an autostart unit. A standalone `manual` daemon can still be upgraded from the dashboard: it swaps its own binary, starts a successor and hands its running execs over, and puts the previous binary back if the successor does not come up (that version is then not retried until another one is chosen).
 - **Connected machines shows an old CLI version after `mf update`** — the OS is still running the previously-loaded binary. Run `mf daemon stop && mf daemon start` to relaunch under the new binary.

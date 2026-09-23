@@ -2,6 +2,7 @@ import WebSocket from 'ws'
 import { randomUUID } from 'node:crypto'
 import {
     DAEMON_CLIENT_FEATURES,
+    DAEMON_MIN_CLI_VERSION,
     type DaemonInflightStream,
     type DaemonOwnedTerminal,
     type DaemonRpcMethod,
@@ -52,6 +53,21 @@ export interface WsClientOptions {
 const PING_INTERVAL_MS = 25_000
 const BACKOFF_INITIAL_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
+
+// The API accepts the upgrade and only then turns a registration away, so
+// these arrive right after `open`. Redialing them on the normal schedule was
+// a loop about once a second for as long as the process lived. They still get
+// retried, slowly: a revoked host comes back when it is registered again, and
+// a transient refusal from a bad API deploy must not strand the fleet.
+const REFUSED_CLOSES: Record<number, string> = {
+    4401: 'it rejected the daemon token; issue a new token in Settings → Self-owned computers and run mf daemon register --token -',
+    4403: 'this machine was revoked in Settings → Self-owned computers; register it again to reconnect',
+    4404: "it no longer has this machine's registration; issue a new token in Settings → Self-owned computers and run mf daemon register --token -",
+    4406: `it requires mf ${DAEMON_MIN_CLI_VERSION} or newer for daemons; run mf update, then restart the daemon`,
+    4409: 'the daemon token is not bound to a machine; run mf daemon register --token -'
+}
+const REFUSED_BACKOFF_INITIAL_MS = 60_000
+const REFUSED_BACKOFF_MAX_MS = 15 * 60_000
 // The exec buffer used to be swept once, at start(), so a daemon that stayed up
 // for weeks never reclaimed anything: buffers (each holding a whole turn's
 // output) piled up on the user's disk and every reconnect re-enumerated them.
@@ -71,6 +87,7 @@ export class DaemonWsClient {
     private reconnectTimer: NodeJS.Timeout | null = null
     private gcTimer: NodeJS.Timeout | null = null
     private backoffMs = BACKOFF_INITIAL_MS
+    private refusedBackoffMs = REFUSED_BACKOFF_INITIAL_MS
     private stopped = true
 
     constructor(private readonly opts: WsClientOptions) {}
@@ -79,6 +96,7 @@ export class DaemonWsClient {
         if (!this.stopped) return
         this.stopped = false
         this.backoffMs = BACKOFF_INITIAL_MS
+        this.refusedBackoffMs = REFUSED_BACKOFF_INITIAL_MS
         // Recovery completes BEFORE the first dial, synchronously: an adopted
         // exec's profile lease is re-stamped in there, and nothing may be
         // dispatched onto that profile until it is (ADR-0029 §4).
@@ -148,7 +166,6 @@ export class DaemonWsClient {
         ws.on('open', () => {
             if (this.stopped || this.ws !== ws) return
             this.log('ws connected')
-            this.backoffMs = BACKOFF_INITIAL_MS
             // Present-but-empty and absent mean different things to the
             // server (hello.inflight-authoritative): an empty list is proof
             // the daemon holds no streams, while a failed enumeration must
@@ -240,9 +257,16 @@ export class DaemonWsClient {
                 this.log(
                     'daemon header authentication was not accepted; upgrade the API and ensure the proxy forwards Authorization'
                 )
+            const refused = REFUSED_CLOSES[code]
+            if (refused)
+                this.log(
+                    `the API refused this daemon: ${refused}; backing off to one attempt every ${
+                        REFUSED_BACKOFF_MAX_MS / 60_000
+                    } minutes until then`
+                )
             this.cleanupSocket(ws)
             this.opts.onDisconnected?.(why)
-            this.scheduleReconnect()
+            this.scheduleReconnect(Boolean(refused))
         })
 
         ws.on('error', (err) => {
@@ -270,6 +294,11 @@ export class DaemonWsClient {
         }
         switch (frame.type) {
             case 'welcome':
+                // The server took the hello: only now is this a connection
+                // worth resetting the backoff for. `open` alone is not: a
+                // refusal follows it.
+                this.backoffMs = BACKOFF_INITIAL_MS
+                this.refusedBackoffMs = REFUSED_BACKOFF_INITIAL_MS
                 this.opts.onWelcome?.(frame)
                 return
             case 'ping': {
@@ -363,10 +392,19 @@ export class DaemonWsClient {
         }
     }
 
-    private scheduleReconnect(): void {
+    private scheduleReconnect(refused = false): void {
         if (this.stopped || this.ws || this.reconnectTimer) return
-        const delay = Math.min(this.backoffMs, BACKOFF_MAX_MS)
-        this.backoffMs = Math.min(this.backoffMs * 2, BACKOFF_MAX_MS)
+        let delay: number
+        if (refused) {
+            delay = this.refusedBackoffMs
+            this.refusedBackoffMs = Math.min(
+                this.refusedBackoffMs * 2,
+                REFUSED_BACKOFF_MAX_MS
+            )
+        } else {
+            delay = Math.min(this.backoffMs, BACKOFF_MAX_MS)
+            this.backoffMs = Math.min(this.backoffMs * 2, BACKOFF_MAX_MS)
+        }
         this.log(`reconnecting in ${delay}ms`)
         const timer = setTimeout(() => {
             if (this.reconnectTimer !== timer) return

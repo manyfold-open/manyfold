@@ -97,6 +97,7 @@ mf daemon start               # 安装自启单元并启动（默认登录级）
 mf daemon stop                # 停止 daemon（连同它拥有的 exec）并移除自启单元
 mf daemon stop --keep-execs   # 只停 daemon，留下正在跑的 exec 给下一个 daemon 接管
 mf daemon doctor              # 诊断注册 / 框架检测问题
+mf doctor                     # 检查每个 profile 的 daemon、登录与 API，并给出修复方法
 mf daemon hooks status        # claude / codex 的 session hook（见下）
 ```
 
@@ -220,11 +221,15 @@ exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd �
 
 ## 排错
 
+先运行 `mf doctor`。它会检查每个 profile 的注册、daemon 进程和自启单元、daemon
+是否仍运行着磁盘上的那份二进制，以及它为什么 offline，并为每个问题给出修复方法。
+下面的大多数情况它都能直接识别。
+
 - **`daemon register requires --token <token>`** — 没传 token。回到网页应用重新复制完整命令。
 - **`token must start with ldt_`** — token 被截断了。重新复制。
 - **机器一直 offline** — 在机器上跑 `mf daemon status` 确认进程在；同时确认该机器能访问 `api.manyfold.ai` 的 HTTPS 出站。
 - **Token already bound** — 一个 token 只能绑一台机器。再注册新机器请申请新的 token。
-- **撤销机器** — 在 **设置 → Self-owned computers** 点击 **Revoke**。绑在这台机器上的 agent 会被标记为 stopped；机器上的工作目录文件不会被删。
+- **撤销机器** — 在 **设置 → Self-owned computers** 点击 **Revoke**。绑在这台机器上的 agent 会被标记为 stopped；机器上的工作目录文件不会被删。那台机器上仍在运行的 daemon 会在日志里写明被拒绝的原因，并把重连退避到每 15 分钟一次；用 `mf daemon stop` 停掉它，或重新注册这台机器以恢复连接。
 - **Linux 上报 `systemd not available`** — 当前环境没有可用的 user systemd 会话（常见于 WSL1 和精简容器）。可以在长会话里跑 `mf daemon start --foreground`，或加 `--system`（需要 sudo 和系统级 systemd）。
 - **Connected machines 显示 `manual`** — daemon 不是通过 `mf daemon start` 启动的（比如用了 `--foreground` 或旧版本 CLI）。跑 `mf daemon stop && mf daemon start` 重新注册一份自启单元即可。
 - **`mf update` 升级后 Connected machines 还显示旧的 CLI 版本** — 系统当前跑的还是已加载到内存的旧二进制。跑 `mf daemon stop && mf daemon start` 让 daemon 在新二进制下重启。

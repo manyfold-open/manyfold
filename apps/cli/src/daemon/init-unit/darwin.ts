@@ -12,10 +12,13 @@ const execFileAsync = promisify(execFile)
 export const launchdLabelFor = (profile: string): string =>
     `ai.manyfold.daemon.${profile}`
 
-const plistPathFor = (scope: Scope, home: string, label: string): string =>
+export const launchdDir = (scope: Scope, home: string): string =>
     scope === 'user'
-        ? join(home, 'Library', 'LaunchAgents', `${label}.plist`)
-        : join('/Library', 'LaunchDaemons', `${label}.plist`)
+        ? join(home, 'Library', 'LaunchAgents')
+        : join('/Library', 'LaunchDaemons')
+
+const plistPathFor = (scope: Scope, home: string, label: string): string =>
+    join(launchdDir(scope, home), `${label}.plist`)
 
 const launchctlDomain = (scope: Scope): string => {
     if (scope === 'system') return 'system'
@@ -30,6 +33,27 @@ const xmlEscape = (s: string): string =>
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
+
+const xmlUnescape = (s: string): string =>
+    s
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+
+// What an installed unit runs, read back from the file: the binary baked in
+// at install time can be gone after a reinstall elsewhere.
+export const parsePlistProgramArgs = (text: string): string[] | null => {
+    const array =
+        /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(
+            text
+        )?.[1]
+    if (array === undefined) return null
+    return [...array.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) =>
+        xmlUnescape(m[1])
+    )
+}
 
 export const buildPlist = (ctx: InstallContext): string => {
     const path = [
@@ -68,7 +92,7 @@ ${userGroup}  <key>EnvironmentVariables</key>
     <key>HOME</key><string>${xmlEscape(ctx.home)}</string>
     <key>PATH</key><string>${xmlEscape(path)}</string>
     <key>MF_PROFILE</key><string>${xmlEscape(ctx.profile)}</string>
-  </dict>
+${ctx.configDir ? `    <key>MF_CONFIG_DIR</key><string>${xmlEscape(ctx.configDir)}</string>\n` : ''}  </dict>
 </dict>
 </plist>
 `

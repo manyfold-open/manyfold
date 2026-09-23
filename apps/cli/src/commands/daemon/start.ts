@@ -33,6 +33,11 @@ import {
     type DaemonLocalHealth
 } from '@/daemon/control'
 import { detectFrameworks } from '@/daemon/detect'
+import {
+    HEARTBEAT_TIMEOUT_MS,
+    heartbeatProblem,
+    heartbeatReporter
+} from '@/daemon/heartbeat'
 import { checkPtySupport } from '@/daemon/pty-backend'
 import { DaemonWsClient } from '@/daemon/ws-client'
 import { createCliFetch } from '@/transport'
@@ -276,6 +281,7 @@ const runClaimedForeground = async (
         })
 
         const cliFetch = createCliFetch()
+        const reportHeartbeat = heartbeatReporter(log)
         const heartbeat = async (): Promise<void> => {
             if (stopping) return
             if (Date.now() - lastDetectAt > DETECT_REFRESH_MS) {
@@ -314,18 +320,27 @@ const runClaimedForeground = async (
                 })()
             }
             try {
-                await cliFetch(`${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`, {
-                    method: 'POST',
-                    signal: abort.signal,
-                    headers: {
-                        'content-type': 'application/json',
-                        authorization: `Bearer ${config.token}`
-                    },
-                    body: JSON.stringify(body)
-                })
+                const res = await cliFetch(
+                    `${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`,
+                    {
+                        method: 'POST',
+                        signal: AbortSignal.any([
+                            abort.signal,
+                            AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS)
+                        ]),
+                        headers: {
+                            'content-type': 'application/json',
+                            authorization: `Bearer ${config.token}`
+                        },
+                        body: JSON.stringify(body)
+                    }
+                )
+                await reportHeartbeat(await heartbeatProblem(res))
             } catch (err) {
                 if (!stopping)
-                    await log(`heartbeat failed: ${(err as Error).message}`)
+                    await reportHeartbeat(
+                        `heartbeat failed: ${(err as Error).message}`
+                    )
             }
         }
 

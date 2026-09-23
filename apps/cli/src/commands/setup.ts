@@ -5,7 +5,7 @@ import { ApiError, buildApiError } from '@manyfold/sdk'
 import type { IssueDaemonTokenResponse } from '@manyfold/shared'
 import { apiPaths } from '@manyfold/shared'
 import { buildClient } from '@/client'
-import { DEFAULT_API_URL } from '@/channel'
+import { DEFAULT_API_URL, normalizeApiUrl } from '@/channel'
 import { loadConfig, saveConfig } from '@/config'
 import { loadDaemonConfigForStart } from '@/daemon/config'
 import { resolveScope } from '@/daemon/init-unit'
@@ -52,9 +52,6 @@ const issueDaemonToken = async (
         | IssueDaemonTokenResponse
     return ('data' in body ? body.data : body).token
 }
-
-const normalizedUrl = (value: string): string =>
-    value.trim().replace(/\/+$/, '')
 
 export const ensureSignedIn = async (
     apiUrl: string,
@@ -150,7 +147,8 @@ export const registerSetup = (program: Command): void => {
                     )})`
                 )
                 if (
-                    normalizedUrl(daemonConfig.apiUrl) !== normalizedUrl(apiUrl)
+                    normalizeApiUrl(daemonConfig.apiUrl) !==
+                    normalizeApiUrl(apiUrl)
                 )
                     console.log(
                         kleur.yellow(

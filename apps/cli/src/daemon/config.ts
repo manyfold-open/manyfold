@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import type { ProfilePaths } from '@manyfold/shared'
 import { CLI_CHANNEL, type CliChannel } from '@/channel'
 import { currentProfilePaths } from '@/config'
 import { controlSocketPathFor } from './control'
@@ -10,46 +11,65 @@ import {
     writeProtectedJson
 } from '@/json-state'
 
+// The daemon files of any one profile; `mf doctor` reads other profiles'.
+export const daemonPathsFor = (profile: ProfilePaths) => {
+    const dir = profile.daemonDir
+    return {
+        baseDir: dir,
+        configPath: profile.daemonConfigPath,
+        idPath: join(dir, 'daemon.id'),
+        pidPath: join(dir, 'daemon.pid'),
+        logPath: join(dir, 'daemon.log'),
+        errLogPath: join(dir, 'daemon.err.log'),
+        workspaceRootsPath: join(dir, 'workspace-roots.json'),
+        execDir: join(dir, 'exec'),
+        // ADR-0029 §5: a manual-install self-update that rolled back leaves
+        // the target it refused to retry, and the report its successor sends
+        // once.
+        updateLatchPath: join(dir, 'update-latch.json'),
+        updateRollbackPath: join(dir, 'update-rollback.json'),
+        controlSocketPath: controlSocketPathFor(dir)
+    }
+}
+
 // ADR-0014: every daemon path derives from the current profile at access
 // time — nothing is captured at import, so `--profile` (parsed after module
 // load) and tests that swap MF_PROFILE both see consistent paths.
-const daemonDir = (): string => currentProfilePaths().daemonDir
+const current = () => daemonPathsFor(currentProfilePaths())
 
 export const daemonPaths = {
     get baseDir(): string {
-        return daemonDir()
+        return current().baseDir
     },
     get configPath(): string {
-        return currentProfilePaths().daemonConfigPath
+        return current().configPath
     },
     get idPath(): string {
-        return join(daemonDir(), 'daemon.id')
+        return current().idPath
     },
     get pidPath(): string {
-        return join(daemonDir(), 'daemon.pid')
+        return current().pidPath
     },
     get logPath(): string {
-        return join(daemonDir(), 'daemon.log')
+        return current().logPath
     },
     get errLogPath(): string {
-        return join(daemonDir(), 'daemon.err.log')
+        return current().errLogPath
     },
     get workspaceRootsPath(): string {
-        return join(daemonDir(), 'workspace-roots.json')
+        return current().workspaceRootsPath
     },
     get execDir(): string {
-        return join(daemonDir(), 'exec')
+        return current().execDir
     },
-    // ADR-0029 §5: a manual-install self-update that rolled back leaves the
-    // target it refused to retry, and the report its successor sends once.
     get updateLatchPath(): string {
-        return join(daemonDir(), 'update-latch.json')
+        return current().updateLatchPath
     },
     get updateRollbackPath(): string {
-        return join(daemonDir(), 'update-rollback.json')
+        return current().updateRollbackPath
     },
     get controlSocketPath(): string {
-        return controlSocketPathFor(daemonDir())
+        return current().controlSocketPath
     }
 }
 

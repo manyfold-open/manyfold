@@ -13,6 +13,7 @@ import {
     resolveMfInvocation,
     scriptVersion,
     sendSessionHookReport,
+    sessionHookInvocation,
     sessionHookTargets,
     sessionHooksStatus,
     sessionHooksWantedByDefault,
@@ -82,6 +83,20 @@ test('the callback names the standalone binary or the interpreter running a chec
         }),
         ['mf']
     )
+})
+
+test('the callback reads back out of an installed script', () => {
+    for (const invocation of [
+        ['/usr/local/bin/mf'],
+        ['/usr/bin/node', '--import', 'tsx', '/repo/apps/cli/src/index.ts'],
+        ["/Users/o'brien/My Tools/mf"],
+        ['mf']
+    ])
+        assert.deepEqual(
+            sessionHookInvocation(buildSessionHookScript(invocation)),
+            invocation
+        )
+    assert.equal(sessionHookInvocation('#!/bin/sh\necho hi\n'), null)
 })
 
 test('the settings merge adds one managed group per event and keeps everything else', () => {
