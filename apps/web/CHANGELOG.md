@@ -1,5 +1,17 @@
 # @manyfold/web
 
+## 2.3.0
+
+### Minor Changes
+
+- [#494](https://github.com/manyfold-open/manyfold/pull/494) [`765c03e`](https://github.com/manyfold-open/manyfold/commit/765c03ee079f400829db2725bf494e43ca15794a) Thanks [@yingca1](https://github.com/yingca1)! - Analytics consent gains a build-time posture, `VITE_ANALYTICS_CONSENT_MODE`. The default, `opt-in`, is unchanged: nothing Google-bound loads until the visitor accepts. `regional` keeps opt-in for visitors whose browser time zone places them in Europe or an EEA Atlantic zone, and elsewhere treats an undecided visitor as consenting until they decline — the banner still appears, with a message that says analytics runs unless turned off, and Decline works as before. Account settings show implied consent as "on" so the toggle turns it off.
+
+- [#495](https://github.com/manyfold-open/manyfold/pull/495) [`ffb7124`](https://github.com/manyfold-open/manyfold/commit/ffb7124d82bb231fea4b6ae36d3a46bbbaae2ee0) Thanks [@yingca1](https://github.com/yingca1)! - Hand a chat session to herdr. When an agent's runtime has herdr installed — your own computer running the daemon, or a sandbox — the chat header's "Switch to TUI" becomes "Switch to herdr": the conversation's Claude Code or Codex TUI opens in a herdr pane (a workspace per agent, a tab named after the conversation), and the web's terminal view shows that herdr with the pane focused. Views follow the conversation on their own: a session held by herdr shows herdr, quitting the TUI there brings the chat back with what was said imported, and "Switch to Chat UI" takes the conversation back. The banner's Show in herdr / Continue in web / Back to web buttons are gone; the header switch is the only control. Sandboxes get herdr installed when their runner is set up, and the Update Center lists herdr next to the mf CLI for every machine and sandbox, with upgrade (and install) actions; the runtime detail page shows the herdr version. `mf daemon status` and `mf daemon doctor` report herdr availability and version.
+
+### Patch Changes
+
+- [#496](https://github.com/manyfold-open/manyfold/pull/496) [`52dec83`](https://github.com/manyfold-open/manyfold/commit/52dec83dcc14479da0eff2957ff9d37b4bb43fd4) Thanks [@yingca1](https://github.com/yingca1)! - herdr handoff follow-ups. Handing a sandbox conversation to herdr now honours the sandbox's terminal opt-in, like the browser terminal: the web asks to enable the terminal first, and the API refuses a sandbox whose terminal is off before waking its runner. A Claude Code handoff on a sandbox without model credentials in the terminal says which setting to turn on. Sandboxes that get herdr from the platform skip herdr's first-run welcome. In the web, right-clicks inside the embedded herdr go to herdr's own menu instead of the browser's; a conversation left in herdr comes back in herdr when you return to it or reload, and moving between conversations herdr holds keeps the same view and only moves herdr's focus; the notes that sat above the composer about herdr and the Chat UI move behind a "?" after the header's view switch (a stuck import keeps its banner, with retry and abandon). The daemon no longer raises a herdr notification each time the web moves focus. Handing the same conversation to herdr again takes over its existing tab instead of adding another, and a daemon that restarts (an upgrade, a sandbox runner brought back after a suspension) adopts the herdr panes it opened, so their conversations stay handed off and their tabs still close.
+
 ## 2.2.2
 
 ### Patch Changes
