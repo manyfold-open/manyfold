@@ -23,6 +23,7 @@ import { registerUpdate } from '@/commands/update'
 import { registerVersion } from '@/commands/version'
 import { configureHumanHelp } from '@/human-help'
 import { resolveProfile, setProfileFlag } from '@/config'
+import { resolveHttpTimeoutMs } from '@/transport'
 import { MF_CLI_VERSION } from '@/version'
 
 export const buildProgram = (): Command => {
@@ -53,10 +54,12 @@ export const buildProgram = (): Command => {
         )
 
     // The flag must reach @/config before any action touches a profile path;
-    // resolving here also fails fast on an invalid --profile / MF_PROFILE.
+    // resolving here also fails fast on an invalid --profile / MF_PROFILE,
+    // and on an invalid MF_HTTP_TIMEOUT.
     program.hook('preAction', () => {
         setProfileFlag(program.opts<{ profile?: string }>().profile)
         resolveProfile()
+        resolveHttpTimeoutMs()
     })
 
     registerAuth(program)

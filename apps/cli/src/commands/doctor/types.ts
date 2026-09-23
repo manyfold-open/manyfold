@@ -90,6 +90,8 @@ export interface UnitFact {
     invocation: string[] | null
     programExists: boolean | null
     programRealpath: string | null
+    // The config dir the unit's daemon reads (MF_CONFIG_DIR, or the default).
+    configDir: string | null
 }
 
 export type LogCause =
@@ -171,6 +173,8 @@ export interface OverridesFact {
 
 export interface MachineFacts {
     build: BuildInfo
+    // This shell's config dir, resolved: the one every profile here lives in.
+    configDir: string
     update: UpdateFact
     // This binary's real path; null for a source build run through node.
     self: string | null

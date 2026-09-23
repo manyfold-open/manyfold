@@ -40,7 +40,18 @@ const buildExecStart = (programArgs: string[]): string =>
 // installed unit runs.
 export const parseExecStart = (text: string): string[] | null => {
     const line = /^ExecStart=(.*)$/m.exec(text)?.[1]
-    if (line === undefined) return null
+    return line === undefined ? null : splitSystemdWords(line)
+}
+
+export const parseUnitConfigDir = (text: string): string | null => {
+    for (const [, line] of text.matchAll(/^Environment=(.*)$/gm))
+        for (const word of splitSystemdWords(line))
+            if (word.startsWith('MF_CONFIG_DIR='))
+                return word.slice('MF_CONFIG_DIR='.length)
+    return null
+}
+
+const splitSystemdWords = (line: string): string[] => {
     const args: string[] = []
     let i = 0
     while (i < line.length) {
@@ -79,6 +90,9 @@ export const buildUnit = (ctx: InstallContext): string => {
         '/sbin'
     ].join(':')
     const execStart = buildExecStart(ctx.programArgs)
+    const configDirEnv = ctx.configDir
+        ? `Environment=${systemdQuote(`MF_CONFIG_DIR=${ctx.configDir}`)}\n`
+        : ''
     if (ctx.scope === 'user') {
         return `[Unit]
 Description=Manyfold daemon (profile ${ctx.profile})
@@ -94,7 +108,7 @@ StartLimitIntervalSec=0
 KillMode=process
 Environment=PATH=${path}
 Environment=${systemdQuote(`MF_PROFILE=${ctx.profile}`)}
-StandardOutput=append:${ctx.errLogPath.replace(ctx.home, '%h')}
+${configDirEnv}StandardOutput=append:${ctx.errLogPath.replace(ctx.home, '%h')}
 StandardError=append:${ctx.errLogPath.replace(ctx.home, '%h')}
 
 [Install]
@@ -114,7 +128,7 @@ Group=${ctx.group}
 Environment=HOME=${ctx.home}
 Environment=PATH=${systemPath}
 Environment=${systemdQuote(`MF_PROFILE=${ctx.profile}`)}
-ExecStart=${execStart}
+${configDirEnv}ExecStart=${execStart}
 Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=0

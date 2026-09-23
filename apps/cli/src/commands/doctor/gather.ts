@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import { buildApiError } from '@manyfold/sdk'
 import type { DaemonHostSummary } from '@manyfold/shared'
 import { apiPaths, profilePaths } from '@manyfold/shared'
@@ -11,6 +11,7 @@ import { type DaemonConfig, daemonPathsFor } from '@/daemon/config'
 import { BINARY_FOR_FRAMEWORK } from '@/daemon/detect'
 import {
     initUnitFileName,
+    parseInitUnitConfigDir,
     parseInitUnitProgram,
     profileOfInitUnitFile,
     type Scope
@@ -438,6 +439,7 @@ export const gatherMachine = async (
         ])
     return {
         build: deps.build,
+        configDir: resolve(deps.configDir),
         update,
         self,
         mfOnPath: onPath,
@@ -499,7 +501,8 @@ const unitFact = async (
             active: false,
             invocation: null,
             programExists: null,
-            programRealpath: null
+            programRealpath: null,
+            configDir: null
         }
     const programArgs = parseInitUnitProgram(deps.platform, text)
     const invocation = programArgs?.length ? invocationOf(programArgs) : null
@@ -522,7 +525,10 @@ const unitFact = async (
         active: status.active,
         invocation,
         programExists,
-        programRealpath
+        programRealpath,
+        configDir:
+            parseInitUnitConfigDir(deps.platform, text) ??
+            join(deps.home, '.manyfold')
     }
 }
 

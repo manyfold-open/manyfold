@@ -25,6 +25,8 @@ const internals = (client: Client) =>
         reconnectTimer: ReturnType<typeof setTimeout> | null
         gcTimer: ReturnType<typeof setInterval> | null
         scheduleReconnect(): void
+        connect(): void
+        backoffMs: number
     }
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const until = async (predicate: () => boolean) => {
@@ -270,6 +272,96 @@ test('completion from an old connection cannot remove a new RPC cancel handler',
             await delay(10)
             client.stop()
             assert(connectionChecks.every((check) => !check()))
+        }
+    })
+})
+
+// Each close is answered by dialing again at once, so the delay the client
+// scheduled is read from its log instead of waited out.
+const redialNow = async (
+    client: Client,
+    sockets: WebSocket[],
+    count: number
+) => {
+    await until(() => internals(client).reconnectTimer !== null)
+    const timer = internals(client).reconnectTimer
+    if (timer) clearTimeout(timer)
+    internals(client).reconnectTimer = null
+    internals(client).connect()
+    await until(() => sockets.length === count)
+}
+
+const lastDelay = (logs: string[]): string | undefined =>
+    logs.filter((line) => line.startsWith('reconnecting in ')).at(-1)
+
+test('a refusal after the upgrade backs off in minutes and says why', async () => {
+    await withServer(async (url, sockets) => {
+        const logs: string[] = []
+        const client = new DaemonWsClient({
+            ...options(url),
+            log: (line) => logs.push(line)
+        })
+        client.start()
+        try {
+            await until(() => sockets.length === 1)
+            sockets[0].close(4403, 'daemon revoked')
+            await until(() => internals(client).reconnectTimer !== null)
+            assert.ok(
+                logs.some((line) =>
+                    line.startsWith(
+                        'the API refused this daemon: this machine was revoked'
+                    )
+                )
+            )
+            assert.equal(lastDelay(logs), 'reconnecting in 60000ms')
+
+            await redialNow(client, sockets, 2)
+            sockets[1].close(4406, 'daemon CLI 0.34.0 or newer required')
+            await until(() => internals(client).reconnectTimer !== null)
+            assert.equal(lastDelay(logs), 'reconnecting in 120000ms')
+            assert.ok(logs.some((line) => line.includes('run mf update')))
+        } finally {
+            client.stop()
+        }
+    })
+})
+
+test('the backoff resets when the server takes the hello, not on open', async () => {
+    await withServer(async (url, sockets) => {
+        const logs: string[] = []
+        const client = new DaemonWsClient({
+            ...options(url),
+            log: (line) => logs.push(line)
+        })
+        client.start()
+        try {
+            await until(() => sockets.length === 1)
+            sockets[0].close(4000, 'pong timeout')
+            await until(() => internals(client).reconnectTimer !== null)
+            assert.equal(lastDelay(logs), 'reconnecting in 1000ms')
+
+            // Opened, then closed without a welcome: that is not a
+            // connection, so the next attempt waits longer.
+            await redialNow(client, sockets, 2)
+            sockets[1].close(4000, 'pong timeout')
+            await until(() => internals(client).reconnectTimer !== null)
+            assert.equal(lastDelay(logs), 'reconnecting in 2000ms')
+
+            await redialNow(client, sockets, 3)
+            sockets[2].send(
+                JSON.stringify({
+                    type: 'welcome',
+                    daemonId: 'ldh_fixture',
+                    serverTime: new Date().toISOString(),
+                    runtimeIds: []
+                })
+            )
+            await until(() => internals(client).backoffMs === 1000)
+            sockets[2].close(1012, 'service restart')
+            await until(() => internals(client).reconnectTimer !== null)
+            assert.equal(lastDelay(logs), 'reconnecting in 1000ms')
+        } finally {
+            client.stop()
         }
     })
 })

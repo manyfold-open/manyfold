@@ -818,6 +818,17 @@ const autostartCheck = (
             `the autostart unit runs ${program}, which no longer exists`,
             { fix: restart, data }
         )
+    // Units written before they carried MF_CONFIG_DIR start their daemon on
+    // the default dir, where this profile's registration is not.
+    if (unit.configDir && unit.configDir !== machine.configDir)
+        return check(
+            'warn',
+            `the autostart unit's daemon reads ${unit.configDir}, not ${machine.configDir} where this profile lives`,
+            {
+                fix: `${restart}, from a shell with the MF_CONFIG_DIR the daemon should use`,
+                data: { ...data, unitConfigDir: unit.configDir }
+            }
+        )
     const onPath = machine.mfOnPath[0]
     if (
         machine.self &&

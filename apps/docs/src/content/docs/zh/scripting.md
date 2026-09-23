@@ -102,7 +102,7 @@ printf '%s' "$MF_CI_TOKEN" |
 ## Timeout 和版本漂移
 
 `MF_HTTP_TIMEOUT` 控制普通 API 请求。纯数字表示秒，也支持 `ms`、`s`、`m` 和
-`h` duration suffix。
+`h` duration suffix。其它取值会让命令在发出请求之前报错退出。
 
 诊断输出应包含 `mf --version`，并按已安装 binary 验证语法：
 

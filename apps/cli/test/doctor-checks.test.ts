@@ -35,6 +35,7 @@ const build = (overrides: Partial<BuildInfo> = {}): BuildInfo => ({
 
 const machine = (overrides: Partial<MachineFacts> = {}): MachineFacts => ({
     build: build(),
+    configDir: '/cfg',
     update: {
         kind: 'checked',
         channel: 'stable',
@@ -111,6 +112,7 @@ const unit = (
     invocation: null,
     programExists: null,
     programRealpath: null,
+    configDir: null,
     ...overrides
 })
 
@@ -120,7 +122,8 @@ const LIVE_UNIT = unit('user', {
     active: true,
     invocation: [MF],
     programExists: true,
-    programRealpath: MF
+    programRealpath: MF,
+    configDir: '/cfg'
 })
 
 const profile = (overrides: Partial<ProfileFacts> = {}): ProfileFacts => {
@@ -1023,4 +1026,24 @@ test('a local deployment that is down is one finding with a way out', () => {
     const connection = find(checks, 'daemon.connection')
     assert.equal(connection.status, 'skip')
     assert.match(connection.detail, /see API/)
+})
+
+test('a unit that hands its daemon another config dir is flagged', () => {
+    const stale = find(
+        run(
+            registered({
+                units: {
+                    user: { ...LIVE_UNIT, configDir: '/Users/test/.manyfold' },
+                    system: unit('system')
+                }
+            })
+        ),
+        'daemon.autostart'
+    )
+    assert.equal(stale.status, 'warn')
+    assert.match(
+        stale.detail,
+        /reads \/Users\/test\/\.manyfold, not \/cfg where this profile lives/
+    )
+    assert.match(stale.fix ?? '', /MF_CONFIG_DIR/)
 })

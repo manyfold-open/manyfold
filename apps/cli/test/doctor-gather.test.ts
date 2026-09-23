@@ -159,7 +159,8 @@ const seedProfile = async (
 const writeUnit = async (
     dir: string,
     profile: string,
-    programArgs: string[]
+    programArgs: string[],
+    configDir?: string
 ): Promise<void> => {
     const ctx = {
         scope: 'user' as const,
@@ -168,7 +169,8 @@ const writeUnit = async (
         user: 'test',
         group: 'test',
         errLogPath: '/tmp/daemon.err.log',
-        profile
+        profile,
+        ...(configDir ? { configDir } : {})
     }
     await writeFile(
         join(dir, initUnitFileName(process.platform, profile)),
@@ -505,12 +507,14 @@ test('daemons sharing one program run its --version once', async (t) => {
         await writeFile(program, '#!/bin/sh\n', { mode: 0o755 })
         for (const name of ['default', 'accept']) {
             await seedProfile(root.configDir, name, { daemon: true })
-            await writeUnit(root.unitDirs.user, name, [
-                program,
-                'daemon',
-                'start',
-                '--foreground'
-            ])
+            // accept's unit predates MF_CONFIG_DIR in units: its daemon
+            // reads the default dir, not this one.
+            await writeUnit(
+                root.unitDirs.user,
+                name,
+                [program, 'daemon', 'start', '--foreground'],
+                name === 'default' ? root.configDir : undefined
+            )
         }
         let spawned = 0
         const report = await runDoctor(
@@ -526,6 +530,15 @@ test('daemons sharing one program run its --version once', async (t) => {
         assert.equal(spawned, 1)
         for (const name of ['default', 'accept'])
             assert.equal(check(report, 'daemon.version', name).status, 'warn')
-        assert.equal(check(report, 'daemon.autostart', 'accept').status, 'pass')
+        assert.equal(
+            check(report, 'daemon.autostart', 'default').status,
+            'pass'
+        )
+        const stale = check(report, 'daemon.autostart', 'accept')
+        assert.equal(stale.status, 'warn')
+        assert.equal(
+            stale.data?.unitConfigDir,
+            join(root.home, '.manyfold')
+        )
     })
 })

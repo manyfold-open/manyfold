@@ -113,7 +113,7 @@ Token 签发、autostart 和故障排查见[注册自有计算机](/zh/docs/loca
 | `--token <token>` / `MF_TOKEN`    | 为当前 shell 或命令覆盖已保存凭证；用 `--token -` 从 stdin 读取，直接传值可能出现在 shell history 和进程列表中。 |
 | `--agent-id <id>` / `MF_AGENT_ID` | 为支持该参数的命令选择 Agent 上下文。                                                                            |
 | `--account`                       | 明确操作整个账号，而不是仅操作当前 Agent 上下文；可能需要用户授权。                                              |
-| `MF_HTTP_TIMEOUT`                 | 设置普通 API 请求的超时时间，默认值为 `30s`；纯数字按秒解析，也可使用 `ms`、`s`、`m` 或 `h` 后缀。               |
+| `MF_HTTP_TIMEOUT`                 | 设置普通 API 请求的超时时间，默认值为 `30s`；纯数字按秒解析，也可使用 `ms`、`s`、`m` 或 `h` 后缀；非法值会报错。 |
 
 如果要在同一台机器上使用多个 Manyfold 环境，请先阅读
 [Profile 和环境](/zh/docs/profiles/)。

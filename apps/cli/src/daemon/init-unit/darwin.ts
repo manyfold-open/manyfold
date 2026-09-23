@@ -55,6 +55,14 @@ export const parsePlistProgramArgs = (text: string): string[] | null => {
     )
 }
 
+export const parsePlistConfigDir = (text: string): string | null => {
+    const value =
+        /<key>MF_CONFIG_DIR<\/key>\s*<string>([\s\S]*?)<\/string>/.exec(
+            text
+        )?.[1]
+    return value === undefined ? null : xmlUnescape(value)
+}
+
 export const buildPlist = (ctx: InstallContext): string => {
     const path = [
         `${ctx.home}/.local/bin`,
@@ -92,7 +100,7 @@ ${userGroup}  <key>EnvironmentVariables</key>
     <key>HOME</key><string>${xmlEscape(ctx.home)}</string>
     <key>PATH</key><string>${xmlEscape(path)}</string>
     <key>MF_PROFILE</key><string>${xmlEscape(ctx.profile)}</string>
-  </dict>
+${ctx.configDir ? `    <key>MF_CONFIG_DIR</key><string>${xmlEscape(ctx.configDir)}</string>\n` : ''}  </dict>
 </dict>
 </plist>
 `

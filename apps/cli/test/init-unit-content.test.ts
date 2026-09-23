@@ -8,6 +8,7 @@ import { buildUnit, parseExecStart } from '../src/daemon/init-unit/linux'
 import {
     initUnitDirs,
     initUnitFileName,
+    parseInitUnitConfigDir,
     profileOfInitUnitFile,
     type InstallContext,
     type Scope
@@ -87,4 +88,41 @@ test('unit file names map back to their profile', () => {
         system: '/Library/LaunchDaemons'
     })
     assert.equal(initUnitDirs('win32', 'C:\\Users\\test'), null)
+})
+
+test('a custom config dir travels into the unit, and only then', () => {
+    for (const scope of ['user', 'system'] as const) {
+        const plain = context(scope)
+        assert.doesNotMatch(buildPlist(plain), /MF_CONFIG_DIR/)
+        assert.doesNotMatch(buildUnit(plain), /MF_CONFIG_DIR/)
+
+        const custom = { ...plain, configDir: '/srv/mf state/<cfg>' }
+        assert.match(
+            buildPlist(custom),
+            /<key>MF_CONFIG_DIR<\/key><string>\/srv\/mf state\/&lt;cfg&gt;<\/string>/
+        )
+        assert.match(
+            buildUnit(custom),
+            /^Environment="MF_CONFIG_DIR=\/srv\/mf state\/<cfg>"$/m
+        )
+        assert.deepEqual(
+            parsePlistProgramArgs(buildPlist(custom)),
+            plain.programArgs
+        )
+    }
+})
+
+test('the config dir a unit hands its daemon reads back', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+        const build = platform === 'darwin' ? buildPlist : buildUnit
+        const custom = { ...context('user'), configDir: '/srv/mf state/<cfg>' }
+        assert.equal(
+            parseInitUnitConfigDir(platform, build(custom)),
+            '/srv/mf state/<cfg>'
+        )
+        assert.equal(
+            parseInitUnitConfigDir(platform, build(context('user'))),
+            null
+        )
+    }
 })

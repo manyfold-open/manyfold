@@ -118,7 +118,7 @@ Global options can override the configured context for one command:
 | `--token <token>` / `MF_TOKEN`    | Override the stored credential for one shell or command. Use `--token -` to read from stdin; direct values may appear in shell history and process lists. |
 | `--agent-id <id>` / `MF_AGENT_ID` | Select an agent context for commands that support it.                                                                                                     |
 | `--account`                       | Explicitly operate across the account instead of only the current agent context; may require user-granted permission.                                     |
-| `MF_HTTP_TIMEOUT`                 | Set the timeout for ordinary API requests. The default is `30s`; use a plain number for seconds or a duration suffix such as `ms`, `s`, `m`, or `h`.      |
+| `MF_HTTP_TIMEOUT`                 | Timeout for ordinary API requests, `30s` by default: a plain number means seconds, or use `ms`, `s`, `m`, `h`. Other values are an error.                 |
 
 See [Profiles and environments](/docs/profiles/) before using one machine with
 multiple Manyfold deployments.

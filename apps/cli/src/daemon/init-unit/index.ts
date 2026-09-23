@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import type { DaemonStartupMethod } from '@manyfold/shared'
 import { isValidProfileName } from '@manyfold/shared'
 import { homedir, userInfo } from 'node:os'
@@ -26,6 +27,9 @@ export interface InstallContext {
     group: string
     errLogPath: string
     profile: string
+    // MF_CONFIG_DIR as `mf daemon start` saw it: without it the unit's
+    // daemon would read ~/.manyfold, find no registration and exit forever.
+    configDir?: string
 }
 
 export class UnsupportedPlatformError extends Error {
@@ -60,6 +64,7 @@ const buildInstallContext = async (scope: Scope): Promise<InstallContext> => {
         ? [exec, 'daemon', 'start', '--foreground']
         : [exec, process.argv[1] ?? '', 'daemon', 'start', '--foreground']
     const info = userInfo()
+    const configDir = process.env.MF_CONFIG_DIR
     return {
         scope,
         programArgs,
@@ -67,7 +72,8 @@ const buildInstallContext = async (scope: Scope): Promise<InstallContext> => {
         user: info.username,
         group: info.username,
         errLogPath: daemonPaths.errLogPath,
-        profile: resolveProfile()
+        profile: resolveProfile(),
+        ...(configDir ? { configDir: resolve(configDir) } : {})
     }
 }
 
@@ -166,6 +172,15 @@ export const parseInitUnitProgram = (
     platform === 'darwin'
         ? darwin.parsePlistProgramArgs(text)
         : linux.parseExecStart(text)
+
+// The config dir the unit hands its daemon; null means the default.
+export const parseInitUnitConfigDir = (
+    platform: NodeJS.Platform,
+    text: string
+): string | null =>
+    platform === 'darwin'
+        ? darwin.parsePlistConfigDir(text)
+        : linux.parseUnitConfigDir(text)
 
 export interface ExecSurvival {
     survive: boolean

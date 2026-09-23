@@ -108,7 +108,8 @@ printf '%s' "$MF_CI_TOKEN" |
 ## Timeouts and version drift
 
 `MF_HTTP_TIMEOUT` controls ordinary API requests. A plain number means seconds;
-duration suffixes `ms`, `s`, `m`, and `h` are accepted.
+duration suffixes `ms`, `s`, `m`, and `h` are accepted. Any other value stops
+the command with an error before it sends a request.
 
 Use `mf --version` in diagnostic output and validate syntax against the
 installed binary:

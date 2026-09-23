@@ -1,5 +1,6 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
+import { buildApiError } from '@manyfold/sdk'
 import type { DaemonHostSummary } from '@manyfold/shared'
 import { apiPaths } from '@manyfold/shared'
 import {
@@ -57,7 +58,12 @@ export const registerDaemonStatus = (program: Command): void => {
                     'data' in body ? body.data : body
                 ) as DaemonHostSummary
             } else {
-                apiError = `${res.status} ${await res.text()}`
+                // The status and the envelope's message, never the body: a
+                // proxy's HTML page or a stack trace is not an error to show.
+                const err = await buildApiError(res)
+                apiError = `HTTP ${res.status}${
+                    err.serverMessage ? `: ${err.serverMessage}` : ''
+                }`
             }
         } catch (err) {
             apiError = (err as Error).message

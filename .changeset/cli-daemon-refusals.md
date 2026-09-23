@@ -1,0 +1,5 @@
+---
+'@manyfold/cli': patch
+---
+
+The daemon no longer redials about once a second when the API turns its registration away. The API accepts the WebSocket upgrade and only then refuses a revoked, deleted, unbound or too-old daemon, and the reconnect backoff reset on every upgrade; it now resets only once the server takes the hello, and a refusal (close 4401, 4403, 4404, 4406 or 4409) is logged with its fix and retried slowly, from one minute up to one attempt every 15 minutes, so a machine registered again still comes back on its own. A rejected heartbeat is now logged with its status and error message (when the problem starts, changes and clears, not every 15 s) instead of being ignored, and a heartbeat times out after 15 s instead of piling up. `mf daemon start` passes `MF_CONFIG_DIR` into the autostart unit, so a daemon on a custom config dir no longer starts on the default one and exits forever; `mf doctor` flags units installed before this. An invalid `MF_HTTP_TIMEOUT` stops the command with an error instead of silently using 30 s. `mf daemon status` no longer puts the API's raw response body into `apiError`; it reports the status and the error message.
