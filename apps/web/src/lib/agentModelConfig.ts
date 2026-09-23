@@ -45,7 +45,11 @@ import {
 import type { TFn } from '@/lib/i18n'
 
 const modelConfigViewCachePrefix = 'nca.agentModelConfigView.'
-const modelConfigViewCacheVersion = 1
+// Bumped whenever the cached shape gains a field readers dereference. 2: the
+// runtime-auth binding (#281). Seen on staging [2026-09-23]: a v1 entry
+// written before it crashed the chat page's runtime sign-in card on every
+// load, since the page renders the cached view before its fetch returns.
+const modelConfigViewCacheVersion = 2
 export const agentModelConfigViewUpdatedEvent =
     'nca.agentModelConfigView.updated'
 
@@ -1024,7 +1028,8 @@ const isCachedModelConfigView = (
         value.agentId === agentId &&
         (value.framework === 'claude-code' || value.framework === 'codex') &&
         (value.source === 'platform' || value.source === 'runtime-local') &&
-        Array.isArray(value.availableSources)
+        Array.isArray(value.availableSources) &&
+        isObject(value.runtimeAuth)
     )
 }
 
