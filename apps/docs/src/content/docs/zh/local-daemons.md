@@ -122,6 +122,8 @@ macOS 和 Linux；Windows 需要前台进程或自行配置 service manager。
 
 hook 只在 Manyfold 打开的终端里生效（shell 带有 `MF_TERMINAL_ID`），并且不输出任何内容，所以你自己的 shell 和模型上下文都不受影响。Codex 对新装的 hook 需要你在它的 TUI 里用 `/hooks` 批准一次才会执行。
 
+Pi 没有这类 hook。在终端里续接的 Pi 对话一直停留在打开时的 session 上，关闭终端或回到 chat 视图时交还给 chat。
+
 ```sh
 mf daemon hooks install       # 为本机已有的框架安装，并在 daemon 启动时保持最新
 mf daemon hooks status        # 按框架查看安装状态

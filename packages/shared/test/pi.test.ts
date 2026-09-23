@@ -5,7 +5,8 @@ import {
     PI_PROVIDERS,
     isOfficialPiBaseUrl,
     isPiProtocol,
-    piBareModelId,
+    piModelId,
+    piProviderBaseUrl,
     piProviderForProtocol,
     piQualifiedModel
 } from '../src/pi'
@@ -43,6 +44,42 @@ test('the official base URL is recognised with or without a trailing slash, or u
         true
     )
     assert.equal(isOfficialPiBaseUrl('openai', 'https://gw.example/v1'), false)
+    // Stored the gemini-cli way (root) or the way pi itself names it.
+    assert.equal(
+        isOfficialPiBaseUrl(
+            'google',
+            'https://generativelanguage.googleapis.com'
+        ),
+        true
+    )
+    assert.equal(
+        isOfficialPiBaseUrl(
+            'google',
+            'https://generativelanguage.googleapis.com/v1beta/'
+        ),
+        true
+    )
+})
+
+test('a Gemini endpoint gets the API version pi does not append itself', () => {
+    assert.equal(
+        piProviderBaseUrl(
+            'google',
+            'https://api.netmind.ai/inference-api/gemini/'
+        ),
+        'https://api.netmind.ai/inference-api/gemini/v1beta'
+    )
+    assert.equal(
+        piProviderBaseUrl('google', 'https://gw.example/v1'),
+        'https://gw.example/v1'
+    )
+    assert.equal(
+        piProviderBaseUrl(
+            'anthropic',
+            'https://api.netmind.ai/inference-api/anthropic/'
+        ),
+        'https://api.netmind.ai/inference-api/anthropic'
+    )
 })
 
 test('a model id is always handed to pi qualified with the credential provider', () => {
@@ -62,6 +99,29 @@ test('a model id is always handed to pi qualified with the credential provider',
         model: 'openai/gpt-5.5',
         providerMismatch: 'openai'
     })
-    assert.equal(piBareModelId('anthropic/claude-opus-4-7'), 'claude-opus-4-7')
-    assert.equal(piBareModelId('claude-opus-4-7'), 'claude-opus-4-7')
+    assert.equal(piModelId('anthropic/claude-opus-4-7'), 'claude-opus-4-7')
+})
+
+test('a gateway model id keeps its slashes and is never read as another vendor', () => {
+    const gateway = 'https://api.netmind.ai/inference-api/openai/v1'
+    assert.deepEqual(
+        piQualifiedModel('openai/gpt-oss-120b', 'openai', gateway),
+        {
+            model: 'openai/openai/gpt-oss-120b',
+            providerMismatch: null
+        }
+    )
+    assert.deepEqual(
+        piQualifiedModel('deepseek-ai/DeepSeek-V3', 'anthropic', gateway),
+        { model: 'anthropic/deepseek-ai/DeepSeek-V3', providerMismatch: null }
+    )
+    assert.equal(
+        piModelId('anthropic/deepseek-ai/DeepSeek-V3'),
+        'deepseek-ai/DeepSeek-V3'
+    )
+    // On the vendor's own API an unknown prefix is still part of the id.
+    assert.deepEqual(piQualifiedModel('deepseek-ai/DeepSeek-V3', 'anthropic'), {
+        model: 'anthropic/deepseek-ai/DeepSeek-V3',
+        providerMismatch: null
+    })
 })

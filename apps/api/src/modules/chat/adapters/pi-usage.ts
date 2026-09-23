@@ -1,5 +1,4 @@
 import type { ChatUsage } from '@manyfold/shared'
-import { piBareModelId } from '@manyfold/shared'
 import type {
     ModelPriceScopeContext,
     UsagePricingService
@@ -9,7 +8,7 @@ import type {
 // cacheWrite, totalTokens, cost}) and a tool-using turn has several, so the
 // adapter sums them and prices the total once through the platform's own
 // price table — pi's `cost` is its notion of list price, not what the bound
-// provider bills.
+// provider bills. `model` is the id half: what the provider bills it under.
 export interface PiUsageTotals {
     inputTokens: number
     outputTokens: number
@@ -40,6 +39,17 @@ export const addPiUsage = (
     }
 }
 
+export const sumPiUsage = (
+    a: PiUsageTotals,
+    b: PiUsageTotals
+): PiUsageTotals => ({
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
+    messages: a.messages + b.messages
+})
+
 export const piUsageToChatUsage = (
     totals: PiUsageTotals,
     model: string | null,
@@ -51,9 +61,8 @@ export const piUsageToChatUsage = (
         scope?: ModelPriceScopeContext
     } = {}
 ): ChatUsage => {
-    const priceModel = model ? piBareModelId(model) : null
     const cost = pricing.computeCost({
-        model: priceModel,
+        model,
         inputTokens: totals.inputTokens,
         outputTokens: totals.outputTokens,
         cacheReadTokens: totals.cacheReadTokens,
@@ -63,7 +72,7 @@ export const piUsageToChatUsage = (
         modelProviderManagedBrand: opts.scope?.modelProviderManagedBrand ?? null
     })
     return {
-        model: priceModel,
+        model,
         inputTokens: totals.inputTokens,
         outputTokens: totals.outputTokens,
         cacheReadTokens: totals.cacheReadTokens,

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
+import { PI_API_KEY_ENV, isPiProvider } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -14,8 +15,8 @@ import {
 export interface ResolvedTerminalResume {
     command: string[]
     // Empty unless the framework needs platform credentials AND the sandbox
-    // opted in. These are the same three variables the chat adapter injects
-    // per exec; the difference is that here they outlive a single turn.
+    // opted in. These are the variables the chat adapter injects per exec;
+    // the difference is that here they outlive a single turn.
     env: Record<string, string>
 }
 
@@ -140,7 +141,11 @@ export class TerminalResumeService {
         if (!command) return UNAVAILABLE
 
         const inject = needsCredentials && args.injectModelCredentials
-        const env = inject ? await this.claudeCredentialEnv(args.runtimeId) : {}
+        const env = !inject
+            ? {}
+            : args.framework === 'pi'
+              ? await this.piCredentialEnv(args.runtimeId)
+              : await this.claudeCredentialEnv(args.runtimeId)
         if (inject && !Object.keys(env).length) {
             this.log.warn(
                 `terminal.resume.skipped agent=${args.agentId} reason=credentials-unreadable`
@@ -162,6 +167,39 @@ export class TerminalResumeService {
     private async claudeCredentialEnv(
         runtimeId: string
     ): Promise<Record<string, string>> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            anthropicAuthToken?: string
+            anthropicBaseUrl?: string
+        } | null
+        if (!creds?.anthropicAuthToken) return {}
+        return {
+            ANTHROPIC_BASE_URL: resolveAnthropicBaseUrl({
+                source: 'byo',
+                byoBaseUrl: creds.anthropicBaseUrl
+            }),
+            ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+        }
+    }
+
+    // pi reads its key from the vendor's env var and its gateway from the
+    // models.json the bootstrap left on the sandbox — the same split the chat
+    // adapter relies on.
+    private async piCredentialEnv(
+        runtimeId: string
+    ): Promise<Record<string, string>> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            apiKey?: string
+            provider?: unknown
+        } | null
+        if (!creds?.apiKey || !isPiProvider(creds.provider)) return {}
+        return {
+            [PI_API_KEY_ENV[creds.provider]]: creds.apiKey,
+            PI_OFFLINE: '1'
+        }
+    }
+
+    private async storedCredentials(runtimeId: string): Promise<unknown> {
         const [row] = await this.db
             .select({
                 payloadCiphertext: agentCredentials.payloadCiphertext,
@@ -170,25 +208,16 @@ export class TerminalResumeService {
             .from(agentCredentials)
             .where(eq(agentCredentials.runtimeId, runtimeId))
             .limit(1)
-        if (!row) return {}
+        if (!row) return null
         try {
-            const creds = JSON.parse(
+            return JSON.parse(
                 this.crypto.decrypt({
                     ciphertext: row.payloadCiphertext,
                     keyVersion: row.keyVersion
                 })
-            ) as { anthropicAuthToken?: string; anthropicBaseUrl?: string }
-            if (!creds.anthropicAuthToken) return {}
-            return {
-                ANTHROPIC_BASE_URL: resolveAnthropicBaseUrl({
-                    source: 'byo',
-                    byoBaseUrl: creds.anthropicBaseUrl
-                }),
-                ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
-                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
-            }
+            )
         } catch {
-            return {}
+            return null
         }
     }
 }

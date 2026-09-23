@@ -154,6 +154,7 @@ const FRAMEWORK_HOME_ROOTS = [
     join(homedir(), '.claude'),
     join(homedir(), '.codex'),
     join(homedir(), '.gemini'),
+    join(homedir(), '.pi'),
     join(homedir(), '.openclaw'),
     join(homedir(), '.hermes'),
     join(homedir(), '.narranexus')

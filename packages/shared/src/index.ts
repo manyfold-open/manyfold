@@ -563,13 +563,14 @@ export {
     PI_OFFICIAL_BASE_URL,
     PI_PROTOCOL_BY_PROVIDER,
     PI_DEFAULT_MODEL,
-    PI_MODEL_PRESETS,
+    PI_OUTRANKING_KEY_ENV,
     isPiProvider,
     isPiProtocol,
     isOfficialPiBaseUrl,
+    piModelId,
+    piProviderBaseUrl,
     piProviderForProtocol,
-    piQualifiedModel,
-    piBareModelId
+    piQualifiedModel
 } from './pi'
 export type { PiProvider, PiQualifiedModel } from './pi'
 export {

@@ -4785,7 +4785,7 @@ const zh: Translations = {
                     '自有电脑只接受厂商官方端点；sandbox 还可以使用网关地址。',
                 piModelLabel: '默认模型（可选）',
                 piModelHint:
-                    '格式为 provider/model，例如 anthropic/claude-sonnet-4-6；只写模型 id 时会自动加上上方所选厂商的前缀。',
+                    '按 provider 的命名填写模型 id，例如 claude-sonnet-4-6；留空则使用 pi 为上方所选厂商预设的默认模型。',
                 hermesPrimaryModelSection: '主模型',
                 hermesPrimaryProviderLabel: '模型厂商',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

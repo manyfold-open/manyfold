@@ -135,6 +135,8 @@ When you open a conversation's terminal from the web (the TUI resume), Manyfold 
 
 The hooks act only inside a terminal Manyfold opened (the shell carries `MF_TERMINAL_ID`) and never print anything, so your own shells and the model's context are untouched. Codex runs a newly installed hook only after you approve it once with `/hooks` in its TUI.
 
+Pi has no such hooks. A Pi conversation resumed in the terminal stays on the session it was opened with, and goes back to the chat when you close the terminal or return to the chat view.
+
 ```sh
 mf daemon hooks install       # install for the frameworks on this machine, keep current on daemon start
 mf daemon hooks status        # what is installed, per framework

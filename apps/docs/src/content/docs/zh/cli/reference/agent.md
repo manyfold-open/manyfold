@@ -87,7 +87,7 @@ Create a new agent on sprites.dev
 | `--pi-api-key <key>` | Vendor API key for pi (pi only; pair with --pi-provider) |
 | `--pi-provider <provider>` | Which vendor the pi key belongs to: anthropic \| openai \| google (pi only) |
 | `--pi-base-url <url>` | Vendor base URL override for pi (pi only; sandbox runtimes only) |
-| `--pi-model <model>` | pi default model, e.g. anthropic/claude-sonnet-4-6 (pi only) |
+| `--pi-model <model>` | pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only) |
 | `--account-id <id>` | Admin only: pin to a specific sprites.dev account id |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |

@@ -56,6 +56,16 @@ test('the handoff is offered on a daemon that advertises herdr or a sandbox that
     )
 })
 
+// herdr has no agent kind for pi, so a pi conversation keeps the browser TUI
+// even where herdr runs.
+test('the handoff is not offered for a framework herdr cannot start', () => {
+    assert.deepEqual(herdrHandoffAvailability({ ...base, framework: 'pi' }), {
+        offered: false,
+        available: false,
+        blocked: 'no-herdr'
+    })
+})
+
 // A sandbox whose runner predates the handoff shows the control disabled
 // with the Update Center as the way out; a sandbox that has not opted into
 // lending credentials to the terminal is blocked the way its resume is.

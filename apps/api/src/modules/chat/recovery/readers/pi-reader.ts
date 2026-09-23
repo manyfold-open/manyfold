@@ -26,17 +26,54 @@ const PI_RECOVERY_PARSER_VERSION = '1'
 // (`--<cwd with / → ->--`), which the API cannot compute for a remote runtime,
 // so every session file is walked; the filename carries the full session id
 // (`<ISO timestamp>_<id>.jsonl`), so a ref locates its file without a read.
-const PI_FIND = `find "\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"/sessions -type f -name '*.jsonl'`
+const PI_SESSIONS = `"\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"/sessions`
+const PI_FIND = `find ${PI_SESSIONS} -type f -name '*.jsonl'`
 
-const piSessionLocateScript = (sessionRef: string): string =>
-    `${PI_FIND.replace(`-name '*.jsonl'`, `-name ${shellEscape(`*_${sessionRef}.jsonl`)}`)} 2>/dev/null | head -1`
+// pi's directory for a cwd (session-manager getDefaultSessionDirPath): the
+// path without its leading separator, every separator and colon a dash.
+export const piSessionDirName = (cwd: string): string =>
+    `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`
+
+// `--session-id` creates a session under the id in whatever cwd it runs, so a
+// copied resume command run elsewhere leaves a second file with the same id.
+// The agent's own workspace is where its turns wrote, so that one wins.
+export const piSessionLocateScript = (
+    sessionRef: string,
+    workspacePath?: string | null
+): string => {
+    const name = shellEscape(`*_${sessionRef}.jsonl`)
+    const anywhere = `find ${PI_SESSIONS} -type f -name ${name} 2>/dev/null`
+    if (!workspacePath) return `${anywhere} | head -1`
+    const own = `find ${PI_SESSIONS}/${shellEscape(piSessionDirName(workspacePath))} -maxdepth 1 -type f -name ${name} 2>/dev/null`
+    return `{ ${own}; ${anywhere}; } | head -1`
+}
+
+// `wc -l` of the session file: its newline-terminated lines, the sourceSeq a
+// full read gives the last complete entry and the unit the session's
+// runtime-sync cursor is kept in. Exit 2 when there is no file yet.
+export const piSessionLineCountScript = (
+    sessionRef: string,
+    workspacePath?: string | null
+): string =>
+    [
+        `f=$(${piSessionLocateScript(sessionRef, workspacePath)})`,
+        'if [ -z "$f" ]; then exit 2; fi',
+        'wc -l < "$f"'
+    ].join('; ')
+
+export const parsePiSessionLineCount = (
+    stdout: string | null
+): number | null => {
+    const match = stdout?.trim().match(/^\d+$/)
+    return match ? Number(match[0]) : null
+}
 
 export class PiSessionReader implements SessionReader {
     readonly framework: AgentFramework = 'pi'
 
     async readMessages(ctx: ReaderContext): Promise<ReaderResult> {
         const sourceFile = await ctx.fs.locate(
-            piSessionLocateScript(ctx.frameworkSessionRef)
+            piSessionLocateScript(ctx.frameworkSessionRef, ctx.workspacePath)
         )
         if (!sourceFile)
             return {
@@ -337,6 +374,10 @@ export const parsePiJsonl = (
 
         if (message.role === 'assistant') {
             flush()
+            // A failed attempt: pi retried it (and, since 0.87, edited it out
+            // of the model's context) or gave up with the error shown, which
+            // is not something the model said.
+            if (message.stopReason === 'error') continue
             const model =
                 qualifiedModel(message.provider, message.model) ?? currentModel
             const blocks: ChatContentBlock[] = []
@@ -403,8 +444,9 @@ export const parsePiJsonl = (
             })
             continue
         }
-        // bashExecution / custom / branchSummary / compactionSummary are pi's
-        // own bookkeeping, not conversation.
+        // system (the prompt and tool loadout), bashExecution, custom,
+        // branchSummary and compactionSummary are pi's own bookkeeping, not
+        // conversation; context_edit and usage entries are not messages.
     }
     flush()
 

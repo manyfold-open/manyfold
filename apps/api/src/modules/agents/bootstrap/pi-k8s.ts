@@ -3,7 +3,8 @@ import {
     PI_API_KEY_ENV,
     codingAgentHomeRootForWorkspacePath,
     codingAgentWorkspacePath,
-    isOfficialPiBaseUrl
+    isOfficialPiBaseUrl,
+    piProviderBaseUrl
 } from '@manyfold/shared'
 import { Injectable } from '@nestjs/common'
 import type { ResolvedPiCredentials } from '@/modules/agents/credentials/resolved-credentials'
@@ -45,7 +46,12 @@ export class PiK8sBootstrap implements K8sFrameworkBootstrap {
                 // absent), so a credential re-apply is just a pod restart.
                 PI_PROVIDER: creds.provider,
                 ...(baseUrl && !isOfficialPiBaseUrl(creds.provider, baseUrl)
-                    ? { PI_BASE_URL: baseUrl }
+                    ? {
+                          PI_BASE_URL: piProviderBaseUrl(
+                              creds.provider,
+                              baseUrl
+                          )
+                      }
                     : {}),
                 PI_OFFLINE: '1',
                 WORKSPACE_DIR: workspacePath,

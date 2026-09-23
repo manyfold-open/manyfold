@@ -16,6 +16,7 @@ import {
     isManagedProtocolAllowedForFramework,
     isPiProvider,
     lookupBuiltIn,
+    PI_PROVIDERS,
     providerProtocolForTarget,
     providerSupportsTarget
 } from '@manyfold/shared'
@@ -33,6 +34,7 @@ import {
     ProviderIcon,
     RefreshIcon
 } from '@/components/icons'
+import { FilterChip, FilterChipRow } from '@/components/FilterChip'
 import { Spinner } from '@/components/Loading'
 import ProductDialog from '@/components/ProductDialog'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -171,8 +173,8 @@ const buildBody = (
     framework: AgentFramework,
     picker: ProviderPickerValue,
     model: string,
-    // The vendor the agent's current credential belongs to; a re-pasted pi
-    // key must name its vendor and the dialog has no picker for it.
+    // The vendor the credential is being bound under; a pasted pi key must
+    // name it.
     provider: UserModelProvider
 ): UpdateAgentCredentialsBody => {
     const baseUrl = picker.baseUrl.trim()
@@ -208,10 +210,17 @@ const buildBody = (
                 },
                 model
             )
+        // The vendor also picks which protocol a provider speaking several
+        // of them serves.
         if (framework === 'pi')
             return applyModel(
                 framework,
-                { piCredentials: { providerId: picker.providerId } },
+                {
+                    piCredentials: {
+                        providerId: picker.providerId,
+                        ...(isPiProvider(provider) ? { provider } : {})
+                    }
+                },
                 model
             )
         if (framework === 'openclaw')
@@ -338,8 +347,13 @@ const AgentCredentialsDialog: FC<Props> = ({
     )
     const [providerTesting, setProviderTesting] = useState(false)
 
+    // pi binds a provider of any of its three vendors, so its vendor is
+    // chosen here rather than fixed by the credential it has today.
+    const [piVendor, setPiVendor] = useState<UserModelProvider | null>(null)
     const providerHint =
-        view?.provider ?? DEFAULT_PROVIDER_BY_FRAMEWORK[framework]
+        (framework === 'pi' ? piVendor : null) ??
+        view?.provider ??
+        DEFAULT_PROVIDER_BY_FRAMEWORK[framework]
     const boundProviderId = view?.savedProvider?.id ?? null
     const filteredSaved = useMemo(
         () =>
@@ -843,6 +857,35 @@ const AgentCredentialsDialog: FC<Props> = ({
                             <h3 className='text-ui text-fg font-medium'>
                                 {t('web.credentials.provider')}
                             </h3>
+
+                            {framework === 'pi' && (
+                                <FilterChipRow
+                                    ariaLabel={t(
+                                        'web.agentNew.providerFamilyAria'
+                                    )}
+                                >
+                                    {PI_PROVIDERS.map((vendor) => (
+                                        <FilterChip
+                                            key={vendor}
+                                            label={providerLabel[vendor]}
+                                            count={
+                                                savedProviders.filter((o) =>
+                                                    providerSupportsTarget(
+                                                        o,
+                                                        vendor
+                                                    )
+                                                ).length
+                                            }
+                                            active={providerHint === vendor}
+                                            onSelect={() => {
+                                                setPiVendor(vendor)
+                                                setError(null)
+                                                setSuccessMsg(null)
+                                            }}
+                                        />
+                                    ))}
+                                </FilterChipRow>
+                            )}
 
                             <div ref={providerAnchorRef} className='relative'>
                                 <button

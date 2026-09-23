@@ -1,4 +1,3 @@
-import { PI_MODEL_PRESETS } from '@manyfold/shared'
 import type {
     AgentFramework,
     UserModelProvider
@@ -73,10 +72,10 @@ const frameworkMeta = {
         mono: false,
         iconSrc: piLightIcon,
         iconSrcDark: piDarkIcon,
-        // pi speaks three vendor protocols, so ids carry their provider
-        // prefix; AgentChat adds the bound provider's models at runtime.
+        // Like hermes: options come from the bound provider's models at
+        // runtime — the id a gateway serves is not a vendor preset.
         supportsModelOverride: true,
-        modelPresets: PI_MODEL_PRESETS,
+        modelPresets: [],
         defaultProvider: 'anthropic'
     },
     openclaw: {

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import 'reflect-metadata'
 import { BadRequestException } from '@nestjs/common'
+import { plainToInstance } from 'class-transformer'
+import { validate } from 'class-validator'
+import { UpdateAgentCredentialsDto } from '../src/modules/agents/dto/update-agent-credentials.dto'
 import {
     buildPiModelsJson,
     piAgentDirReconcileScript
@@ -18,9 +22,21 @@ test('models.json exists only for a non-official base URL and names the provider
         null
     )
     assert.equal(buildPiModelsJson('openai', 'https://api.openai.com/v1'), null)
+    assert.equal(
+        buildPiModelsJson(
+            'google',
+            'https://generativelanguage.googleapis.com'
+        ),
+        null
+    )
+    // Stored the gemini-cli way; pi needs the API version in the override.
     assert.deepEqual(
         JSON.parse(buildPiModelsJson('google', 'https://gw.example/google')!),
-        { providers: { google: { baseUrl: 'https://gw.example/google' } } }
+        {
+            providers: {
+                google: { baseUrl: 'https://gw.example/google/v1beta' }
+            }
+        }
     )
 })
 
@@ -106,6 +122,13 @@ const providerRows: Record<
         apiKey: 'sk-cc',
         baseUrl: 'https://gw.example/v1',
         source: 'byo'
+    },
+    ump_netmind: {
+        inferenceProtocol: null,
+        builtInId: 'netmind',
+        apiKey: 'nm-key',
+        baseUrl: null,
+        source: 'byo'
     }
 }
 
@@ -150,6 +173,42 @@ test('a saved provider of each native protocol resolves to the matching pi provi
     } as never)
     assert.equal((google.value as ResolvedPiCredentials).provider, 'google')
     assert.equal((google.value as ResolvedPiCredentials).baseUrl, undefined)
+})
+
+test('a built-in speaking several protocols serves the vendor it was picked under', async () => {
+    const svc = resolver()
+    const picked = async (provider?: string) =>
+        (
+            await svc.resolve('user-1', {
+                framework: 'pi',
+                runtime: 'sprites',
+                piCredentials: {
+                    providerId: 'ump_netmind',
+                    ...(provider ? { provider } : {})
+                }
+            } as never)
+        ).value as ResolvedPiCredentials
+    const openai = await picked('openai')
+    assert.equal(openai.provider, 'openai')
+    assert.equal(openai.inferenceProtocol, 'openai_responses')
+    assert.equal(
+        openai.baseUrl,
+        'https://api.netmind.ai/inference-api/openai/v1'
+    )
+    assert.equal((await picked('google')).provider, 'google')
+    assert.equal(
+        (await picked()).provider,
+        'anthropic',
+        'first pi protocol it speaks'
+    )
+    // A custom row speaks one protocol; a vendor naming another is refused.
+    await assert.rejects(
+        svc.resolve('user-1', {
+            framework: 'pi',
+            piCredentials: { providerId: 'ump_anthropic', provider: 'openai' }
+        } as never),
+        /expected one of openai_responses/
+    )
 })
 
 test('a provider speaking a protocol pi has no built-in for is refused', async () => {
@@ -261,4 +320,30 @@ test('an update patches the model alone, replaces the key with its provider, and
         }),
         /provider can only change together with apiKey or providerId/
     )
+})
+
+test('the credentials PATCH body keeps piCredentials through validation', async () => {
+    const dto = plainToInstance(UpdateAgentCredentialsDto, {
+        piCredentials: {
+            apiKey: 'pikey-pikey-pikey',
+            provider: 'openai',
+            model: 'gpt-5.5'
+        }
+    })
+    assert.deepEqual(await validate(dto, { whitelist: true }), [])
+    assert.equal(dto.piCredentials?.apiKey, 'pikey-pikey-pikey')
+    assert.equal(dto.piCredentials?.provider, 'openai')
+    assert.equal(dto.piCredentials?.model, 'gpt-5.5')
+
+    const keyWithoutVendor = plainToInstance(UpdateAgentCredentialsDto, {
+        piCredentials: { apiKey: 'pikey-pikey-pikey' }
+    })
+    assert.match(
+        JSON.stringify(await validate(keyWithoutVendor)),
+        /piCredentials\.provider is required with apiKey/
+    )
+    const badVendor = plainToInstance(UpdateAgentCredentialsDto, {
+        piCredentials: { providerId: 'ump_1', provider: 'mistral' }
+    })
+    assert.notDeepEqual(await validate(badVendor), [])
 })

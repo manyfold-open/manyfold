@@ -86,10 +86,12 @@ import {
     type PersistentModelProvider
 } from '@/lib/agentCreateDraft'
 import {
+    defaultPersistentModelProvider,
     frameworkOptions,
     isCreateableFramework,
     isExternalFramework,
     isK8sOnlyFramework,
+    persistentModelProvidersFor,
     REUSE_FRAMEWORKS,
     reuseRuntimeKindsFor,
     supportsSandbox,
@@ -1014,10 +1016,13 @@ const AgentNew: FC = (): ReactNode => {
         if (!selected) return
         const family = providerFamilyOf(selected, providerFamilies)
         if (
-            (family === 'anthropic' || family === 'openai') &&
-            family !== persistentModelProvider
+            family &&
+            family !== persistentModelProvider &&
+            persistentModelProvidersFor(framework).includes(
+                family as PersistentModelProvider
+            )
         )
-            setPersistentModelProvider(family)
+            setPersistentModelProvider(family as PersistentModelProvider)
     }, [
         framework,
         persistentModelProvider,
@@ -1245,24 +1250,30 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
         setFrameworkVersionSel('')
-        const nextFamilies = usesConfigurableModelProvider(next)
-            ? ['openai' as const, 'anthropic' as const]
-            : [modelProviderForFramework(next)]
+        const defaultFamily = defaultPersistentModelProvider(next)
+        const nextFamilies: readonly UserModelProvider[] =
+            usesConfigurableModelProvider(next)
+                ? [
+                      defaultFamily,
+                      ...persistentModelProvidersFor(next).filter(
+                          (family) => family !== defaultFamily
+                      )
+                  ]
+                : [modelProviderForFramework(next)]
         const preferred = preferredSavedProviderForFamilies(
             providers,
             nextFamilies,
             next
         )
-        // OpenClaw / Hermes take either vendor: the one the preferred saved
-        // provider speaks, else OpenAI as before.
+        // OpenClaw, Hermes and pi take several vendors: the one the preferred
+        // saved provider speaks, else the framework's default.
         const preferredFamily = preferred
             ? providerFamilyOf(preferred, nextFamilies)
             : null
         const nextPersistentProvider: PersistentModelProvider =
             usesConfigurableModelProvider(next)
-                ? preferredFamily === 'anthropic'
-                    ? 'anthropic'
-                    : 'openai'
+                ? ((preferredFamily as PersistentModelProvider | null) ??
+                  defaultFamily)
                 : modelProviderForFramework(next) === 'google'
                   ? 'anthropic'
                   : (modelProviderForFramework(next) as PersistentModelProvider)

@@ -156,14 +156,22 @@ class GeminiCliCredentialsDto {
     readonly __googleCredGuard?: unknown
 }
 
+const PI_PROVIDER_MESSAGE = (args: ValidationArguments): string =>
+    args.value === undefined
+        ? 'piCredentials.provider is required with apiKey'
+        : `piCredentials.provider must be one of ${PI_PROVIDERS.join(', ')}`
+
 class PiCredentialsDto {
     @IsOptional()
     @IsString()
     @Length(10, 1024)
     apiKey?: string
 
-    @IsOptional()
-    @IsIn(PI_PROVIDERS)
+    // A raw key says nothing about which vendor it belongs to, and pi's
+    // default provider depends on the host's ambient credentials. Beside a
+    // providerId it picks which protocol a multi-protocol provider serves.
+    @ValidateIf((o: PiCredentialsDto) => o.provider !== undefined || !!o.apiKey)
+    @IsIn(PI_PROVIDERS, { message: PI_PROVIDER_MESSAGE })
     provider?: PiProvider
 
     @IsOptional()
@@ -187,14 +195,6 @@ class PiCredentialsDto {
         'exactly one of apiKey or providerId is required'
     )
     readonly __piCredGuard?: unknown
-
-    // A raw key says nothing about which vendor it belongs to, and pi's
-    // default provider depends on the host's ambient credentials.
-    @PairTogether(
-        ['apiKey', 'provider'],
-        'piCredentials.provider is required with apiKey'
-    )
-    readonly __piProviderGuard?: unknown
 }
 
 class OpenclawCredentialsDto {

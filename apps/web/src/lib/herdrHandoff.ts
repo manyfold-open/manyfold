@@ -5,6 +5,7 @@ import type {
 } from '@manyfold/shared'
 import type { TFn } from '@/lib/i18n'
 import {
+    supportsTerminalResume,
     terminalResumeAvailability,
     type TerminalResumeBlocked
 } from '@/lib/terminalResume'
@@ -35,6 +36,14 @@ export interface HerdrHandoffAvailability {
     blocked: HerdrHandoffBlocked | null
 }
 
+// herdr starts the TUI as one of its own agent kinds, which exist for Claude
+// Code and Codex. A framework only the browser terminal can resume (pi) keeps
+// that control; one neither can resume shows this one disabled, as before.
+const HERDR_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
+    'claude-code',
+    'codex'
+])
+
 export const herdrHandoffAvailability = (args: {
     runtime: AgentRuntime
     running: boolean
@@ -56,7 +65,11 @@ export const herdrHandoffAvailability = (args: {
 }): HerdrHandoffAvailability => {
     const onDaemon = args.runtime === 'daemon' && args.daemonCanOpenInHerdr
     const onSandbox = args.runtime === 'sprites' && args.sandboxHasHerdr
-    if (!onDaemon && !onSandbox)
+    if (
+        (!onDaemon && !onSandbox) ||
+        (supportsTerminalResume(args.framework) &&
+            !HERDR_FRAMEWORKS.has(args.framework))
+    )
         return { offered: false, available: false, blocked: 'no-herdr' }
     if (!args.running)
         return { offered: true, available: false, blocked: 'agent-not-running' }

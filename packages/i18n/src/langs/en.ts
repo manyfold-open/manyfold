@@ -5019,7 +5019,7 @@ const en = {
                     'Self-owned computers accept only the official vendor endpoint; sandboxes also accept a gateway URL.',
                 piModelLabel: 'Default model (optional)',
                 piModelHint:
-                    'provider/model, e.g. anthropic/claude-sonnet-4-6. A bare model id is qualified with the provider selected above.',
+                    'The model id as the provider names it, e.g. claude-sonnet-4-6. Blank uses pi\u2019s default for the provider selected above.',
                 hermesPrimaryModelSection: 'Primary model',
                 hermesPrimaryProviderLabel: 'Provider',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

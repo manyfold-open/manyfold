@@ -25,6 +25,9 @@ const RESUME_SUPPORT: Partial<
     pi: { needsModelCredentials: true }
 }
 
+export const supportsTerminalResume = (framework: AgentFramework): boolean =>
+    Boolean(RESUME_SUPPORT[framework])
+
 export type TerminalResumeBlocked =
     | 'runtime-unsupported'
     | 'daemon-needs-upgrade'

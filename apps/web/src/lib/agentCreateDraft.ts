@@ -312,9 +312,10 @@ const buildGeminiPayload = (
     }
 }
 
-// A saved provider carries its vendor in its protocol; a pasted key does not,
-// so the picker's vendor choice rides along (the API rejects a key without
-// one). The model is optional and may already be `<provider>/<id>`.
+// A pasted key says nothing about its vendor, so the picker's vendor choice
+// rides along (the API rejects a key without one); beside a saved provider it
+// picks which protocol a provider speaking several of them serves. The model
+// is the id the provider knows it by.
 const buildPiPayload = (
     p: ProviderPickerValue,
     provider: PersistentModelProvider | undefined,
@@ -322,7 +323,12 @@ const buildPiPayload = (
 ): PiCredentialsInput => {
     const trimmedModel = trimOptional(model)
     const modelField = trimmedModel ? { model: trimmedModel } : {}
-    if (p.mode === 'saved') return { providerId: p.providerId, ...modelField }
+    if (p.mode === 'saved')
+        return {
+            providerId: p.providerId,
+            ...(provider ? { provider } : {}),
+            ...modelField
+        }
     const baseUrl = normalizeProviderBaseUrl(p.baseUrl)
     return {
         apiKey: p.apiKey,

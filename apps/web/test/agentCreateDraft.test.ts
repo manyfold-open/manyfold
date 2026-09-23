@@ -202,12 +202,14 @@ test('pi builds piCredentials and never falls into the hermes arm', () => {
         picker: { ...inlinePicker(), mode: 'saved', providerId: 'ump_1' },
         runtimeMode: 'sandbox',
         persistentModelProvider: 'openai',
-        primaryModelName: ' openai/gpt-5.5 '
+        primaryModelName: ' gpt-5.5 '
     })
     assert.equal(saved.runtime, 'sprites')
+    // The vendor chip the provider was picked under decides its protocol.
     assert.deepEqual(saved.piCredentials, {
         providerId: 'ump_1',
-        model: 'openai/gpt-5.5'
+        provider: 'openai',
+        model: 'gpt-5.5'
     })
     assert.equal('hermesCredentials' in saved, false)
     assert.equal('modelConfigSource' in saved, false)

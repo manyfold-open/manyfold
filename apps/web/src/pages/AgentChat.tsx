@@ -919,7 +919,8 @@ const AgentChat: FC = (): ReactNode => {
             if (!aid || !sid || !currentAgent) return
             if (
                 currentAgent.framework !== 'claude-code' &&
-                currentAgent.framework !== 'codex'
+                currentAgent.framework !== 'codex' &&
+                currentAgent.framework !== 'pi'
             )
                 return
             if (currentAgent.runtime === 'external') return

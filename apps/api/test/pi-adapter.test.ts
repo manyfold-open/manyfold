@@ -8,11 +8,12 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 
-// The stdout fixtures are real `pi --mode json` output (pi 0.85.1, macOS dev
-// [2026-09-10]) against a local anthropic-messages stub: one turn that streams
+// The stdout fixtures are real `pi --mode json` output (pi 0.87.1, macOS dev
+// [2026-09-23]) against a local anthropic-messages stub: one turn that streams
 // text, calls `bash`, and answers; the same session resumed with
-// `--session-id`; and a provider 401. The stub is what makes them safe to
-// commit — no real key ever reached pi.
+// `--session-id`; a provider 401; and a turn whose first request got a 529
+// that pi retried. The stub is what makes them safe to commit — no real key
+// ever reached pi.
 const fixture = (name: string): string =>
     readFileSync(join(__dirname, 'fixtures', 'pi', name), 'utf8')
 
@@ -72,6 +73,8 @@ const buildSeam = (opts: {
     const streams: CapturedStream[] = []
     const forAgentCalls: unknown[][] = []
     const refs: Array<string | null> = []
+    const cursors: Array<number | null> = []
+    const countScripts: string[] = []
     const runtime = opts.runtime ?? 'sprites'
     const stream = (req: CapturedStream) => {
         streams.push(req)
@@ -110,7 +113,16 @@ const buildSeam = (opts: {
                 }),
                 authContext: null
             }
-        }
+        },
+        recoveryFsForAgent: async () => ({
+            agent: { workspacePath: '/home/sprite/.manyfold/workspaces/agt_1' },
+            fs: {
+                exec: async (script: string) => {
+                    countScripts.push(script)
+                    return '14\n'
+                }
+            }
+        })
     }
     const chatRepo = {
         updateFrameworkSessionRef: async (
@@ -118,6 +130,12 @@ const buildSeam = (opts: {
             ref: string | null
         ) => {
             refs.push(ref)
+        },
+        setRuntimeSyncCursor: async (
+            _sessionId: string,
+            cursor: number | null
+        ) => {
+            cursors.push(cursor)
         }
     }
     const pricing = {
@@ -136,7 +154,7 @@ const buildSeam = (opts: {
         pricing as never,
         adminSettings as never
     )
-    return { adapter, streams, forAgentCalls, refs }
+    return { adapter, streams, forAgentCalls, refs, cursors, countScripts }
 }
 
 const ctx = (
@@ -180,7 +198,7 @@ const drain = async (
 const errorOf = (events: EmittedChatEvent[]) =>
     events.find((e) => e.type === 'error')?.error ?? null
 
-test('a sprite turn passes the prompt on stdin, mints and persists the session id before exec, and injects the vendor key', async () => {
+test('a sprite turn passes the prompt on stdin, records the minted session id once pi wrote the session, and injects the vendor key', async () => {
     const { adapter, streams, refs } = buildSeam({
         stdout: fixture('turn-tool-call.stdout.jsonl')
     })
@@ -196,8 +214,8 @@ test('a sprite turn passes the prompt on stdin, mints and persists the session i
     ])
     const sid = stream.cmd[stream.cmd.indexOf('--session-id') + 1]
     assert.equal(sid, FIXTURE_SESSION_ID)
-    // Persisted before the exec was even dispatched, as the very same id; the
-    // header pi echoed matched it, so nothing was written a second time.
+    // Recorded once, as the very same id, when pi's first assistant message
+    // proved the session file exists.
     assert.deepEqual(refs, [sid])
     assert.equal(
         stream.cmd[stream.cmd.indexOf('--model') + 1],
@@ -208,9 +226,48 @@ test('a sprite turn passes the prompt on stdin, mints and persists the session i
     assert.equal(stream.stdin, 'list the files')
     assert.ok(!stream.cmd.includes('--'), 'no positional prompt')
     assert.equal(stream.env?.ANTHROPIC_API_KEY, 'sk-marker')
+    // A token the host exports would outrank the key; pi skips an empty one.
+    assert.equal(stream.env?.ANTHROPIC_AUTH_TOKEN, '')
+    assert.equal(stream.env?.ANTHROPIC_OAUTH_TOKEN, '')
     assert.equal(stream.env?.PI_OFFLINE, '1')
     assert.equal(stream.dir, '/home/sprite/.manyfold/workspaces/agt_1')
     assert.equal(stream.execHandle, 'msg_1', 'resumable by message id')
+})
+
+test('a settled turn records how far the session file reaches, so a TUI sync takes only what lies past it', async () => {
+    const { adapter, cursors, countScripts } = buildSeam({
+        stdout: fixture('turn-tool-call.stdout.jsonl')
+    })
+    const events = await drain(
+        adapter.sendMessage(ctx(), userMessage('list the files'))
+    )
+    assert.equal(events.at(-1)?.type, 'done')
+    assert.deepEqual(cursors, [14])
+    assert.equal(countScripts.length, 1)
+    assert.match(countScripts[0], new RegExp(`_${FIXTURE_SESSION_ID}\\.jsonl`))
+    assert.match(countScripts[0], /--home-sprite-\.manyfold-workspaces-agt_1--/)
+    assert.match(countScripts[0], /wc -l < "\$f"$/)
+
+    // A provider refusal still settles the file pi wrote.
+    const refused = buildSeam({
+        stdout: fixture('turn-provider-401.stdout.jsonl')
+    })
+    await drain(refused.adapter.sendMessage(ctx(), userMessage('hello')))
+    assert.deepEqual(refused.cursors, [14])
+
+    // A turn that never produced a session file has nothing to count.
+    const early = buildSeam({
+        stdout: LINE({
+            type: 'session',
+            version: 3,
+            id: FIXTURE_SESSION_ID,
+            cwd: '/w'
+        }),
+        exitCode: 1,
+        stderr: 'boom'
+    })
+    await drain(early.adapter.sendMessage(ctx(), userMessage('hi')))
+    assert.deepEqual(early.cursors, [])
 })
 
 test('the turn rides the runner the pipeline admitted and reports the price scope it dispatched under', async () => {
@@ -275,7 +332,7 @@ test('the real tool-call turn streams text, one tool call/result pair, summed us
     assert.equal(calls.length, 1)
     assert.deepEqual(calls[0], {
         type: 'tool_call',
-        toolCallId: 'toolu_stub_01',
+        toolCallId: 'toolu_stub_toolcall_1',
         toolName: 'bash',
         args: { command: 'ls' }
     })
@@ -283,7 +340,7 @@ test('the real tool-call turn streams text, one tool call/result pair, summed us
     assert.equal(results.length, 1)
     assert.equal(
         (results[0] as { toolCallId: string }).toolCallId,
-        'toolu_stub_01'
+        'toolu_stub_toolcall_1'
     )
     const usage = events.find((e) => e.type === 'usage')
     assert.ok(usage && usage.type === 'usage')
@@ -296,7 +353,7 @@ test('the real tool-call turn streams text, one tool call/result pair, summed us
     assert.equal(usage.usage.costUsd, 0.5)
     assert.equal(events.at(-1)?.type, 'done')
     const raw = events.filter((e) => e.type === 'raw_source')
-    assert.equal(raw.length, 30, 'every stdout line is kept as a raw source')
+    assert.equal(raw.length, 33, 'every stdout line is kept as a raw source')
     assert.equal(
         (raw[0] as { source: { sourceRef: string } }).source.sourceRef,
         '11111111-2222-4333-8444-555555555555'
@@ -459,7 +516,298 @@ test('a provider 401 (exit 0, stopReason error) is a pi_result_error, not a sile
     assert.equal(
         refs.length,
         1,
-        'the minted ref stays: a 401 is not a session defect'
+        'pi wrote the failed attempt to the session, so the ref is kept'
+    )
+})
+
+test('a 529 that pi retried is a normal turn, not the error of the failed attempt', async () => {
+    const { adapter } = buildSeam({
+        stdout: fixture('turn-retry-529.stdout.jsonl')
+    })
+    const events = await drain(
+        adapter.sendMessage(ctx(), userMessage('list the files'))
+    )
+    assert.equal(errorOf(events), null)
+    assert.equal(events.at(-1)?.type, 'done')
+    assert.equal(
+        tokensOf(events),
+        'Let me list the files.Done: there are two files here.'
+    )
+    const usage = events.find((e) => e.type === 'usage')
+    assert.ok(usage && usage.type === 'usage')
+    assert.equal(usage.usage.inputTokens, 270)
+    assert.equal(usage.usage.outputTokens, 26)
+})
+
+test('a retry after streamed text starts the retried answer on a new paragraph', async () => {
+    const stdout =
+        LINE({ type: 'session', version: 3, id: 'ref-1', cwd: '/w' }) +
+        LINE({
+            type: 'message_start',
+            message: { role: 'assistant', content: [] }
+        }) +
+        LINE({
+            type: 'message_update',
+            usage: {},
+            assistantMessageEvent: {
+                type: 'text_delta',
+                contentIndex: 0,
+                delta: 'Half an ans'
+            }
+        }) +
+        LINE({
+            type: 'message_end',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Half an ans' }],
+                stopReason: 'error',
+                errorMessage: 'terminated',
+                usage: { input: 5, output: 3 }
+            }
+        }) +
+        LINE({
+            type: 'agent_end',
+            messages: [
+                {
+                    role: 'assistant',
+                    stopReason: 'error',
+                    usage: { input: 5, output: 3 }
+                }
+            ],
+            willRetry: true
+        }) +
+        LINE({
+            type: 'auto_retry_start',
+            attempt: 1,
+            maxAttempts: 3,
+            delayMs: 2000,
+            errorMessage: 'terminated'
+        }) +
+        LINE({
+            type: 'message_start',
+            message: { role: 'assistant', content: [] }
+        }) +
+        LINE({
+            type: 'message_update',
+            usage: {},
+            assistantMessageEvent: {
+                type: 'text_delta',
+                contentIndex: 0,
+                delta: 'A whole answer.'
+            }
+        }) +
+        LINE({
+            type: 'message_end',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'A whole answer.' }],
+                stopReason: 'stop',
+                model: 'claude-sonnet-4-6',
+                usage: { input: 7, output: 4 }
+            }
+        }) +
+        LINE({ type: 'auto_retry_end', success: true, attempt: 1 }) +
+        LINE({
+            type: 'agent_end',
+            messages: [
+                {
+                    role: 'assistant',
+                    stopReason: 'stop',
+                    model: 'claude-sonnet-4-6',
+                    usage: { input: 7, output: 4 }
+                }
+            ],
+            willRetry: false
+        })
+    const { adapter } = buildSeam({ stdout })
+    const events = await drain(
+        adapter.sendMessage(
+            ctx({ frameworkSessionRef: 'ref-1' }),
+            userMessage('hi')
+        )
+    )
+    assert.equal(errorOf(events), null)
+    assert.equal(tokensOf(events), 'Half an ans\n\nA whole answer.')
+    const usage = events.find((e) => e.type === 'usage')
+    assert.ok(usage && usage.type === 'usage')
+    assert.equal(usage.usage.inputTokens, 12, 'the failed attempt billed too')
+})
+
+test('a turn that dies before pi answers records no ref, so the next one replays the transcript', async () => {
+    const { adapter, refs } = buildSeam({
+        stdout:
+            LINE({
+                type: 'session',
+                version: 3,
+                id: FIXTURE_SESSION_ID,
+                cwd: '/w'
+            }) +
+            LINE({ type: 'agent_start' }) +
+            LINE({
+                type: 'message_start',
+                message: { role: 'user', content: 'hi' }
+            }),
+        exitCode: 124,
+        stderr: 'timed out'
+    })
+    const events = await drain(adapter.sendMessage(ctx(), userMessage('hi')))
+    assert.equal(errorOf(events)?.code, 'pi_exec_failed')
+    assert.equal(errorOf(events)?.retryable, true)
+    assert.deepEqual(refs, [], 'no session file exists under the minted id')
+})
+
+test('usage comes from the finished run, so a resume past the message lines still bills them, plus compaction and cache warming', async () => {
+    const stdout =
+        LINE({
+            type: 'compaction_end',
+            reason: 'threshold',
+            result: {
+                summary: 's',
+                usage: { input: 900, output: 60, cacheRead: 0, cacheWrite: 0 }
+            },
+            aborted: false,
+            willRetry: false
+        }) +
+        LINE({
+            type: 'entry_appended',
+            entry: {
+                type: 'usage',
+                id: 'u1',
+                parentId: 'x',
+                kind: 'cache_warm',
+                usage: { input: 0, output: 0, cacheRead: 5000, cacheWrite: 0 }
+            }
+        }) +
+        LINE({
+            type: 'agent_end',
+            messages: [
+                {
+                    role: 'assistant',
+                    model: 'claude-sonnet-4-6',
+                    usage: {
+                        input: 120,
+                        output: 17,
+                        cacheRead: 3,
+                        cacheWrite: 2
+                    }
+                },
+                { role: 'toolResult' },
+                {
+                    role: 'assistant',
+                    model: 'claude-sonnet-4-6',
+                    usage: {
+                        input: 150,
+                        output: 9,
+                        cacheRead: 3,
+                        cacheWrite: 2
+                    }
+                }
+            ],
+            willRetry: false
+        })
+    const drivers = {
+        daemonDriverFor: () => ({
+            stream: () => handleFor(''),
+            resumeStream: () => handleFor(stdout)
+        })
+    }
+    const adapter = new PiAdapter(
+        drivers as never,
+        { updateFrameworkSessionRef: async () => {} } as never,
+        { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
+        {
+            getCachedChatExecTimeoutMs: async () => ({
+                timeoutMs: 1000,
+                keepAliveMs: 1000,
+                livenessTimeoutMs: 1000
+            })
+        } as never
+    )
+    const events = await drain(
+        adapter.resumeMessage(
+            ctx({
+                frameworkSessionRef: 'ref-1',
+                daemonId: 'dh_runner',
+                daemonExecRef: 'msg_1',
+                fromSeq: 40
+            } as never) as never
+        )
+    )
+    const usage = events.find((e) => e.type === 'usage')
+    assert.ok(usage && usage.type === 'usage')
+    assert.equal(usage.usage.inputTokens, 1170)
+    assert.equal(usage.usage.outputTokens, 86)
+    assert.equal(usage.usage.cacheReadTokens, 5006)
+    assert.equal(usage.usage.model, 'claude-sonnet-4-6')
+})
+
+test('a resume that starts inside a message does not repeat what streamed before the cursor', async () => {
+    const stdout =
+        LINE({
+            type: 'message_update',
+            usage: {},
+            assistantMessageEvent: {
+                type: 'text_delta',
+                contentIndex: 0,
+                delta: ' tail.'
+            }
+        }) +
+        LINE({
+            type: 'message_end',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Streamed head, tail.' }],
+                stopReason: 'stop',
+                usage: { input: 1, output: 1 }
+            }
+        })
+    const drivers = {
+        daemonDriverFor: () => ({
+            stream: () => handleFor(''),
+            resumeStream: () => handleFor(stdout)
+        })
+    }
+    const adapter = new PiAdapter(
+        drivers as never,
+        { updateFrameworkSessionRef: async () => {} } as never,
+        { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never
+    )
+    const events = await drain(
+        adapter.resumeMessage(
+            ctx({
+                frameworkSessionRef: 'ref-1',
+                daemonId: 'dh_runner',
+                daemonExecRef: 'msg_1',
+                fromSeq: 9
+            } as never) as never
+        )
+    )
+    assert.equal(tokensOf(events), ' tail.')
+})
+
+test('a gateway model id with a slash reaches pi whole under the credential provider', async () => {
+    const { adapter, streams } = buildSeam({
+        stdout: fixture('turn-resumed.stdout.jsonl'),
+        creds: {
+            apiKey: 'sk-marker',
+            provider: 'anthropic',
+            baseUrl: 'https://api.netmind.ai/inference-api/anthropic'
+        }
+    })
+    const events = await drain(
+        adapter.sendMessage(
+            ctx({
+                frameworkSessionRef: 'ref-1',
+                model: 'deepseek-ai/DeepSeek-V3'
+            }),
+            userMessage('hi')
+        )
+    )
+    assert.equal(errorOf(events), null)
+    const [stream] = streams
+    assert.equal(
+        stream.cmd[stream.cmd.indexOf('--model') + 1],
+        'anthropic/deepseek-ai/DeepSeek-V3'
     )
 })
 

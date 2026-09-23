@@ -8,18 +8,25 @@ import {
     piRefFromPath
 } from '../src/modules/chat/recovery/readers/pi-reader'
 
-// session.jsonl is the file pi 0.85.1 wrote for the two fixture turns in
-// pi-adapter.test.ts: header, model_change, thinking_level_change, then a
-// user → assistant(text + toolCall) → toolResult → assistant → user →
-// assistant chain, one entry per line, each naming its parent.
+// session.jsonl is the file pi 0.87.1 wrote for the two fixture turns in
+// pi-adapter.test.ts: header, model_change, thinking_level_change, the system
+// message carrying the prompt and tool loadout (pi 0.86+), then a user →
+// assistant(text + toolCall) → toolResult → assistant → user → assistant
+// chain, one entry per line, each naming its parent. session-retry.jsonl is
+// the turn whose first request pi got a 529 for: the failed attempt, the
+// context_edit that drops it from the model's context, then the retry.
 const sessionFixture = readFileSync(
     join(__dirname, 'fixtures', 'pi', 'session.jsonl'),
+    'utf8'
+)
+const retryFixture = readFileSync(
+    join(__dirname, 'fixtures', 'pi', 'session-retry.jsonl'),
     'utf8'
 )
 const LINE = (o: unknown): string => `${JSON.stringify(o)}\n`
 
 const FILE =
-    '/home/sprite/.pi/agent/sessions/--home-sprite-work--/2026-09-10T22-48-27-032Z_11111111-2222-4333-8444-555555555555.jsonl'
+    '/home/sprite/.pi/agent/sessions/--home-sprite-work--/2026-09-23T20-32-34-309Z_11111111-2222-4333-8444-555555555555.jsonl'
 
 test('piRefFromPath reads the session id out of the filename', () => {
     assert.equal(piRefFromPath(FILE), '11111111-2222-4333-8444-555555555555')
@@ -39,7 +46,7 @@ test('parsePiJsonl reads the real session file as three turns with the tool resu
         '11111111-2222-4333-8444-555555555555'
     )
     assert.deepEqual(warnings, [])
-    assert.equal(lineCount, 9)
+    assert.equal(lineCount, 10)
     assert.deepEqual(
         messages.map((m) => m.role),
         ['user', 'assistant', 'assistant', 'user', 'assistant']
@@ -48,7 +55,7 @@ test('parsePiJsonl reads the real session file as three turns with the tool resu
     assert.deepEqual(ask.contentBlocks, [
         { type: 'text', text: 'list the files in this directory' }
     ])
-    assert.equal(ask.timestamp, '2026-09-10T22:48:27.145Z', 'ms → ISO')
+    assert.equal(ask.timestamp, '2026-09-23T20:32:34.332Z', 'ms → ISO')
     assert.equal(callTurn.parentExternalId, ask.externalId)
     assert.deepEqual(
         callTurn.contentBlocks.map((b) => b.type),
@@ -56,12 +63,12 @@ test('parsePiJsonl reads the real session file as three turns with the tool resu
     )
     const call = callTurn.contentBlocks[1]
     assert.ok(call.type === 'tool_call')
-    assert.equal(call.toolCallId, 'toolu_stub_01')
+    assert.equal(call.toolCallId, 'toolu_stub_toolcall_1')
     assert.equal(call.toolName, 'bash')
     assert.deepEqual(call.args, { command: 'ls' })
     const result = callTurn.contentBlocks[2]
     assert.ok(result.type === 'tool_result')
-    assert.equal(result.toolCallId, 'toolu_stub_01')
+    assert.equal(result.toolCallId, 'toolu_stub_toolcall_1')
     assert.equal(callTurn.model, 'anthropic/claude-sonnet-4-6')
     assert.equal(
         callTurn.sources.length,
@@ -83,8 +90,26 @@ test('parsePiJsonl reads the real session file as three turns with the tool resu
     assert.equal(answer2.parentExternalId, ask2.externalId)
     // sourceSeq is the 1-based line number, the unit the runtime-sync cursor
     // would be kept in.
-    assert.equal(ask.sources[0].sourceSeq, 4)
-    assert.equal(answer2.sources[0].sourceSeq, 9)
+    assert.equal(ask.sources[0].sourceSeq, 5)
+    assert.equal(answer2.sources[0].sourceSeq, 10)
+})
+
+test('parsePiJsonl leaves out the attempt pi retried', () => {
+    const { messages, warnings } = parsePiJsonl(
+        retryFixture,
+        '/f',
+        '22222222-2222-4333-8444-555555555555'
+    )
+    assert.deepEqual(warnings, [])
+    assert.deepEqual(
+        messages.map((m) => [m.role, m.contentBlocks.map((b) => b.type)]),
+        [
+            ['user', ['text']],
+            ['assistant', ['text', 'tool_call', 'tool_result']],
+            ['assistant', ['text']]
+        ]
+    )
+    assert.ok(!JSON.stringify(messages).includes('529'))
 })
 
 test('parsePiJsonl follows the leaf path and leaves an abandoned branch out', () => {
@@ -197,7 +222,7 @@ test('listCandidates walks every cwd dir, summarizes from the header and names t
                 path: FILE,
                 mtimeSec: 1789080507,
                 size: sessionFixture.length,
-                lineCount: 9,
+                lineCount: 10,
                 headText: sessionFixture
             })
         }
@@ -215,9 +240,9 @@ test('listCandidates walks every cwd dir, summarizes from the header and names t
     assert.equal(row.sourceFile, FILE)
     assert.equal(row.firstUserMessage, 'list the files in this directory')
     assert.equal(row.lastAssistantMessage, 'Resumed reply: yes, I remember.')
-    assert.equal(row.timestamp, '2026-09-10T22:48:27.032Z')
+    assert.equal(row.timestamp, '2026-09-23T20:32:34.309Z')
     // The message's own clock (Unix ms), not the entry's write time.
-    assert.equal(row.lastActiveAt, '2026-09-10T22:48:27.437Z')
+    assert.equal(row.lastActiveAt, '2026-09-23T20:32:34.588Z')
     assert.equal(row.messageCount, 5)
     assert.equal(row.model, 'anthropic/claude-sonnet-4-6')
     assert.ok(listing.filesByRef.has('11111111-2222-4333-8444-555555555555'))
@@ -248,6 +273,17 @@ test('readMessages locates the file by the id in its name and reports a missing 
     assert.match(
         located[0],
         /-name '\*_s-present\.jsonl' 2>\/dev\/null \| head -1/
+    )
+    await reader.readMessages({
+        fs,
+        agentId: 'agt_1',
+        frameworkSessionRef: 's-present',
+        workspacePath: '/home/sprite/.manyfold/workspaces/agt_1'
+    })
+    // The workspace's own directory is searched first, then everywhere.
+    assert.match(
+        located[1],
+        /^\{ find "\$\{PI_CODING_AGENT_DIR:-\$HOME\/\.pi\/agent\}"\/sessions\/'--home-sprite-\.manyfold-workspaces-agt_1--' -maxdepth 1 -type f -name '\*_s-present\.jsonl' 2>\/dev\/null; find .* \} \| head -1$/
     )
     const missing = await reader.readMessages({
         fs,

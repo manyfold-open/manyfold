@@ -395,9 +395,13 @@ export class CredentialsResolverService {
                 input.providerId
             )
             if (resolved.builtInId) {
+                // A built-in speaking several of pi's protocols (NetMind
+                // speaks all three) serves the vendor it was picked under.
                 const { protocol, baseUrl } = this.resolveBuiltInForProtocol(
                     resolved.builtInId,
-                    PI_PROTOCOLS
+                    input.provider
+                        ? [PI_PROTOCOL_BY_PROVIDER[input.provider]]
+                        : PI_PROTOCOLS
                 )
                 return {
                     apiKey: resolved.apiKey,
@@ -411,7 +415,12 @@ export class CredentialsResolverService {
                 throw new BadRequestException(
                     `provider ${input.providerId} missing inference_protocol`
                 )
-            assertProtocol(PI_PROTOCOLS, resolved.inferenceProtocol)
+            assertProtocol(
+                input.provider
+                    ? PI_PROTOCOL_BY_PROVIDER[input.provider]
+                    : PI_PROTOCOLS,
+                resolved.inferenceProtocol
+            )
             return {
                 apiKey: resolved.apiKey,
                 provider: piProviderForProtocol(resolved.inferenceProtocol)!,

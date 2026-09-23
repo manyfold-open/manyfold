@@ -1,4 +1,8 @@
-import { isOfficialPiBaseUrl, type PiProvider } from '@manyfold/shared'
+import {
+    isOfficialPiBaseUrl,
+    piProviderBaseUrl,
+    type PiProvider
+} from '@manyfold/shared'
 
 // pi reaches a non-official endpoint only through ~/.pi/agent/models.json
 // (`providers.<id>.baseUrl` overrides the built-in provider; every other field
@@ -9,9 +13,13 @@ export const buildPiModelsJson = (
     provider: PiProvider,
     baseUrl: string | null | undefined
 ): string | null => {
-    if (isOfficialPiBaseUrl(provider, baseUrl)) return null
+    if (!baseUrl || isOfficialPiBaseUrl(provider, baseUrl)) return null
     return `${JSON.stringify(
-        { providers: { [provider]: { baseUrl: baseUrl!.trim() } } },
+        {
+            providers: {
+                [provider]: { baseUrl: piProviderBaseUrl(provider, baseUrl) }
+            }
+        },
         null,
         2
     )}\n`

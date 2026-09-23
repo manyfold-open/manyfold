@@ -71,7 +71,7 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         )
         .option(
             '--pi-model <model>',
-            'pi default model, e.g. anthropic/claude-sonnet-4-6 (pi only)'
+            'pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only)'
         )
         .option(
             '--account-id <id>',

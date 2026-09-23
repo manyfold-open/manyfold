@@ -4,7 +4,9 @@ import {
     ChatMessage,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
     PI_API_KEY_ENV,
+    PI_OUTRANKING_KEY_ENV,
     isOfficialPiBaseUrl,
+    piModelId,
     piQualifiedModel,
     resolveChatExecTimeoutMs
 } from '@manyfold/shared'
@@ -29,12 +31,17 @@ import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-chan
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
 import { isManagedSkillWorkspace } from '@/modules/skills/skill-utils'
 import { redactSecrets } from './claude-stream-consumer'
+import {
+    parsePiSessionLineCount,
+    piSessionLineCountScript
+} from '@/modules/chat/recovery/readers/pi-reader'
 import { forkTranscriptPrompt } from './fork-transcript-prompt'
 import { messageToPromptText } from './message-content'
 import {
     addPiUsage,
     emptyPiUsageTotals,
     piUsageToChatUsage,
+    sumPiUsage,
     type PiUsageTotals
 } from './pi-usage'
 
@@ -115,10 +122,10 @@ export class PiAdapter implements ApiChatAdapter {
         }
 
         // pi's default provider follows whatever credentials the host has, so
-        // the model is always passed fully qualified once a provider is known.
-        // A bare id from the composer/agent row gets the credential's provider;
-        // a qualified id naming another vendor would authenticate against the
-        // wrong key and is refused outright.
+        // the model is always passed fully qualified once a provider is known
+        // (see piQualifiedModel for what the id is on a gateway). A qualified
+        // id naming another vendor would authenticate against the wrong key
+        // and is refused outright.
         const requestedModel =
             ctx.modelOverride?.trim() ||
             ctx.model?.trim() ||
@@ -126,7 +133,11 @@ export class PiAdapter implements ApiChatAdapter {
             null
         let cliModel: string | null = requestedModel
         if (piCreds) {
-            const qualified = piQualifiedModel(requestedModel, piCreds.provider)
+            const qualified = piQualifiedModel(
+                requestedModel,
+                piCreds.provider,
+                piCreds.baseUrl
+            )
             if (qualified.providerMismatch) {
                 yield {
                     type: 'error',
@@ -143,25 +154,13 @@ export class PiAdapter implements ApiChatAdapter {
 
         // Manyfold mints the pi session id: `--session-id` opens the exact
         // session in this cwd or creates it under that id, so the first turn
-        // and every later one share one argv shape and the ref never depends
-        // on parsing stdout. Persisted BEFORE the exec because pi only writes
-        // the file on its first assistant message — a turn that dies earlier
-        // would otherwise leave the next one minting a second id.
+        // and every later one share one argv shape. The minted id is recorded
+        // only once pi has written the session file (its first assistant
+        // message, see drainPiStream): a ref pointing at a file that was never
+        // written would make the next turn open an empty session and send it
+        // only the latest message, losing the transcript this one carries.
         const existingRef = ctx.frameworkSessionRef?.trim() || null
         const sessionRef = existingRef ?? this.mintSessionId()
-        if (!existingRef)
-            await this.chatRepo
-                .updateFrameworkSessionRef(
-                    ctx.sessionId,
-                    sessionRef,
-                    ctx.turnFence
-                )
-                .catch((err: Error) => {
-                    if (err instanceof TurnFenceLostError) throw err
-                    this.logger.warn(
-                        `pi session-ref persist failed: ${err.message}`
-                    )
-                })
         const prompt = existingRef
             ? messageToPromptText(userMessage)
             : forkTranscriptPrompt(ctx.history, userMessage, 'Pi')
@@ -190,10 +189,16 @@ export class PiAdapter implements ApiChatAdapter {
 
         // The key rides each exec; nothing is written to the runtime. Not
         // gated on modelConfig the way codex/claude are — pi has no
-        // runtime-local mode, a credential row IS the decision to use it.
-        // PI_OFFLINE keeps every turn off pi.dev (update check, telemetry).
+        // runtime-local mode, a credential row IS the decision to use it, so
+        // the vars pi would read ahead of it are blanked (see
+        // PI_OUTRANKING_KEY_ENV). PI_OFFLINE keeps every turn off pi.dev
+        // (update check, telemetry).
         const env: Record<string, string> = { PI_OFFLINE: '1' }
-        if (piCreds) env[PI_API_KEY_ENV[piCreds.provider]] = piCreds.apiKey
+        if (piCreds) {
+            for (const outranking of PI_OUTRANKING_KEY_ENV[piCreds.provider])
+                env[outranking] = ''
+            env[PI_API_KEY_ENV[piCreds.provider]] = piCreds.apiKey
+        }
 
         const execTimeouts = this.adminSettings
             ? await this.adminSettings.getCachedChatExecTimeoutMs()
@@ -240,7 +245,9 @@ export class PiAdapter implements ApiChatAdapter {
         yield* this.drainPiStream(handle, ctx, {
             carryingDaemonId,
             sessionRef,
-            usageFallbackModel: cliModel
+            persistedRef: existingRef,
+            usageFallbackModel:
+                cliModel && piCreds ? piModelId(cliModel) : cliModel
         })
     }
 
@@ -279,9 +286,11 @@ export class PiAdapter implements ApiChatAdapter {
         ctx.abortSignal?.addEventListener('abort', () => handle.abort(), {
             once: true
         })
+        const ref = ctx.frameworkSessionRef?.trim() || null
         yield* this.drainPiStream(handle, ctx, {
             carryingDaemonId: ctx.daemonId,
-            sessionRef: ctx.frameworkSessionRef?.trim() || null,
+            sessionRef: ref,
+            persistedRef: ref,
             usageFallbackModel: ctx.model?.trim() || null,
             resumeAttach: true
         })
@@ -292,26 +301,58 @@ export class PiAdapter implements ApiChatAdapter {
         ctx: ApiChatAdapterContext,
         opts: {
             carryingDaemonId: string | null
+            // The id this exec runs under: minted or resumed on a send, the
+            // stored ref (if any) on a resume, where the header may be past
+            // the replay cursor.
             sessionRef: string | null
+            // What the session row already holds.
+            persistedRef: string | null
             usageFallbackModel: string | null
             resumeAttach?: boolean
         }
     ): AsyncIterable<EmittedChatEvent> {
         const { carryingDaemonId } = opts
-        let emittedText = false
         let lineBuffer = ''
         let sourceSeq = 0
         let headerId: string | null = null
+        let persistedRef = opts.persistedRef
+        // pi writes the session file with its first assistant message; from
+        // then on the id is safe to record.
+        let sessionFileWritten = false
         // Text streamed for the assistant message currently open, so the
         // authoritative message_end can top it up when a provider sent no
-        // deltas, without repeating what already went out.
+        // deltas, without repeating what already went out. A message whose
+        // start lies before a resume cursor is never topped up: what streamed
+        // of it before the cursor is not known here.
         let streamedText = ''
-        let usage: PiUsageTotals = emptyPiUsageTotals()
+        let messageOpen = false
+        // A failed attempt's text stays in the answer, so the retried one
+        // starts a new paragraph instead of running on from mid-sentence.
+        let separateNextText = false
+        // Usage per run: agent_end carries every message that run generated,
+        // so the total survives a resume cursor past the individual
+        // message_end lines. Streamed message_end usage only stands in when no
+        // run finished. Compaction and cache warming bill outside any message.
+        let runUsage: PiUsageTotals = emptyPiUsageTotals()
+        let streamedUsage: PiUsageTotals = emptyPiUsageTotals()
+        let sideUsage: PiUsageTotals = emptyPiUsageTotals()
+        let sawAgentEnd = false
         let usageModel: string | null = null
+        // The latest assistant message's failure: pi retries overloaded and
+        // transient errors itself (and compacts on overflow), so an error is
+        // the turn's verdict only when no later message succeeded.
         let resultError: string | null = null
         const tStart = Date.now()
         let tFirstToken: number | null = null
         const logger = this.logger
+
+        const text = function* (delta: string): Generator<EmittedChatEvent> {
+            if (separateNextText) {
+                separateNextText = false
+                yield { type: 'token', text: '\n\n' }
+            }
+            yield { type: 'token', text: delta }
+        }
 
         const consumeLine = function* (
             line: string,
@@ -347,7 +388,10 @@ export class PiAdapter implements ApiChatAdapter {
             }
             const message = isRecord(parsed.message) ? parsed.message : null
             if (type === 'message_start') {
-                if (message?.role === 'assistant') streamedText = ''
+                if (message?.role === 'assistant') {
+                    streamedText = ''
+                    messageOpen = true
+                }
                 return
             }
             if (type === 'message_update') {
@@ -358,8 +402,7 @@ export class PiAdapter implements ApiChatAdapter {
                 const delta = stringValue(ev.delta)
                 if (ev.type === 'text_delta' && delta) {
                     streamedText += delta
-                    emittedText = true
-                    yield { type: 'token', text: delta }
+                    yield* text(delta)
                 } else if (ev.type === 'thinking_delta' && delta) {
                     yield { type: 'thinking', text: delta }
                 }
@@ -367,29 +410,49 @@ export class PiAdapter implements ApiChatAdapter {
             }
             if (type === 'message_end') {
                 if (!message || message.role !== 'assistant') return
-                usage = addPiUsage(usage, message.usage)
+                sessionFileWritten = true
+                streamedUsage = addPiUsage(streamedUsage, message.usage)
                 usageModel = stringValue(message.model) ?? usageModel
-                const text = assistantText(message.content)
-                if (text) {
-                    if (!streamedText) {
-                        emittedText = true
-                        yield { type: 'token', text }
-                    } else if (
-                        text.length > streamedText.length &&
-                        text.startsWith(streamedText)
-                    ) {
-                        yield {
-                            type: 'token',
-                            text: text.slice(streamedText.length)
-                        }
-                    }
+                const full = assistantText(message.content)
+                if (full && messageOpen) {
+                    if (!streamedText) yield* text(full)
+                    else if (
+                        full.length > streamedText.length &&
+                        full.startsWith(streamedText)
+                    )
+                        yield* text(full.slice(streamedText.length))
                 }
-                streamedText = ''
                 const stopReason = stringValue(message.stopReason)
-                if (stopReason === 'error' || stopReason === 'aborted')
-                    resultError =
-                        stringValue(message.errorMessage) ??
-                        `pi ${stopReason === 'error' ? 'reported a model error' : 'aborted the turn'}`
+                resultError =
+                    stopReason === 'error' || stopReason === 'aborted'
+                        ? (stringValue(message.errorMessage) ??
+                          `pi ${stopReason === 'error' ? 'reported a model error' : 'aborted the turn'}`)
+                        : null
+                if (resultError && streamedText) separateNextText = true
+                streamedText = ''
+                messageOpen = false
+                return
+            }
+            if (type === 'agent_end') {
+                sawAgentEnd = true
+                if (Array.isArray(parsed.messages))
+                    for (const m of parsed.messages)
+                        if (isRecord(m) && m.role === 'assistant') {
+                            runUsage = addPiUsage(runUsage, m.usage)
+                            usageModel = stringValue(m.model) ?? usageModel
+                        }
+                return
+            }
+            if (type === 'compaction_end') {
+                const result = isRecord(parsed.result) ? parsed.result : null
+                if (result?.usage)
+                    sideUsage = addPiUsage(sideUsage, result.usage)
+                return
+            }
+            if (type === 'entry_appended') {
+                const entry = isRecord(parsed.entry) ? parsed.entry : null
+                if (entry?.type === 'usage' && entry.usage)
+                    sideUsage = addPiUsage(sideUsage, entry.usage)
                 return
             }
             if (type === 'tool_execution_start') {
@@ -422,6 +485,20 @@ export class PiAdapter implements ApiChatAdapter {
                 logger.warn(
                     `pi extension error agent=${ctx.agentId}: ${stringValue(parsed.error) ?? 'unknown'}`
                 )
+        }
+
+        const recordRef = async (): Promise<void> => {
+            const ref = headerId ?? opts.sessionRef
+            if (!sessionFileWritten || !ref || ref === persistedRef) return
+            persistedRef = ref
+            await this.chatRepo
+                .updateFrameworkSessionRef(ctx.sessionId, ref, ctx.turnFence)
+                .catch((err: Error) => {
+                    if (err instanceof TurnFenceLostError) throw err
+                    this.logger.warn(
+                        `pi session-ref persist failed: ${err.message}`
+                    )
+                })
         }
 
         // stderr is the only place pi's startup failures land, and on the
@@ -483,6 +560,7 @@ export class PiAdapter implements ApiChatAdapter {
                             ? { ...ev, runnerSeq }
                             : ev
                     }
+                    await recordRef()
                 }
             }
             const rawTrailing = lineBuffer.replace(/\r$/, '')
@@ -497,6 +575,7 @@ export class PiAdapter implements ApiChatAdapter {
                         tFirstToken = Date.now()
                     yield ev
                 }
+                await recordRef()
             }
         } catch (err) {
             if (err instanceof TurnFenceLostError) throw err
@@ -551,10 +630,10 @@ export class PiAdapter implements ApiChatAdapter {
                 status: null,
                 message: failureDetail
             })
-            if (
-                ctx.frameworkSessionRef &&
+            const cwdMissing =
+                !!ctx.frameworkSessionRef &&
                 PI_SESSION_CWD_MISSING_SIGNATURE.test(failureDetail)
-            )
+            if (cwdMissing)
                 await this.chatRepo
                     .updateFrameworkSessionRef(
                         ctx.sessionId,
@@ -572,6 +651,7 @@ export class PiAdapter implements ApiChatAdapter {
                             `pi session ref-clear failed session=${ctx.sessionId}: ${err.message}`
                         )
                     })
+            else await this.recordTranscriptCursor(ctx, persistedRef)
             yield {
                 type: 'error',
                 ...(managedChannelFailure ? { managedChannelFailure } : {}),
@@ -584,9 +664,12 @@ export class PiAdapter implements ApiChatAdapter {
             return
         }
 
-        // Measured on macOS dev [2026-09-10] with pi 0.85.1: a provider 401
+        await this.recordTranscriptCursor(ctx, persistedRef)
+
+        // Measured on macOS dev [2026-09-23] with pi 0.87.1: a provider 401
         // ends the turn with stopReason 'error' on the assistant message and
-        // exit code 0 — the stream is the only place the failure shows.
+        // exit code 0 — the stream is the only place the failure shows. A 529
+        // that pi retried ends with the retried message's success instead.
         if (resultError) {
             const managedChannelFailure = classifyManagedChannelFailureSignal({
                 status: null,
@@ -606,21 +689,10 @@ export class PiAdapter implements ApiChatAdapter {
             return
         }
 
-        if (!emittedText && execResult && execResult.stdout.trim()) {
-            // Nothing parsed as a message — surface whatever pi printed rather
-            // than an empty reply (a pi build with an unexpected event shape).
-            yield { type: 'token', text: execResult.stdout.trim() }
-        }
-
-        // The minted id was persisted before the exec; only a header that
-        // disagreed with it has anything new to record.
-        if (headerId && headerId !== opts.sessionRef)
-            await this.chatRepo.updateFrameworkSessionRef(
-                ctx.sessionId,
-                headerId,
-                ctx.turnFence
-            )
-
+        const usage = sumPiUsage(
+            sawAgentEnd ? runUsage : streamedUsage,
+            sideUsage
+        )
         if (usage.messages > 0)
             yield {
                 type: 'usage',
@@ -643,6 +715,59 @@ export class PiAdapter implements ApiChatAdapter {
             }
 
         yield { type: 'done', finalMessageId: ctx.messageId }
+    }
+
+    // Every line pi wrote this turn already reached the cloud through the
+    // stream, and the runtime-session sync must not read the session file
+    // back as something a TUI added. Content cannot be trusted to tell them
+    // apart — the file carries the prompt pi was given (a fork transcript
+    // included) and one entry per assistant message where the stream made one
+    // reply — but a line count can: the sync only takes what lies past it.
+    // Taken once pi has exited, so the file is settled, and before `done`
+    // releases the session's turn slot; a turn whose stream was lost does not
+    // count, since pi may still be writing. Costs one exec.
+    private async recordTranscriptCursor(
+        ctx: ApiChatAdapterContext,
+        ref: string | null
+    ): Promise<void> {
+        if (!ref) return
+        let cursor: number | null = null
+        try {
+            const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
+            try {
+                cursor = parsePiSessionLineCount(
+                    await handle.fs.exec(
+                        piSessionLineCountScript(
+                            ref,
+                            handle.agent.workspacePath
+                        )
+                    )
+                )
+            } finally {
+                await handle.awakeHold?.release()
+            }
+        } catch (err) {
+            this.logger.warn(
+                `pi session line count failed agent=${ctx.agentId} session=${ctx.sessionId}: ${(err as Error).message}`
+            )
+        }
+        // Left where it was rather than cleared: a stale cursor re-offers this
+        // one turn to the sync, a cleared one sends the whole session through
+        // the content diff described above.
+        if (cursor === null) {
+            this.logger.warn(
+                `pi session cursor unavailable agent=${ctx.agentId} session=${ctx.sessionId} ref=${ref}; runtime-sync cursor left unchanged`
+            )
+            return
+        }
+        await this.chatRepo
+            .setRuntimeSyncCursor(ctx.sessionId, cursor, ctx.turnFence)
+            .catch((err: Error) => {
+                if (err instanceof TurnFenceLostError) throw err
+                this.logger.warn(
+                    `pi session cursor persist failed session=${ctx.sessionId}: ${err.message}`
+                )
+            })
     }
 }
 

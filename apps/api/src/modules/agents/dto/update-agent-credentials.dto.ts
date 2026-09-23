@@ -1,4 +1,8 @@
-import { inputValidation } from '@manyfold/shared'
+import {
+    PI_PROVIDERS,
+    inputValidation,
+    type PiProvider
+} from '@manyfold/shared'
 import { Type } from 'class-transformer'
 import {
     IsIn,
@@ -9,6 +13,7 @@ import {
     Matches,
     Max,
     Min,
+    ValidateIf,
     ValidateNested,
     registerDecorator,
     type ValidationArguments,
@@ -82,6 +87,43 @@ class UpdateGeminiCliCredentialsDto {
     @IsString()
     @Length(1, 512)
     googleGeminiBaseUrl?: string
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 255)
+    model?: string | null
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 64)
+    providerId?: string
+}
+
+const PI_PROVIDER_MESSAGE = (args: ValidationArguments): string =>
+    args.value === undefined
+        ? 'piCredentials.provider is required with apiKey'
+        : `piCredentials.provider must be one of ${PI_PROVIDERS.join(', ')}`
+
+// A pi credential is replaced whole when a key or provider arrives (the vendor
+// follows the key); `baseUrl` and `model` alone patch the stored one.
+class UpdatePiCredentialsDto {
+    @IsOptional()
+    @IsString()
+    @Length(10, 1024)
+    apiKey?: string
+
+    // Required with a raw key; beside a providerId it picks which protocol a
+    // multi-protocol provider serves.
+    @ValidateIf(
+        (o: UpdatePiCredentialsDto) => o.provider !== undefined || !!o.apiKey
+    )
+    @IsIn(PI_PROVIDERS, { message: PI_PROVIDER_MESSAGE })
+    provider?: PiProvider
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 512)
+    baseUrl?: string
 
     @IsOptional()
     @IsString()
@@ -251,6 +293,11 @@ export class UpdateAgentCredentialsDto {
     @ValidateNested()
     @Type(() => UpdateGeminiCliCredentialsDto)
     geminiCliCredentials?: UpdateGeminiCliCredentialsDto
+
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => UpdatePiCredentialsDto)
+    piCredentials?: UpdatePiCredentialsDto
 
     @IsOptional()
     @ValidateNested()
