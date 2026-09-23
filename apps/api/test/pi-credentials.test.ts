@@ -1,18 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import 'reflect-metadata'
-import { BadRequestException } from '@nestjs/common'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import { UpdateAgentCredentialsDto } from '../src/modules/agents/dto/update-agent-credentials.dto'
-import {
-    buildPiModelsJson,
-    piAgentDirReconcileScript
-} from '../src/modules/agents/credentials/pi-models-json'
-import {
-    CredentialsResolverService,
-    assertPiCredentialsAllowedOnRuntime
-} from '../src/modules/agents/credentials/credentials-resolver.service'
+import { buildPiModelsJson } from '../src/modules/agents/credentials/pi-agent-dir'
+import { CredentialsResolverService } from '../src/modules/agents/credentials/credentials-resolver.service'
 import type { ResolvedPiCredentials } from '../src/modules/agents/credentials/resolved-credentials'
 
 test('models.json exists only for a non-official base URL and names the provider it overrides', () => {
@@ -37,51 +30,6 @@ test('models.json exists only for a non-official base URL and names the provider
                 google: { baseUrl: 'https://gw.example/google/v1beta' }
             }
         }
-    )
-})
-
-test('the agent-dir reconcile writes settings once and writes or removes the override', () => {
-    const custom = piAgentDirReconcileScript('anthropic', 'https://gw.example')
-    assert.match(custom, /^set -eu\nmkdir -p "\$HOME\/\.pi\/agent"\n/)
-    assert.match(
-        custom,
-        /\[ -f "\$HOME\/\.pi\/agent\/settings\.json" \] \|\| cat >/
-    )
-    assert.match(custom, /"quietStartup": true/)
-    assert.match(
-        custom,
-        /cat > "\$HOME\/\.pi\/agent\/models\.json" <<'MF_PI_EOF'/
-    )
-    assert.match(custom, /"baseUrl": "https:\/\/gw\.example"/)
-    assert.ok(!custom.includes('rm -f'))
-
-    const official = piAgentDirReconcileScript('anthropic', null)
-    assert.match(official, /rm -f "\$HOME\/\.pi\/agent\/models\.json"/)
-    assert.ok(!official.includes('cat > "$HOME/.pi/agent/models.json"'))
-})
-
-test('a daemon runtime refuses a gateway base URL and accepts the official one', () => {
-    const creds = {
-        provider: 'openai',
-        baseUrl: 'https://gw.example/v1'
-    } as const
-    assert.throws(
-        () => assertPiCredentialsAllowedOnRuntime('daemon', creds),
-        (err: unknown) =>
-            err instanceof BadRequestException &&
-            /daemon runtime cannot use a custom base URL/.test(err.message)
-    )
-    assert.doesNotThrow(() =>
-        assertPiCredentialsAllowedOnRuntime('sprites', creds)
-    )
-    assert.doesNotThrow(() =>
-        assertPiCredentialsAllowedOnRuntime('daemon', {
-            provider: 'openai',
-            baseUrl: 'https://api.openai.com/v1/'
-        })
-    )
-    assert.doesNotThrow(() =>
-        assertPiCredentialsAllowedOnRuntime('daemon', { provider: 'openai' })
     )
 })
 
@@ -221,22 +169,22 @@ test('a provider speaking a protocol pi has no built-in for is refused', async (
     )
 })
 
-test('a gateway provider is refused for a daemon create but not a sandbox one', async () => {
+// A gateway endpoint reaches pi through the platform view each exec builds,
+// so a daemon takes one exactly like a sandbox does.
+test('a gateway provider resolves the same for a daemon create as for a sandbox one', async () => {
     const svc = resolver()
-    await assert.rejects(
-        svc.resolve('user-1', {
+    for (const runtime of ['daemon', 'sprites'] as const) {
+        const resolved = await svc.resolve('user-1', {
             framework: 'pi',
-            runtime: 'daemon',
+            runtime,
             piCredentials: { providerId: 'ump_openai_gw' }
-        } as never),
-        /daemon runtime cannot use a custom base URL/
-    )
-    const ok = await svc.resolve('user-1', {
-        framework: 'pi',
-        runtime: 'sprites',
-        piCredentials: { providerId: 'ump_openai_gw' }
-    } as never)
-    assert.equal(ok.framework, 'pi')
+        } as never)
+        assert.equal(resolved.framework, 'pi')
+        assert.equal(
+            (resolved.value as ResolvedPiCredentials).baseUrl,
+            'https://gw.example/openai/v1'
+        )
+    }
 })
 
 test('an inline key needs its provider, and a create without pi credentials is refused', async () => {

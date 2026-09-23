@@ -1,7 +1,6 @@
 import { execSprite } from '@manyfold/sprites'
 import { Injectable } from '@nestjs/common'
-import type { ResolvedPiCredentials } from '@/modules/agents/credentials/resolved-credentials'
-import { piAgentDirReconcileScript } from '@/modules/agents/credentials/pi-models-json'
+import { piAgentDirSetupScript } from '@/modules/agents/credentials/pi-agent-dir'
 import {
     BootstrapError,
     type BootstrapContext,
@@ -18,8 +17,9 @@ import {
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
 
 // No login step: the vendor key rides every chat exec as env (pi.adapter.ts)
-// and never lands on disk. What the sprite keeps is ~/.pi/agent — settings,
-// the optional models.json base-URL override, and pi's own session files.
+// and never lands on disk, and the endpoint lives in the platform view each
+// exec builds (pi-agent-dir.ts). What the sprite keeps in ~/.pi/agent is its
+// settings and pi's own session files.
 @Injectable()
 export class PiBootstrap implements FrameworkBootstrap {
     readonly framework = 'pi' as const
@@ -29,16 +29,12 @@ export class PiBootstrap implements FrameworkBootstrap {
         private readonly agentContext: AgentContextDocService
     ) {}
 
-    async run(
-        ctx: BootstrapContext,
-        credentials: unknown
-    ): Promise<BootstrapResult> {
-        const creds = credentials as ResolvedPiCredentials
+    async run(ctx: BootstrapContext): Promise<BootstrapResult> {
         const setup = await execCapturing(ctx, 'pi-setup-dirs', [
             'bash',
             '-lc',
             [
-                piAgentDirReconcileScript(creds.provider, creds.baseUrl),
+                piAgentDirSetupScript(),
                 `mkdir -p ${shellQuote(ctx.mountPath)}`,
                 `printf 'MF_HOME=%s\\n' "$HOME"`
             ].join('\n')

@@ -13,5 +13,7 @@ and in the sandbox terminal, whose new messages sync back when you return to
 the chat. The chat composer offers a per-message model override from the bound
 provider's models, the credentials dialog can move an agent to another
 vendor's provider, and `mf agent create --framework pi` takes `--pi-api-key`
-with `--pi-provider`. On a self-owned computer only the vendor's official
-endpoint is accepted; sandboxes and Kubernetes also take a gateway base URL.
+with `--pi-provider`. Every runtime takes a gateway base URL, and on a
+self-owned computer the bound provider is what each turn uses: Pi's own sign-in
+or `models.json` there never takes over, while its settings, skills and
+sessions still apply.

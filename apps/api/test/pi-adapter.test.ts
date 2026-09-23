@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
+import { PI_PLATFORM_VIEW_SCRIPT } from '../src/modules/agents/credentials/pi-agent-dir'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
@@ -99,6 +100,7 @@ const buildSeam = (opts: {
                 runtime,
                 agent: {
                     id: 'agt_1',
+                    runtimeId: 'art_1',
                     daemonId: runtime === 'daemon' ? 'dh_1' : null,
                     workspacePath:
                         opts.workspacePath === undefined
@@ -206,8 +208,17 @@ test('a sprite turn passes the prompt on stdin, records the minted session id on
 
     assert.equal(streams.length, 1)
     const [stream] = streams
-    assert.equal(stream.cmd[0], 'pi')
-    assert.deepEqual(stream.cmd.slice(1, 4), [
+    // A credential turn runs pi on the runtime's platform view of its agent
+    // directory, where the machine's own sign-in cannot outrank the key.
+    assert.deepEqual(stream.cmd.slice(0, 4), [
+        'bash',
+        '-c',
+        PI_PLATFORM_VIEW_SCRIPT,
+        'pi'
+    ])
+    assert.equal(stream.env?.MF_PI_VIEW, 'art_1')
+    assert.equal(stream.env?.MF_PI_MODELS_JSON, undefined, 'official endpoint')
+    assert.deepEqual(stream.cmd.slice(4, 7), [
         '--mode',
         'json',
         '--no-extensions'
@@ -459,6 +470,7 @@ test('a daemon agent without a credential row runs on pi’s own login', async (
     )
     assert.equal(errorOf(events), null)
     const [stream] = streams
+    assert.equal(stream.cmd[0], 'pi', 'the machine’s own agent directory')
     assert.deepEqual(stream.env, { PI_OFFLINE: '1' }, 'no key to inject')
     assert.equal(
         stream.cmd[stream.cmd.indexOf('--model') + 1],
@@ -482,7 +494,9 @@ test('a model naming another vendor than the key is refused before any exec', as
     assert.match(errorOf(events)?.message ?? '', /openai.*anthropic/)
 })
 
-test('a daemon turn with a gateway base URL is refused before any exec', async () => {
+// The gateway reaches pi through the view's own models.json, so a daemon
+// takes one exactly like a sandbox — the user's own models.json is never read.
+test('a daemon turn on a gateway base URL carries its override into the view', async () => {
     const { adapter, streams } = buildSeam({
         stdout: fixture('turn-resumed.stdout.jsonl'),
         runtime: 'daemon',
@@ -493,10 +507,18 @@ test('a daemon turn with a gateway base URL is refused before any exec', async (
         }
     })
     const events = await drain(
-        adapter.sendMessage(ctx({ runtimeKind: 'daemon' }), userMessage('hi'))
+        adapter.sendMessage(
+            ctx({ runtimeKind: 'daemon', frameworkSessionRef: 'ref-1' }),
+            userMessage('hi')
+        )
     )
-    assert.equal(streams.length, 0)
-    assert.equal(errorOf(events)?.code, 'pi_base_url_unsupported')
+    assert.equal(errorOf(events), null)
+    const [stream] = streams
+    assert.equal(stream.cmd[0], 'bash')
+    assert.deepEqual(JSON.parse(stream.env?.MF_PI_MODELS_JSON ?? 'null'), {
+        providers: { anthropic: { baseUrl: 'https://gateway.example/v1' } }
+    })
+    assert.equal(stream.env?.ANTHROPIC_API_KEY, 'sk-marker')
 })
 
 test('a provider 401 (exit 0, stopReason error) is a pi_result_error, not a silent empty reply', async () => {

@@ -45,13 +45,9 @@ import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import {
-    CredentialsResolverService,
-    assertPiCredentialsAllowedOnRuntime
-} from '@/modules/agents/credentials/credentials-resolver.service'
+import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
 import { applyCodexCredentialsOnSprite } from '@/modules/agents/credentials/codex-credential-apply'
-import { applyPiCredentialsOnSprite } from '@/modules/agents/credentials/pi-credential-apply'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import type {
@@ -243,9 +239,6 @@ export class AgentCredentialsService {
                   ...body
               } as CreateAgentDto)
 
-        if (next.framework === 'pi')
-            assertPiCredentialsAllowedOnRuntime(agent.runtime, next.value)
-
         const enc = this.crypto.encrypt(JSON.stringify(next.value))
         const savedAt = new Date()
         if (cred) {
@@ -412,8 +405,10 @@ export class AgentCredentialsService {
             throw new InternalServerErrorException(
                 `framework ${resolved.framework} should not run on sprites`
             )
-        if (resolved.framework !== 'codex' && resolved.framework !== 'pi')
-            return
+        // Claude Code, Gemini CLI and pi keep nothing a credential decides on
+        // the sprite: the key rides each exec, and pi's endpoint is written
+        // into its platform view at every start (pi-agent-dir.ts).
+        if (resolved.framework !== 'codex') return
         if (!agent.spriteName || !agent.accountId || !agent.hostId)
             throw new InternalServerErrorException(
                 `agent ${agent.id} has no sprite to update`
@@ -432,16 +427,6 @@ export class AgentCredentialsService {
             token,
             accountSlug: account.slug
         })
-        if (resolved.framework === 'pi') {
-            await applyPiCredentialsOnSprite({
-                client,
-                spriteName: agent.spriteName,
-                provider: resolved.value.provider,
-                baseUrl: resolved.value.baseUrl ?? null,
-                logger: spritesLoggerFrom(this.log)
-            })
-            return
-        }
         const composioKey = await decryptComposioKey(
             this.db,
             this.crypto,

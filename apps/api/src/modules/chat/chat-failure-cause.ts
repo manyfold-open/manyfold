@@ -50,7 +50,6 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // agent carries a gateway base URL pi cannot reach there: both are fixed
     // in Agent settings, never by retrying.
     pi_model_provider_mismatch: 'invalid_request',
-    pi_base_url_unsupported: 'invalid_request',
     hermes_resume_unsupported: 'unsupported_capability',
     // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
     // the daemon host, not a retry here.

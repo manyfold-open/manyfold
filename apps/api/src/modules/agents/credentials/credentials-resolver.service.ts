@@ -7,7 +7,6 @@ import {
     defaultProtocolForProvider,
     isConfigurableFramework,
     isManagedProtocolAllowedForFramework,
-    isOfficialPiBaseUrl,
     lookupBuiltIn,
     piProviderForProtocol,
     protocolToHermesBrand,
@@ -55,22 +54,6 @@ import type {
 const PI_PROTOCOLS: InferenceProtocol[] = PI_PROVIDERS.map(
     (provider) => PI_PROTOCOL_BY_PROVIDER[provider]
 )
-
-// pi has no base-URL flag and Manyfold never writes into ~/.pi on a machine
-// it does not own, so a gateway endpoint can only be honoured where the
-// bootstrap owns the config dir (sprites / k8s). Refused loudly instead of
-// silently falling back to the vendor endpoint — that would bill a different
-// account than the one the user picked.
-export const assertPiCredentialsAllowedOnRuntime = (
-    runtime: string | null | undefined,
-    value: Pick<ResolvedPiCredentials, 'provider' | 'baseUrl'>
-): void => {
-    if (runtime !== 'daemon') return
-    if (isOfficialPiBaseUrl(value.provider, value.baseUrl)) return
-    throw new BadRequestException(
-        `pi on a daemon runtime cannot use a custom base URL (${value.baseUrl}): pi has no base-URL flag and Manyfold does not write into ~/.pi on your machine — pick the official ${value.provider} endpoint or run this agent on a sandbox`
-    )
-}
 
 const assertProtocol = (
     expected: InferenceProtocol | InferenceProtocol[],
@@ -195,7 +178,6 @@ export class CredentialsResolverService {
         }
         if (dto.framework === 'pi') {
             const value = await this.resolvePi(ownerUserId, dto.piCredentials)
-            assertPiCredentialsAllowedOnRuntime(dto.runtime, value)
             return {
                 framework: 'pi',
                 providerId: dto.piCredentials?.providerId ?? null,

@@ -2,9 +2,7 @@ import {
     K8S_HOME_BASE,
     PI_API_KEY_ENV,
     codingAgentHomeRootForWorkspacePath,
-    codingAgentWorkspacePath,
-    isOfficialPiBaseUrl,
-    piProviderBaseUrl
+    codingAgentWorkspacePath
 } from '@manyfold/shared'
 import { Injectable } from '@nestjs/common'
 import type { ResolvedPiCredentials } from '@/modules/agents/credentials/resolved-credentials'
@@ -33,7 +31,6 @@ export class PiK8sBootstrap implements K8sFrameworkBootstrap {
         const pvcRoot =
             codingAgentHomeRootForWorkspacePath(workspacePath) ??
             DEFAULT_PVC_ROOT
-        const baseUrl = creds.baseUrl?.trim()
         return {
             framework: 'pi',
             port: null,
@@ -41,18 +38,6 @@ export class PiK8sBootstrap implements K8sFrameworkBootstrap {
             workspacePath,
             envSecretData: {
                 [PI_API_KEY_ENV[creds.provider]]: creds.apiKey,
-                // The image entrypoint renders ~/.pi/agent/models.json from
-                // these on every start (and removes it when PI_BASE_URL is
-                // absent), so a credential re-apply is just a pod restart.
-                PI_PROVIDER: creds.provider,
-                ...(baseUrl && !isOfficialPiBaseUrl(creds.provider, baseUrl)
-                    ? {
-                          PI_BASE_URL: piProviderBaseUrl(
-                              creds.provider,
-                              baseUrl
-                          )
-                      }
-                    : {}),
                 PI_OFFLINE: '1',
                 WORKSPACE_DIR: workspacePath,
                 WORKSPACE_PVC_ROOT: pvcRoot,

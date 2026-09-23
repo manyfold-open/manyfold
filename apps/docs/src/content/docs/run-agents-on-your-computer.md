@@ -106,7 +106,7 @@ In **Where it runs**, choose the connected self-owned computer with the **Ready*
 
 If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, or Gemini CLI is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
 
-Pi has no Local config source. A Pi agent without a provider runs on whatever Pi is signed in to on this computer; with one, Manyfold passes that provider's key to each turn, and a sign-in Pi already has for the same vendor still takes precedence.
+Pi has no Local config source. A Pi agent without a provider runs on whatever Pi is signed in to on this computer. With one, every turn uses that provider's key and endpoint, a gateway included; Pi's own sign-in and `models.json` on this computer are never used for it, while your Pi settings, skills and sessions still apply.
 
 ## Step 5: Create the agent and verify daemon health
 

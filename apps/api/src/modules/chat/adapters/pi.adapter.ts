@@ -3,9 +3,6 @@ import {
     ChatCapabilities,
     ChatMessage,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
-    PI_API_KEY_ENV,
-    PI_OUTRANKING_KEY_ENV,
-    isOfficialPiBaseUrl,
     piModelId,
     piQualifiedModel,
     resolveChatExecTimeoutMs
@@ -13,6 +10,7 @@ import {
 import { Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type { ResolvedPiCredentials } from '@/modules/agents/credentials/resolved-credentials'
+import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
 import {
@@ -92,7 +90,6 @@ export class PiAdapter implements ApiChatAdapter {
             daemonId: carryingDaemonId,
             agent,
             creds,
-            runtime,
             resolvePriceScope
         } = await this.drivers.forAgent(
             ctx.agentId,
@@ -105,21 +102,6 @@ export class PiAdapter implements ApiChatAdapter {
         // user's own machine: no row means pi's own login there is the
         // intended account (the framework's version of runtime-local).
         const piCreds = (creds as ResolvedPiCredentials | null) ?? null
-        if (
-            piCreds &&
-            runtime === 'daemon' &&
-            !isOfficialPiBaseUrl(piCreds.provider, piCreds.baseUrl)
-        ) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'pi_base_url_unsupported',
-                    message: `pi on a daemon runtime cannot use a custom base URL (${piCreds.baseUrl}); pick the official ${piCreds.provider} endpoint or run this agent on a sandbox`,
-                    retryable: false
-                }
-            }
-            return
-        }
 
         // pi's default provider follows whatever credentials the host has, so
         // the model is always passed fully qualified once a provider is known
@@ -171,34 +153,35 @@ export class PiAdapter implements ApiChatAdapter {
         // The prompt rides stdin, which pi reads whenever it is not a TTY
         // (a fork transcript would not fit in argv); never also as a
         // positional — pi concatenates the two into one message.
-        const cmd = [
-            'pi',
+        const piArgs = [
             '--mode',
             'json',
             '--no-extensions',
             '--session-id',
             sessionRef
         ]
-        if (cliModel) cmd.push('--model', cliModel)
+        if (cliModel) piArgs.push('--model', cliModel)
         // pi treats `<cwd>/.agents/skills` as a project resource and, without a
         // TTY, silently skips it unless the project is trusted. A managed
         // workspace holds only what the platform activated there, so trusting
         // it is what makes the agent's installed skills load.
         if (agent.workspacePath && isManagedSkillWorkspace(agent.workspacePath))
-            cmd.push('--approve')
+            piArgs.push('--approve')
 
-        // The key rides each exec; nothing is written to the runtime. Not
-        // gated on modelConfig the way codex/claude are — pi has no
-        // runtime-local mode, a credential row IS the decision to use it, so
-        // the vars pi would read ahead of it are blanked (see
-        // PI_OUTRANKING_KEY_ENV). PI_OFFLINE keeps every turn off pi.dev
-        // (update check, telemetry).
-        const env: Record<string, string> = { PI_OFFLINE: '1' }
-        if (piCreds) {
-            for (const outranking of PI_OUTRANKING_KEY_ENV[piCreds.provider])
-                env[outranking] = ''
-            env[PI_API_KEY_ENV[piCreds.provider]] = piCreds.apiKey
-        }
+        // A credential row IS the decision to use it: the key rides the exec,
+        // and pi runs on the platform view of its agent directory (see
+        // PI_PLATFORM_VIEW_SCRIPT), where no sign-in or models.json key of the
+        // machine's can win over it and a gateway endpoint gets its override.
+        // Nothing credential-shaped is written to the machine's own directory.
+        const { cmd, env } = piCreds
+            ? piPlatformExec({
+                  piArgs,
+                  runtimeId: agent.runtimeId ?? agent.id,
+                  provider: piCreds.provider,
+                  apiKey: piCreds.apiKey,
+                  baseUrl: piCreds.baseUrl
+              })
+            : { cmd: ['pi', ...piArgs], env: { PI_OFFLINE: '1' } }
 
         const execTimeouts = this.adminSettings
             ? await this.adminSettings.getCachedChatExecTimeoutMs()

@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
-import { PI_API_KEY_ENV, isPiProvider } from '@manyfold/shared'
+import { isPiProvider } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
+import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
 import {
     frameworkSupportsTerminalResume,
     terminalResumeCommand,
@@ -141,17 +142,21 @@ export class TerminalResumeService {
         if (!command) return UNAVAILABLE
 
         const inject = needsCredentials && args.injectModelCredentials
-        const env = !inject
-            ? {}
+        const resume = !inject
+            ? { command, env: {} }
             : args.framework === 'pi'
-              ? await this.piCredentialEnv(args.runtimeId)
-              : await this.claudeCredentialEnv(args.runtimeId)
-        if (inject && !Object.keys(env).length) {
+              ? await this.piPlatformResume(args.runtimeId, command)
+              : {
+                    command,
+                    env: await this.claudeCredentialEnv(args.runtimeId)
+                }
+        if (inject && !Object.keys(resume?.env ?? {}).length) {
             this.log.warn(
                 `terminal.resume.skipped agent=${args.agentId} reason=credentials-unreadable`
             )
             return UNAVAILABLE
         }
+        const env = resume?.env ?? {}
         // The resumed TUI must keep writing its transcript, or the conversation
         // continued there is invisible to the next --resume and to the chat
         // view's session recovery — the two front ends would silently diverge.
@@ -161,7 +166,11 @@ export class TerminalResumeService {
         // already the default.
         if (args.framework === 'claude-code')
             env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1'
-        return { resume: { command, env }, outcome: 'applied', ref: row.ref }
+        return {
+            resume: { command: resume?.command ?? command, env },
+            outcome: 'applied',
+            ref: row.ref
+        }
     }
 
     private async claudeCredentialEnv(
@@ -182,21 +191,28 @@ export class TerminalResumeService {
         }
     }
 
-    // pi reads its key from the vendor's env var and its gateway from the
-    // models.json the bootstrap left on the sandbox — the same split the chat
-    // adapter relies on.
-    private async piCredentialEnv(
-        runtimeId: string
-    ): Promise<Record<string, string>> {
+    // pi resumes on the same platform view and key its turns run on
+    // (pi-agent-dir.ts): a sign-in left on the sandbox cannot take the TUI
+    // over, and a gateway credential finds its endpoint there, not in the
+    // sandbox's own ~/.pi/agent.
+    private async piPlatformResume(
+        runtimeId: string,
+        command: string[]
+    ): Promise<ResolvedTerminalResume | null> {
         const creds = (await this.storedCredentials(runtimeId)) as {
             apiKey?: string
             provider?: unknown
+            baseUrl?: string | null
         } | null
-        if (!creds?.apiKey || !isPiProvider(creds.provider)) return {}
-        return {
-            [PI_API_KEY_ENV[creds.provider]]: creds.apiKey,
-            PI_OFFLINE: '1'
-        }
+        if (!creds?.apiKey || !isPiProvider(creds.provider)) return null
+        const platform = piPlatformExec({
+            piArgs: command.slice(1),
+            runtimeId,
+            provider: creds.provider,
+            apiKey: creds.apiKey,
+            baseUrl: creds.baseUrl
+        })
+        return { command: platform.cmd, env: platform.env }
     }
 
     private async storedCredentials(runtimeId: string): Promise<unknown> {

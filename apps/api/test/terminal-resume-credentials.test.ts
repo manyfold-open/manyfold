@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
+import { PI_PLATFORM_VIEW_SCRIPT } from '@/modules/agents/credentials/pi-agent-dir'
 
 // A sandbox that opted in hands the TUI the credentials a turn would inject:
 // claude's token and endpoint, or pi's key under the env var its vendor reads
-// (pi's gateway, if any, is the models.json already on the sandbox).
+// together with the platform view its turns run on (and the gateway override
+// that lives there).
 
 const dbReturning = (rows: unknown[][]): never => {
     let call = 0
@@ -38,16 +40,27 @@ const resolveWith = (
         injectModelCredentials: true
     })
 
-test('a pi TUI resumes its session with the vendor key under its own env var', async () => {
+test('a pi TUI resumes its session on the platform view, with the vendor key under its own env var', async () => {
     const resolved = await resolveWith('pi', {
         apiKey: 'pikey-pikey-pikey',
         provider: 'openai',
         baseUrl: 'https://gw.example/v1'
     })
     assert.equal(resolved.outcome, 'applied')
-    assert.deepEqual(resolved.resume, {
-        command: ['pi', '--session-id', 'ref-1'],
-        env: { OPENAI_API_KEY: 'pikey-pikey-pikey', PI_OFFLINE: '1' }
+    assert.deepEqual(resolved.resume?.command, [
+        'bash',
+        '-c',
+        PI_PLATFORM_VIEW_SCRIPT,
+        'pi',
+        '--session-id',
+        'ref-1'
+    ])
+    const env = resolved.resume?.env ?? {}
+    assert.equal(env.OPENAI_API_KEY, 'pikey-pikey-pikey')
+    assert.equal(env.PI_OFFLINE, '1')
+    assert.equal(env.MF_PI_VIEW, 'rt_1')
+    assert.deepEqual(JSON.parse(env.MF_PI_MODELS_JSON), {
+        providers: { openai: { baseUrl: 'https://gw.example/v1' } }
     })
 })
 

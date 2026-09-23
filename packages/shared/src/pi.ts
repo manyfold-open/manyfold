@@ -56,8 +56,8 @@ export const PI_OUTRANKING_KEY_ENV: Record<PiProvider, readonly string[]> = {
 }
 
 // pi hardcodes each built-in provider's base URL and reads no *_BASE_URL env;
-// a gateway can only be reached by overriding `providers.<id>.baseUrl` in
-// ~/.pi/agent/models.json. Official means "no override file needed".
+// a gateway can only be reached by overriding `providers.<id>.baseUrl` in the
+// agent directory's models.json. Official means "no override file needed".
 export const PI_OFFICIAL_BASE_URL: Record<PiProvider, string> = {
     anthropic: OFFICIAL_PROVIDER_BASE_URL.anthropic,
     openai: OFFICIAL_PROVIDER_BASE_URL.openai,

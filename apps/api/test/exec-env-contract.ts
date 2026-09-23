@@ -223,7 +223,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
-        note: 'The vendor key rides every exec as the env var pi reads it from (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY); nothing is written to ~/.pi except the optional models.json base-URL override, which carries no secret.'
+        note: "The vendor key rides every exec as the env var pi reads it from (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY), and pi runs on the runtime's platform view of ~/.pi/agent (MF_PI_VIEW; MF_PI_MODELS_JSON carries a gateway's base URL, no secret), rebuilt at every start — nothing a credential decides is written to the sprite's own ~/.pi/agent."
     },
 
     {
@@ -250,7 +250,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
-        note: "pi has no runtime-local mode, so the gate is the credential row itself: a daemon agent without one runs on pi's own login on that machine (nothing is injected), one with a row gets the key per exec. Never a custom base URL here — the resolver refuses it."
+        note: "The gate is the credential row itself: a daemon agent without one runs on pi's own login on that machine (nothing is injected); one with a row gets the key per exec and runs on the platform view, where the machine's auth.json and models.json cannot outrank it and a gateway base URL rides the view's own models.json."
     },
 
     {

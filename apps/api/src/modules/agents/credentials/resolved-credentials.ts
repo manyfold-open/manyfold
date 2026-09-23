@@ -27,9 +27,9 @@ export type ResolvedGeminiCliCredentials = Required<
     }
 
 // One vendor key for the pi provider the bound model provider's protocol maps
-// to (piProviderForProtocol). `baseUrl` is only kept when it is not the
-// vendor's official endpoint — it becomes a models.json override on the
-// runtime, and pi has no other way to reach a gateway.
+// to (piProviderForProtocol). A `baseUrl` that is not the vendor's official
+// endpoint becomes the models.json override in the platform view each exec
+// builds (pi-agent-dir.ts) — pi has no other way to reach a gateway.
 export interface ResolvedPiCredentials {
     apiKey: string
     provider: PiProvider
