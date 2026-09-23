@@ -21,6 +21,7 @@ import type {
     VersionedFramework
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
+import { subscribeWorkbenchEvents } from '@/lib/workbenchEvents'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Breadcrumb, { type BreadcrumbItem } from '@/components/Breadcrumb'
@@ -2128,12 +2129,8 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     useEffect(refresh, [refresh])
 
-    // This page lives under SettingsLayout (not AppShell), so it opens its own
-    // sprite-status stream. Host-level events keep the sandbox badge live while
-    // the detail panel is open — the panel itself only calls refresh-status
-    // once on open and on manual click.
     useEffect(() => {
-        const handle = client.agents.streamSpriteStatus({
+        return subscribeWorkbenchEvents({
             onHostUpdate: (update) => {
                 setSandboxRows((prev) =>
                     prev.map((s) =>
@@ -2144,7 +2141,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 )
             }
         })
-        return () => handle.close()
     }, [client])
 
     const loadSandboxServices = useCallback(

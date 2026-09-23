@@ -11,6 +11,7 @@ import {
     createObjectId
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     BadRequestException,
     ConflictException,
@@ -18,6 +19,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     PayloadTooLargeException
 } from '@nestjs/common'
 import { and, asc, count, countDistinct, eq } from 'drizzle-orm'
@@ -91,7 +93,8 @@ export class LibrarySkillsService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly discovery: SkillDiscoveryService,
         private readonly materializer: SkillMaterializerService,
-        private readonly shares: LibrarySkillSharesService
+        private readonly shares: LibrarySkillSharesService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async list(userId: string): Promise<LibrarySkillSummary[]> {
@@ -194,6 +197,7 @@ export class LibrarySkillsService {
                 })
                 .where(eq(librarySkills.id, existing.id))
                 .returning()
+            this.changed(row)
             return this.detail(row)
         } catch (err) {
             throw translateNameConflict(err, name)
@@ -229,6 +233,8 @@ export class LibrarySkillsService {
         await this.db
             .delete(librarySkills)
             .where(eq(librarySkills.id, existing.id))
+        this.changed(existing, 'deleted')
+        this.changes?.emit(userId, { resource: 'skill', reason: 'deleted' })
         const agentIds = [
             ...new Set(
                 installs
@@ -663,7 +669,7 @@ export class LibrarySkillsService {
             bundle.files
         )
         try {
-            return await this.db.transaction(async (tx) => {
+            const result = await this.db.transaction(async (tx) => {
                 const [row] = await tx
                     .insert(librarySkills)
                     .values({
@@ -687,6 +693,8 @@ export class LibrarySkillsService {
                     )
                 return row
             })
+            this.changed(result, 'created')
+            return result
         } catch (err) {
             throw translateNameConflict(err, bundle.name)
         }
@@ -702,7 +710,7 @@ export class LibrarySkillsService {
             bundle.content,
             bundle.files
         )
-        return this.db.transaction(async (tx) => {
+        const result = await this.db.transaction(async (tx) => {
             const [row] = await tx
                 .update(librarySkills)
                 .set({
@@ -728,6 +736,8 @@ export class LibrarySkillsService {
                 )
             return row
         })
+        this.changed(result)
+        return result
     }
 
     private async nextFreeName(userId: string, base: string): Promise<string> {
@@ -768,7 +778,12 @@ export class LibrarySkillsService {
             .set({ contentHash, updatedAt: new Date() })
             .where(eq(librarySkills.id, id))
             .returning()
+        this.changed(row)
         return row
+    }
+
+    private changed(row: LibrarySkillRow, reason: 'created' | 'updated' | 'deleted' = 'updated'): void {
+        this.changes?.emit(row.userId, { resource: 'skill-library', resourceId: row.id, reason })
     }
 
     private async detail(row: LibrarySkillRow): Promise<LibrarySkillDetail> {

@@ -16,6 +16,7 @@ import {
     parseEnvText
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { workspaceReading } from './sprite-storage/workspace-reading'
 import {
     BadRequestException,
@@ -23,7 +24,8 @@ import {
     Inject,
     Injectable,
     Logger,
-    NotFoundException
+    NotFoundException,
+    Optional
 } from '@nestjs/common'
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
 import {
@@ -190,7 +192,8 @@ export class AgentsService {
         private readonly connections: ConnectionsService,
         private readonly contextDoc: AgentContextDocManageService,
         private readonly mcp: McpConfigMaterializer,
-        private readonly cliVersion: DaemonCliVersionService
+        private readonly cliVersion: DaemonCliVersionService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     private async daemonNeedsUpgradeFor(row: Agent): Promise<boolean> {
@@ -549,6 +552,13 @@ export class AgentsService {
             })
             .where(eq(agents.id, agentId))
             .returning()
+        this.changes?.emit(updated.userId, {
+            resource: 'agent', resourceId: updated.id, agentId: updated.id, reason: 'updated'
+        })
+        if (body.model !== undefined)
+            this.changes?.emit(updated.userId, {
+                resource: 'model-config', resourceId: updated.id, agentId: updated.id, reason: 'updated'
+            })
         // Keep AGENTS.manyfold.md timely: a connection link/unlink changes what
         // the agent should know. Best-effort push to the live sprite (never
         // blocks the response); the doc otherwise refreshes at next bootstrap.

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { CloudflareService } from '@/modules/connections/cloudflare.service'
 import { ComposioService } from '@/modules/connections/composio.service'
@@ -8,7 +9,7 @@ import { GithubAppService } from '@/modules/connections/github-app.service'
 import { GithubCallbackController } from '@/modules/connections/github-callback.controller'
 
 @Module({
-    imports: [AuthModule],
+    imports: [AuthModule, ResourceEventsModule],
     controllers: [ConnectionsController, GithubCallbackController],
     providers: [
         ConnectionsService,

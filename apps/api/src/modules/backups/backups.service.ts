@@ -10,6 +10,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     ServiceUnavailableException,
     type OnModuleDestroy,
     type OnModuleInit
@@ -26,6 +27,7 @@ import {
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { assertAgentReady } from '@/modules/agents/files/files-context'
 import {
     BackupStorageService,
@@ -66,7 +68,8 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly storage: BackupStorageService,
         private readonly runtime: WorkspaceRuntimeService,
-        private readonly operations: BackupOperationsService
+        private readonly operations: BackupOperationsService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async onModuleInit(): Promise<void> {
@@ -298,6 +301,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             throw err
         }
 
+        this.backupChanged(backup, 'created')
         void inBackgroundContext(() => this.runBackupJob(backup.id))().catch((err) => {
             this.log.warn(
                 `backup job ${backup.id} failed: ${(err as Error).message}`
@@ -449,6 +453,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                         eq(agentBackups.status, 'running')
                     )
                 )
+            this.backupChanged(backup)
             await this.enforceRetention(agent.userId, agent.id).catch((err) => {
                 this.log.warn(`backup retention failed: ${sanitizeError(err)}`)
             })
@@ -572,6 +577,8 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
         } finally {
             if (archivePath && agent)
                 await this.runtime.cleanupPath(agent, archivePath)
+            this.changes?.emit(restore.userId, { resource: 'backup', agentId: restore.targetAgentId ?? undefined, reason: 'updated' })
+            this.changes?.emit(restore.userId, { resource: 'file', agentId: restore.targetAgentId ?? undefined, reason: 'updated' })
         }
     }
 
@@ -685,6 +692,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                 updatedAt: now
             })
             .returning()
+        this.changes?.emit(agent.userId, { resource: 'backup', agentId: agent.id, reason: 'created' })
         return restore
     }
 
@@ -735,7 +743,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async failBackup(id: string, message: string): Promise<void> {
-        await this.db
+        const rows = await this.db
             .update(agentBackups)
             .set({
                 status: 'failed',
@@ -746,11 +754,13 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             .where(
                 and(eq(agentBackups.id, id), eq(agentBackups.status, 'running'))
             )
+            .returning()
+        for (const row of rows) this.backupChanged(row)
     }
 
     private async markBackupDeleted(id: string): Promise<void> {
         const now = new Date()
-        await this.db
+        const rows = await this.db
             .update(agentBackups)
             .set({
                 status: 'deleted',
@@ -758,6 +768,12 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                 updatedAt: now
             })
             .where(eq(agentBackups.id, id))
+            .returning()
+        for (const row of rows) this.backupChanged(row, 'deleted')
+    }
+
+    private backupChanged(row: AgentBackupRow, reason: 'created' | 'updated' | 'deleted' = 'updated'): void {
+        this.changes?.emit(row.userId, { resource: 'backup', resourceId: row.id, agentId: row.sourceAgentId ?? undefined, reason })
     }
 }
 

@@ -21,8 +21,10 @@ import type {
 import type { FC, ReactNode } from 'react'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { NcaClient, SdkAgent } from '@manyfold/sdk'
+import { ApiError } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
 import {
     ArchiveIcon,
@@ -527,9 +529,16 @@ const AgentSettingsContent: FC = (): ReactNode => {
         void refreshStorage()
     }, [refreshStorage])
 
-    useEffect(() => {
-        void refreshBackups()
-    }, [refreshBackups])
+    useResourceRefresh('backup', undefined, refreshBackups, { agentId: id, enabled: readBackups })
+
+    const refreshModelConfig = useCallback(async (signal: AbortSignal): Promise<void> => {
+        if (!id || !canRequest('model')) return
+        const view = await client.agents.getModelConfig(id)
+        if (signal.aborted || !canRequest('model')) return
+        writeCachedModelConfigView(view)
+        applyModelConfigView(view)
+    }, [applyModelConfigView, canRequest, client, id])
+    useResourceRefresh('model-config', id, refreshModelConfig, { enabled: readModel, initial: false })
 
     const createBackup = async (): Promise<void> => {
         if (!id || !canRequest('backups') || backupBusy) return
@@ -745,12 +754,22 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }, [agent, client, confirm, restarting, t])
 
     const refreshAgentSummary =
-        useCallback(async (): Promise<SdkAgent | null> => {
+        useCallback(async (signal?: AbortSignal): Promise<SdkAgent | null> => {
             if (!id || !mounted.current) return null
-            const nextAgent = await client.agents.get(id)
-            if (mounted.current) setAgent(nextAgent)
-                        return nextAgent
+            try {
+                const nextAgent = await client.agents.get(id)
+                if (mounted.current && !signal?.aborted) setAgent(nextAgent)
+                return nextAgent
+            } catch (err) {
+                if (mounted.current && !signal?.aborted && err instanceof ApiError && err.status === 404) {
+                    setAgent(null)
+                    setError(apiErrorMessage(err))
+                }
+                throw err
+            }
         }, [client, id])
+
+    useResourceRefresh('agent', id, refreshAgentSummary, { initial: false })
 
     // Toggle the framework dashboard (openclaw control UI / hermes
     // dashboard) on this agent's runtime. Hermes sprite toggles run async

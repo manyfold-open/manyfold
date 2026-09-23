@@ -1,4 +1,5 @@
 import type {
+    ResourceChangedEvent,
     SpriteStatusEvent,
     SpriteStatusUpdate
 } from '@manyfold/shared'
@@ -209,17 +210,17 @@ test('resource changes fan out once across instances and remain account-scoped',
     emitter.subscribe('u-1', { send: (event) => local.push(event), close: () => {} })
     receiver.subscribe('u-1', { send: (event) => remote.push(event), close: () => {} })
     receiver.subscribe('u-2', { send: (event) => other.push(event), close: () => {} })
-    const event = {
+    const events = (['automation', 'channel', 'skill', 'skill-library', 'connection', 'agent', 'model-config', 'file', 'backup'] as const).map((resource): ResourceChangedEvent => ({
         type: 'resource-changed' as const,
-        resource: 'automation' as const,
-        resourceId: 'automation-1',
-        agentId: 'agent-1',
+        resource,
+        ...(resource === 'file' ? {} : { resourceId: 'resource-1' }),
+        ...(['connection', 'skill-library'].includes(resource) ? {} : { agentId: 'agent-1' }),
         reason: 'updated' as const,
         at: new Date().toISOString()
-    }
-    emitter.emitResourceChanged('u-1', event)
-    assert.deepEqual(local, [event])
-    assert.deepEqual(remote, [event])
+    }))
+    for (const event of events) emitter.emitResourceChanged('u-1', event)
+    assert.deepEqual(local, events)
+    assert.deepEqual(remote, events)
     assert.deepEqual(other, [])
 })
 

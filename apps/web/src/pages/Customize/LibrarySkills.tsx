@@ -3,7 +3,7 @@ import type {
     LibrarySkillSummary
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError } from '@manyfold/sdk'
 import EmptyState from '@/components/EmptyState'
@@ -13,6 +13,7 @@ import { PlusIcon, SkillsIcon } from '@/components/icons'
 import OverflowMenu from '@/components/OverflowMenu'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/dateFormat'
 import { useI18n } from '@/lib/i18n'
@@ -89,26 +90,20 @@ const LibrarySkills: FC = (): ReactNode => {
         null
     )
 
-    useEffect(() => {
-        let cancelled = false
-        setLoading(true)
-        client.skills.library
-            .list()
-            .then((skills) => {
-                if (cancelled) return
-                setItems(skills)
-                setError(null)
-            })
-            .catch((err: unknown) => {
-                if (!cancelled) setError(apiErrorMessage(err))
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false)
-            })
-        return () => {
-            cancelled = true
+    const refresh = useCallback(async (signal: AbortSignal): Promise<void> => {
+        try {
+            const skills = await client.skills.library.list()
+            if (signal.aborted) return
+            setItems(skills)
+            setError(null)
+        } catch (err) {
+            if (!signal.aborted) setError(apiErrorMessage(err))
+        } finally {
+            if (!signal.aborted) setLoading(false)
         }
     }, [client])
+
+    useResourceRefresh('skill-library', undefined, refresh)
 
     const exportSkill = async (skill: LibrarySkillSummary): Promise<void> => {
         if (busyId) return

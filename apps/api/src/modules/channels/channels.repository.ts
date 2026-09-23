@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Optional } from '@nestjs/common'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     and,
     asc,
@@ -68,7 +69,15 @@ export interface ArchiveResult {
 
 @Injectable()
 export class ChannelsRepository {
-    constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+    constructor(
+        @Inject(DRIZZLE) private readonly db: Database,
+        @Optional() private readonly changes?: ResourceChangesService
+    ) {}
+
+    private changed(row: ChannelRow, reason: 'created' | 'updated' | 'deleted'): void {
+        // Rebinding affects both agents, so invalidate all views of this channel.
+        this.changes?.emit(row.userId, { resource: 'channel', resourceId: row.id, reason })
+    }
 
     // ADR-0023: deletion-pending owners receive no channel traffic.
     async isOwnerDeactivated(userId: string): Promise<boolean> {
@@ -134,6 +143,7 @@ export class ChannelsRepository {
             .insert(channels)
             .values(row)
             .returning()
+        this.changed(inserted, 'created')
         return inserted
     }
 
@@ -146,6 +156,7 @@ export class ChannelsRepository {
             .set({ ...patch, updatedAt: new Date() })
             .where(eq(channels.id, id))
             .returning()
+        if (updated) this.changed(updated, 'updated')
         return updated ?? null
     }
 
@@ -161,7 +172,7 @@ export class ChannelsRepository {
         id: string,
         agentId: string
     ): Promise<ChannelRow | null> {
-        return this.db.transaction(async (tx) => {
+        const result = await this.db.transaction(async (tx) => {
             const now = new Date()
             const [updated] = await tx
                 .update(channels)
@@ -193,15 +204,24 @@ export class ChannelsRepository {
                 )
             return updated
         })
+        if (result) {
+            this.changed(result, 'updated')
+            this.changes?.emit(result.userId, { resource: 'automation', reason: 'updated' })
+        }
+        return result
     }
 
     async delete(id: string): Promise<void> {
-        await this.db.delete(channels).where(eq(channels.id, id))
+        const [row] = await this.db.delete(channels).where(eq(channels.id, id)).returning()
+        if (row) {
+            this.changed(row, 'deleted')
+            this.changes?.emit(row.userId, { resource: 'automation', reason: 'updated' })
+        }
     }
 
     async markChannelConnected(id: string): Promise<void> {
         const now = new Date()
-        await this.db
+        const [row] = await this.db
             .update(channels)
             .set({
                 status: 'active',
@@ -213,6 +233,8 @@ export class ChannelsRepository {
                 updatedAt: now
             })
             .where(eq(channels.id, id))
+            .returning()
+        if (row) this.changed(row, 'updated')
     }
 
     // Backoff is computed SQL-side from the stored attempt count so concurrent
@@ -229,8 +251,9 @@ export class ChannelsRepository {
                 updatedAt: new Date()
             })
             .where(eq(channels.id, id))
-            .returning({ attempts: channels.reconnectAttempts })
-        return updated?.attempts ?? null
+            .returning()
+        if (updated) this.changed(updated, 'updated')
+        return updated?.reconnectAttempts ?? null
     }
 
     // Pre-writes the backoff window before a reconnect start, so a handle that

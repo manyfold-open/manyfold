@@ -2116,9 +2116,20 @@ export interface ChatSessionsChangedEvent {
 
 export interface ResourceChangedEvent {
     type: 'resource-changed'
-    resource: 'automation'
-    resourceId: string
-    agentId: string
+    resource:
+        | 'automation'
+        | 'channel'
+        | 'skill'
+        | 'skill-library'
+        | 'connection'
+        | 'agent'
+        | 'model-config'
+        | 'file'
+        | 'backup'
+    // Omitted for collection invalidations (for example an agent's files).
+    resourceId?: string
+    // Account resources such as connections and library skills have no agent.
+    agentId?: string
     reason: 'created' | 'updated' | 'deleted' | 'run'
     at: string
 }

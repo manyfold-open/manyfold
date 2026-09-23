@@ -36,6 +36,28 @@ it is displayed. With no browser, report CLI verification and the link,
 without claiming visual verification. With no known Web origin, complete
 the authorized CLI operation and report the resource ID.
 
-Live resource updates currently cover automations. Other resource pages
-retain their existing refresh behavior; an older deployment may require
-an explicit refresh even for automations.
+## Other resources
+
+Use the resource's `mf` command help and the route table, retain the returned
+IDs, and read back the changed fields. Open the relevant view before a write
+when the user wants to watch it happen. Live invalidations also cover:
+
+- Channels: create, update, rebind, delete, and connection status.
+- Skills: install, enable/disable, uninstall, and background installation outcomes.
+- Personal skill library: create, edit, import, and delete; the library list
+  reflects those changes without replacing an open editor's draft.
+- Connections: create, rename, revoke, and OAuth completion.
+- Agents: create, rename/configure, and delete; settings refresh saved MCP,
+  environment, and connection data while preserving open drafts.
+- Model configuration: saved model selection and tuning in Agent settings.
+- Files: API writes, uploads, moves, directory creation, and deletion refresh
+  the open Files tree and preview. Direct filesystem writes inside a runtime
+  are not watched by these API events.
+- Backups: creation, completion/failure, deletion, and restore outcomes.
+
+Events are account-scoped invalidation signals. They carry no resource
+contents, credentials, or browser navigation instructions. The Web refetches
+authorized data, coalesces bursts, and catches up on reconnect/focus with a
+slow polling fallback. Older deployments and views outside this coverage
+may still require an explicit refresh. Never claim visual verification
+based only on an emitted event.

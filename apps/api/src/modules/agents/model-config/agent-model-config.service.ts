@@ -87,6 +87,7 @@ import {
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
@@ -160,7 +161,8 @@ export class AgentModelConfigService {
         // working; absent, a profile-bound sprites inspection reports its
         // runner unavailable instead of waking it.
         @Optional()
-        _runtimeAuth?: RuntimeAuthProfilesService
+        _runtimeAuth?: RuntimeAuthProfilesService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async getForAgent(
@@ -756,6 +758,9 @@ export class AgentModelConfigService {
             })
             .where(eq(agents.id, agent.id))
             .returning()
+        this.changes?.emit(agent.userId, {
+            resource: 'model-config', resourceId: agent.id, agentId: agent.id, reason: 'updated'
+        })
         return updated
     }
 
@@ -796,6 +801,9 @@ export class AgentModelConfigService {
             })
             .where(eq(agents.id, agent.id))
             .returning()
+        this.changes?.emit(agent.userId, {
+            resource: 'model-config', resourceId: agent.id, agentId: agent.id, reason: 'updated'
+        })
         return updated
     }
 

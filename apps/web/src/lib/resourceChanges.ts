@@ -1,7 +1,20 @@
 import type { ResourceChangedEvent } from '@manyfold/shared'
 
-export type ResourceInvalidation = Pick<ResourceChangedEvent, 'resource'> &
-    Partial<Pick<ResourceChangedEvent, 'resourceId'>>
+export type ResourceInvalidation = {
+    resource: ResourceChangedEvent['resource'] | '*'
+    resourceId?: string
+    agentId?: string
+}
+
+export const matchesResourceChange = (
+    event: ResourceInvalidation,
+    resource: ResourceChangedEvent['resource'],
+    resourceId?: string,
+    agentId?: string
+): boolean =>
+    (event.resource === '*' || event.resource === resource) &&
+    (!resourceId || !event.resourceId || event.resourceId === resourceId) &&
+    (!agentId || !event.agentId || event.agentId === agentId)
 
 type Listener = (event: ResourceInvalidation) => void
 const listeners = new Set<Listener>()

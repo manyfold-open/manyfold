@@ -3,6 +3,7 @@ import test from 'node:test'
 import { setTimeout as wait } from 'node:timers/promises'
 import {
     createResourceRefresh,
+    matchesResourceChange,
     publishResourceChanged,
     subscribeResourceChanges
 } from '../src/lib/resourceChanges'
@@ -53,4 +54,63 @@ test('resource subscriptions carry reconnect invalidation and unsubscribe', () =
         { resource: 'automation', resourceId: 'auto-1' },
         { resource: 'automation' }
     ])
+})
+
+test('invalidation matches the resource and agent, with collection and reconnect fallbacks', () => {
+    const event = {
+        resource: 'skill' as const,
+        resourceId: 'install-1',
+        agentId: 'agent-1'
+    }
+    assert.equal(
+        matchesResourceChange(event, 'skill', undefined, 'agent-1'),
+        true
+    )
+    assert.equal(
+        matchesResourceChange(event, 'skill', undefined, 'agent-2'),
+        false
+    )
+    assert.equal(matchesResourceChange(event, 'skill', 'install-2'), false)
+    assert.equal(matchesResourceChange(event, 'channel'), false)
+    assert.equal(
+        matchesResourceChange(
+            { resource: 'file', agentId: 'agent-1' },
+            'file',
+            undefined,
+            'agent-2'
+        ),
+        false
+    )
+    assert.equal(
+        matchesResourceChange(
+            { resource: 'connection' },
+            'connection',
+            'conn-1'
+        ),
+        true
+    )
+    assert.equal(
+        matchesResourceChange(
+            { resource: 'channel', resourceId: 'channel-1' },
+            'channel',
+            undefined,
+            'old-agent'
+        ),
+        true
+    )
+    for (const resource of [
+        'automation',
+        'channel',
+        'skill',
+        'skill-library',
+        'connection',
+        'agent',
+        'model-config',
+        'file',
+        'backup'
+    ] as const)
+        assert.equal(
+            matchesResourceChange({ resource: '*' }, resource, 'id', 'agent'),
+            true
+        )
 })

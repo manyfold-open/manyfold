@@ -4,7 +4,9 @@ The same skills-only package supports Claude Code and Codex. It distributes
 the generated `manyfold-cli-usage` skill also installed by default on
 Manyfold-managed agents. The skill uses existing `mf` commands, selects
 authentication from the actual identity, and shows resources when the host
-has browser controls. The first live workflow covers automations.
+has browser controls. Live updates cover automations, channels, skills and
+the personal skill library, connections, agents and model configuration,
+API-managed files, and backups.
 
 Install from a checkout containing this change:
 
@@ -18,7 +20,7 @@ codex plugin add manyfold@manyfold
 
 For Codex Desktop use its bundled CLI. Start a new coding-agent conversation
 after installation. The plugin uses existing `mf` resource commands;
-the API and Web must include automation resource events for live updates.
+the API and Web must include resource events for live updates.
 Workbench routes and deployment URL rules are maintained in
 [the skill's route reference](skills/manyfold-cli-usage/references/web-routes.md).
 Authenticate with
@@ -86,3 +88,16 @@ selects another CLI executable; `MF_PLUGIN_TEST_MODEL` selects an automation
 model override. Screenshots and results go into
 `.e2e-runs/plugin-automations/`. Checks cover two live tabs, unsaved input,
 run completion, result navigation, mobile layout, reconnect, and deletion.
+
+With the same environment variables, run
+`node apps/web/test/plugin-resources.live.mjs` for channel CRUD across two
+tabs, skill library edits and installation, agent updates, MCP draft
+preservation, file tree and preview updates, mobile layout, and settings-page
+stream recovery. It restores the agent's name and MCP configuration and removes
+its temporary resources. Results are saved in `.e2e-runs/plugin-resources/`.
+
+The authenticated route owns one reconnecting status stream per tab across
+all workbench layouts. Resource services share the existing account-scoped
+PG/SSE bus through `ResourceEventsModule`; events are emitted after writes
+commit and contain identifiers only. Consumers refetch their authorized data.
+Direct runtime filesystem writes are outside this event coverage.

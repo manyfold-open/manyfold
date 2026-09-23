@@ -18,6 +18,8 @@ import {
     UseGuards
 } from '@nestjs/common'
 import { Readable } from 'node:stream'
+import { Optional } from '@nestjs/common'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { Agent } from '@manyfold/db'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
@@ -67,7 +69,8 @@ const capabilitiesOf = (ctx: FilesContext) =>
 export class FilesController {
     constructor(
         private readonly agents: AgentsService,
-        private readonly ctxBuilder: FilesContextBuilder
+        private readonly ctxBuilder: FilesContextBuilder,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     @Get(':id/files/roots')
@@ -157,6 +160,7 @@ export class FilesController {
                 transport: transportOf(ctx)
             })
         await ctx.write(abs, toWriteBody(body))
+        this.filesChanged(ctx)
         return { ok: true }
     }
 
@@ -173,6 +177,7 @@ export class FilesController {
         assertWritable(ctx)
         const abs = resolveSafePath(ctx.mountPath, body?.path ?? '')
         await ctx.mkdir(abs)
+        this.filesChanged(ctx)
         return { ok: true }
     }
 
@@ -192,6 +197,7 @@ export class FilesController {
         if (src === ctx.mountPath || dst === ctx.mountPath)
             throw new ForbiddenException('cannot move the mount root')
         await ctx.mv(src, dst)
+        this.filesChanged(ctx)
         return { ok: true }
     }
 
@@ -211,7 +217,14 @@ export class FilesController {
         if (abs === ctx.mountPath)
             throw new ForbiddenException('refusing to remove mount root')
         await ctx.rm(abs, recursive === 'true' || recursive === '1')
+        this.filesChanged(ctx)
         return { ok: true }
+    }
+
+    private filesChanged(ctx: FilesContext): void {
+        this.changes?.emit(ctx.agent.userId, {
+            resource: 'file', agentId: ctx.agent.id, reason: 'updated'
+        })
     }
 
     private async loadAgent(

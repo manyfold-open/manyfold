@@ -3,14 +3,26 @@ import test from 'node:test'
 import { createClient } from '../src/client'
 
 test('the authenticated status stream dispatches resource changes', async () => {
-    const event = {
+    const events = [
+        'automation',
+        'channel',
+        'skill',
+        'skill-library',
+        'connection',
+        'agent',
+        'model-config',
+        'file',
+        'backup'
+    ].map((resource) => ({
         type: 'resource-changed',
-        resource: 'automation',
-        resourceId: 'auto-1',
-        agentId: 'agent-1',
+        resource,
+        ...(resource === 'file' ? {} : { resourceId: 'resource-1' }),
+        ...(['connection', 'skill-library'].includes(resource)
+            ? {}
+            : { agentId: 'agent-1' }),
         reason: 'created',
         at: new Date().toISOString()
-    }
+    }))
     const received: unknown[] = []
     let closed!: () => void
     const finished = new Promise<void>((resolve) => {
@@ -29,7 +41,12 @@ test('the authenticated status stream dispatches resource changes', async () => 
                 'Bearer test-token'
             )
             return new Response(
-                `event: resource-changed\ndata: ${JSON.stringify(event)}\n\n`,
+                events
+                    .map(
+                        (event) =>
+                            `event: resource-changed\ndata: ${JSON.stringify(event)}\n\n`
+                    )
+                    .join(''),
                 {
                     headers: { 'content-type': 'text/event-stream' }
                 }
@@ -45,5 +62,5 @@ test('the authenticated status stream dispatches resource changes', async () => 
     })
     await finished
     handle.close()
-    assert.deepEqual(received, [event])
+    assert.deepEqual(received, events)
 })

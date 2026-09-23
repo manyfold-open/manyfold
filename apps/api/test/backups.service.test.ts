@@ -4,6 +4,7 @@ import test from 'node:test'
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { agentBackupRestores, agentBackups, agents } from '@manyfold/db'
+import type { ResourceChangesService } from '../src/modules/resource-events/resource-changes.service'
 import {
     BackupStorageService,
     meteredStream
@@ -172,11 +173,20 @@ test('BackupsService marks backup succeeded and cleans runtime archive', async (
     const runtime = new FakeRuntime()
     runtime.archiveData = 'archive-data'
     runtime.archiveBytes = Buffer.byteLength(runtime.archiveData)
-    const service = serviceFor(db, storage, runtime)
+    const events: unknown[] = []
+    const service = serviceFor(db, storage, runtime, {
+        emit: (userId: string, change: unknown) => {
+            assert.equal(db.backupRows[0].status, 'succeeded')
+            events.push({ userId, change })
+        }
+    } as ResourceChangesService)
 
     await privateApi(service).runBackupJob('backup-1')
 
     assert.equal(db.backupRows[0].status, 'succeeded')
+    assert.deepEqual(events, [{ userId: 'user-1', change: {
+        resource: 'backup', resourceId: 'backup-1', agentId: 'agent-1', reason: 'updated'
+    } }])
     assert.equal(db.backupRows[0].archiveBytes, runtime.archiveBytes)
     assert.equal(db.backupRows[0].workspaceBytes, 123)
     assert.equal(db.backupRows[0].fileCount, 4)
@@ -194,11 +204,20 @@ test('BackupsService records backup failure and removes partial object', async (
     const storage = new FakeStorage()
     storage.uploadError = new Error('upload failed')
     const runtime = new FakeRuntime()
-    const service = serviceFor(db, storage, runtime)
+    const events: unknown[] = []
+    const service = serviceFor(db, storage, runtime, {
+        emit: (userId: string, change: unknown) => {
+            assert.equal(db.backupRows[0].status, 'failed')
+            events.push({ userId, change })
+        }
+    } as ResourceChangesService)
 
     await privateApi(service).runBackupJob('backup-1')
 
     assert.equal(db.backupRows[0].status, 'failed')
+    assert.deepEqual(events, [{ userId: 'user-1', change: {
+        resource: 'backup', resourceId: 'backup-1', agentId: 'agent-1', reason: 'updated'
+    } }])
     assert.equal(db.backupRows[0].errorMessage, 'upload failed')
     assert.deepEqual(storage.deleted, ['object-key'])
     assert.deepEqual(runtime.cleaned, [
@@ -474,7 +493,8 @@ const sha256 = (value: string): string =>
 const serviceFor = (
     db: FakeBackupsDb,
     storage: FakeStorage,
-    runtime: FakeRuntime
+    runtime: FakeRuntime,
+    changes?: ResourceChangesService
 ): BackupsService => {
     const service = new BackupsService(
         db as never,
@@ -491,7 +511,8 @@ const serviceFor = (
                     }
                 }
             }
-        } as never
+        } as never,
+        changes
     )
     const claims = (
         service as unknown as { claims: Map<string, BackupOperationClaim> }
@@ -726,18 +747,22 @@ class FakeBackupsDb {
 
     update(table: unknown): {
         set: (patch: Record<string, unknown>) => {
-            where: (condition?: unknown) => Promise<void>
+            where: (condition?: unknown) => Promise<void> & {
+                returning: () => Promise<Array<Record<string, unknown>>>
+            }
         }
     } {
         return {
             set: (patch: Record<string, unknown>) => ({
-                where: async (condition?: unknown) => {
-                    if (this.updateError) throw this.updateError
-                    for (const row of filterRows(
-                        this.rowsFor(table),
-                        condition
-                    ))
-                        Object.assign(row, patch)
+                where: (condition?: unknown) => {
+                    const rows = filterRows(this.rowsFor(table), condition)
+                    const done = Promise.resolve().then(() => {
+                        if (this.updateError) throw this.updateError
+                        for (const row of rows) Object.assign(row, patch)
+                    })
+                    return Object.assign(done, {
+                        returning: async () => { await done; return rows }
+                    })
                 }
             })
         }

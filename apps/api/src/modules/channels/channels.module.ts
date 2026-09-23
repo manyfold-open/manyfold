@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
@@ -40,6 +41,7 @@ import { IMessageChannelProvider } from './providers/imessage.provider'
 
 @Module({
     imports: [
+        ResourceEventsModule,
         AuthModule,
         ChatModule,
         SecretsModule,

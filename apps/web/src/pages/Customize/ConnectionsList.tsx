@@ -8,6 +8,7 @@ import { GhostSettingsRows } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { ChevronRightIcon, PlugIcon, PlusIcon } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/dateFormat'
 import { useI18n } from '@/lib/i18n'
@@ -45,9 +46,7 @@ const ConnectionsList: FC = (): ReactNode => {
         }
     }, [client])
 
-    useEffect(() => {
-        void refresh()
-    }, [refresh])
+    useResourceRefresh('connection', undefined, refresh)
 
     // Bound-agent counts are decoration, so a failed agent list leaves the
     // badges off rather than failing the page.

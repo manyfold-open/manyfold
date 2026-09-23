@@ -26,6 +26,7 @@ import {
     type NewAgent
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     K8S_CREATE_CLEANUP_PENDING,
     K8S_CREATE_INITIAL_AGENT
@@ -110,7 +111,8 @@ export class RuntimeAgentAttachService {
         @Optional()
         private readonly modelConfig?: AgentModelConfigService,
         @Optional()
-        private readonly contextDoc?: AgentContextDocManageService
+        private readonly contextDoc?: AgentContextDocManageService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
@@ -372,6 +374,7 @@ export class RuntimeAgentAttachService {
             // now. A daemon's arrives with its configuration delivery.
             if (inserted.runtime === 'sprites' && isCodingAgentRuntime)
                 await this.contextDoc?.refreshOnChange(inserted)
+            this.changes?.emit(inserted.userId, { resource: 'agent', resourceId: inserted.id, agentId: inserted.id, reason: 'created' })
             return agentRowToSummary(inserted, null, false, {
                 controlUiEnabled: runtime.controlUiEnabled,
                 dashboardEnabled: runtime.dashboardEnabled,
