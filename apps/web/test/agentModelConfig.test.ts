@@ -385,6 +385,37 @@ test('model config view cache round-trips runtime inspect results by agent id', 
     })
 })
 
+// Seen on staging [2026-09-23]: a view this browser cached before agents had
+// runtime-auth bindings (#281) carries no `runtimeAuth`. The chat page applies
+// the cached view before its fetch returns, the runtime sign-in card read
+// `view.runtimeAuth.profile`, and the error boundary unmounted the page before
+// the fresh view could replace the entry, so every reload crashed again.
+test('a cached view from before runtime-auth bindings is dropped, not applied', () => {
+    withMockLocalStorage(() => {
+        const key = 'nca.agentModelConfigView.agent-1'
+        const { runtimeAuth: _unused, ...legacy } = codexView
+        for (const version of [1, 2]) {
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    version,
+                    storedAt: '2026-09-09T16:31:21.940Z',
+                    view: legacy
+                })
+            )
+            assert.equal(
+                readCachedModelConfigView('agent-1'),
+                null,
+                `v${version}`
+            )
+            assert.equal(localStorage.getItem(key), null, `v${version} removed`)
+        }
+        // What the current client writes is read back as before.
+        writeCachedModelConfigView(codexView)
+        assert.deepEqual(readCachedModelConfigView('agent-1'), codexView)
+    })
+})
+
 test('mergeCachedRuntimeLocalModelConfigView keeps newer cached local capability', () => {
     const apiView: AgentModelConfigView = {
         ...codexView,
