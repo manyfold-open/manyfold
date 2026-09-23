@@ -20,7 +20,6 @@ import {
     channels,
     type Agent,
     type AgentRuntimeRow,
-    type ChannelOrigin,
     type ChannelRow,
     type Database
 } from '@manyfold/db'
@@ -43,6 +42,7 @@ import {
 import { mapChannel, mapJob, type MappedChannel, type MappedJob } from './narranexus-sync.mapper'
 import type {
     NarraNexusChannelsResponse,
+    NarraNexusJobOrigin,
     NarraNexusJobsResponse
 } from './narranexus-sync.types'
 import type { NotifySyncDto } from './dto/notify-sync.dto'
@@ -328,9 +328,7 @@ export class NarraNexusSyncService implements OnModuleInit, OnModuleDestroy {
                     isNotNull(channels.origin)
                 )
             )
-        const mirrored = rows.filter(
-            (row) => (row.origin as ChannelOrigin | null)?.kind === 'narranexus'
-        )
+        const mirrored = rows.filter((row) => row.origin?.kind === 'narranexus')
         if (mirrored.length === 0)
             throw new NotFoundException(
                 `no mirrored ${nxProvider} channel for agent ${agent.internalId}`
@@ -509,7 +507,7 @@ export class NarraNexusSyncService implements OnModuleInit, OnModuleDestroy {
 
         const seen = new Set<string>()
         for (const row of existing) {
-            const jobId = row.origin!.jobId
+            const jobId = (row.origin as NarraNexusJobOrigin).jobId
             const match = jobId && !seen.has(jobId) ? desired.get(jobId) : null
             if (!match) {
                 await this.automations.removeManaged(row.id)

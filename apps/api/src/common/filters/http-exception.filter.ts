@@ -1,4 +1,4 @@
-import { apiError } from '@manyfold/shared'
+import { apiError, UnknownFrameworkError } from '@manyfold/shared'
 import {
     Catch,
     HttpException,
@@ -70,6 +70,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
                 )
             }
             res.status(status).send(apiError(code, String(message), details))
+            return
+        }
+
+        // A row naming a framework this build does not register (ADR-0034):
+        // a normal outcome for that agent, not a crash to report.
+        if (exception instanceof UnknownFrameworkError) {
+            setHttpResponseStatus(trace.getActiveSpan(), HttpStatus.CONFLICT)
+            res.status(HttpStatus.CONFLICT).send(
+                apiError(exception.code, exception.message, {
+                    framework: exception.framework
+                })
+            )
             return
         }
 

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { SdkAgent } from '@manyfold/sdk'
-import { agentFramework, agentRuntime } from '@manyfold/shared'
+import { agentRuntime, listFrameworks } from '@manyfold/shared'
 import type { AgentSettingsSectionId } from '../src/lib/agentSettingsSections'
 import {
     isAgentSettingsSection,
@@ -275,7 +275,7 @@ const ALL_SECTIONS = Object.keys({
 } satisfies Record<AgentSettingsSectionId, true>) as AgentSettingsSectionId[]
 
 const RUNTIMES = Object.values(agentRuntime)
-const FRAMEWORKS = Object.values(agentFramework)
+const FRAMEWORKS = listFrameworks()
 
 // Every shape a URL can be asked about, not only the ones the API can mint. The
 // guard is what stands between a hand-typed link and a live panel, so it has to

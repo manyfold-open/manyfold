@@ -16,8 +16,8 @@ import {
     normalizeAgentName,
     providerSupportsTarget,
     runtimeAuthSupported,
+    listVersionedFrameworks,
     supportsRuntime,
-    versionedFrameworks,
     validateAgentName
 } from '@manyfold/shared'
 import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
@@ -496,9 +496,10 @@ const SANDBOX_CLI_FRAMEWORKS: AgentFramework[] = [
     'gemini-cli'
 ]
 // Every framework a sandbox can hold, in the order the cards show them.
-const SANDBOX_FRAMEWORKS: AgentFramework[] = versionedFrameworks.filter(
-    (framework) => supportsRuntime(framework, 'sprites')
-)
+const sandboxFrameworks = (): AgentFramework[] =>
+    listVersionedFrameworks().filter((framework) =>
+        supportsRuntime(framework, 'sprites')
+    )
 
 const targetHeadCell = 'px-3 py-2 font-medium'
 const targetBodyCell = 'text-caption text-muted px-3 py-2'
@@ -1682,7 +1683,7 @@ const AgentNew: FC = (): ReactNode => {
                 .filter((r) => r.status !== 'failed' && r.status !== 'stopped')
                 .map((r) => r.framework)
         )
-        return SANDBOX_FRAMEWORKS.map((fw) => {
+        return sandboxFrameworks().map((fw) => {
             // A coding CLI is known from the sandbox probe; a service framework
             // only from the runtime that installed it.
             const coding = SANDBOX_CLI_FRAMEWORKS.includes(fw)

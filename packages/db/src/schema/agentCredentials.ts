@@ -7,20 +7,7 @@ export const agentCredentials = pgTable('agent_credentials', {
         .notNull()
         .unique()
         .references(() => agentRuntimes.id, { onDelete: 'cascade' }),
-    framework: text('framework', {
-        enum: [
-            'openclaw',
-            'hermes',
-            'narranexus',
-            'claude-code',
-            'codex',
-            'gemini-cli',
-            'pi',
-            'dify',
-            'langflow',
-            'a2a'
-        ]
-    }).notNull(),
+    framework: text('framework').notNull(),
     payloadCiphertext: text('payload_ciphertext').notNull(),
     keyVersion: integer('key_version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true })

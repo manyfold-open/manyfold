@@ -404,6 +404,11 @@ const composioConnectionIdOf = (agent: Agent): string | null | undefined =>
     (agent.extras as { composioConnectionId?: string | null })
         .composioConnectionId
 
+const isComposioJsonFramework = (
+    framework: AgentFramework
+): framework is 'claude-code' | 'gemini-cli' =>
+    framework === 'claude-code' || framework === 'gemini-cli'
+
 // Build the managed composio injection in the shape the target scope's format
 // expects: a server object for JSON frameworks, the raw key for Codex (merged
 // into TOML downstream). Framework is already narrowed by composioInjectScope.
@@ -412,7 +417,7 @@ const composioInjection = (
     key: string
 ): McpInjection | undefined => {
     if (framework === 'codex') return { composioKey: key }
-    if (framework === 'claude-code' || framework === 'gemini-cli')
+    if (isComposioJsonFramework(framework))
         return {
             servers: {
                 [COMPOSIO_MCP_SERVER_NAME]: composioMcpServerJson(framework, key)

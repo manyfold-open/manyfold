@@ -1,4 +1,5 @@
-import type { AgentFramework } from '@manyfold/shared'
+import { isCoreFramework } from '@manyfold/shared'
+import type { AgentFramework, CoreFramework } from '@manyfold/shared'
 import type { CreateProviderChoice } from '@/lib/newChannelOptions'
 
 export type NewChatActionId =
@@ -20,7 +21,7 @@ export interface NewChatLaunchpadConfig {
 }
 
 export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
-    AgentFramework,
+    CoreFramework,
     NewChatLaunchpadConfig
 > = {
     'claude-code': {
@@ -72,9 +73,7 @@ export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
 export const newChatLaunchpadConfigFor = (
     framework: AgentFramework
 ): NewChatLaunchpadConfig | null =>
-    Object.hasOwn(NEW_CHAT_LAUNCHPAD_CONFIG, framework)
-        ? NEW_CHAT_LAUNCHPAD_CONFIG[framework]
-        : null
+    isCoreFramework(framework) ? NEW_CHAT_LAUNCHPAD_CONFIG[framework] : null
 
 // Which chat someone lives in is a fact about their workplace, not about the
 // agent's framework, and no framework signal predicts it. Rather than pick one

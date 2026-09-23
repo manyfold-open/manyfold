@@ -43,20 +43,9 @@ export const agents = pgTable(
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
         name: text('name').notNull(),
-        framework: text('framework', {
-            enum: [
-                'openclaw',
-                'hermes',
-                'narranexus',
-                'claude-code',
-                'codex',
-                'gemini-cli',
-                'pi',
-                'dify',
-                'langflow',
-                'a2a'
-            ]
-        }).notNull(),
+        // No enum: an edition registers frameworks the core does not know
+        // (ADR-0034).
+        framework: text('framework').notNull(),
         runtime: text('runtime', {
             enum: ['sprites', 'k8s', 'daemon', 'external']
         }).notNull(),

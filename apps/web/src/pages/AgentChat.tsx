@@ -1,5 +1,4 @@
 import {
-    AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
@@ -14,7 +13,7 @@ import {
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
-    chatCapabilitiesByFramework
+    chatCapabilitiesFor
 } from '@manyfold/shared'
 import {
     Suspense,
@@ -468,10 +467,8 @@ const AgentChat: FC = (): ReactNode => {
     const capabilities: ChatCapabilities = useMemo(
         () =>
             currentAgent
-                ? chatCapabilitiesByFramework[
-                      currentAgent.framework as AgentFramework
-                  ]
-                : chatCapabilitiesByFramework['claude-code'],
+                ? chatCapabilitiesFor(currentAgent.framework)
+                : chatCapabilitiesFor('claude-code'),
         [currentAgent]
     )
     const agentOptions: ComposerAgentOption[] = useMemo(

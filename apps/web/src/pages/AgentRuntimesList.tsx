@@ -4,8 +4,8 @@ import {
     frameworkUpgradeAvailable,
     isDevCliVersion,
     isVersionedFramework,
-    runtimeKindLabel,
-    versionedFrameworks
+    listVersionedFrameworks,
+    runtimeKindLabel
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -1219,7 +1219,7 @@ const HostDetailPanel: FC<{
     // openclaw/hermes/narranexus), so nothing provisioned stays hidden.
     const frameworkList: VersionedFramework[] = host
         ? DAEMON_DETECTABLE_FRAMEWORKS
-        : [...versionedFrameworks]
+        : [...listVersionedFrameworks()]
     const availableFrameworks = frameworkList.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )

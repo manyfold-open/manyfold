@@ -1,6 +1,6 @@
 import {
     agentSessionListLimits,
-    chatCapabilitiesByFramework,
+    chatCapabilitiesFor,
     frameworkResumeCommandLine
 } from '@manyfold/shared'
 import type {
@@ -759,9 +759,7 @@ const SessionDetail: FC<{
                         result={result}
                         mode={previewMode}
                         rawLoading={rawLoading}
-                        capabilities={
-                            chatCapabilitiesByFramework[result.framework]
-                        }
+                        capabilities={chatCapabilitiesFor(result.framework)}
                         t={t}
                     />
                 )}

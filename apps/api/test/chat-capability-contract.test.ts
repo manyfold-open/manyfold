@@ -1,8 +1,8 @@
 import {
     AgentFramework,
     ChatCapabilities,
-    agentFramework,
-    chatCapabilitiesByFramework
+    chatCapabilitiesFor,
+    listFrameworks
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -29,7 +29,7 @@ import {
 // in production calls getCapabilities(), so nothing executed the second copy
 // and nothing compared them. This file is that missing signal.
 
-const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
+const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
 // No getCapabilities() implementation touches an injected dependency, so every
 // dependency here is a placeholder: the registry is built to answer WHICH
@@ -37,7 +37,7 @@ const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
 const dep = {} as never
 
 // dify, langflow and a2a share one ExternalApiChatAdapter whose
-// getCapabilities() returns `chatCapabilitiesByFramework[this.framework]` — the
+// getCapabilities() returns `chatCapabilitiesFor(this.framework)` — the
 // table itself. Their rows below are therefore compared against themselves and
 // cannot fail today, which is the end state this whole file argues for: one
 // source per framework. They stay in the loop rather than being excluded from
@@ -93,7 +93,7 @@ test('exactly the known frameworks declare capabilities by reading the shared ro
     const selfSourced = ALL_FRAMEWORKS.filter(
         (framework) =>
             registry.get(framework).getCapabilities() ===
-            chatCapabilitiesByFramework[framework]
+            chatCapabilitiesFor(framework)
     )
     assert.deepEqual([...selfSourced].sort(), [...SELF_SOURCED].sort())
 })
@@ -103,7 +103,7 @@ test('the shared capability row equals the adapter getCapabilities(), field for 
     const drift: string[] = []
     for (const framework of ALL_FRAMEWORKS) {
         const declared = registry.get(framework).getCapabilities()
-        const shared = chatCapabilitiesByFramework[framework]
+        const shared = chatCapabilitiesFor(framework)
         // The union of both key sets, not ChatCapabilities' keys: a field one
         // side grew and the other did not is drift the type cannot see.
         const fields = new Set([

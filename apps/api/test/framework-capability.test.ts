@@ -1,12 +1,12 @@
 import {
-    AgentFramework,
     AgentRuntime,
+    CoreFramework,
     externalSteps,
-    frameworkCapabilities,
     frameworkCapability,
     isExternal,
     k8sCliSteps,
     k8sSteps,
+    listFrameworks,
     spritesServiceSteps,
     spritesSteps,
     stepsFor,
@@ -27,7 +27,7 @@ interface Expected {
     configSubdir: string | null
 }
 
-const GROUND_TRUTH: Record<AgentFramework, Expected> = {
+const GROUND_TRUTH: Record<CoreFramework, Expected> = {
     'claude-code': {
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
@@ -69,7 +69,7 @@ const GROUND_TRUTH: Record<AgentFramework, Expected> = {
 }
 
 const ALL_RUNTIMES: AgentRuntime[] = ['sprites', 'k8s', 'daemon', 'external']
-const frameworks = Object.keys(GROUND_TRUTH) as AgentFramework[]
+const frameworks = Object.keys(GROUND_TRUTH) as CoreFramework[]
 
 test('frameworkCapability reproduces kind / runtimes / configHome for every framework', () => {
     for (const f of frameworks) {
@@ -132,6 +132,6 @@ test('stepsFor reproduces the create-progress selector (external is the intentio
     }
 })
 
-test('frameworkCapabilities Record is exhaustive over the framework enum', () => {
-    assert.equal(Object.keys(frameworkCapabilities).length, frameworks.length)
+test('the ground truth covers every framework this build registers', () => {
+    assert.deepEqual([...listFrameworks()].sort(), [...frameworks].sort())
 })

@@ -1,4 +1,4 @@
-import { chatCapabilitiesByFramework } from '@manyfold/shared'
+import { chatCapabilitiesFor } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
@@ -362,7 +362,7 @@ test('a turn emits the token, thinking and tool blocks its capability row claims
         [['call-1', 'Bash']]
     )
 
-    const row = chatCapabilitiesByFramework.hermes
+    const row = chatCapabilitiesFor('hermes')
     assert.deepEqual(
         {
             streaming: row.streaming,

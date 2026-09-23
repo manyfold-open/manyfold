@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentFramework } from '../src/constants'
 import type { AgentFramework } from '../src/constants'
 import {
     frameworkResumeArgv,
     frameworkResumeCommandLine
 } from '../src/framework-resume'
+import { listFrameworks } from '../src/frameworks/registry'
 
 test('resume argv is each CLI documented resume-by-id form', () => {
     assert.deepEqual(frameworkResumeArgv('claude-code', 'sess-1'), [
@@ -31,7 +31,7 @@ test('resume argv is each CLI documented resume-by-id form', () => {
 // approval-bypass flags the API adds for a runtime it already controls.
 // terminal-resume-command.ts owns those and appends them itself.
 test('resume argv never carries a permission-bypass flag', () => {
-    for (const framework of Object.values(agentFramework)) {
+    for (const framework of listFrameworks()) {
         const argv = frameworkResumeArgv(framework, 'sess-1') ?? []
         for (const arg of argv)
             assert.ok(

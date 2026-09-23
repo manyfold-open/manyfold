@@ -1,4 +1,5 @@
-import type { AgentFramework } from './constants'
+import type { AgentFramework } from './frameworks/core'
+import { frameworkDefinition } from './frameworks/registry'
 
 export interface FrameworkRepoCandidate {
     // GitHub `owner/name`. Doubles as the id an admin selection stores and as
@@ -9,45 +10,12 @@ export interface FrameworkRepoCandidate {
     note?: string
 }
 
-// Frameworks whose version catalog AND install both come from a git repo. The
-// FIRST entry is the default: an unconfigured platform resolves to it, and the
-// api-side descriptor takes its `source.repo` from the same slot.
-//
-// Adding a candidate is a trust decision, not a configuration change: a sprite
-// clones it and then RUNS its build (`uv sync`, `npm ci`, `npm run build`).
-// Before adding one, confirm that (a) `git ls-remote --tags <url>` serves the
-// framework's built-in fallback tag, and (b) the framework's clone path is
-// driven by this slug. Hermes fails (b) — its bootstrap pipes NousResearch's
-// own install.sh, which clones a repository hardcoded inside that script — so
-// it must keep exactly one candidate until that path takes a slug.
-export const HERMES_REPO_CANDIDATES: readonly FrameworkRepoCandidate[] = [
-    { repo: 'NousResearch/hermes-agent', label: 'NousResearch (upstream)' }
-]
-
-export const NARRANEXUS_REPO_CANDIDATES: readonly FrameworkRepoCandidate[] = [
-    {
-        repo: 'NetMindAI-Open/NarraNexus',
-        label: 'NetMindAI-Open',
-        note: 'The public NarraNexus release line.'
-    },
-    {
-        repo: 'protagolabs/NarraNexus',
-        label: 'protagolabs',
-        note: 'Carries additional patch and historical tags that the public line never published.'
-    }
-]
-
-const CANDIDATES: Partial<
-    Record<AgentFramework, readonly FrameworkRepoCandidate[]>
-> = {
-    hermes: HERMES_REPO_CANDIDATES,
-    narranexus: NARRANEXUS_REPO_CANDIDATES
-}
-
+// Declared per framework on its definition (FrameworkVersionFacts); read
+// here so the catalog and the clone share one lookup.
 export const frameworkRepoCandidates = (
     framework: unknown
 ): readonly FrameworkRepoCandidate[] =>
-    CANDIDATES[framework as AgentFramework] ?? []
+    frameworkDefinition(framework)?.version?.repoCandidates ?? []
 
 export const defaultFrameworkRepo = (framework: unknown): string | null =>
     frameworkRepoCandidates(framework)[0]?.repo ?? null
@@ -61,8 +29,7 @@ export const defaultFrameworkRepo = (framework: unknown): string | null =>
  *
  * Switching also changes WHAT a shared version number means, not only which
  * versions exist: the same tag can point at different commits in two
- * candidates. Measured on github [2026-08-12]: narranexus `v1.15.0` is
- * 5869502c on NetMindAI-Open and e2083c28 on protagolabs.
+ * candidates.
  *
  * A slug that is no longer on the list — removed in a later deploy while the
  * settings row still names it — falls back to the default rather than being
