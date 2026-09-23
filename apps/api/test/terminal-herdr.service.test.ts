@@ -190,6 +190,7 @@ test('a handoff creates a herdr terminal row, takes the hold as herdr, and repor
     assert.equal(h.acquires.length, 1)
     assert.equal(h.opens.length, 1)
     assert.equal(h.opens[0].title, 'Fix the login bug')
+    assert.equal(h.opens[0].chatSessionId, 'cs-1')
     assert.equal(h.opens[0].terminalId, 'tms_new')
     assert.deepEqual(h.tokens, [['tms_new', 'tok-1']])
     assert.deepEqual(h.finished, [])
@@ -346,6 +347,7 @@ const SPRITES_AGENT = {
 const SANDBOX = {
     id: 'sbx-1',
     herdrVersion: '0.9.1',
+    terminalEnabled: true,
     terminalModelCredentials: true
 }
 const RUNNER = {
@@ -369,17 +371,48 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     // sandbox TUI gets them injected as the browser terminal does.
     assert.equal(h.resolves[0].modelCredentialsAllowed, true)
     assert.equal(h.resolves[0].injectModelCredentials, true)
+    // Without that opt-in a Claude Code TUI has nothing to answer with,
+    // and the refusal names the setting instead of "nothing to resume";
+    // codex needs no model credentials and goes ahead.
     const noLending = harness({
         agent: SPRITES_AGENT,
         sandbox: { ...SANDBOX, terminalModelCredentials: false },
         runner: { host: RUNNER, availability: 'ok' }
     })
-    await noLending.service.open('u1', 'agt-1', 'cs-1', {})
-    assert.equal(noLending.resolves[0].modelCredentialsAllowed, false)
+    await assert.rejects(
+        noLending.service.open('u1', 'agt-1', 'cs-1', {}),
+        (err: unknown) =>
+            codeOf(err) === HERDR_UNAVAILABLE_CODE &&
+            /model credentials in the terminal/.test(
+                (err as HttpException).message
+            )
+    )
+    assert.equal(noLending.created.length, 0)
+    const codex = harness({
+        agent: { ...SPRITES_AGENT, framework: 'codex' },
+        sandbox: { ...SANDBOX, terminalModelCredentials: false },
+        runner: { host: RUNNER, availability: 'ok' },
+        resolve: {
+            resume: { command: ['codex', 'resume', 'ref-1'], env: {} },
+            outcome: 'applied',
+            ref: 'ref-1'
+        }
+    })
+    await codex.service.open('u1', 'agt-1', 'cs-1', {})
+    assert.equal(codex.resolves[0].modelCredentialsAllowed, false)
 })
 
-test('a sandbox needs herdr installed and a ready runner that can reach it', async () => {
+test('a sandbox needs herdr installed, its terminal enabled and a ready runner that can reach it', async () => {
     const cases: Array<[string, Parameters<typeof harness>[0], number]> = [
+        [
+            'a sandbox with its terminal switched off',
+            {
+                agent: SPRITES_AGENT,
+                sandbox: { ...SANDBOX, terminalEnabled: false },
+                runner: { host: RUNNER, availability: 'ok' }
+            },
+            409
+        ],
         [
             'no herdr in the sandbox',
             {

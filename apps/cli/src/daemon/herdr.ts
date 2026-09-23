@@ -466,6 +466,10 @@ interface HerdrTerminal {
 }
 
 const terminals = new Map<string, HerdrTerminal>()
+// This daemon's registration (its daemon uuid): the panes it opens carry it,
+// so it adopts and reuses only its own when several daemon profiles on one
+// machine talk to the same herdr.
+let paneOwner: string | null = null
 let inventoryListener: (() => void) | null = null
 let log: (message: string) => void = () => {}
 let pollIntervalMs = HERDR_POLL_INTERVAL_MS
@@ -477,11 +481,13 @@ let exitMinUptimeMs = HERDR_EXIT_MIN_UPTIME_MS
 export const configureHerdr = (opts: {
     onInventoryChange?: () => void
     log?: (message: string) => void
+    owner?: string
     // Test seam: the watcher's cadence, in real seconds otherwise.
     timing?: { pollIntervalMs?: number; exitMinUptimeMs?: number }
 }): void => {
     if (opts.onInventoryChange) inventoryListener = opts.onInventoryChange
     if (opts.log) log = opts.log
+    if (opts.owner) paneOwner = opts.owner
     if (opts.timing?.pollIntervalMs) pollIntervalMs = opts.timing.pollIntervalMs
     if (opts.timing?.exitMinUptimeMs !== undefined)
         exitMinUptimeMs = opts.timing.exitMinUptimeMs
@@ -707,6 +713,89 @@ interface WorkspaceCreated extends TabCreated {
     workspace?: { workspace_id?: string }
 }
 
+interface HerdrPaneInfo {
+    pane_id?: string
+    tab_id?: string
+    workspace_id?: string
+    tokens?: Record<string, string> | null
+}
+
+// What a pane this daemon opened carries in herdr's metadata tokens: the
+// conversation it resumes, the terminal row it belongs to, the daemon that
+// opened it and when. A later handoff of the same conversation finds its
+// tab by the first; a restarted daemon finds its panes by the rest.
+const TOKEN_CHAT = 'mf_chat'
+const TOKEN_TERMINAL = 'mf_terminal'
+const TOKEN_OWNER = 'mf_owner'
+const TOKEN_STARTED = 'mf_started'
+const OWNED_TERMINAL_ID = /^tms_[a-z0-9]{26}$/
+
+const ownedByThisDaemon = (pane: HerdrPaneInfo): boolean => {
+    const owner = pane.tokens?.[TOKEN_OWNER]
+    return !paneOwner || !owner || owner === paneOwner
+}
+
+const listPanes = async (
+    call: <T>(method: string, params: Record<string, unknown>) => Promise<T>,
+    workspaceId?: string
+): Promise<HerdrPaneInfo[]> => {
+    const listed = await call<{ panes?: HerdrPaneInfo[] }>(
+        'pane.list',
+        workspaceId ? { workspace_id: workspaceId } : {}
+    )
+    return listed.panes ?? []
+}
+
+// A daemon that restarts (an upgrade, a sandbox runner brought back after a
+// suspension) forgets the panes it opened while herdr keeps them, TUIs and
+// all. Seen on a sprites sandbox [2026-09-22]: every runner restart left
+// its panes behind, holds released, and each new handoff added a tab.
+// Adopting the panes it tagged before the first inventory goes out keeps
+// their holds and lets pty.close and the poll reach them again.
+export const adoptHerdrPanes = async (
+    opts: { socketPath?: string } = {}
+): Promise<number> => {
+    const socketPath = opts.socketPath ?? herdrSocketPath()
+    const call = <T>(
+        method: string,
+        params: Record<string, unknown>
+    ): Promise<T> =>
+        herdrCall<T>(method, params, { socketPath, timeoutMs: PING_TIMEOUT_MS })
+    try {
+        await call('ping', {})
+    } catch {
+        return 0
+    }
+    let adopted = 0
+    for (const pane of await listPanes(call).catch(() => [])) {
+        const terminalId = pane.tokens?.[TOKEN_TERMINAL]
+        if (
+            !terminalId ||
+            !OWNED_TERMINAL_ID.test(terminalId) ||
+            terminals.has(terminalId) ||
+            !pane.pane_id ||
+            !ownedByThisDaemon(pane)
+        )
+            continue
+        const started = Date.parse(pane.tokens?.[TOKEN_STARTED] ?? '')
+        terminals.set(terminalId, {
+            terminalId,
+            paneId: pane.pane_id,
+            tabId: pane.tab_id ?? '',
+            workspaceId: pane.workspace_id ?? '',
+            startedAt: Number.isFinite(started) ? started : Date.now(),
+            release: null,
+            socketPath
+        })
+        adopted += 1
+    }
+    if (adopted > 0) {
+        log(`herdr: adopted ${adopted} pane(s) opened before this start`)
+        ensureWatching(socketPath)
+    }
+    return adopted
+}
+
 const waitForShellPrompt = async (
     call: <T>(
         method: string,
@@ -738,6 +827,7 @@ export interface OpenInHerdrArgs {
     env: Record<string, string>
     title: string
     agentName: string
+    chatSessionId?: string | null
     release?: (() => Promise<void>) | null
     socketPath?: string
     // Start herdr's server if none answers (platform runners only).
@@ -788,10 +878,56 @@ export const openInHerdr = async (
     const existing = (listed.workspaces ?? []).find(
         (w) => w.label === workspaceLabel && typeof w.workspace_id === 'string'
     )
-    let workspaceId: string
-    let tabId: string
-    let paneId: string
-    if (existing?.workspace_id) {
+    let workspaceId = ''
+    let tabId = ''
+    let paneId = ''
+    // The conversation's earlier panes in the agent's workspace are stale
+    // by construction (the API asks for a handoff only when nothing holds
+    // the session), so the new TUI takes the first one's tab, in the place
+    // it already has, and all of them close: one tab per conversation,
+    // however many times it is handed over.
+    const stale =
+        existing?.workspace_id && args.chatSessionId
+            ? (
+                  await listPanes(call, existing.workspace_id).catch(() => [])
+              ).filter(
+                  (p) =>
+                      p.tokens?.[TOKEN_CHAT] === args.chatSessionId &&
+                      typeof p.pane_id === 'string' &&
+                      ownedByThisDaemon(p)
+              )
+            : []
+    if (existing?.workspace_id && stale.length > 0) {
+        const split = await call<{ pane?: HerdrPaneInfo }>('pane.split', {
+            target_pane_id: stale[0].pane_id,
+            direction: 'right',
+            cwd: args.cwd,
+            env: args.env,
+            focus: false
+        }).catch(() => null)
+        if (split?.pane?.pane_id && split.pane.tab_id) {
+            workspaceId = existing.workspace_id
+            tabId = split.pane.tab_id
+            paneId = split.pane.pane_id
+            for (const old of stale) {
+                for (const t of [...terminals.values()])
+                    if (t.paneId === old.pane_id)
+                        forget(t, 'replaced by a new handoff')
+                await call('pane.close', { pane_id: old.pane_id }).catch(
+                    () => {}
+                )
+            }
+            await call('tab.rename', { tab_id: tabId, label: title }).catch(
+                () => {}
+            )
+            log(
+                `herdr: ${args.chatSessionId} takes over ${tabId}, closing ${stale.length} stale pane(s)`
+            )
+        }
+    }
+    if (paneId) {
+        // Took over the conversation's tab above.
+    } else if (existing?.workspace_id) {
         workspaceId = existing.workspace_id
         const created = await call<TabCreated>('tab.create', {
             workspace_id: workspaceId,
@@ -822,6 +958,9 @@ export const openInHerdr = async (
             'herdr_launch_failed',
             'herdr created no pane for the session'
         )
+    // One instant for the pane's token and the inventory, so a restarted
+    // daemon adopts the terminal with the start time the API already has.
+    const startedAt = Date.now()
 
     try {
         await waitForShellPrompt(call, paneId)
@@ -865,7 +1004,15 @@ export const openInHerdr = async (
         await call('pane.report_metadata', {
             pane_id: paneId,
             source: HERDR_METADATA_SOURCE,
-            title
+            title,
+            tokens: {
+                [TOKEN_TERMINAL]: args.terminalId,
+                [TOKEN_STARTED]: new Date(startedAt).toISOString(),
+                ...(args.chatSessionId
+                    ? { [TOKEN_CHAT]: args.chatSessionId }
+                    : {}),
+                ...(paneOwner ? { [TOKEN_OWNER]: paneOwner } : {})
+            }
         }).catch(() => {})
     } catch (err) {
         await call('pane.close', { pane_id: paneId }).catch(() => {})
@@ -892,7 +1039,7 @@ export const openInHerdr = async (
         paneId,
         tabId,
         workspaceId,
-        startedAt: Date.now(),
+        startedAt,
         release: args.release ?? null,
         socketPath
     })
@@ -923,15 +1070,9 @@ export const focusHerdrTerminal = async (
             forget(t, 'pane is gone')
         throw err
     }
-    await herdrCall(
-        'notification.show',
-        {
-            title: 'Manyfold',
-            body: 'The web asked for this conversation.',
-            sound: 'request'
-        },
-        { socketPath: t.socketPath }
-    ).catch(() => {})
+    // No notification here, unlike a handoff: focus follows the web moving
+    // between conversations herdr holds, several times a minute, and a
+    // toast with a sound in the user's own herdr on every one is noise.
     return { focused: true }
 }
 
@@ -953,6 +1094,7 @@ export const resetHerdrForTest = (): void => {
     terminals.clear()
     stopWatchingIfIdle()
     inventoryListener = null
+    paneOwner = null
     log = () => {}
     pollIntervalMs = HERDR_POLL_INTERVAL_MS
     exitMinUptimeMs = HERDR_EXIT_MIN_UPTIME_MS

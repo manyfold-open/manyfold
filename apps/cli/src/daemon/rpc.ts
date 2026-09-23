@@ -2268,6 +2268,10 @@ const handlers: Partial<
                     typeof payload.agentName === 'string'
                         ? payload.agentName
                         : '',
+                chatSessionId:
+                    typeof payload.chatSessionId === 'string'
+                        ? payload.chatSessionId
+                        : null,
                 release: release ? () => release.release() : null,
                 // A platform runner owns its sandbox: herdr's server is started
                 // on demand there. A self-owned computer's herdr is the user's

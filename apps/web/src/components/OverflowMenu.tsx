@@ -2,7 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { t } from '@manyfold/i18n'
-import { EllipsisHorizontalIcon } from '@/components/icons'
+import { EllipsisHorizontalIcon, HelpIcon } from '@/components/icons'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useAnchoredMenuPosition } from '@/hooks/useAnchoredMenuPosition'
 
@@ -15,6 +15,10 @@ export interface OverflowMenuItem {
     // Right-aligned glyph that says the click leaves this object: '→' for
     // another area, '↗' for a new tab. See `lib/agentMenu`.
     trailing?: string | null
+    // What the item does, or why it cannot act right now, behind a "?"
+    // button after the label that opens it on click. It takes the place of
+    // the disabled reason's hover tooltip, so it should carry that reason.
+    hint?: string | null
 }
 
 // Groups actions by what they do (in-place dialogs, navigation, destructive).
@@ -49,6 +53,11 @@ const OverflowMenu: FC<{
     triggerClassName
 }): ReactNode => {
     const [open, setOpen] = useState(false)
+    // The item whose hint is open; it closes with the menu.
+    const [hintFor, setHintFor] = useState<string | null>(null)
+    useEffect(() => {
+        if (!open) setHintFor(null)
+    }, [open])
     const rootRef = useRef<HTMLDivElement>(null)
     const menuRef = useRef<HTMLDivElement>(null)
     const menuStyle = useAnchoredMenuPosition(open, rootRef, menuRef, {
@@ -155,11 +164,56 @@ const OverflowMenu: FC<{
                                     )}
                                 </button>
                             )
-                            // The reason is a sentence and the menu hangs
-                            // off the right edge of the header: it sits
-                            // beside the panel, wrapped, rather than over
-                            // the items below (which a bottom placement
-                            // covered) or off the right of the screen.
+                            // The hint, like the disabled reason, is a
+                            // sentence, and the menu hangs off the right
+                            // edge of the header: it sits beside the panel,
+                            // wrapped, rather than over the items below
+                            // (which a bottom placement covered) or off the
+                            // right of the screen. Its "?" stays pressable
+                            // on a disabled item, since that is when the
+                            // hint matters most.
+                            if (item.hint) {
+                                const hintOpen = hintFor === item.label
+                                return (
+                                    <ShortcutTooltip
+                                        key={item.label}
+                                        label={item.hint}
+                                        placement='left'
+                                        multiline
+                                        open={hintOpen}
+                                        className='block w-full'
+                                    >
+                                        <div className='flex w-full items-center gap-0.5'>
+                                            {row}
+                                            <button
+                                                type='button'
+                                                aria-label={t(
+                                                    'common.moreInfo'
+                                                )}
+                                                aria-expanded={hintOpen}
+                                                onClick={() =>
+                                                    setHintFor((current) =>
+                                                        current === item.label
+                                                            ? null
+                                                            : item.label
+                                                    )
+                                                }
+                                                className={[
+                                                    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm transition-colors',
+                                                    hintOpen
+                                                        ? 'bg-soft text-fg'
+                                                        : 'text-subtle hover:bg-soft hover:text-fg'
+                                                ].join(' ')}
+                                            >
+                                                <HelpIcon
+                                                    aria-hidden='true'
+                                                    className='h-3.5 w-3.5'
+                                                />
+                                            </button>
+                                        </div>
+                                    </ShortcutTooltip>
+                                )
+                            }
                             return item.disabled && item.disabledReason ? (
                                 <ShortcutTooltip
                                     key={item.label}

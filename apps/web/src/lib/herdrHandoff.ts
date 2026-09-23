@@ -118,3 +118,60 @@ export const herdrHandoffBlockedLabel = (
             return null
     }
 }
+
+// How long a herdr hold this tab did not take must stand before the view
+// follows it (ADR-0031): a handoff herdr refuses holds the session for well
+// under a second, and a list refetch that lands late can still show it. A
+// hold that has already stood that long (the session was left in herdr, the
+// page was reloaded, another client opened it a while ago) is followed at
+// once, so a session comes back in the view it was left in.
+export const HERDR_FOLLOW_HOLD_DELAY_MS = 1200
+
+export const herdrFollowDelayMs = (
+    acquiredAt: string | null,
+    now: number
+): number => {
+    const at = acquiredAt ? Date.parse(acquiredAt) : Number.NaN
+    if (!Number.isFinite(at)) return HERDR_FOLLOW_HOLD_DELAY_MS
+    return Math.min(
+        HERDR_FOLLOW_HOLD_DELAY_MS,
+        Math.max(0, HERDR_FOLLOW_HOLD_DELAY_MS - (now - at))
+    )
+}
+
+// What the "?" after the header's view switch says (ADR-0031). The switch
+// reads Switch to herdr, Switch to TUI or Switch to Chat UI; the hint says
+// what that does, or why it cannot act, then what the chat above the
+// composer used to announce: who holds the session, an import in flight,
+// and what the last hand-back brought.
+export type ViewSwitchMode = 'herdr' | 'terminal' | 'chat'
+
+export const viewSwitchHint = (
+    args: {
+        mode: ViewSwitchMode
+        disabledReason: string | null
+        heldBy: 'herdr' | 'terminal' | null
+        importing: boolean
+        notice: string | null
+    },
+    t: TFn
+): string => {
+    const base =
+        args.mode === 'chat'
+            ? t('web.sessionView.hintChat')
+            : (args.disabledReason ??
+              (args.heldBy === 'herdr'
+                  ? t('web.sessionHolder.heldByHerdr')
+                  : args.heldBy === 'terminal'
+                    ? t('web.sessionHolder.heldBanner')
+                    : args.mode === 'herdr'
+                      ? t('web.sessionView.hintHerdr')
+                      : t('web.sessionView.hintTerminal')))
+    return [
+        base,
+        args.importing ? t('web.sessionHolder.importPending') : null,
+        args.notice
+    ]
+        .filter((part): part is string => Boolean(part))
+        .join(' ')
+}

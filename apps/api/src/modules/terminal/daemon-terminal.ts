@@ -97,6 +97,9 @@ export interface DaemonHerdrOpenRequest {
     framework: DaemonHerdrFramework
     resume: ResolvedTerminalResume
     title: string
+    // The chat session the TUI resumes; the daemon keeps one herdr tab per
+    // conversation with it.
+    chatSessionId?: string
     cwd?: string
     // The agent's own daemon when absent; a sandbox's runner daemon for a
     // sprites agent (ADR-0031).
@@ -254,6 +257,7 @@ export class DaemonTerminal {
             ),
             title: req.title,
             agentName: agent.name,
+            ...(req.chatSessionId ? { chatSessionId: req.chatSessionId } : {}),
             ...(authContext
                 ? { authSelection: { mode: 'profile' as const, ...authContext } }
                 : {})

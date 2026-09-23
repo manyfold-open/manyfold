@@ -11,6 +11,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { createObjectId } from '@manyfold/shared'
 import {
+    adoptHerdrPanes,
     closeHerdrTerminal,
     configureHerdr,
     detectHerdr,
@@ -51,6 +52,35 @@ class FakeHerdr {
     // What pane.process_info reports: the shell alone, or a TUI in front.
     shellIdle = true
     workspaces: Array<{ workspace_id: string; label: string }> = []
+    // Panes as herdr keeps them: which tab and workspace each sits in, and
+    // the metadata tokens reported on it.
+    panes = new Map<
+        string,
+        {
+            pane_id: string
+            tab_id: string
+            workspace_id: string
+            tokens?: Record<string, string>
+        }
+    >()
+    private nextTab = new Map<string, number>()
+    private nextPane = new Map<string, number>()
+    private addPane(workspaceId: string, tabId: string): string {
+        const n = this.nextPane.get(workspaceId) ?? 1
+        this.nextPane.set(workspaceId, n + 1)
+        const paneId = `${workspaceId}:p${n}`
+        this.panes.set(paneId, {
+            pane_id: paneId,
+            tab_id: tabId,
+            workspace_id: workspaceId
+        })
+        return paneId
+    }
+    private addTab(workspaceId: string): string {
+        const n = this.nextTab.get(workspaceId) ?? 1
+        this.nextTab.set(workspaceId, n + 1)
+        return `${workspaceId}:t${n}`
+    }
     failures = new Map<string, { code: string; message: string }>()
     // Fail a method the next N times, then answer normally.
     failTimes = new Map<
@@ -70,18 +100,56 @@ class FakeHerdr {
                     workspace_id: id,
                     label: String(call.params.label)
                 })
+                const tabId = this.addTab(id)
+                const paneId = this.addPane(id, tabId)
                 return {
                     type: 'workspace_created',
                     workspace: { workspace_id: id },
-                    tab: { tab_id: `${id}:t1` },
-                    root_pane: { pane_id: `${id}:p1` }
+                    tab: { tab_id: tabId },
+                    root_pane: { pane_id: paneId }
                 }
             }
-            case 'tab.create':
+            case 'tab.create': {
+                const ws = String(call.params.workspace_id)
+                const tabId = this.addTab(ws)
+                const paneId = this.addPane(ws, tabId)
                 return {
                     type: 'tab_created',
-                    tab: { tab_id: `${call.params.workspace_id}:t2` },
-                    root_pane: { pane_id: `${call.params.workspace_id}:p2` }
+                    tab: { tab_id: tabId },
+                    root_pane: { pane_id: paneId }
+                }
+            }
+            case 'pane.split': {
+                const target = this.panes.get(
+                    String(call.params.target_pane_id)
+                )
+                if (!target) return { type: 'ok' }
+                const paneId = this.addPane(target.workspace_id, target.tab_id)
+                return {
+                    type: 'pane_info',
+                    pane: this.panes.get(paneId)
+                }
+            }
+            case 'pane.close':
+                this.panes.delete(String(call.params.pane_id))
+                return { type: 'ok' }
+            case 'pane.report_metadata': {
+                const pane = this.panes.get(String(call.params.pane_id))
+                if (pane && call.params.tokens)
+                    pane.tokens = {
+                        ...pane.tokens,
+                        ...(call.params.tokens as Record<string, string>)
+                    }
+                return { type: 'ok' }
+            }
+            case 'pane.list':
+                return {
+                    type: 'pane_list',
+                    panes: [...this.panes.values()].filter(
+                        (p) =>
+                            !call.params.workspace_id ||
+                            p.workspace_id === call.params.workspace_id
+                    )
                 }
             case 'agent.start':
                 return {
@@ -475,6 +543,9 @@ test('focus raises the pane again and a gone pane is forgotten', async () => {
     fake.calls.length = 0
     assert.deepEqual(await focusHerdrTerminal(terminalId), { focused: true })
     assert.deepEqual(fake.calls_('pane.focus')[0].params, { pane_id: 'w1:p1' })
+    // The web refocuses on every move between held conversations; only a
+    // handoff announces itself in herdr.
+    assert.equal(fake.calls_('notification.show').length, 0)
     fake.failures.set('pane.focus', {
         code: 'not_found',
         message: 'pane not found'
@@ -596,5 +667,95 @@ test('a handoff told to start the server waits for herdr to come up on the socke
     } finally {
         await late.stop()
         bin.restore()
+    }
+})
+
+// One tab per conversation (ADR-0031). A pane carries the conversation, the
+// terminal and the daemon that opened it; a later handoff of the same
+// conversation takes over that pane's tab, and a daemon that restarted
+// adopts the panes it tagged before its first inventory.
+test('a repeat handoff of a conversation takes over its tab and closes the stale pane', async () => {
+    configureHerdr({ owner: 'daemon-a' })
+    const first = createObjectId('terminalSession')
+    await open({ terminalId: first, chatSessionId: 'cts_one' })
+    assert.deepEqual(fake.panes.get('w1:p1')?.tokens?.mf_chat, 'cts_one')
+    assert.equal(fake.panes.get('w1:p1')?.tokens?.mf_terminal, first)
+    assert.equal(fake.panes.get('w1:p1')?.tokens?.mf_owner, 'daemon-a')
+    // The daemon forgets it (a restart), herdr keeps the pane.
+    resetHerdrForTest()
+    configureHerdr({ owner: 'daemon-a' })
+    const second = createObjectId('terminalSession')
+    const result = await open({
+        terminalId: second,
+        chatSessionId: 'cts_one',
+        env: { MF_TERMINAL_ID: second }
+    })
+    assert.equal(result.tabId, 'w1:t1')
+    assert.equal(result.paneId, 'w1:p2')
+    const split = fake.calls_('pane.split')[0].params
+    assert.equal(split.target_pane_id, 'w1:p1')
+    assert.deepEqual(split.env, { MF_TERMINAL_ID: second })
+    assert.equal(fake.panes.has('w1:p1'), false)
+    assert.equal(fake.calls_('tab.create').length, 0)
+    assert.deepEqual(
+        [...fake.panes.values()].map((p) => p.tab_id),
+        ['w1:t1']
+    )
+    assert.equal(fake.panes.get('w1:p2')?.tokens?.mf_terminal, second)
+    assert.ok(herdrTerminal(second))
+})
+
+test("another conversation's pane, or another daemon's, is left alone", async () => {
+    configureHerdr({ owner: 'daemon-a' })
+    await open({ chatSessionId: 'cts_one' })
+    await open({ chatSessionId: 'cts_two' })
+    assert.equal(fake.calls_('pane.split').length, 0)
+    assert.equal(fake.panes.size, 2)
+    resetHerdrForTest()
+    configureHerdr({ owner: 'daemon-b' })
+    await open({ chatSessionId: 'cts_one' })
+    assert.equal(fake.calls_('pane.split').length, 0)
+    assert.equal(fake.panes.size, 3)
+})
+
+test('a restarted daemon adopts the panes it tagged, and only those', async () => {
+    configureHerdr({ owner: 'daemon-a' })
+    const mine = createObjectId('terminalSession')
+    await open({ terminalId: mine, chatSessionId: 'cts_one' })
+    const startedAt = listHerdrTerminals()[0].startedAt
+    resetHerdrForTest()
+    // Someone else's pane on the same herdr.
+    fake.panes.set('w9:p1', {
+        pane_id: 'w9:p1',
+        tab_id: 'w9:t1',
+        workspace_id: 'w9',
+        tokens: {
+            mf_terminal: createObjectId('terminalSession'),
+            mf_owner: 'daemon-b'
+        }
+    })
+    configureHerdr({ owner: 'daemon-a' })
+    assert.equal(await adoptHerdrPanes({ socketPath: fake.socketPath }), 1)
+    assert.deepEqual(herdrTerminal(mine), {
+        paneId: 'w1:p1',
+        tabId: 'w1:t1',
+        workspaceId: 'w1'
+    })
+    // Adopted with its original start time, so the API's grace applies as
+    // it did before the restart.
+    assert.equal(listHerdrTerminals()[0].startedAt, startedAt)
+    // Nothing to adopt twice.
+    assert.equal(await adoptHerdrPanes({ socketPath: fake.socketPath }), 0)
+})
+
+test('no herdr answering means nothing to adopt', async () => {
+    const silent = new FakeHerdr()
+    try {
+        assert.equal(
+            await adoptHerdrPanes({ socketPath: silent.socketPath }),
+            0
+        )
+    } finally {
+        await silent.stop()
     }
 })

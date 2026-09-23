@@ -35,6 +35,7 @@ import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
+import { terminalResumeNeedsModelCredentials } from '@/modules/terminal/terminal-resume-command'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
 import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
 
@@ -132,6 +133,16 @@ export class TerminalHerdrService {
             throw unavailable(
                 'herdr can only resume Claude Code and Codex conversations'
             )
+        // The resume below refuses such a sandbox too, but only as "nothing
+        // to resume"; say what the user can change.
+        if (
+            sandbox &&
+            terminalResumeNeedsModelCredentials(agent.framework) &&
+            !sandbox.terminalModelCredentials
+        )
+            throw unavailable(
+                'turn on model credentials in the terminal for this sandbox first; the TUI resumes the conversation with them'
+            )
         // A profile-bound agent's TUI must answer as that account, which
         // only a host that honours the context can arrange.
         const authContext = authContextRefFor(agent)
@@ -208,6 +219,7 @@ export class TerminalHerdrService {
                 framework: agent.framework,
                 resume: resolution.resume,
                 title,
+                chatSessionId: sessionId,
                 daemonId: host.id,
                 onToken: (tokenId) => {
                     void this.terminals
@@ -297,6 +309,14 @@ export class TerminalHerdrService {
             if (!sandbox?.herdrVersion)
                 throw unavailable(
                     'herdr is not installed in this sandbox; install it from the Update Center'
+                )
+            // The pane's shell gets a full-scope terminal token, as the
+            // browser terminal's does, and the viewer is a terminal: the
+            // sandbox's terminal opt-in covers both, and nothing is woken
+            // for a sandbox that has not given it.
+            if (!sandbox.terminalEnabled)
+                throw unavailable(
+                    'the terminal is disabled for this sandbox; enable it first'
                 )
             const resolved = await this.runtimeAuth.resolveRuntimeHost(
                 userId,

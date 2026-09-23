@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    HERDR_FOLLOW_HOLD_DELAY_MS,
+    herdrFollowDelayMs,
     herdrHandoffAvailability,
-    herdrHandoffBlockedLabel
+    herdrHandoffBlockedLabel,
+    viewSwitchHint
 } from '../src/lib/herdrHandoff'
 
 const base = {
@@ -144,4 +147,61 @@ test('every disabled reason the control can show has a label', () => {
     ] as const)
         assert.ok(herdrHandoffBlockedLabel(blocked, t as never), blocked)
     assert.equal(herdrHandoffBlockedLabel('no-herdr', t as never), null)
+})
+
+// A session left in herdr comes back in herdr (ADR-0031): the hold has
+// stood a while, so the view follows it at once; only a hold that has just
+// appeared, which a refused handoff elsewhere can produce, waits.
+test('a hold that has stood a while is followed at once, a fresh one waits out the rest', () => {
+    const now = Date.parse('2026-09-22T20:00:10.000Z')
+    assert.equal(herdrFollowDelayMs('2026-09-22T19:59:00.000Z', now), 0)
+    assert.equal(herdrFollowDelayMs('2026-09-22T20:00:09.500Z', now), 700)
+    assert.equal(herdrFollowDelayMs(null, now), HERDR_FOLLOW_HOLD_DELAY_MS)
+    // A server clock ahead of this one never stretches the wait.
+    assert.equal(
+        herdrFollowDelayMs('2026-09-22T20:00:30.000Z', now),
+        HERDR_FOLLOW_HOLD_DELAY_MS
+    )
+})
+
+// The notes that used to sit above the composer live behind the "?" on the
+// view switch: what it does or why it cannot, who holds the session, an
+// import in flight, and what the last hand-back brought.
+test('the view switch hint says what the switch does, or why not, and what the banner used to', () => {
+    const t = (key: string): string => key
+    const base = {
+        mode: 'herdr' as const,
+        disabledReason: null,
+        heldBy: null,
+        importing: false,
+        notice: null
+    }
+    assert.equal(viewSwitchHint(base, t), 'web.sessionView.hintHerdr')
+    assert.equal(
+        viewSwitchHint({ ...base, mode: 'terminal' }, t),
+        'web.sessionView.hintTerminal'
+    )
+    assert.equal(
+        viewSwitchHint({ ...base, mode: 'chat', heldBy: 'herdr' }, t),
+        'web.sessionView.hintChat'
+    )
+    assert.equal(
+        viewSwitchHint({ ...base, disabledReason: 'why not' }, t),
+        'why not'
+    )
+    assert.equal(
+        viewSwitchHint({ ...base, heldBy: 'herdr' }, t),
+        'web.sessionHolder.heldByHerdr'
+    )
+    assert.equal(
+        viewSwitchHint({ ...base, mode: 'terminal', heldBy: 'terminal' }, t),
+        'web.sessionHolder.heldBanner'
+    )
+    assert.equal(
+        viewSwitchHint(
+            { ...base, importing: true, notice: 'Nothing new was said.' },
+            t
+        ),
+        'web.sessionView.hintHerdr web.sessionHolder.importPending Nothing new was said.'
+    )
 })
