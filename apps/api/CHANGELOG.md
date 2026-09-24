@@ -1,5 +1,52 @@
 # @manyfold/api
 
+## 7.2.0
+
+### Minor Changes
+
+- [#341](https://github.com/manyfold-open/manyfold/pull/341) [`eb5eb47`](https://github.com/manyfold-open/manyfold/commit/eb5eb473ec0fc8cd86484a49220ff6e657eb6b7b) Thanks [@yingca1](https://github.com/yingca1)! - Add Pi (pi.dev) as a coding agent framework. Pi agents run on the stateful
+  sandbox, Kubernetes and self-owned computer (daemon) runtimes and, like the
+  other coding CLIs, take their model either from a platform provider — a saved
+  or managed provider of the Anthropic, OpenAI or Google protocol, or a vendor
+  API key — or from Pi's own sign-in on the runtime: the machine's own `pi`
+  configuration, or a runtime account added from the create flow or the runtime
+  page (run `pi` and use `/login` for a Claude Pro/Max, ChatGPT Plus/Pro or
+  Copilot subscription, or an API key). Sessions resume with `pi --session-id`
+  in chat and in the terminal, whose new messages sync back to the chat, and
+  `mf daemon hooks install` adds Pi's session hook, an extension Pi loads on its
+  own: leaving the TUI hands the conversation back, and a session started in the
+  terminal joins the chat list when the terminal closes. A Pi turn cut off by an
+  API restart finishes under its own message, read back from Pi's session file
+  when the runner's stream cannot be picked up again. A Pi conversation can also
+  be handed to herdr, like Claude Code and Codex. On sandboxes and Kubernetes,
+  Pi's find and grep tools work out of the box: fd and ripgrep come with Pi
+  there. The composer switches between the provider's models and the ones
+  `pi --list-models` offers locally, the credentials dialog can move an agent to
+  another vendor's provider, the four-step create flow lists Pi, and
+  `mf agent create --framework pi` takes `--pi-api-key` with `--pi-provider`. A
+  platform provider is what every turn uses on any runtime, gateways included:
+  Pi's own sign-in or `models.json` on a machine never takes its place, while
+  Pi's settings, skills and sessions still apply. Pi's own sign-in on a runtime
+  needs the Manyfold CLI from this release there.
+
+### Patch Changes
+
+- [#341](https://github.com/manyfold-open/manyfold/pull/341) [`eb5eb47`](https://github.com/manyfold-open/manyfold/commit/eb5eb473ec0fc8cd86484a49220ff6e657eb6b7b) Thanks [@yingca1](https://github.com/yingca1)! - An agent added to a sandbox that already exists, which is how the four-step
+  create flow always adds one, now gets its Manyfold context doc
+  (`AGENTS.manyfold.md` and the reference in its instruction file), as an agent
+  created with its own sandbox always did. And a Codex turn that another API
+  instance finished after a restart no longer comes back as duplicate messages
+  the next time the conversation syncs with the runtime.
+
+- [#341](https://github.com/manyfold-open/manyfold/pull/341) [`eb5eb47`](https://github.com/manyfold-open/manyfold/commit/eb5eb473ec0fc8cd86484a49220ff6e657eb6b7b) Thanks [@yingca1](https://github.com/yingca1)! - Agents that run on their CLI's own sign-in (Local config) on a sandbox now
+  resume a conversation in the terminal and in herdr on that sign-in. The
+  terminal used to require the platform model credentials instead — which such
+  an agent does not have — and fell back to a plain shell. A Local-config turn
+  on a sandbox runtime whose first agent never bound a provider no longer fails
+  for want of a stored credential either. And a Gemini CLI agent added to an
+  existing self-owned computer with a Cloud provider now runs on that provider
+  instead of the computer's own sign-in.
+
 ## 7.1.0
 
 ### Minor Changes
