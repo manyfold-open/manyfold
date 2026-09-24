@@ -343,7 +343,8 @@ const piAdapter: RuntimeAuthAdapter = {
         await mkdir(join(native, 'sessions'), { recursive: true })
         const entries = new Set(await readdir(native).catch(() => []))
         // Write-through for the files a TUI under this profile may create.
-        for (const file of ['settings.json', 'models.json']) entries.add(file)
+        for (const file of ['settings.json', 'models.json', 'trust.json'])
+            entries.add(file)
         for (const name of entries) {
             if (PI_OWN_ENTRIES.has(name) || name.endsWith('.lock')) continue
             const dst = join(viewDir, name)

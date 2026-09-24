@@ -23,7 +23,8 @@ const dbReturning = (rows: unknown[][]): never => {
 
 const resolveWith = (
     framework: 'pi' | 'claude-code',
-    payload: Record<string, unknown> | null
+    payload: Record<string, unknown> | null,
+    workspacePath?: string
 ): ReturnType<TerminalResumeService['resolve']> =>
     new TerminalResumeService(
         dbReturning([
@@ -37,7 +38,8 @@ const resolveWith = (
         framework,
         chatSessionId: 'cs_1',
         modelCredentialsAllowed: true,
-        injectModelCredentials: true
+        injectModelCredentials: true,
+        workspacePath
     })
 
 test('a pi TUI resumes its session on the platform view, with the vendor key under its own env var', async () => {
@@ -62,6 +64,30 @@ test('a pi TUI resumes its session on the platform view, with the vendor key und
     assert.deepEqual(JSON.parse(env.MF_PI_MODELS_JSON), {
         providers: { openai: { baseUrl: 'https://gw.example/v1' } }
     })
+})
+
+// The turns trust the workspace the platform fills (--approve), so its TUI
+// loads the same skills instead of asking; a workspace of the user's own
+// choosing is theirs to trust.
+test('a pi TUI trusts a managed workspace as its turns do, and only that one', async () => {
+    const creds = { apiKey: 'pikey-pikey-pikey', provider: 'anthropic' }
+    const managed = await resolveWith(
+        'pi',
+        creds,
+        '/home/sprite/.manyfold/workspaces/agt_1'
+    )
+    assert.deepEqual(managed.resume?.command.slice(3), [
+        'pi',
+        '--session-id',
+        'ref-1',
+        '--approve'
+    ])
+    const custom = await resolveWith('pi', creds, '/home/sprite/code/mine')
+    assert.deepEqual(custom.resume?.command.slice(3), [
+        'pi',
+        '--session-id',
+        'ref-1'
+    ])
 })
 
 test('a pi credential that names no vendor leaves a plain shell', async () => {

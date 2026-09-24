@@ -62,12 +62,15 @@ export const PI_PLATFORM_MODELS_ENV = 'MF_PI_MODELS_JSON'
    pi's startup migration from moving legacy settings.json keys into it), and
    models.json only when the credential names a gateway. It is rebuilt at every
    start, so a sign-in made through it, or an entry the machine no longer has,
-   does not survive to the next exec. Starts of the same runtime rebuild it
-   one at a time (a mkdir lock beside the view; one left by a start killed
-   mid-rebuild is taken over after about five seconds, the rebuild itself
-   being milliseconds); a link is never made through one already there, which
-   would write into the machine's own directory; and pi's own lock files are
-   never touched, since a live pi holds them.
+   does not survive to the next exec. What a TUI on the view writes for good —
+   its settings and the projects it trusts — is linked even while the machine
+   has no such file yet, so the first write lands in the real directory rather
+   than in a view file the next start clears. Starts of the same runtime
+   rebuild it one at a time (a mkdir lock beside the view; one left by a start
+   killed mid-rebuild is taken over after about five seconds, the rebuild
+   itself being milliseconds); a link is never made through one already there,
+   which would write into the machine's own directory; and pi's own lock files
+   are never touched, since a live pi holds them.
 
    `bash -c <script> pi <args…>`: $0 is pi, "$@" its arguments, and `exec`
    keeps the process, its signals, stdin and exit code exactly what running pi
@@ -115,6 +118,10 @@ for link in "$view"/* "$view"/.[!.]* "$view"/..?*; do
     esac
     [ -L "$link" ] && { [ -e "$native/$name" ] || [ -L "$native/$name" ]; } && continue
     rm -rf "$link"
+done
+for name in settings.json trust.json; do
+    [ -e "$view/$name" ] || [ -L "$view/$name" ] ||
+        ln -sn "$native/$name" "$view/$name" 2>/dev/null
 done
 if [ "$(cat "$view/auth.json" 2>/dev/null)" != '{}' ]; then
     printf '{}' > "$own/auth.json.$$" && chmod 600 "$own/auth.json.$$" &&

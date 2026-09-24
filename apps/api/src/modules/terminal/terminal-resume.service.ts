@@ -7,6 +7,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
 import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
+import { isManagedSkillWorkspace } from '@/modules/skills/skill-utils'
 import {
     frameworkSupportsTerminalResume,
     terminalResumeCommand,
@@ -78,6 +79,7 @@ export class TerminalResumeService {
         // daemon: the CLI sign-in already on the user's machine is what the
         // TUI will use, so there is nothing to inject.
         injectModelCredentials: boolean
+        workspacePath?: string | null
     }): Promise<TerminalResumeResolution> {
         if (!frameworkSupportsTerminalResume(args.framework)) return UNAVAILABLE
 
@@ -138,8 +140,17 @@ export class TerminalResumeService {
             )
             return { resume: null, outcome: 'turn-in-flight', ref: null }
         }
-        const command = terminalResumeCommand(args.framework, row.ref)
-        if (!command) return UNAVAILABLE
+        const argv = terminalResumeCommand(args.framework, row.ref)
+        if (!argv) return UNAVAILABLE
+        // pi loads a workspace's own files (the skills the platform activated
+        // there) only once the project is trusted. The turns trust a managed
+        // workspace, so its TUI does too instead of opening on the question.
+        const command =
+            args.framework === 'pi' &&
+            args.workspacePath &&
+            isManagedSkillWorkspace(args.workspacePath)
+                ? [...argv, '--approve']
+                : argv
 
         const inject = needsCredentials && args.injectModelCredentials
         const resume = !inject

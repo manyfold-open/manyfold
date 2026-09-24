@@ -15,8 +15,10 @@ import type { AgentFramework } from '@manyfold/shared'
    command deliberately omits them — it runs wherever it is pasted, where no
    such trust boundary is established.
 
-   pi has no approval prompts at all, so it carries no flag; like claude its
-   key rides each exec and never touches the sandbox disk.
+   pi has no per-action approval prompts, so it carries no such flag (it only
+   asks whether to trust a workspace's own files, which the resume service
+   answers the way the turns do); like claude its key rides each exec and
+   never touches the sandbox disk.
 
    `needsModelCredentials` is the asymmetry between the claude/codex pair.
    Codex logs in on the sprite at bootstrap (`codex login --with-api-key`,

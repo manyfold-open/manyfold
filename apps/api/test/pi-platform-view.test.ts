@@ -155,13 +155,52 @@ test('the view is rebuilt at every start: no stale entry, sign-in or override su
         assert.equal(readFileSync(join(view, 'auth.json'), 'utf8'), '{}')
         assert.equal(existsSync(join(view, 'models.json')), false)
         assert.equal(existsSync(join(view, 'pi-debug.log')), false)
+        // Gone from the machine, so gone from the view — but still the path a
+        // trust decision made through the view is written to.
         assert.equal(existsSync(join(view, 'trust.json')), false)
+        assert.equal(
+            readlinkSync(join(view, 'trust.json')),
+            join(l.native, 'trust.json')
+        )
         assert.equal(
             readlinkSync(join(view, 'keybindings.json')),
             join(l.native, 'keybindings.json')
         )
         // A live pi holds its locks; the rebuild never takes one away.
         assert.equal(existsSync(join(view, 'auth.json.lock')), true)
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
+// A bare sandbox has no settings.json yet. A TUI that changes a setting
+// through the view must change the machine's, or the next start clears it.
+test('a first settings or trust write through the view lands in the machine dir', () => {
+    const l = lab()
+    try {
+        rmSync(join(l.native, 'settings.json'))
+        rmSync(join(l.native, 'trust.json'))
+        assert.equal(run(l, { MF_PI_VIEW: 'art_test' }).status, 0)
+        const view = viewOf(l)
+        writeFileSync(join(view, 'settings.json'), '{"theme":"light"}')
+        writeFileSync(join(view, 'trust.json'), '{"/w":true}')
+        assert.equal(
+            readFileSync(join(l.native, 'settings.json'), 'utf8'),
+            '{"theme":"light"}'
+        )
+        assert.equal(
+            readFileSync(join(l.native, 'trust.json'), 'utf8'),
+            '{"/w":true}'
+        )
+        assert.equal(run(l, { MF_PI_VIEW: 'art_test' }).status, 0)
+        assert.equal(
+            readlinkSync(join(view, 'settings.json')),
+            join(l.native, 'settings.json')
+        )
+        assert.equal(
+            readFileSync(join(view, 'settings.json'), 'utf8'),
+            '{"theme":"light"}'
+        )
     } finally {
         rmSync(l.root, { recursive: true, force: true })
     }

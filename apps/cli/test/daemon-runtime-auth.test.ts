@@ -729,8 +729,10 @@ test('a pi profile view links the machine agent dir, keeps its own auth.json, an
         )
         assert.equal((await second.finish(0)).status, 'succeeded')
         // An entry the machine gained since is linked in before the run, one
-        // it dropped is unlinked.
+        // it dropped is unlinked — but what a TUI writes for good stays the
+        // machine's path even while the machine has none.
         await writeFile(join(native, 'keybindings.json'), '{}')
+        await rm(join(native, 'skills'), { recursive: true })
         await rm(join(native, 'trust.json'))
         const context = await manager.executionContext('pi', profileId, 'exec:y')
         try {
@@ -740,7 +742,11 @@ test('a pi profile view links the machine agent dir, keeps its own auth.json, an
                 await readlink(join(view, 'keybindings.json')),
                 join(native, 'keybindings.json')
             )
-            await assert.rejects(lstat(join(view, 'trust.json')))
+            await assert.rejects(lstat(join(view, 'skills')))
+            assert.equal(
+                await readlink(join(view, 'trust.json')),
+                join(native, 'trust.json')
+            )
         } finally {
             await context.release()
         }
