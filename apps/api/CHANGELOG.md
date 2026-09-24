@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 7.3.0
+
+### Minor Changes
+
+- [#510](https://github.com/manyfold-open/manyfold/pull/510) [`d8acbd9`](https://github.com/manyfold-open/manyfold/commit/d8acbd96b37d288ebce8a0d1c9d3bbe8d1b40067) Thanks [@yingca1](https://github.com/yingca1)! - Per-framework API behaviour — agent and chat adapters, sprite and k8s bootstraps, version descriptors, framework-served files, the control UI link, channel hooks and keep-alive supervision — now resolves through one extension registry that a framework's own module registers into, instead of being wired into the core by name. A chat turn for a framework with no adapter now fails with `framework_unavailable` rather than being answered by the development echo adapter, and turning on agent-managed replies for an agent whose framework cannot deliver them now says that its framework does not support them.
+
+- [#509](https://github.com/manyfold-open/manyfold/pull/509) [`849e518`](https://github.com/manyfold-open/manyfold/commit/849e51893c1893009b58adc5c91b9360d7c7313b) Thanks [@yingca1](https://github.com/yingca1)! - Framework facts — runtimes, chat capabilities, version sources, reserved env prefixes — now come from one framework registry that an edition can extend with frameworks of its own. An agent whose framework this build does not provide now gets `409 framework_unavailable` instead of an internal error, and the web shows it under its raw framework id instead of failing to render it.
+
+### Patch Changes
+
+- [#511](https://github.com/manyfold-open/manyfold/pull/511) [`1b66a70`](https://github.com/manyfold-open/manyfold/commit/1b66a709399ced6506236f64e860b6d0080ea9d4) Thanks [@yingca1](https://github.com/yingca1)! - The workbench and the admin console now take framework names, logos, create-flow entries and per-framework behaviour from the framework registry rather than from fixed lists, so a framework an edition registers shows up wherever the built-in ones do; on the API side, such a framework's own module registers its definition. The composer's agent picker now names Pi, Dify, Langflow and A2A agents instead of showing a generic "Agent", and the admin's framework default-versions page lists frameworks in registry order under their full names.
+
 ## 7.2.0
 
 ### Minor Changes
