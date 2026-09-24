@@ -8,7 +8,7 @@ import type {
 } from './constants'
 import type { TokenCreatedVia } from './api-tokens'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
-import type { DetectedFramework } from './daemon'
+import type { DaemonHerdrFramework, DetectedFramework } from './daemon'
 import type { PiProvider } from './pi'
 
 export interface SdkUserSummary {
@@ -2353,6 +2353,9 @@ export interface SandboxSummary {
     // drive it (ADR-0031); false with herdr installed means the runner's
     // Manyfold CLI predates the handoff and the Update Center has the fix.
     canOpenInHerdr: boolean
+    // The frameworks its runner can start in herdr (herdrFrameworksFor); a
+    // sandbox with no runner yet gets one that starts them all.
+    herdrFrameworks: DaemonHerdrFramework[]
     // Accrued `running` seconds for this sandbox in the OWNER's current usage
     // period (subscription billing period, or UTC calendar month for free
     // users). 0 when never active this period. Format for display via the

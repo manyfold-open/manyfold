@@ -1,7 +1,8 @@
 import type {
     AgentFramework,
     AgentModelConfigSource,
-    AgentRuntime
+    AgentRuntime,
+    DaemonHerdrFramework
 } from '@manyfold/shared'
 import type { TFn } from '@/lib/i18n'
 import {
@@ -37,11 +38,12 @@ export interface HerdrHandoffAvailability {
 }
 
 // herdr starts the TUI as one of its own agent kinds, which exist for Claude
-// Code and Codex. A framework only the browser terminal can resume (pi) keeps
+// Code, Codex and Pi. A framework only the browser terminal can resume keeps
 // that control; one neither can resume shows this one disabled, as before.
 const HERDR_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
-    'codex'
+    'codex',
+    'pi'
 ])
 
 export const herdrHandoffAvailability = (args: {
@@ -58,6 +60,9 @@ export const herdrHandoffAvailability = (args: {
     // the difference between "update it there" and "nothing to update yet".
     sandboxCliUpdateAvailable: boolean
     sandboxModelCredentials: boolean
+    // What the machine's (or the sandbox runner's) Manyfold CLI can start in
+    // herdr: one from before pi joined herdr starts claude and codex only.
+    hostHerdrFrameworks: readonly DaemonHerdrFramework[]
     sessionId: string | null
     frameworkSessionRef: string | null
     modelSource: AgentModelConfigSource | null
@@ -79,13 +84,24 @@ export const herdrHandoffAvailability = (args: {
     // offer the Update Center is the way out; when the runner already runs
     // the newest release, the handoff waits for the next one, and saying
     // "update" would send the user to an empty page.
-    if (onSandbox && !args.sandboxCanOpenInHerdr)
+    // The same when the runner (or the machine's own CLI) drives herdr but
+    // predates this framework's kind there.
+    const kindMissing =
+        HERDR_FRAMEWORKS.has(args.framework) &&
+        !args.hostHerdrFrameworks.some((f) => f === args.framework)
+    if (onSandbox && (!args.sandboxCanOpenInHerdr || kindMissing))
         return {
             offered: true,
             available: false,
             blocked: args.sandboxCliUpdateAvailable
                 ? 'sandbox-runner-needs-upgrade'
                 : 'sandbox-runner-needs-release'
+        }
+    if (onDaemon && kindMissing)
+        return {
+            offered: true,
+            available: false,
+            blocked: 'daemon-needs-upgrade'
         }
     const resume = terminalResumeAvailability({
         framework: args.framework,

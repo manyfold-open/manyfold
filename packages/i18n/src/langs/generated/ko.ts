@@ -1671,7 +1671,7 @@ const ko: Record<string, string> = {
     "web.sessionView.hintChat": "대화를 채팅으로 되돌립니다. TUI는 닫히고 그 안에서 나눈 내용이 이 대화에 추가됩니다.",
     "web.sessionView.herdrNeedsSession": "먼저 대화를 시작한 뒤 herdr에 넘기세요.",
     "web.sessionView.herdrNeedsSessionRef": "이 대화에는 아직 이어갈 CLI 세션이 없습니다. 먼저 메시지를 보내세요.",
-    "web.sessionView.herdrUnsupportedFramework": "herdr는 Claude Code와 Codex 대화만 이어갈 수 있습니다.",
+    "web.sessionView.herdrUnsupportedFramework": "herdr는 Claude Code, Codex, Pi 대화만 이어갈 수 있습니다.",
     "web.sessionView.herdrNeedsDaemonUpgrade": "대화를 herdr에 넘기려면 이 컴퓨터의 Manyfold CLI를 업데이트하세요.",
     "web.sessionView.herdrNeedsSignIn": "먼저 이 컴퓨터에서 코딩 CLI에 로그인하세요. herdr는 그 로그인으로 대화를 이어갑니다.",
     "web.sessionView.herdrNeedsSandboxCliUpgrade": "Update Center에서 이 샌드박스의 Manyfold CLI를 업데이트하면 대화를 herdr에 넘길 수 있습니다.",

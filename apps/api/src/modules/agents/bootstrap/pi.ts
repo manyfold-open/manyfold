@@ -30,15 +30,20 @@ export class PiBootstrap implements FrameworkBootstrap {
     ) {}
 
     async run(ctx: BootstrapContext): Promise<BootstrapResult> {
-        const setup = await execCapturing(ctx, 'pi-setup-dirs', [
-            'bash',
-            '-lc',
+        const setup = await execCapturing(
+            ctx,
+            'pi-setup-dirs',
             [
-                piAgentDirSetupScript(),
-                `mkdir -p ${shellQuote(ctx.mountPath)}`,
-                `printf 'MF_HOME=%s\\n' "$HOME"`
-            ].join('\n')
-        ])
+                'bash',
+                '-lc',
+                [
+                    piAgentDirSetupScript(),
+                    `mkdir -p ${shellQuote(ctx.mountPath)}`,
+                    `printf 'MF_HOME=%s\\n' "$HOME"`
+                ].join('\n')
+            ],
+            SETUP_TIMEOUT_MS
+        )
         const homeDir = extractHomeDir(setup.stdout)
         await this.skills.materializeForSprite({
             agentId: ctx.agentId,
@@ -81,17 +86,37 @@ export class PiBootstrap implements FrameworkBootstrap {
             )
         return { homeDir, frameworkVersion }
     }
+
+    // pi's own directory on a sandbox prepared without an agent (the
+    // four-step flow's machine step), which runs no bootstrap: the settings
+    // and tools run() sets up for a created agent.
+    async setupSandbox(ctx: BootstrapContext): Promise<void> {
+        await execCapturing(
+            ctx,
+            'pi-setup-sandbox',
+            ['bash', '-lc', piAgentDirSetupScript()],
+            SETUP_TIMEOUT_MS
+        )
+    }
 }
+
+// Covers a first package install (an apt update included) for fd and ripgrep.
+const SETUP_TIMEOUT_MS = 180_000
 
 const execCapturing = async (
     ctx: BootstrapContext,
     step: string,
-    cmd: string[]
+    cmd: string[],
+    minTimeoutMs = 0
 ): Promise<{ stdout: string; stderr: string }> => {
     const result = await execSprite(
         ctx.client,
         ctx.spriteName,
-        { cmd, stdin: '', timeoutMs: ctx.execTimeoutMs ?? 60_000 },
+        {
+            cmd,
+            stdin: '',
+            timeoutMs: Math.max(ctx.execTimeoutMs ?? 60_000, minTimeoutMs)
+        },
         ctx.logger
     )
     if (result.exitCode !== 0)

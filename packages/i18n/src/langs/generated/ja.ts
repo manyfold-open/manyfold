@@ -1672,7 +1672,7 @@ const ja: Record<string, string> = {
     'web.sessionView.hintChat': '会話をチャットに戻します。TUI は閉じられ、そこで話した内容がこの会話に追加されます。',
     'web.sessionView.herdrNeedsSession': 'まず会話を始めてから herdr に引き継いでください。',
     'web.sessionView.herdrNeedsSessionRef': 'この会話にはまだ再開できる CLI セッションがありません。まずメッセージを送信してください。',
-    'web.sessionView.herdrUnsupportedFramework': 'herdr が再開できるのは Claude Code と Codex の会話だけです。',
+    'web.sessionView.herdrUnsupportedFramework': 'herdr が再開できるのは Claude Code、Codex、Pi の会話だけです。',
     'web.sessionView.herdrNeedsDaemonUpgrade': '会話を herdr に引き継ぐには、このコンピューターの Manyfold CLI を更新してください。',
     'web.sessionView.herdrNeedsSignIn': 'まずこのコンピューターでコーディング CLI にサインインしてください。herdr はそのサインインで会話を再開します。',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'このサンドボックスの Manyfold CLI を Update Center から更新すると、会話を herdr に引き継げます。',

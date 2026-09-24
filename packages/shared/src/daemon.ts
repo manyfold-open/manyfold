@@ -141,6 +141,9 @@ export interface DaemonHostSummary {
     // herdr is installed on this machine and the daemon can open a chat
     // session's TUI in it (ADR-0031); false hides the handoff in the web.
     canOpenInHerdr: boolean
+    // The frameworks it can start there (herdrFrameworksFor): a CLI from
+    // before pi joined herdr hands over claude and codex only.
+    herdrFrameworks: DaemonHerdrFramework[]
     // herdr's installed version, the newest herdr.dev publishes, and whether
     // the Update Center should offer the upgrade (ADR-0031).
     herdrVersion: string | null
@@ -283,9 +286,10 @@ export interface DaemonOwnedTerminal {
     startedAt: string
 }
 
-// The frameworks whose TUI a herdr pane can resume (ADR-0031): the same two
-// with a resume-by-id form the browser terminal supports.
-export type DaemonHerdrFramework = 'claude-code' | 'codex'
+// The frameworks whose TUI a herdr pane can resume (ADR-0031): the ones with
+// a resume-by-id form the browser terminal supports and an agent kind in
+// herdr (herdr 0.9 has `claude`, `codex` and `pi`).
+export type DaemonHerdrFramework = 'claude-code' | 'codex' | 'pi'
 
 // terminal.herdr.open (ADR-0031): run a chat session's framework TUI in a
 // herdr pane on the daemon's machine. The API composes command and env
@@ -656,6 +660,24 @@ export const DAEMON_FEATURE_PTY_TERMINAL = 'pty.terminal.v1'
 // the `herdr` binary is found on the machine, so the web can offer the
 // handoff exactly where it can work.
 export const DAEMON_FEATURE_HERDR_TERMINAL = 'terminal.herdr.v1'
+// The daemon's herdr handoff (above) also starts pi. Advertised with it, by a
+// CLI that knows pi's herdr kind.
+export const DAEMON_FEATURE_HERDR_PI = 'terminal.herdr.pi.v1'
+
+// What a host with these features can hand to herdr: nothing without the
+// handoff, claude and codex with it, pi too when the CLI knows pi's kind.
+export const herdrFrameworksFor = (
+    clientFeatures: readonly string[]
+): DaemonHerdrFramework[] =>
+    clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
+        ? [
+              'claude-code',
+              'codex',
+              ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_PI)
+                  ? (['pi'] as const)
+                  : [])
+          ]
+        : []
 
 // The daemon answers `account.inspect` (who is signed in on this machine per
 // coding CLI, plus the raw vendor usage response). The API must check this

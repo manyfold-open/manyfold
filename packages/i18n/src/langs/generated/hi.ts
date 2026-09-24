@@ -1678,7 +1678,7 @@ const hi: Record<string, string> = {
     'web.sessionView.hintChat': 'बातचीत को चैट में वापस लाता है: TUI बंद हो जाता है और उसमें कही गई बातें इस बातचीत में जुड़ जाती हैं।',
     'web.sessionView.herdrNeedsSession': 'पहले बातचीत शुरू करें, फिर उसे herdr को सौंपें।',
     'web.sessionView.herdrNeedsSessionRef': 'इस बातचीत में अभी फिर से शुरू करने के लिए कोई CLI सत्र नहीं है। पहले एक संदेश भेजें।',
-    'web.sessionView.herdrUnsupportedFramework': 'herdr केवल Claude Code और Codex की बातचीत फिर से शुरू कर सकता है।',
+    'web.sessionView.herdrUnsupportedFramework': 'herdr केवल Claude Code, Codex और Pi की बातचीत फिर से शुरू कर सकता है।',
     'web.sessionView.herdrNeedsDaemonUpgrade': 'बातचीत herdr को सौंपने के लिए इस कंप्यूटर पर Manyfold CLI अपडेट करें।',
     'web.sessionView.herdrNeedsSignIn': 'पहले इस कंप्यूटर पर कोडिंग CLI में साइन इन करें; herdr उसी साइन-इन से बातचीत फिर से शुरू करता है।',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'बातचीत herdr को सौंपने के लिए Update Center से इस सैंडबॉक्स की Manyfold CLI अपडेट करें।',

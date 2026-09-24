@@ -58,7 +58,7 @@ class TestProvisioner extends SpritesProvisioner {
 
     protected async installCodingFramework(
         ctx: BootstrapContext,
-        framework: 'claude-code' | 'codex' | 'gemini-cli'
+        framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi'
     ): Promise<string | null> {
         this.installed.push({ framework, ctx })
         if (this.installError) throw this.installError
@@ -76,6 +76,7 @@ const buildHarness = () => {
         deleted: string[]
         hermesRuns: unknown[]
         shellEnv: unknown[]
+        piSetups: BootstrapContext[]
     } = {
         reserve: [],
         statusPatches: [],
@@ -83,7 +84,8 @@ const buildHarness = () => {
         phases: [],
         deleted: [],
         hermesRuns: [],
-        shellEnv: []
+        shellEnv: [],
+        piSetups: []
     }
     const runtimes = {
         findHostById: async () => ({
@@ -128,7 +130,12 @@ const buildHarness = () => {
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
+        {
+            run: async () => ({ homeDir: undefined }),
+            setupSandbox: async (ctx: BootstrapContext) => {
+                calls.piSetups.push(ctx)
+            }
+        } as never,
         {
             framework: 'hermes',
             run: async (ctx: BootstrapContext, credentials: unknown) => {
@@ -269,4 +276,30 @@ test('a framework with no sprite bootstrap is refused before a row is reserved',
         ConflictException
     )
     assert.equal(h.calls.reserve.length, 0)
+})
+
+// The four-step flow prepares a sandbox with no agent, so no bootstrap runs:
+// pi's own directory (its quiet banner, the fd and ripgrep its tools need)
+// is set up with the CLI instead. The other coding CLIs keep nothing there.
+test('a pi prepare sets up pi on the sandbox; the other coding CLIs need nothing', async () => {
+    const h = buildHarness()
+    await h.provisioner.prepareRuntime({
+        userId: 'user_1',
+        framework: 'pi',
+        hostId: 'sbx_1',
+        frameworkVersion: '0.87.1',
+        frameworkVersionSource: 'latest'
+    })
+    assert.equal(h.calls.piSetups.length, 1)
+    assert.equal(h.calls.piSetups[0].spriteName, 'sbx-1')
+
+    const other = buildHarness()
+    await other.provisioner.prepareRuntime({
+        userId: 'user_1',
+        framework: 'codex',
+        hostId: 'sbx_1',
+        frameworkVersion: '0.9.0',
+        frameworkVersionSource: 'latest'
+    })
+    assert.equal(other.calls.piSetups.length, 0)
 })

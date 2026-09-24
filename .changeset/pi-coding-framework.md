@@ -18,12 +18,14 @@ in chat and in the terminal, whose new messages sync back to the chat, and
 own: leaving the TUI hands the conversation back, and a session started in the
 terminal joins the chat list when the terminal closes. A Pi turn cut off by an
 API restart finishes under its own message, read back from Pi's session file
-when the runner's stream cannot be picked up again. The composer switches
-between the provider's models and the ones `pi --list-models` offers locally,
-the credentials dialog can move an agent to another vendor's provider, the
-four-step create flow lists Pi, and `mf agent create --framework pi` takes
-`--pi-api-key` with `--pi-provider`. A platform provider is what every turn
-uses on any runtime, gateways included: Pi's own sign-in or `models.json` on a
-machine never takes its place, while Pi's settings, skills and sessions still
-apply. Pi's own sign-in on a runtime needs the Manyfold CLI from this release
-there.
+when the runner's stream cannot be picked up again. A Pi conversation can also
+be handed to herdr, like Claude Code and Codex. On sandboxes and Kubernetes,
+Pi's find and grep tools work out of the box: fd and ripgrep come with Pi
+there. The composer switches between the provider's models and the ones
+`pi --list-models` offers locally, the credentials dialog can move an agent to
+another vendor's provider, the four-step create flow lists Pi, and
+`mf agent create --framework pi` takes `--pi-api-key` with `--pi-provider`. A
+platform provider is what every turn uses on any runtime, gateways included:
+Pi's own sign-in or `models.json` on a machine never takes its place, while
+Pi's settings, skills and sessions still apply. Pi's own sign-in on a runtime
+needs the Manyfold CLI from this release there.

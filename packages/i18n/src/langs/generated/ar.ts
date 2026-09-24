@@ -2326,7 +2326,7 @@ const ar: Record<string, string> = {
     'web.sessionView.hintChat': 'يعيد المحادثة إلى الدردشة: يُغلق TUI ويُضاف ما قيل فيه إلى هذه المحادثة.',
     'web.sessionView.herdrNeedsSession': 'ابدأ محادثة أولاً ثم سلّمها إلى herdr.',
     'web.sessionView.herdrNeedsSessionRef': 'لا تملك هذه المحادثة بعد جلسة CLI يمكن استئنافها. أرسل رسالة أولاً.',
-    'web.sessionView.herdrUnsupportedFramework': 'لا يستطيع herdr استئناف سوى محادثات Claude Code وCodex.',
+    'web.sessionView.herdrUnsupportedFramework': 'لا يستطيع herdr استئناف سوى محادثات Claude Code وCodex وPi.',
     'web.sessionView.herdrNeedsDaemonUpgrade': 'حدّث Manyfold CLI على هذا الجهاز لتسليم المحادثات إلى herdr.',
     'web.sessionView.herdrNeedsSignIn': 'سجّل الدخول أولاً إلى CLI البرمجة على هذا الجهاز؛ يستأنف herdr المحادثة بذلك التسجيل.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'حدّث Manyfold CLI في هذا الصندوق الرملي من Update Center لتسليم المحادثات إلى herdr.',

@@ -56,12 +56,14 @@ const RECONNECT_MAX_MS = 30_000
 
 export const HERDR_KIND_BY_FRAMEWORK: Record<DaemonHerdrFramework, string> = {
     'claude-code': 'claude',
-    codex: 'codex'
+    codex: 'codex',
+    pi: 'pi'
 }
 
 export const isHerdrFramework = (
     value: unknown
-): value is DaemonHerdrFramework => value === 'claude-code' || value === 'codex'
+): value is DaemonHerdrFramework =>
+    typeof value === 'string' && Object.hasOwn(HERDR_KIND_BY_FRAMEWORK, value)
 
 export class HerdrError extends Error {
     constructor(

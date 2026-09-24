@@ -905,6 +905,7 @@ export class SpritesProvisioner {
                     ctx,
                     codingFramework
                 )
+                await this.prepareCodingSandbox(ctx, codingFramework)
                 homeDir = SPRITE_HOME_BASE
             } else if (serviceBootstrap) {
                 const result = await this.runServiceBootstrap(
@@ -944,6 +945,16 @@ export class SpritesProvisioner {
             await this.runtimes.delete(runtimeId)
             throw err
         }
+    }
+
+    // A prepare runs no agent bootstrap, so what a CLI keeps in its own
+    // directory on the sandbox is set up here. Only pi has anything there:
+    // its quiet banner, and the fd and ripgrep its find and grep tools run.
+    protected async prepareCodingSandbox(
+        ctx: BootstrapContext,
+        framework: VersionedFramework
+    ): Promise<void> {
+        if (framework === 'pi') await this.piBootstrap.setupSandbox(ctx)
     }
 
     // Seam for tests: the coding CLI install runs the same staged npm shell

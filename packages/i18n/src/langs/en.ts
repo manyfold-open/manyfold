@@ -3052,7 +3052,7 @@ const en = {
             hintChat: 'Takes the conversation back to the chat: the TUI is closed and what was said in it is added to this conversation.',
             herdrNeedsSession: 'Start a conversation first, then hand it to herdr.',
             herdrNeedsSessionRef: 'This conversation has no CLI session to resume yet. Send a message first.',
-            herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
+            herdrUnsupportedFramework: 'herdr can only resume Claude Code, Codex and Pi conversations.',
             herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
             herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
             herdrNeedsSandboxCliUpgrade: 'Update the Manyfold CLI in this sandbox from the Update Center to hand conversations to herdr.',

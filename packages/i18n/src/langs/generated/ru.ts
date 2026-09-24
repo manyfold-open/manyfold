@@ -1681,7 +1681,7 @@ const ru: Record<string, string> = {
     'web.sessionView.hintChat': 'Возвращает диалог в чат: TUI закрывается, а сказанное в нём добавляется в этот диалог.',
     'web.sessionView.herdrNeedsSession': 'Сначала начните диалог, затем передайте его в herdr.',
     'web.sessionView.herdrNeedsSessionRef': 'У этого диалога ещё нет сессии CLI, которую можно возобновить. Сначала отправьте сообщение.',
-    'web.sessionView.herdrUnsupportedFramework': 'herdr может возобновлять только диалоги Claude Code и Codex.',
+    'web.sessionView.herdrUnsupportedFramework': 'herdr может возобновлять только диалоги Claude Code, Codex и Pi.',
     'web.sessionView.herdrNeedsDaemonUpgrade': 'Обновите Manyfold CLI на этом компьютере, чтобы передавать диалоги в herdr.',
     'web.sessionView.herdrNeedsSignIn': 'Сначала войдите в CLI для программирования на этом компьютере; herdr возобновит диалог с этим входом.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'Обновите Manyfold CLI в этой песочнице через Update Center, чтобы передавать диалоги в herdr.',

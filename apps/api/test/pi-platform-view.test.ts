@@ -19,7 +19,9 @@ import {
     PI_PLATFORM_VIEW_SCRIPT,
     buildPiModelsJson,
     piAgentDirSetupScript,
-    piPlatformExec
+    piPlatformDirect,
+    piPlatformExec,
+    piPlatformViewPrepare
 } from '../src/modules/agents/credentials/pi-agent-dir'
 
 // A stand-in `pi` that reports what the real one would see: its argv, the
@@ -168,6 +170,58 @@ test('the view is rebuilt at every start: no stale entry, sign-in or override su
         )
         // A live pi holds its locks; the rebuild never takes one away.
         assert.equal(existsSync(join(view, 'auth.json.lock')), true)
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
+// herdr runs pi by name, so for a herdr pane the view is built on its own:
+// asked to prepare only, the script prints the view and stops short of pi.
+// Its path then turns the resume into the plain `pi …` herdr starts.
+test('a prepare-only run builds the view, prints it and never starts pi', () => {
+    const l = lab()
+    try {
+        const models = buildPiModelsJson('anthropic', 'https://gw.example')!
+        const exec = piPlatformExec({
+            piArgs: ['--session-id', 'ref-1', '--approve'],
+            runtimeId: 'art_test',
+            provider: 'anthropic',
+            apiKey: 'sk-bound',
+            baseUrl: 'https://gw.example'
+        })
+        const prepare = piPlatformViewPrepare(exec.env)
+        // Nothing secret goes into the prepare.
+        assert.equal(prepare.env.ANTHROPIC_API_KEY, undefined)
+        const out = spawnSync(prepare.cmd[0], prepare.cmd.slice(1), {
+            env: {
+                HOME: l.home,
+                PATH: `${l.bin}:/usr/bin:/bin`,
+                ...prepare.env
+            },
+            encoding: 'utf8'
+        })
+        assert.equal(out.status, 0, out.stderr)
+        const view = viewOf(l)
+        assert.equal(out.stdout, `${view}\n`)
+        assert.equal(existsSync(join(l.home, 'pi-saw.txt')), false)
+        assert.equal(readFileSync(join(view, 'auth.json'), 'utf8'), '{}')
+        assert.equal(readFileSync(join(view, 'models.json'), 'utf8'), models)
+
+        const direct = piPlatformDirect(
+            { command: exec.cmd, env: exec.env },
+            out.stdout.trim()
+        )
+        assert.deepEqual(direct.command, [
+            'pi',
+            '--session-id',
+            'ref-1',
+            '--approve'
+        ])
+        assert.equal(direct.env.PI_CODING_AGENT_DIR, view)
+        assert.equal(direct.env.ANTHROPIC_API_KEY, 'sk-bound')
+        assert.equal(direct.env.PI_OFFLINE, '1')
+        assert.equal(direct.env.MF_PI_VIEW, undefined)
+        assert.equal(direct.env.MF_PI_MODELS_JSON, undefined)
     } finally {
         rmSync(l.root, { recursive: true, force: true })
     }
@@ -330,4 +384,78 @@ test('the sandbox agent dir only ever gets the quiet banner', () => {
     assert.match(script, /^set -eu\nmkdir -p "\$HOME\/\.pi\/agent"\n/)
     assert.match(script, /"quietStartup": true/)
     assert.ok(!script.includes('models.json'))
+})
+
+// pi runs offline in every exec, so it never fetches fd and ripgrep itself;
+// the sandbox setup installs them from the package manager. Run for real in
+// bash, with sudo and apt-get stood in for, over three sandboxes: one that
+// has both, one whose package lists need an update first, and one where
+// sudo is refused.
+test('the sandbox setup installs fd and ripgrep once, and never fails over them', () => {
+    const sandbox = (opts: {
+        rg: boolean
+        sudo: 'ok' | 'stale' | 'refused'
+    }) => {
+        const root = mkdtempSync(join(tmpdir(), 'mf-pi-tools-'))
+        const home = join(root, 'home')
+        const bin = join(root, 'bin')
+        mkdirSync(home, { recursive: true })
+        mkdirSync(bin, { recursive: true })
+        const log = join(root, 'sudo.log')
+        if (opts.rg)
+            for (const tool of ['rg', 'fdfind']) {
+                writeFileSync(join(bin, tool), '#!/bin/sh\nexit 0\n')
+                chmodSync(join(bin, tool), 0o755)
+            }
+        // `apt-get install` succeeds only after an update when the lists are
+        // stale, and "installs" by dropping the two binaries on PATH.
+        writeFileSync(
+            join(bin, 'sudo'),
+            [
+                '#!/bin/sh',
+                `echo "$*" >> '${log}'`,
+                ...(opts.sudo === 'refused' ? ['exit 1'] : []),
+                'case "$*" in',
+                `  *"apt-get update"*) touch '${root}/updated'; exit 0 ;;`,
+                `  *"apt-get install"*) ${opts.sudo === 'stale' ? `[ -f '${root}/updated' ] || exit 100; ` : ''}for t in rg fdfind; do printf '#!/bin/sh\\nexit 0\\n' > '${bin}'/$t; chmod +x '${bin}'/$t; done ;;`,
+                'esac'
+            ].join('\n')
+        )
+        chmodSync(join(bin, 'sudo'), 0o755)
+        // Not a login shell: a macOS /etc/profile would put Homebrew's own
+        // rg and fd back on PATH.
+        const out = spawnSync('bash', ['-c', piAgentDirSetupScript()], {
+            env: { HOME: home, PATH: `${bin}:/usr/bin:/bin` },
+            encoding: 'utf8'
+        })
+        const calls = existsSync(log)
+            ? readFileSync(log, 'utf8').trim().split('\n')
+            : []
+        const settings = readFileSync(
+            join(home, '.pi', 'agent', 'settings.json'),
+            'utf8'
+        )
+        rmSync(root, { recursive: true, force: true })
+        return { out, calls, settings }
+    }
+
+    const ready = sandbox({ rg: true, sudo: 'ok' })
+    assert.equal(ready.out.status, 0)
+    assert.deepEqual(ready.calls, [])
+
+    const stale = sandbox({ rg: false, sudo: 'stale' })
+    assert.equal(stale.out.status, 0, stale.out.stderr)
+    assert.equal(stale.calls.length, 3)
+    assert.match(
+        stale.calls[0],
+        /-n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ripgrep fd-find/
+    )
+    assert.match(stale.calls[1], /apt-get update/)
+    assert.match(stale.calls[2], /apt-get install/)
+    assert.equal(stale.out.stderr, '')
+
+    const refused = sandbox({ rg: false, sudo: 'refused' })
+    assert.equal(refused.out.status, 0)
+    assert.match(refused.out.stderr, /fd and ripgrep could not be installed/)
+    assert.match(refused.settings, /"quietStartup": true/)
 })

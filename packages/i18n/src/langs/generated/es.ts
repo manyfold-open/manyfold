@@ -1680,7 +1680,7 @@ const es: Record<string, string> = {
     'web.sessionView.hintChat': 'Devuelve la conversación al chat: la TUI se cierra y lo que se dijo en ella se añade a esta conversación.',
     'web.sessionView.herdrNeedsSession': 'Empieza una conversación primero y luego pásala a herdr.',
     'web.sessionView.herdrNeedsSessionRef': 'Esta conversación aún no tiene una sesión de CLI que reanudar. Envía un mensaje primero.',
-    'web.sessionView.herdrUnsupportedFramework': 'herdr solo puede reanudar conversaciones de Claude Code y Codex.',
+    'web.sessionView.herdrUnsupportedFramework': 'herdr solo puede reanudar conversaciones de Claude Code, Codex y Pi.',
     'web.sessionView.herdrNeedsDaemonUpgrade': 'Actualiza la Manyfold CLI en este equipo para pasar conversaciones a herdr.',
     'web.sessionView.herdrNeedsSignIn': 'Inicia sesión primero en la CLI de programación en este equipo; herdr reanuda la conversación con ese inicio de sesión.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'Actualiza la Manyfold CLI de este sandbox desde el Update Center para entregar conversaciones a herdr.',

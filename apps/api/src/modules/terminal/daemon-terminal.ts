@@ -6,11 +6,13 @@ import type {
     DaemonPtyAuthLogin
 } from '@manyfold/shared'
 import {
+    HERDR_LAUNCH_FAILED_CODE,
     envTextFromExtras,
     envTextToRecord,
     isObjectId
 } from '@manyfold/shared'
 import {
+    BadGatewayException,
     Injectable,
     Logger,
     NotFoundException,
@@ -30,6 +32,7 @@ import {
     API_TOKEN_SCOPE_FULL
 } from '@/modules/auth/api-token.service'
 
+import { piPlatformViewPrepare } from '@/modules/agents/credentials/pi-agent-dir'
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
 import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
@@ -88,6 +91,8 @@ const PTY_CLOSE_TIMEOUT_MS = 5_000
 // minute for a cold CLI) and labels it before the daemon answers.
 const HERDR_OPEN_TIMEOUT_MS = 90_000
 const HERDR_FOCUS_TIMEOUT_MS = 10_000
+// Links, two small files and a lock: milliseconds, on a machine that answers.
+const PI_VIEW_PREPARE_TIMEOUT_MS = 15_000
 
 // Hand a chat session to herdr on the agent's machine (ADR-0031): the same
 // env a pty would carry, one unary call instead of a stream.
@@ -279,6 +284,42 @@ export class DaemonTerminal {
                 .catch(() => {})
             throw err
         }
+    }
+
+    // Build a pi platform view on the daemon (piPlatformViewPrepare) and
+    // return its path: herdr's pi is started on it rather than through it.
+    async preparePiView(
+        daemonId: string,
+        resumeEnv: Record<string, string>
+    ): Promise<string> {
+        const prepare = piPlatformViewPrepare(resumeEnv)
+        let stdout = ''
+        let stderr = ''
+        const stream = this.registry.streamRpc({
+            daemonId,
+            method: 'exec.start',
+            payload: {
+                cmd: prepare.cmd,
+                env: prepare.env,
+                timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
+            },
+            timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS + 5_000,
+            onEvent: (kind, data) => {
+                if (kind === 'stdout') stdout += data
+                else if (kind === 'stderr') stderr += data
+            }
+        })
+        const result = await stream.result
+        const exitCode = Number(
+            (result as { exitCode?: number } | undefined)?.exitCode ?? 0
+        )
+        const viewPath = stdout.trim().split('\n').pop()?.trim() ?? ''
+        if (exitCode !== 0 || !viewPath.startsWith('/'))
+            throw new BadGatewayException({
+                code: HERDR_LAUNCH_FAILED_CODE,
+                message: `pi's platform view could not be built (exit ${exitCode}): ${stderr.trim().slice(0, 200)}`
+            })
+        return viewPath
     }
 
     // Raise the session's pane in herdr again (ADR-0031).

@@ -2914,7 +2914,7 @@ const zh: Translations = {
             hintChat: '把对话收回到聊天：关闭 TUI，并把在其中说过的内容加入这段对话。',
             herdrNeedsSession: '先开始一段对话，再把它交给 herdr。',
             herdrNeedsSessionRef: '这段对话还没有可恢复的 CLI 会话。先发送一条消息。',
-            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
+            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code、Codex 与 Pi 的对话。',
             herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
             herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
             herdrNeedsSandboxCliUpgrade: '先在 Update Center 里更新这个沙箱的 Manyfold CLI，才能把对话交给 herdr。',

@@ -1334,6 +1334,10 @@ const AgentChat: FC = (): ReactNode => {
                   sessionSandbox?.cliUpdateAvailable === true,
               sandboxModelCredentials:
                   sessionSandbox?.terminalModelCredentials === true,
+              hostHerdrFrameworks:
+                  (currentAgent.runtime === 'sprites'
+                      ? sessionSandbox?.herdrFrameworks
+                      : sessionDaemon?.herdrFrameworks) ?? [],
               sessionId: activeSessionId,
               frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
               modelSource: effectiveModelConfigView?.source ?? null,
