@@ -23,6 +23,7 @@ import HermesAgentMono from '@lobehub/icons/es/HermesAgent/components/Mono'
 import MicrosoftColor from '@lobehub/icons/es/Microsoft/components/Color'
 import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono'
 import OpenClawColor from '@lobehub/icons/es/OpenClaw/components/Color'
+import PiMono from '@lobehub/icons/es/Pi/components/Mono'
 import WindsurfMono from '@lobehub/icons/es/Windsurf/components/Mono'
 
 export type { IconType } from '@lobehub/icons/es/types'
@@ -44,5 +45,6 @@ export {
     MicrosoftColor,
     OpenAIMono,
     OpenClawColor,
+    PiMono,
     WindsurfMono
 }
