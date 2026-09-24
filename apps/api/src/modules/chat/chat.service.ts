@@ -255,10 +255,6 @@ export interface TurnShutdownResult {
 }
 
 const CANCELLED_BY_USER_MESSAGE = 'cancelled by user'
-const OPENCLAW_REPLAY_FRAMEWORKS = new Set<AgentFramework>([
-    'openclaw',
-    'narranexus'
-])
 // The provider-row facts every turn carries. The built-in id scopes prices; the
 // managed triple is what the channel breaker and its telemetry key on, and it
 // rides on the same read the turn already does.
@@ -3031,9 +3027,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     'resuming',
                     resumeStatusOrdinal
                 )
-            const replaysWholeSource = OPENCLAW_REPLAY_FRAMEWORKS.has(
-                agentCtx.framework
-            )
+            const replaysWholeSource = adapter.resumeReplaysFromStart === true
             const fromSeq = replaysWholeSource
                 ? 0
                 : await this.resumeFromSeq(message.id)
@@ -6492,8 +6486,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         resumed?: boolean
         via?: TurnTerminalVia
     }): void {
-        // Turn-finalized fan-out for cross-cutting listeners (narranexus-sync
-        // pulls job/channel config after every NarraNexus turn). Since #544
+        // Turn-finalized fan-out for cross-cutting listeners (a framework
+        // module's sync pulls job/channel config after its turns). Since #544
         // recovered turns land here too, so the fan-out now also fires for
         // resume/adoption/reconciliation terminals — deliberate: the turn did
         // finalize and may have changed config before dying, and the listener

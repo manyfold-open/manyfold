@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { NarraNexusAgentAdapter } from '../src/modules/narranexus/narranexus-agent.adapter'
+import { NarraNexusAgentAdapter } from '../src/modules/narranexus/agent/narranexus-agent.adapter'
 
 const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     id: 'rt-1',

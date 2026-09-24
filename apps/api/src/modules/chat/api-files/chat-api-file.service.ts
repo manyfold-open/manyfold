@@ -157,8 +157,8 @@ export class ChatApiFileService {
             try {
                 await ctx.write(absPath, file.bytes)
             } catch (err) {
-                // A proxied write can fail after the bytes landed — the
-                // narranexus gateway has returned 502 with the file already on
+                // A proxied write can fail after the bytes landed — a
+                // framework's gateway has returned 502 with the file already on
                 // disk (#577). The disk is the authority: account the file as
                 // written only when the full content verifiably arrived.
                 if (!(await this.writeLanded(ctx, absPath, file.bytes.length)))

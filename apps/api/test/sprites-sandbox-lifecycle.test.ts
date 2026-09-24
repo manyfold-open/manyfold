@@ -3,6 +3,7 @@ import test from 'node:test'
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // Compact chainable fake for the transaction body used by teardownRuntime /
 // deleteSandbox: a lock execute, count select, agent/runtime deletes, and a
@@ -129,9 +130,7 @@ const makeProvisioner = (
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        new SpriteServiceBootstraps({} as never, {} as never),
         {} as never,
         {} as never,
         {} as never,
@@ -163,9 +162,7 @@ test('provisionSandbox preserves a revoked host when create-failure cleanup cann
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        new SpriteServiceBootstraps({} as never, {} as never),
         {} as never,
         { get: () => undefined } as never,
         {} as never,

@@ -21,6 +21,7 @@ import {
     InternalServerErrorException,
     Logger,
     NotFoundException,
+    Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
@@ -46,10 +47,7 @@ import {
     frameworkVersionDescriptor
 } from '@/modules/framework-versions/framework-version-registry'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
-import {
-    buildNarraNexusRebuildShell,
-    buildNarraNexusRestoreShell
-} from '@/modules/agents/bootstrap/narranexus-sprite'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import {
     buildHermesRebuildShell,
     buildHermesRestoreShell,
@@ -60,8 +58,9 @@ import {
 // npm installs of the coding-agent CLIs can take a while (claude-code is a
 // large package); keep the synchronous exec window generous.
 const UPGRADE_TIMEOUT_MS = 180_000
-// narranexus rebuild = git clone + uv sync + vite build, 5–7 min in the probe;
-// cap at 15 min for slow mirrors (matches the bootstrap install timeout).
+// A git rebuild (clone + dependency sync + frontend build) measured 5–7 min in
+// the probe; cap at 15 min for slow mirrors (matches the bootstrap install
+// timeout).
 const REBUILD_TIMEOUT_MS = 900_000
 const RESTORE_TIMEOUT_MS = 120_000
 
@@ -79,7 +78,9 @@ export class FrameworkUpgradeService {
         private readonly agents: AgentsService,
         private readonly versions: FrameworkVersionsService,
         private readonly probe: FrameworkVersionProbeService,
-        private readonly adminSettings: AdminSettingsService
+        private readonly adminSettings: AdminSettingsService,
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     async upgrade(
@@ -100,8 +101,8 @@ export class FrameworkUpgradeService {
             )
         const descriptor = frameworkVersionDescriptor(agent.framework)
         // Only npm-sourced frameworks (claude/codex/gemini/openclaw) upgrade in
-        // place. github-sourced (narranexus/hermes) need a heavy re-clone /
-        // re-installer — display-only for now.
+        // place. github-sourced ones need a heavy re-clone / re-installer,
+        // streamed by upgradeStreaming.
         if (descriptor.source.kind !== 'npm')
             throw new BadRequestException(
                 `${agent.framework} upgrade is not supported yet`
@@ -189,8 +190,8 @@ export class FrameworkUpgradeService {
         )
     }
 
-    // Heavy "rebuild" upgrade (narranexus): stop service → re-clone+build at the
-    // target tag → start service → verify. Streams phase events via `emitter`.
+    // Heavy "rebuild" upgrade: stop service → re-clone+build at the target tag
+    // → start service → verify. Streams phase events via `emitter`.
     // A failed rebuild rolls back to the pre-upgrade app so the agent is never
     // bricked.
     async upgradeStreaming(
@@ -387,16 +388,6 @@ export class FrameworkUpgradeService {
         targetVersion: string,
         repo: string | null
     ): { rebuild: string; restore: string } {
-        if (framework === 'narranexus') {
-            if (!repo)
-                throw new InternalServerErrorException(
-                    'no narranexus repository could be resolved'
-                )
-            return {
-                rebuild: buildNarraNexusRebuildShell(targetVersion, repo),
-                restore: buildNarraNexusRestoreShell()
-            }
-        }
         // hermes pipes NousResearch's install.sh, which clones a repository
         // named inside that script, so `repo` cannot steer it — which is why
         // hermes is held to a single candidate.
@@ -405,9 +396,16 @@ export class FrameworkUpgradeService {
                 rebuild: buildHermesRebuildShell(targetVersion),
                 restore: buildHermesRestoreShell()
             }
-        throw new BadRequestException(
-            `${framework} rebuild upgrade is not implemented yet`
-        )
+        const shells = this.extensions.get(framework)?.version?.rebuildShells
+        if (!shells)
+            throw new BadRequestException(
+                `${framework} rebuild upgrade is not implemented yet`
+            )
+        if (!repo)
+            throw new InternalServerErrorException(
+                `no ${framework} repository could be resolved`
+            )
+        return shells({ version: targetVersion, repo })
     }
 
     // A release inside a broken window is never installable, by anyone: an

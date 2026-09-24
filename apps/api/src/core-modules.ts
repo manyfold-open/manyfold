@@ -29,7 +29,8 @@ import { ConnectionsModule } from '@/modules/connections/connections.module'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { SkillsModule } from '@/modules/skills/skills.module'
 import { AutomationsModule } from '@/modules/automations/automations.module'
-import { NarraNexusSyncModule } from '@/modules/narranexus-sync/narranexus-sync.module'
+import { NarraNexusModule } from '@/modules/narranexus/narranexus.module'
+import { FrameworkExtensionsModule } from '@/modules/frameworks/framework-extensions.module'
 import { AppEventsModule } from '@/common/events/app-events.module'
 import { CapabilitiesModule } from '@/common/capabilities/capabilities.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
@@ -59,6 +60,7 @@ export const CORE_MODULES = [
     TelemetryModule,
     AppEventsModule,
     CapabilitiesModule,
+    FrameworkExtensionsModule,
     DbModule,
     SecretsModule,
     K8sModule,
@@ -85,7 +87,7 @@ export const CORE_MODULES = [
     RuntimeAccessModule,
     SkillsModule,
     AutomationsModule,
-    NarraNexusSyncModule,
+    NarraNexusModule,
     BackupsModule,
     DaemonModule,
     RuntimeReportsModule,

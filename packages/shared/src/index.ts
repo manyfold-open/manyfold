@@ -547,6 +547,7 @@ export {
     requireFrameworkDefinition
 } from './frameworks/registry'
 export {
+    credentialsManagedByRuntime,
     frameworkCapability,
     supportsRuntime,
     isExternal,

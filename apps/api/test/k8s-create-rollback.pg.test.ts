@@ -161,13 +161,7 @@ const fixture = async (
         k8s,
         config,
         crypto,
-        bootstrap as never,
-        bootstrap as never,
-        bootstrap as never,
-        bootstrap as never,
-        bootstrap as never,
-        bootstrap as never,
-        bootstrap as never,
+        { get: () => bootstrap, image: () => 'fixture-only' } as never,
         podRunner as never,
         cleanup
     )

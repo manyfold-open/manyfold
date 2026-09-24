@@ -13,6 +13,7 @@ import {
     InternalServerErrorException,
     Logger,
     NotFoundException,
+    Optional,
     type OnModuleDestroy,
     type OnModuleInit
 } from '@nestjs/common'
@@ -34,7 +35,7 @@ import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.se
 import { K8sRuntimeSidecarService } from '@/modules/agent-runtimes/orchestration/k8s-runtime-sidecar.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { buildNarraNexusDeepLink } from '@/modules/narranexus/narranexus-deep-link'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
 import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-bootstrap'
@@ -76,7 +77,9 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         private readonly accounts: SpritesAccountsService,
         private readonly crypto: CryptoService,
         private readonly hermesBootstrap: HermesSpriteBootstrap,
-        private readonly openclawBootstrap: OpenClawSpriteBootstrap
+        private readonly openclawBootstrap: OpenClawSpriteBootstrap,
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     onModuleInit(): void {
@@ -203,10 +206,11 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         agentId?: string
     ): Promise<{ url: string }> {
         const runtime = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const controlUi = this.extensions.get(runtime.framework)?.controlUi
         if (
             runtime.framework !== 'openclaw' &&
-            runtime.framework !== 'narranexus' &&
-            runtime.framework !== 'hermes'
+            runtime.framework !== 'hermes' &&
+            !controlUi
         )
             throw new BadRequestException(
                 'control UI URL not supported for this framework'
@@ -231,14 +235,13 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         if (!runtime.ingressHost)
             throw new BadRequestException('runtime has no ingress host')
 
-        // The URL we hand back is per-agent only for narranexus (its deep
-        // link carries an `agent=` param). For openclaw/hermes the URL is
+        // The URL we hand back is per-agent only for an agent-scoped control
+        // UI (its link names the agent). For openclaw/hermes the URL is
         // runtime-scoped; we keep the caller-supplied agentId in the audit
         // log so admin lookups still show which agent's dashboard was opened.
-        const resolvedAgentId =
-            runtime.framework === 'narranexus'
-                ? (agentId ?? runtime.primaryAgentId ?? null)
-                : (agentId ?? null)
+        const resolvedAgentId = controlUi?.agentScoped
+            ? (agentId ?? runtime.primaryAgentId ?? null)
+            : (agentId ?? null)
 
         await this.audit(
             callerUserId,
@@ -269,12 +272,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             }
         }
 
-        if (runtime.framework === 'narranexus') {
-            const parsed = credsPlain as { gatewayToken?: string }
-            if (!parsed.gatewayToken)
-                throw new InternalServerErrorException(
-                    `runtime ${runtime.id} credentials missing gatewayToken — rebuild the runtime`
-                )
+        if (controlUi) {
             let agentInternalId: string | null = null
             if (resolvedAgentId) {
                 const [agentRow] = await this.db
@@ -285,10 +283,9 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 agentInternalId = agentRow?.internalId ?? null
             }
             return {
-                url: buildNarraNexusDeepLink({
-                    ingressHost: runtime.ingressHost,
-                    gatewayToken: parsed.gatewayToken,
-                    manyfoldUserId: runtime.userId,
+                url: controlUi.mint({
+                    runtime: { ...runtime, ingressHost: runtime.ingressHost },
+                    credentials: credsPlain as Record<string, unknown>,
                     agentInternalId
                 })
             }

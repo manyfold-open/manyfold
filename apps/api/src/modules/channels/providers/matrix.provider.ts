@@ -3,7 +3,12 @@ import type {
     MatrixChannelConfig,
     MatrixChannelCredentials
 } from '@manyfold/shared'
-import { BadRequestException, Injectable, Logger } from '@nestjs/common'
+import {
+    BadRequestException,
+    Injectable,
+    Logger,
+    Optional
+} from '@nestjs/common'
 import { marked } from 'marked'
 import {
     UnsupportedEventError,
@@ -28,6 +33,8 @@ import {
     channelProviderJsonRequest
 } from './channel-http'
 import { ChannelsRepository } from '../channels.repository'
+import type { FrameworkChannels } from '@/modules/frameworks/framework-extension'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import {
     parseHistoryBackfillLimit,
     parseProgressMode,
@@ -57,23 +64,12 @@ const MATRIX_MEDIA_MSGTYPES = new Set([
     'm.video'
 ])
 
-// NarraMessenger sends a file as a custom msgtype carrying text and media in
-// one event, plus a separate plain-text hint so clients that do not understand
-// it still show something. Matrix has no room-level capability negotiation, so
-// the dialect reaches us whether we asked for it or not — and the generic
-// branch below drops any unknown msgtype, which meant the real payload was
-// discarded and the placeholder forwarded to the agent as if it were the user's
-// message.
-//
-// Both branches are gated on the channel mirroring a NarraNexus binding (the
-// same origin test that decides matrix means narramessenger), so a user's own
-// Matrix connector keeps standard behaviour exactly.
-const NARRAMESSENGER_COMPOUND_MSGTYPE = 'ai.netmind.compound'
-// Anchored, and the event id has to look like one: the hint is untrusted user-
-// visible text, and a prefix test would let anyone silence a message by opening
-// theirs with the same words.
-const NARRAMESSENGER_COMPOUND_HINT =
-    /^\[internal hint\] process compound (\$[A-Za-z0-9._~+/=-]+(?::[A-Za-z0-9.:-]+)?)$/
+// A framework whose own Matrix client speaks a message dialect registers it
+// (FrameworkChannels.matrixDialect). Matrix has no room-level capability
+// negotiation, so the dialect reaches us whether we asked for it or not; it is
+// applied only on a room whose channel row mirrors that framework's binding,
+// so a user's own Matrix connector keeps standard behaviour exactly.
+type MatrixDialect = NonNullable<FrameworkChannels['matrixDialect']>
 
 interface MatrixProviderState {
     nextBatch?: string | null
@@ -160,7 +156,18 @@ export class MatrixChannelProvider implements ChannelProvider {
     >()
     private readonly nonConversationalIds = new Map<string, Set<string>>()
 
-    constructor(private readonly repo: ChannelsRepository) {}
+    constructor(
+        private readonly repo: ChannelsRepository,
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
+    ) {}
+
+    private dialectFor(ctx: ChannelContext): MatrixDialect | undefined {
+        const origin = ctx.channel.origin
+        return origin
+            ? this.extensions.get(origin.kind)?.channels?.matrixDialect
+            : undefined
+    }
 
     validateConfig(config: unknown): MatrixChannelConfig {
         if (config === null || typeof config !== 'object')
@@ -373,7 +380,7 @@ export class MatrixChannelProvider implements ChannelProvider {
             const snippet = matrixSnippet(
                 message.content ?? {},
                 undefined,
-                ctx.channel.origin?.kind === 'narranexus'
+                this.dialectFor(ctx)
             )
             if (snippet) {
                 const label = message.sender
@@ -462,7 +469,7 @@ export class MatrixChannelProvider implements ChannelProvider {
                 const snippet = matrixSnippet(
                     content,
                     180,
-                    ctx.channel.origin?.kind === 'narranexus'
+                    this.dialectFor(ctx)
                 )
                 if (!snippet) continue
                 entries.push({
@@ -488,7 +495,7 @@ export class MatrixChannelProvider implements ChannelProvider {
                     ? matrixSnippet(
                           starter.content ?? {},
                           180,
-                          ctx.channel.origin?.kind === 'narranexus'
+                          this.dialectFor(ctx)
                       )
                     : null
                 if (snippet)
@@ -940,12 +947,12 @@ export class MatrixChannelProvider implements ChannelProvider {
         if (matrixIsReplacement(content)) return null
         const msgtype = typeof content.msgtype === 'string' ? content.msgtype : ''
         const body = typeof content.body === 'string' ? content.body : ''
-        const mirrored = ctx.channel.origin?.kind === 'narranexus'
-        // The hint and its compound arrive as two events with two event ids, so
-        // forwarding both would turn one file into two turns — and the hint is
-        // the half that carries no file.
-        if (mirrored && NARRAMESSENGER_COMPOUND_HINT.test(body.trim()))
-            return null
+        const dialect = this.dialectFor(ctx)
+        // A dialect's placeholder and its real message arrive as two events
+        // with two event ids, so forwarding both would turn one message into
+        // two turns — and the placeholder is the half that carries nothing.
+        if (dialect?.isPlaceholder(body.trim())) return null
+        const dialectMessage = dialect?.parse(msgtype, content)
         let text: string
         let mentionText: string
         let attachments: NormalizedInboundAttachment[] | undefined
@@ -956,16 +963,12 @@ export class MatrixChannelProvider implements ChannelProvider {
             if (!body.trim()) return null
             mentionText = body
             text = stripMatrixMention(body, config).trim() || body
-        } else if (
-            mirrored &&
-            msgtype === NARRAMESSENGER_COMPOUND_MSGTYPE
-        ) {
-            const compound = matrixCompoundFromContent(content)
-            if (!compound) return null
-            mentionText = compound.text
-            text = stripMatrixMention(compound.text, config).trim()
-            if (compound.attachments.length > 0)
-                attachments = compound.attachments
+        } else if (dialectMessage !== undefined) {
+            if (!dialectMessage) return null
+            mentionText = dialectMessage.text
+            text = stripMatrixMention(dialectMessage.text, config).trim()
+            if (dialectMessage.attachments.length > 0)
+                attachments = dialectMessage.attachments
         } else if (MATRIX_MEDIA_MSGTYPES.has(msgtype)) {
             const attachment = matrixAttachmentFromContent(content)
             if (!attachment) return null
@@ -1553,43 +1556,6 @@ const matrixAttachmentFromContent = (
     }
 }
 
-// The compound block self-describes: text and one optional media reference. The
-// mxc url goes through the same authenticated download as a native m.image, so
-// nothing downstream has to know this dialect exists.
-const matrixCompoundFromContent = (
-    content: Record<string, unknown>
-): { text: string; attachments: NormalizedInboundAttachment[] } | null => {
-    const raw = content[NARRAMESSENGER_COMPOUND_MSGTYPE]
-    if (!raw || typeof raw !== 'object') return null
-    const block = raw as Record<string, unknown>
-    const text = typeof block.text === 'string' ? block.text : ''
-    const url = typeof block.media_url === 'string' ? block.media_url : ''
-    const fileName =
-        typeof block.file_name === 'string' && block.file_name.trim()
-            ? block.file_name.trim()
-            : null
-    const attachments: NormalizedInboundAttachment[] = url.startsWith('mxc://')
-        ? [
-              {
-                  url,
-                  name: fileName ?? 'file',
-                  contentType:
-                      typeof block.mime_type === 'string'
-                          ? block.mime_type
-                          : null,
-                  size:
-                      typeof block.size === 'number' &&
-                      Number.isFinite(block.size)
-                          ? block.size
-                          : null
-              }
-          ]
-        : []
-    // A compound with neither is the same nothing an empty m.text is.
-    if (!text.trim() && attachments.length === 0) return null
-    return { text, attachments }
-}
-
 const matrixMediaMsgtype = (contentType: string): string => {
     if (contentType.startsWith('image/')) return 'm.image'
     if (contentType.startsWith('audio/')) return 'm.audio'
@@ -1604,21 +1570,21 @@ const matrixIsReplacement = (content: Record<string, unknown>): boolean =>
 const matrixSnippet = (
     content: Record<string, unknown>,
     maxLength = 160,
-    mirrored = false
+    dialect?: MatrixDialect
 ): string | null => {
     const msgtype = typeof content.msgtype === 'string' ? content.msgtype : ''
     // History backfill has the same two dialect problems as live inbound, in
-    // mirror image: a compound renders as nothing (so the agent's view of the
-    // room silently loses every file someone sent) while the hint renders fine
-    // (so internal plumbing shows up as a quoted user message).
-    if (mirrored) {
+    // mirror image: a dialect message renders as nothing (so the agent's view
+    // of the room silently loses it) while the placeholder renders fine (so
+    // internal plumbing shows up as a quoted user message).
+    if (dialect) {
         const raw = typeof content.body === 'string' ? content.body.trim() : ''
-        if (NARRAMESSENGER_COMPOUND_HINT.test(raw)) return null
-        if (msgtype === NARRAMESSENGER_COMPOUND_MSGTYPE) {
-            const compound = matrixCompoundFromContent(content)
-            if (!compound) return null
-            const said = compound.text.replace(/\s+/g, ' ').trim()
-            const file = compound.attachments[0]?.name
+        if (dialect.isPlaceholder(raw)) return null
+        const message = dialect.parse(msgtype, content)
+        if (message === null) return null
+        if (message) {
+            const said = message.text.replace(/\s+/g, ' ').trim()
+            const file = message.attachments[0]?.name
             const snippet = file ? `${said} (file: ${file})`.trim() : said
             return snippet ? snippet.slice(0, maxLength) : null
         }

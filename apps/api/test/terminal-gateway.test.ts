@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
-import {
-    defaultTerminalCwd,
-    TerminalGateway
-} from '../src/modules/terminal/terminal.gateway'
+import { TerminalGateway } from '../src/modules/terminal/terminal.gateway'
+import { NarraNexusFilesProvider } from '../src/modules/narranexus/files/narranexus-files.provider'
+
+const narraNexusFiles = new NarraNexusFilesProvider(
+    {} as never,
+    {} as never,
+    {} as never
+)
+const defaultTerminalCwd = (agent: never): string =>
+    narraNexusFiles.defaultTerminalCwd(agent)
 
 const baseAgent = {
     id: 'agent-1',

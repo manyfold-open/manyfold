@@ -1,5 +1,7 @@
 import { agentBaseUrl } from '@manyfold/shared'
-import { manyfoldUserToNarraNexusUserId } from './narranexus-paths'
+import { InternalServerErrorException } from '@nestjs/common'
+import type { FrameworkControlUi } from '@/modules/frameworks/framework-extension'
+import { manyfoldUserToNarraNexusUserId } from '../narranexus-paths'
 
 // Manyfold ↔ NarraNexus dashboard handoff format. Bump when the fragment
 // schema changes incompatibly so NarraNexus can refuse to interpret it.
@@ -25,4 +27,23 @@ export const buildNarraNexusDeepLink = (
     if (input.agentInternalId)
         params.push(`agent=${encodeURIComponent(input.agentInternalId)}`)
     return agentBaseUrl(input.ingressHost, `/#${params.join('&')}`)
+}
+
+// The dashboard link is per agent: its fragment names the agent to open, the
+// caller's or else the runtime's primary.
+export const narraNexusControlUi: FrameworkControlUi = {
+    agentScoped: true,
+    mint: ({ runtime, credentials, agentInternalId }) => {
+        const gatewayToken = credentials.gatewayToken
+        if (typeof gatewayToken !== 'string' || !gatewayToken)
+            throw new InternalServerErrorException(
+                `runtime ${runtime.id} credentials missing gatewayToken — rebuild the runtime`
+            )
+        return buildNarraNexusDeepLink({
+            ingressHost: runtime.ingressHost,
+            gatewayToken,
+            manyfoldUserId: runtime.userId,
+            agentInternalId
+        })
+    }
 }

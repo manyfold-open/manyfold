@@ -1,6 +1,9 @@
 import type { FrameworkDefaultVersionsSettings } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-version'
+import { extensionsWith } from './helpers/framework-extensions-stub'
+import { narraNexusVersion } from '../src/modules/narranexus/version/narranexus-version'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 
 // The upgrade endpoint is the third admission point for the pre-release opt-in.
@@ -98,7 +101,11 @@ const upgradeWith = (opts: {
                         ? { narranexus: opts.minVersion }
                         : {}
                 })
-        } as never
+        } as never,
+        extensionsWith({
+            framework: 'narranexus',
+            version: narraNexusVersion()
+        }) as never
     )
 
 const upgradeTo = (

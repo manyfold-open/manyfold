@@ -2,8 +2,9 @@ import { frameworkRepoCloneUrl } from '@manyfold/shared'
 import type { FrameworkDefaultVersionsSettings } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-version'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
-import { buildNarraNexusRebuildShell } from '../src/modules/agents/bootstrap/narranexus-sprite'
+import { buildNarraNexusRebuildShell } from '../src/modules/narranexus/bootstrap/narranexus-sprite'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 
 // NarraNexus is published to two repositories whose tag sets differ, so "which

@@ -109,7 +109,10 @@ const runSession = async (args: {
         { tunnel: async () => {} } as never,
         { tunnel: args.daemonTunnel ?? (async () => {}) } as never,
         { findById: args.findById } as never,
-        {} as never,
+        {
+            defaultTerminalCwd: (agent: { mountPath: string }) =>
+                agent.mountPath
+        } as never,
         { resolve: args.resolve ?? (async () => null) } as never,
         undefined,
         args.terminals as never,

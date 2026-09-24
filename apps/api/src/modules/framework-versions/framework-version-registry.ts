@@ -5,14 +5,15 @@ import {
     VersionedFramework,
     defaultFrameworkRepo,
     isSemverVersionTag,
-    safeNpmVersionSpec
+    safeNpmVersionSpec,
+    UnknownFrameworkError
 } from '@manyfold/shared'
 
 // Single source of truth for per-framework version metadata. Today the
 // install/pin logic lives scattered across the bootstrap files
 // (claude-code.ts, codex.ts, gemini.ts, openclaw-sprite.ts, hermes-sprite.ts,
-// narranexus-sprite.ts); this registry centralises the descriptive bits the
-// catalog + probe + upgrade paths all need.
+// and each framework module's own); this registry centralises the descriptive
+// bits the catalog + probe + upgrade paths all need.
 
 export type FrameworkVersionSource =
     | { kind: 'npm'; package: string }
@@ -26,7 +27,7 @@ export type FrameworkVersionSource =
 // same repository, or an unconfigured platform would fetch one repo while the
 // UI claimed another. Taking both from the shared candidate list makes that
 // impossible to get wrong; framework-version-registry.test.ts pins it.
-const githubSource = (
+export const githubSource = (
     framework: VersionedFramework
 ): FrameworkVersionSource => {
     const repo = defaultFrameworkRepo(framework)
@@ -70,7 +71,9 @@ export interface FrameworkVersionDescriptor {
     serviceName?: string
 }
 
-const DESCRIPTORS = {
+const CORE_DESCRIPTORS: Partial<
+    Record<CoreVersionedFramework, FrameworkVersionDescriptor>
+> = {
     'claude-code': {
         framework: 'claude-code',
         runtimeKind: 'coding',
@@ -122,30 +125,46 @@ const DESCRIPTORS = {
         // The installed version is the cloned git tag (CalVer, e.g. v2026.6.5) —
         // NOT `hermes --version`, which reports the decoupled pyproject version
         // (0.x). A `main`-installed agent (shallow, no tags) describes to nothing
-        // and reads as "not detected" until upgraded to a tag. Mirrors narranexus.
+        // and reads as "not detected" until upgraded to a tag.
         probeShell:
             'git -C "$HOME/.hermes/hermes-agent" describe --tags 2>/dev/null || true',
         serviceName: 'hermes'
-    },
-    narranexus: {
-        framework: 'narranexus',
-        runtimeKind: 'daemon',
-        source: githubSource('narranexus'),
-        binName: 'narranexus',
-        // narranexus has no CLI; the installed version is the cloned git tag.
-        probeShell:
-            'git -C "$HOME/.narranexus/app" describe --tags 2>/dev/null || true',
-        serviceName: 'narranexus'
     }
-} satisfies Record<CoreVersionedFramework, FrameworkVersionDescriptor>
+}
 
+// Descriptors of frameworks whose module registers them through
+// FrameworkExtensionsRegistry (ADR-0034).
+const extensionDescriptors = new Map<string, FrameworkVersionDescriptor>()
+
+export const registerFrameworkVersionDescriptor = (
+    descriptor: FrameworkVersionDescriptor
+): void => {
+    if (
+        descriptor.framework in CORE_DESCRIPTORS ||
+        extensionDescriptors.has(descriptor.framework)
+    )
+        throw new Error(
+            `framework '${descriptor.framework}' already has a version descriptor`
+        )
+    extensionDescriptors.set(descriptor.framework, descriptor)
+}
+
+// Throws UnknownFrameworkError for a framework with no version descriptor.
 export const frameworkVersionDescriptor = (
     framework: VersionedFramework
-): FrameworkVersionDescriptor =>
-    DESCRIPTORS[framework as CoreVersionedFramework]
+): FrameworkVersionDescriptor => {
+    const descriptor =
+        CORE_DESCRIPTORS[framework as CoreVersionedFramework] ??
+        extensionDescriptors.get(framework)
+    if (!descriptor) throw new UnknownFrameworkError(framework)
+    return descriptor
+}
 
 export const allFrameworkVersionDescriptors =
-    (): FrameworkVersionDescriptor[] => Object.values(DESCRIPTORS)
+    (): FrameworkVersionDescriptor[] => [
+        ...Object.values(CORE_DESCRIPTORS),
+        ...extensionDescriptors.values()
+    ]
 
 // Shell (for `bash -lc`) that upgrades an npm-installed coding-agent CLI to an
 // exact version, then makes it win on PATH. Verified on the sprite image

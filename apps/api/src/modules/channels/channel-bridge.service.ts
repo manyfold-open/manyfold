@@ -814,8 +814,7 @@ export class ChannelBridgeService {
                                   isMention: event.isMention,
                                   replyToken:
                                       provider.replyCredential?.(event) ?? null,
-                                  mirrored:
-                                      channel.origin?.kind === 'narranexus'
+                                  mirrored: channel.origin != null
                               }
                             : undefined
                     }

@@ -1,6 +1,6 @@
 import type { ChannelProviderName } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
-import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
+import { manyfoldProviderToNarraNexusChannelProvider } from '../narranexus-paths'
 import type {
     NarraNexusChannelBinding,
     NarraNexusChannelOrigin,

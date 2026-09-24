@@ -21,6 +21,7 @@ const DEFAULT_PVC_ROOT = `${K8S_HOME_BASE}/.manyfold`
 @Injectable()
 export class CodexK8sBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'codex' as const
+    readonly imageEnvKey = 'K8S_IMAGE_CODEX'
 
     constructor(private readonly skills: SkillMaterializerService) {}
 

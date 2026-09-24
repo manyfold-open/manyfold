@@ -8,6 +8,7 @@ import type {
     UsageTimeSeriesPoint,
     UsageTopAgent
 } from '@manyfold/shared'
+import { isExternal, isRegisteredFramework } from '@manyfold/shared'
 import {
     BadRequestException,
     Controller,
@@ -25,19 +26,11 @@ import {
 import { boundAgentIdFromUser } from '@/modules/agents/agents.controller'
 import { UsageService } from './usage.service'
 
-const FRAMEWORKS: AgentFramework[] = [
-    'openclaw',
-    'hermes',
-    'narranexus',
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'pi'
-]
-
+// Usage accrues to frameworks that run in a runtime; the external-API ones
+// report none.
 export const parseFramework = (value?: string): AgentFramework | undefined => {
     if (!value) return undefined
-    if ((FRAMEWORKS as string[]).includes(value)) return value as AgentFramework
+    if (isRegisteredFramework(value) && !isExternal(value)) return value
     throw new BadRequestException(`unknown framework: ${value}`)
 }
 

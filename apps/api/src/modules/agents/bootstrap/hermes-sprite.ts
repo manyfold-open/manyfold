@@ -65,11 +65,10 @@ const HEALTH_PROBE_ATTEMPTS = 10
 const HEALTH_PROBE_INTERVAL_MS = 3_000
 
 // The CalVer tag is interpolated into the installer's `--branch` argument, so
-// this is the gate that keeps a shell metacharacter out of it. See the note on
-// assertNarraNexusVersion: a valid semver string cannot carry one, which is why
-// admitting prereleases here does not widen the shell surface.
-// Returns the trimmed value for the same reason as assertNarraNexusVersion: the
-// string that was validated is the string that must be interpolated.
+// this is the gate that keeps a shell metacharacter out of it: a valid semver
+// string cannot carry one, which is why admitting prereleases here does not
+// widen the shell surface. Returns the trimmed value because the string that
+// was validated is the string that must be interpolated.
 const assertHermesVersion = (version: string): string => {
     if (!isSemverVersionTag(version))
         throw new Error(`invalid hermes version "${version}"`)

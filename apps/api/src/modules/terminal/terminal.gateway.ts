@@ -1,4 +1,3 @@
-import { narraNexusBaseWorkingPath } from '@manyfold/shared'
 import {
     Optional,
     BadRequestException,
@@ -42,7 +41,6 @@ import {
 } from '@/modules/terminal/terminal-holder.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { buildStatusBanner } from '@/modules/terminal/status-banner'
-import { HOME_ROOT_ID } from '@/modules/agents/bootstrap/file-roots'
 import {
     FilesContextBuilder,
     resolveSafePath
@@ -346,7 +344,7 @@ export class TerminalGateway implements OnModuleInit {
             socket.close(4400, 'bad cwd')
             return
         }
-        const terminalCwd = cwd ?? defaultTerminalCwd(agent as Agent)
+        const terminalCwd = cwd ?? this.files.defaultTerminalCwd(agent as Agent)
 
         let terminalPty: boolean | null = null
         if (agent.runtime === 'daemon' && agent.daemonId)
@@ -859,22 +857,6 @@ export class TerminalGateway implements OnModuleInit {
             )
         return abs
     }
-}
-
-export const defaultTerminalCwd = (agent: Agent): string => {
-    if (agent.framework === 'narranexus') {
-        const homeRoot = Array.isArray(agent.fileRoots)
-            ? agent.fileRoots.find((root) => root.id === HOME_ROOT_ID)
-            : null
-        if (homeRoot?.path) return homeRoot.path
-        return narraNexusBaseWorkingPath(agent.runtime).replace(
-            /\/workspaces$/,
-            ''
-        )
-    }
-    if (agent.runtime === 'daemon' && agent.workspacePath)
-        return agent.workspacePath
-    return agent.mountPath
 }
 
 const sendError = (socket: WsClient, message: string): void => {

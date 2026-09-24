@@ -10,7 +10,7 @@ import {
     resourceName,
     type K8sResourceSpec
 } from '../src/modules/agents/orchestration/k8s-resource-builder'
-import { NarraNexusK8sBootstrap } from '../src/modules/agents/bootstrap/narranexus-k8s'
+import { NarraNexusK8sBootstrap } from '../src/modules/narranexus/bootstrap/narranexus-k8s'
 import type { K8sSidecarSpec } from '../src/modules/agents/bootstrap/k8s-framework-bootstrap'
 
 // Carved out of k8s-runtime-sidecar.service.test.ts when the k8s hermes

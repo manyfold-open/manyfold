@@ -76,10 +76,10 @@ export interface ChatTurnTimings {
 }
 
 // Structured source of a channel-driven inbound turn. Present only when the
-// channel opted into agentManagedReply: the narranexus adapter maps it into
-// channel_provider/channel_context so the agent replies through its own
-// channel tools instead of Manyfold posting the text back. Carries the
-// Manyfold provider id; the NarraNexus name mapping lives in the adapter.
+// channel opted into agentManagedReply: the framework's adapter hands it to
+// the agent so it replies through its own channel tools instead of Manyfold
+// posting the text back. Carries the Manyfold provider id; any mapping to the
+// framework's own names lives in its adapter.
 export interface ChannelSource {
     provider: ChannelProviderName
     chatId: string
@@ -94,9 +94,9 @@ export interface ChannelSource {
     // this peer. A reply credential, not an identifier — only ever set for a
     // channel that already opted into agentManagedReply.
     replyToken?: string | null
-    // This channel row mirrors a NarraNexus binding (channels.origin), which is
-    // what makes a matrix row mean narramessenger rather than a user's own
-    // Matrix connector.
+    // This channel row mirrors a binding its framework owns
+    // (channels.origin), so the framework's own client dialect applies rather
+    // than a user's own connector semantics.
     mirrored?: boolean
 }
 
@@ -285,6 +285,10 @@ export interface ApiChatConvergeContext {
 
 export interface ApiChatAdapter {
     readonly framework: AgentFramework
+    // A resumed turn re-reads its stream from the first event rather than
+    // from the last one persisted (the gateway transport replays the whole
+    // source on resume).
+    readonly resumeReplaysFromStart?: boolean
     getCapabilities(): ChatCapabilities
     sendMessage(
         ctx: ApiChatAdapterContext,

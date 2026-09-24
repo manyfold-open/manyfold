@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { AgentRuntimeRow, SpritesAccount } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 const account = {
     id: 'spa_test',
@@ -141,9 +142,10 @@ test('SpritesProvisioner threads the sandbox host sprite name through createSpri
             } as never,
             { run: async () => ({ homeDir: undefined }) } as never,
             {} as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
+            new SpriteServiceBootstraps(
+                { run: async () => ({ homeDir: undefined }) } as never,
+                { run: async () => ({ homeDir: undefined }) } as never
+            ),
             {
                 reserveSpriteRuntime: async (
                     input: Partial<AgentRuntimeRow>
@@ -281,9 +283,10 @@ test('SpritesProvisioner preserves a revoked sandbox host when runtime create-fa
             } as never,
             { run: async () => ({ homeDir: undefined }) } as never,
             {} as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
-            { run: async () => ({ homeDir: undefined }) } as never,
+            new SpriteServiceBootstraps(
+                { run: async () => ({ homeDir: undefined }) } as never,
+                { run: async () => ({ homeDir: undefined }) } as never
+            ),
             {
                 reserveSpriteRuntime: async (
                     input: Partial<AgentRuntimeRow> & { id: string }
@@ -360,9 +363,7 @@ const wakeProvisioner = (lease: {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        new SpriteServiceBootstraps({} as never, {} as never),
         { get: () => undefined } as never,
         {} as never,
         {} as never,

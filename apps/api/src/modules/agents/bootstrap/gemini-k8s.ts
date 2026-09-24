@@ -21,6 +21,7 @@ const DEFAULT_PVC_ROOT = `${K8S_HOME_BASE}/.manyfold`
 @Injectable()
 export class GeminiCliK8sBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'gemini-cli' as const
+    readonly imageEnvKey = 'K8S_IMAGE_GEMINI_CLI'
 
     constructor(private readonly skills: SkillMaterializerService) {}
 

@@ -9,6 +9,7 @@ import {
 } from '@manyfold/db'
 import type { K8sBootstrapPlan } from '../src/modules/agents/bootstrap/k8s-framework-bootstrap'
 import { K8sAgentOrchestrator } from '../src/modules/agents/orchestration/k8s-agent-orchestrator'
+import { K8sBootstraps } from '../src/modules/agents/bootstrap/k8s-bootstraps'
 
 // B1 (k8s) — the runtime identity token is minted from an agent_runtime_tokens
 // row whose agent_id FK references agents.id. Unlike sprites (which can write
@@ -106,6 +107,7 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
 
     const claudeCodeK8s = {
         framework: 'claude-code',
+        imageEnvKey: 'K8S_IMAGE_CLAUDE_CODE',
         plan: () => minimalPlan()
         // no postProvision → no pod-exec path
     }
@@ -161,6 +163,18 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
         }
     }
 
+    const config = {
+        get: (key: string) =>
+            key === 'PUBLIC_API_BASE_URL'
+                ? opts.apiBaseUrl
+                : key === 'K8S_IMAGE_CLAUDE_CODE'
+                  ? 'img:claude-code'
+                  : key === 'K8S_STORAGE_CLASS'
+                    ? 'standard'
+                    : key === 'K8S_CREATE_TIMEOUT_MS'
+                      ? '10000'
+                      : undefined
+    }
     const orchestrator = new K8sAgentOrchestrator(
         db as never, // db
         {
@@ -170,25 +184,16 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
             })
         } as never, // crypto
         k8s as never, // k8s
-        {
-            get: (key: string) =>
-                key === 'PUBLIC_API_BASE_URL'
-                    ? opts.apiBaseUrl
-                    : key === 'K8S_IMAGE_CLAUDE_CODE'
-                      ? 'img:claude-code'
-                      : key === 'K8S_STORAGE_CLASS'
-                        ? 'standard'
-                        : key === 'K8S_CREATE_TIMEOUT_MS'
-                          ? '10000'
-                          : undefined
-        } as never, // config
-        {} as never, // openclaw
-        {} as never, // hermes
-        claudeCodeK8s as never, // claudeCodeK8s
-        {} as never, // codexK8s
-        {} as never, // geminiCliK8s
-        {} as never, // piK8s
-        {} as never, // narraNexusK8s
+        config as never, // config
+        new K8sBootstraps(
+            config as never,
+            {} as never, // openclaw
+            {} as never, // hermes
+            claudeCodeK8s as never,
+            {} as never, // codex
+            {} as never, // gemini-cli
+            {} as never // pi
+        ), // bootstraps
         {} as never, // podExecFactory
         runtimes as never, // runtimes
         {

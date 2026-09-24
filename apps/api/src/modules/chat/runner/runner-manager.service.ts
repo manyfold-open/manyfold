@@ -128,6 +128,9 @@ export interface EnsureRunnerArgs {
     spriteName: string
     exec: SpriteExecFn
     workspacePath?: string | null
+    // Directories beyond the workspace the runner must admit (a framework's
+    // own home, FrameworkDefinition.runner.homeRoots).
+    extraRoots?: readonly string[]
     waitOnlineMs?: number
     // Daemon client features the turn cannot run without (a profile-bound
     // agent needs auth-context.v1). An online runner lacking one is reported
@@ -370,6 +373,7 @@ export class RunnerManagerService {
                     ensureMs: workspace.ensureMs
                 }
             }
+        await this.registerExtraRoots(handle.daemonId, args.extraRoots)
         return {
             handle,
             workspace: {
@@ -392,6 +396,7 @@ export class RunnerManagerService {
         userId: string
         runtimeId: string
         workspacePath?: string | null
+        extraRoots?: readonly string[]
     }): Promise<RunnerResolution> {
         const existing = await this.findRunnerHost({
             userId: args.userId,
@@ -417,6 +422,7 @@ export class RunnerManagerService {
                     ensureMs: workspace.ensureMs
                 }
             }
+        await this.registerExtraRoots(existing.id, args.extraRoots, existing)
         return {
             handle: {
                 daemonId: existing.id,
@@ -677,10 +683,9 @@ export class RunnerManagerService {
     // A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
     // outside the machine-scoped root the runner registered, and the daemon
     // exec guard refuses a cwd it does not know.
-    // Seen on staging 2026-08-04: a claude agent co-resident on a NarraNexus
-    // sandbox with workspace /home/sprite/.narranexus failed every runner turn
-    // with `outside allowed roots` while a direct sprite exec would have run
-    // it.
+    // Seen on staging 2026-08-04: a claude agent co-resident on a sandbox with
+    // its workspace in another framework's home failed every runner turn with
+    // `outside allowed roots` while a direct sprite exec would have run it.
     // Mirror what DaemonAgentAttacher does for daemon runtimes: register the
     // path as a workspace root before dispatching through the runner. Any
     // failure degrades to the sprite-exec transport — a runner must never be
@@ -754,6 +759,24 @@ export class RunnerManagerService {
                 reason: classifyWorkspaceEnsureFailure(message)
             }
         }
+    }
+
+    // Best effort, unlike the workspace preflight: the turn itself does not
+    // need these roots (the framework's own home, for files and terminals),
+    // so a failure is logged by workspacePreflight and never a fallback reason.
+    // The daemon persists what it registers, and the per-generation cache
+    // keeps this to one RPC per root per runner.
+    private async registerExtraRoots(
+        daemonId: string,
+        roots: readonly string[] | undefined,
+        known?: {
+            workspaceBaseDir: string | null
+            rpcInstanceId: string | null
+            rpcConnectedAt: Date | null
+        }
+    ): Promise<void> {
+        for (const root of roots ?? [])
+            await this.workspacePreflight(daemonId, root, known)
     }
 
     private async findRunnerHost(args: {

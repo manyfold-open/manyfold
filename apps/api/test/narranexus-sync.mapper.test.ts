@@ -4,11 +4,11 @@ import { LarkChannelProvider } from '../src/modules/channels/providers/lark.prov
 import {
     mapChannel,
     mapJob
-} from '../src/modules/narranexus-sync/narranexus-sync.mapper'
+} from '../src/modules/narranexus/sync/narranexus-sync.mapper'
 import type {
     NarraNexusChannelBinding,
     NarraNexusJob
-} from '../src/modules/narranexus-sync/narranexus-sync.types'
+} from '../src/modules/narranexus/sync/narranexus-sync.types'
 
 const NOW = new Date('2026-07-16T12:00:00.000Z')
 

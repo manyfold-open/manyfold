@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
+import './helpers/narranexus-version'
+import { extensionsWith } from './helpers/framework-extensions-stub'
+import { narraNexusVersion } from '../src/modules/narranexus/version/narranexus-version'
 import { BadRequestException, HttpException } from '@nestjs/common'
 import type {
     FrameworkDefaultVersionsSettings,
@@ -10,7 +13,7 @@ import { WebSocketServer } from 'ws'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
-import { NarraNexusSpriteBootstrap } from '../src/modules/agents/bootstrap/narranexus-sprite'
+import { NarraNexusSpriteBootstrap } from '../src/modules/narranexus/bootstrap/narranexus-sprite'
 import { HermesSpriteBootstrap } from '../src/modules/agents/bootstrap/hermes-sprite'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import {
@@ -199,7 +202,8 @@ const consumer = async (
             },
             adminSettings: f.admin,
             frameworkVersions: f.versions,
-            spritesProvisioner: { provisionRuntime: provision }
+            spritesProvisioner: { provisionRuntime: provision },
+            extensions: extensionsWith()
         })
         return {
             ...sprite,
@@ -373,7 +377,11 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         } as never,
         f.versions,
         { probeAndPersist: async () => SHARED } as never,
-        f.admin as never
+        f.admin as never,
+        extensionsWith({
+            framework: 'narranexus',
+            version: narraNexusVersion()
+        }) as never
     )
     Object.assign(service, { spriteClientFor: async () => sprite.client })
     return {

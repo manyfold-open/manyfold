@@ -1,3 +1,9 @@
+import { SPRITE_HOME_BASE } from '../constants'
+import {
+    DAEMON_FEATURE_TURN_HERMES,
+    DAEMON_FEATURE_TURN_OPENCLAW,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP
+} from '../daemon'
 import type { FrameworkDefinition } from './definition'
 
 // Coding CLIs first, then the service frameworks, then the external APIs: the
@@ -33,6 +39,7 @@ const FULL_CHAT = {
 export const coreFrameworkDefinitions = {
     'claude-code': {
         id: 'claude-code',
+        displayName: 'Claude Code',
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
         configHome: {
@@ -52,10 +59,12 @@ export const coreFrameworkDefinitions = {
             ]
         },
         chat: FULL_CHAT,
-        version: { upgradeMode: 'npm' }
+        version: { upgradeMode: 'npm' },
+        defaultRuntime: 'sprites'
     },
     codex: {
         id: 'codex',
+        displayName: 'Codex',
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
         configHome: {
@@ -74,10 +83,12 @@ export const coreFrameworkDefinitions = {
             ]
         },
         chat: FULL_CHAT,
-        version: { upgradeMode: 'npm' }
+        version: { upgradeMode: 'npm' },
+        defaultRuntime: 'sprites'
     },
     'gemini-cli': {
         id: 'gemini-cli',
+        displayName: 'Gemini CLI',
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
         configHome: {
@@ -96,29 +107,38 @@ export const coreFrameworkDefinitions = {
             ]
         },
         chat: FULL_CHAT,
-        version: { upgradeMode: 'npm' }
+        version: { upgradeMode: 'npm' },
+        defaultRuntime: 'sprites'
     },
     // pi reads MCP servers only through extensions (no config file), so it
     // carries no `mcp` entry; the config home is the parent of ~/.pi/agent so
     // the file root shows sessions and settings alike.
     pi: {
         id: 'pi',
+        displayName: 'Pi',
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
         configHome: { rootId: 'pi-home', label: 'Pi config', subdir: '.pi' },
         chat: FULL_CHAT,
-        version: { upgradeMode: 'npm' }
+        version: { upgradeMode: 'npm' },
+        defaultRuntime: 'sprites'
     },
     openclaw: {
         id: 'openclaw',
+        displayName: 'OpenClaw',
         kind: 'service',
         runtimes: ['sprites', 'k8s', 'daemon'],
         chat: { ...FULL_CHAT, thinking: false },
         version: { upgradeMode: 'npm' },
-        reservedEnvPrefixes: ['OPENCLAW_']
+        reservedEnvPrefixes: ['OPENCLAW_'],
+        runner: {
+            requiredFeatures: [DAEMON_FEATURE_TURN_OPENCLAW_ACP],
+            lazyWorkspace: true
+        }
     },
     hermes: {
         id: 'hermes',
+        displayName: 'Hermes Agent',
         kind: 'service',
         runtimes: ['sprites', 'k8s', 'daemon'],
         chat: FULL_CHAT,
@@ -137,10 +157,12 @@ export const coreFrameworkDefinitions = {
                 }
             ]
         },
-        reservedEnvPrefixes: ['HERMES_']
+        reservedEnvPrefixes: ['HERMES_'],
+        runner: { requiredFeatures: [DAEMON_FEATURE_TURN_HERMES] }
     },
     narranexus: {
         id: 'narranexus',
+        displayName: 'NarraNexus',
         kind: 'service',
         runtimes: ['sprites', 'k8s'],
         chat: FULL_CHAT,
@@ -162,16 +184,27 @@ export const coreFrameworkDefinitions = {
                 }
             ]
         },
-        reservedEnvPrefixes: ['NARRANEXUS_', 'NEXUS_']
+        reservedEnvPrefixes: ['NARRANEXUS_', 'NEXUS_'],
+        defaultRuntime: 'sprites',
+        credentials: 'runtime-ui',
+        runner: {
+            requiredFeatures: [DAEMON_FEATURE_TURN_OPENCLAW],
+            lazyWorkspace: true,
+            homeRoots: { sprites: [`${SPRITE_HOME_BASE}/.narranexus`] }
+        },
+        // The gateway's own read limit: it answers larger reads 413.
+        files: { servedBy: 'framework', maxDownloadBytes: 64 * 1024 * 1024 }
     },
     dify: {
         id: 'dify',
+        displayName: 'Dify',
         kind: 'external',
         runtimes: ['external'],
         chat: { ...FULL_CHAT, toolCalls: false }
     },
     langflow: {
         id: 'langflow',
+        displayName: 'Langflow',
         kind: 'external',
         runtimes: ['external'],
         chat: {
@@ -183,6 +216,7 @@ export const coreFrameworkDefinitions = {
     },
     a2a: {
         id: 'a2a',
+        displayName: 'A2A',
         kind: 'external',
         runtimes: ['external'],
         chat: {

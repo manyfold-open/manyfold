@@ -18,7 +18,7 @@ import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapte
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
+import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
 import type {
     ApiChatAdapterContext,
     ApiChatResumeContext,

@@ -35,10 +35,7 @@ import { ChannelsRepository } from '@/modules/channels/channels.repository'
 import type { ChannelSendTarget } from '@/modules/channels/channel-provider'
 import { DaemonRateLimitService } from '@/modules/daemon/daemon-rate-limit.service'
 import { loadRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-report-token'
-import {
-    loadNarraNexusGatewayToken,
-    narraNexusFetch
-} from '@/modules/narranexus/narranexus-http'
+import { loadNarraNexusGatewayToken, narraNexusFetch } from '../narranexus-http'
 import { mapChannel, mapJob, type MappedChannel, type MappedJob } from './narranexus-sync.mapper'
 import type {
     NarraNexusChannelsResponse,

@@ -8,6 +8,8 @@ import type {
 } from '@manyfold/db'
 import type { ChannelsRepository } from '../src/modules/channels/channels.repository'
 import { MatrixChannelProvider } from '../src/modules/channels/providers/matrix.provider'
+import { narraNexusChannels } from '../src/modules/narranexus/channels/narranexus-channels'
+import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const makeChannel = (overrides: Partial<ChannelRow> = {}): ChannelRow => ({
     id: 'chn-matrix-1',
@@ -104,7 +106,13 @@ class FakeMatrixRepo {
 }
 
 const providerFor = (repo = new FakeMatrixRepo()): MatrixChannelProvider =>
-    new MatrixChannelProvider(repo as unknown as ChannelsRepository)
+    new MatrixChannelProvider(
+        repo as unknown as ChannelsRepository,
+        extensionsWith({
+            framework: 'narranexus',
+            channels: narraNexusChannels
+        })
+    )
 
 test('matrix validateConfig and validateCredentials normalize inputs', () => {
     const provider = providerFor()

@@ -1,4 +1,5 @@
 import type { ChatCapabilities } from '../chat'
+import type { AgentRuntime } from '../constants'
 import type { FrameworkCapability } from '../framework-capability'
 import type { FrameworkUpgradeMode } from '../framework-versions'
 import type { FrameworkRepoCandidate } from '../frameworkVersionSources'
@@ -17,6 +18,19 @@ export interface FrameworkVersionFacts {
     repoCandidates?: readonly FrameworkRepoCandidate[]
 }
 
+// How a runtime's runner (the mf daemon inside it) serves this framework.
+export interface FrameworkRunnerFacts {
+    // Daemon features a runner must advertise before it carries a turn.
+    requiredFeatures?: readonly string[]
+    // The framework creates its workspace on first use, so a runner is
+    // admitted before the workspace path exists.
+    lazyWorkspace?: boolean
+    // Directories, per runtime, that the runner must admit besides the
+    // agent's workspace (the framework's own home). The API registers them
+    // with the runner; the daemon persists what it registers.
+    homeRoots?: Partial<Record<AgentRuntime, readonly string[]>>
+}
+
 // Every static fact about one framework that more than one surface reads
 // (ADR-0006, ADR-0034). Core frameworks declare theirs in ./core; an edition
 // registers its own through registerFramework before anything reads the
@@ -24,6 +38,8 @@ export interface FrameworkVersionFacts {
 // in i18n.
 export interface FrameworkDefinition extends FrameworkCapability {
     id: string
+    // Brand name for server-side messages. Web labels stay in i18n.
+    displayName: string
     // This table, not an adapter's own getCapabilities(), is what the Web
     // renderer gates thinking and tool blocks on, and nothing in production
     // reads an adapter's declaration at all — so a row that disagrees with its
@@ -38,6 +54,20 @@ export interface FrameworkDefinition extends FrameworkCapability {
     // Env names this framework's runtime owns. A user env entry with one of
     // these prefixes is flagged in the UI and never injected.
     reservedEnvPrefixes?: readonly string[]
+    // Where a create request lands when it names no runtime and no admin or
+    // user default applies. Absent: the caller must choose one.
+    defaultRuntime?: AgentRuntime
+    // 'runtime-ui': the runtime manages its own model credentials in its own
+    // UI. Manyfold stores none for it, and its credential surfaces refuse to
+    // show or edit any. Absent means 'platform'.
+    credentials?: 'platform' | 'runtime-ui'
+    runner?: FrameworkRunnerFacts
+    // Files served by the framework's own API instead of the runtime's
+    // filesystem, read-only to users (the framework owns the layout).
+    files?: {
+        servedBy: 'framework'
+        maxDownloadBytes?: number
+    }
 }
 
 export class UnknownFrameworkError extends Error {

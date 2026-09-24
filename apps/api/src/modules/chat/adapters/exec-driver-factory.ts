@@ -7,10 +7,8 @@ import {
     envTextFromExtras,
     envTextToRecord,
     frameworkCapability,
+    frameworkDefinition,
     DAEMON_FEATURE_AUTH_CONTEXT,
-    DAEMON_FEATURE_TURN_HERMES,
-    DAEMON_FEATURE_TURN_OPENCLAW,
-    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_MIN_CLI_VERSION,
     DAEMON_ONLINE_THRESHOLD_MS,
     isCliVersionTooOld,
@@ -218,11 +216,13 @@ export class ExecDriverFactory {
         let daemonId = agent.daemonId
         let exec: ChatRunner['exec'] = null
         let spritesClient: SpritesClient | undefined
+        const runnerFacts = frameworkDefinition(agent.framework)?.runner
         // Gateway-backed frameworks create/resolve their own workspace on the
         // first turn; admission must not require that lazy path to exist yet.
-        const workspacePath = ['openclaw', 'narranexus'].includes(agent.framework)
+        const workspacePath = runnerFacts?.lazyWorkspace
             ? null
-            : agent.workspacePath ?? agent.mountPath
+            : (agent.workspacePath ?? agent.mountPath)
+        const extraRoots = runnerFacts?.homeRoots?.[agent.runtime] ?? []
         if (agent.runtime !== 'daemon') {
             if (!this.runnerManager)
                 throw new ChatRunnerError(
@@ -243,6 +243,7 @@ export class ExecDriverFactory {
                     userId: agent.userId,
                     spriteName: agent.spriteName!,
                     workspacePath,
+                    extraRoots,
                     firstExecTimeoutMs:
                         spriteExecHealthConfig().firstExecTimeoutMs,
                     exec
@@ -253,7 +254,8 @@ export class ExecDriverFactory {
                 resolution = await this.runnerManager.resolvePodRunner({
                     userId: agent.userId,
                     runtimeId: agent.runtimeId,
-                    workspacePath
+                    workspacePath,
+                    extraRoots
                 })
             }
             if (!resolution.handle)
@@ -282,15 +284,7 @@ export class ExecDriverFactory {
             throw new ChatRunnerError(agent.runtime, 'runner missing')
         const required = [
             ...(authContextRefFor(agent) ? [DAEMON_FEATURE_AUTH_CONTEXT] : []),
-            ...(agent.framework === 'hermes'
-                ? [DAEMON_FEATURE_TURN_HERMES]
-                : []),
-            ...(agent.framework === 'openclaw'
-                ? [DAEMON_FEATURE_TURN_OPENCLAW_ACP]
-                : []),
-            ...(agent.framework === 'narranexus'
-                ? [DAEMON_FEATURE_TURN_OPENCLAW]
-                : [])
+            ...(runnerFacts?.requiredFeatures ?? [])
         ]
         if (
             isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION) ||

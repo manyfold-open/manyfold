@@ -27,8 +27,13 @@ export const generateNarraNexusGatewayToken = (
 @Injectable()
 export class NarraNexusK8sBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'narranexus' as const
+    readonly imageEnvKey = 'K8S_IMAGE_NARRANEXUS'
 
     constructor(private readonly config: ConfigService) {}
+
+    primaryInternalId(agentId: string): string {
+        return agentId.replace(/_/g, '-')
+    }
 
     plan(_ctx: K8sBootstrapContext, credentials: unknown): K8sBootstrapPlan {
         const runnerImage = this.config.get<string>('MF_POD_RUNNER_IMAGE')?.trim()

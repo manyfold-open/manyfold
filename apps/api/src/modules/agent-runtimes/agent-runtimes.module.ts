@@ -20,7 +20,7 @@ import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
-import { NarraNexusSpriteBootstrap } from '@/modules/agents/bootstrap/narranexus-sprite'
+import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AgentSelfModule } from '@/modules/agent-self/agent-self.module'
 import { SkillsModule } from '@/modules/skills/skills.module'
@@ -63,7 +63,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         GeminiCliBootstrap,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,
-        NarraNexusSpriteBootstrap,
+        SpriteServiceBootstraps,
         SpriteKeepAliveLeaseService,
         McpConfigMaterializer,
         RuntimeAccountService
@@ -81,7 +81,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         ExternalAgentProvisioner,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,
-        NarraNexusSpriteBootstrap,
+        SpriteServiceBootstraps,
         McpConfigMaterializer
     ]
 })

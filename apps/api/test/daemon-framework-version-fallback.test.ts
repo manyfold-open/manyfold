@@ -2,6 +2,7 @@ import type { FrameworkInstallSource } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 import { BootstrapError } from '../src/modules/agents/bootstrap/framework-bootstrap'
 import type { BootstrapContext } from '../src/modules/agents/bootstrap/framework-bootstrap'
 import type {
@@ -18,9 +19,7 @@ const emptyProvisioner = (): SpritesProvisioner =>
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        new SpriteServiceBootstraps({} as never, {} as never),
         {} as never,
         {} as never,
         {} as never,

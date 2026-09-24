@@ -194,8 +194,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         }
     }
 
-    // Every OpenClaw turn is owned by the runtime's daemon ACP client.
-    // The base's gateway HTTP transport belongs to NarraNexus alone.
+    // Every OpenClaw turn is owned by the runtime's daemon ACP client; the
+    // base's gateway HTTP transport is for frameworks that chat over it.
     protected async *dispatchTurn(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
