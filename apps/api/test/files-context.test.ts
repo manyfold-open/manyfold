@@ -10,7 +10,11 @@ import {
     FilesContextBuilder,
     assertAgentReady
 } from '../src/modules/agents/files/files-context'
-import { NarraNexusFilesProvider } from '../src/modules/narranexus/files/narranexus-files.provider'
+import {
+    FIXTURE,
+    FIXTURE_WORKSPACE,
+    fixtureFiles
+} from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const agent = (overrides: Partial<Agent> = {}): Agent =>
@@ -69,306 +73,57 @@ test('assertAgentReady still rejects k8s agents without namespace', () => {
     )
 })
 
-const NN_SPRITE_WORKSPACE =
-    '/home/sprite/.narranexus/data/workspaces/agent-1_mf_user-1'
-
-const narraNexusAgent = (overrides: Partial<Agent> = {}): Agent =>
+const frameworkAgent = (overrides: Partial<Agent> = {}): Agent =>
     agent({
-        framework: 'narranexus',
+        framework: FIXTURE,
         runtime: 'sprites',
         daemonId: null,
         spriteName: 'sprite-1',
         accountId: 'spa-1',
-        mountPath: NN_SPRITE_WORKSPACE,
-        fileRoots: [
-            {
-                id: 'workspace',
-                label: 'Workspace',
-                path: NN_SPRITE_WORKSPACE,
-                writable: true
-            },
-            { id: 'home', label: 'Home', path: '/home/sprite', writable: true }
-        ],
+        mountPath: FIXTURE_WORKSPACE,
         ...overrides
     })
 
-const filesBuilder = (): FilesContextBuilder => {
-    const runtimes = { findById: async () => null }
-    return new FilesContextBuilder(
+// A framework that serves its own files (FrameworkDefinition.files): its
+// provider owns the roots, answers the ones it serves, and hands the rest back
+// to the runtime's own transport.
+const frameworkBuilder = (
+    files: Record<string, Uint8Array> = {}
+): FilesContextBuilder =>
+    new FilesContextBuilder(
         { getById: async () => null } as never,
-        runtimes as never,
+        { findById: async () => null } as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
-        extensionsWith({
-            framework: 'narranexus',
-            files: new NarraNexusFilesProvider(
-                {} as never,
-                {} as never,
-                runtimes as never
-            )
-        })
+        extensionsWith({ framework: FIXTURE, files: fixtureFiles(files) })
     )
-}
 
-// A builder whose narranexus runtime + gateway token resolve, so resolveRoots
-// actually reaches GET /files/roots. Captures the agent-row write-back.
-const narraNexusBuilder = (): {
-    builder: FilesContextBuilder
-    updates: Record<string, unknown>[]
-} => {
-    const updates: Record<string, unknown>[] = []
-    const runtimes = {
-        findById: async () => ({
-            id: 'runtime-1',
-            ingressHost: 'gw.example.com'
-        })
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [
-                        { payloadCiphertext: 'ct', keyVersion: 1 }
-                    ]
-                })
-            })
-        }),
-        update: () => ({
-            set: (patch: Record<string, unknown>) => ({
-                where: async () => {
-                    updates.push(patch)
-                }
-            })
-        })
-    }
-    return {
-        builder: new FilesContextBuilder(
-            { getById: async () => null } as never,
-            runtimes as never,
-            {} as never,
-            {} as never,
-            {} as never,
-            db as never,
-            extensionsWith({
-                framework: 'narranexus',
-                files: new NarraNexusFilesProvider(
-                    db as never,
-                    {
-                        decrypt: () => JSON.stringify({ gatewayToken: 'tok' })
-                    } as never,
-                    runtimes as never
-                )
-            })
-        ),
-        updates
-    }
-}
-
-const withRootsResponse = async <T>(
-    respond: () => { ok: boolean; status: number; body?: unknown },
-    run: (calls: string[]) => Promise<T>
-): Promise<T> => {
-    const calls: string[] = []
-    const orig = globalThis.fetch
-    globalThis.fetch = (async (url: string) => {
-        calls.push(url)
-        const r = respond()
-        return {
-            ok: r.ok,
-            status: r.status,
-            text: async () => JSON.stringify(r.body ?? {})
-        }
-    }) as never
-    try {
-        return await run(calls)
-    } finally {
-        globalThis.fetch = orig
-    }
-}
-
-const NN_GATEWAY_WORKSPACE = '/data/workspaces/mf_user-1/agent-1'
-
-// issue #120 + multi-root: the gateway serves only the read-only workspace,
-// but on sprites Manyfold additionally exposes ~/.narranexus and home as
-// read-only roots browsed via direct sprite access
-test('narranexus resolveRoots exposes workspace + ~/.narranexus + home on sprites', async () => {
-    const roots = await filesBuilder().resolveRoots(narraNexusAgent())
-    assert.deepEqual(roots, [
-        {
-            id: 'workspace',
-            label: 'Workspace',
-            path: NN_SPRITE_WORKSPACE,
-            writable: false
-        },
-        {
-            id: 'narranexus-home',
-            label: 'NarraNexus config',
-            path: '/home/sprite/.narranexus',
-            writable: false
-        },
-        {
-            id: 'home',
-            label: 'Home',
-            path: '/home/sprite',
-            writable: false
-        }
-    ])
-})
-
-// off sprites (k8s) there's no direct sprite access, so it stays workspace-only
-test('narranexus resolveRoots stays workspace-only on k8s', async () => {
-    const roots = await filesBuilder().resolveRoots(
-        narraNexusAgent({ runtime: 'k8s' })
-    )
-    assert.deepEqual(roots, [
-        {
-            id: 'workspace',
-            label: 'Workspace',
-            path: NN_SPRITE_WORKSPACE,
-            writable: false
-        }
-    ])
-})
-
-// The layout under BASE_WORKING_PATH belongs to NarraNexus and has changed once
-// already. Deriving it locally addressed a directory outside the workspace, and
-// every file call then died on the far side's containment check — so the
-// gateway's own answer is the only acceptable source.
-test('narranexus workspace root comes from the gateway, not a local guess', async () => {
-    const { builder, updates } = narraNexusBuilder()
-    const roots = await withRootsResponse(
-        () => ({
-            ok: true,
-            status: 200,
-            body: {
-                roots: [
-                    {
-                        id: 'workspace',
-                        label: 'Workspace',
-                        path: NN_GATEWAY_WORKSPACE
-                    }
-                ]
-            }
-        }),
-        async (calls) => {
-            const r = await builder.resolveRoots(narraNexusAgent())
-            assert.ok(
-                calls[0]?.includes(
-                    '/manyfold/agents/agent-1/files/roots'
-                ),
-                `expected a files/roots call, got ${calls[0]}`
-            )
-            return r
-        }
-    )
-    assert.equal(roots[0].path, NN_GATEWAY_WORKSPACE)
-    assert.notEqual(
-        roots[0].path,
-        NN_SPRITE_WORKSPACE,
-        'the stored value must lose to the gateway, or the stale layout survives forever'
-    )
-    // The sprite-side roots are Manyfold's own knowledge of the image and stay
-    // put; every root stays read-only so the file controllers remain shut.
-    assert.deepEqual(
-        roots.map((r) => [r.id, r.writable]),
-        [
-            ['workspace', false],
-            ['narranexus-home', false],
-            ['home', false]
-        ]
-    )
-    // agent.workspacePath is what diagnostics measures storage against, so the
-    // row has to converge too, not just the in-memory roots.
-    assert.equal(updates.length, 1)
-    assert.equal(updates[0].workspacePath, NN_GATEWAY_WORKSPACE)
-})
-
-test('narranexus roots are cached so a Files session is one gateway lookup', async () => {
-    const { builder } = narraNexusBuilder()
-    await withRootsResponse(
-        () => ({
-            ok: true,
-            status: 200,
-            body: { roots: [{ id: 'workspace', path: NN_GATEWAY_WORKSPACE }] }
-        }),
-        async (calls) => {
-            await builder.resolveRoots(narraNexusAgent())
-            await builder.resolveRoots(narraNexusAgent())
-            await builder.resolveRoots(narraNexusAgent())
-            assert.equal(calls.length, 1)
-        }
-    )
-})
-
-// Degrading to the local guess is what this whole path exists to stop, so an
-// unreachable gateway falls back to the last resolved value instead.
-test('an unreachable gateway falls back to the last known good path', async () => {
-    const { builder, updates } = narraNexusBuilder()
-    const roots = await withRootsResponse(
-        () => ({ ok: false, status: 503 }),
-        () =>
-            builder.resolveRoots(
-                narraNexusAgent({
-                    fileRoots: [
-                        {
-                            id: 'workspace',
-                            label: 'Workspace',
-                            path: NN_GATEWAY_WORKSPACE,
-                            writable: false
-                        }
-                    ]
-                })
-            )
-    )
-    assert.equal(roots[0].path, NN_GATEWAY_WORKSPACE)
-    assert.equal(updates.length, 0, 'a fallback must not be written back')
-})
-
-// Silently addressing a guessed path is how the original bug produced 403s that
-// read as permission problems; refusing is the honest failure.
-test('an unreachable gateway with nothing stored fails loudly', async () => {
-    const { builder } = narraNexusBuilder()
-    await withRootsResponse(
-        () => ({ ok: false, status: 503 }),
-        () =>
-            assert.rejects(
-                builder.resolveRoots(narraNexusAgent({ fileRoots: [] })),
-                /workspace layout for agent agent-1 is unknown/
-            )
-    )
-})
-
-// rootId=home is now a real root routed through sprite access; with no sprite
-// account wired it fails on the account lookup, proving it took the sprite path
-// rather than the gateway
-test('narranexus build routes rootId=home through sprite access', async () => {
+// With no sprite account wired, the runtime transport fails on the account
+// lookup, which proves the root took that path rather than the provider's.
+test('a root the framework does not serve goes through the runtime transport', async () => {
     await assert.rejects(
-        () => filesBuilder().build(narraNexusAgent(), 'home'),
+        () => frameworkBuilder().build(frameworkAgent(), 'home'),
         (err: unknown) =>
             err instanceof NotFoundException &&
             err.message === 'sprites account spa-1 not found'
     )
 })
 
-test('narranexus build still rejects an unknown rootId', async () => {
+test('a framework-served agent still rejects an unknown rootId', async () => {
     await assert.rejects(
-        () => filesBuilder().build(narraNexusAgent(), 'bogus'),
+        () => frameworkBuilder().build(frameworkAgent(), 'bogus'),
         (err: unknown) =>
             err instanceof NotFoundException &&
             err.message === 'unknown file root: bogus'
     )
 })
 
-test('narranexus build accepts rootId=workspace', async () => {
-    await assert.rejects(
-        () => filesBuilder().build(narraNexusAgent(), 'workspace'),
-        (err: unknown) =>
-            err instanceof NotFoundException &&
-            err.message ===
-                'narranexus runtime for agent agent-1 missing ingress host'
-    )
+test('a framework-served root is built by the framework provider', async () => {
+    const ctx = await frameworkBuilder().build(frameworkAgent(), 'workspace')
+    assert.equal(ctx.root.id, 'workspace')
+    assert.equal(ctx.mountPath, FIXTURE_WORKSPACE)
 })
 
 const DAEMON_WORKSPACE = '/Users/me/.manyfold/workspaces/agent-1'
@@ -475,67 +230,23 @@ const drain = async (
     return Buffer.concat(parts)
 }
 
-test('narranexus context infers image MIME for generic stat and read responses', async () => {
-    const { builder } = narraNexusBuilder()
+test('a framework-served context infers image MIME for generic stat and read responses', async () => {
+    const path = `${FIXTURE_WORKSPACE}/logo.png`
     const body = Buffer.from([0x89, 0x50, 0x4e, 0x47])
-    const calls: string[] = []
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = (async (url: string) => {
-        calls.push(url)
-        if (url.includes('/files/roots'))
-            return new Response(
-                JSON.stringify({
-                    roots: [{ id: 'workspace', path: NN_GATEWAY_WORKSPACE }]
-                })
-            )
-        if (url.includes('/files/stat'))
-            return new Response(
-                JSON.stringify({
-                    entry: {
-                        name: 'logo.png',
-                        type: 'file',
-                        size: body.byteLength,
-                        mtime: 1,
-                        mode: '644'
-                    }
-                })
-            )
-        if (url.includes('/files/read'))
-            return new Response(body, {
-                headers: {
-                    'content-length': String(body.byteLength),
-                    'content-type': 'application/octet-stream'
-                }
-            })
-        throw new Error(`unexpected fetch: ${url}`)
-    }) as never
+    const ctx = await frameworkBuilder({ [path]: body }).build(
+        frameworkAgent(),
+        'workspace'
+    )
+    const stat = await ctx.stat(path)
+    const read = await ctx.read(path)
 
-    try {
-        const ctx = await builder.build(narraNexusAgent(), 'workspace')
-        const path = `${NN_GATEWAY_WORKSPACE}/logo.png`
-        const stat = await ctx.stat(path)
-        const read = await ctx.read(path)
-
-        assert.equal(stat?.contentType, 'image/png')
-        assert.ok(read)
-        assert.equal(read.contentType, 'image/png')
-        assert.equal(read.size, body.byteLength)
-        assert.deepEqual(await drain(read.stream), body)
-        assert.equal(
-            calls.filter((url) => url.includes('/files/stat')).length,
-            1
-        )
-        assert.equal(
-            calls.filter((url) => url.includes('/files/read')).length,
-            1
-        )
-    } finally {
-        globalThis.fetch = originalFetch
-    }
+    assert.equal(stat?.contentType, 'image/png')
+    assert.ok(read)
+    assert.equal(read.contentType, 'image/png')
+    assert.equal(read.size, body.byteLength)
+    assert.deepEqual(await drain(read.stream), body)
 })
 
-// capabilities must be resolved per request: the same runtime reports different
-// binarySafe values depending on the host CLI version behind it
 test('resolveRootsForSdk reports daemon capabilities from the host features', async () => {
     const stale = daemonStub({ features: [] })
     const staleRoots = await stale.builder.resolveRootsForSdk(daemonAgent())

@@ -139,7 +139,6 @@ const protectedLiterals = [
     'Hermes Agent',
     'Hermes',
     'Langflow',
-    'NarraNexus',
     'OpenClaw'
 ] as const
 

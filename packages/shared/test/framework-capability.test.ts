@@ -5,10 +5,6 @@ import {
     isServiceFrameworkName,
     PLATFORM_TASK_PREFIX
 } from '../src/framework-capability'
-import { narraNexusFrameworkDefinition } from '../src/frameworks/narranexus'
-import { registerFramework } from '../src/frameworks/registry'
-
-registerFramework(narraNexusFrameworkDefinition)
 
 // The host-detail "Services" surface must never let a user delete Manyfold's
 // own framework services — deleting one breaks the agent it runs. Only
@@ -17,7 +13,6 @@ registerFramework(narraNexusFrameworkDefinition)
 test('service-kind framework names are managed (delete-protected)', () => {
     assert.equal(isServiceFrameworkName('hermes'), true)
     assert.equal(isServiceFrameworkName('openclaw'), true)
-    assert.equal(isServiceFrameworkName('narranexus'), true)
 })
 
 test('hermes dashboard auxiliary services are managed (delete-protected)', () => {
@@ -50,7 +45,6 @@ test('platform keep-alive task names are protected', () => {
     assert.equal(isPlatformTaskName('nca-codex-ab12cd-3'), true)
     assert.equal(isPlatformTaskName('hermes-keepalive'), true)
     assert.equal(isPlatformTaskName('openclaw-keepalive'), true)
-    assert.equal(isPlatformTaskName('narranexus-keepalive'), true)
 })
 
 test('agent-registered task names are deletable', () => {

@@ -2,13 +2,19 @@ import type { FC, ReactNode } from 'react'
 import { LandingSnapshot } from '@/seo/LandingSnapshot'
 import { ChannelsSnapshot } from '@/seo/ChannelsSnapshot'
 import { SeoClosingCta } from '@/seo/SeoClosingCta'
+import type { WorksWithChip } from '@/seo/landingContent'
 import type { SeoLanguage, SeoPageEntry } from '@/seo/pages'
 
 // Which crawler body belongs to which manifest page. Build-time only, so it
 // lives apart from the manifest: pages.ts is imported by the router, the
 // title resolver and the nav, none of which should pull a React tree they
 // never render.
-export type SeoSnapshot = FC<{ entry: SeoPageEntry }>
+// `editionFrameworks` is the composition's extra "works with" chips, which
+// only the home body lists.
+export type SeoSnapshot = FC<{
+    entry: SeoPageEntry
+    editionFrameworks?: readonly WorksWithChip[]
+}>
 
 const CORE_SNAPSHOTS: Record<string, SeoSnapshot> = {
     home: LandingSnapshot,

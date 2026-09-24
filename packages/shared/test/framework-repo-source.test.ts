@@ -8,35 +8,57 @@ import {
     resolveFrameworkRepo
 } from '../src/frameworkVersionSources'
 import { listVersionedFrameworks } from '../src/framework-versions'
-import { narraNexusFrameworkDefinition } from '../src/frameworks/narranexus'
+import type { FrameworkDefinition } from '../src/frameworks/definition'
 import { registerFramework } from '../src/frameworks/registry'
 
-registerFramework(narraNexusFrameworkDefinition)
+const UPSTREAM = 'example-org/fixture-gateway'
+const FORK = 'fork-org/fixture-gateway'
 
-const UPSTREAM = 'NetMindAI-Open/NarraNexus'
-const FORK = 'protagolabs/NarraNexus'
+// A framework an edition registers (ADR-0034) that is published to two
+// repositories, the only shape that offers a choice.
+const fixture: FrameworkDefinition = {
+    id: 'fixture-gateway',
+    displayName: 'Fixture Gateway',
+    kind: 'service',
+    runtimes: ['sprites'],
+    chat: {
+        streaming: true,
+        toolCalls: true,
+        thinking: false,
+        attachments: true,
+        multiTurn: true
+    },
+    version: {
+        upgradeMode: 'rebuild',
+        repoCandidates: [
+            { repo: UPSTREAM, label: 'example-org' },
+            { repo: FORK, label: 'fork-org' }
+        ]
+    }
+}
+registerFramework(fixture)
 
 // Frameworks whose install clone URL is built from the resolved slug. Hermes is
 // deliberately absent: its bootstrap pipes NousResearch's install.sh, which
 // clones a repository named inside that script, so moving its catalog would not
 // move its clone.
-const SLUG_DRIVEN_CLONE: AgentFramework[] = ['narranexus']
+const SLUG_DRIVEN_CLONE: AgentFramework[] = ['fixture-gateway']
 
 test('an unconfigured platform resolves to the default repository', () => {
-    assert.equal(resolveFrameworkRepo('narranexus'), UPSTREAM)
-    assert.equal(resolveFrameworkRepo('narranexus', null), UPSTREAM)
-    assert.equal(resolveFrameworkRepo('narranexus', {}), UPSTREAM)
+    assert.equal(resolveFrameworkRepo('fixture-gateway'), UPSTREAM)
+    assert.equal(resolveFrameworkRepo('fixture-gateway', null), UPSTREAM)
+    assert.equal(resolveFrameworkRepo('fixture-gateway', {}), UPSTREAM)
     assert.equal(
-        resolveFrameworkRepo('narranexus', { sourceRepos: {} }),
+        resolveFrameworkRepo('fixture-gateway', { sourceRepos: {} }),
         UPSTREAM
     )
-    assert.equal(defaultFrameworkRepo('narranexus'), UPSTREAM)
+    assert.equal(defaultFrameworkRepo('fixture-gateway'), UPSTREAM)
 })
 
 test('an allowlisted override is honoured', () => {
     assert.equal(
-        resolveFrameworkRepo('narranexus', {
-            sourceRepos: { narranexus: FORK }
+        resolveFrameworkRepo('fixture-gateway', {
+            sourceRepos: { 'fixture-gateway': FORK }
         }),
         FORK
     )
@@ -46,13 +68,15 @@ test('an allowlisted override is honoured', () => {
 // it. Honouring the stored slug would make the allowlist un-revocable.
 test('a slug that has left the allowlist falls back to the default', () => {
     assert.equal(
-        resolveFrameworkRepo('narranexus', {
-            sourceRepos: { narranexus: 'attacker/NarraNexus' }
+        resolveFrameworkRepo('fixture-gateway', {
+            sourceRepos: { 'fixture-gateway': 'attacker/fixture-gateway' }
         }),
         UPSTREAM
     )
     assert.equal(
-        resolveFrameworkRepo('narranexus', { sourceRepos: { narranexus: '' } }),
+        resolveFrameworkRepo('fixture-gateway', {
+            sourceRepos: { 'fixture-gateway': '' }
+        }),
         UPSTREAM
     )
 })
@@ -118,9 +142,9 @@ test('only slug-driven clone paths may offer a choice', () => {
             )
 })
 
-test('narranexus offers both published repositories', () => {
+test('a registered framework offers every repository it declares', () => {
     assert.deepEqual(
-        frameworkRepoCandidates('narranexus').map((c) => c.repo),
+        frameworkRepoCandidates('fixture-gateway').map((c) => c.repo),
         [UPSTREAM, FORK]
     )
 })

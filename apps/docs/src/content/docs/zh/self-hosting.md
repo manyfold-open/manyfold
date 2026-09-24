@@ -218,4 +218,4 @@ key;仓库里的 `.env.example` 对非 compose 部署记录了同样的流程。
 
 ## 聊天 Runner 要求
 
-Claude Code、Codex、Gemini CLI、OpenClaw、Hermes、NarraNexus 聊天必须连接 mf daemon runner。旧 daemon 运行 `mf update` 后重启；Kubernetes runtime 更新镜像并保留 PVC。OpenClaw/Hermes 镜像同时运行 gateway 和 daemon；NarraNexus 通过 `MF_POD_RUNNER_IMAGE` 配置 runner sidecar。`PUBLIC_API_BASE_URL` 必须能从 runtime 访问。Runner 缺失或过旧时会明确报错，不再切换到直连执行。Dify、Langflow、A2A 仍使用外部 API。
+Claude Code、Codex、Gemini CLI、OpenClaw、Hermes 聊天必须连接 mf daemon runner。旧 daemon 运行 `mf update` 后重启；Kubernetes runtime 更新镜像并保留 PVC。OpenClaw/Hermes 镜像同时运行 gateway 和 daemon。`PUBLIC_API_BASE_URL` 必须能从 runtime 访问。Runner 缺失或过旧时会明确报错，不再切换到直连执行。Dify、Langflow、A2A 仍使用外部 API。

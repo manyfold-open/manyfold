@@ -130,7 +130,6 @@ const en = {
             pi: 'Pi',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
-            narraNexus: 'NarraNexus',
             dify: 'Dify',
             langflow: 'Langflow',
             a2a: 'A2A'
@@ -399,7 +398,7 @@ const en = {
                         'External agents run on their own provider, so the model is chosen where that agent is hosted rather than here.'
                 },
                 notFound: 'Agent not found.',
-                openNativeFailed: 'Failed to open NarraNexus',
+                openNativeFailed: 'Failed to open the native UI',
                 openNativeUi: 'Open Native UI ↗',
                 permissions: {
                     addAction: 'Add permission',
@@ -3670,7 +3669,6 @@ const en = {
                 pi: 'Open-source coding CLI for many model vendors',
                 openclaw: 'Long-running chat service, connects IM channels',
                 hermes: 'Long-running assistant service, calendar and mail',
-                narranexus: 'Long-running orchestration service',
                 dify: 'Connect one of your Dify apps',
                 langflow: 'Connect one of your Langflow flows',
                 a2a: 'Connect any agent that speaks A2A'
@@ -4017,7 +4015,7 @@ const en = {
                 'Available while the daemon is running on the user machine.',
             deployableAgents: 'Deployable agents',
             deployableAgentsFull:
-                'Claude Code, Codex, Gemini CLI, OpenClaw, Hermes Agent, NarraNexus',
+                'Claude Code, Codex, Gemini CLI, OpenClaw, Hermes Agent',
             deployableAgentsShort:
                 'Claude Code, Codex, Gemini CLI, OpenClaw, Hermes Agent',
             compareFrameworksDesc:
@@ -4041,8 +4039,6 @@ const en = {
                 geminiCli:
                     'Google Gemini CLI for coding and general terminal automation inside a managed workspace.',
                 pi: 'Open-source coding agent CLI that runs on Anthropic, OpenAI, or Google models — sessions, skills, and AGENTS.md included.',
-                narraNexus:
-                    'Narrative-driven, hot-pluggable agent framework with a per-runtime workspace; chat and providers are managed in the NarraNexus native UI.',
                 hermes: 'Persistent service agent for connectors, automations, and background workflows that need a long-running runtime.',
                 openclaw:
                     'Framework runtime for tool-rich agent applications that need services, gateways, or scheduled jobs.',
@@ -4090,7 +4086,7 @@ const en = {
             frameworkChecking: 'Checking…',
             frameworkInstalled: 'Installed',
             frameworkServiceSlotTaken:
-                'This sandbox already runs {{framework}}; it holds one of OpenClaw, Hermes and NarraNexus at a time.',
+                'This sandbox already runs {{framework}}; it holds one of OpenClaw and Hermes at a time.',
             deleteHasAgents: 'Delete its agents first',
             renameSandbox: 'Rename sandbox',
             checkSandbox: 'Check sandbox',
@@ -4975,7 +4971,7 @@ const en = {
                 runtimeSprites: 'Stateful sandbox (default)',
                 runtimeK8s: 'Cloud computer',
                 runtimeHint:
-                    'Where the agent runs. Claude Code, Codex, Gemini CLI, OpenClaw, Hermes, and NarraNexus support Stateful sandbox; use Cloud computer for always-on containers.',
+                    'Where the agent runs. Claude Code, Codex, Gemini CLI, OpenClaw, and Hermes support Stateful sandbox; use Cloud computer for always-on containers.',
                 clusterLabel: 'Cloud computer cluster',
                 clusterHint:
                     'Pick the registered cluster where this agent will be provisioned.',

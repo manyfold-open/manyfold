@@ -18,7 +18,6 @@ import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapte
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
 import type {
     ApiChatAdapterContext,
     ApiChatResumeContext,
@@ -30,9 +29,9 @@ import type {
 // exactly the way this matrix exists to catch.
 //
 // Everything here is a seam recorder. The adapters under test are the real
-// ones, constructed positionally at their current arity — narranexus keeps its
-// 7-argument form on purpose, because dropping the registry argument is the
-// #555 shape the matrix must be able to see.
+// ones, constructed positionally at their current arity. A framework an
+// edition registers (ADR-0034) brings its own constructor through
+// BuildOptions.adapter, over the same recorders.
 
 export const IDENTITY_MARKERS: Record<string, string> = {
     [MF_ENV_API_TOKEN]: 'mfr_marker_token',
@@ -384,8 +383,19 @@ export interface BuildOptions {
     // refuses to dispatch unless this reports a gateway it could reach, so the
     // default is a reachable one and a cell that wants the refusal overrides it.
     detectedFrameworks?: DetectedFramework[]
-    // #555 replay: construct narranexus without the registry argument.
-    withRegistry?: boolean
+    // Builds the adapter of a framework this harness does not construct
+    // itself, from the seam's recorders.
+    adapter?: (deps: AdapterDeps) => AdapterUnderTest
+}
+
+export interface AdapterDeps {
+    db: unknown
+    drivers: unknown
+    registry: unknown
+    pricing: unknown
+    chatRepo: unknown
+    telemetry: unknown
+    adminSettings: unknown
 }
 
 const REACHABLE_OPENCLAW_GATEWAY: DetectedFramework[] = [
@@ -419,6 +429,16 @@ export const buildAdapter = (
         detectedFrameworks:
             opts.detectedFrameworks ?? REACHABLE_OPENCLAW_GATEWAY
     })
+    if (opts.adapter)
+        return opts.adapter({
+            db,
+            drivers,
+            registry,
+            pricing,
+            chatRepo,
+            telemetry,
+            adminSettings
+        })
     switch (opts.framework) {
         case 'claude-code':
             return new ClaudeCodeAdapter(
@@ -472,26 +492,6 @@ export const buildAdapter = (
             adminSettings as never,
             undefined as never
             ) as unknown as AdapterUnderTest
-        case 'narranexus':
-            return opts.withRegistry === false
-                ? (new NarraNexusChatAdapter(
-                      db as never,
-                      {} as never,
-                      pricing as never,
-                      chatRepo as never,
-                      drivers as never,
-                      telemetry as never
-                  ) as unknown as AdapterUnderTest)
-                : (new NarraNexusChatAdapter(
-                      db as never,
-                      {} as never,
-                      pricing as never,
-                      chatRepo as never,
-                      drivers as never,
-                      telemetry as never,
-                      registry as never,
-                      adminSettings as never
-                  ) as unknown as AdapterUnderTest)
         default:
             throw new Error(
                 `${opts.framework} launches no process; it has no exec seam to drive`

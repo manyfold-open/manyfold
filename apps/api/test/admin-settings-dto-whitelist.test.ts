@@ -21,14 +21,14 @@ import { UpdateFrameworkDefaultVersionsSettingsDto } from '../src/modules/admin-
 // a property to the shared body type and this object stops compiling until it is
 // listed here, at which point the assertion checks it also survives the pipe.
 const FULL_BODY: Required<UpdateFrameworkDefaultVersionsSettingsBody> = {
-    defaults: { narranexus: '1.15.1-rc.1' },
-    minVersions: { narranexus: 'v1.15.0' },
-    allowDowngrade: { narranexus: false },
+    defaults: { hermes: '1.15.1-rc.1' },
+    minVersions: { hermes: 'v1.15.0' },
+    allowDowngrade: { hermes: false },
     blockedVersions: {
-        narranexus: [{ min: 'v1.7.0', max: 'v1.7.1', reason: 'bad window' }]
+        hermes: [{ min: 'v1.7.0', max: 'v1.7.1', reason: 'bad window' }]
     },
-    sourceRepos: { narranexus: 'protagolabs/NarraNexus' },
-    allowPrerelease: { narranexus: true }
+    sourceRepos: { hermes: 'NousResearch/hermes-agent' },
+    allowPrerelease: { hermes: true }
 }
 
 const throughPipe = async (body: unknown): Promise<Record<string, unknown>> =>

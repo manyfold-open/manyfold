@@ -216,7 +216,7 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
     const primary = fakeDbAgent({
         id: 'agent-1',
         internalId: 'agent-1',
-        framework: 'narranexus',
+        framework: 'openclaw',
         runtime: 'k8s',
         mountPath: K8S_MOUNT,
         workspacePath: K8S_MOUNT
@@ -224,7 +224,7 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
     const secondary = fakeDbAgent({
         id: 'agent-2',
         internalId: 'agent-2',
-        framework: 'narranexus',
+        framework: 'openclaw',
         runtime: 'k8s',
         mountPath: K8S_MOUNT,
         workspacePath: K8S_MOUNT
@@ -255,7 +255,7 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
     const svc = new AgentReconcileService(db as never, registry as never)
     await svc.reconcileRuntime(
         fakeRuntime({
-            framework: 'narranexus',
+            framework: 'openclaw',
             kind: 'k8s',
             mountPath: K8S_MOUNT
         }) as never

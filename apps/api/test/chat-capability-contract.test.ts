@@ -6,7 +6,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-definition'
+import { FIXTURE, FixtureChatAdapter } from './helpers/fixture-framework'
 import { ChatAdapterRegistry } from '../src/modules/chat/adapters/adapter-registry.service'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
@@ -14,7 +14,6 @@ import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
 import {
     A2aChatAdapter,
     DifyChatAdapter,
@@ -59,8 +58,8 @@ const buildRegistry = (): ChatAdapterRegistry =>
         new LangflowChatAdapter(dep, dep, dep),
         new A2aChatAdapter(dep, dep, dep),
         extensionsWith({
-            framework: 'narranexus',
-            chatAdapter: new NarraNexusChatAdapter(dep, dep, dep, dep, dep, dep)
+            framework: FIXTURE,
+            chatAdapter: new FixtureChatAdapter(dep, dep, dep, dep, dep, dep)
         })
     )
 

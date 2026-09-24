@@ -168,7 +168,6 @@ const makeHarness = () => {
         frameworkStub('pi') as never,
         new OpenclawAgentAdapter(resolver),
         new HermesAgentAdapter(resolver),
-        frameworkStub('narranexus') as never,
         frameworkStub('dify') as never,
         frameworkStub('langflow') as never,
         frameworkStub('a2a') as never

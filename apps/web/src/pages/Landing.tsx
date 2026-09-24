@@ -38,7 +38,7 @@ import {
     PRICING_TIERS,
     TIER_LABEL,
     TIER_TAGLINE_KEY,
-    WORKS_WITH_ROWS,
+    worksWithRows,
     type PricingTier
 } from '@/seo/landingContent'
 import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
@@ -256,7 +256,7 @@ const WorksWith: FC = (): ReactNode => {
                     <p className='lp-lead'>{t('web.landing.worksWithLead')}</p>
                 </div>
                 <div className='lp-ww'>
-                    {WORKS_WITH_ROWS.map((row) => (
+                    {worksWithRows().map((row) => (
                         <div key={row.labelKey} className='lp-ww-row'>
                             <div className='lp-ww-k'>{t(row.labelKey)}</div>
                             {/* The track carries the list twice and travels

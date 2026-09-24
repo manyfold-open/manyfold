@@ -5,7 +5,8 @@ import {
     PRICING_TIERS,
     TIER_LABEL,
     TIER_TAGLINE_KEY,
-    WORKS_WITH_ROWS
+    worksWithRows,
+    type WorksWithChip
 } from '@/seo/landingContent'
 import type { SeoPageEntry } from '@/seo/pages'
 
@@ -21,10 +22,12 @@ import type { SeoPageEntry } from '@/seo/pages'
 const SCENES = [1, 2, 3]
 const ITEMS = [1, 2, 3]
 
-export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
-    entry
-}): ReactNode => {
+export const LandingSnapshot: FC<{
+    entry: SeoPageEntry
+    editionFrameworks?: readonly WorksWithChip[]
+}> = ({ entry, editionFrameworks }): ReactNode => {
     const { copy } = entry
+    const rows = worksWithRows(editionFrameworks)
     return (
         <main className='seo-main'>
             <section className='lp-section seo-hero'>
@@ -49,7 +52,7 @@ export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
                     </div>
                     <p className='seo-brands'>
                         {t('web.landing.worksWithEyebrow')}{' '}
-                        {WORKS_WITH_ROWS[0].chips
+                        {rows[0].chips
                             .map((chip) => chip.name ?? t(chip.key ?? ''))
                             .join(' · ')}
                     </p>
@@ -89,7 +92,7 @@ export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
                     </h2>
                     <p className='lp-lead'>{t('web.landing.worksWithLead')}</p>
                     <ul className='seo-bullets'>
-                        {WORKS_WITH_ROWS.map((row) => (
+                        {rows.map((row) => (
                             <li key={row.labelKey}>
                                 {t(row.labelKey)} —{' '}
                                 {row.chips

@@ -208,7 +208,7 @@ test('a stopped service instance releases the service slot', () => {
 
 // Four co-resident runtimes used to fill a sandbox and hide it from the picker.
 test('a sandbox running four frameworks still accepts a fifth', () => {
-    const runtimes = ['claude-code', 'codex', 'openclaw', 'narranexus'].map(
+    const runtimes = ['claude-code', 'codex', 'openclaw', 'hermes'].map(
         (framework, i) =>
             runtime({
                 id: `rt_${i}`,

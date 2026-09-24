@@ -1,9 +1,12 @@
 import type { FrameworkDefaultVersionsSettings } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-version'
+import {
+    FIXTURE,
+    FIXTURE_FORK,
+    fixtureVersion
+} from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
-import { narraNexusVersion } from '../src/modules/narranexus/version/narranexus-version'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 
 // The upgrade endpoint is the third admission point for the pre-release opt-in.
@@ -13,11 +16,11 @@ import { FrameworkUpgradeService } from '../src/modules/agents/framework-version
 // denylist's own ordering (see framework-version-denylist.test.ts).
 
 const CATALOG_OFF = {
-    framework: 'narranexus' as const,
+    framework: FIXTURE,
     latest: 'v1.15.0',
     versions: ['v1.15.0', 'v1.7.15'],
     source: 'github' as const,
-    sourceRepo: 'protagolabs/NarraNexus',
+    sourceRepo: FIXTURE_FORK,
     fetchedAt: new Date().toISOString(),
     blocked: []
 }
@@ -78,7 +81,7 @@ const upgradeWith = (opts: {
         {
             findForCaller: async () => ({
                 id: 'agt_1',
-                framework: 'narranexus',
+                framework: FIXTURE,
                 runtimeId: 'rt_1',
                 spriteName: 'sprite-1',
                 accountId: 'sac_1'
@@ -88,24 +91,21 @@ const upgradeWith = (opts: {
             getForFramework: async () =>
                 opts.catalog ??
                 (opts.allowPrerelease ? CATALOG_ON : CATALOG_OFF),
-            repoFor: async () => 'protagolabs/NarraNexus'
+            repoFor: async () => FIXTURE_FORK
         } as never,
         {} as never,
         {
             getCachedFrameworkDefaultVersions: async () =>
                 settings({
                     allowPrerelease: opts.allowPrerelease
-                        ? { narranexus: true }
+                        ? { [FIXTURE]: true }
                         : {},
                     minVersions: opts.minVersion
-                        ? { narranexus: opts.minVersion }
+                        ? { [FIXTURE]: opts.minVersion }
                         : {}
                 })
         } as never,
-        extensionsWith({
-            framework: 'narranexus',
-            version: narraNexusVersion()
-        }) as never
+        extensionsWith({ framework: FIXTURE, version: fixtureVersion }) as never
     )
 
 const upgradeTo = (
