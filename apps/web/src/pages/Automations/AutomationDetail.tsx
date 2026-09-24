@@ -9,7 +9,7 @@ import type {
     ChannelScopeSummary,
     ChannelSummary
 } from '@manyfold/shared'
-import { AGENT_SEND_PROVIDERS } from '@manyfold/shared'
+import { AGENT_SEND_PROVIDERS, schedulesMirrored } from '@manyfold/shared'
 import {
     buildPresetRrule,
     defaultTime,
@@ -171,7 +171,7 @@ const AutomationDetail: FC = (): ReactNode => {
     }, [detail])
 
     const runnableAgents = useMemo(
-        () => agents.filter((agent) => agent.framework !== 'narranexus'),
+        () => agents.filter((agent) => !schedulesMirrored(agent.framework)),
         [agents]
     )
     // The rail loads agents asynchronously; until it lands, the bound agent is

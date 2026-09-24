@@ -2,7 +2,7 @@ import {
     ChatMessage,
     SharedChatMessage,
     SharedChatSessionPreview,
-    chatCapabilitiesByFramework
+    chatCapabilitiesFor
 } from '@manyfold/shared'
 import {
     useCallback,
@@ -159,7 +159,7 @@ const SharedChatSession: FC = (): ReactNode => {
     }
 
     const { preview } = view
-    const capabilities = chatCapabilitiesByFramework[preview.agent.framework]
+    const capabilities = chatCapabilitiesFor(preview.agent.framework)
 
     return (
         <div className='bg-main flex h-dvh flex-col'>

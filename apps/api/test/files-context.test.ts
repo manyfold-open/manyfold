@@ -10,6 +10,8 @@ import {
     FilesContextBuilder,
     assertAgentReady
 } from '../src/modules/agents/files/files-context'
+import { NarraNexusFilesProvider } from '../src/modules/narranexus/files/narranexus-files.provider'
+import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const agent = (overrides: Partial<Agent> = {}): Agent =>
     ({
@@ -90,16 +92,25 @@ const narraNexusAgent = (overrides: Partial<Agent> = {}): Agent =>
         ...overrides
     })
 
-const filesBuilder = (): FilesContextBuilder =>
-    new FilesContextBuilder(
+const filesBuilder = (): FilesContextBuilder => {
+    const runtimes = { findById: async () => null }
+    return new FilesContextBuilder(
         { getById: async () => null } as never,
-        { findById: async () => null } as never,
+        runtimes as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
-        {} as never
+        extensionsWith({
+            framework: 'narranexus',
+            files: new NarraNexusFilesProvider(
+                {} as never,
+                {} as never,
+                runtimes as never
+            )
+        })
     )
+}
 
 // A builder whose narranexus runtime + gateway token resolve, so resolveRoots
 // actually reaches GET /files/roots. Captures the agent-row write-back.
@@ -108,6 +119,12 @@ const narraNexusBuilder = (): {
     updates: Record<string, unknown>[]
 } => {
     const updates: Record<string, unknown>[] = []
+    const runtimes = {
+        findById: async () => ({
+            id: 'runtime-1',
+            ingressHost: 'gw.example.com'
+        })
+    }
     const db = {
         select: () => ({
             from: () => ({
@@ -129,17 +146,21 @@ const narraNexusBuilder = (): {
     return {
         builder: new FilesContextBuilder(
             { getById: async () => null } as never,
-            {
-                findById: async () => ({
-                    id: 'runtime-1',
-                    ingressHost: 'gw.example.com'
-                })
-            } as never,
+            runtimes as never,
             {} as never,
             {} as never,
             {} as never,
             db as never,
-            { decrypt: () => JSON.stringify({ gatewayToken: 'tok' }) } as never
+            extensionsWith({
+                framework: 'narranexus',
+                files: new NarraNexusFilesProvider(
+                    db as never,
+                    {
+                        decrypt: () => JSON.stringify({ gatewayToken: 'tok' })
+                    } as never,
+                    runtimes as never
+                )
+            })
         ),
         updates
     }
@@ -440,8 +461,7 @@ const daemonStub = (
             {} as never,
             {} as never,
             registry as never,
-            db as never,
-            {} as never
+            db as never
         )
     }
 }

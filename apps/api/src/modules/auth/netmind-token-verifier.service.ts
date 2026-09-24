@@ -20,7 +20,7 @@ export class NetmindTokenVerifierService {
 
     // NetMind JWTs can't be verified offline (the signing secret embeds a
     // per-user loginToken that rotates), so verification is a live call to an
-    // authenticated NetMind endpoint. Following Arena/NarraNexus we use
+    // authenticated NetMind endpoint. Following NetMind's own clients we use
     // POST /user/balance and treat a returned user object as proof of validity.
     // The base URL comes from the admin-configured NetMind provider settings.
     async verify(loginToken: string): Promise<ExternalAuthIdentity> {

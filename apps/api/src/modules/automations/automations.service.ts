@@ -11,7 +11,8 @@ import {
     AutomationSummary,
     CreateAutomationBody,
     UpdateAutomationBody,
-    createObjectId
+    createObjectId,
+    frameworkDefinition
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -46,9 +47,9 @@ import {
     chatStreamEvents,
     users,
     type Agent,
-    type AutomationOrigin,
     type AutomationRow,
     type AutomationRunRow,
+    type MirrorOrigin,
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -65,15 +66,15 @@ type AutomationWithAgent = {
     agent: Agent
 }
 
-// Mirror of an external framework schedule (the NarraNexus sync reconciler is
-// the only writer): a one-shot alarm at nextRunAt, re-armed by the reconciler
-// after each run instead of by an RRULE recurrence.
+// Mirror of an external framework schedule (the framework's sync reconciler
+// is the only writer): a one-shot alarm at nextRunAt, re-armed by the
+// reconciler after each run instead of by an RRULE recurrence.
 export interface ManagedAutomationSpec {
     title: string
     prompt: string
     status: 'active' | 'paused'
     nextRunAt: Date | null
-    origin: AutomationOrigin
+    origin: MirrorOrigin
 }
 
 const MANAGED_RRULE = 'RRULE:FREQ=DAILY;COUNT=1'
@@ -1136,10 +1137,12 @@ const assertRunnableAgent = (agent: Agent, model: string | null): void => {
 }
 
 const assertNotManaged = (row: AutomationRow): void => {
-    if (row.origin)
-        throw new ConflictException(
-            'this automation mirrors a NarraNexus job — manage it in the NarraNexus dashboard'
-        )
+    if (!row.origin) return
+    const name =
+        frameworkDefinition(row.origin.kind)?.displayName ?? row.origin.kind
+    throw new ConflictException(
+        `this automation mirrors a ${name} job — manage it in the ${name} dashboard`
+    )
 }
 
 const toSummary = (

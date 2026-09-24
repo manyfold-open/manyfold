@@ -19,14 +19,12 @@ import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
 import { ChatStreamBus } from '@/modules/chat/chat-stream-bus'
 import { ChatCancelBus } from '@/modules/chat/chat-cancel-bus'
 import { ChatAdapterRegistry } from '@/modules/chat/adapters/adapter-registry.service'
-import { FakeEchoAdapter } from '@/modules/chat/adapters/fake-echo.adapter'
 import { ClaudeCodeAdapter } from '@/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '@/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '@/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '@/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '@/modules/chat/adapters/hermes.adapter'
-import { NarraNexusChatAdapter } from '@/modules/narranexus/narranexus-chat.adapter'
 import {
     A2aChatAdapter,
     DifyChatAdapter,
@@ -95,14 +93,12 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         ChatAdapterRegistry,
         ExecDriverFactory,
         DaemonFencedDispatchService,
-        FakeEchoAdapter,
         ClaudeCodeAdapter,
         OpenclawAdapter,
         CodexAdapter,
         GeminiCliAdapter,
         PiAdapter,
         HermesAdapter,
-        NarraNexusChatAdapter,
         DifyChatAdapter,
         LangflowChatAdapter,
         A2aChatAdapter,
@@ -113,6 +109,9 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
     ],
     exports: [
         ChatAdapterRegistry,
+        // A framework module's own chat adapter builds on these (ADR-0034).
+        ExecDriverFactory,
+        DaemonFencedDispatchService,
         ChatService,
         ChatRepository,
         ChatSseBroadcaster,

@@ -220,7 +220,15 @@ const makeHarness = (
         }
     }
     const adapters = {
-        get: () => (resumeMessage ? { resumeMessage } : {})
+        // OpenclawAdapter replays its whole source on resume, as the gateway
+        // transport's adapters declare.
+        get: (framework: string) =>
+            resumeMessage
+                ? {
+                      resumeMessage,
+                      resumeReplaysFromStart: framework === 'openclaw'
+                  }
+                : {}
     }
 
     const service = new ChatService(db as never,

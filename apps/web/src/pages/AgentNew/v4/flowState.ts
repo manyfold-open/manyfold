@@ -13,8 +13,8 @@ export type CreateStepId = (typeof CREATE_STEP_ORDER)[number]
 // (decision D) — leave halfway and the machine, the CLI and the sign-in are
 // all still there next time, as ordinary options in these same lists.
 //
-// One named exception: a service framework (OpenClaw / Hermes / NarraNexus)
-// is not installed at step ② but at step ④, together with the agent — see
+// One named exception: a service framework such as OpenClaw or Hermes is
+// not installed at step ② but at step ④, together with the agent — see
 // `installsAtCreate`. Then `runtimeId` is null and `sandboxId` says where the
 // install will land. The machine itself still exists; only the CLI waits.
 export type RuntimeChoice =

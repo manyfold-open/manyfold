@@ -6,6 +6,27 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier'
 import { CLOUD_TABLE_DB_EXPORTS } from './scripts/editions-cloud-tables.mjs'
 
+// ADR-0034: framework ids are open, so a Record over every framework id is an
+// index signature whose lookups silently return undefined for an id this
+// build does not register. Key exhaustive tables by CoreFramework and resolve
+// other ids through the registry; Partial maps (settings keyed by framework)
+// are fine. Listing the registry at module top level would run before an
+// edition registers its frameworks.
+const FRAMEWORK_TABLE_SYNTAX = {
+    selector:
+        "TSTypeReference[typeName.name='Record'][typeArguments.params.0.typeName.name=/^(AgentFramework|VersionedFramework)$/]:not(TSTypeReference[typeName.name='Partial'] > TSTypeParameterInstantiation > TSTypeReference)",
+    message:
+        'Key exhaustive framework tables by CoreFramework and resolve other ids through the framework registry (ADR-0034); a Record over AgentFramework returns undefined for ids it does not list.'
+}
+// Source only: a test builds its matrix at top level on purpose, after its
+// imports (including any fixture framework) have registered.
+const FRAMEWORK_LISTING_SYNTAX = {
+    selector:
+        'CallExpression[callee.name=/^list(Versioned)?Frameworks$/]:not(:function CallExpression):not(PropertyDefinition CallExpression)',
+    message:
+        'Do not list the framework registry at module load: an edition registers its frameworks after core modules are evaluated (ADR-0034).'
+}
+
 export default tseslint.config(
     {
         ignores: [
@@ -72,6 +93,17 @@ export default tseslint.config(
             '@typescript-eslint/consistent-type-imports': [
                 'warn',
                 { prefer: 'type-imports', fixStyle: 'separate-type-imports' }
+            ],
+            'no-restricted-syntax': ['error', FRAMEWORK_TABLE_SYNTAX]
+        }
+    },
+    {
+        files: ['apps/*/src/**/*.{ts,tsx}', 'packages/*/src/**/*.ts'],
+        rules: {
+            'no-restricted-syntax': [
+                'error',
+                FRAMEWORK_TABLE_SYNTAX,
+                FRAMEWORK_LISTING_SYNTAX
             ]
         }
     },
@@ -155,9 +187,11 @@ export default tseslint.config(
         rules: {
             'no-restricted-syntax': [
                 'error',
+                FRAMEWORK_TABLE_SYNTAX,
+                FRAMEWORK_LISTING_SYNTAX,
                 {
                     selector:
-                        'BinaryExpression[operator=/^(===|!==|==|!=)$/] > Literal[value=/^(claude-code|codex|gemini-cli|pi|openclaw|hermes|narranexus|dify|langflow)$/]',
+                        'BinaryExpression[operator=/^(===|!==|==|!=)$/] > Literal[value=/^(claude-code|codex|gemini-cli|pi|openclaw|hermes|dify|langflow)$/]',
                     message:
                         'Framework facts come from frameworkCapability()/supportsRuntime()/isExternal() (ADR-0006), not raw framework-literal comparisons.'
                 }

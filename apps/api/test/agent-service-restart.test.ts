@@ -3,6 +3,7 @@ import test from 'node:test'
 import { BadRequestException } from '@nestjs/common'
 import { agentCredentials, agentRuntimes, agents } from '@manyfold/db'
 import { AgentServiceRestartService } from '../src/modules/agents/agent-service-restart.service'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 const now = new Date('2026-08-11T12:00:00.000Z')
 
@@ -84,9 +85,10 @@ const harness = (patch: Record<string, unknown> = {}): Harness => {
         accounts as never,
         agentsService as never,
         crypto as never,
-        bootstrap as never,
-        new FakeBootstrap() as never,
-        new FakeBootstrap() as never
+        new SpriteServiceBootstraps(
+            bootstrap as never,
+            new FakeBootstrap() as never
+        )
     )
     return { service, agentRow, bootstrap }
 }

@@ -1,10 +1,11 @@
 import {
     MANYFOLD_CLI_USAGE_SKILL_ID,
-    frameworkCapability,
+    frameworkKind,
     frameworkUpgradeMode,
     isSkillFramework,
     isUpgradeableFramework,
     isVersionedFramework,
+    nativeUiAlwaysOn,
     runtimeKindLabel
 } from '@manyfold/shared'
 import type {
@@ -836,7 +837,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
         setFwStep(null)
         try {
             if (frameworkUpgradeMode(agent.framework) === 'rebuild') {
-                // heavy rebuild (narranexus) — stream phase events for liveness
+                // heavy rebuild — stream phase events for liveness
                 const next = await client.agents.upgradeFrameworkStream(
                     id,
                     fwTarget,
@@ -934,7 +935,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // endpoint enforces. Offering the button anywhere else buys a 400 for the
     // one lifecycle action on the page.
     const canRestart =
-        frameworkCapability(agent.framework).kind === 'service' &&
+        frameworkKind(agent.framework) === 'service' &&
         agent.runtime === 'sprites'
     // "up to date" is a comparison, so it takes both sides. With no latest
     // release read, the honest render is the installed version and nothing else.
@@ -1041,7 +1042,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                           })
                         : null
                 const hasEndpoint =
-                    (agent.framework === 'narranexus' && !!agent.runtimeId) ||
+                    (nativeUiAlwaysOn(agent.framework) && !!agent.runtimeId) ||
                     !!agent.endpointUrl
                 const brokenChannels = (channels ?? []).filter(
                     (channel) =>
@@ -1138,7 +1139,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 // once.
                 const endpointInStrip = hasEndpoint && !agent.runtimeId
                 const endpointValue =
-                    agent.framework === 'narranexus' && agent.runtimeId ? (
+                    nativeUiAlwaysOn(agent.framework) && agent.runtimeId ? (
                         <button
                             type='button'
                             onClick={() => {

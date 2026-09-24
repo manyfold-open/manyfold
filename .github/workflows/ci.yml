@@ -137,6 +137,7 @@ jobs:
             - run: pnpm force-exit:check
             - run: pnpm sealed-env:check
             - run: pnpm runtime-deps:check
+            - run: pnpm runtime-images:check
             - run: pnpm lint
             # Docs-site CLI reference + changelog must track the CLI version;
             # spans apps/cli and apps/docs, so no single affected package

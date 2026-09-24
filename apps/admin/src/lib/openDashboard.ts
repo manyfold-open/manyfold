@@ -56,8 +56,8 @@ const renderPopupError = (
 
 // Open a runtime's dashboard / control UI in a new tab. Server-side
 // `getControlUiUrl` mints the URL (with audit log) for any framework that
-// has one — narranexus / openclaw / hermes — and rejects with a clear
-// error for disabled / unsupported runtimes.
+// has one, and rejects with a clear error for disabled / unsupported
+// runtimes.
 //
 // Must be invoked synchronously inside a click handler; the empty popup
 // is opened first and then navigated, because browsers suppress popups

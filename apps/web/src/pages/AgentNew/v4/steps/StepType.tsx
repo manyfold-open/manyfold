@@ -6,7 +6,7 @@ import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
-import { FRAMEWORK_GROUPS } from '@/pages/AgentNew/v4/frameworkCatalog'
+import { frameworkGroups } from '@/pages/AgentNew/v4/frameworkCatalog'
 
 // Step ①. All nine types, always, in two groups.
 //
@@ -23,7 +23,7 @@ export const StepType: FC<{
     const { t } = useI18n()
     return (
         <>
-            {FRAMEWORK_GROUPS.map((group) => (
+            {frameworkGroups().map((group) => (
                 <OptionGroup key={group.id} title={t(group.titleKey)}>
                     {group.entries.map((entry) => (
                         <OptionRow

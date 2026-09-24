@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
 
 // In-process pub/sub with no module dependencies: lets leaf modules (chat,
-// runtime-reports) signal cross-cutting listeners (narranexus-sync) without
-// creating import cycles through their Nest modules.
+// runtime-reports) signal cross-cutting listeners (a framework module's sync)
+// without creating import cycles through their Nest modules.
 export interface AppEvents {
     'chat.turn.finalized': { agentId: string; framework: string }
     'runtime.report.ready': { runtimeId: string; framework: string }

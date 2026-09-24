@@ -641,12 +641,6 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     ],
     'pages/AgentSettings/AgentSettings.tsx': ['/workspace'],
     'components/AppShell.tsx': [
-        'Claude Code',
-        'Codex',
-        'Gemini CLI',
-        'Hermes',
-        'NarraNexus',
-        'OpenClaw',
         'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left text-muted transition-colors group-hover/row:text-fg',
         'mb-1'
     ],
@@ -673,8 +667,6 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         '5.6 Terra',
         '6 Astra',
         'Claude',
-        'Claude Code',
-        'Codex',
         'GPT-5.2',
         'GPT-5.3-Codex',
         'GPT-5.3-Codex-Spark',
@@ -685,11 +677,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'GPT-5.6 Sol',
         'GPT-5.6 Terra',
         'GPT-6 Astra',
-        'Gemini CLI',
         'Haiku',
-        'Hermes',
-        'NarraNexus',
-        'OpenClaw',
         'Opus',
         'Sonnet'
     ],
@@ -717,7 +705,6 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Gemini CLI',
         'Hermes Agent',
         'Langflow',
-        'NarraNexus',
         'OpenClaw',
         'Pi'
     ],

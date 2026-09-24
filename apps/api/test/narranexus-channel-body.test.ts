@@ -10,7 +10,8 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 import { manyfoldProviderToNarraNexusChannelProvider } from '../src/modules/narranexus/narranexus-paths'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
+import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
+import { GatewayHttpChatAdapter } from '../src/modules/chat/adapters/gateway-http-chat.adapter'
 
 // channel_provider/channel_context on the /v1/chat/completions body is what
 // flips NarraNexus from OWNER CHAT ("do NOT call im +messages-send") into
@@ -332,19 +333,36 @@ test('a mirrored matrix channel resolves to narramessenger', async () => {
     )
 })
 
-// The guard reads ctx.framework, not the adapter's own, so a non-narranexus
-// turn on this transport stays on the unchanged wire shape. Prove-red: drop
-// the `ctx.framework !== 'narranexus'` clause and the channel fields appear.
-test('a non-narranexus turn emits no channel fields even with a channelSource', async () => {
-    const adapter = new NarraNexusChatAdapter(...adapterArgs('narranexus'))
-    const body = await captureCompletionsBody(
-        adapter,
-        fakeCtx('openclaw', larkSource())
-    )
+// The channel fields ride only on a gateway adapter that names the channel
+// itself: the transport's default is the unchanged four-field body.
+test('a gateway adapter that does not name the channel adds no channel fields', () => {
+    class PlainGatewayAdapter extends GatewayHttpChatAdapter {
+        readonly framework = 'openclaw'
+        getCapabilities(): never {
+            return {} as never
+        }
+    }
+    const [db, crypto, pricing, chatRepo, drivers, telemetry] =
+        adapterArgs('openclaw')
+    const plain = new PlainGatewayAdapter(
+        db,
+        crypto,
+        pricing,
+        chatRepo,
+        drivers,
+        telemetry
+    ) as unknown as {
+        channelBodyFields(
+            ctx: ApiChatAdapterContext,
+            message: ReturnType<typeof userMessage>
+        ): Record<string, unknown>
+    }
     assert.deepEqual(
-        Object.keys(body).sort(),
-        ['messages', 'model', 'stream', 'stream_options'],
-        'the framework gate keeps non-narranexus openai-compat gateways on the unchanged wire shape'
+        plain.channelBodyFields(
+            fakeCtx('openclaw', larkSource()),
+            userMessage()
+        ),
+        {}
     )
 })
 

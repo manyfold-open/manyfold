@@ -1,32 +1,43 @@
-import { frameworkRepoCandidates } from '@manyfold/shared'
+import {
+    frameworkRepoCandidates,
+    listVersionedFrameworks,
+    requireFrameworkDefinition
+} from '@manyfold/shared'
 import type {
     AgentFramework,
     FrameworkDefaultVersionsSettings
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useApiClient } from '@/lib/apiClient'
 import { Button, Card, Heading } from '@/ui'
 
-const FRAMEWORKS: { key: AgentFramework; label: string }[] = [
-    { key: 'claude-code', label: 'Claude Code' },
-    { key: 'codex', label: 'Codex' },
-    { key: 'gemini-cli', label: 'Gemini CLI' },
-    { key: 'pi', label: 'Pi' },
-    { key: 'openclaw', label: 'OpenClaw' },
-    { key: 'narranexus', label: 'NarraNexus' },
-    { key: 'hermes', label: 'Hermes' }
-]
+interface FrameworkRow {
+    key: AgentFramework
+    label: string
+}
 
-// Only frameworks published to more than one repository get a picker; a
-// single-candidate framework has nothing to choose, and one whose installer
-// clones a repo of its own choosing must not appear to offer one.
-const SOURCE_FRAMEWORKS = FRAMEWORKS.filter(
-    ({ key }) => frameworkRepoCandidates(key).length > 1
-)
+// Built at render rather than at import: an edition registers its frameworks
+// at boot (ADR-0034).
+const frameworkRows = (): FrameworkRow[] =>
+    listVersionedFrameworks().map((key) => ({
+        key,
+        label: requireFrameworkDefinition(key).displayName
+    }))
 
 const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
     const client = useApiClient()
+    const frameworks = useMemo(frameworkRows, [])
+    // Only frameworks published to more than one repository get a picker; a
+    // single-candidate framework has nothing to choose, and one whose
+    // installer clones a repo of its own choosing must not appear to offer one.
+    const sourceFrameworks = useMemo(
+        () =>
+            frameworks.filter(
+                ({ key }) => frameworkRepoCandidates(key).length > 1
+            ),
+        [frameworks]
+    )
     const [draft, setDraft] = useState<Partial<Record<AgentFramework, string>>>(
         {}
     )
@@ -64,13 +75,13 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
         const nextDowngrade: Partial<Record<AgentFramework, boolean>> = {}
         const nextPrerelease: Partial<Record<AgentFramework, boolean>> = {}
         const nextSource: Partial<Record<AgentFramework, string>> = {}
-        for (const { key } of FRAMEWORKS) {
+        for (const { key } of frameworks) {
             nextDefault[key] = settings.defaults[key] ?? ''
             nextMin[key] = settings.minVersions[key] ?? ''
             nextDowngrade[key] = settings.allowDowngrade[key] !== false
             nextPrerelease[key] = settings.allowPrerelease[key] === true
         }
-        for (const { key } of SOURCE_FRAMEWORKS)
+        for (const { key } of sourceFrameworks)
             nextSource[key] =
                 settings.sourceRepos[key] ?? frameworkRepoCandidates(key)[0].repo
         setDraft(nextDefault)
@@ -110,7 +121,7 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
         const allowDowngrade: Partial<Record<AgentFramework, boolean>> = {}
         const allowPrerelease: Partial<Record<AgentFramework, boolean>> = {}
         const sourceRepos: Partial<Record<AgentFramework, string>> = {}
-        for (const { key } of FRAMEWORKS) {
+        for (const { key } of frameworks) {
             const v = draft[key]
             if (v) defaults[key] = v
             const min = minDraft[key]
@@ -118,14 +129,14 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
             allowDowngrade[key] = downgradeDraft[key] !== false
             allowPrerelease[key] = prereleaseDraft[key] === true
         }
-        for (const { key } of SOURCE_FRAMEWORKS) {
+        for (const { key } of sourceFrameworks) {
             const repo = sourceDraft[key]
             if (repo) sourceRepos[key] = repo
         }
-        const sourceChanged = SOURCE_FRAMEWORKS.some(
+        const sourceChanged = sourceFrameworks.some(
             ({ key }) => sourceDraft[key] !== savedSources[key]
         )
-        const prereleaseChanged = FRAMEWORKS.some(
+        const prereleaseChanged = frameworks.some(
             ({ key }) => prereleaseDraft[key] !== savedPrerelease[key]
         )
         try {
@@ -206,7 +217,7 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
                 <p className='text-caption text-body'>Loading…</p>
             )}
 
-            {loaded && SOURCE_FRAMEWORKS.length > 0 && (
+            {loaded && sourceFrameworks.length > 0 && (
                 <Card elevation='ambient' className='mb-2 p-3'>
                     <Heading level={3} className='mb-1'>
                         Version source
@@ -223,7 +234,7 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
                         selected.
                     </p>
                     <div className='space-y-2'>
-                        {SOURCE_FRAMEWORKS.map(({ key, label }) => {
+                        {sourceFrameworks.map(({ key, label }) => {
                             const candidates = frameworkRepoCandidates(key)
                             const selected = candidates.find(
                                 (c) => c.repo === sourceDraft[key]
@@ -284,7 +295,7 @@ const FrameworkDefaultVersionsSettingsPage: FC = (): ReactNode => {
                                 Allow pre-release
                             </span>
                         </div>
-                        {FRAMEWORKS.map(({ key, label }) => (
+                        {frameworks.map(({ key, label }) => (
                             <div key={key} className='flex items-center gap-3'>
                                 <label
                                     htmlFor={`fwversion-${key}`}

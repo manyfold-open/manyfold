@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-    chatCapabilitiesByFramework,
-    type ChatCapabilities
-} from '@manyfold/shared'
+import { chatCapabilitiesFor, type ChatCapabilities } from '@manyfold/shared'
 import {
     groupRenderableBlocks,
     type ActivityRenderable
@@ -102,10 +99,7 @@ test('a hermes turn keeps its thinking and tool blocks; an openclaw turn keeps o
         tool('call-1', 'Bash', 'completed')
     ]
 
-    const hermes = groupRenderableBlocks(
-        blocks,
-        chatCapabilitiesByFramework.hermes
-    )
+    const hermes = groupRenderableBlocks(blocks, chatCapabilitiesFor('hermes'))
 
     assert.deepEqual(
         hermes.map((group) => group.kind),
@@ -122,7 +116,7 @@ test('a hermes turn keeps its thinking and tool blocks; an openclaw turn keeps o
     // when hermes regresses.
     const openclaw = groupRenderableBlocks(
         blocks,
-        chatCapabilitiesByFramework.openclaw
+        chatCapabilitiesFor('openclaw')
     )
 
     assert.deepEqual(

@@ -91,7 +91,6 @@ export {
     type LibraryFilePathValidationResult
 } from './librarySkillFiles'
 export {
-    agentFramework,
     agentRuntime,
     agentRuntimeStatus,
     agentStatus,
@@ -107,9 +106,6 @@ export {
     codingAgentWorkspacePath,
     codingAgentWorkspacePathForHome,
     codingAgentHomeRootForWorkspacePath,
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
-    narraNexusBaseWorkingPath,
     runtimeKindLabel,
     DEFAULT_PLAN_ID
 } from './constants'
@@ -142,6 +138,7 @@ export { apiError } from './envelopes'
 export type { ApiError } from './envelopes'
 export type {
     AgentFramework,
+    CoreFramework,
     AgentRuntime,
     AgentRuntimeStatus,
     AgentStatus,
@@ -531,9 +528,33 @@ export {
     stepsFor
 } from './agent-progress'
 export type { AgentCreateStep, AgentCreateEvent } from './agent-progress'
+export { coreFrameworks } from './frameworks/core'
 export {
-    frameworkCapabilities,
+    NARRANEXUS_K8S_BASE_WORKING_PATH,
+    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
+    narraNexusBaseWorkingPath,
+    narraNexusFrameworkDefinition
+} from './frameworks/narranexus'
+export type { CoreVersionedFramework } from './frameworks/core'
+export { UnknownFrameworkError } from './frameworks/definition'
+export type {
+    FrameworkDefinition,
+    FrameworkVersionFacts
+} from './frameworks/definition'
+export {
+    frameworkDefinition,
+    isCoreFramework,
+    isRegisteredFramework,
+    listFrameworks,
+    registerFramework,
+    requireFrameworkDefinition
+} from './frameworks/registry'
+export {
+    credentialsManagedByRuntime,
+    nativeUiAlwaysOn,
+    schedulesMirrored,
     frameworkCapability,
+    frameworkKind,
     supportsRuntime,
     isExternal,
     isServiceFrameworkName,
@@ -580,7 +601,7 @@ export {
     mcpDeliveryFromExtras,
     validateMcpJson
 } from './mcp'
-export { chatCapabilitiesByFramework, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
+export { chatCapabilitiesFor, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
 export {
     agentModelConfigSources,
     claudeCodeModelAliases,
@@ -728,7 +749,7 @@ export {
     safeNpmVersionSpec,
     selectFrameworkInstallVersion,
     shouldInstallFrameworkVersion,
-    versionedFrameworks
+    listVersionedFrameworks
 } from './framework-versions'
 export type {
     FrameworkBlockedVersionRange,
@@ -1063,8 +1084,6 @@ export type {
     UpdateFrameworkDefaultVersionsSettingsBody
 } from './frameworkDefaultVersions'
 export {
-    HERMES_REPO_CANDIDATES,
-    NARRANEXUS_REPO_CANDIDATES,
     defaultFrameworkRepo,
     frameworkRepoCandidates,
     frameworkRepoCloneUrl,

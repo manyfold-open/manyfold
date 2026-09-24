@@ -90,7 +90,10 @@ import {
     type ComposerPermissionMode,
     type PermissionOption
 } from '@/lib/permissionModes'
-import { FrameworkLogo } from '@/lib/frameworkMeta'
+import {
+    FrameworkLogo,
+    frameworkLabel as frameworkDisplayLabel
+} from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import {
     ambientAccountUsage,
@@ -2734,26 +2737,7 @@ const ModelMenuItem: FC<ModelMenuItemProps> = ({
 const formatFrameworkLabel = (
     framework: AgentFramework | undefined,
     fallback: string
-): string => {
-    switch (framework) {
-        case 'claude-code':
-            return 'Claude Code'
-        case 'codex':
-            return 'Codex'
-        case 'gemini-cli':
-            return 'Gemini CLI'
-        case 'openclaw':
-            return 'OpenClaw'
-        case 'hermes':
-            return 'Hermes'
-        case 'narranexus':
-            return 'NarraNexus'
-        default:
-            // Generic fallback — translated callers should never need this for
-            // a real framework. Keep English for log clarity.
-            return fallback
-    }
-}
+): string => (framework ? frameworkDisplayLabel(framework) : fallback)
 
 const formatStatusLabel = (status: AgentStatus, t: TFn): string => {
     switch (status) {

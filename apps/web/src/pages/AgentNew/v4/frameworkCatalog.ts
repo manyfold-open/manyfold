@@ -3,19 +3,24 @@ import {
     SPRITE_HOME_BASE,
     codingAgentWorkspacePathForHome,
     frameworkCapability,
-    isModelConfigFramework,
-    narraNexusBaseWorkingPath
+    isModelConfigFramework
 } from '@manyfold/shared'
 import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import {
+    listFrameworkPresentations,
+    presentedWorkspacePath,
+    spliceAfterCodingClis,
+    type FrameworkPresentation
+} from '@/lib/frameworkPresentation'
 
-// Step ① groups the ten frameworks by ONE fact: does it need a machine from
+// Step ① groups the frameworks by ONE fact: does it need a machine from
 // us, or does it connect to a service the user already runs. That boundary is
 // binary, has no exceptions, and is exactly where step ② forks — machines on
 // one side, services on the other — so the group heading previews the next
 // question.
 //
 // It deliberately does NOT group by ability ("writes code" / "assistant and
-// orchestration"). The ten are not mutually exclusive that way: Claude Code
+// orchestration"). They are not mutually exclusive that way: Claude Code
 // orchestrates, OpenClaw writes code. A group asserts exclusivity, a row
 // attribute does not — so ability claims stay out of both the headings and the
 // row lines, which say what the thing *is* (whose CLI, what shape of service).
@@ -46,64 +51,87 @@ export interface FrameworkGroup {
     entries: FrameworkEntry[]
 }
 
-export const FRAMEWORK_GROUPS: FrameworkGroup[] = [
+const ON_MACHINE_ENTRIES: FrameworkEntry[] = [
     {
-        id: 'onMachine',
-        titleKey: 'web.agentNewV4.type.onMachine',
-        entries: [
-            {
-                framework: 'claude-code',
-                identityKey: 'web.agentNewV4.identity.claudeCode',
-                subscriptionKey: 'web.agentNewV4.subscription.claude'
-            },
-            {
-                framework: 'codex',
-                identityKey: 'web.agentNewV4.identity.codex',
-                subscriptionKey: 'web.agentNewV4.subscription.codex'
-            },
-            {
-                framework: 'gemini-cli',
-                identityKey: 'web.agentNewV4.identity.geminiCli',
-                subscriptionKey: 'web.agentNewV4.subscription.gemini'
-            },
-            {
-                framework: 'pi',
-                identityKey: 'web.agentNewV4.identity.pi',
-                subscriptionKey: 'web.agentNewV4.subscription.pi'
-            },
-            {
-                framework: 'narranexus',
-                identityKey: 'web.agentNewV4.identity.narranexus'
-            },
-            {
-                framework: 'openclaw',
-                identityKey: 'web.agentNewV4.identity.openclaw'
-            },
-            {
-                framework: 'hermes',
-                identityKey: 'web.agentNewV4.identity.hermes'
-            }
-        ]
+        framework: 'claude-code',
+        identityKey: 'web.agentNewV4.identity.claudeCode',
+        subscriptionKey: 'web.agentNewV4.subscription.claude'
     },
     {
-        id: 'connected',
-        titleKey: 'web.agentNewV4.type.connected',
-        entries: [
-            {
-                framework: 'dify',
-                identityKey: 'web.agentNewV4.identity.dify'
-            },
-            {
-                framework: 'langflow',
-                identityKey: 'web.agentNewV4.identity.langflow'
-            },
-            {
-                framework: 'a2a',
-                identityKey: 'web.agentNewV4.identity.a2a'
-            }
-        ]
+        framework: 'codex',
+        identityKey: 'web.agentNewV4.identity.codex',
+        subscriptionKey: 'web.agentNewV4.subscription.codex'
+    },
+    {
+        framework: 'gemini-cli',
+        identityKey: 'web.agentNewV4.identity.geminiCli',
+        subscriptionKey: 'web.agentNewV4.subscription.gemini'
+    },
+    {
+        framework: 'pi',
+        identityKey: 'web.agentNewV4.identity.pi',
+        subscriptionKey: 'web.agentNewV4.subscription.pi'
+    },
+    {
+        framework: 'openclaw',
+        identityKey: 'web.agentNewV4.identity.openclaw'
+    },
+    {
+        framework: 'hermes',
+        identityKey: 'web.agentNewV4.identity.hermes'
     }
 ]
+
+const CONNECTED_ENTRIES: FrameworkEntry[] = [
+    {
+        framework: 'dify',
+        identityKey: 'web.agentNewV4.identity.dify'
+    },
+    {
+        framework: 'langflow',
+        identityKey: 'web.agentNewV4.identity.langflow'
+    },
+    {
+        framework: 'a2a',
+        identityKey: 'web.agentNewV4.identity.a2a'
+    }
+]
+
+const entryFor = (presentation: FrameworkPresentation): FrameworkEntry => ({
+    framework: presentation.definition.id,
+    identityKey: presentation.identityKey
+})
+
+// Read at render time, so the frameworks an edition registers are in their
+// group by then.
+export const frameworkGroups = (): FrameworkGroup[] => {
+    const presented = listFrameworkPresentations()
+    return [
+        {
+            id: 'onMachine',
+            titleKey: 'web.agentNewV4.type.onMachine',
+            entries: spliceAfterCodingClis(
+                ON_MACHINE_ENTRIES,
+                (entry) => entry.framework,
+                presented
+                    .filter(({ definition }) => runsOnOurMachine(definition.id))
+                    .map(entryFor)
+            )
+        },
+        {
+            id: 'connected',
+            titleKey: 'web.agentNewV4.type.connected',
+            entries: [
+                ...CONNECTED_ENTRIES,
+                ...presented
+                    .filter(
+                        ({ definition }) => !runsOnOurMachine(definition.id)
+                    )
+                    .map(entryFor)
+            ]
+        }
+    ]
+}
 
 // Whether step ② asks about a machine or about a service the user already
 // runs. Derived from the backend's own static facts so the split can't drift
@@ -125,9 +153,9 @@ export const hasWorkspace = (framework: AgentFramework): boolean =>
 // then the answer to "where will my files be", not a promise that there will
 // be somewhere.
 //
-// Only the three shapes this flow can actually reach are here. A connected
-// service has no machine and so no workspace at all, and hermes is excluded
-// by `hasWorkspace` above.
+// Only the shapes this flow can actually reach are here. A connected service
+// has no machine and so no workspace at all, and hermes is excluded by
+// `hasWorkspace` above.
 export const defaultWorkspacePath = (
     framework: AgentFramework,
     hostKind: AgentRuntime,
@@ -139,8 +167,8 @@ export const defaultWorkspacePath = (
             : hostKind === 'k8s'
               ? K8S_HOME_BASE
               : SPRITE_HOME_BASE
-    if (framework === 'narranexus')
-        return `${narraNexusBaseWorkingPath(hostKind)}/{agent-id}_<mf-user>`
+    const presented = presentedWorkspacePath(framework, hostKind)
+    if (presented) return presented
     // OpenClaw keeps one workspace for the service rather than one per agent,
     // so there is no id in its path.
     if (framework === 'openclaw')

@@ -10,6 +10,8 @@
 //   - quoted values spanning multiple physical lines (the mockup's multiline case)
 //   - `\n` `\r` `\t` `\\` `\"` escapes inside double-quoted values
 
+import { frameworkDefinition, listFrameworks } from './frameworks/registry'
+
 export interface EnvEntry {
     key: string
     value: string
@@ -34,14 +36,11 @@ export interface ParsedEnvText {
 // matching these are flagged in the UI and never injected — the merge order
 // (`{ ...userEnv, ...platformEnv }`) is the hard backstop; this is the friendly
 // heads-up. NODE_ENV is deliberately NOT reserved — it's a legitimate user value.
+// Each framework's own prefixes live on its definition (reservedEnvPrefixes).
 export const RESERVED_ENV_PREFIXES = [
     'MF_',
     'MANYFOLD_',
     'NCA_',
-    'HERMES_',
-    'OPENCLAW_',
-    'NARRANEXUS_',
-    'NEXUS_',
     'ANTHROPIC_',
     'OPENAI_',
     'OPENROUTER_',
@@ -72,7 +71,13 @@ const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export const isReservedEnvKey = (key: string): boolean => {
     if ((RESERVED_ENV_KEYS as readonly string[]).includes(key)) return true
-    return RESERVED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))
+    if (RESERVED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix)))
+        return true
+    return listFrameworks().some((framework) =>
+        (frameworkDefinition(framework)?.reservedEnvPrefixes ?? []).some(
+            (prefix) => key.startsWith(prefix)
+        )
+    )
 }
 
 const unescapeDoubleQuoted = (value: string): string =>

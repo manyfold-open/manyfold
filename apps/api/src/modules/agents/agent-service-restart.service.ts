@@ -1,8 +1,4 @@
-import {
-    AgentFramework,
-    AgentSummary,
-    envTextFromExtras
-} from '@manyfold/shared'
+import { AgentSummary, envTextFromExtras } from '@manyfold/shared'
 import {
     BadRequestException,
     Inject,
@@ -26,10 +22,7 @@ import { AgentsService } from '@/modules/agents/agents.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-bootstrap'
-import type { SpriteServiceBootstrap } from '@/modules/agents/bootstrap/sprite-framework-bootstrap'
-import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
-import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
-import { NarraNexusSpriteBootstrap } from '@/modules/agents/bootstrap/narranexus-sprite'
+import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // Restarting a framework's long-lived sprite service to pick up edited
 // environment variables. Sprite env only propagates via delete→upsert→start
@@ -39,29 +32,14 @@ import { NarraNexusSpriteBootstrap } from '@/modules/agents/bootstrap/narranexus
 @Injectable()
 export class AgentServiceRestartService {
     private readonly log = new Logger(AgentServiceRestartService.name)
-    private readonly serviceBootstraps: ReadonlyMap<
-        AgentFramework,
-        SpriteServiceBootstrap
-    >
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly accounts: SpritesAccountsService,
         private readonly agents: AgentsService,
         private readonly crypto: CryptoService,
-        hermesSpriteBootstrap: HermesSpriteBootstrap,
-        openclawSpriteBootstrap: OpenClawSpriteBootstrap,
-        narraNexusSpriteBootstrap: NarraNexusSpriteBootstrap
-    ) {
-        this.serviceBootstraps = new Map<
-            AgentFramework,
-            SpriteServiceBootstrap
-        >([
-            ['hermes', hermesSpriteBootstrap],
-            ['openclaw', openclawSpriteBootstrap],
-            ['narranexus', narraNexusSpriteBootstrap]
-        ])
-    }
+        private readonly serviceBootstraps: SpriteServiceBootstraps
+    ) {}
 
     async restart(
         agentId: string,

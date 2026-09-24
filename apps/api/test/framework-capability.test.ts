@@ -1,12 +1,13 @@
 import {
     AgentFramework,
     AgentRuntime,
+    CoreFramework,
     externalSteps,
-    frameworkCapabilities,
     frameworkCapability,
     isExternal,
     k8sCliSteps,
     k8sSteps,
+    listFrameworks,
     spritesServiceSteps,
     spritesSteps,
     stepsFor,
@@ -14,6 +15,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 
 // ADR-0006 behaviour-preserving snapshot. The framework-capability module must
 // reproduce the answer every migrated call site computed before the refactor.
@@ -27,7 +29,7 @@ interface Expected {
     configSubdir: string | null
 }
 
-const GROUND_TRUTH: Record<AgentFramework, Expected> = {
+const CORE_GROUND_TRUTH: Record<CoreFramework, Expected> = {
     'claude-code': {
         kind: 'coding',
         runtimes: ['sprites', 'k8s', 'daemon'],
@@ -58,14 +60,19 @@ const GROUND_TRUTH: Record<AgentFramework, Expected> = {
         runtimes: ['sprites', 'k8s', 'daemon'],
         configSubdir: null
     },
+    dify: { kind: 'external', runtimes: ['external'], configSubdir: null },
+    langflow: { kind: 'external', runtimes: ['external'], configSubdir: null },
+    a2a: { kind: 'external', runtimes: ['external'], configSubdir: null }
+}
+
+// Plus the frameworks this file registers.
+const GROUND_TRUTH: Record<string, Expected> = {
+    ...CORE_GROUND_TRUTH,
     narranexus: {
         kind: 'service',
         runtimes: ['sprites', 'k8s'],
         configSubdir: null
-    },
-    dify: { kind: 'external', runtimes: ['external'], configSubdir: null },
-    langflow: { kind: 'external', runtimes: ['external'], configSubdir: null },
-    a2a: { kind: 'external', runtimes: ['external'], configSubdir: null }
+    }
 }
 
 const ALL_RUNTIMES: AgentRuntime[] = ['sprites', 'k8s', 'daemon', 'external']
@@ -132,6 +139,6 @@ test('stepsFor reproduces the create-progress selector (external is the intentio
     }
 })
 
-test('frameworkCapabilities Record is exhaustive over the framework enum', () => {
-    assert.equal(Object.keys(frameworkCapabilities).length, frameworks.length)
+test('the ground truth covers every framework this build registers', () => {
+    assert.deepEqual([...listFrameworks()].sort(), [...frameworks].sort())
 })

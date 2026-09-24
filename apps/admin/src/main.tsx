@@ -1,6 +1,7 @@
 // First import so Sentry is initialised before anything else can throw.
 import { Sentry, SentryUserSync } from '@/lib/sentry'
 import '@/lib/i18n-extra'
+import '@/lib/editionFrameworks'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

@@ -1014,7 +1014,7 @@ export class ChannelsRepository {
     // dedup key and is null on outbound rows, so reusing it here costs nothing
     // and gives the retry a durable record that survives a process restart. The
     // existing unique index is inbound-only, so this is a read-side check
-    // rather than a constraint — see NarraNexusSyncService.channelSend.
+    // rather than a constraint — see the framework sync's channelSend.
     async findAgentSendByKey(
         channelId: string,
         key: string

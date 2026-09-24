@@ -4,7 +4,7 @@ import {
     CHAT_UPLOAD_MAX_TOTAL_BYTES,
     CreateMessageAttachmentInput,
     CreateMessageUploadInput,
-    chatCapabilitiesByFramework
+    chatCapabilitiesFor
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
@@ -63,7 +63,7 @@ export class ChatApiFileService {
             .where(eq(agents.id, agentId))
             .limit(1)
         if (!agent) return false
-        return chatCapabilitiesByFramework[agent.framework]?.attachments === true
+        return chatCapabilitiesFor(agent.framework).attachments
     }
 
     async ingest(input: {
@@ -80,7 +80,7 @@ export class ChatApiFileService {
             .where(eq(agents.id, input.agentId))
             .limit(1)
         if (!agent) throw new NotFoundException(`agent ${input.agentId}`)
-        if (!chatCapabilitiesByFramework[agent.framework]?.attachments)
+        if (!chatCapabilitiesFor(agent.framework).attachments)
             throw new BadRequestException(
                 `agent framework ${agent.framework} does not support file attachments`
             )
@@ -157,8 +157,8 @@ export class ChatApiFileService {
             try {
                 await ctx.write(absPath, file.bytes)
             } catch (err) {
-                // A proxied write can fail after the bytes landed — the
-                // narranexus gateway has returned 502 with the file already on
+                // A proxied write can fail after the bytes landed — a
+                // framework's gateway has returned 502 with the file already on
                 // disk (#577). The disk is the authority: account the file as
                 // written only when the full content verifiably arrived.
                 if (!(await this.writeLanded(ctx, absPath, file.bytes.length)))
@@ -214,7 +214,7 @@ export class ChatApiFileService {
             .where(eq(agents.id, agentId))
             .limit(1)
         if (!agent || agent.framework === 'dify') return []
-        if (!chatCapabilitiesByFramework[agent.framework]?.attachments) return []
+        if (!chatCapabilitiesFor(agent.framework).attachments) return []
         let ctx
         try {
             ctx = await this.files.build(agent, 'workspace')

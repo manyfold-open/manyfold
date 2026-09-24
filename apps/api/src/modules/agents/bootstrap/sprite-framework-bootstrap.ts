@@ -1,3 +1,4 @@
+import type { AgentFramework } from '@manyfold/shared'
 import type {
     BootstrapContext,
     BootstrapResult
@@ -19,8 +20,8 @@ export interface SpriteServiceBootstrapResult extends BootstrapResult {
 
 /**
  * Service-kind sprite bootstrap. For frameworks that run as long-lived daemons
- * (Hermes, OpenClaw, NarraNexus) rather than per-request exec invocations
- * (claude-code, codex, gemini-cli).
+ * (Hermes, OpenClaw) rather than per-request exec invocations (claude-code,
+ * codex, gemini-cli).
  *
  * The bootstrap is responsible for:
  *   1. Installing the framework binary inside the sprite
@@ -33,7 +34,7 @@ export interface SpriteServiceBootstrapResult extends BootstrapResult {
  *   6. Returning the service name, port, sprite URL, and any generated tokens
  */
 export interface SpriteServiceBootstrap {
-    readonly framework: 'hermes' | 'openclaw' | 'narranexus'
+    readonly framework: AgentFramework
     run(
         ctx: BootstrapContext,
         credentials: unknown

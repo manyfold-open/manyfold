@@ -1,5 +1,4 @@
 import {
-    AgentFramework,
     FEATURE_TOGGLE_KEYS,
     Plan,
     PlanId,
@@ -8,8 +7,8 @@ import {
     SandboxUsageBreakdown,
     createObjectId,
     isObjectId,
-    frameworkCapabilities,
     frameworkCapability,
+    listFrameworks,
     runtimeKindLabel
 } from '@manyfold/shared'
 import {
@@ -109,9 +108,10 @@ const isServiceFramework = (
     framework: NewAgentRuntimeRow['framework']
 ): boolean => frameworkCapability(framework).kind === 'service'
 
-const SERVICE_FRAMEWORKS = (
-    Object.keys(frameworkCapabilities) as AgentFramework[]
-).filter((framework) => frameworkCapabilities[framework].kind === 'service')
+const serviceFrameworks = (): string[] =>
+    listFrameworks().filter(
+        (framework) => frameworkCapability(framework).kind === 'service'
+    )
 
 @Injectable()
 export class RuntimeAccessService {
@@ -1119,7 +1119,7 @@ export class RuntimeAccessService {
                                    where r.host_id = h.id
                                      and r.framework <> ${input.framework}
                                      and r.framework in (${sql.join(
-                                         SERVICE_FRAMEWORKS.map(
+                                         serviceFrameworks().map(
                                              (framework) => sql`${framework}`
                                          ),
                                          sql`, `
@@ -1158,7 +1158,7 @@ export class RuntimeAccessService {
                     })
                 if (isServiceFramework(input.framework) && target.service_framework)
                     throw new ConflictException({
-                        message: `sandbox already runs ${target.service_framework}; a sandbox can host only one of ${SERVICE_FRAMEWORKS.join(', ')} because its sprite exposes a single public port`,
+                        message: `sandbox already runs ${target.service_framework}; a sandbox can host only one of ${serviceFrameworks().join(', ')} because its sprite exposes a single public port`,
                         code: 'SANDBOX_SERVICE_SLOT_TAKEN',
                         existingFramework: target.service_framework
                     })

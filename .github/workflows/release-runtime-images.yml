@@ -1,0 +1,233 @@
+# The agent runtime images Kubernetes pods run, published as
+# ghcr.io/manyfold-open/manyfold-runtime-* at an immutable sha-<12> tag of the
+# commit that built them. Zero repository secrets: pushes use the workflow's
+# GITHUB_TOKEN (packages: write). That token can only push to a package linked
+# to this repository or one that lists it with the Write role under "Manage
+# Actions access"; a package first pushed from elsewhere needs the latter.
+name: release-runtime-images
+
+on:
+    push:
+        branches: [develop]
+        paths:
+            - 'docker/**'
+            - '!docker/*.test.mjs'
+            - '.github/workflows/release-runtime-images.yml'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    packages: write
+
+concurrency:
+    group: release-runtime-images-${{ github.ref }}
+    cancel-in-progress: false
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_OWNER: manyfold-open
+    MF_CLI_VERSION: 0.34.0
+    NARRANEXUS_REF: v1.15.0
+    NARRANEXUS_SHA: 5869502c9a405b3e762206ecd21ea16540d75794
+
+jobs:
+    base:
+        if: github.repository == 'manyfold-open/manyfold'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
+            image: ${{ steps.meta.outputs.image }}
+            source_sha: ${{ steps.meta.outputs.source_sha }}
+            tag: ${{ steps.meta.outputs.tag }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - id: meta
+              name: Resolve immutable image coordinates
+              run: |
+                  set -euo pipefail
+                  source_sha="$(git rev-parse HEAD)"
+                  tag="sha-${source_sha:0:12}"
+                  image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-base"
+                  {
+                      echo "source_sha=$source_sha"
+                      echo "tag=$tag"
+                      echo "image=$image"
+                  } >> "$GITHUB_OUTPUT"
+
+            - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+            - name: Login to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - id: build
+              name: Build and push runtime base
+              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+              with:
+                  context: docker/mf-base
+                  file: docker/mf-base/Dockerfile
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+                  build-args: MF_CLI_VERSION=${{ env.MF_CLI_VERSION }}
+                  labels: |
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                      org.opencontainers.image.revision=${{ steps.meta.outputs.source_sha }}
+                  cache-from: type=gha,scope=runtime-base
+                  cache-to: type=gha,mode=max,scope=runtime-base
+
+            - name: Verify runtime base
+              env:
+                  IMAGE: ${{ steps.meta.outputs.image }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  docker buildx imagetools inspect "${IMAGE}@${DIGEST}" >/dev/null
+                  printf 'Runtime base: %s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+    manyfold:
+        needs: base
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - directory: claude-code
+                      package: claude-code
+                    - directory: codex
+                      package: codex
+                    - directory: gemini-cli
+                      package: gemini-cli
+                    - directory: pi
+                      package: pi
+                    - directory: openclaw
+                      package: openclaw
+                    - directory: hermes
+                      package: hermes
+                    - directory: mf-runner
+                      package: runner
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - id: meta
+              name: Resolve image coordinate
+              run: |
+                  set -euo pipefail
+                  image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-${{ matrix.package }}"
+                  echo "image=$image" >> "$GITHUB_OUTPUT"
+
+            - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+            - name: Login to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - id: build
+              name: Build and push ${{ matrix.package }}
+              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+              with:
+                  context: docker/${{ matrix.directory }}
+                  file: docker/${{ matrix.directory }}/Dockerfile
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.meta.outputs.image }}:${{ needs.base.outputs.tag }}
+                  build-args: MF_RUNTIME_BASE=${{ needs.base.outputs.image }}@${{ needs.base.outputs.digest }}
+                  labels: |
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                      org.opencontainers.image.revision=${{ needs.base.outputs.source_sha }}
+                  cache-from: type=gha,scope=runtime-${{ matrix.package }}
+                  cache-to: type=gha,mode=max,scope=runtime-${{ matrix.package }}
+
+            - name: Verify ${{ matrix.package }}
+              env:
+                  IMAGE: ${{ steps.meta.outputs.image }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+                  PACKAGE: ${{ matrix.package }}
+              run: |
+                  set -euo pipefail
+                  docker buildx imagetools inspect "${IMAGE}@${DIGEST}" >/dev/null
+                  printf '%s: %s@%s\n' \
+                      "$PACKAGE" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+    narranexus:
+        needs: base
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  repository: NetMindAI-Open/NarraNexus
+                  ref: ${{ env.NARRANEXUS_REF }}
+                  path: narranexus
+
+            - id: meta
+              name: Verify source and resolve image coordinate
+              run: |
+                  set -euo pipefail
+                  test "$(git -C narranexus rev-parse HEAD)" = "$NARRANEXUS_SHA"
+                  image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-narranexus"
+                  echo "image=$image" >> "$GITHUB_OUTPUT"
+
+            - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+            - name: Login to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - id: build
+              name: Build and push NarraNexus
+              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+              with:
+                  context: narranexus
+                  file: narranexus/docker/Dockerfile.manyfold
+                  platforms: linux/amd64
+                  push: true
+                  tags: ${{ steps.meta.outputs.image }}:${{ needs.base.outputs.tag }}
+                  labels: |
+                      org.opencontainers.image.source=https://github.com/NetMindAI-Open/NarraNexus
+                      org.opencontainers.image.revision=${{ env.NARRANEXUS_SHA }}
+                      ai.manyfold.release-revision=${{ needs.base.outputs.source_sha }}
+                  cache-from: type=gha,scope=runtime-narranexus
+                  cache-to: type=gha,mode=max,scope=runtime-narranexus
+
+            - name: Verify NarraNexus
+              env:
+                  IMAGE: ${{ steps.meta.outputs.image }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  docker buildx imagetools inspect "${IMAGE}@${DIGEST}" >/dev/null
+                  printf 'NarraNexus: %s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+    public:
+        needs: [base, manyfold, narranexus]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+            - name: Verify every image is anonymously readable
+              env:
+                  TAG: ${{ needs.base.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  for package in base claude-code codex gemini-cli pi openclaw hermes runner narranexus; do
+                      image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-${package}:${TAG}"
+                      if ! docker buildx imagetools inspect "$image" >/dev/null; then
+                          echo "::error::runtime image is not public: $image"
+                          exit 1
+                      fi
+                      printf '%s: %s\n' "$package" "$image" >> "$GITHUB_STEP_SUMMARY"
+                  done

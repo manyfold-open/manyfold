@@ -4,6 +4,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { SpritesError, type SpritesClient } from '@manyfold/sprites'
 import type { AgentRuntimeRow, SpritesAccount } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 import type { SandboxExecProbeResult } from '../src/modules/agent-runtimes/provisioning/sandbox-exec-health'
 
 // Placement is explicit: no sandbox named means a fresh VM, and only an attach
@@ -207,9 +208,10 @@ const buildHarness = (opts: {
         { run: async () => ({ homeDir: undefined }) } as never,
         bootstrap as never,
         { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
+        new SpriteServiceBootstraps(
+            { run: async () => ({ homeDir: undefined }) } as never,
+            { run: async () => ({ homeDir: undefined }) } as never
+        ),
         runtimeAccess as never,
         { get: () => undefined } as never,
         {} as never,

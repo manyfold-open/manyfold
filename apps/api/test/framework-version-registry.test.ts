@@ -2,10 +2,11 @@ import {
     buildManagedPathScript,
     defaultFrameworkRepo,
     frameworkRepoCandidates,
-    versionedFrameworks
+    listVersionedFrameworks
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-version'
 import { execFileSync } from 'node:child_process'
 import {
     buildNpmLatestInstallShell,
@@ -251,7 +252,7 @@ test('every generated install shell is valid POSIX sh and bash', () => {
 // repository, or an unconfigured platform fetches one repo while the UI offers
 // another. Both read the shared candidate list; this pins that they still do.
 test('every github descriptor defaults to its first declared candidate', () => {
-    for (const framework of versionedFrameworks) {
+    for (const framework of listVersionedFrameworks()) {
         const { source } = frameworkVersionDescriptor(framework)
         if (source.kind !== 'github') {
             assert.deepEqual(

@@ -1,16 +1,9 @@
 import { index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { users } from './users'
 import { agents } from './agents'
-import { channels } from './channels'
+import { channels, type MirrorOrigin } from './channels'
 import { chatSessions } from './chatSessions'
 import { chatMessages } from './chatMessages'
-
-export interface AutomationOrigin {
-    kind: 'narranexus'
-    runtimeId: string
-    jobId: string
-    contentHash?: string
-}
 
 export const automations = pgTable(
     'automations',
@@ -44,10 +37,10 @@ export const automations = pgTable(
             { onDelete: 'set null' }
         ),
         deliveryTarget: jsonb('delivery_target'),
-        // Present when this row mirrors an external framework object (a
-        // NarraNexus job) and is owned by the sync reconciler: user-facing
+        // Present when this row mirrors an external framework's scheduled
+        // job and is owned by that framework's sync reconciler: user-facing
         // edits are rejected and plan quotas do not apply.
-        origin: jsonb('origin').$type<AutomationOrigin>(),
+        origin: jsonb('origin').$type<MirrorOrigin>(),
         nextRunAt: timestamp('next_run_at', { withTimezone: true }),
         // Only quota skips set this marker. Retry wakeups re-check headroom;
         // they are never occurrences of the user's schedule.

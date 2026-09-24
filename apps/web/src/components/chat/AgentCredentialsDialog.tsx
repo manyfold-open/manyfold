@@ -5,6 +5,7 @@ import {
     AgentModelConfigSource,
     AgentModelConfigView,
     BuiltInProviderEntry,
+    CoreFramework,
     UpdateAgentCredentialsBody,
     UserModelProvider,
     UserModelProviderSummary,
@@ -13,6 +14,7 @@ import {
     defaultProtocolForProvider,
     frameworkSupportsProtocol,
     isClaudeCodeModelAlias,
+    isCoreFramework,
     isManagedProtocolAllowedForFramework,
     isPiProvider,
     lookupBuiltIn,
@@ -41,6 +43,10 @@ import ShortcutTooltip from '@/components/ShortcutTooltip'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useAnchoredMenuPosition } from '@/hooks/useAnchoredMenuPosition'
 import { useApiClient } from '@/lib/apiClient'
+import {
+    defaultProviderForFramework,
+    frameworkLabel
+} from '@/lib/frameworkMeta'
 import { NetmindMark } from '@/lib/brandMarks'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { publishAgentCredentialsUpdated } from '@/lib/agentCredentialsEvents'
@@ -81,33 +87,6 @@ interface Props {
     onUpdated?: (view: AgentCredentialsView) => void
 }
 
-const FRAMEWORK_LABEL: Record<AgentFramework, string> = {
-    'claude-code': 'Claude Code',
-    codex: 'Codex',
-    'gemini-cli': 'Gemini CLI',
-    pi: 'Pi',
-    openclaw: 'OpenClaw',
-    hermes: 'Hermes Agent',
-    narranexus: 'NarraNexus',
-    dify: 'Dify',
-    langflow: 'Langflow',
-    a2a: 'A2A'
-}
-
-const DEFAULT_PROVIDER_BY_FRAMEWORK: Record<AgentFramework, UserModelProvider> =
-    {
-        'claude-code': 'anthropic',
-        codex: 'openai',
-        'gemini-cli': 'google',
-        pi: 'anthropic',
-        openclaw: 'anthropic',
-        hermes: 'openrouter',
-        narranexus: 'anthropic',
-        dify: 'anthropic',
-        langflow: 'anthropic',
-        a2a: 'anthropic'
-    }
-
 const providerIconSrc: Record<UserModelProvider, string> = {
     anthropic: anthropicIcon,
     openai: openaiIcon,
@@ -139,14 +118,13 @@ const successMessageFor = (
     return t('web.credentials.successUpdatedDefault')
 }
 
-const FRAMEWORK_SUPPORTS_MODEL: Record<AgentFramework, boolean> = {
+const FRAMEWORK_SUPPORTS_MODEL: Record<CoreFramework, boolean> = {
     'claude-code': false,
     codex: false,
     'gemini-cli': true,
     pi: true,
     openclaw: true,
     hermes: true,
-    narranexus: false,
     dify: false,
     langflow: false,
     a2a: false
@@ -327,6 +305,8 @@ const AgentCredentialsDialog: FC<Props> = ({
     // for it here; saving a credential still makes it a platform agent.
     const frameworkModelConfigSupported =
         frameworkUsesModelConfig(framework) && framework !== 'pi'
+    const supportsModelField =
+        isCoreFramework(framework) && FRAMEWORK_SUPPORTS_MODEL[framework]
     const [view, setView] = useState<AgentCredentialsView | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
@@ -357,7 +337,7 @@ const AgentCredentialsDialog: FC<Props> = ({
     const providerHint =
         (framework === 'pi' ? piVendor : null) ??
         view?.provider ??
-        DEFAULT_PROVIDER_BY_FRAMEWORK[framework]
+        defaultProviderForFramework(framework)
     const boundProviderId = view?.savedProvider?.id ?? null
     const filteredSaved = useMemo(
         () =>
@@ -513,8 +493,7 @@ const AgentCredentialsDialog: FC<Props> = ({
         t
     )
     const legacyModelChanged =
-        FRAMEWORK_SUPPORTS_MODEL[framework] &&
-        model.trim() !== initialModel.trim()
+        supportsModelField && model.trim() !== initialModel.trim()
     const modelConfigChanged =
         frameworkModelConfigSupported &&
         useCloudAgentsConfig &&
@@ -806,7 +785,7 @@ const AgentCredentialsDialog: FC<Props> = ({
                 <>
                     {agentName}
                     <span className='text-placeholder'> · </span>
-                    {FRAMEWORK_LABEL[framework]}
+                    {frameworkLabel(framework)}
                 </>
             }
             onClose={onClose}
@@ -855,7 +834,7 @@ const AgentCredentialsDialog: FC<Props> = ({
                     </div>
                     <p className='text-caption text-muted mt-1'>
                         {t('web.credentials.notAvailable', {
-                            framework: FRAMEWORK_LABEL[framework]
+                            framework: frameworkLabel(framework)
                         })}
                     </p>
                 </div>
@@ -959,7 +938,7 @@ const AgentCredentialsDialog: FC<Props> = ({
                         </div>
                     )}
 
-                    {FRAMEWORK_SUPPORTS_MODEL[framework] && (
+                    {supportsModelField && (
                         <section className='space-y-2.5'>
                             <div className='min-w-0'>
                                 <h3 className='text-ui text-fg font-medium'>

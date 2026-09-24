@@ -7,8 +7,8 @@ import type { CSSProperties, FC, ReactNode } from 'react'
    animation classes it uses are scoped to `.landing-root`, not to the world,
    so the figure works anywhere in the marketing register. */
 
-/* What a head can carry: a @lobehub/icons component or the local NarraNexus
-   mark. Both take the same four props and the world needs none of the rest of
+/* What a head can carry: a @lobehub/icons component or a local mark. Both
+   take the same four props and the world needs none of the rest of
    lobehub's icon surface — but it has to be a bare call signature rather than
    an `FC`, because `FC` carries a `propTypes` field no `IconType` satisfies. */
 export type WorldMark = (props: {

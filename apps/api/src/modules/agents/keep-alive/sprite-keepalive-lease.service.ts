@@ -2,6 +2,8 @@ import {
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
     PLATFORM_TASK_PREFIX,
+    UnknownFrameworkError,
+    frameworkDefinition,
     isExternal
 } from '@manyfold/shared'
 import type {
@@ -9,7 +11,7 @@ import type {
     AgentKeepAliveRelease
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { and, eq } from 'drizzle-orm'
 import {
@@ -44,7 +46,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ensureRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-report-token'
 import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
 import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
-import { NARRANEXUS_PORT } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 
 const KEEPALIVE_TTL = '5m'
 const KEEPALIVE_TTL_SEC = 300
@@ -69,7 +71,7 @@ const createGeneration = (): string =>
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
 
-type ServiceFramework = 'hermes' | 'openclaw' | 'narranexus'
+type ServiceFramework = AgentFramework
 type DesiredState = 'running' | 'stopped'
 
 export interface SpriteKeepAliveMetadata {
@@ -129,7 +131,11 @@ export class SpriteKeepAliveLeaseService {
         private readonly telemetry: TelemetryService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly crypto: CryptoService,
-        private readonly config: ConfigService
+        private readonly config: ConfigService,
+        // Appended last + @Optional: frameworks a module registers
+        // (ADR-0034); absent means only the core service frameworks.
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     async install(input: InstallInput): Promise<SpriteKeepAliveMetadata> {
@@ -889,18 +895,22 @@ export class SpriteKeepAliveLeaseService {
     }
 
     // The k8s deployments' readiness probes hit these same paths
-    // unauthenticated in production (hermes /v1/health, openclaw /healthz,
-    // narranexus /healthz) — the reporter's local probe reuses that verified
-    // contract.
+    // unauthenticated in production (hermes /v1/health, openclaw /healthz) —
+    // the reporter's local probe reuses that verified contract. A framework a
+    // module registers declares its own (FrameworkSpriteService.supervision).
     private reportHealthUrlFor(serviceName: ServiceFramework): string {
-        switch (serviceName) {
-            case 'hermes':
-                return `http://127.0.0.1:${HERMES_PORT}/v1/health`
-            case 'openclaw':
-                return `http://127.0.0.1:${OPENCLAW_PORT}/healthz`
-            case 'narranexus':
-                return `http://127.0.0.1:${NARRANEXUS_PORT}/healthz`
-        }
+        if (serviceName === 'hermes')
+            return `http://127.0.0.1:${HERMES_PORT}/v1/health`
+        if (serviceName === 'openclaw')
+            return `http://127.0.0.1:${OPENCLAW_PORT}/healthz`
+        return this.supervisionFor(serviceName).healthUrl
+    }
+
+    private supervisionFor(framework: AgentFramework) {
+        const supervision =
+            this.extensions.get(framework)?.spriteService?.supervision
+        if (!supervision) throw new UnknownFrameworkError(framework)
+        return supervision
     }
 
     private async runCleanup(
@@ -1052,7 +1062,7 @@ export class SpriteKeepAliveLeaseService {
             framework,
             serviceName: framework,
             homeDir,
-            exec: fallbackExec(framework, homeDir),
+            exec: this.fallbackExec(framework, homeDir),
             desiredState: 'stopped'
         })
     }
@@ -1173,11 +1183,17 @@ export class SpriteKeepAliveLeaseService {
     private isServiceFramework(
         framework: string
     ): framework is ServiceFramework {
-        return (
-            framework === 'hermes' ||
-            framework === 'openclaw' ||
-            framework === 'narranexus'
-        )
+        return frameworkDefinition(framework)?.kind === 'service'
+    }
+
+    private fallbackExec(
+        framework: ServiceFramework,
+        homeDir: string
+    ): string[] {
+        if (framework === 'hermes')
+            return [`${homeDir}/hermes-agent/venv/bin/hermes`, 'gateway']
+        if (framework === 'openclaw') return ['openclaw', 'gateway']
+        return this.supervisionFor(framework).fallbackExec(homeDir)
     }
 
     // Full service topology for a runtime, in start (dependency) order —
@@ -1202,6 +1218,15 @@ export class SpriteKeepAliveLeaseService {
         return runtime.kind === 'sprites' && !isExternal(runtime.framework)
     }
 
+    private defaultHomeDir(framework: AgentFramework): string {
+        if (framework === 'hermes') return '/home/sprite/.hermes'
+        if (framework === 'openclaw') return '/home/sprite/.openclaw'
+        return (
+            this.extensions.get(framework)?.spriteService?.supervision
+                .homeDir ?? '/home/sprite'
+        )
+    }
+
     private homeDirFor(
         runtime: AgentRuntimeRow,
         metadata: SpriteKeepAliveMetadata | null
@@ -1209,7 +1234,7 @@ export class SpriteKeepAliveLeaseService {
         return (
             runtime.homeDir ??
             metadata?.stateDir.replace(/\/\.(?:manyfold|nca)\/keepalive$/, '') ??
-            defaultHomeDir(runtime.framework)
+            this.defaultHomeDir(runtime.framework)
         )
     }
 }
@@ -1221,33 +1246,6 @@ const runtimeUnique = (runtimeId: string): string =>
     runtimeId.includes('_')
         ? runtimeId.split('_').slice(1).join('_')
         : runtimeId
-
-const defaultHomeDir = (framework: AgentFramework): string => {
-    switch (framework) {
-        case 'hermes':
-            return '/home/sprite/.hermes'
-        case 'openclaw':
-            return '/home/sprite/.openclaw'
-        case 'narranexus':
-            return '/home/sprite/.narranexus'
-        default:
-            return '/home/sprite'
-    }
-}
-
-const fallbackExec = (
-    framework: ServiceFramework,
-    homeDir: string
-): string[] => {
-    switch (framework) {
-        case 'hermes':
-            return [`${homeDir}/hermes-agent/venv/bin/hermes`, 'gateway']
-        case 'openclaw':
-            return ['openclaw', 'gateway']
-        case 'narranexus':
-            return ['bash', `${homeDir}/app/run.sh`]
-    }
-}
 
 const stripUndefined = (
     input: SpriteKeepAliveMetadata

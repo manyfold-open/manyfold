@@ -4,9 +4,12 @@ import { UnauthorizedException } from '@nestjs/common'
 import { agents as agentsTable, channels as channelsTable } from '@manyfold/db'
 import { AppEventsService } from '../src/common/events/app-events.service'
 import { DaemonRateLimitService } from '../src/modules/daemon/daemon-rate-limit.service'
-import { NarraNexusSyncService } from '../src/modules/narranexus-sync/narranexus-sync.service'
-import { mapChannel, mapJob } from '../src/modules/narranexus-sync/narranexus-sync.mapper'
-import type { NotifySyncDto } from '../src/modules/narranexus-sync/dto/notify-sync.dto'
+import { NarraNexusSyncService } from '../src/modules/narranexus/sync/narranexus-sync.service'
+import {
+    mapChannel,
+    mapJob
+} from '../src/modules/narranexus/sync/narranexus-sync.mapper'
+import type { NotifySyncDto } from '../src/modules/narranexus/sync/dto/notify-sync.dto'
 
 const TOKEN = 'b'.repeat(64)
 const IP = '203.0.113.9'

@@ -340,8 +340,8 @@ export class AgentReconcileService {
             } else {
                 // Only service frameworks reach this listing (coding
                 // frameworks take the fast path above), and they list their
-                // own state: an agent created outside Manyfold (NarraNexus /
-                // hermes / openclaw own UI) is real and must be adopted —
+                // own state: an agent created outside Manyfold (in the
+                // framework's own UI) is real and must be adopted —
                 // everything keyed off its internalId (managed automations,
                 // managed channels) can only mirror once a row exists (#462).
                 const newAgent: NewAgent = {

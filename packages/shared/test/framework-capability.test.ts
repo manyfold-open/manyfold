@@ -5,6 +5,10 @@ import {
     isServiceFrameworkName,
     PLATFORM_TASK_PREFIX
 } from '../src/framework-capability'
+import { narraNexusFrameworkDefinition } from '../src/frameworks/narranexus'
+import { registerFramework } from '../src/frameworks/registry'
+
+registerFramework(narraNexusFrameworkDefinition)
 
 // The host-detail "Services" surface must never let a user delete Manyfold's
 // own framework services — deleting one breaks the agent it runs. Only

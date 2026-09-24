@@ -1,5 +1,7 @@
+import { isCoreFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
+    CoreFramework,
     UserModelProvider
 } from '@manyfold/shared'
 import type { FC } from 'react'
@@ -12,14 +14,15 @@ import {
     GeminiCLIColor,
     HermesAgentMono,
     OpenClawColor,
+    PiMono,
     type IconType
 } from '@/lib/brandIcons'
-import nexusLightIcon from '@/assets/agent-logos/nexus-light.svg'
-import nexusDarkIcon from '@/assets/agent-logos/nexus-dark.svg'
+import {
+    frameworkPresentation,
+    type FrameworkPresentation
+} from '@/lib/frameworkPresentation'
 import a2aLightIcon from '@/assets/agent-logos/a2a-light.svg'
 import a2aDarkIcon from '@/assets/agent-logos/a2a-dark.svg'
-import piLightIcon from '@/assets/agent-logos/pi-light.svg'
-import piDarkIcon from '@/assets/agent-logos/pi-dark.svg'
 // Local copy of the Langflow GitHub avatar, sized for its largest rendered
 // use (~22px @3x): no third-party request on the landing critical path.
 import langflowIcon from '@/assets/agent-logos/langflow.png'
@@ -68,10 +71,10 @@ const frameworkMeta = {
     },
     pi: {
         labelKey: 'web.frameworks.pi',
-        Icon: null,
-        mono: false,
-        iconSrc: piLightIcon,
-        iconSrcDark: piDarkIcon,
+        Icon: PiMono,
+        mono: true,
+        iconSrc: null,
+        iconSrcDark: null,
         // Like hermes: options come from the bound provider's models at
         // runtime — the id a gateway serves is not a vendor preset.
         supportsModelOverride: true,
@@ -101,16 +104,6 @@ const frameworkMeta = {
         supportsModelOverride: true,
         modelPresets: [],
         defaultProvider: 'openrouter'
-    },
-    narranexus: {
-        labelKey: 'web.frameworks.narraNexus',
-        Icon: null,
-        mono: false,
-        iconSrc: nexusLightIcon,
-        iconSrcDark: nexusDarkIcon,
-        supportsModelOverride: false,
-        modelPresets: [],
-        defaultProvider: 'anthropic'
     },
     dify: {
         labelKey: 'web.frameworks.dify',
@@ -142,17 +135,48 @@ const frameworkMeta = {
         modelPresets: [],
         defaultProvider: 'anthropic'
     }
-} satisfies Record<AgentFramework, FrameworkMeta>
+} satisfies Record<CoreFramework, FrameworkMeta>
 
-export const frameworkLabel = (framework: AgentFramework): string =>
-    t(frameworkMeta[framework].labelKey)
+const presentedMeta = (presentation: FrameworkPresentation): FrameworkMeta => ({
+    labelKey: presentation.labelKey,
+    Icon: null,
+    mono: false,
+    iconSrc: presentation.icon.light,
+    iconSrcDark: presentation.icon.dark ?? null,
+    supportsModelOverride: false,
+    modelPresets: [],
+    defaultProvider: 'anthropic'
+})
+
+// undefined for a framework id this build does not know: it still renders,
+// as its raw id and an empty icon slot.
+const metaFor = (framework: AgentFramework): FrameworkMeta | undefined => {
+    if (isCoreFramework(framework)) return frameworkMeta[framework]
+    const presentation = frameworkPresentation(framework)
+    return presentation ? presentedMeta(presentation) : undefined
+}
+
+export const frameworkLabel = (framework: AgentFramework): string => {
+    const meta = metaFor(framework)
+    return meta ? t(meta.labelKey) : framework
+}
 
 export const FrameworkLogo: FC<{
     framework: AgentFramework
     size?: number
     className?: string
 }> = ({ framework, size = 28, className }) => {
-    const meta = frameworkMeta[framework]
+    const meta = metaFor(framework)
+    if (!meta)
+        return (
+            <span
+                className={['inline-flex shrink-0', className]
+                    .filter(Boolean)
+                    .join(' ')}
+                style={{ width: size, height: size }}
+                aria-hidden='true'
+            />
+        )
     if (meta.Icon) {
         const Icon = meta.Icon
         return (
@@ -223,7 +247,9 @@ export const supportsModelOverride = (
         typeof frameworkOrAgent === 'string'
             ? frameworkOrAgent
             : frameworkOrAgent?.framework
-    return framework ? frameworkMeta[framework].supportsModelOverride : false
+    return framework
+        ? (metaFor(framework)?.supportsModelOverride ?? false)
+        : false
 }
 
 export const modelOptionsForAgent = (
@@ -233,14 +259,14 @@ export const modelOptionsForAgent = (
     if (!agent || !supportsModelOverride(agent.framework)) return []
     return uniqueModels([
         ...(agent.model ? [agent.model] : []),
-        ...frameworkMeta[agent.framework].modelPresets,
+        ...(metaFor(agent.framework)?.modelPresets ?? []),
         ...extraModels
     ])
 }
 
 export const defaultProviderForFramework = (
     framework: AgentFramework
-): UserModelProvider => frameworkMeta[framework].defaultProvider
+): UserModelProvider => metaFor(framework)?.defaultProvider ?? 'anthropic'
 
 const uniqueModels = (models: Array<string | null | undefined>): string[] => {
     const seen = new Set<string>()

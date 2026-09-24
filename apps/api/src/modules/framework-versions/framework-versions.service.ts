@@ -426,8 +426,8 @@ export class FrameworkVersionsService implements OnModuleInit {
         }
     }
 
-    // GitHub tags drive the catalog for git-installed frameworks
-    // (narranexus, hermes). There's no dist-tag "latest" — the newest semver
+    // GitHub tags drive the catalog for git-installed frameworks (hermes and
+    // any rebuild-mode framework). There's no dist-tag "latest" — the newest semver
     // tag wins. hermes may have no semver tags, in which case it stays empty
     // (display shows whatever the on-sprite probe reports, e.g. a git sha).
     private async fetchGithub(repo: string): Promise<FetchedVersions | null> {

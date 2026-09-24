@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import {
     agents,
     agentCredentials,
@@ -7,7 +8,8 @@ import {
     type Agent
 } from '@manyfold/db'
 import {
-    frameworkCapabilities,
+    frameworkCapability,
+    listFrameworks,
     type AgentFramework,
     type AgentRuntime
 } from '@manyfold/shared'
@@ -130,7 +132,8 @@ const rig = (
     return { factory, agent, calls, workspaces, awakeReleases: () => awakeReleases }
 }
 
-for (const [framework, capability] of Object.entries(frameworkCapabilities)) {
+for (const framework of listFrameworks()) {
+    const capability = frameworkCapability(framework)
     if (capability.kind === 'external') continue
     for (const runtime of capability.runtimes) {
         test(`${framework} on ${runtime} requires its runner without rollout configuration`, async () => {

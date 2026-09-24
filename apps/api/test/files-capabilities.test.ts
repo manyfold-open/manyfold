@@ -3,6 +3,7 @@ import {
     FILES_UPLOAD_MAX_BYTES
 } from '@manyfold/shared'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import assert from 'node:assert/strict'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { Agent, FileRoot } from '@manyfold/db'

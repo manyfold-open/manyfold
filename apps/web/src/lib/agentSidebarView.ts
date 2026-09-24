@@ -1,7 +1,4 @@
-import {
-    agentFramework,
-    runtimeKindLabel
-} from '@manyfold/shared'
+import { isRegisteredFramework, runtimeKindLabel } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
 
@@ -322,8 +319,6 @@ const isGroupKey = (value: unknown): value is AgentGroupKey =>
 const isSortKey = (value: unknown): value is AgentSortKey =>
     typeof value === 'string' && (agentSortKeys as string[]).includes(value)
 
-const validFrameworks = new Set<string>(Object.values(agentFramework))
-
 export const normalizeAgentsViewConfig = (
     raw: unknown
 ): AgentsViewConfig => {
@@ -333,9 +328,8 @@ export const normalizeAgentsViewConfig = (
         ? value.hosts.filter((h): h is string => typeof h === 'string')
         : []
     const frameworks = Array.isArray(value.frameworks)
-        ? value.frameworks.filter(
-              (f): f is AgentFramework =>
-                  typeof f === 'string' && validFrameworks.has(f)
+        ? value.frameworks.filter((f): f is AgentFramework =>
+              isRegisteredFramework(f)
           )
         : []
     return {

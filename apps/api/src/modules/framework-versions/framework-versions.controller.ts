@@ -1,7 +1,8 @@
 import {
     FrameworkVersionCatalogEntry,
     VersionedFramework,
-    isVersionedFramework
+    isVersionedFramework,
+    listVersionedFrameworks
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -33,7 +34,7 @@ export class FrameworkVersionsController {
     private requireFramework(value: string): VersionedFramework {
         if (!isVersionedFramework(value))
             throw new BadRequestException(
-                'framework must be one of: claude-code, codex, gemini-cli, openclaw, hermes, narranexus'
+                `framework must be one of: ${listVersionedFrameworks().join(', ')}`
             )
         return value
     }

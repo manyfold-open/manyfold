@@ -1,11 +1,12 @@
 import {
     DAEMON_DETECTABLE_FRAMEWORKS,
     frameworkCapability,
+    frameworkKind,
     frameworkUpgradeAvailable,
     isDevCliVersion,
     isVersionedFramework,
-    runtimeKindLabel,
-    versionedFrameworks
+    listVersionedFrameworks,
+    runtimeKindLabel
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -571,8 +572,8 @@ const HostKindIcon: FC<{ kind: RuntimeKind; className?: string }> = ({
 
 // A framework NOT yet provisioned on this host. Any framework can be provisioned
 // into a sandbox in place, with one exception: a sprite exposes a single public
-// port, so it hosts at most one service framework (openclaw/hermes/narranexus) —
-// `serviceOccupant` names the one already there. Self-owned machines are
+// port, so it hosts at most one service framework — `serviceOccupant` names
+// the one already there. Self-owned machines are
 // detect-only, so we point at the official install guide instead. Empty version
 // selection = latest. Provisioned frameworks live in "Runtimes".
 const AvailableFrameworkRow: FC<{
@@ -1210,16 +1211,16 @@ const HostDetailPanel: FC<{
     const serviceOccupant =
         vm.runtimes.find(
             (r) =>
-                frameworkCapability(r.framework).kind === 'service' &&
+                frameworkKind(r.framework) === 'service' &&
                 r.status !== 'failed' &&
                 r.status !== 'stopped'
         )?.framework ?? null
     // A daemon lists every framework it can detect + run (5); a sandbox lists
-    // every framework that runs on a sprite (the 6 versioned ones — coding +
-    // openclaw/hermes/narranexus), so nothing provisioned stays hidden.
+    // every framework that runs on a sprite (every versioned one — the coding
+    // CLIs plus the service frameworks), so nothing provisioned stays hidden.
     const frameworkList: VersionedFramework[] = host
         ? DAEMON_DETECTABLE_FRAMEWORKS
-        : [...versionedFrameworks]
+        : [...listVersionedFrameworks()]
     const availableFrameworks = frameworkList.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )

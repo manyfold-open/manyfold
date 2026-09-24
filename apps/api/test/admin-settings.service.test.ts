@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import { appSettings, auditLogs } from '@manyfold/db'
 import { AdminSettingsService } from '../src/modules/admin-settings/admin-settings.service'
 

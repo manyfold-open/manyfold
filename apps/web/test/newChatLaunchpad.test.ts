@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { tForLanguage } from '@manyfold/i18n'
+import { listFrameworks, schedulesMirrored } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import {
     channelPoolFor,
@@ -8,18 +9,9 @@ import {
     newChatLaunchpadConfigFor,
     pickChannelProvider
 } from '../src/lib/newChatLaunchpad'
+import './fixture-framework'
 
-const FRAMEWORKS = [
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'hermes',
-    'openclaw',
-    'narranexus',
-    'dify',
-    'langflow',
-    'a2a'
-] as const
+const FRAMEWORKS = listFrameworks()
 
 const configFor = (framework: AgentFramework) => {
     const config = newChatLaunchpadConfigFor(framework)
@@ -59,10 +51,16 @@ test('the channel draw stays inside the pool its market uses', () => {
     }
 })
 
-test('narranexus is never offered a schedule it cannot run', () => {
-    // CreateAutomationModal filters narranexus out of its runnable agents, so
-    // the row would open a form that silently targets a different agent.
-    assert.ok(!configFor('narranexus').actionIds.includes('automation'))
+test('a framework that runs its own schedules is never offered one', () => {
+    // CreateAutomationModal filters its agents out of the runnable ones, so the
+    // row would open a form that silently targets a different agent.
+    const mirrored = FRAMEWORKS.filter(schedulesMirrored)
+    assert.ok(mirrored.length > 0)
+    for (const framework of mirrored)
+        assert.ok(
+            !configFor(framework).actionIds.includes('automation'),
+            framework
+        )
 })
 
 test('an unknown framework costs the launchpad, not the chat page', () => {

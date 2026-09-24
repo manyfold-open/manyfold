@@ -1,25 +1,26 @@
 import {
     AgentFramework,
     ChatCapabilities,
-    agentFramework,
-    chatCapabilitiesByFramework
+    chatCapabilitiesFor,
+    listFrameworks
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import { ChatAdapterRegistry } from '../src/modules/chat/adapters/adapter-registry.service'
-import { FakeEchoAdapter } from '../src/modules/chat/adapters/fake-echo.adapter'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
+import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
 import {
     A2aChatAdapter,
     DifyChatAdapter,
     LangflowChatAdapter
 } from '../src/modules/chat/adapters/external-api.adapter'
+import { extensionsWith } from './helpers/framework-extensions-stub'
 
 // A framework declares its chat capabilities twice: in the shared table every
 // client reads, and in its adapter's getCapabilities(). Both were written the
@@ -29,7 +30,7 @@ import {
 // in production calls getCapabilities(), so nothing executed the second copy
 // and nothing compared them. This file is that missing signal.
 
-const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
+const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
 // No getCapabilities() implementation touches an injected dependency, so every
 // dependency here is a placeholder: the registry is built to answer WHICH
@@ -37,7 +38,7 @@ const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
 const dep = {} as never
 
 // dify, langflow and a2a share one ExternalApiChatAdapter whose
-// getCapabilities() returns `chatCapabilitiesByFramework[this.framework]` — the
+// getCapabilities() returns `chatCapabilitiesFor(this.framework)` — the
 // table itself. Their rows below are therefore compared against themselves and
 // cannot fail today, which is the end state this whole file argues for: one
 // source per framework. They stay in the loop rather than being excluded from
@@ -48,24 +49,25 @@ const SELF_SOURCED: AgentFramework[] = ['dify', 'langflow', 'a2a']
 
 const buildRegistry = (): ChatAdapterRegistry =>
     new ChatAdapterRegistry(
-        new FakeEchoAdapter(),
         new ClaudeCodeAdapter(dep, dep),
         new OpenclawAdapter(dep, dep, dep, dep, dep, dep),
         new CodexAdapter(dep, dep, dep),
         new GeminiCliAdapter(dep, dep, dep),
         new PiAdapter(dep, dep, dep),
         new HermesAdapter(dep, dep, dep, dep, dep),
-        new NarraNexusChatAdapter(dep, dep, dep, dep, dep, dep),
         new DifyChatAdapter(dep, dep, dep),
         new LangflowChatAdapter(dep, dep, dep),
-        new A2aChatAdapter(dep, dep, dep)
+        new A2aChatAdapter(dep, dep, dep),
+        extensionsWith({
+            framework: 'narranexus',
+            chatAdapter: new NarraNexusChatAdapter(dep, dep, dep, dep, dep, dep)
+        })
     )
 
 test('every framework resolves to its own registered adapter', () => {
-    // get() answers with the fake-echo fallback for an unregistered framework,
-    // and that fallback declares itself claude-code — so without this the
-    // comparison below could pass against an adapter that never serves the
-    // turn.
+    // has() first: get() throws for an unregistered framework, and the
+    // comparison below must never run against an adapter that does not serve
+    // the turn.
     const registry = buildRegistry()
     for (const framework of ALL_FRAMEWORKS) {
         assert.equal(
@@ -93,7 +95,7 @@ test('exactly the known frameworks declare capabilities by reading the shared ro
     const selfSourced = ALL_FRAMEWORKS.filter(
         (framework) =>
             registry.get(framework).getCapabilities() ===
-            chatCapabilitiesByFramework[framework]
+            chatCapabilitiesFor(framework)
     )
     assert.deepEqual([...selfSourced].sort(), [...SELF_SOURCED].sort())
 })
@@ -103,7 +105,7 @@ test('the shared capability row equals the adapter getCapabilities(), field for 
     const drift: string[] = []
     for (const framework of ALL_FRAMEWORKS) {
         const declared = registry.get(framework).getCapabilities()
-        const shared = chatCapabilitiesByFramework[framework]
+        const shared = chatCapabilitiesFor(framework)
         // The union of both key sets, not ChatCapabilities' keys: a field one
         // side grew and the other did not is drift the type cannot see.
         const fields = new Set([

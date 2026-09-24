@@ -1,7 +1,7 @@
 import {
     MF_RUNTIME_IDENTITY_ENV_KEYS,
-    agentFramework,
-    frameworkCapabilities,
+    frameworkCapability,
+    listFrameworks,
     supportsRuntime
 } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
@@ -30,8 +30,9 @@ import {
     EXTRAS_MARKERS,
     withEnv
 } from './exec-env-harness'
+import { extensionsWith } from './helpers/framework-extensions-stub'
 
-const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
+const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
 // Integrity of the exec env surface contract itself: that the vocabulary is
 // pinned, that the table covers every framework × runtime the platform claims
@@ -69,7 +70,7 @@ test('every framework × supported runtime has at least one declared surface', (
     // runtime cannot be added without landing here first.
     const missing: string[] = []
     for (const framework of ALL_FRAMEWORKS) {
-        for (const runtime of frameworkCapabilities[framework].runtimes) {
+        for (const runtime of frameworkCapability(framework).runtimes) {
             if (execEnvSurfacesFor(framework, runtime).length === 0)
                 missing.push(`${framework} × ${runtime}`)
         }
@@ -79,7 +80,7 @@ test('every framework × supported runtime has at least one declared surface', (
 
 test('each coding runtime has exactly one daemon-carried surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
-        const capability = frameworkCapabilities[framework]
+        const capability = frameworkCapability(framework)
         if (capability.kind !== 'coding') continue
         for (const runtime of capability.runtimes) {
             const rows = execEnvSurfacesFor(framework, runtime)
@@ -111,7 +112,7 @@ test('every runner-exec surface carries the full per-exec base env', () => {
 
 test('external frameworks declare exactly one all-absent provider surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
-        if (frameworkCapabilities[framework].kind !== 'external') continue
+        if (frameworkCapability(framework).kind !== 'external') continue
         const rows = execEnvSurfaces.filter(
             (surface) => surface.framework === framework
         )
@@ -138,7 +139,6 @@ test('every framework with an exec surface is registered in the chat adapter reg
     const stub = (framework: AgentFramework): never =>
         ({ framework }) as unknown as never
     const registry = new ChatAdapterRegistry(
-        stub('claude-code'),
         buildAdapter(seam, {
             framework: 'claude-code',
             runtime: 'sprites'
@@ -157,13 +157,16 @@ test('every framework with an exec surface is registered in the chat adapter reg
             framework: 'hermes',
             runtime: 'sprites'
         }) as never,
-        buildAdapter(seam, {
-            framework: 'narranexus',
-            runtime: 'sprites'
-        }) as never,
         stub('dify'),
         stub('langflow'),
-        stub('a2a')
+        stub('a2a'),
+        extensionsWith({
+            framework: 'narranexus',
+            chatAdapter: buildAdapter(seam, {
+                framework: 'narranexus',
+                runtime: 'sprites'
+            }) as never
+        })
     )
     for (const framework of ALL_FRAMEWORKS) {
         assert.equal(

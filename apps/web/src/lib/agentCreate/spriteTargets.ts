@@ -1,16 +1,15 @@
-import { frameworkCapability } from '@manyfold/shared'
+import { frameworkKind } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntimeSummary,
     SandboxSummary
 } from '@manyfold/shared'
 
-// A sprite exposes ONE public port, and every service-kind framework
-// (openclaw / hermes / narranexus) serves its gateway on it, so a sandbox hosts
-// at most one of them. Coding frameworks need no port and mix freely. Mirrors
+// A sprite exposes ONE public port, and every service-kind framework serves
+// its gateway on it, so a sandbox hosts at most one of them. Coding frameworks need no port and mix freely. Mirrors
 // the API's gate in runtime-access.service.ts.
 const isServiceFramework = (framework: AgentFramework): boolean =>
-    frameworkCapability(framework).kind === 'service'
+    frameworkKind(framework) === 'service'
 
 export interface SpriteReuseTarget {
     type: 'reuse'

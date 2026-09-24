@@ -1,4 +1,5 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
+import { worksWithEditionFrameworks } from '@/seo/worksWithEdition'
 // Shared between the interactive landing page and the build-time landing
 // snapshot so the crawler HTML and the hydrated page cannot drift.
 
@@ -126,7 +127,7 @@ export const WORKS_WITH_ROWS: ReadonlyArray<{
             { name: 'Pi', framework: 'pi' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
-            { name: 'NarraNexus', framework: 'narranexus' },
+            ...worksWithEditionFrameworks,
             { name: 'Dify', framework: 'dify' },
             { name: 'Langflow', framework: 'langflow' },
             { name: 'A2A', framework: 'a2a' }

@@ -4,14 +4,13 @@ import {
     DaemonHostSummary,
     ExternalAgentProviderKind,
     K8S_HOME_BASE,
-    NARRANEXUS_K8S_BASE_WORKING_PATH,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     OFFICIAL_PROVIDER_BASE_URL,
     SPRITE_HOME_BASE,
     UserExternalAgentProviderSummary,
     UserModelProvider,
     UserModelProviderSummary,
     brandFor,
+    credentialsManagedByRuntime,
     defaultProtocolForProvider,
     externalSteps,
     frameworkSupportsProtocol,
@@ -57,7 +56,7 @@ import ExternalProviderDialog from '@/components/ExternalProviderDialog'
 import { BrandMark } from '@/components/Brand'
 import {
     CAPABILITY_ICON,
-    FRAMEWORK_CAPABILITIES
+    capabilitiesFor
 } from '@/pages/AgentNew/v3/capabilities'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
 import { SandboxSlots } from '@/pages/AgentNew/components/SandboxSlots'
@@ -91,7 +90,7 @@ import {
     isExternalFramework,
     persistentModelProvidersFor,
     reuseRuntimeKindsFor,
-    REUSE_FRAMEWORKS,
+    reusesRuntimes,
     remoteIdHintFor,
     remoteIdLabelFor,
     remoteIdPlaceholderFor,
@@ -100,6 +99,7 @@ import {
     type RuntimeMode
 } from '@/lib/agentCreate/frameworkOptions'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
+import { presentedWorkspacePath } from '@/lib/frameworkPresentation'
 import {
     collapseManagedChannels,
     openclawWorkspaceFor,
@@ -232,9 +232,12 @@ const defaultWorkspaceFor = (
 ): string => {
     const home = runtimeMode === 'persistent' ? K8S_HOME_BASE : SPRITE_HOME_BASE
     if (framework === 'openclaw') return `${home}/.openclaw/workspace`
-    if (framework === 'narranexus')
-        return `${runtimeMode === 'persistent' ? NARRANEXUS_K8S_BASE_WORKING_PATH : NARRANEXUS_SPRITE_BASE_WORKING_PATH}/{agent-id}_<mf-user>`
-    return `${home}/.manyfold/workspaces/{agent-id}`
+    return (
+        presentedWorkspacePath(
+            framework,
+            runtimeMode === 'persistent' ? 'k8s' : 'sprites'
+        ) ?? `${home}/.manyfold/workspaces/{agent-id}`
+    )
 }
 
 const rowClass = (active: boolean, disabled = false): string =>
@@ -277,7 +280,7 @@ const CardHeader: FC<{ title: string; right?: ReactNode }> = ({
 
 const AgentNewV3: FC = (): ReactNode => {
     const { t } = useI18n()
-    const localizedFrameworkOptions = frameworkOptions.map((option) => ({
+    const localizedFrameworkOptions = frameworkOptions().map((option) => ({
         ...option,
         description: t(option.descriptionKey)
     }))
@@ -437,7 +440,7 @@ const AgentNewV3: FC = (): ReactNode => {
             runtimes.filter(
                 (r) =>
                     r.framework === framework &&
-                    REUSE_FRAMEWORKS.has(r.framework) &&
+                    reusesRuntimes(r.framework) &&
                     r.kind !== null &&
                     reuseRuntimeKindsFor(r.framework).has(r.kind) &&
                     r.status === 'ready'
@@ -776,13 +779,11 @@ const AgentNewV3: FC = (): ReactNode => {
     ): string => {
         if (runtime.framework === 'openclaw')
             return openclawWorkspaceFor(runtime, normalizedName)
-        if (runtime.framework === 'narranexus') {
-            const base =
-                runtime.kind === 'sprites'
-                    ? NARRANEXUS_SPRITE_BASE_WORKING_PATH
-                    : NARRANEXUS_K8S_BASE_WORKING_PATH
-            return `${base}/{agent-id}_<mf-user>`
-        }
+        const presented = presentedWorkspacePath(
+            runtime.framework,
+            runtime.kind
+        )
+        if (presented) return presented
         if (runtime.kind === 'daemon') {
             const base =
                 runtime.workspaceBaseDir ??
@@ -838,7 +839,7 @@ const AgentNewV3: FC = (): ReactNode => {
           (framework !== 'langflow' || externalRemoteId.trim().length > 0)
         : runtimeMode === 'existing'
           ? pickedRuntime !== null
-          : framework === 'narranexus'
+          : credentialsManagedByRuntime(framework)
             ? true
             : isConfigurable
               ? pickerIsValid(picker) &&
@@ -874,7 +875,7 @@ const AgentNewV3: FC = (): ReactNode => {
         if (!advanced) {
             if (isExternal) return providerComplete
             if (sandboxLimitReached) return false
-            if (framework === 'narranexus') return true
+            if (credentialsManagedByRuntime(framework)) return true
             if (
                 framework === 'openclaw' &&
                 primaryModelName.trim().length === 0
@@ -1044,7 +1045,7 @@ const AgentNewV3: FC = (): ReactNode => {
             </span>
         )
     }))
-    const capabilities = FRAMEWORK_CAPABILITIES[framework] ?? []
+    const capabilities = capabilitiesFor(framework)
     const isFirstAgent = agents.length === 0
 
     const managedRightLabel = ((): ManagedRightLabel | undefined => {
@@ -1999,7 +2000,7 @@ const AgentNewV3: FC = (): ReactNode => {
                     )}
                 </div>
             )}
-            {framework !== 'narranexus' && (
+            {!credentialsManagedByRuntime(framework) && (
                 <div className='flex items-center gap-3 py-2.5'>
                     <span className='text-subtle text-caption w-28 shrink-0'>
                         {t('web.agentNewV3.creditLabel')}

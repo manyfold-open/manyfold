@@ -2,6 +2,7 @@ import {
     OFFICIAL_PROVIDER_BASE_URL,
     PI_PROTOCOL_BY_PROVIDER,
     PI_PROVIDERS,
+    credentialsManagedByRuntime,
     builtInBaseUrlForProtocol,
     builtInSupportsProtocol,
     defaultProtocolForProvider,
@@ -192,13 +193,14 @@ export class CredentialsResolverService {
                 value
             }
         }
-        if (dto.framework === 'narranexus') {
+        // The runtime manages its own model credentials in its own UI: an
+        // empty payload, for the same reasons as above.
+        if (credentialsManagedByRuntime(dto.framework))
             return {
-                framework: 'narranexus',
+                framework: dto.framework,
                 providerId: null,
                 value: {}
-            }
-        }
+            } as ResolvedAgentCredentials
         if (dto.framework === 'dify') {
             const providerId = dto.difyBinding?.providerId
             if (!providerId)

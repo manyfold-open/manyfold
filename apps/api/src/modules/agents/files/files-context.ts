@@ -1,6 +1,6 @@
 import {
     DAEMON_FEATURE_FS_WRITE_BINARY,
-    SPRITE_HOME_BASE
+    frameworkDefinition
 } from '@manyfold/shared'
 import type {
     FileRootCapabilitiesSdk,
@@ -15,7 +15,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
-    ServiceUnavailableException
+    Optional
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import {
@@ -40,20 +40,11 @@ import {
     type SpritesClient
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { CryptoService } from '@/modules/secrets/crypto.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import { PodExecFactory } from '@/modules/k8s/pod-exec'
 import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
-import { loadNarraNexusGatewayToken } from '@/modules/narranexus/narranexus-http'
-import {
-    narraNexusListDir,
-    narraNexusListRoots,
-    narraNexusRead,
-    narraNexusStat,
-    narraNexusWrite
-} from '@/modules/narranexus/narranexus-files-client'
 import {
     HOME_ROOT_ID,
     buildFileRoots,
@@ -84,6 +75,7 @@ import {
     type UploadBound
 } from '@/modules/agents/files/files-upload'
 import { resolveImageContentType } from '@/modules/agents/files/files-content-type'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 
 export interface FilesContext {
     agent: Agent
@@ -160,40 +152,6 @@ const deriveHomeFromStored = (stored: FileRoot[]): string | undefined => {
     return undefined
 }
 
-const storedRootPath = (agent: Agent, rootId: string): string | null => {
-    const stored = Array.isArray(agent.fileRoots) ? agent.fileRoots : []
-    return stored.find((r) => r.id === rootId)?.path || null
-}
-
-// Only the workspace path comes from NarraNexus. The two sprite-side roots are
-// Manyfold's own knowledge of the sandbox image, and every root stays
-// writable: false — the gateway's write endpoint is reachable from chat
-// attachment ingest only, never from the file controllers.
-const narraNexusRootShape = (agent: Agent, workspacePath: string): FileRoot[] => {
-    const workspace: FileRoot = {
-        id: 'workspace',
-        label: 'Workspace',
-        path: workspacePath,
-        writable: false
-    }
-    if (agent.runtime !== 'sprites') return [workspace]
-    return [
-        workspace,
-        {
-            id: 'narranexus-home',
-            label: 'NarraNexus config',
-            path: `${SPRITE_HOME_BASE}/.narranexus`,
-            writable: false
-        },
-        {
-            id: HOME_ROOT_ID,
-            label: 'Home',
-            path: SPRITE_HOME_BASE,
-            writable: false
-        }
-    ]
-}
-
 const POD_CACHE_TTL_MS = 60_000
 
 interface CachedPod {
@@ -201,23 +159,10 @@ interface CachedPod {
     expiresAt: number
 }
 
-// Long enough that a Files-page session costs one lookup, short enough that a
-// workspace layout change on the NarraNexus side heals without a restart.
-const NARRANEXUS_ROOTS_TTL_MS = 5 * 60_000
-
-interface CachedNarraNexusRoots {
-    roots: FileRoot[]
-    expiresAt: number
-}
-
 @Injectable()
 export class FilesContextBuilder {
     private readonly log = new Logger(FilesContextBuilder.name)
     private readonly podCache = new Map<string, CachedPod>()
-    private readonly narraNexusRootsCache = new Map<
-        string,
-        CachedNarraNexusRoots
-    >()
 
     constructor(
         private readonly accounts: SpritesAccountsService,
@@ -226,7 +171,10 @@ export class FilesContextBuilder {
         private readonly podExecFactory: PodExecFactory,
         private readonly daemonRegistry: DaemonRegistryService,
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly crypto: CryptoService
+        // Appended last + @Optional: frameworks whose files their own API
+        // serves (ADR-0034); absent means only the core frameworks.
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     private async resolvePodCached(
@@ -246,12 +194,8 @@ export class FilesContextBuilder {
     }
 
     async resolveRoots(agent: Agent): Promise<FileRoot[]> {
-        // NarraNexus's gateway file API serves only the per-agent workspace
-        // (read-only); ~/.narranexus and the sprite home sit outside that lock,
-        // so on sprites we add them as read-only roots browsed via direct
-        // sprite access instead of the gateway
-        if (agent.framework === 'narranexus')
-            return await this.narraNexusRoots(agent)
+        const provider = this.extensions.get(agent.framework)?.files
+        if (provider) return await provider.resolveRoots(agent)
         const stored = Array.isArray(agent.fileRoots) ? agent.fileRoots : []
         if (stored.length > 0 && this.storedShapeIsCurrent(agent, stored))
             return stored
@@ -371,161 +315,40 @@ export class FilesContextBuilder {
             throw new NotFoundException(
                 `external-runtime agents have no filesystem`
             )
-        if (agent.framework === 'narranexus') {
-            const root = pickRoot(await this.resolveRoots(agent), rootId)
+        const provider = this.extensions.get(agent.framework)?.files
+        if (provider) {
+            // The framework owns these roots' layout: nothing is created, and a
+            // root it does not serve itself falls to the runtime's transport.
+            const root = pickRoot(await provider.resolveRoots(agent), rootId)
             const ctx =
-                root.id === 'workspace'
-                    ? await this.narraNexusCtx(agent, root)
-                    : await this.spriteCtx(agent, root)
+                (await provider.buildContext(agent, root)) ??
+                (await this.runtimeCtx(agent, root))
             return withImageContentTypeFallback(ctx)
         }
         const roots = await this.resolveRoots(agent)
         const root = pickRoot(roots, rootId)
-        const ctx =
-            agent.runtime === 'sprites'
-                ? await this.spriteCtx(agent, root)
-                : agent.runtime === 'daemon'
-                  ? await this.daemonCtx(agent, root)
-                  : await this.k8sCtx(agent, root)
+        const ctx = await this.runtimeCtx(agent, root)
         await this.ensureRootExists(agent, root, ctx)
         return withImageContentTypeFallback(ctx)
     }
 
-    // The workspace layout is NarraNexus's to define and it has changed at
-    // least once. Asking the gateway is the only way to stay correct across
-    // that: a locally derived path silently addresses the wrong directory, and
-    // every file call then fails the far side's containment check with 403
-    // "path escapes workspace" rather than anything that reads as a layout
-    // problem. The seed we compute at provisioning time is a bootstrap value,
-    // never an answer — see narraNexusSeedWorkspacePath.
-    private async narraNexusRoots(agent: Agent): Promise<FileRoot[]> {
-        const cached = this.narraNexusRootsCache.get(agent.id)
-        if (cached && cached.expiresAt > Date.now()) return cached.roots
-        const fetched = await this.narraNexusWorkspaceFromGateway(agent)
-        if (fetched === null) {
-            // Last known good beats a fresh guess: the guess is what this whole
-            // path exists to stop trusting.
-            const stored = storedRootPath(agent, 'workspace')
-            if (!stored)
-                throw new ServiceUnavailableException(
-                    `narranexus workspace layout for agent ${agent.id} is unknown — the gateway did not answer /files/roots`
-                )
-            return narraNexusRootShape(agent, stored)
-        }
-        const roots = narraNexusRootShape(agent, fetched)
-        this.narraNexusRootsCache.set(agent.id, {
-            roots,
-            expiresAt: Date.now() + NARRANEXUS_ROOTS_TTL_MS
-        })
-        await this.persistNarraNexusWorkspace(agent, roots, fetched)
-        return roots
+    // Where a terminal opens when the caller names no directory.
+    defaultTerminalCwd(agent: Agent): string {
+        const fromProvider = this.extensions
+            .get(agent.framework)
+            ?.files?.defaultTerminalCwd?.(agent)
+        if (fromProvider) return fromProvider
+        if (agent.runtime === 'daemon' && agent.workspacePath)
+            return agent.workspacePath
+        return agent.mountPath
     }
 
-    private async narraNexusWorkspaceFromGateway(
-        agent: Agent
-    ): Promise<string | null> {
-        try {
-            const roots = await narraNexusListRoots(
-                await this.narraNexusTarget(agent)
-            )
-            const workspace =
-                roots.find((r) => r.id === 'workspace') ?? roots[0]
-            const path = workspace?.path?.trim()
-            return path && path.startsWith('/') ? path : null
-        } catch (err) {
-            this.log.warn(
-                `narranexus files/roots failed for agent ${agent.id}: ${(err as Error).message}`
-            )
-            return null
-        }
-    }
-
-    // agent.fileRoots doubles as the offline fallback above, and workspacePath
-    // is what agent diagnostics measures storage against — both keep pointing
-    // at the stale layout until something writes the resolved one back.
-    private async persistNarraNexusWorkspace(
-        agent: Agent,
-        roots: FileRoot[],
-        workspacePath: string
-    ): Promise<void> {
-        if (
-            storedRootPath(agent, 'workspace') === workspacePath &&
-            agent.workspacePath === workspacePath
-        )
-            return
-        try {
-            await this.db
-                .update(agents)
-                .set({ fileRoots: roots, workspacePath, updatedAt: new Date() })
-                .where(eq(agents.id, agent.id))
-        } catch (err) {
-            this.log.warn(
-                `failed to persist narranexus workspace for agent ${agent.id}: ${(err as Error).message}`
-            )
-        }
-    }
-
-    private async narraNexusTarget(
-        agent: Agent
-    ): Promise<{
-        ingressHost: string
-        gatewayToken: string
-        agentId: string
-    }> {
-        const runtime = agent.runtimeId
-            ? await this.runtimes.findById(agent.runtimeId)
-            : null
-        if (!runtime || !runtime.ingressHost)
-            throw new NotFoundException(
-                `narranexus runtime for agent ${agent.id} missing ingress host`
-            )
-        const token = await loadNarraNexusGatewayToken(
-            this.db,
-            this.crypto,
-            runtime.id
-        )
-        if (!token)
-            throw new NotFoundException(
-                `narranexus runtime ${runtime.id} missing gateway token`
-            )
-        return {
-            ingressHost: runtime.ingressHost,
-            gatewayToken: token,
-            agentId: agent.internalId
-        }
-    }
-
-    private async narraNexusCtx(
-        agent: Agent,
-        root: FileRoot
-    ): Promise<FilesContext> {
-        const workspace = root.path
-        const target = await this.narraNexusTarget(agent)
-        const readOnly = (op: string): never => {
-            throw new ForbiddenException(
-                `narranexus workspace is read-only (${op})`
-            )
-        }
-        return {
-            agent,
-            root,
-            mountPath: workspace,
-            list: (abs) => narraNexusListDir(target, abs || workspace),
-            stat: (abs) => narraNexusStat(target, abs),
-            read: (abs) => narraNexusRead(target, abs),
-            // The one write path NarraNexus exposes, and it stays reachable only
-            // from chat attachment ingest: the user- and admin-facing file
-            // controllers gate on root.writable (false for every NarraNexus
-            // root) and on a zero maxUploadBytes, both left untouched.
-            write: (abs, body) =>
-                narraNexusWrite(target, abs, body, { overwrite: true }),
-            // The write endpoint creates parent directories itself, so ingest's
-            // mkdir has nothing to do rather than being forbidden — throwing
-            // here would fail the turn one call before the write it precedes.
-            mkdir: async () => {},
-            mv: async () => readOnly('mv'),
-            rm: async () => readOnly('rm')
-        }
+    private runtimeCtx(agent: Agent, root: FileRoot): Promise<FilesContext> {
+        return agent.runtime === 'sprites'
+            ? this.spriteCtx(agent, root)
+            : agent.runtime === 'daemon'
+              ? this.daemonCtx(agent, root)
+              : this.k8sCtx(agent, root)
     }
 
     private async daemonCtx(
@@ -903,7 +726,9 @@ export const assertAgentReady = (agent: Agent): void => {
         throw new NotFoundException(
             `agent is ${agent.status}; files available only when running`
         )
-    if (agent.framework === 'narranexus') return
+    // Framework-served files need nothing from the runtime transport.
+    if (frameworkDefinition(agent.framework)?.files?.servedBy === 'framework')
+        return
     if (agent.runtime === 'sprites') {
         if (!agent.spriteName || !agent.accountId)
             throw new NotFoundException(

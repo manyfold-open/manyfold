@@ -11,11 +11,12 @@ import {
 import { users } from './users'
 import { agents } from './agents'
 
-export interface ChannelOrigin {
-    kind: 'narranexus'
-    runtimeId: string
-    nxAgentId: string
-    contentHash?: string
+// Set on an automation or channel row that mirrors an object an external
+// framework owns (ADR-0034): `kind` names that framework and the remaining
+// fields are its sync bookkeeping, which only the owning framework reads.
+export type MirrorOrigin = {
+    kind: string
+    [field: string]: unknown
 }
 
 export const channels = pgTable(
@@ -59,10 +60,10 @@ export const channels = pgTable(
         // external-account (e.g. the iLink bot id for WeChat). NULL for
         // providers that do not scope by external identity.
         externalId: text('external_id'),
-        // Present when this row mirrors an external framework binding (a
-        // NarraNexus channel credential) and is owned by the sync reconciler:
+        // Present when this row mirrors an external framework's channel
+        // binding and is owned by that framework's sync reconciler:
         // user-facing edits are rejected and plan quotas do not apply.
-        origin: jsonb('origin').$type<ChannelOrigin>(),
+        origin: jsonb('origin').$type<MirrorOrigin>(),
         lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }),
         lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
         lastErrorMessage: text('last_error_message'),
