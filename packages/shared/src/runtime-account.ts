@@ -1,8 +1,8 @@
 import type { AgentFramework, AgentRuntime } from './constants'
 import type { SpriteStatus } from './dtos'
 import {
-    isConfigurableFramework,
-    type ConfigurableFramework
+    isModelConfigFramework,
+    type ModelConfigFramework
 } from './framework-catalog'
 import {
     parseRuntimeLocalCredentialFacts,
@@ -50,7 +50,7 @@ export interface RuntimeAccountUsageFetch {
 
 // Daemon `account.inspect` ack payload / the sandbox account script's line.
 export interface RuntimeAccountProbe {
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
     checkedAt: string
     credentialFacts: RuntimeLocalCredentialFacts | null
     tokenSource: RuntimeAccountTokenSource
@@ -122,7 +122,7 @@ export const runtimeAccountSupport = (
     framework: string,
     kind: AgentRuntime
 ): RuntimeAccountSupport => {
-    if (!isConfigurableFramework(framework)) return 'framework'
+    if (!isModelConfigFramework(framework)) return 'framework'
     if (kind !== 'daemon' && kind !== 'sprites') return 'runtime-kind'
     return 'ok'
 }
@@ -218,7 +218,7 @@ export const parseRuntimeAccountProbe = (
     value: unknown
 ): RuntimeAccountProbe | null => {
     if (!isRecord(value)) return null
-    if (!isConfigurableFramework(value.framework)) return null
+    if (!isModelConfigFramework(value.framework)) return null
     const tokenSource = value.tokenSource
     return {
         framework: value.framework,

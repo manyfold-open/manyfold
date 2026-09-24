@@ -72,10 +72,35 @@ export interface GeminiCredentialFacts {
     hasRefreshToken: boolean
 }
 
+// One provider entry of pi's auth.json (`/login` writes them): which provider
+// and how, never the credential itself.
+export interface PiAuthEntryFact {
+    provider: string
+    type: 'oauth' | 'api_key' | 'other'
+    expiresAt: number | null
+    hasRefreshToken: boolean
+}
+
+// pi takes a key from --api-key > <agent-dir>/auth.json > a models.json apiKey
+// > the vendor env var, for any of its providers, so every one of those
+// sources is a sign-in here.
+export interface PiCredentialFacts {
+    framework: 'pi'
+    authFilePresent: boolean
+    authFileParsed: boolean
+    authEntries: PiAuthEntryFact[]
+    // Providers whose models.json entry names an apiKey (a value, an env var
+    // name or a `!command` — which, is not recorded).
+    modelsJsonKeyProviders: string[]
+    // Names of the vendor env vars pi reads that are set on the host.
+    envKeys: string[]
+}
+
 export type RuntimeLocalCredentialFacts =
     | ClaudeCredentialFacts
     | CodexCredentialFacts
     | GeminiCredentialFacts
+    | PiCredentialFacts
 
 export interface RuntimeLocalCredentialEvaluation {
     status: RuntimeLocalCredentialStatus
@@ -207,6 +232,42 @@ const evaluateGemini = (
     return evaluation('missing', 'no-credentials')
 }
 
+// A stored key or a live (or renewable) OAuth sign-in for any provider makes
+// pi usable; an OAuth entry past its expiry with nothing to renew it is
+// expired only when nothing else could carry a turn.
+const evaluatePi = (
+    facts: PiCredentialFacts,
+    now: number
+): RuntimeLocalCredentialEvaluation => {
+    const entries = Array.isArray(facts.authEntries) ? facts.authEntries : []
+    if (entries.some((entry) => entry?.type === 'api_key'))
+        return evaluation('valid', 'api-key')
+    let oauthExpired = false
+    for (const entry of entries) {
+        if (entry?.type !== 'oauth') continue
+        const oauth = oauthEvaluation(
+            entry.expiresAt,
+            entry.hasRefreshToken === true,
+            now
+        )
+        if (oauth?.status === 'valid') return oauth
+        if (oauth) oauthExpired = true
+        else if (entry.hasRefreshToken)
+            return evaluation('valid', 'oauth-refreshable')
+    }
+    if (
+        Array.isArray(facts.modelsJsonKeyProviders) &&
+        facts.modelsJsonKeyProviders.length > 0
+    )
+        return evaluation('valid', 'custom-provider')
+    if (Array.isArray(facts.envKeys) && facts.envKeys.length > 0)
+        return evaluation('valid', 'env-token')
+    if (oauthExpired) return evaluation('expired', 'oauth-expired')
+    if (entries.length > 0 || (facts.authFilePresent && !facts.authFileParsed))
+        return evaluation('unknown', 'unreadable')
+    return evaluation('missing', 'no-credentials')
+}
+
 // Missing facts cannot establish usable credentials. Parsed but unreadable
 // credentials retain their separate unknown status (for example Keychain).
 export const runtimeLocalCredentialStatus = (
@@ -219,6 +280,7 @@ export const runtimeLocalCredentialStatus = (
         return evaluateClaude(facts, now, context)
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
     if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
+    if (facts.framework === 'pi') return evaluatePi(facts, now)
     return evaluation('missing', 'not-reported')
 }
 
@@ -250,6 +312,34 @@ const parseCustomProviders = (value: unknown): CodexCustomProviderFact[] => {
             envKey: optionalString(entry.envKey),
             envKeyPresent: optionalBoolean(entry.envKeyPresent),
             requiresOpenaiAuth: optionalBoolean(entry.requiresOpenaiAuth)
+        })
+    }
+    return parsed
+}
+
+const parseStrings = (value: unknown): string[] =>
+    Array.isArray(value)
+        ? value.flatMap((entry) => {
+              const parsed = optionalString(entry)
+              return parsed ? [parsed] : []
+          })
+        : []
+
+const parsePiAuthEntries = (value: unknown): PiAuthEntryFact[] => {
+    if (!Array.isArray(value)) return []
+    const parsed: PiAuthEntryFact[] = []
+    for (const entry of value) {
+        if (!isRecord(entry)) continue
+        const provider = optionalString(entry.provider)
+        if (!provider) continue
+        parsed.push({
+            provider,
+            type:
+                entry.type === 'oauth' || entry.type === 'api_key'
+                    ? entry.type
+                    : 'other',
+            expiresAt: optionalNumber(entry.expiresAt),
+            hasRefreshToken: optionalBoolean(entry.hasRefreshToken)
         })
     }
     return parsed
@@ -294,6 +384,15 @@ export const parseRuntimeLocalCredentialFacts = (
             oauthFileParsed: optionalBoolean(value.oauthFileParsed),
             oauthExpiryDate: optionalNumber(value.oauthExpiryDate),
             hasRefreshToken: optionalBoolean(value.hasRefreshToken)
+        }
+    if (value.framework === 'pi')
+        return {
+            framework: 'pi',
+            authFilePresent: optionalBoolean(value.authFilePresent),
+            authFileParsed: optionalBoolean(value.authFileParsed),
+            authEntries: parsePiAuthEntries(value.authEntries),
+            modelsJsonKeyProviders: parseStrings(value.modelsJsonKeyProviders),
+            envKeys: parseStrings(value.envKeys)
         }
     return null
 }

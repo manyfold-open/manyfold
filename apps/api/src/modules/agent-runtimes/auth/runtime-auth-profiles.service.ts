@@ -12,6 +12,7 @@ import {
 import { and, eq, ne } from 'drizzle-orm'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
+    DAEMON_FEATURE_PI_LOCAL,
     DAEMON_FEATURE_AUTH_CONTEXT,
     runtimeAuthRoot,
     runtimeAuthProfileEnv,
@@ -23,7 +24,7 @@ import {
     runnerHostName,
     runtimeAuthSupported,
     runtimeLocalCredentialStatus,
-    type ConfigurableFramework,
+    type ModelConfigFramework,
     type DaemonAuthCreateResponse,
     type DaemonAuthListResponse,
     type DaemonAuthLogoutResponse,
@@ -111,11 +112,18 @@ const settled = (status: string): boolean =>
 const MAX_ERROR_CHARS = 300
 const MAX_IDENTITY_CHARS = 200
 
-const VENDOR_FOR: Record<ConfigurableFramework, string> = {
+// pi signs in to whichever vendors its /login offers, so its profiles name
+// the CLI rather than one vendor.
+const VENDOR_FOR: Record<ModelConfigFramework, string> = {
     'claude-code': 'anthropic',
     codex: 'openai',
-    'gemini-cli': 'google'
+    'gemini-cli': 'google',
+    pi: 'pi'
 }
+
+// A key the host stores as a profile of its own. pi's /login takes API keys
+// too, into the same auth.json, so a pi profile is always a sign-in.
+const takesStoredApiKey = (framework: string): boolean => framework !== 'pi'
 
 export interface ResolvedHost {
     host: RuntimeHostRow | null
@@ -259,6 +267,11 @@ export class RuntimeAuthProfilesService {
             host = runner
         }
         if (!host.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES))
+            return { host, availability: 'daemon-upgrade-required' }
+        if (
+            runtime.framework === 'pi' &&
+            !host.clientFeatures.includes(DAEMON_FEATURE_PI_LOCAL)
+        )
             return { host, availability: 'daemon-upgrade-required' }
         return { host, availability: 'ok' }
     }
@@ -790,6 +803,7 @@ export class RuntimeAuthProfilesService {
             )
         const apiKeyCapable =
             resolved.availability === 'ok' &&
+            takesStoredApiKey(runtime.framework) &&
             (resolved.host?.clientFeatures ?? []).includes(
                 DAEMON_FEATURE_AUTH_API_KEY
             )
@@ -900,6 +914,14 @@ export class RuntimeAuthProfilesService {
         // persisted nor logged here; a host that cannot store it would create
         // an empty profile, so it is refused rather than degraded.
         const apiKey = body.authMethod === 'api-key' ? body.apiKey?.trim() : ''
+        if (
+            body.authMethod === 'api-key' &&
+            !takesStoredApiKey(runtime.framework)
+        )
+            throw new BadRequestException({
+                code: 'auth_api_key_unsupported',
+                message: `${runtime.framework} keeps API keys in its own sign-in: start a sign-in and choose the API-key method there`
+            })
         if (body.authMethod === 'api-key' && !apiKey)
             throw new BadRequestException({
                 code: 'auth_api_key_required',
@@ -916,7 +938,7 @@ export class RuntimeAuthProfilesService {
                 RUNTIME_AUTH_ERROR.daemonUpgradeRequired,
                 'update the mf CLI on this runtime to store API keys'
             )
-        const framework = runtime.framework as ConfigurableFramework
+        const framework = runtime.framework as ModelConfigFramework
         const existingCount = (
             await this.db
                 .select({ id: runtimeAuthProfiles.id })
@@ -1097,7 +1119,7 @@ export class RuntimeAuthProfilesService {
             host,
             runtime,
             authLogin: {
-                framework: runtime.framework as ConfigurableFramework,
+                framework: runtime.framework as ModelConfigFramework,
                 runtimeId: runtime.id,
                 profileId: row.id,
                 operationId: operation.id

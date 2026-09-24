@@ -9,7 +9,7 @@ import {
     frameworkMcpSupport,
     frameworkUpgradeAvailable,
     isCliUpdateAvailable,
-    isConfigurableFramework,
+    isModelConfigFramework,
     isKnownMcpScope,
     isVersionedFramework,
     normalizeAgentName,
@@ -414,7 +414,7 @@ export class AgentsService {
             patch.name = name
         }
         if (body.model !== undefined) {
-            if (isConfigurableFramework(existing.framework))
+            if (isModelConfigFramework(existing.framework))
                 throw new BadRequestException(
                     `Use /agents/${agentId}/model-config to update ${existing.framework} models`
                 )

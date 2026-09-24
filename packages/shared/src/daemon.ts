@@ -13,7 +13,7 @@ export type DaemonStartupMethod =
 
 export type DaemonCodingFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli'
+    'claude-code' | 'codex' | 'gemini-cli' | 'pi'
 >
 
 export type DaemonDetectableFramework = Extract<
@@ -681,6 +681,12 @@ export const DAEMON_FEATURE_WS_AUTH_HEADER = 'ws.auth-header'
 // that profile's executions. Older daemons would create the profile and drop
 // the key, so the API refuses api-key creation without this.
 export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
+// The daemon knows pi as a CLI with a sign-in of its own: `model.inspect` and
+// `account.inspect` report pi's credential facts and the models `pi
+// --list-models` offers, and the `auth.*` RPCs keep pi profiles (a view of
+// ~/.pi/agent with its own auth.json). An older daemon reports nothing for
+// pi, which reads as "not signed in" — the API asks for a CLI update instead.
+export const DAEMON_FEATURE_PI_LOCAL = 'pi.runtime-local.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -707,5 +713,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_AUTH_PROFILES,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
-    DAEMON_FEATURE_AUTH_API_KEY
+    DAEMON_FEATURE_AUTH_API_KEY,
+    DAEMON_FEATURE_PI_LOCAL
 ]

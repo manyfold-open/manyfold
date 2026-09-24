@@ -1,14 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { delimiter, join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import type {
     ClaudeCredentialFacts,
     CodexCredentialFacts,
     DaemonFrameworkModelCapability,
-    GeminiCredentialFacts
+    GeminiCredentialFacts,
+    PiCredentialFacts
 } from '@manyfold/shared'
 import { rpcHandler } from '../src/daemon/rpc'
 import type { RpcContext } from '../src/daemon/ws-client'
@@ -26,13 +27,16 @@ const ctx: RpcContext = {
 
 const CREDENTIAL_ENV = [
     'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
     'OPENAI_API_KEY',
+    'OPENROUTER_API_KEY',
     'GEMINI_API_KEY',
     'GOOGLE_API_KEY',
     'GOOGLE_GEMINI_API_KEY',
     'GEMINI_MODEL',
-    'MF_GATEWAY_KEY'
+    'MF_GATEWAY_KEY',
+    'PI_CODING_AGENT_DIR'
 ]
 
 const jwt = (expSeconds: number): string => {
@@ -48,7 +52,8 @@ const jwt = (expSeconds: number): string => {
 const STUB_VERSIONS: Record<string, string> = {
     claude: '9.9.9 (Claude Code)',
     codex: 'codex-cli 9.9.9',
-    gemini: '9.9.9'
+    gemini: '9.9.9',
+    pi: '9.9.9'
 }
 
 const plantCliStubs = async (root: string): Promise<string> => {
@@ -312,3 +317,115 @@ test('facts never carry secret values', async () => {
         )
     })
 })
+
+// A pi stub that answers `--list-models` the way pi 0.87.1 prints it, and
+// records which agent dir it was pointed at.
+const plantPiLister = async (home: string, rows: string[]): Promise<void> => {
+    const table = rows.length
+        ? ['provider   model   context  max-out  thinking  images', ...rows]
+        : ['No models available. Use /login to log into a provider via OAuth or API key.']
+    await writeFile(
+        joinPath(home, 'stub-bin', 'pi'),
+        `#!/bin/sh
+if [ "$1" = "--list-models" ]; then
+    printf '%s' "$PI_CODING_AGENT_DIR" > "$HOME/pi-agent-dir"
+    cat <<'MF_PI_TABLE'
+${table.join('\n')}
+MF_PI_TABLE
+    exit 0
+fi
+printf '%s\n' '9.9.9'
+`,
+        { mode: 0o755 }
+    )
+}
+
+test('pi inspect names its sign-ins and lists what pi itself says can run', async () => {
+    await withHome(async (home) => {
+        const agent = join(home, '.pi', 'agent')
+        await mkdir(agent, { recursive: true })
+        await writeFile(
+            join(agent, 'auth.json'),
+            JSON.stringify({
+                anthropic: {
+                    type: 'oauth',
+                    access: 'redacted-access',
+                    refresh: 'redacted-refresh',
+                    expires: 1_900_000_000_000
+                },
+                deepseek: { type: 'api_key', key: 'sk-secret-deepseek' }
+            })
+        )
+        await writeFile(
+            join(agent, 'models.json'),
+            JSON.stringify({
+                providers: {
+                    gw: { baseUrl: 'https://gw.example', apiKey: 'GW_KEY' },
+                    plain: { baseUrl: 'https://plain.example' }
+                }
+            })
+        )
+        await writeFile(
+            join(agent, 'settings.json'),
+            JSON.stringify({
+                defaultProvider: 'anthropic',
+                defaultModel: 'claude-sonnet-4-6'
+            })
+        )
+        process.env.OPENROUTER_API_KEY = 'sk-or-secret'
+        await plantPiLister(home, [
+            'anthropic  claude-sonnet-4-6  1M  128K  yes  yes',
+            'deepseek   deepseek-chat      64K 8K    no   no'
+        ])
+        const capability = await inspect('pi')
+        const facts = capability.credentialFacts as PiCredentialFacts
+        assert.deepEqual(facts.authEntries, [
+            {
+                provider: 'anthropic',
+                type: 'oauth',
+                expiresAt: 1_900_000_000_000,
+                hasRefreshToken: true
+            },
+            {
+                provider: 'deepseek',
+                type: 'api_key',
+                expiresAt: null,
+                hasRefreshToken: false
+            }
+        ])
+        assert.deepEqual(facts.modelsJsonKeyProviders, ['gw'])
+        assert.deepEqual(facts.envKeys, ['OPENROUTER_API_KEY'])
+        assert.deepEqual(capability.models, [
+            'anthropic/claude-sonnet-4-6',
+            'deepseek/deepseek-chat'
+        ])
+        assert.equal(capability.ready, true)
+        assert.equal(capability.error, null)
+        assert.match(capability.current ?? '', /^anthropic\/claude-sonnet-4-6 · /)
+        // pi was asked about the machine's own agent dir, offline.
+        assert.equal(
+            await readFileText(join(home, 'pi-agent-dir')),
+            agent
+        )
+        const serialized = JSON.stringify(capability)
+        for (const secret of ['redacted', 'sk-secret', 'GW_KEY', 'sk-or'])
+            assert.equal(serialized.includes(secret), false, secret)
+    })
+})
+
+test('pi inspect without any sign-in is not ready and says how to get one', async () => {
+    await withHome(async (home) => {
+        await plantPiLister(home, [])
+        const capability = await inspect('pi')
+        const facts = capability.credentialFacts as PiCredentialFacts
+        assert.equal(facts.authFilePresent, false)
+        assert.deepEqual(facts.authEntries, [])
+        assert.deepEqual(capability.models, [])
+        assert.equal(capability.ready, false)
+        assert.match(capability.error ?? '', /\/login/)
+    })
+})
+
+async function readFileText(path: string): Promise<string> {
+    return readFile(path, 'utf8')
+}

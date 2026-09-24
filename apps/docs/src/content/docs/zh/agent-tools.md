@@ -28,7 +28,7 @@ Manyfold 是一个 Agent workspace 与控制平台，不只是聊天界面。你
 | **Claude Code** | Coding agent framework | Repository work、实现任务、terminal workflow、长时间 coding session | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Codex** | Coding agent framework | Codebase 改动、code review、workspace-aware 开发工作 | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Gemini CLI** | Coding 与 terminal agent framework | 使用 Google Gemini 的 coding 与一般 terminal automation | 可作为 Manyfold 中一个 Agent 的 framework |
-| **Pi** | 开源 coding agent framework | 用你自带 key 的 Anthropic、OpenAI 或 Google Gemini 模型做 coding 与 terminal 工作 | 可作为 Manyfold 中一个 Agent 的 framework |
+| **Pi** | 开源 coding agent framework | 接多家模型厂商做 coding 与 terminal 工作：你自带 key 的 Anthropic、OpenAI 或 Google Gemini，或它自己的 Claude、ChatGPT、Copilot 登录 | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Hermes Agent** | Framework-style agent | Connector-heavy workflow 与 background work | 可在 Manyfold 中建立、管理和连接 |
 | **OpenClaw** | Framework-style agent | 需要 service、gateway 或 scheduled job 的 tool-rich agent application | 可在 Manyfold 中建立、管理和连接 |
 

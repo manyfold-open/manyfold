@@ -17,7 +17,8 @@ import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.se
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import {
     assertHostHonoursAuthContext,
-    authContextRefFor
+    authContextRefFor,
+    effectiveModelConfigSource
 } from '@/modules/agents/model-config/runtime-auth-selection'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import {
@@ -300,6 +301,8 @@ export class TerminalGateway implements OnModuleInit {
         const resumeSupported =
             agent.runtime === 'sprites' ||
             (agent.runtime === 'daemon' && daemonCanResume)
+        const runtimeLocalAgent =
+            effectiveModelConfigSource(agent as Agent) === 'runtime-local'
         const resolution =
             resumeSessionId && resumeSupported && !herdrViewer
                 ? await this.resume.resolve({
@@ -309,10 +312,15 @@ export class TerminalGateway implements OnModuleInit {
                       chatSessionId: resumeSessionId,
                       // Sandboxes are shared ground and the key is the
                       // platform's to hand out, so they gate it; the daemon's
-                      // own on-disk sign-in needs no such consent.
+                      // own on-disk sign-in needs no such consent, and
+                      // neither does a runtime-local agent, whose TUI runs on
+                      // the runtime's own sign-in (or its profile's).
                       modelCredentialsAllowed:
-                          agent.runtime === 'daemon' || modelCredentialsAllowed,
-                      injectModelCredentials: agent.runtime === 'sprites'
+                          agent.runtime === 'daemon' ||
+                          runtimeLocalAgent ||
+                          modelCredentialsAllowed,
+                      injectModelCredentials:
+                          agent.runtime === 'sprites' && !runtimeLocalAgent
                   })
                 : null
         let resume = herdrViewer

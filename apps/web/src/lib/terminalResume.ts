@@ -1,4 +1,4 @@
-import { isConfigurableFramework } from '@manyfold/shared'
+import { isModelConfigFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentModelConfigSource,
@@ -84,7 +84,7 @@ export const terminalResumeAvailability = (args: {
     // which is the same credential the TUI will find — so they need no opt-in,
     // but they do need that sign-in to exist.
     if (
-        isConfigurableFramework(args.framework) &&
+        isModelConfigFramework(args.framework) &&
         args.modelSource === 'runtime-local'
     )
         return args.runtimeLocalReady

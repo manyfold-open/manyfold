@@ -104,9 +104,9 @@ In **Where it runs**, choose the connected self-owned computer with the **Ready*
 
 *Local config uses available credentials for the selected local framework.*
 
-If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, or Gemini CLI is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
+If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, Gemini CLI, or Pi is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
 
-Pi has no Local config source. A Pi agent without a provider runs on whatever Pi is signed in to on this computer. With one, every turn uses that provider's key and endpoint, a gateway included; Pi's own sign-in and `models.json` on this computer are never used for it, while your Pi settings, skills and sessions still apply.
+For Pi, Local config is whatever Pi itself can use on this computer: a sign-in from `/login` in `pi` (a Claude, ChatGPT or Copilot subscription, or an API key), a key in its `models.json`, or a vendor variable such as `ANTHROPIC_API_KEY`. With a provider picked instead, every turn uses that provider's key and endpoint, a gateway included, and Pi's own sign-in and `models.json` are never used for it; your Pi settings, skills and sessions apply either way.
 
 ## Step 5: Create the agent and verify daemon health
 

@@ -3,14 +3,17 @@ import {
     ChatCapabilities,
     ChatMessage,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
+    isPiProvider,
     piModelId,
     piQualifiedModel,
     resolveChatExecTimeoutMs
 } from '@manyfold/shared'
+import type { AgentModelConfigSource } from '@manyfold/shared'
 import { Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type { ResolvedPiCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
+import { effectiveModelConfigSource } from '@/modules/agents/model-config/runtime-auth-selection'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
 import {
@@ -85,6 +88,14 @@ export class PiAdapter implements ApiChatAdapter {
         userMessage: ChatMessage
     ): AsyncIterable<EmittedChatEvent> {
         const tAdapterStart = Date.now()
+        // Platform or pi's own sign-in, per turn (resolveTurnConfig): a
+        // platform turn carries its modelConfig, a runtime-local one only its
+        // tuning, and a turn that resolved neither runs the saved source.
+        const turnSource: AgentModelConfigSource | undefined = ctx.modelConfig
+            ? 'platform'
+            : ctx.runtimeLocalTuning
+              ? 'runtime-local'
+              : undefined
         const {
             driver,
             daemonId: carryingDaemonId,
@@ -94,14 +105,36 @@ export class PiAdapter implements ApiChatAdapter {
         } = await this.drivers.forAgent(
             ctx.agentId,
             ctx.agent,
-            undefined,
+            turnSource,
             ctx.runnerDaemonId ?? undefined
         )
-        // A sandbox or pod always has a credential row (the factory refuses
-        // the turn before this point when it does not). A daemon is the
-        // user's own machine: no row means pi's own login there is the
-        // intended account (the framework's version of runtime-local).
-        const piCreds = (creds as ResolvedPiCredentials | null) ?? null
+        // Runtime-local runs pi exactly as the runtime has it — the machine's
+        // own agent dir, or the bound profile's view, which the driver's auth
+        // context points pi at. A platform turn needs the bound key; without
+        // one it is refused rather than quietly run on whatever pi is signed
+        // in to there.
+        const runtimeLocal =
+            (turnSource ?? effectiveModelConfigSource(agent)) ===
+            'runtime-local'
+        const stored = runtimeLocal
+            ? null
+            : ((creds as ResolvedPiCredentials | null) ?? null)
+        const piCreds =
+            stored && isPiProvider(stored.provider) && stored.apiKey
+                ? stored
+                : null
+        if (!runtimeLocal && !piCreds) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'pi_credentials_missing',
+                    message:
+                        "This pi agent has no provider bound. Bind one in its model settings, or switch it to pi's own sign-in on its runtime.",
+                    retryable: false
+                }
+            }
+            return
+        }
 
         // pi's default provider follows whatever credentials the host has, so
         // the model is always passed fully qualified once a provider is known
@@ -168,11 +201,11 @@ export class PiAdapter implements ApiChatAdapter {
         if (agent.workspacePath && isManagedSkillWorkspace(agent.workspacePath))
             piArgs.push('--approve')
 
-        // A credential row IS the decision to use it: the key rides the exec,
-        // and pi runs on the platform view of its agent directory (see
-        // PI_PLATFORM_VIEW_SCRIPT), where no sign-in or models.json key of the
-        // machine's can win over it and a gateway endpoint gets its override.
-        // Nothing credential-shaped is written to the machine's own directory.
+        // A platform turn: the key rides the exec, and pi runs on the platform
+        // view of its agent directory (see PI_PLATFORM_VIEW_SCRIPT), where no
+        // sign-in or models.json key of the machine's can win over it and a
+        // gateway endpoint gets its override. Nothing credential-shaped is
+        // written to the machine's own directory.
         const { cmd, env } = piCreds
             ? piPlatformExec({
                   piArgs,

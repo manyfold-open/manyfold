@@ -2,7 +2,7 @@ import {
     DAEMON_FEATURE_AUTH_CONTEXT,
     INHERITED_AUTH,
     RUNTIME_AUTH_ERROR,
-    isConfigurableFramework,
+    isModelConfigFramework,
     type AgentModelConfigSource,
     type DaemonAuthContextRef,
     type RuntimeAuthSelection
@@ -24,7 +24,7 @@ export const effectiveModelConfigSource = (
     agent: Pick<Agent, 'framework' | 'runtime' | 'extras'>
 ): AgentModelConfigSource => {
     const stored = asRecord(asRecord(agent.extras)?.modelConfig)?.source
-    const runtimeLocalAllowed = isConfigurableFramework(agent.framework)
+    const runtimeLocalAllowed = isModelConfigFramework(agent.framework)
     if (stored === 'platform') return 'platform'
     if (stored === 'runtime-local' && runtimeLocalAllowed)
         return 'runtime-local'
@@ -67,7 +67,7 @@ export const authContextRefFor = (
 ): DaemonAuthContextRef | null => {
     const selection = runtimeAuthSelectionFor(agent)
     if (selection.mode !== 'profile') return null
-    if (!isConfigurableFramework(agent.framework) || !agent.runtimeId)
+    if (!isModelConfigFramework(agent.framework) || !agent.runtimeId)
         return null
     return {
         framework: agent.framework,

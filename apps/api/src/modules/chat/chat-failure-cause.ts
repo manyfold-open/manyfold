@@ -46,10 +46,11 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     gemini_resume_unsupported: 'unsupported_capability',
     gemini_platform_exec_unsupported: 'unsupported_capability',
     pi_resume_unsupported: 'unsupported_capability',
-    // The turn names a model from a vendor other than its key's, or a daemon
-    // agent carries a gateway base URL pi cannot reach there: both are fixed
-    // in Agent settings, never by retrying.
+    // The turn names a model from a vendor other than its key's, or a
+    // platform agent has no provider bound at all: both are fixed in Agent
+    // settings, never by retrying.
     pi_model_provider_mismatch: 'invalid_request',
+    pi_credentials_missing: 'invalid_request',
     hermes_resume_unsupported: 'unsupported_capability',
     // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
     // the daemon host, not a retry here.

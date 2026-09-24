@@ -5,6 +5,7 @@ import {
     chmod,
     lstat,
     mkdir,
+    readdir,
     readFile,
     rm,
     symlink,
@@ -12,11 +13,12 @@ import {
 } from 'node:fs/promises'
 import {
     runtimeAuthProfileEnv,
-    type ConfigurableFramework,
+    type ModelConfigFramework,
     type RuntimeAuthMethod,
     type RuntimeAuthRevokeResult
 } from '@manyfold/shared'
-import { codexHomeDir } from '../inspect-fs'
+import { codexHomeDir, piAgentDir } from '../inspect-fs'
+import { piAuthStored } from '../pi-inspect'
 import { apiKeyPath } from './paths'
 
 // Per-framework projection of the "auth independent, config projected, state
@@ -36,16 +38,24 @@ export interface LogoutOutcome {
 }
 
 export interface RuntimeAuthAdapter {
-    readonly framework: ConfigurableFramework
+    readonly framework: ModelConfigFramework
     // The vendor variable the CLI reads an API key from; an api-key profile
-    // injects its stored key under this name at execution time.
-    readonly apiKeyEnv: string
+    // injects its stored key under this name at execution time. Null for a
+    // CLI whose own sign-in takes keys too (pi's /login), which has no
+    // api-key profiles.
+    readonly apiKeyEnv: string | null
     buildView(viewDir: string): Promise<void>
     env(viewDir: string, authMethod: RuntimeAuthMethod): Record<string, string>
     // The vendor sign-in as the login shell's argv (pty.open `command`).
     loginArgv(): string[]
     // Files whose presence means "a credential is stored in this view".
     credentialPaths(viewDir: string): string[]
+    // For a CLI whose credential file can exist empty, the check that it
+    // holds a sign-in; replaces the presence test above.
+    credentialStored?(viewDir: string): Promise<boolean>
+    // Whether the view is rebuilt before each execution, for a CLI whose
+    // view follows the native directory's entries rather than a fixed list.
+    refreshesView?: boolean
     logout(viewDir: string, env: NodeJS.ProcessEnv): Promise<LogoutOutcome>
 }
 
@@ -313,11 +323,68 @@ const geminiAdapter: RuntimeAuthAdapter = {
     }
 }
 
+// pi's agent dir holds everything, and a view of it is one directory whose
+// only own file is auth.json: every other entry — settings, models.json,
+// skills, prompts, themes, extensions, trust decisions, the session store —
+// links back to the native dir, so the profile runs the machine's pi as
+// configured and its transcripts land where the session reader finds them.
+// The native dir's entries are not a fixed list (packages, tool caches), so
+// the view follows them: rebuilt before each execution, stale links dropped.
+const PI_OWN_ENTRIES = new Set(['auth.json', 'oauth.json'])
+
+const piAdapter: RuntimeAuthAdapter = {
+    framework: 'pi',
+    apiKeyEnv: null,
+    refreshesView: true,
+    async buildView(viewDir) {
+        const native = piAgentDir()
+        await mkdir(viewDir, { recursive: true, mode: 0o700 })
+        await chmod(viewDir, 0o700).catch(() => {})
+        await mkdir(join(native, 'sessions'), { recursive: true })
+        const entries = new Set(await readdir(native).catch(() => []))
+        // Write-through for the files a TUI under this profile may create.
+        for (const file of ['settings.json', 'models.json']) entries.add(file)
+        for (const name of entries) {
+            if (PI_OWN_ENTRIES.has(name) || name.endsWith('.lock')) continue
+            const dst = join(viewDir, name)
+            if (await exists(dst)) continue
+            await symlink(join(native, name), dst)
+        }
+        for (const name of await readdir(viewDir)) {
+            if (PI_OWN_ENTRIES.has(name) || name.endsWith('.lock')) continue
+            if (entries.has(name)) continue
+            const stale = join(viewDir, name)
+            if ((await lstat(stale)).isSymbolicLink())
+                await rm(stale, { force: true })
+        }
+    },
+    env(viewDir) {
+        return runtimeAuthProfileEnv('pi', viewDir)
+    },
+    loginArgv() {
+        // No login subcommand: the TUI's /login picks a provider and runs its
+        // OAuth or API-key flow, writing auth.json in this view.
+        return ['pi']
+    },
+    credentialPaths(viewDir) {
+        return [join(viewDir, 'auth.json')]
+    },
+    credentialStored(viewDir) {
+        return piAuthStored(viewDir)
+    },
+    async logout(viewDir) {
+        await removeIfPresent(join(viewDir, 'auth.json'))
+        return { signedOut: true, revoke: 'local-only', error: null }
+    }
+}
+
 export const runtimeAuthAdapter = (
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
 ): RuntimeAuthAdapter =>
     framework === 'claude-code'
         ? claudeAdapter
         : framework === 'codex'
           ? codexAdapter
-          : geminiAdapter
+          : framework === 'pi'
+            ? piAdapter
+            : geminiAdapter

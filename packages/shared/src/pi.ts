@@ -145,3 +145,55 @@ export const piQualifiedModel = (
 // The id half of a qualified model — what the provider bills it under.
 export const piModelId = (qualified: string): string =>
     qualified.slice(qualified.indexOf('/') + 1)
+
+// The env vars pi reads a key from for the providers it ships (pi docs
+// providers.md, 0.87.1), named in credential facts when set — the value never
+// is. A cloud credential chain (AWS, Vertex) is not listed: pi's own model
+// list is what finally says whether a provider is usable.
+export const PI_PROVIDER_KEY_ENV = [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_OAUTH_TOKEN',
+    'ANTHROPIC_AUTH_TOKEN',
+    'OPENAI_API_KEY',
+    'GEMINI_API_KEY',
+    'AZURE_OPENAI_API_KEY',
+    'DEEPSEEK_API_KEY',
+    'MISTRAL_API_KEY',
+    'GROQ_API_KEY',
+    'CEREBRAS_API_KEY',
+    'XAI_API_KEY',
+    'OPENROUTER_API_KEY',
+    'AI_GATEWAY_API_KEY',
+    'COPILOT_GITHUB_TOKEN',
+    'NVIDIA_API_KEY',
+    'ZAI_API_KEY',
+    'OPENCODE_API_KEY',
+    'HF_TOKEN',
+    'FIREWORKS_API_KEY',
+    'TOGETHER_API_KEY',
+    'KIMI_API_KEY',
+    'MOONSHOT_API_KEY',
+    'MINIMAX_API_KEY',
+    'QWEN_TOKEN_PLAN_API_KEY'
+] as const
+
+// `pi --list-models` prints one row per model it holds a credential for —
+// `provider  model  context  max-out  thinking  images` under a header, or a
+// "No models available" line when it holds none — so its output is pi's own
+// answer to "what can run here". Measured on macOS dev [2026-09-24] with pi
+// 0.87.1. Returns the qualified ids, in pi's order.
+export const parsePiListModels = (stdout: string): string[] => {
+    const out: string[] = []
+    let header = false
+    for (const line of stdout.split(/\r?\n/)) {
+        const cells = line.trim().split(/\s+/)
+        if (cells.length < 2 || !cells[0]) continue
+        if (!header) {
+            header = cells[0] === 'provider' && cells[1] === 'model'
+            continue
+        }
+        const qualified = `${cells[0]}/${cells[1]}`
+        if (!out.includes(qualified)) out.push(qualified)
+    }
+    return out
+}

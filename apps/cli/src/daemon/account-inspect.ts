@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import type {
-    ConfigurableFramework,
+    ModelConfigFramework,
     RuntimeAccountIdentity,
     RuntimeAccountProbe,
     RuntimeAccountTokenSource,
@@ -314,8 +314,26 @@ const inspectGemini = async (
     return { tokenSource: 'file', identity, usage }
 }
 
+// pi's auth.json names providers, not a person, and one pi talks to several
+// vendors, so there is neither an identity to show nor one usage endpoint to
+// ask. What it can say is whether a sign-in is on file there.
+const inspectPi = async (
+    deps: AccountInspectDeps
+): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
+    const auth = parseJsonRecord(
+        (await readTextIfPresent(join(deps.dirs.piDir, 'auth.json'))).text
+    )
+    const oauth = Object.values(auth ?? {}).some(
+        (entry) =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            (entry as Record<string, unknown>).type === 'oauth'
+    )
+    return { tokenSource: oauth ? 'file' : 'none', identity: null, usage: null }
+}
+
 export const inspectRuntimeAccount = async (
-    framework: ConfigurableFramework,
+    framework: ModelConfigFramework,
     overrides: Partial<AccountInspectDeps> = {}
 ): Promise<RuntimeAccountReport> => {
     const deps = { ...defaultDeps(), ...overrides }
@@ -324,7 +342,9 @@ export const inspectRuntimeAccount = async (
             ? await inspectClaude(deps)
             : framework === 'codex'
               ? await inspectCodex(deps)
-              : await inspectGemini(deps)
+              : framework === 'pi'
+                ? await inspectPi(deps)
+                : await inspectGemini(deps)
     return {
         framework,
         checkedAt: new Date(deps.now()).toISOString(),

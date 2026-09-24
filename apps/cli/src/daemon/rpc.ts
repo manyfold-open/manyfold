@@ -33,7 +33,7 @@ import {
     codexSpeeds,
     geminiAutoModelKey,
     geminiLocalModelCatalog,
-    isConfigurableFramework,
+    isModelConfigFramework,
     type ClaudeCredentialFacts,
     type CodexCredentialFacts,
     type CodexCustomProviderFact,
@@ -76,7 +76,7 @@ import {
 import { machineWorkspacesRoot, RUNNER_PROFILE } from '@manyfold/shared'
 import { resolveConfigDir, resolveProfile } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
-import type { ConfigurableFramework } from '@manyfold/shared'
+import type { ModelConfigFramework } from '@manyfold/shared'
 import {
     RuntimeAuthManager,
     cliBinaryFor,
@@ -120,6 +120,7 @@ import {
     type FrameworkConfigDirs
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
+import { inspectPiModels } from './pi-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
 import { commitConfigFile } from './config-commit'
 
@@ -375,7 +376,7 @@ const resolveAuthContext = async (
     if (ref.mode === 'inherited') return null
     const manager = await runtimeAuthManagerFor(ref.runtimeId)
     const context = await manager.executionContext(
-        configurableFrameworkOf(ref),
+        modelConfigFrameworkOf(ref),
         assertProfileId(ref.profileId),
         label,
         { waitMs: AUTH_CONTEXT_WAIT_MS }
@@ -857,11 +858,21 @@ const inspectModelCapability = async (
     // that CLI: each inspector spawns `<cli> --version`, and a profile probe
     // must not touch the other two vendors' binaries at all.
     const inspectors: Array<
-        [ConfigurableFramework, () => Promise<DaemonFrameworkModelCapability>]
+        [ModelConfigFramework, () => Promise<DaemonFrameworkModelCapability>]
     > = [
         ['claude-code', () => inspectClaudeModels(dirs)],
         ['codex', () => inspectCodexModels(dirs)],
-        ['gemini-cli', () => inspectGeminiModels(dirs)]
+        ['gemini-cli', () => inspectGeminiModels(dirs)],
+        [
+            'pi',
+            () =>
+                inspectPiModels(dirs, {
+                    commandVersion,
+                    env: dirs.envAuth
+                        ? process.env
+                        : stripAmbientAuthEnv(process.env)
+                })
+        ]
     ]
     const selected = requested
         ? inspectors.filter(([framework]) => framework === requested)
@@ -1543,11 +1554,11 @@ const runtimeAuthManagerFor = async (
     )
 }
 
-const configurableFrameworkOf = (
+const modelConfigFrameworkOf = (
     payload: Record<string, unknown>
-): ConfigurableFramework => {
+): ModelConfigFramework => {
     const framework = String(payload.framework ?? '')
-    if (!isConfigurableFramework(framework))
+    if (!isModelConfigFramework(framework))
         throw new Error(`unsupported framework: ${framework}`)
     return framework
 }
@@ -1586,7 +1597,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(selection.runtimeId)
             const dirs = manager.dirsFor(
-                configurableFrameworkOf(selection),
+                modelConfigFrameworkOf(selection),
                 assertProfileId(selection.profileId)
             )
             return {
@@ -1601,7 +1612,7 @@ const handlers: Partial<
     },
     'account.inspect': async (payload) => {
         const framework = String(payload.framework ?? '')
-        if (!isConfigurableFramework(framework))
+        if (!isModelConfigFramework(framework))
             return { ok: false, error: `unsupported framework: ${framework}` }
         // The credential facts ride along so the API judges "signed in" with
         // the same evaluator it already trusts for model.inspect.
@@ -1625,7 +1636,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.list(
-                configurableFrameworkOf(payload),
+                modelConfigFrameworkOf(payload),
                 payload.probe !== false
             )
             return { ok: true, payload: { ...result } }
@@ -1639,7 +1650,7 @@ const handlers: Partial<
             const apiKey =
                 typeof payload.apiKey === 'string' ? payload.apiKey.trim() : ''
             const result = await manager.create(
-                configurableFrameworkOf(payload),
+                modelConfigFrameworkOf(payload),
                 assertProfileId(payload.profileId),
                 payload.authMethod === 'api-key' ? 'api-key' : 'subscription',
                 apiKey || undefined
@@ -1653,7 +1664,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.inspect(
-                configurableFrameworkOf(payload),
+                modelConfigFrameworkOf(payload),
                 assertProfileId(payload.profileId)
             )
             return { ok: true, payload: { ...result } }
@@ -1665,7 +1676,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.logout(
-                configurableFrameworkOf(payload),
+                modelConfigFrameworkOf(payload),
                 assertProfileId(payload.profileId),
                 assertOperationId(payload.operationId),
                 payload.mode === 'remove' ? 'remove' : 'sign-out'
@@ -2023,7 +2034,7 @@ const handlers: Partial<
             try {
                 const manager = await runtimeAuthManagerFor(authLogin.runtimeId)
                 login = await manager.prepareLogin(
-                    configurableFrameworkOf(authLogin),
+                    modelConfigFrameworkOf(authLogin),
                     assertProfileId(authLogin.profileId),
                     assertOperationId(authLogin.operationId)
                 )

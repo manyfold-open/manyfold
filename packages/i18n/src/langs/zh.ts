@@ -2605,6 +2605,7 @@ const zh: Translations = {
                 codexHint:
                     '在任意浏览器中批准设备代码（可能需要先在 ChatGPT 安全设置中启用 device-code 登录）。',
                 geminiHint: '打开打印出的链接并把代码粘贴回来。',
+                piHint: '输入 /login，选择要登录的 provider（订阅或 API key），然后按打印出的链接完成。',
                 openTerminal: '打开终端',
                 refresh: '刷新状态',
                 checking: '检查中…'
@@ -3482,7 +3483,7 @@ const zh: Translations = {
                 runtime: '登录是跟着机器走的，所以每一行都写清楚要花多少代价，包括之后要不要再登录一次。',
                 cost: '厂商登录写在那台机器的磁盘上，只在那台有效；账户级的额度跟着你走，所有机器通用。agent 建好之后随时可以改。',
                 name: '确认一下，然后就建好了。',
-                type: '九种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
+                type: '十种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
             },
             blocked: {
                 type: '选一种才能继续',
@@ -3500,6 +3501,7 @@ const zh: Translations = {
                 claudeCode: 'Anthropic 的编码 CLI',
                 codex: 'OpenAI 的编码 CLI',
                 geminiCli: 'Google 的编码 CLI',
+                pi: '开源的编码 CLI，可接多家模型厂商',
                 openclaw: '常驻对话服务，接 IM 渠道',
                 hermes: '常驻助理服务，日程与邮件',
                 narranexus: '常驻编排服务',
@@ -3510,7 +3512,8 @@ const zh: Translations = {
             subscription: {
                 claude: '可用 Claude Pro / Max',
                 codex: '可用 ChatGPT Plus / Pro',
-                gemini: '可用 Google 订阅'
+                gemini: '可用 Google 订阅',
+                pi: '可用 Claude Pro / Max、ChatGPT Plus / Pro 或 Copilot'
             },
             machine: {
                 yours: '你的机器',

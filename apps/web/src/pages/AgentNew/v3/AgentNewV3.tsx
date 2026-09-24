@@ -18,7 +18,7 @@ import {
     inputValidation,
     isManagedProtocolAllowedForFramework,
     normalizeAgentName,
-    isConfigurableFramework,
+    isModelConfigFramework,
     providerProtocolForTarget,
     runtimeAuthSupported,
     providerSupportsTarget,
@@ -1150,7 +1150,7 @@ const AgentNewV3: FC = (): ReactNode => {
                 t('web.agentNewV3.managedProvider')
             )
         })),
-        ...(isConfigurableFramework(framework)
+        ...(isModelConfigFramework(framework)
             ? [
                   {
                       value: PROVIDER_RUNTIME_OPTION,

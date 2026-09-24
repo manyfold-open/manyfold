@@ -2686,6 +2686,7 @@ const en = {
                 codexHint:
                     'approve the device code from any browser (device-code sign-in may need enabling in your ChatGPT security settings).',
                 geminiHint: 'open the printed link and paste the code back.',
+                piHint: 'type /login, choose a provider (a subscription or an API key), and follow the link it prints.',
                 openTerminal: 'Open terminal',
                 refresh: 'Refresh status',
                 checking: 'Checking…'
@@ -3648,7 +3649,7 @@ const en = {
                 runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
                 cost: 'A vendor sign-in is written to that machine\'s disk and only works there; an account-level allowance follows you to every machine. You can change this once the agent exists.',
                 name: 'Check it over, and it is built.',
-                type: 'Nine of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
+                type: 'Ten of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
             },
             blocked: {
                 type: 'Pick one to continue',
@@ -3666,6 +3667,7 @@ const en = {
                 claudeCode: 'Anthropic\'s coding CLI',
                 codex: 'OpenAI\'s coding CLI',
                 geminiCli: 'Google\'s coding CLI',
+                pi: 'Open-source coding CLI for many model vendors',
                 openclaw: 'Long-running chat service, connects IM channels',
                 hermes: 'Long-running assistant service, calendar and mail',
                 narranexus: 'Long-running orchestration service',
@@ -3676,7 +3678,8 @@ const en = {
             subscription: {
                 claude: 'Can use Claude Pro / Max',
                 codex: 'Can use ChatGPT Plus / Pro',
-                gemini: 'Can use a Google subscription'
+                gemini: 'Can use a Google subscription',
+                pi: 'Can use Claude Pro / Max, ChatGPT Plus / Pro or Copilot'
             },
             machine: {
                 yours: 'Your machines',

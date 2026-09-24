@@ -1,4 +1,4 @@
-import { isConfigurableFramework } from '@manyfold/shared'
+import { isModelConfigFramework } from '@manyfold/shared'
 import type { AgentFramework, AgentModelConfigView } from '@manyfold/shared'
 
 // The chat sign-in card shows while a runtime-local agent has no usable CLI
@@ -11,7 +11,7 @@ export const shouldShowRuntimeSignIn = (
     > | null
 ): boolean => {
     if (!view) return false
-    if (!isConfigurableFramework(view.framework)) return false
+    if (!isModelConfigFramework(view.framework)) return false
     if (view.source !== 'runtime-local') return false
     return view.runtimeLocal?.ready !== true
 }
@@ -36,12 +36,23 @@ const CLAUDE_SIGN_IN_COMMAND = 'cat | claude auth login --claudeai'
 // Only claude carries the workaround. codex's device code is approved in a
 // browser and never typed back; gemini prompts from inside its own TUI,
 // which draws what you type. Neither was reproduced losing an echo, so
-// neither is wrapped.
+// neither is wrapped. pi has no login subcommand either: its TUI's /login
+// picks the provider and runs that provider's flow.
 export const runtimeSignInCommandFor = (
     framework: AgentFramework
 ): string | null => {
     if (framework === 'claude-code') return CLAUDE_SIGN_IN_COMMAND
     if (framework === 'codex') return 'codex login --device-auth'
     if (framework === 'gemini-cli') return 'NO_BROWSER=true gemini'
+    if (framework === 'pi') return 'pi'
     return null
 }
+
+export const runtimeSignInHintKey = (framework: AgentFramework): string =>
+    framework === 'claude-code'
+        ? 'web.chat.runtimeSignIn.claudeHint'
+        : framework === 'codex'
+          ? 'web.chat.runtimeSignIn.codexHint'
+          : framework === 'pi'
+            ? 'web.chat.runtimeSignIn.piHint'
+            : 'web.chat.runtimeSignIn.geminiHint'

@@ -4,7 +4,7 @@ import {
     builtInSupportsProtocol,
     compatibleProtocolsForProvider,
     frameworkSupportsProtocol,
-    isConfigurableFramework,
+    isModelConfigFramework,
     isManagedProtocolAllowedForFramework,
     providerProtocolForTarget,
     providerSupportsTarget
@@ -56,7 +56,7 @@ export const NEW_RUNTIME_TARGET: ProviderTarget = {
 }
 
 export const localSourceAvailable = (framework: AgentFramework): boolean =>
-    isConfigurableFramework(framework)
+    isModelConfigFramework(framework)
 
 export const providerSourceOf = (mode: ProviderPickerMode): ProviderSource =>
     mode === 'runtime' ? 'local' : 'cloud'
@@ -78,7 +78,7 @@ export const defaultProviderSource = (
     target: ProviderTarget,
     defaultMode: string = PROVIDER_PICKER_DEFAULT_MODE
 ): ProviderSource => {
-    if (!isConfigurableFramework(framework)) return 'cloud'
+    if (!isModelConfigFramework(framework)) return 'cloud'
     if (target.runtimeKind === 'daemon') return 'local'
     return defaultMode === 'runtime' ? 'local' : 'cloud'
 }

@@ -9,7 +9,7 @@ import {
     SPRITE_HOME_BASE,
     UserModelProvider,
     externalSteps,
-    isConfigurableFramework,
+    isModelConfigFramework,
     normalizeAgentName,
     providerSupportsTarget,
     validateAgentName
@@ -1417,7 +1417,7 @@ const AgentNewBInline: FC = (): ReactNode => {
                                         <ProviderPicker
                                             provider={modelProviderForRuntime}
                                             framework={framework}
-                                            allowRuntimeMode={isConfigurableFramework(
+                                            allowRuntimeMode={isModelConfigFramework(
                                                 framework
                                             )}
                                             apiKeyLabel={apiKeyLabelForProvider(

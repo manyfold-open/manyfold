@@ -27,7 +27,8 @@ import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.se
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import {
     assertHostHonoursAuthContext,
-    authContextRefFor
+    authContextRefFor,
+    effectiveModelConfigSource
 } from '@/modules/agents/model-config/runtime-auth-selection'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SessionHeldByTerminalError } from '@/modules/chat/chat.service'
@@ -153,19 +154,24 @@ export class TerminalHerdrService {
                 agent.runtime === 'sprites' ? 'this sandbox' : 'this machine'
             )
 
+        const runtimeLocalAgent =
+            effectiveModelConfigSource(agent) === 'runtime-local'
         const resolution = await this.resume.resolve({
             agentId: agent.id,
             runtimeId: agent.runtimeId,
             framework: agent.framework,
             chatSessionId: sessionId,
             // A self-owned machine's own sign-in is what the TUI uses, so
-            // there is no consent to ask for; a sandbox hands the platform's
-            // credentials to the TUI only when it opted in, as the browser
-            // terminal does.
+            // there is no consent to ask for, and a runtime-local agent's TUI
+            // runs on the runtime's own sign-in (or its profile's); a sandbox
+            // hands the platform's credentials to the TUI only when it opted
+            // in, as the browser terminal does.
             modelCredentialsAllowed:
                 agent.runtime === 'daemon' ||
+                runtimeLocalAgent ||
                 sandbox?.terminalModelCredentials === true,
-            injectModelCredentials: agent.runtime === 'sprites'
+            injectModelCredentials:
+                agent.runtime === 'sprites' && !runtimeLocalAgent
         })
         if (resolution.outcome === 'turn-in-flight')
             throw new ConflictException({

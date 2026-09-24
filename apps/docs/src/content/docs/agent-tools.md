@@ -28,7 +28,7 @@ In other words, Manyfold solves the problem of bringing agents into real work an
 | **Claude Code** | Coding agent framework | Repository work, implementation tasks, terminal workflows, and long-running coding sessions | Can be selected as an agent framework in Manyfold |
 | **Codex** | Coding agent framework | Codebase changes, code review, and workspace-aware development work | Can be selected as an agent framework in Manyfold |
 | **Gemini CLI** | Coding and terminal agent framework | Coding and general terminal automation using Google Gemini | Can be selected as an agent framework in Manyfold |
-| **Pi** | Open-source coding agent framework | Coding and terminal work on whichever of Anthropic, OpenAI, or Google Gemini you bring a key for | Can be selected as an agent framework in Manyfold |
+| **Pi** | Open-source coding agent framework | Coding and terminal work on many model vendors: a key you bring for Anthropic, OpenAI, or Google Gemini, or its own Claude, ChatGPT or Copilot sign-in | Can be selected as an agent framework in Manyfold |
 | **Hermes Agent** | Framework-style agent | Connector-heavy workflows and background work | Can be created, managed, and connected in Manyfold |
 | **OpenClaw** | Framework-style agent | Tool-rich agent applications that need services, gateways, or scheduled jobs | Can be created, managed, and connected in Manyfold |
 

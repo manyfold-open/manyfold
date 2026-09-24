@@ -322,7 +322,11 @@ const AgentCredentialsDialog: FC<Props> = ({
 }): ReactNode => {
     const client = useApiClient()
     const { t } = useI18n()
-    const frameworkModelConfigSupported = frameworkUsesModelConfig(framework)
+    // pi's platform model is the credential's own field (any id its provider
+    // serves), so the tested-model machinery the other three need stays off
+    // for it here; saving a credential still makes it a platform agent.
+    const frameworkModelConfigSupported =
+        frameworkUsesModelConfig(framework) && framework !== 'pi'
     const [view, setView] = useState<AgentCredentialsView | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
@@ -669,6 +673,13 @@ const AgentCredentialsDialog: FC<Props> = ({
                         agentId,
                         buildBody(framework, picker, model, providerHint)
                     )
+                    if (framework === 'pi') {
+                        const piView = await client.agents.updateModelConfig(
+                            agentId,
+                            { modelConfigSource: 'platform' }
+                        )
+                        writeCachedModelConfigView(piView)
+                    }
                 }
 
                 let savedModelConfigView: AgentModelConfigView | null = null

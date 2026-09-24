@@ -1,5 +1,5 @@
 import {
-    isConfigurableFramework,
+    isModelConfigFramework,
     normalizeAgentName,
     stepsFor
 } from '@manyfold/shared'
@@ -82,7 +82,7 @@ export const buildCreateAgentBody = (
     // modelConfig — the API's DTO guard enforces the same XOR.
     const runtimeLocal =
         draft.picker.mode === 'runtime' &&
-        isConfigurableFramework(draft.framework)
+        isModelConfigFramework(draft.framework)
 
     if (runtimeLocal) {
         base.modelConfigSource = 'runtime-local'

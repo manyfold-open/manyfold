@@ -88,3 +88,25 @@ test('the codex HOME relocation no longer re-pins CODEX_HOME over a daemon-injec
     const cmd = payloads[0].cmd as string[]
     assert.match(cmd[2], /CODEX_HOME="\$\{CODEX_HOME:-\$HOME\/\.codex\}"/)
 })
+
+// A sandbox runtime prepared bare holds no credential row until a provider is
+// bound, and a turn on the CLI's own sign-in never needs one — so only a
+// platform turn there insists on it.
+test('a runtime-local sandbox turn needs no stored credential; a platform one still does', async () => {
+    const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
+        if (table === agentCredentials) return []
+        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.2.0', rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
+        return []
+    } }) }) }) }
+    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => '{}' } as never, {} as never, {} as never,
+        { measureIfDue: async () => {} } as never, { resolveAgentEnv: async () => ({}) } as never)
+    const agent = { id: 'agent', userId: 'user', framework: 'pi', runtime: 'sprites', runtimeId: 'runtime',
+        spriteName: 'sprite', hostId: 'host', modelProviderId: null, runtimeAuthProfileId: null, runtimeAuthBindingVersion: 0,
+        extras: { modelConfig: { source: 'runtime-local' } } } as unknown as Agent
+    const local = await factory.forAgent(agent.id, agent, undefined, 'dh_runner')
+    assert.equal(local.creds, null)
+    await assert.rejects(
+        factory.forAgent(agent.id, agent, 'platform', 'dh_runner'),
+        /no stored credentials/
+    )
+})

@@ -11,11 +11,11 @@ import {
     UserFrameworkRuntimeOverridesSettings,
     agentRuntime,
     auditAction,
-    isConfigurableFramework,
     codingAgentWorkspacePath,
     configurableFrameworkRuntimeDefaults,
     createObjectId,
     isExternal,
+    isModelConfigFramework,
     normalizeAgentName,
     supportsRuntime
 } from '@manyfold/shared'
@@ -1334,7 +1334,7 @@ export class AgentOrchestratorService {
         // user's click. Coding frameworks only — they are the ones with a
         // runtime-local surface; the service frameworks bring theirs up on
         // the turn path as before.
-        if (isConfigurableFramework(dto.framework) && runtime.spriteName) {
+        if (isModelConfigFramework(dto.framework) && runtime.spriteName) {
             emitter.step('starting_runner')
             await this.prepareSpriteRunner({
                 userId,

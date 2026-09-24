@@ -6,7 +6,7 @@ import {
     SEMVER_TAG_RE,
     agentModelConfigSources,
     inputValidation,
-    isConfigurableFramework,
+    isModelConfigFramework,
     supportsRuntime
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
@@ -469,18 +469,19 @@ const IsRuntimeLocalSourceShape =
                     if (value !== 'runtime-local') return true
                     const o = args.object as CreateAgentDto
                     if (!o.framework) return true
-                    if (!isConfigurableFramework(o.framework)) return false
+                    if (!isModelConfigFramework(o.framework)) return false
                     return !(
                         o.claudeCodeCredentials ||
                         o.codexCredentials ||
                         o.geminiCliCredentials ||
+                        o.piCredentials ||
                         o.saveCredentialAs
                     )
                 },
                 defaultMessage(args: ValidationArguments): string {
                     const o = args.object as CreateAgentDto
-                    return o.framework && !isConfigurableFramework(o.framework)
-                        ? 'modelConfigSource runtime-local is only available for claude-code, codex and gemini-cli'
+                    return o.framework && !isModelConfigFramework(o.framework)
+                        ? 'modelConfigSource runtime-local is only available for claude-code, codex, gemini-cli and pi'
                         : 'modelConfigSource runtime-local cannot be combined with credentials or saveCredentialAs'
                 }
             }

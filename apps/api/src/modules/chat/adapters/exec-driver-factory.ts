@@ -37,7 +37,8 @@ import type { DaemonAuthContextRef } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import {
     assertHostHonoursAuthContext,
-    authContextRefFor
+    authContextRefFor,
+    effectiveModelConfigSource
 } from '@/modules/agents/model-config/runtime-auth-selection'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -150,8 +151,15 @@ export class ExecDriverFactory {
         const daemonId =
             carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
         const coding = frameworkCapability(agent.framework).kind === 'coding'
+        // A turn on the CLI's own sign-in needs no stored credential, and a
+        // sandbox runtime prepared bare has none until a provider is bound —
+        // so only a platform turn off a daemon insists on the row.
+        const credentialOptional =
+            agent.runtime === 'daemon' ||
+            (turnSource ?? effectiveModelConfigSource(agent)) ===
+                'runtime-local'
         const [creds, connectionEnv, identityToken] = await Promise.all([
-            agent.runtime === 'daemon'
+            credentialOptional
                 ? this.tryDecryptCreds(agent.runtimeId)
                 : this.decryptCreds(agent.runtimeId),
             coding ? this.connections.resolveAgentEnv(agent) : undefined,

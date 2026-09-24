@@ -100,6 +100,8 @@ const buildSeam = (opts: {
                 runtime,
                 agent: {
                     id: 'agt_1',
+                    framework: 'pi',
+                    runtime,
                     runtimeId: 'art_1',
                     daemonId: runtime === 'daemon' ? 'dh_1' : null,
                     workspacePath:
@@ -479,6 +481,61 @@ test('a daemon agent without a credential row runs on pi’s own login', async (
     )
 })
 
+// Runtime-local is pi as its runtime has it: no key, no view — the machine's
+// agent dir, or a profile's, which the driver's auth context sets — and the
+// model is whatever pi listed there, passed as is.
+test('a runtime-local turn runs pi on its own sign-in, even beside a bound key', async () => {
+    const { adapter, streams, forAgentCalls } = buildSeam({
+        stdout: fixture('turn-resumed.stdout.jsonl'),
+        runtime: 'daemon',
+        creds: { apiKey: 'sk-marker', provider: 'anthropic' }
+    })
+    const events = await drain(
+        adapter.sendMessage(
+            ctx({
+                runtimeKind: 'daemon',
+                frameworkSessionRef: 'ref-1',
+                model: 'openai-codex/gpt-5.5',
+                runtimeLocalTuning: {}
+            }),
+            userMessage('hi')
+        )
+    )
+    assert.equal(errorOf(events), null)
+    assert.equal(forAgentCalls[0][2], 'runtime-local')
+    const [stream] = streams
+    assert.equal(stream.cmd[0], 'pi')
+    assert.deepEqual(stream.env, { PI_OFFLINE: '1' }, 'no key injected')
+    assert.equal(
+        stream.cmd[stream.cmd.indexOf('--model') + 1],
+        'openai-codex/gpt-5.5'
+    )
+})
+
+// Platform means the bound provider; with none the turn says so instead of
+// running on whatever pi is signed in to on the machine.
+test('a platform turn without a bound key is refused before any exec', async () => {
+    for (const creds of [null, {}] as const) {
+        const { adapter, streams, forAgentCalls } = buildSeam({
+            stdout: fixture('turn-resumed.stdout.jsonl'),
+            runtime: 'daemon',
+            creds
+        })
+        const events = await drain(
+            adapter.sendMessage(
+                ctx({
+                    runtimeKind: 'daemon',
+                    modelConfig: { framework: 'pi', model: null }
+                }),
+                userMessage('hi')
+            )
+        )
+        assert.equal(forAgentCalls[0][2], 'platform')
+        assert.equal(streams.length, 0)
+        assert.equal(errorOf(events)?.code, 'pi_credentials_missing')
+    }
+})
+
 test('a model naming another vendor than the key is refused before any exec', async () => {
     const { adapter, streams } = buildSeam({
         stdout: fixture('turn-resumed.stdout.jsonl')
@@ -508,7 +565,11 @@ test('a daemon turn on a gateway base URL carries its override into the view', a
     })
     const events = await drain(
         adapter.sendMessage(
-            ctx({ runtimeKind: 'daemon', frameworkSessionRef: 'ref-1' }),
+            ctx({
+                runtimeKind: 'daemon',
+                frameworkSessionRef: 'ref-1',
+                modelConfig: { framework: 'pi', model: null }
+            }),
             userMessage('hi')
         )
     )

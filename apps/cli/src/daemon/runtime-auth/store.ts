@@ -1,6 +1,6 @@
 import { readdir, rm } from 'node:fs/promises'
 import type {
-    ConfigurableFramework,
+    ModelConfigFramework,
     DaemonAuthOperationRecord,
     RuntimeAuthMethod,
     RuntimeAuthOperationKind,
@@ -18,7 +18,7 @@ import {
 // opaque counter the API keys caches on.
 export interface ProfileMetadata {
     profileId: string
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
     authMethod: RuntimeAuthMethod
     generation: number
     createdAt: string
@@ -38,7 +38,7 @@ export const readMetadata = async (
     if (raw.profileId !== profileId) return null
     return {
         profileId,
-        framework: raw.framework as ConfigurableFramework,
+        framework: raw.framework as ModelConfigFramework,
         authMethod: raw.authMethod === 'api-key' ? 'api-key' : 'subscription',
         generation: typeof raw.generation === 'number' ? raw.generation : 0,
         createdAt:

@@ -749,7 +749,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'lib/runtimeSignIn.ts': [
         'claude auth login --claudeai',
         'codex login --device-auth',
-        'NO_BROWSER=true gemini'
+        'NO_BROWSER=true gemini',
+        'pi'
     ],
     'lib/theme.tsx': ['light'],
     // Row/target/status union tags for the Update Center's model, not display

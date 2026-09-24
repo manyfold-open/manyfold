@@ -5,8 +5,8 @@ import {
     builtInBaseUrlForProtocol,
     builtInSupportsProtocol,
     defaultProtocolForProvider,
-    isConfigurableFramework,
     isManagedProtocolAllowedForFramework,
+    isModelConfigFramework,
     lookupBuiltIn,
     piProviderForProtocol,
     protocolToHermesBrand,
@@ -139,7 +139,7 @@ export class CredentialsResolverService {
         // block riding along.
         if (
             dto.modelConfigSource === 'runtime-local' &&
-            isConfigurableFramework(dto.framework)
+            isModelConfigFramework(dto.framework)
         ) {
             return {
                 framework: dto.framework,
