@@ -39,7 +39,7 @@ The token is shown only once. Copy the full command immediately. If you lose it,
 Paste the command into a terminal on the machine you are registering. The CLI:
 
 1. Generates a stable daemon UUID at `~/.manyfold/profiles/<profile>/daemon/daemon.id`.
-2. Detects installed coding frameworks (Claude Code, Codex, Gemini CLI).
+2. Detects installed coding frameworks (Claude Code, Codex, Gemini CLI, and Pi — `pi` on PATH, which needs Node 22.19 or newer).
 3. Registers the machine with the API.
 4. Saves daemon config to `~/.manyfold/profiles/<profile>/daemon/config.json`.
 
@@ -106,7 +106,7 @@ mf daemon stop                # stop the daemon (and the execs it owns), remove 
 mf daemon stop --keep-execs   # stop the daemon but leave running execs for the next one to adopt
 mf daemon doctor              # diagnose registration / framework detection issues
 mf doctor                     # check every profile's daemon, sign-in and API, with a fix for each problem
-mf daemon hooks status        # claude / codex session hooks (see below)
+mf daemon hooks status        # claude / codex / pi session hooks (see below)
 ```
 
 The daemon log lives at
@@ -131,7 +131,7 @@ After updating the CLI with `mf update`, run `mf daemon stop` then `mf daemon st
 
 ### Session hooks
 
-When you open a conversation's terminal from the web (the TUI resume), Manyfold needs to know which conversation the `claude` or `codex` process in that terminal is on: whether it renamed the session, cleared it, or started a new one. The CLIs' own `SessionStart` / `SessionEnd` hooks carry that, so `mf daemon register` asks once whether to install them (or `-y` says yes, `--no-hooks` says no). They are written as one script plus one entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, marked as Manyfold's, next to any hooks you already have.
+When you open a conversation's terminal from the web (the TUI resume), Manyfold needs to know which conversation the `claude`, `codex` or `pi` process in that terminal is on: whether it renamed the session, cleared it, or started a new one. The CLIs' own session events carry that, so `mf daemon register` asks once whether to install the hooks (or `-y` says yes, `--no-hooks` says no). For Claude Code and Codex they are one script plus one entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, marked as Manyfold's, next to any hooks you already have; for Pi they are one extension file, `~/.pi/agent/extensions/mf-session.ts`, which Pi loads on its own.
 
 The hooks act only inside a terminal Manyfold opened (the shell carries `MF_TERMINAL_ID`) and never print anything, so your own shells and the model's context are untouched. Codex runs a newly installed hook only after you approve it once with `/hooks` in its TUI.
 

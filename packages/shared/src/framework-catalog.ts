@@ -1,3 +1,5 @@
+// The frameworks with an admin-managed model catalog (models, aliases and the
+// effort / speed / intelligence enums behind their model settings).
 export const configurableFrameworks = [
     'claude-code',
     'codex',
@@ -10,6 +12,20 @@ export const isConfigurableFramework = (
 ): value is ConfigurableFramework =>
     typeof value === 'string' &&
     configurableFrameworks.includes(value as ConfigurableFramework)
+
+// The coding CLIs whose model settings an agent keeps and whose credentials it
+// takes either from a platform provider or from the CLI's own sign-in on its
+// runtime (AgentModelConfigSource): the model-config view, runtime-local, and
+// runtime auth profiles. A superset of the catalog frameworks — pi has no
+// admin catalog; its platform models are the ones its provider serves.
+export const modelConfigFrameworks = [...configurableFrameworks, 'pi'] as const
+export type ModelConfigFramework = (typeof modelConfigFrameworks)[number]
+
+export const isModelConfigFramework = (
+    value: unknown
+): value is ModelConfigFramework =>
+    typeof value === 'string' &&
+    modelConfigFrameworks.includes(value as ModelConfigFramework)
 
 export const frameworkEnumKeys = [
     'effort',

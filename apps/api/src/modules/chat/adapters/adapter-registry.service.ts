@@ -6,6 +6,7 @@ import { ClaudeCodeAdapter } from '@/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '@/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '@/modules/chat/adapters/gemini-cli.adapter'
+import { PiAdapter } from '@/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '@/modules/chat/adapters/hermes.adapter'
 import { NarraNexusChatAdapter } from '@/modules/narranexus/narranexus-chat.adapter'
 import {
@@ -25,6 +26,7 @@ export class ChatAdapterRegistry {
         private readonly openclaw: OpenclawAdapter,
         private readonly codex: CodexAdapter,
         private readonly geminiCli: GeminiCliAdapter,
+        private readonly pi: PiAdapter,
         private readonly hermes: HermesAdapter,
         private readonly narraNexus: NarraNexusChatAdapter,
         private readonly dify: DifyChatAdapter,
@@ -36,6 +38,7 @@ export class ChatAdapterRegistry {
         this.register(this.openclaw)
         this.register(this.codex)
         this.register(this.geminiCli)
+        this.register(this.pi)
         this.register(this.hermes)
         this.register(this.narraNexus)
         this.register(this.dify)

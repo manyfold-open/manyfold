@@ -1,10 +1,12 @@
 import {
     AgentModelConfig,
     AgentModelConfigSource,
+    PI_PROVIDERS,
+    PiProvider,
     SEMVER_TAG_RE,
     agentModelConfigSources,
     inputValidation,
-    isConfigurableFramework,
+    isModelConfigFramework,
     supportsRuntime
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
@@ -152,6 +154,47 @@ class GeminiCliCredentialsDto {
         'exactly one of googleApiKey or providerId is required'
     )
     readonly __googleCredGuard?: unknown
+}
+
+const PI_PROVIDER_MESSAGE = (args: ValidationArguments): string =>
+    args.value === undefined
+        ? 'piCredentials.provider is required with apiKey'
+        : `piCredentials.provider must be one of ${PI_PROVIDERS.join(', ')}`
+
+class PiCredentialsDto {
+    @IsOptional()
+    @IsString()
+    @Length(10, 1024)
+    apiKey?: string
+
+    // A raw key says nothing about which vendor it belongs to, and pi's
+    // default provider depends on the host's ambient credentials. Beside a
+    // providerId it picks which protocol a multi-protocol provider serves.
+    @ValidateIf((o: PiCredentialsDto) => o.provider !== undefined || !!o.apiKey)
+    @IsIn(PI_PROVIDERS, { message: PI_PROVIDER_MESSAGE })
+    provider?: PiProvider
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 512)
+    baseUrl?: string
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsString()
+    @Length(1, 255)
+    model?: string | null
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 64)
+    providerId?: string
+
+    @ExactlyOneOf(
+        ['apiKey', 'providerId'],
+        'exactly one of apiKey or providerId is required'
+    )
+    readonly __piCredGuard?: unknown
 }
 
 class OpenclawCredentialsDto {
@@ -377,6 +420,7 @@ export type AgentFrameworkInput =
     | 'claude-code'
     | 'codex'
     | 'gemini-cli'
+    | 'pi'
     | 'openclaw'
     | 'hermes'
     | 'narranexus'
@@ -425,18 +469,19 @@ const IsRuntimeLocalSourceShape =
                     if (value !== 'runtime-local') return true
                     const o = args.object as CreateAgentDto
                     if (!o.framework) return true
-                    if (!isConfigurableFramework(o.framework)) return false
+                    if (!isModelConfigFramework(o.framework)) return false
                     return !(
                         o.claudeCodeCredentials ||
                         o.codexCredentials ||
                         o.geminiCliCredentials ||
+                        o.piCredentials ||
                         o.saveCredentialAs
                     )
                 },
                 defaultMessage(args: ValidationArguments): string {
                     const o = args.object as CreateAgentDto
-                    return o.framework && !isConfigurableFramework(o.framework)
-                        ? 'modelConfigSource runtime-local is only available for claude-code, codex and gemini-cli'
+                    return o.framework && !isModelConfigFramework(o.framework)
+                        ? 'modelConfigSource runtime-local is only available for claude-code, codex, gemini-cli and pi'
                         : 'modelConfigSource runtime-local cannot be combined with credentials or saveCredentialAs'
                 }
             }
@@ -476,6 +521,7 @@ export class CreateAgentDto {
         'claude-code',
         'codex',
         'gemini-cli',
+        'pi',
         'openclaw',
         'hermes',
         'narranexus',
@@ -561,6 +607,11 @@ export class CreateAgentDto {
     @ValidateIf((o: CreateAgentDto) => o.framework === 'gemini-cli')
     @Type(() => GeminiCliCredentialsDto)
     geminiCliCredentials?: GeminiCliCredentialsDto
+
+    @ValidateNested()
+    @ValidateIf((o: CreateAgentDto) => o.framework === 'pi')
+    @Type(() => PiCredentialsDto)
+    piCredentials?: PiCredentialsDto
 
     @ValidateNested()
     @ValidateIf((o: CreateAgentDto) => o.framework === 'openclaw')

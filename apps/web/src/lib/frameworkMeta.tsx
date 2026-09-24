@@ -18,6 +18,8 @@ import nexusLightIcon from '@/assets/agent-logos/nexus-light.svg'
 import nexusDarkIcon from '@/assets/agent-logos/nexus-dark.svg'
 import a2aLightIcon from '@/assets/agent-logos/a2a-light.svg'
 import a2aDarkIcon from '@/assets/agent-logos/a2a-dark.svg'
+import piLightIcon from '@/assets/agent-logos/pi-light.svg'
+import piDarkIcon from '@/assets/agent-logos/pi-dark.svg'
 // Local copy of the Langflow GitHub avatar, sized for its largest rendered
 // use (~22px @3x): no third-party request on the landing critical path.
 import langflowIcon from '@/assets/agent-logos/langflow.png'
@@ -63,6 +65,18 @@ const frameworkMeta = {
         supportsModelOverride: true,
         modelPresets: ['auto', 'gemini-3.5-flash', 'gemini-2.5-pro'],
         defaultProvider: 'google'
+    },
+    pi: {
+        labelKey: 'web.frameworks.pi',
+        Icon: null,
+        mono: false,
+        iconSrc: piLightIcon,
+        iconSrcDark: piDarkIcon,
+        // Like hermes: options come from the bound provider's models at
+        // runtime — the id a gateway serves is not a vendor preset.
+        supportsModelOverride: true,
+        modelPresets: [],
+        defaultProvider: 'anthropic'
     },
     openclaw: {
         labelKey: 'web.frameworks.openclaw',

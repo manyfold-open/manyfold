@@ -44,7 +44,14 @@ import { fileURLToPath } from 'node:url'
 // for which of ADR-0006's frameworks have a CLI that gets spawned by name.
 // Deliberately absent: node, bash, sh, npm, npx, curl, tar, docker (the
 // suites resolve those for real), and `mf` (only ever run by absolute path).
-export const AGENT_CLIS = ['claude', 'codex', 'gemini', 'openclaw', 'hermes']
+export const AGENT_CLIS = [
+    'claude',
+    'codex',
+    'gemini',
+    'pi',
+    'openclaw',
+    'hermes'
+]
 
 export const LOG_VAR = 'MF_TEST_AGENT_CLI_LOG'
 

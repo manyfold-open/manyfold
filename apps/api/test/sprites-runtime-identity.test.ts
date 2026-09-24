@@ -233,6 +233,7 @@ const provisionerWith = (opts: {
         {} as never, // claudeBootstrap
         {} as never, // codexBootstrap
         {} as never, // geminiBootstrap
+        {} as never, // piBootstrap
         {} as never, // hermesSpriteBootstrap
         {} as never, // openclawSpriteBootstrap
         {} as never, // narraNexusSpriteBootstrap

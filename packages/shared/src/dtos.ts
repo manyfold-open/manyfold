@@ -8,7 +8,8 @@ import type {
 } from './constants'
 import type { TokenCreatedVia } from './api-tokens'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
-import type { DetectedFramework } from './daemon'
+import type { DaemonHerdrFramework, DetectedFramework } from './daemon'
+import type { PiProvider } from './pi'
 
 export interface SdkUserSummary {
     id: string
@@ -940,6 +941,16 @@ export interface GeminiCliCredentialsInput {
     providerId?: string
 }
 
+// Either a saved/managed provider (`providerId`, protocol decides the pi
+// provider) or a raw key paired with the pi provider it belongs to.
+export interface PiCredentialsInput {
+    apiKey?: string
+    provider?: PiProvider
+    baseUrl?: string
+    model?: string | null
+    providerId?: string
+}
+
 export type OpenclawModelProvider = 'anthropic' | 'openai' | 'openrouter'
 
 export interface OpenclawCredentialsInput {
@@ -1031,6 +1042,7 @@ export interface UpdateAgentCredentialsBody {
     claudeCodeCredentials?: ClaudeCodeCredentialsInput
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
+    piCredentials?: PiCredentialsInput
     openclawCredentials?: UpdateOpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     saveCredentialAs?: SaveCredentialAs
@@ -1223,6 +1235,7 @@ export interface CreateAgentBody {
     claudeCodeCredentials?: ClaudeCodeCredentialsInput
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
+    piCredentials?: PiCredentialsInput
     openclawCredentials?: OpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     difyBinding?: DifyBindingInput
@@ -1346,6 +1359,7 @@ export const SKILL_FRAMEWORKS = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'hermes'
 ] as const
 export type SkillFramework = (typeof SKILL_FRAMEWORKS)[number]
@@ -2339,6 +2353,9 @@ export interface SandboxSummary {
     // drive it (ADR-0031); false with herdr installed means the runner's
     // Manyfold CLI predates the handoff and the Update Center has the fix.
     canOpenInHerdr: boolean
+    // The frameworks its runner can start in herdr (herdrFrameworksFor); a
+    // sandbox with no runner yet gets one that starts them all.
+    herdrFrameworks: DaemonHerdrFramework[]
     // Accrued `running` seconds for this sandbox in the OWNER's current usage
     // period (subscription billing period, or UTC calendar month for free
     // users). 0 when never active this period. Format for display via the

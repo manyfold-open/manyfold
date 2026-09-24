@@ -13,12 +13,12 @@ export type DaemonStartupMethod =
 
 export type DaemonCodingFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli'
+    'claude-code' | 'codex' | 'gemini-cli' | 'pi'
 >
 
 export type DaemonDetectableFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli' | 'openclaw' | 'hermes'
+    'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'openclaw' | 'hermes'
 >
 
 // Every framework a self-owned daemon can detect + run (capability fact:
@@ -29,6 +29,7 @@ export const DAEMON_DETECTABLE_FRAMEWORKS: DaemonDetectableFramework[] = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'openclaw',
     'hermes'
 ]
@@ -140,6 +141,9 @@ export interface DaemonHostSummary {
     // herdr is installed on this machine and the daemon can open a chat
     // session's TUI in it (ADR-0031); false hides the handoff in the web.
     canOpenInHerdr: boolean
+    // The frameworks it can start there (herdrFrameworksFor): a CLI from
+    // before pi joined herdr hands over claude and codex only.
+    herdrFrameworks: DaemonHerdrFramework[]
     // herdr's installed version, the newest herdr.dev publishes, and whether
     // the Update Center should offer the upgrade (ADR-0031).
     herdrVersion: string | null
@@ -282,9 +286,10 @@ export interface DaemonOwnedTerminal {
     startedAt: string
 }
 
-// The frameworks whose TUI a herdr pane can resume (ADR-0031): the same two
-// with a resume-by-id form the browser terminal supports.
-export type DaemonHerdrFramework = 'claude-code' | 'codex'
+// The frameworks whose TUI a herdr pane can resume (ADR-0031): the ones with
+// a resume-by-id form the browser terminal supports and an agent kind in
+// herdr (herdr 0.9 has `claude`, `codex` and `pi`).
+export type DaemonHerdrFramework = 'claude-code' | 'codex' | 'pi'
 
 // terminal.herdr.open (ADR-0031): run a chat session's framework TUI in a
 // herdr pane on the daemon's machine. The API composes command and env
@@ -655,6 +660,24 @@ export const DAEMON_FEATURE_PTY_TERMINAL = 'pty.terminal.v1'
 // the `herdr` binary is found on the machine, so the web can offer the
 // handoff exactly where it can work.
 export const DAEMON_FEATURE_HERDR_TERMINAL = 'terminal.herdr.v1'
+// The daemon's herdr handoff (above) also starts pi. Advertised with it, by a
+// CLI that knows pi's herdr kind.
+export const DAEMON_FEATURE_HERDR_PI = 'terminal.herdr.pi.v1'
+
+// What a host with these features can hand to herdr: nothing without the
+// handoff, claude and codex with it, pi too when the CLI knows pi's kind.
+export const herdrFrameworksFor = (
+    clientFeatures: readonly string[]
+): DaemonHerdrFramework[] =>
+    clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
+        ? [
+              'claude-code',
+              'codex',
+              ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_PI)
+                  ? (['pi'] as const)
+                  : [])
+          ]
+        : []
 
 // The daemon answers `account.inspect` (who is signed in on this machine per
 // coding CLI, plus the raw vendor usage response). The API must check this
@@ -680,6 +703,12 @@ export const DAEMON_FEATURE_WS_AUTH_HEADER = 'ws.auth-header'
 // that profile's executions. Older daemons would create the profile and drop
 // the key, so the API refuses api-key creation without this.
 export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
+// The daemon knows pi as a CLI with a sign-in of its own: `model.inspect` and
+// `account.inspect` report pi's credential facts and the models `pi
+// --list-models` offers, and the `auth.*` RPCs keep pi profiles (a view of
+// ~/.pi/agent with its own auth.json). An older daemon reports nothing for
+// pi, which reads as "not signed in" — the API asks for a CLI update instead.
+export const DAEMON_FEATURE_PI_LOCAL = 'pi.runtime-local.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -706,5 +735,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_AUTH_PROFILES,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
-    DAEMON_FEATURE_AUTH_API_KEY
+    DAEMON_FEATURE_AUTH_API_KEY,
+    DAEMON_FEATURE_PI_LOCAL
 ]

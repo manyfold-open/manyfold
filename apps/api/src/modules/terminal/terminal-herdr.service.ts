@@ -19,7 +19,8 @@ import {
     type DaemonHerdrFramework,
     type SessionHerdrFocusResponse,
     type SessionHerdrOpenRequest,
-    type SessionHerdrOpenResponse
+    type SessionHerdrOpenResponse,
+    herdrFrameworksFor
 } from '@manyfold/shared'
 import type { RuntimeHostRow } from '@manyfold/db'
 import { AgentsService } from '@/modules/agents/agents.service'
@@ -27,13 +28,18 @@ import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.se
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import {
     assertHostHonoursAuthContext,
-    authContextRefFor
+    authContextRefFor,
+    effectiveModelConfigSource
 } from '@/modules/agents/model-config/runtime-auth-selection'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SessionHeldByTerminalError } from '@/modules/chat/chat.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
+import {
+    PI_PLATFORM_VIEW_ENV,
+    piPlatformDirect
+} from '@/modules/agents/credentials/pi-agent-dir'
 import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
 import { terminalResumeNeedsModelCredentials } from '@/modules/terminal/terminal-resume-command'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
@@ -46,7 +52,8 @@ const TITLE_MAX_LENGTH = 120
 
 const HERDR_FRAMEWORKS: readonly DaemonHerdrFramework[] = [
     'claude-code',
-    'codex'
+    'codex',
+    'pi'
 ]
 
 const isHerdrFramework = (value: string): value is DaemonHerdrFramework =>
@@ -131,7 +138,18 @@ export class TerminalHerdrService {
             throw new NotFoundException('session not found')
         if (!isHerdrFramework(agent.framework))
             throw unavailable(
-                'herdr can only resume Claude Code and Codex conversations'
+                'herdr can only resume Claude Code, Codex and Pi conversations'
+            )
+        // The host's CLI must know the framework's herdr kind too.
+        if (
+            !herdrFrameworksFor(host.clientFeatures ?? []).includes(
+                agent.framework
+            )
+        )
+            throw unavailable(
+                agent.runtime === 'sprites'
+                    ? 'the sandbox runner cannot start this framework in herdr yet; upgrade its Manyfold CLI'
+                    : 'update the Manyfold CLI on this computer to hand this framework to herdr'
             )
         // The resume below refuses such a sandbox too, but only as "nothing
         // to resume"; say what the user can change.
@@ -153,19 +171,24 @@ export class TerminalHerdrService {
                 agent.runtime === 'sprites' ? 'this sandbox' : 'this machine'
             )
 
+        const runtimeLocalAgent =
+            effectiveModelConfigSource(agent) === 'runtime-local'
         const resolution = await this.resume.resolve({
             agentId: agent.id,
             runtimeId: agent.runtimeId,
             framework: agent.framework,
             chatSessionId: sessionId,
             // A self-owned machine's own sign-in is what the TUI uses, so
-            // there is no consent to ask for; a sandbox hands the platform's
-            // credentials to the TUI only when it opted in, as the browser
-            // terminal does.
+            // there is no consent to ask for, and a runtime-local agent's TUI
+            // runs on the runtime's own sign-in (or its profile's); a sandbox
+            // hands the platform's credentials to the TUI only when it opted
+            // in, as the browser terminal does.
             modelCredentialsAllowed:
                 agent.runtime === 'daemon' ||
+                runtimeLocalAgent ||
                 sandbox?.terminalModelCredentials === true,
-            injectModelCredentials: agent.runtime === 'sprites'
+            injectModelCredentials:
+                agent.runtime === 'sprites' && !runtimeLocalAgent
         })
         if (resolution.outcome === 'turn-in-flight')
             throw new ConflictException({
@@ -176,6 +199,23 @@ export class TerminalHerdrService {
             throw unavailable(
                 'this conversation has no CLI session to resume yet'
             )
+        // A pi TUI on the platform's key runs on the platform view, which a
+        // browser TUI's command builds on its way to pi; herdr runs pi by
+        // name, so the view is built first and herdr's pi pointed at it.
+        let resume = resolution.resume
+        if (
+            agent.framework === 'pi' &&
+            resume.env[PI_PLATFORM_VIEW_ENV] !== undefined
+        ) {
+            try {
+                resume = piPlatformDirect(
+                    resume,
+                    await this.daemon.preparePiView(host.id, resume.env)
+                )
+            } catch (err) {
+                throw herdrLaunchError(err)
+            }
+        }
 
         // The row first, addressed by its own id so any instance can close
         // the pane through the daemon; then the hold, the last step that may
@@ -217,7 +257,7 @@ export class TerminalHerdrService {
                 agent: agent as Agent,
                 terminalId: row.id,
                 framework: agent.framework,
-                resume: resolution.resume,
+                resume,
                 title,
                 chatSessionId: sessionId,
                 daemonId: host.id,

@@ -20,6 +20,7 @@ import {
     isAllowedChatAttachment,
     isClaudeCodeModelAlias,
     isClaudeCodeOneMillionModelAlias,
+    isModelConfigFramework,
     resolveClaudeCodeModelOptions,
     runtimeAuthSupported,
     RuntimeAccountView,
@@ -653,9 +654,7 @@ const Composer: FC<Props> = ({
     const modelOverrideValue = modelOverride?.trim() || null
     const hasFrameworkModelConfig = Boolean(
         modelConfigView &&
-        (modelConfigView.framework === 'claude-code' ||
-            modelConfigView.framework === 'codex' ||
-            modelConfigView.framework === 'gemini-cli') &&
+        isModelConfigFramework(modelConfigView.framework) &&
         onModelConfigDraftChange
     )
     const draftValidation = validateModelConfigDraft(
@@ -672,6 +671,8 @@ const Composer: FC<Props> = ({
         hasFrameworkModelConfig && modelConfigView?.framework === 'claude-code'
     const isGeminiModelConfig =
         hasFrameworkModelConfig && modelConfigView?.framework === 'gemini-cli'
+    const isPiModelConfig =
+        hasFrameworkModelConfig && modelConfigView?.framework === 'pi'
     const modelDisplayParts: ComposerLabelParts | null =
         hasFrameworkModelConfig
             ? modelConfigSource === 'runtime-local'
@@ -692,8 +693,8 @@ const Composer: FC<Props> = ({
                           modelDefaultLabel,
                           t
                       )
-                    : isGeminiModelConfig
-                      ? formatGeminiComposerLabel(
+                    : isGeminiModelConfig || isPiModelConfig
+                      ? formatModelListComposerLabel(
                             modelConfigDraft,
                             modelDefaultLabel
                         )
@@ -1041,7 +1042,8 @@ const Composer: FC<Props> = ({
                                                     ? 'chat-composer-model-codex'
                                                     : isClaudeModelConfig
                                                       ? 'chat-composer-model-claude'
-                                                      : isGeminiModelConfig
+                                                      : isGeminiModelConfig ||
+                                                          isPiModelConfig
                                                         ? 'chat-composer-model-claude'
                                                         : ''
                                             ].join(' ')}
@@ -1859,9 +1861,19 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                 />
             )}
             {!runtimeLocal && view.framework === 'gemini-cli' && (
-                <GeminiModelConfigMenu
+                <ModelListConfigMenu
                     view={view}
                     draft={draft?.framework === 'gemini-cli' ? draft : null}
+                    pick={(model) => withGeminiModel(draft, model)}
+                    onChange={onChange}
+                    onRequestClose={onRequestClose}
+                />
+            )}
+            {!runtimeLocal && view.framework === 'pi' && (
+                <ModelListConfigMenu
+                    view={view}
+                    draft={draft?.framework === 'pi' ? draft : null}
+                    pick={(model) => ({ framework: 'pi', model })}
                     onChange={onChange}
                     onRequestClose={onRequestClose}
                 />
@@ -2591,12 +2603,16 @@ const CodexModelConfigMenu: FC<{
     )
 }
 
-const GeminiModelConfigMenu: FC<{
+// One pick from the view's model list — Gemini CLI's catalog-backed options,
+// or the models pi's provider serves. `pick` turns the chosen id into the
+// framework's draft.
+const ModelListConfigMenu: FC<{
     view: AgentModelConfigView
-    draft: Extract<AgentModelConfig, { framework: 'gemini-cli' }> | null
+    draft: Extract<AgentModelConfig, { framework: 'gemini-cli' | 'pi' }> | null
+    pick: (model: string) => AgentModelConfig
     onChange?: (config: AgentModelConfig) => void
     onRequestClose?: () => void
-}> = ({ view, draft, onChange, onRequestClose }): ReactNode => {
+}> = ({ view, draft, pick, onChange, onRequestClose }): ReactNode => {
     const { t } = useI18n()
     const [submenu, setSubmenu] = useState<'model' | null>(null)
     const options = view.options
@@ -2646,9 +2662,7 @@ const GeminiModelConfigMenu: FC<{
                                     disabled={!option.enabled}
                                     className='chat-composer-model-option'
                                     onClick={() => {
-                                        onChange?.(
-                                            withGeminiModel(draft, option.value)
-                                        )
+                                        onChange?.(pick(option.value))
                                         onRequestClose?.()
                                     }}
                                 >
@@ -2874,11 +2888,14 @@ const formatCodexComposerLabel = (
     }
 }
 
-const formatGeminiComposerLabel = (
+const formatModelListComposerLabel = (
     draft: AgentModelConfig | null,
     fallback: string
 ): ComposerLabelParts => {
-    if (draft?.framework !== 'gemini-cli' || !draft.model)
+    if (
+        (draft?.framework !== 'gemini-cli' && draft?.framework !== 'pi') ||
+        !draft.model
+    )
         return { name: formatModelLabel(fallback), detail: null }
     return { name: formatModelLabel(draft.model), detail: null }
 }

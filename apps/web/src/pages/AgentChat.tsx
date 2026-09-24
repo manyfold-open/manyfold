@@ -916,7 +916,8 @@ const AgentChat: FC = (): ReactNode => {
             if (!aid || !sid || !currentAgent) return
             if (
                 currentAgent.framework !== 'claude-code' &&
-                currentAgent.framework !== 'codex'
+                currentAgent.framework !== 'codex' &&
+                currentAgent.framework !== 'pi'
             )
                 return
             if (currentAgent.runtime === 'external') return
@@ -1333,6 +1334,10 @@ const AgentChat: FC = (): ReactNode => {
                   sessionSandbox?.cliUpdateAvailable === true,
               sandboxModelCredentials:
                   sessionSandbox?.terminalModelCredentials === true,
+              hostHerdrFrameworks:
+                  (currentAgent.runtime === 'sprites'
+                      ? sessionSandbox?.herdrFrameworks
+                      : sessionDaemon?.herdrFrameworks) ?? [],
               sessionId: activeSessionId,
               frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
               modelSource: effectiveModelConfigView?.source ?? null,

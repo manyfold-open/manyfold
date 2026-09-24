@@ -104,7 +104,9 @@ mf daemon start --foreground
 
 *「本地配置」会使用所选本地 framework 的可用凭据。*
 
-如果「本地配置」显示 **未检查**，请重新检查状态，并确认对应的 Claude Code、Codex 或 Gemini CLI 已在该电脑正确安装和登录。若要使用团队或个人 API key，请在 Manyfold 的[模型提供商设置](/zh/docs/model-providers/)中添加、测试并保存 Provider。
+如果「本地配置」显示 **未检查**，请重新检查状态，并确认对应的 Claude Code、Codex、Gemini CLI 或 Pi 已在该电脑正确安装和登录。若要使用团队或个人 API key，请在 Manyfold 的[模型提供商设置](/zh/docs/model-providers/)中添加、测试并保存 Provider。
+
+对 Pi 来说，「本地配置」就是 Pi 在这台电脑上自己能用的凭据：在 `pi` 里用 `/login` 完成的登录（Claude、ChatGPT 或 Copilot 订阅，或 API key）、它的 `models.json` 里的 key，或 `ANTHROPIC_API_KEY` 这类厂商变量。选了 Provider 时，每个 turn 都使用该 Provider 的 key 和地址（包括 gateway），Pi 自己的登录和 `models.json` 不会被用到；两种方式下你的 Pi 设置、skills 和 session 都照常生效。Pi 的 `find` 和 `grep` 工具要用 `fd` 与 `ripgrep`：Manyfold 以离线模式运行 Pi，所以用的是你 `PATH` 里的，或你自己运行 Pi 时它下载到 `~/.pi/agent/bin` 的；两者都没有就请安装。
 
 ## 第 5 步：完成创建并验证 daemon 状态
 

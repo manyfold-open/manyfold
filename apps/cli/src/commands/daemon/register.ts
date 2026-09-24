@@ -9,6 +9,7 @@ import type {
     RegisterDaemonResponse
 } from '@manyfold/shared'
 import {
+    TERMINAL_HOOK_FRAMEWORKS,
     apiPaths,
     machineSkillsDir,
     machineWorkspacesRoot
@@ -186,17 +187,17 @@ export const decideSessionHooks = async (
     detected: DetectedFramework[]
 ): Promise<void> => {
     if (!sessionHooksSupported()) return
-    const hookable = detected.filter(
-        (f) => f.framework === 'claude-code' || f.framework === 'codex'
+    const hookable = detected.filter((f) =>
+        (TERMINAL_HOOK_FRAMEWORKS as readonly string[]).includes(f.framework)
     )
     if (hookable.length === 0) return
     let install: boolean | null = options.hooks === false ? false : null
     if (install === null && options.yes) install = true
     if (install === null && process.stdin.isTTY)
         install = await promptYesNo(
-            `Install the Manyfold session hooks into ${hookable
+            `Install the Manyfold session hooks for ${hookable
                 .map((f) => f.framework)
-                .join(' and ')} settings? They act only inside terminals Manyfold opens. [Y/n] `
+                .join(', ')}? They act only inside terminals Manyfold opens. [Y/n] `
         )
     if (install === null) {
         console.log(
@@ -244,7 +245,7 @@ export const registerDaemonRegister = (program: Command): void => {
         )
         .option(
             '--no-hooks',
-            'do not install the claude / codex session hooks (they act only inside Manyfold terminals)'
+            'do not install the claude / codex / pi session hooks (they act only inside Manyfold terminals)'
         )
         .action(async (options: DaemonRegisterOptions) => {
             const parent = program.parent

@@ -122,7 +122,7 @@ export const registerSetup = (program: Command): void => {
         )
         .option(
             '--no-hooks',
-            'do not install the claude / codex session hooks (they act only inside Manyfold terminals)'
+            'do not install the claude / codex / pi session hooks (they act only inside Manyfold terminals)'
         )
         .action(async (opts: SetupOptions) => {
             const root = program.opts<RootOptions>()

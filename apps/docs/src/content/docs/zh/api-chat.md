@@ -11,7 +11,7 @@ v1 只暴露一个公开集成入口：
 POST /api/v1/chat/completions
 ```
 
-这个接口用同一种请求格式连接 Claude Code、Codex、Gemini CLI、OpenClaw、Hermes、Dify、Langflow 等托管 Agent。
+这个接口用同一种请求格式连接 Claude Code、Codex、Gemini CLI、Pi、OpenClaw、Hermes、Dify、Langflow 等托管 Agent。
 
 ## 开始前
 
@@ -224,6 +224,7 @@ console.log(response.choices[0]?.message?.content)
 | Claude Code | `bypassPermissions`                   |
 | Codex       | Full access，跳过 approval 和 sandbox |
 | Gemini CLI  | `--approval-mode yolo`                |
+| Pi          | 没有权限模式；工具始终直接执行        |
 
 这些默认值让 API 驱动的 Agent 可以在没有交互式确认弹窗的情况下完成文件修改、终端命令和工作区自动化。OpenAI 兼容 v1 endpoint 不提供逐请求权限模式控制；如果某个 turn 需要更窄的权限模式，请使用 Manyfold Chat UI 或原生 Chat API。
 

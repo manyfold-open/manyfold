@@ -2110,3 +2110,95 @@ test('AgentModelConfigService serves hermes provider models from the agent cache
     assert.deepEqual(view.providerModels, ['z-ai/glm-5.1', 'nous/hermes-4'])
     assert.equal(view.providerModelsStatus, 'ready')
 })
+
+// pi keeps model settings like the other coding CLIs — a platform provider or
+// its own sign-in, per agent — but its platform model is any id the provider
+// serves, so nothing is validated against a tested list.
+test('AgentModelConfigService offers pi both sources and defaults a daemon to its own sign-in', async () => {
+    const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'pi', model: null })
+    const view = await makeService(db, null).getForAgent('user-1', 'agent-1', false)
+    assert.deepEqual(view.availableSources, ['platform', 'runtime-local'])
+    assert.equal(view.source, 'runtime-local')
+    assert.deepEqual(view.validation, { valid: true, messages: [] })
+})
+
+test('AgentModelConfigService saves a pi platform model and resolves it for the turn', async () => {
+    const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'pi', model: 'claude-sonnet-4-6' })
+    const service = makeService(db, null)
+    const view = await service.updateForAgent(
+        'user-1',
+        'agent-1',
+        { modelConfigSource: 'platform' },
+        false
+    )
+    assert.equal(view.source, 'platform')
+    // No model in the request keeps the one the credential gave the agent.
+    assert.deepEqual(view.config, { framework: 'pi', model: 'claude-sonnet-4-6' })
+    assert.equal(db.agent.model, 'claude-sonnet-4-6')
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        modelConfigSource: 'platform',
+        modelConfig: { framework: 'pi', model: 'deepseek-ai/DeepSeek-V3' },
+        saveAsDefault: true
+    })
+    assert.equal(turn.model, 'deepseek-ai/DeepSeek-V3')
+    assert.deepEqual(turn.modelConfig, { framework: 'pi', model: 'deepseek-ai/DeepSeek-V3' })
+    assert.equal(db.agent.model, 'deepseek-ai/DeepSeek-V3')
+    await assert.rejects(
+        service.updateForAgent(
+            'user-1',
+            'agent-1',
+            { modelConfigSource: 'platform', modelConfig: { framework: 'codex', model: 'x' } as never },
+            false
+        ),
+        /must be pi/
+    )
+})
+
+test('AgentModelConfigService runs a pi runtime-local turn on a model pi listed', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'pi',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('codex', 'daemon-local'),
+                framework: 'pi',
+                cliVersion: '0.87.1',
+                credentialFacts: parseRuntimeLocalCredentialFacts({
+                    framework: 'pi',
+                    authFilePresent: true,
+                    authFileParsed: true,
+                    authEntries: [
+                        { provider: 'openai-codex', type: 'oauth', expiresAt: null, hasRefreshToken: true }
+                    ]
+                }),
+                models: ['openai-codex/gpt-5.5', 'anthropic/claude-sonnet-4-6'],
+                aliases: [],
+                speeds: [],
+                intelligence: []
+            }
+        }
+    })
+    const service = makeService(db, null)
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        modelConfig: { framework: 'pi', model: 'openai-codex/gpt-5.5' },
+        saveAsDefault: true
+    })
+    assert.equal(turn.model, 'openai-codex/gpt-5.5')
+    assert.equal(turn.modelConfig, null)
+    assert.deepEqual(turn.runtimeLocalTuning, {})
+    assert.equal(db.agent.model, 'openai-codex/gpt-5.5')
+    await assert.rejects(
+        service.resolveTurnConfig({
+            callerUserId: 'user-1',
+            agentId: 'agent-1',
+            model: 'google/gemini-2.5-pro'
+        }),
+        /not available in the local config for pi/
+    )
+})

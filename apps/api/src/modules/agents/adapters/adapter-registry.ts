@@ -4,6 +4,7 @@ import type { AgentAdapter } from './agent-adapter'
 import { ClaudeCodeAgentAdapter } from './claude-code-agent.adapter'
 import { CodexAgentAdapter } from './codex-agent.adapter'
 import { GeminiCliAgentAdapter } from './gemini-cli-agent.adapter'
+import { PiAgentAdapter } from './pi-agent.adapter'
 import { OpenclawAgentAdapter } from './openclaw-agent.adapter'
 import { HermesAgentAdapter } from './hermes-agent.adapter'
 import { NarraNexusAgentAdapter } from '@/modules/narranexus/narranexus-agent.adapter'
@@ -21,6 +22,7 @@ export class AgentAdapterRegistry {
         claudeCode: ClaudeCodeAgentAdapter,
         codex: CodexAgentAdapter,
         geminiCli: GeminiCliAgentAdapter,
+        pi: PiAgentAdapter,
         openclaw: OpenclawAgentAdapter,
         hermes: HermesAgentAdapter,
         narraNexus: NarraNexusAgentAdapter,
@@ -32,6 +34,7 @@ export class AgentAdapterRegistry {
             claudeCode,
             codex,
             geminiCli,
+            pi,
             openclaw,
             hermes,
             narraNexus,

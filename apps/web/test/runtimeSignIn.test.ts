@@ -109,6 +109,8 @@ test('per-framework sign-in commands cover exactly the coding CLIs', () => {
         runtimeSignInCommandFor('gemini-cli'),
         'NO_BROWSER=true gemini'
     )
+    // pi has no login subcommand: its TUI's /login runs the provider's flow.
+    assert.equal(runtimeSignInCommandFor('pi'), 'pi')
     assert.equal(runtimeSignInCommandFor('hermes'), null)
 })
 
@@ -123,6 +125,7 @@ test('initialPickerForFramework applies the slot only to coding frameworks', () 
     assert.equal(initialPickerForFramework('claude-code').mode, 'runtime')
     assert.equal(initialPickerForFramework('codex').mode, 'runtime')
     assert.equal(initialPickerForFramework('gemini-cli').mode, 'runtime')
+    assert.equal(initialPickerForFramework('pi').mode, 'runtime')
     assert.equal(initialPickerForFramework('hermes').mode, 'saved')
     assert.equal(initialPickerForFramework('openclaw').mode, 'saved')
 })

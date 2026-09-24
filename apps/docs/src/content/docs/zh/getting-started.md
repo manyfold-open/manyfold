@@ -5,7 +5,7 @@ order: 1
 ---
 Manyfold 可以帮你创建托管的 AI Agent，为它分配工作区，并通过网页、CLI 或团队聊天工具与它协作。
 
-你可以先从 Claude Code、Codex 或 Gemini CLI 这类 coding agent 开始；当工作流需要长期运行能力时，再加入框架型 Agent。
+你可以先从 Claude Code、Codex、Gemini CLI 或 Pi 这类 coding agent 开始；当工作流需要长期运行能力时，再加入框架型 Agent。
 
 ## 你可以做什么
 

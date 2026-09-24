@@ -4,6 +4,7 @@ import { HttpException } from '@nestjs/common'
 import {
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
     CHAT_SESSION_TURN_IN_FLIGHT_CODE,
+    DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_PTY_COMMAND,
     HERDR_LAUNCH_FAILED_CODE,
@@ -58,6 +59,10 @@ const harness = (
         resolve?: Record<string, unknown>
         acquire?: string
         open?: () => Promise<Record<string, unknown>>
+        preparePiView?: (
+            daemonId: string,
+            env: Record<string, string>
+        ) => Promise<string>
         // The sprites arm: the sandbox row and what resolving its runner
         // gives; absent, the service was built without those services.
         sandbox?: Record<string, unknown> | null
@@ -73,6 +78,7 @@ const harness = (
     const finished: Array<[string, string]> = []
     const opens: Array<Record<string, unknown>> = []
     const focuses: Array<[string, string]> = []
+    const prepares: Array<[string, Record<string, string>]> = []
     const agent = { ...AGENT, ...overrides.agent }
     const host = overrides.host === null ? null : { ...HOST, ...overrides.host }
     const session =
@@ -144,6 +150,15 @@ const harness = (
             focusHerdr: async (daemonId: string, terminalId: string) => {
                 focuses.push([daemonId, terminalId])
                 return true
+            },
+            preparePiView: async (
+                daemonId: string,
+                env: Record<string, string>
+            ) => {
+                prepares.push([daemonId, env])
+                return overrides.preparePiView
+                    ? overrides.preparePiView(daemonId, env)
+                    : '/home/sprite/.manyfold/pi/rt-1/agent'
             }
         } as never,
         ...(overrides.runner
@@ -166,7 +181,8 @@ const harness = (
         acquires,
         finished,
         opens,
-        focuses
+        focuses,
+        prepares
     }
 }
 
@@ -472,4 +488,138 @@ test('focus for a sandbox session goes to the daemon the row names', async () =>
         focused: true
     })
     assert.deepEqual(h.focuses, [['dh-runner', 'tms_h']])
+})
+
+// pi joins herdr (its `pi` agent kind) wherever the CLI there knows it.
+const PI_HOST = {
+    id: 'dh-1',
+    clientFeatures: [
+        DAEMON_FEATURE_PTY_COMMAND,
+        DAEMON_FEATURE_HERDR_TERMINAL,
+        DAEMON_FEATURE_HERDR_PI
+    ]
+}
+
+test('a pi conversation on a computer whose CLI knows pi goes to herdr as plain pi', async () => {
+    const h = harness({
+        agent: { framework: 'pi' },
+        host: PI_HOST,
+        resolve: {
+            resume: {
+                command: ['pi', '--session-id', 'ref-1', '--approve'],
+                env: {}
+            },
+            outcome: 'applied',
+            ref: 'ref-1'
+        }
+    })
+    await h.service.open('u1', 'agt-1', 'cs-1', {})
+    // The machine's own sign-in answers there: nothing to prepare.
+    assert.equal(h.prepares.length, 0)
+    assert.deepEqual((h.opens[0].resume as { command: string[] }).command, [
+        'pi',
+        '--session-id',
+        'ref-1',
+        '--approve'
+    ])
+    assert.equal(h.opens[0].framework, 'pi')
+
+    // A CLI from before pi joined herdr hands over claude and codex only.
+    const old = harness({ agent: { framework: 'pi' } })
+    await assert.rejects(
+        old.service.open('u1', 'agt-1', 'cs-1', {}),
+        (err: unknown) =>
+            codeOf(err) === HERDR_UNAVAILABLE_CODE &&
+            /update the Manyfold CLI/.test((err as HttpException).message)
+    )
+    assert.equal(old.created.length, 0)
+})
+
+// On a sandbox a platform pi runs on the platform view. herdr starts pi by
+// name, so the runner builds the view first and herdr's pi is pointed at it,
+// with the key and nothing of the view's own variables.
+test('a sandbox pi on the platform key gets its view built by the runner before herdr starts it', async () => {
+    const h = harness({
+        agent: { ...SPRITES_AGENT, framework: 'pi' },
+        sandbox: SANDBOX,
+        runner: {
+            host: { ...RUNNER, clientFeatures: PI_HOST.clientFeatures },
+            availability: 'ok'
+        },
+        resolve: {
+            resume: {
+                command: [
+                    'bash',
+                    '-c',
+                    'view script',
+                    'pi',
+                    '--session-id',
+                    'ref-1',
+                    '--approve'
+                ],
+                env: {
+                    PI_OFFLINE: '1',
+                    MF_PI_VIEW: 'rt-1',
+                    MF_PI_MODELS_JSON: '{"providers":{}}',
+                    ANTHROPIC_API_KEY: 'sk-bound',
+                    ANTHROPIC_AUTH_TOKEN: ''
+                }
+            },
+            outcome: 'applied',
+            ref: 'ref-1'
+        }
+    })
+    await h.service.open('u1', 'agt-1', 'cs-1', {})
+    assert.equal(h.prepares.length, 1)
+    assert.equal(h.prepares[0][0], 'dh-runner')
+    assert.equal(h.prepares[0][1].MF_PI_VIEW, 'rt-1')
+    const resume = h.opens[0].resume as {
+        command: string[]
+        env: Record<string, string>
+    }
+    assert.deepEqual(resume.command, [
+        'pi',
+        '--session-id',
+        'ref-1',
+        '--approve'
+    ])
+    assert.deepEqual(resume.env, {
+        PI_OFFLINE: '1',
+        ANTHROPIC_API_KEY: 'sk-bound',
+        ANTHROPIC_AUTH_TOKEN: '',
+        PI_CODING_AGENT_DIR: '/home/sprite/.manyfold/pi/rt-1/agent'
+    })
+
+    // A view that cannot be built stops the handoff before any row exists.
+    const failed = harness({
+        agent: { ...SPRITES_AGENT, framework: 'pi' },
+        sandbox: SANDBOX,
+        runner: {
+            host: { ...RUNNER, clientFeatures: PI_HOST.clientFeatures },
+            availability: 'ok'
+        },
+        resolve: {
+            resume: {
+                command: [
+                    'bash',
+                    '-c',
+                    'view script',
+                    'pi',
+                    '--session-id',
+                    'ref-1'
+                ],
+                env: { MF_PI_VIEW: 'rt-1', ANTHROPIC_API_KEY: 'sk-bound' }
+            },
+            outcome: 'applied',
+            ref: 'ref-1'
+        },
+        preparePiView: async () => {
+            throw new DaemonRpcResponseError('exec failed')
+        }
+    })
+    await assert.rejects(
+        failed.service.open('u1', 'agt-1', 'cs-1', {}),
+        (err: unknown) => codeOf(err) === HERDR_LAUNCH_FAILED_CODE
+    )
+    assert.equal(failed.created.length, 0)
 })

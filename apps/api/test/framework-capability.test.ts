@@ -43,6 +43,11 @@ const GROUND_TRUTH: Record<AgentFramework, Expected> = {
         runtimes: ['sprites', 'k8s', 'daemon'],
         configSubdir: '.gemini'
     },
+    pi: {
+        kind: 'coding',
+        runtimes: ['sprites', 'k8s', 'daemon'],
+        configSubdir: '.pi'
+    },
     openclaw: {
         kind: 'service',
         runtimes: ['sprites', 'k8s', 'daemon'],

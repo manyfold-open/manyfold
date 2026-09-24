@@ -106,7 +106,8 @@ const withSandbox = async (
     for (const [name, version] of [
         ['claude', '2.1.259 (Claude Code)'],
         ['codex', 'codex-cli 0.153.4'],
-        ['gemini', '0.58.0']
+        ['gemini', '0.58.0'],
+        ['pi', '0.87.1']
     ])
         await stubCli(
             bin,
@@ -635,6 +636,141 @@ test('prepareLogin composes the profile context, holds the lock, and judges the 
             'native home has no identity record'
         )
         delete process.env.ANTHROPIC_API_KEY
+    })
+})
+
+// pi keeps every sign-in in its agent dir, so a pi profile's view IS an agent
+// dir: the machine's entries linked in, auth.json its own.
+test('a pi profile view links the machine agent dir, keeps its own auth.json, and counts only a real sign-in', async () => {
+    await withSandbox(async (sb) => {
+        process.env.ANTHROPIC_API_KEY = 'ambient'
+        const native = join(sb.home, '.pi', 'agent')
+        await mkdir(join(native, 'skills', 'one'), { recursive: true })
+        await writeFile(join(native, 'settings.json'), '{}')
+        await writeFile(join(native, 'trust.json'), '{}')
+        await writeFile(
+            join(native, 'auth.json'),
+            JSON.stringify({ anthropic: { type: 'api_key', key: 'native' } })
+        )
+        const profileId = createObjectId('runtimeAuthProfile')
+        const created = await rpcHandler(
+            'auth.create',
+            {
+                framework: 'pi',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'subscription'
+            },
+            ctx('c')
+        )
+        assert.equal(created.ok, true, created.error)
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        for (const name of ['settings.json', 'trust.json', 'skills', 'sessions'])
+            assert.equal(await readlink(join(view, name)), join(native, name), name)
+        // Write-through even before the machine has one.
+        assert.equal(
+            await readlink(join(view, 'models.json')),
+            join(native, 'models.json')
+        )
+        await assert.rejects(lstat(join(view, 'auth.json')), 'no native sign-in')
+
+        const manager = new RuntimeAuthManager(
+            { daemonId: sb.daemonId, runtimeId: sb.runtimeId },
+            {
+                credentialFacts: async () => null,
+                cliVersion: async () => '0.87.1',
+                fetch: async () => {
+                    throw new Error('no vendor call expected')
+                },
+                now: Date.now,
+                platform: 'linux',
+                env: process.env
+            }
+        )
+        const login = await manager.prepareLogin(
+            'pi',
+            profileId,
+            createObjectId('runtimeAuthOperation')
+        )
+        assert.deepEqual(login.command, ['pi'])
+        assert.equal(login.env.PI_CODING_AGENT_DIR, view)
+        assert.equal('ANTHROPIC_API_KEY' in login.env, false)
+        // pi writes `{}` the first time it merely reads auth.json; that is
+        // not a sign-in, for the login verdict or for an execution.
+        await writeFile(join(view, 'auth.json'), '{}')
+        assert.equal((await login.finish(0)).resultCode, 'login_incomplete')
+        await assert.rejects(
+            manager.executionContext('pi', profileId, 'exec:x'),
+            /auth_reauth_required/
+        )
+        const second = await manager.prepareLogin(
+            'pi',
+            profileId,
+            createObjectId('runtimeAuthOperation')
+        )
+        await writeFile(
+            join(view, 'auth.json'),
+            JSON.stringify({
+                anthropic: {
+                    type: 'oauth',
+                    access: 'a',
+                    refresh: 'r',
+                    expires: Date.now() + 3_600_000
+                }
+            })
+        )
+        assert.equal((await second.finish(0)).status, 'succeeded')
+        // An entry the machine gained since is linked in before the run, one
+        // it dropped is unlinked — but what a TUI writes for good stays the
+        // machine's path even while the machine has none.
+        await writeFile(join(native, 'keybindings.json'), '{}')
+        await rm(join(native, 'skills'), { recursive: true })
+        await rm(join(native, 'trust.json'))
+        const context = await manager.executionContext('pi', profileId, 'exec:y')
+        try {
+            assert.equal(context.env.PI_CODING_AGENT_DIR, view)
+            assert.equal(context.dirs.piDir, view)
+            assert.equal(
+                await readlink(join(view, 'keybindings.json')),
+                join(native, 'keybindings.json')
+            )
+            await assert.rejects(lstat(join(view, 'skills')))
+            assert.equal(
+                await readlink(join(view, 'trust.json')),
+                join(native, 'trust.json')
+            )
+        } finally {
+            await context.release()
+        }
+        // The machine's own sign-in was never touched.
+        assert.match(await readFile(join(native, 'auth.json'), 'utf8'), /native/)
+        delete process.env.ANTHROPIC_API_KEY
+    })
+})
+
+test('a pi profile takes no stored API key — pi keeps keys through its own /login', async () => {
+    await withSandbox(async (sb) => {
+        const result = await rpcHandler(
+            'auth.create',
+            {
+                framework: 'pi',
+                runtimeId: sb.runtimeId,
+                profileId: createObjectId('runtimeAuthProfile'),
+                authMethod: 'api-key',
+                apiKey: 'sk-should-not-land'
+            },
+            ctx('c')
+        )
+        assert.equal(result.ok, false)
+        assert.equal(result.error, 'auth_api_key_unsupported')
     })
 })
 

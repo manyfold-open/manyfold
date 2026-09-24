@@ -5,6 +5,7 @@ export const agentFramework = {
     CLAUDE_CODE: 'claude-code',
     CODEX: 'codex',
     GEMINI_CLI: 'gemini-cli',
+    PI: 'pi',
     DIFY: 'dify',
     LANGFLOW: 'langflow',
     A2A: 'a2a'

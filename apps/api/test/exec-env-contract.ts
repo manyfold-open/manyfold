@@ -213,6 +213,47 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     },
 
     {
+        framework: 'pi',
+        runtime: 'sprites',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "The vendor key rides every exec as the env var pi reads it from (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY), and pi runs on the runtime's platform view of ~/.pi/agent (MF_PI_VIEW; MF_PI_MODELS_JSON carries a gateway's base URL, no secret), rebuilt at every start — nothing a credential decides is written to the sprite's own ~/.pi/agent."
+    },
+
+    {
+        framework: 'pi',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: 'Unlike its coding siblings the key is not left to the pod Secret: the adapter re-sends it on every exec, so a credential rotated after provisioning takes effect on the next turn instead of on the next pod restart.'
+    },
+    {
+        framework: 'pi',
+        runtime: 'daemon',
+        transport: 'daemon-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "The gate is the credential row itself: a daemon agent without one runs on pi's own login on that machine (nothing is injected); one with a row gets the key per exec and runs on the platform view, where the machine's auth.json and models.json cannot outrank it and a gateway base URL rides the view's own models.json."
+    },
+
+    {
         framework: 'gemini-cli',
         runtime: 'sprites',
         transport: 'runner-exec',

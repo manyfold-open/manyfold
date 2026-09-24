@@ -1,12 +1,13 @@
 import {
     DAEMON_FEATURE_ACCOUNT_INSPECT,
+    DAEMON_FEATURE_PI_LOCAL,
     parseRuntimeAccountProbe,
     runtimeAccountSupport,
     runtimeAccountUsage,
     runtimeLocalCredentialStatus
 } from '@manyfold/shared'
 import type {
-    ConfigurableFramework,
+    ModelConfigFramework,
     RuntimeAccountUsage,
     RuntimeAccountView,
     RuntimeAccountViewStatus
@@ -30,6 +31,15 @@ import {
 } from '@/modules/agents/model-config/agent-model-config.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+
+// An older CLI answers account.inspect for pi with nothing, which would read
+// as "not signed in"; it is asked to update instead.
+const inspectsAccount = (
+    features: readonly string[],
+    framework: ModelConfigFramework
+): boolean =>
+    features.includes(DAEMON_FEATURE_ACCOUNT_INSPECT) &&
+    (framework !== 'pi' || features.includes(DAEMON_FEATURE_PI_LOCAL))
 
 // One runtime page open = one vendor usage call, and Anthropic's endpoint has
 // a tight budget, so identical requests inside this window share a result and
@@ -128,7 +138,7 @@ export class RuntimeAccountService {
         wake: boolean,
         refreshUsage: boolean
     ): Promise<RuntimeAccountView> {
-        const framework = row.framework as ConfigurableFramework
+        const framework = row.framework as ModelConfigFramework
         try {
             const fetchUsage = refreshUsage || !this.usageFresh(row.id)
             const view = await this.probeHost(row, framework, wake, fetchUsage)
@@ -157,7 +167,7 @@ export class RuntimeAccountService {
 
     private probeHost(
         row: AgentRuntimeRow,
-        framework: ConfigurableFramework,
+        framework: ModelConfigFramework,
         wake: boolean,
         fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
@@ -214,7 +224,7 @@ export class RuntimeAccountService {
 
     private async probeDaemon(
         row: AgentRuntimeRow,
-        framework: ConfigurableFramework,
+        framework: ModelConfigFramework,
         fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
         if (!row.daemonId)
@@ -228,7 +238,7 @@ export class RuntimeAccountService {
             })
         if (!this.daemonHosts.isOnline(host))
             return this.view(row, 'daemon-offline')
-        if (!host.clientFeatures.includes(DAEMON_FEATURE_ACCOUNT_INSPECT))
+        if (!inspectsAccount(host.clientFeatures, framework))
             return this.view(row, 'daemon-upgrade-required')
         const payload = await this.daemonRegistry.rpc({
             daemonId: host.id,
@@ -241,7 +251,7 @@ export class RuntimeAccountService {
 
     private async probeSandbox(
         row: AgentRuntimeRow,
-        framework: ConfigurableFramework,
+        framework: ModelConfigFramework,
         wake: boolean,
         fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
@@ -302,7 +312,7 @@ export class RuntimeAccountService {
         const runner = await this.daemonHosts.findById(resolved.handle.daemonId)
         if (!runner || runner.userId !== row.userId)
             return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
-        if (!runner.clientFeatures.includes(DAEMON_FEATURE_ACCOUNT_INSPECT))
+        if (!inspectsAccount(runner.clientFeatures, framework))
             return this.view(row, 'daemon-upgrade-required', { host: hostView })
         const payload = await this.daemonRegistry.rpc({
             daemonId: runner.id,

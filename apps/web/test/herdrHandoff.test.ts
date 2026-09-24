@@ -18,6 +18,7 @@ const base = {
     sandboxCanOpenInHerdr: false,
     sandboxCliUpdateAvailable: false,
     sandboxModelCredentials: false,
+    hostHerdrFrameworks: ['claude-code', 'codex', 'pi'] as const,
     sessionId: 'cs-1',
     frameworkSessionRef: 'sess-abc',
     modelSource: 'platform' as const,
@@ -53,6 +54,57 @@ test('the handoff is offered on a daemon that advertises herdr or a sandbox that
             sandboxModelCredentials: true
         }),
         { offered: true, available: true, blocked: null }
+    )
+})
+
+// herdr has an agent kind for pi too, but only a Manyfold CLI that knows it
+// can start it: on an older one the control is shown disabled, pointing at
+// the update, rather than failing when clicked.
+test('pi goes to herdr where the CLI there can start it, and asks for the update where it cannot', () => {
+    assert.deepEqual(herdrHandoffAvailability({ ...base, framework: 'pi' }), {
+        offered: true,
+        available: true,
+        blocked: null
+    })
+    assert.deepEqual(
+        herdrHandoffAvailability({
+            ...base,
+            framework: 'pi',
+            hostHerdrFrameworks: ['claude-code', 'codex']
+        }),
+        { offered: true, available: false, blocked: 'daemon-needs-upgrade' }
+    )
+    const sandbox = {
+        ...base,
+        framework: 'pi' as const,
+        runtime: 'sprites' as const,
+        daemonCanOpenInHerdr: false,
+        sandboxHasHerdr: true,
+        sandboxCanOpenInHerdr: true,
+        sandboxModelCredentials: true
+    }
+    assert.equal(herdrHandoffAvailability(sandbox).available, true)
+    assert.equal(
+        herdrHandoffAvailability({
+            ...sandbox,
+            hostHerdrFrameworks: ['claude-code', 'codex'],
+            sandboxCliUpdateAvailable: true
+        }).blocked,
+        'sandbox-runner-needs-upgrade'
+    )
+    // Like claude, pi's TUI on a sandbox needs the credential opt-in.
+    assert.equal(
+        herdrHandoffAvailability({ ...sandbox, sandboxModelCredentials: false })
+            .blocked,
+        'needs-credential-toggle'
+    )
+    // claude and codex are unaffected by what the CLI knows of pi.
+    assert.equal(
+        herdrHandoffAvailability({
+            ...base,
+            hostHerdrFrameworks: ['claude-code', 'codex']
+        }).available,
+        true
     )
 })
 

@@ -466,6 +466,46 @@ test('a TUI blocked at a startup prompt still counts as running', async () => {
     assert.equal(listHerdrTerminals().length, 1)
 })
 
+// pi starts as herdr's own `pi` kind; the API has already pointed it at its
+// agent dir through the env, so the daemon passes its args along as is.
+test("a pi conversation starts as herdr's pi agent with the resume args", async () => {
+    const terminalId = createObjectId('terminalSession')
+    await open({
+        terminalId,
+        framework: 'pi',
+        command: ['pi', '--session-id', 'sess-1', '--approve'],
+        env: {
+            ...ENV,
+            PI_CODING_AGENT_DIR: '/home/me/.manyfold/pi/art_1/agent'
+        }
+    })
+    assert.deepEqual(fake.calls_('agent.start')[0].params, {
+        name: herdrAgentName(terminalId),
+        kind: 'pi',
+        pane_id: 'w1:p1',
+        args: ['--session-id', 'sess-1', '--approve'],
+        timeout_ms: 60_000
+    })
+    assert.equal(
+        (
+            fake.calls_('workspace.create')[0].params.env as Record<
+                string,
+                string
+            >
+        ).PI_CODING_AGENT_DIR,
+        '/home/me/.manyfold/pi/art_1/agent'
+    )
+    // The view's wrapper is not something herdr can start.
+    await assert.rejects(
+        open({
+            framework: 'pi',
+            command: ['bash', '-c', 'view script', 'pi', '--session-id', 'x']
+        }),
+        (err: unknown) =>
+            err instanceof HerdrError && err.code === 'herdr_launch_failed'
+    )
+})
+
 test('a command that does not run the framework CLI is refused before herdr is touched', async () => {
     await assert.rejects(
         open({ command: ['bash', '-c', 'rm -rf /'] }),

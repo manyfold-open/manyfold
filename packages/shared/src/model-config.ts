@@ -270,6 +270,13 @@ export interface GeminiCliAgentModelConfig {
     model?: string | null
 }
 
+// pi on a platform provider runs `--model <provider>/<id>`; on its own sign-in
+// the id is whatever `pi --list-models` offers there, already qualified.
+export interface PiAgentModelConfig {
+    framework: 'pi'
+    model?: string | null
+}
+
 // Gemini CLI routing alias: with no explicit model the CLI defaults to its
 // Auto router, so `auto` is the platform default for new agents and must
 // never be passed through as a concrete --model / GEMINI_MODEL value.
@@ -295,6 +302,7 @@ export type AgentModelConfig =
     | ClaudeCodeAgentModelConfig
     | CodexAgentModelConfig
     | GeminiCliAgentModelConfig
+    | PiAgentModelConfig
 
 // Runtime-local turns must keep `modelConfig` null — the adapters read a set
 // modelConfig as "inject platform credentials" — so the CLI flags that carry

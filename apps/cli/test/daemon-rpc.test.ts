@@ -159,6 +159,20 @@ test('assertRealPathContained accepts any one of several roots', async () => {
     )
 })
 
+// The session readers read pi's transcripts under ~/.pi/agent/sessions, which
+// is where every pi turn on this machine or a runner writes them.
+test('pi session files pass containment', () => {
+    const session = join(
+        homedir(),
+        '.pi',
+        'agent',
+        'sessions',
+        '--work--',
+        '2026-09-23T00-00-00-000Z_ref.jsonl'
+    )
+    assert.equal(ensureUnderAllowedRoot(session), session)
+})
+
 // DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG (#781): ~/.claude.json is a SIBLING of
 // the ~/.claude root, so the root scan can never admit it — only the exact
 // file may pass, never a lookalike sibling and never through a symlink.

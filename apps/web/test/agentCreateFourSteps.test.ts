@@ -102,10 +102,10 @@ const access = (over: Partial<RuntimeAccessSummary>): RuntimeAccessSummary =>
         ...over
     }) as RuntimeAccessSummary
 
-test('the nine types are split into exactly two groups, by where they run', () => {
+test('the ten types are split into exactly two groups, by where they run', () => {
     assert.equal(FRAMEWORK_GROUPS.length, 2)
     const entries = FRAMEWORK_GROUPS.flatMap((g) => g.entries)
-    assert.equal(entries.length, 9)
+    assert.equal(entries.length, 10)
     // The group boundary IS the step ② fork: everything in the first group
     // asks about a machine, everything in the second about a service.
     for (const group of FRAMEWORK_GROUPS)
@@ -449,7 +449,7 @@ test('overrunning replaces the cost line rather than adding a second one', () =>
 test('a service framework installs at create, and its rows owe no sign-in', () => {
     for (const fw of ['openclaw', 'hermes', 'narranexus'] as const)
         assert.equal(installsAtCreate(fw), true, fw)
-    for (const fw of ['claude-code', 'codex', 'gemini-cli'] as const)
+    for (const fw of ['claude-code', 'codex', 'gemini-cli', 'pi'] as const)
         assert.equal(installsAtCreate(fw), false, fw)
     const rows = buildMachineOptions({
         framework: 'openclaw',
@@ -564,12 +564,13 @@ test('a row the API would refuse stays on screen and says why', () => {
     assert.equal(providerRowVerdict('openclaw', managedAnthropic), 'incompatible')
     assert.equal(providerRowVerdict('openclaw', untested), 'untested')
     assert.equal(providerRowVerdict('openclaw', netmind), 'usable')
-    // A coding CLI speaks one protocol, so the same rows read differently
-    // for it — and a key never tested still names no model.
+    // A coding CLI speaks one protocol (pi three), so the same rows read
+    // differently for it — and a key never tested still names no model.
     assert.equal(providerRowVerdict('claude-code', managedOpenAI), 'incompatible')
     assert.equal(providerRowVerdict('claude-code', managedAnthropic), 'usable')
     assert.equal(providerRowVerdict('gemini-cli', managedGemini), 'usable')
     assert.equal(providerRowVerdict('codex', untested), 'untested')
+    assert.equal(providerRowVerdict('pi', managedGemini), 'usable')
 })
 
 test('a step ③ answer carries its binding for a framework installed at create or a coding CLI', () => {
@@ -642,6 +643,30 @@ test('a joined coding agent is bound by its credentials, then its platform model
         joinBindingFor('gemini-cli', { kind: 'platform', providerId: 'm-gemini' }, providers),
         {
             credentials: { geminiCliCredentials: { providerId: 'm-gemini' } },
+            modelConfig: { modelConfigSource: 'platform' }
+        }
+    )
+    // pi carries the vendor and model in the credential; only the source is
+    // written down.
+    assert.deepEqual(
+        joinBindingFor(
+            'pi',
+            {
+                kind: 'provider',
+                providerId: 'k-netmind',
+                label: 'NetMind API',
+                model: 'anthropic/claude-haiku-4-5'
+            },
+            providers
+        ),
+        {
+            credentials: {
+                piCredentials: {
+                    providerId: 'k-netmind',
+                    provider: 'anthropic',
+                    model: 'anthropic/claude-haiku-4-5'
+                }
+            },
             modelConfig: { modelConfigSource: 'platform' }
         }
     )

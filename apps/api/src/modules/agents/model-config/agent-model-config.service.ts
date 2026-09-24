@@ -4,7 +4,11 @@ import type {
     UpdateAgentRuntimeAuthBody
 } from '@manyfold/shared'
 import {
+    PI_PROTOCOL_BY_PROVIDER,
+    DAEMON_FEATURE_PI_LOCAL,
     RUNTIME_AUTH_ERROR,
+    isModelConfigFramework,
+    isPiProvider,
     isRuntimeAuthProfileId,
 
     AgentModelConfig,
@@ -21,6 +25,7 @@ import {
     DaemonFrameworkModelCapability,
     DaemonModelInspectResponse,
     GeminiCliAgentModelConfig,
+    PiAgentModelConfig,
     InferenceProtocol,
     OFFICIAL_PROVIDER_BASE_URL,
     RefreshAgentModelConfigModelsResponse,
@@ -303,7 +308,7 @@ export class AgentModelConfigService {
             input.agentId,
             false
         )
-        if (!isFrameworkModelConfigurable(agent.framework)) {
+        if (!isModelConfigFramework(agent.framework)) {
             const model = normalizeNullable(input.model) ?? agent.model ?? null
             return { model, modelConfig: null }
         }
@@ -376,9 +381,32 @@ export class AgentModelConfigService {
             await this.assertGeminiConfig(agent, config, requireSelected)
             return config
         }
+        if (agent.framework === 'pi') return this.mergePiConfig(agent, body)
         throw new BadRequestException(
             `model config is not supported for framework ${agent.framework}`
         )
+    }
+
+    // pi on a platform provider takes any id its provider serves — a gateway's
+    // ids are its own, and pi runs an id it does not know as a custom one — so
+    // nothing is checked against a list; a model naming another vendor than
+    // the credential is refused by the adapter before the exec. No model
+    // leaves the credential's default in charge.
+    private mergePiConfig(
+        agent: Agent,
+        body: UpdateAgentModelConfigBody
+    ): PiAgentModelConfig {
+        const raw = asRecord(body.modelConfig)
+        if (raw?.framework !== undefined && raw.framework !== 'pi')
+            throw new BadRequestException(
+                `modelConfig.framework must be pi for agent ${agent.id}`
+            )
+        return {
+            framework: 'pi',
+            model: normalizeNullable(
+                raw?.model ?? body.model ?? normalizeNullable(agent.model)
+            )
+        }
     }
 
     private async mergeClaudeConfig(
@@ -712,7 +740,7 @@ export class AgentModelConfigService {
                 speed: config.speed ?? 'standard',
                 intelligence: config.intelligence ?? 'medium'
             }
-        } else {
+        } else if (config.framework === 'gemini-cli') {
             nextModelConfig.gemini = {
                 model: config.model ?? null
             }
@@ -979,7 +1007,7 @@ export class AgentModelConfigService {
         body: UpdateAgentRuntimeAuthBody
     ): Promise<AgentModelConfigView> {
         const agent = await this.requireAgent(userId, agentId, false)
-        if (!isConfigurableFramework(agent.framework))
+        if (!isModelConfigFramework(agent.framework))
             throw new ConflictException({
                 code: RUNTIME_AUTH_ERROR.contextUnsupported,
                 message: `${agent.framework} agents have no auth profiles`
@@ -1089,7 +1117,13 @@ export class AgentModelConfigService {
                       : undefined,
                   geminiGateway
               )
-            : []
+            : agent.framework === 'pi'
+              ? providerModels.models.map((model) => ({
+                    value: model,
+                    label: model,
+                    enabled: true
+                }))
+              : []
         const codexFastModelKeys = isFrameworkModelConfigurable(agent.framework)
             ? new Set(
                   (
@@ -1189,7 +1223,7 @@ export class AgentModelConfigService {
             runtimeLocal
         } = input
         const messages: string[] = []
-        if (!isFrameworkModelConfigurable(agent.framework)) {
+        if (!isModelConfigFramework(agent.framework)) {
             return { valid: true, messages }
         }
         if (this.configSourceFromAgent(agent) === 'runtime-local') {
@@ -1203,6 +1237,9 @@ export class AgentModelConfigService {
             )
             return { valid: false, messages, cta: 'refresh-runtime-local' }
         }
+        // pi's platform model is any id its provider serves (mergePiConfig),
+        // so there is no list it has to be tested against first.
+        if (agent.framework === 'pi') return { valid: true, messages }
         if (providerModels.status !== 'ready') {
             messages.push('Test provider before selecting a model.')
             return { valid: false, messages, cta: 'test-provider' }
@@ -1344,6 +1381,8 @@ export class AgentModelConfigService {
                 model: normalizeNullable(agent.model) ?? storedModel
             }
         }
+        if (agent.framework === 'pi')
+            return { framework: 'pi', model: normalizeNullable(agent.model) }
         return null
     }
 
@@ -1382,7 +1421,7 @@ export class AgentModelConfigService {
     }
 
     private availableSourcesForAgent(agent: Agent): AgentModelConfigSource[] {
-        if (!isFrameworkModelConfigurable(agent.framework)) return []
+        if (!isModelConfigFramework(agent.framework)) return []
         return ['platform', 'runtime-local']
     }
 
@@ -1557,6 +1596,17 @@ export class AgentModelConfigService {
         authContext: DaemonAuthContextRef | null,
         timeoutMs = 15_000
     ): Promise<DaemonFrameworkModelCapability> {
+        // An older CLI reports nothing for pi, which would read as "not
+        // signed in" when the answer is "update".
+        if (
+            agent.framework === 'pi' &&
+            !(await this.hostFeatures(daemonId))?.clientFeatures.includes(
+                DAEMON_FEATURE_PI_LOCAL
+            )
+        )
+            throw new BadRequestException(
+                "Update the Manyfold CLI on this runtime to use pi's own sign-in"
+            )
         const payload = await this.daemonRegistry!.rpc({
             daemonId,
             method: 'model.inspect',
@@ -1679,6 +1729,7 @@ export class AgentModelConfigService {
             agent.framework !== 'claude-code' &&
             agent.framework !== 'codex' &&
             agent.framework !== 'gemini-cli' &&
+            agent.framework !== 'pi' &&
             agent.framework !== 'hermes' &&
             agent.framework !== 'openclaw'
         )
@@ -1722,6 +1773,21 @@ export class AgentModelConfigService {
                 inferenceProtocol: storedProtocol ?? 'openai_responses',
                 apiKey: normalizeNullable(parsed.openaiApiKey),
                 baseUrl: normalizeNullable(parsed.openaiBaseUrl)
+            }
+        }
+        if (agent.framework === 'pi') {
+            // A pi credential names its vendor outright (PiProvider is a
+            // UserModelProvider subset); the protocol follows the provider.
+            const provider = normalizeNullable(parsed.provider)
+            return {
+                provider: (provider as UserModelProvider | null) ?? null,
+                inferenceProtocol:
+                    storedProtocol ??
+                    (isPiProvider(provider)
+                        ? PI_PROTOCOL_BY_PROVIDER[provider]
+                        : null),
+                apiKey: normalizeNullable(parsed.apiKey),
+                baseUrl: normalizeNullable(parsed.baseUrl)
             }
         }
         if (agent.framework === 'hermes') {
@@ -1845,7 +1911,9 @@ const frameworkLabel = (framework: string): string =>
           ? 'Codex'
           : framework === 'gemini-cli'
             ? 'Gemini CLI'
-            : 'Runtime'
+            : framework === 'pi'
+              ? 'Pi'
+              : 'Runtime'
 
 const credentialStatusMessage = (
     framework: string,

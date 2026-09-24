@@ -7,6 +7,7 @@ import {
     frameworkSupportsProtocol,
     isManagedProtocolAllowedForFramework,
     lookupBuiltIn,
+    piProviderForProtocol,
     providerModelIdsForProtocol
 } from '@manyfold/shared'
 import type {
@@ -240,9 +241,8 @@ export const serviceCreateBody = (args: {
 
 export interface JoinBinding {
     credentials: UpdateAgentCredentialsBody
-    // Only the three configurable CLIs have a model source to set, and on a
-    // daemon it defaults to the machine's own sign-in — so a platform answer
-    // is written down, or the key just bound is never used.
+    // On a daemon the model source defaults to the machine's own sign-in, so
+    // a platform answer is written down, or the key just bound is never used.
     modelConfig?: UpdateAgentModelConfigBody
 }
 
@@ -250,7 +250,8 @@ export interface JoinBinding {
 // `PATCH /agents/:id/credentials`, then its platform model settings. Claude
 // Code and Codex send the default mapping for the provider's tested list —
 // the one `providerBindingFor` named — because the API only derives one for
-// Claude Code. Null when the answer names no provider (a sign-in on the
+// Claude Code; pi carries its model in the credential itself, so it sends the
+// source alone. Null when the answer names no provider (a sign-in on the
 // machine, or a framework that is not bound here).
 export const joinBindingFor = (
     framework: AgentFramework,
@@ -284,5 +285,21 @@ export const joinBindingFor = (
             credentials: { geminiCliCredentials: { providerId } },
             modelConfig: { modelConfigSource: 'platform' }
         }
-    return null
+    // pi's vendor rides along: beside a provider speaking several of pi's
+    // protocols it says which one the agent is bound under, and it has to be
+    // the one the model above was read from.
+    const protocol =
+        row === undefined ? null : bindingProtocolFor(framework, row)
+    const provider = protocol === null ? null : piProviderForProtocol(protocol)
+    if (framework !== 'pi' || provider === null) return null
+    return {
+        credentials: {
+            piCredentials: {
+                providerId,
+                provider,
+                ...(cost.model !== undefined ? { model: cost.model } : {})
+            }
+        },
+        modelConfig: { modelConfigSource: 'platform' }
+    }
 }

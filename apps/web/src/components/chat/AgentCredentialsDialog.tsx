@@ -14,7 +14,9 @@ import {
     frameworkSupportsProtocol,
     isClaudeCodeModelAlias,
     isManagedProtocolAllowedForFramework,
+    isPiProvider,
     lookupBuiltIn,
+    PI_PROVIDERS,
     providerProtocolForTarget,
     providerSupportsTarget
 } from '@manyfold/shared'
@@ -32,6 +34,7 @@ import {
     ProviderIcon,
     RefreshIcon
 } from '@/components/icons'
+import { FilterChip, FilterChipRow } from '@/components/FilterChip'
 import { Spinner } from '@/components/Loading'
 import ProductDialog from '@/components/ProductDialog'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -82,6 +85,7 @@ const FRAMEWORK_LABEL: Record<AgentFramework, string> = {
     'claude-code': 'Claude Code',
     codex: 'Codex',
     'gemini-cli': 'Gemini CLI',
+    pi: 'Pi',
     openclaw: 'OpenClaw',
     hermes: 'Hermes Agent',
     narranexus: 'NarraNexus',
@@ -95,6 +99,7 @@ const DEFAULT_PROVIDER_BY_FRAMEWORK: Record<AgentFramework, UserModelProvider> =
         'claude-code': 'anthropic',
         codex: 'openai',
         'gemini-cli': 'google',
+        pi: 'anthropic',
         openclaw: 'anthropic',
         hermes: 'openrouter',
         narranexus: 'anthropic',
@@ -123,7 +128,13 @@ const successMessageFor = (
 ): string => {
     if (localManaged) return t('web.credentials.successUpdated')
     if (framework === 'codex') return t('web.credentials.successUpdatedCodex')
-    if (framework === 'claude-code' || framework === 'gemini-cli')
+    // pi reads the key from the env each turn injects, so like claude the
+    // next message picks it up with no restart.
+    if (
+        framework === 'claude-code' ||
+        framework === 'gemini-cli' ||
+        framework === 'pi'
+    )
         return t('web.credentials.successUpdatedClaude')
     return t('web.credentials.successUpdatedDefault')
 }
@@ -132,6 +143,7 @@ const FRAMEWORK_SUPPORTS_MODEL: Record<AgentFramework, boolean> = {
     'claude-code': false,
     codex: false,
     'gemini-cli': true,
+    pi: true,
     openclaw: true,
     hermes: true,
     narranexus: false,
@@ -149,6 +161,7 @@ const applyModel = (
     if (!m) return body
     if (framework === 'gemini-cli' && body.geminiCliCredentials)
         body.geminiCliCredentials.model = m
+    if (framework === 'pi' && body.piCredentials) body.piCredentials.model = m
     if (framework === 'openclaw' && body.openclawCredentials)
         body.openclawCredentials.primaryModelName = m
     if (framework === 'hermes' && body.hermesCredentials)
@@ -159,7 +172,10 @@ const applyModel = (
 const buildBody = (
     framework: AgentFramework,
     picker: ProviderPickerValue,
-    model: string
+    model: string,
+    // The vendor the credential is being bound under; a pasted pi key must
+    // name it.
+    provider: UserModelProvider
 ): UpdateAgentCredentialsBody => {
     const baseUrl = picker.baseUrl.trim()
     const baseUrlOpt = baseUrl.length > 0 ? baseUrl : undefined
@@ -191,6 +207,19 @@ const buildBody = (
                 framework,
                 {
                     geminiCliCredentials: { providerId: picker.providerId }
+                },
+                model
+            )
+        // The vendor also picks which protocol a provider speaking several
+        // of them serves.
+        if (framework === 'pi')
+            return applyModel(
+                framework,
+                {
+                    piCredentials: {
+                        providerId: picker.providerId,
+                        ...(isPiProvider(provider) ? { provider } : {})
+                    }
                 },
                 model
             )
@@ -246,6 +275,19 @@ const buildBody = (
             },
             model
         )
+    if (framework === 'pi')
+        return applyModel(
+            framework,
+            {
+                piCredentials: {
+                    apiKey: picker.apiKey,
+                    provider: isPiProvider(provider) ? provider : 'anthropic',
+                    baseUrl: baseUrlOpt
+                },
+                saveCredentialAs
+            },
+            model
+        )
     if (framework === 'openclaw')
         return applyModel(
             framework,
@@ -280,7 +322,11 @@ const AgentCredentialsDialog: FC<Props> = ({
 }): ReactNode => {
     const client = useApiClient()
     const { t } = useI18n()
-    const frameworkModelConfigSupported = frameworkUsesModelConfig(framework)
+    // pi's platform model is the credential's own field (any id its provider
+    // serves), so the tested-model machinery the other three need stays off
+    // for it here; saving a credential still makes it a platform agent.
+    const frameworkModelConfigSupported =
+        frameworkUsesModelConfig(framework) && framework !== 'pi'
     const [view, setView] = useState<AgentCredentialsView | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
@@ -305,8 +351,13 @@ const AgentCredentialsDialog: FC<Props> = ({
     )
     const [providerTesting, setProviderTesting] = useState(false)
 
+    // pi binds a provider of any of its three vendors, so its vendor is
+    // chosen here rather than fixed by the credential it has today.
+    const [piVendor, setPiVendor] = useState<UserModelProvider | null>(null)
     const providerHint =
-        view?.provider ?? DEFAULT_PROVIDER_BY_FRAMEWORK[framework]
+        (framework === 'pi' ? piVendor : null) ??
+        view?.provider ??
+        DEFAULT_PROVIDER_BY_FRAMEWORK[framework]
     const boundProviderId = view?.savedProvider?.id ?? null
     const filteredSaved = useMemo(
         () =>
@@ -620,8 +671,15 @@ const AgentCredentialsDialog: FC<Props> = ({
                 if (effectiveCredentialsChanged || legacyModelChanged) {
                     updated = await client.agents.credentials.update(
                         agentId,
-                        buildBody(framework, picker, model)
+                        buildBody(framework, picker, model, providerHint)
                     )
+                    if (framework === 'pi') {
+                        const piView = await client.agents.updateModelConfig(
+                            agentId,
+                            { modelConfigSource: 'platform' }
+                        )
+                        writeCachedModelConfigView(piView)
+                    }
                 }
 
                 let savedModelConfigView: AgentModelConfigView | null = null
@@ -734,6 +792,7 @@ const AgentCredentialsDialog: FC<Props> = ({
             modelConfigValidation.message,
             onUpdated,
             picker,
+            providerHint,
             selectedProviderModels,
             t,
             view
@@ -809,6 +868,35 @@ const AgentCredentialsDialog: FC<Props> = ({
                             <h3 className='text-ui text-fg font-medium'>
                                 {t('web.credentials.provider')}
                             </h3>
+
+                            {framework === 'pi' && (
+                                <FilterChipRow
+                                    ariaLabel={t(
+                                        'web.agentNew.providerFamilyAria'
+                                    )}
+                                >
+                                    {PI_PROVIDERS.map((vendor) => (
+                                        <FilterChip
+                                            key={vendor}
+                                            label={providerLabel[vendor]}
+                                            count={
+                                                savedProviders.filter((o) =>
+                                                    providerSupportsTarget(
+                                                        o,
+                                                        vendor
+                                                    )
+                                                ).length
+                                            }
+                                            active={providerHint === vendor}
+                                            onSelect={() => {
+                                                setPiVendor(vendor)
+                                                setError(null)
+                                                setSuccessMsg(null)
+                                            }}
+                                        />
+                                    ))}
+                                </FilterChipRow>
+                            )}
 
                             <div ref={providerAnchorRef} className='relative'>
                                 <button

@@ -37,6 +37,7 @@ export interface DetectedFramework {
         | 'claude-code'
         | 'codex'
         | 'gemini-cli'
+        | 'pi'
         | 'openclaw'
         | 'hermes'
     version: string | null

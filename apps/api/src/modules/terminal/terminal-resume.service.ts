@@ -1,10 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
+import { isPiProvider } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
+import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
+import { isManagedSkillWorkspace } from '@/modules/skills/skill-utils'
 import {
     frameworkSupportsTerminalResume,
     terminalResumeCommand,
@@ -14,8 +17,8 @@ import {
 export interface ResolvedTerminalResume {
     command: string[]
     // Empty unless the framework needs platform credentials AND the sandbox
-    // opted in. These are the same three variables the chat adapter injects
-    // per exec; the difference is that here they outlive a single turn.
+    // opted in. These are the variables the chat adapter injects per exec;
+    // the difference is that here they outlive a single turn.
     env: Record<string, string>
 }
 
@@ -76,6 +79,7 @@ export class TerminalResumeService {
         // daemon: the CLI sign-in already on the user's machine is what the
         // TUI will use, so there is nothing to inject.
         injectModelCredentials: boolean
+        workspacePath?: string | null
     }): Promise<TerminalResumeResolution> {
         if (!frameworkSupportsTerminalResume(args.framework)) return UNAVAILABLE
 
@@ -136,17 +140,34 @@ export class TerminalResumeService {
             )
             return { resume: null, outcome: 'turn-in-flight', ref: null }
         }
-        const command = terminalResumeCommand(args.framework, row.ref)
-        if (!command) return UNAVAILABLE
+        const argv = terminalResumeCommand(args.framework, row.ref)
+        if (!argv) return UNAVAILABLE
+        // pi loads a workspace's own files (the skills the platform activated
+        // there) only once the project is trusted. The turns trust a managed
+        // workspace, so its TUI does too instead of opening on the question.
+        const command =
+            args.framework === 'pi' &&
+            args.workspacePath &&
+            isManagedSkillWorkspace(args.workspacePath)
+                ? [...argv, '--approve']
+                : argv
 
         const inject = needsCredentials && args.injectModelCredentials
-        const env = inject ? await this.claudeCredentialEnv(args.runtimeId) : {}
-        if (inject && !Object.keys(env).length) {
+        const resume = !inject
+            ? { command, env: {} }
+            : args.framework === 'pi'
+              ? await this.piPlatformResume(args.runtimeId, command)
+              : {
+                    command,
+                    env: await this.claudeCredentialEnv(args.runtimeId)
+                }
+        if (inject && !Object.keys(resume?.env ?? {}).length) {
             this.log.warn(
                 `terminal.resume.skipped agent=${args.agentId} reason=credentials-unreadable`
             )
             return UNAVAILABLE
         }
+        const env = resume?.env ?? {}
         // The resumed TUI must keep writing its transcript, or the conversation
         // continued there is invisible to the next --resume and to the chat
         // view's session recovery — the two front ends would silently diverge.
@@ -156,12 +177,56 @@ export class TerminalResumeService {
         // already the default.
         if (args.framework === 'claude-code')
             env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1'
-        return { resume: { command, env }, outcome: 'applied', ref: row.ref }
+        return {
+            resume: { command: resume?.command ?? command, env },
+            outcome: 'applied',
+            ref: row.ref
+        }
     }
 
     private async claudeCredentialEnv(
         runtimeId: string
     ): Promise<Record<string, string>> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            anthropicAuthToken?: string
+            anthropicBaseUrl?: string
+        } | null
+        if (!creds?.anthropicAuthToken) return {}
+        return {
+            ANTHROPIC_BASE_URL: resolveAnthropicBaseUrl({
+                source: 'byo',
+                byoBaseUrl: creds.anthropicBaseUrl
+            }),
+            ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+        }
+    }
+
+    // pi resumes on the same platform view and key its turns run on
+    // (pi-agent-dir.ts): a sign-in left on the sandbox cannot take the TUI
+    // over, and a gateway credential finds its endpoint there, not in the
+    // sandbox's own ~/.pi/agent.
+    private async piPlatformResume(
+        runtimeId: string,
+        command: string[]
+    ): Promise<ResolvedTerminalResume | null> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            apiKey?: string
+            provider?: unknown
+            baseUrl?: string | null
+        } | null
+        if (!creds?.apiKey || !isPiProvider(creds.provider)) return null
+        const platform = piPlatformExec({
+            piArgs: command.slice(1),
+            runtimeId,
+            provider: creds.provider,
+            apiKey: creds.apiKey,
+            baseUrl: creds.baseUrl
+        })
+        return { command: platform.cmd, env: platform.env }
+    }
+
+    private async storedCredentials(runtimeId: string): Promise<unknown> {
         const [row] = await this.db
             .select({
                 payloadCiphertext: agentCredentials.payloadCiphertext,
@@ -170,25 +235,16 @@ export class TerminalResumeService {
             .from(agentCredentials)
             .where(eq(agentCredentials.runtimeId, runtimeId))
             .limit(1)
-        if (!row) return {}
+        if (!row) return null
         try {
-            const creds = JSON.parse(
+            return JSON.parse(
                 this.crypto.decrypt({
                     ciphertext: row.payloadCiphertext,
                     keyVersion: row.keyVersion
                 })
-            ) as { anthropicAuthToken?: string; anthropicBaseUrl?: string }
-            if (!creds.anthropicAuthToken) return {}
-            return {
-                ANTHROPIC_BASE_URL: resolveAnthropicBaseUrl({
-                    source: 'byo',
-                    byoBaseUrl: creds.anthropicBaseUrl
-                }),
-                ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
-                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
-            }
+            )
         } catch {
-            return {}
+            return null
         }
     }
 }

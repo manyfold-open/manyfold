@@ -2,7 +2,7 @@ import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
 
 // Suppress the already-delivered prefix when an adopted turn's stream is
 // re-consumed from the top: recovery re-reads a source (claude transcript,
-// codex rollout, gemini session file) whose head the dead relay already
+// codex rollout, gemini or pi session file) whose head the dead relay already
 // delivered, and the durable chat_stream_events log says exactly what of it
 // reached the client. Text aligns as a per-kind prefix (delta coalescing
 // boundaries may differ between runs — only the concatenation is stable);

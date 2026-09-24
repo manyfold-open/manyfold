@@ -718,7 +718,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Hermes Agent',
         'Langflow',
         'NarraNexus',
-        'OpenClaw'
+        'OpenClaw',
+        'Pi'
     ],
     'lib/agentSidebarView.ts': ['month', 'older', 'today', 'week', 'yesterday'],
     'lib/analyticsConsent.ts': ['unset'],
@@ -748,7 +749,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'lib/runtimeSignIn.ts': [
         'claude auth login --claudeai',
         'codex login --device-auth',
-        'NO_BROWSER=true gemini'
+        'NO_BROWSER=true gemini',
+        'pi'
     ],
     'lib/theme.tsx': ['light'],
     // Row/target/status union tags for the Update Center's model, not display
@@ -767,9 +769,14 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'failed',
         'pending'
     ],
-    'pages/AgentNew/v1/AgentNewV1.tsx': ['Anthropic', 'OpenAI'],
+    'pages/AgentNew/v1/AgentNewV1.tsx': [
+        'Anthropic',
+        'Google Gemini',
+        'OpenAI'
+    ],
     'pages/AgentNew/v2/AgentNewBInline.tsx': [
         'Anthropic',
+        'Google Gemini',
         'OpenAI',
         'existing',
         'persistent',

@@ -40,7 +40,8 @@ const reconcileClaimName = (runtimeId: string): string =>
 const isCodingFramework = (runtime: AgentRuntimeRow): boolean =>
     runtime.framework === 'claude-code' ||
     runtime.framework === 'codex' ||
-    runtime.framework === 'gemini-cli'
+    runtime.framework === 'gemini-cli' ||
+    runtime.framework === 'pi'
 
 const isPerAgentCodingRuntime = (runtime: AgentRuntimeRow): boolean =>
     runtime.kind === 'sprites' ||

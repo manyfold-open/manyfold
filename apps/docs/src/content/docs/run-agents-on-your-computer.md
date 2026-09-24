@@ -104,7 +104,9 @@ In **Where it runs**, choose the connected self-owned computer with the **Ready*
 
 *Local config uses available credentials for the selected local framework.*
 
-If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, or Gemini CLI is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
+If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, Gemini CLI, or Pi is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
+
+For Pi, Local config is whatever Pi itself can use on this computer: a sign-in from `/login` in `pi` (a Claude, ChatGPT or Copilot subscription, or an API key), a key in its `models.json`, or a vendor variable such as `ANTHROPIC_API_KEY`. With a provider picked instead, every turn uses that provider's key and endpoint, a gateway included, and Pi's own sign-in and `models.json` are never used for it; your Pi settings, skills and sessions apply either way. Pi's `find` and `grep` tools run `fd` and `ripgrep`: Manyfold runs Pi offline, so it uses the ones on your `PATH` or the ones Pi fetched into `~/.pi/agent/bin` when you ran it yourself — install them if you have neither.
 
 ## Step 5: Create the agent and verify daemon health
 

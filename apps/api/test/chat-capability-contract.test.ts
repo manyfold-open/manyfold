@@ -12,6 +12,7 @@ import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adap
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
+import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
 import {
@@ -52,6 +53,7 @@ const buildRegistry = (): ChatAdapterRegistry =>
         new OpenclawAdapter(dep, dep, dep, dep, dep, dep),
         new CodexAdapter(dep, dep, dep),
         new GeminiCliAdapter(dep, dep, dep),
+        new PiAdapter(dep, dep, dep),
         new HermesAdapter(dep, dep, dep, dep, dep),
         new NarraNexusChatAdapter(dep, dep, dep, dep, dep, dep),
         new DifyChatAdapter(dep, dep, dep),

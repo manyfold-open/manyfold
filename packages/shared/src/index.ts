@@ -331,6 +331,7 @@ export type {
     DifyBindingInput,
     LangflowBindingInput,
     GeminiCliCredentialsInput,
+    PiCredentialsInput,
     SaveCredentialAs,
     AgentCredentialsExtras,
     AgentCredentialsSavedProviderRef,
@@ -557,6 +558,24 @@ export {
     frameworkResumeCommandLine
 } from './framework-resume'
 export {
+    PI_PROVIDERS,
+    PI_API_KEY_ENV,
+    PI_OFFICIAL_BASE_URL,
+    PI_PROTOCOL_BY_PROVIDER,
+    PI_DEFAULT_MODEL,
+    PI_OUTRANKING_KEY_ENV,
+    PI_PROVIDER_KEY_ENV,
+    isPiProvider,
+    isPiProtocol,
+    isOfficialPiBaseUrl,
+    parsePiListModels,
+    piModelId,
+    piProviderBaseUrl,
+    piProviderForProtocol,
+    piQualifiedModel
+} from './pi'
+export type { PiProvider, PiQualifiedModel } from './pi'
+export {
     mcpConfigFromExtras,
     mcpDeliveryFromExtras,
     validateMcpJson
@@ -622,6 +641,8 @@ export type {
     CodexCredentialFacts,
     CodexCustomProviderFact,
     GeminiCredentialFacts,
+    PiAuthEntryFact,
+    PiCredentialFacts,
     RuntimeLocalCredentialContext,
     RuntimeLocalCredentialEvaluation,
     RuntimeLocalCredentialFacts,
@@ -667,6 +688,7 @@ export type {
     CodexSpeed,
     CodexSupportedModel,
     GeminiCliAgentModelConfig,
+    PiAgentModelConfig,
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
     RuntimeLocalTuning,
@@ -676,10 +698,13 @@ export {
     configurableFrameworks,
     frameworkEnumKeys,
     frameworkModelKinds,
-    isConfigurableFramework
+    isConfigurableFramework,
+    isModelConfigFramework,
+    modelConfigFrameworks
 } from './framework-catalog'
 export type {
     ConfigurableFramework,
+    ModelConfigFramework,
     CreateFrameworkEnumBody,
     CreateFrameworkModelBody,
     FrameworkCatalogView,
@@ -914,8 +939,11 @@ export {
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
+    DAEMON_FEATURE_PI_LOCAL,
     DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_HERDR_TERMINAL,
+    DAEMON_FEATURE_HERDR_PI,
+    herdrFrameworksFor,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'

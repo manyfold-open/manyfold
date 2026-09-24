@@ -167,6 +167,7 @@ const fixture = async (
         bootstrap as never,
         bootstrap as never,
         bootstrap as never,
+        bootstrap as never,
         podRunner as never,
         cleanup
     )

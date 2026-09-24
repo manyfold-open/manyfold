@@ -30,6 +30,7 @@ export const agentRuntimes = pgTable(
                 'claude-code',
                 'codex',
                 'gemini-cli',
+                'pi',
                 'dify',
                 'langflow',
                 'a2a'

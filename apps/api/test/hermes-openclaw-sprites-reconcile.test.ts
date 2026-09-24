@@ -165,6 +165,7 @@ const makeHarness = () => {
         frameworkStub('claude-code') as never,
         frameworkStub('codex') as never,
         frameworkStub('gemini-cli') as never,
+        frameworkStub('pi') as never,
         new OpenclawAgentAdapter(resolver),
         new HermesAgentAdapter(resolver),
         frameworkStub('narranexus') as never,

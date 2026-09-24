@@ -127,6 +127,7 @@ const en = {
             claudeCode: 'Claude Code',
             codex: 'Codex',
             geminiCli: 'Gemini CLI',
+            pi: 'Pi',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
             narraNexus: 'NarraNexus',
@@ -2685,6 +2686,7 @@ const en = {
                 codexHint:
                     'approve the device code from any browser (device-code sign-in may need enabling in your ChatGPT security settings).',
                 geminiHint: 'open the printed link and paste the code back.',
+                piHint: 'type /login, choose a provider (a subscription or an API key), and follow the link it prints.',
                 openTerminal: 'Open terminal',
                 refresh: 'Refresh status',
                 checking: 'Checking…'
@@ -3050,7 +3052,7 @@ const en = {
             hintChat: 'Takes the conversation back to the chat: the TUI is closed and what was said in it is added to this conversation.',
             herdrNeedsSession: 'Start a conversation first, then hand it to herdr.',
             herdrNeedsSessionRef: 'This conversation has no CLI session to resume yet. Send a message first.',
-            herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
+            herdrUnsupportedFramework: 'herdr can only resume Claude Code, Codex and Pi conversations.',
             herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
             herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
             herdrNeedsSandboxCliUpgrade: 'Update the Manyfold CLI in this sandbox from the Update Center to hand conversations to herdr.',
@@ -3647,7 +3649,7 @@ const en = {
                 runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
                 cost: 'A vendor sign-in is written to that machine\'s disk and only works there; an account-level allowance follows you to every machine. You can change this once the agent exists.',
                 name: 'Check it over, and it is built.',
-                type: 'Nine of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
+                type: 'Ten of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
             },
             blocked: {
                 type: 'Pick one to continue',
@@ -3665,6 +3667,7 @@ const en = {
                 claudeCode: 'Anthropic\'s coding CLI',
                 codex: 'OpenAI\'s coding CLI',
                 geminiCli: 'Google\'s coding CLI',
+                pi: 'Open-source coding CLI for many model vendors',
                 openclaw: 'Long-running chat service, connects IM channels',
                 hermes: 'Long-running assistant service, calendar and mail',
                 narranexus: 'Long-running orchestration service',
@@ -3675,7 +3678,8 @@ const en = {
             subscription: {
                 claude: 'Can use Claude Pro / Max',
                 codex: 'Can use ChatGPT Plus / Pro',
-                gemini: 'Can use a Google subscription'
+                gemini: 'Can use a Google subscription',
+                pi: 'Can use Claude Pro / Max, ChatGPT Plus / Pro or Copilot'
             },
             machine: {
                 yours: 'Your machines',
@@ -4036,6 +4040,7 @@ const en = {
                 codex: 'OpenAI coding agent for codebase changes, reviews, and workspace-aware development tasks.',
                 geminiCli:
                     'Google Gemini CLI for coding and general terminal automation inside a managed workspace.',
+                pi: 'Open-source coding agent CLI that runs on Anthropic, OpenAI, or Google models — sessions, skills, and AGENTS.md included.',
                 narraNexus:
                     'Narrative-driven, hot-pluggable agent framework with a per-runtime workspace; chat and providers are managed in the NarraNexus native UI.',
                 hermes: 'Persistent service agent for connectors, automations, and background workflows that need a long-running runtime.',
@@ -4954,6 +4959,7 @@ const en = {
                 frameworkClaudeCode: 'Claude Code',
                 frameworkCodex: 'Codex',
                 frameworkGeminiCli: 'Gemini CLI',
+                frameworkPi: 'Pi',
                 frameworkOpenclaw: 'OpenClaw',
                 frameworkHermes: 'Hermes',
                 frameworkDify: 'Dify',
@@ -5004,6 +5010,19 @@ const en = {
                 openclawModelNameHint:
                     'Model id for the selected provider (e.g. gpt-4o-mini, claude-3.5-sonnet, anthropic/claude-3.5-sonnet).',
                 openclawBaseUrlLabel: 'Base URL (optional)',
+                piProviderLabel: 'Provider',
+                piProviderAnthropic: 'Anthropic',
+                piProviderOpenai: 'OpenAI',
+                piProviderGoogle: 'Google Gemini',
+                piApiKeyLabel: 'API Key',
+                piApiKeyHint:
+                    'API key for the selected provider; pi reads it from that vendor\u2019s environment variable. Stored encrypted.',
+                piBaseUrlLabel: 'Base URL (optional)',
+                piBaseUrlHint:
+                    'Self-owned computers accept only the official vendor endpoint; sandboxes also accept a gateway URL.',
+                piModelLabel: 'Default model (optional)',
+                piModelHint:
+                    'The model id as the provider names it, e.g. claude-sonnet-4-6. Blank uses pi\u2019s default for the provider selected above.',
                 hermesPrimaryModelSection: 'Primary model',
                 hermesPrimaryProviderLabel: 'Provider',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',
