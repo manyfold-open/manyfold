@@ -127,7 +127,7 @@ test('only the frameworks with a selector have an entry; the rest are null', () 
     assert.equal(permissionModeEntryFor('gemini-cli'), null)
     // pi runs its tools unprompted and has no mode flag at all.
     assert.equal(permissionModeEntryFor('pi'), null)
-    assert.equal(permissionModeEntryFor('narranexus'), null)
+    assert.equal(permissionModeEntryFor('dify'), null)
     assert.equal(permissionModeEntryFor(null), null)
     assert.ok(permissionModeEntryFor('openclaw'))
 })

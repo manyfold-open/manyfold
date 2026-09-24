@@ -16,6 +16,7 @@ import {
     type SeoPageDefinition,
     type SeoPageEntry
 } from '@/seo/pages'
+import type { WorksWithChip } from '@/seo/landingContent'
 import { snapshotFor, type SeoSnapshotBodies } from '@/seo/snapshots'
 import {
     StaticMarketingHeader,
@@ -64,13 +65,14 @@ const fontPreloadTags = async (distDir: string): Promise<string> => {
 export const renderMarketingBody = (
     entry: SeoPageEntry,
     bodies: SeoSnapshotBodies = {},
-    editionPages: SeoPageDefinition[] = []
+    editionPages: SeoPageDefinition[] = [],
+    editionFrameworks: readonly WorksWithChip[] = []
 ): string => {
     const Snapshot = snapshotFor(entry.def.key, bodies)
     return renderToStaticMarkup(
         <div className='landing-root'>
             <StaticMarketingHeader language={entry.language} />
-            <Snapshot entry={entry} />
+            <Snapshot entry={entry} editionFrameworks={editionFrameworks} />
             <StaticMarketingFooter
                 language={entry.language}
                 pages={seoFooterLinks(entry.language, editionPages)}
@@ -79,12 +81,14 @@ export const renderMarketingBody = (
     )
 }
 
-// `edition` carries a composition's pages and their snapshots, which reach
-// this function as arguments because it runs under tsx and the vite overlay
-// resolver does not: see seo/editionPages.ts and scripts/render-static.ts.
+// `edition` carries a composition's pages and their snapshots, plus its extra
+// "works with" framework chips, which reach this function as arguments
+// because it runs under tsx and the vite overlay resolver does not: see
+// seo/editionPages.ts, seo/worksWithEdition.ts and scripts/render-static.ts.
 export interface EditionSeoPages {
     pages: SeoPageDefinition[]
     snapshots: SeoSnapshotBodies
+    worksWithFrameworks?: readonly WorksWithChip[]
 }
 
 export const renderStaticPages = async (
@@ -114,7 +118,8 @@ export const renderStaticPages = async (
             bodyHtml: renderMarketingBody(
                 entry,
                 edition.snapshots,
-                edition.pages
+                edition.pages,
+                edition.worksWithFrameworks
             ),
             env,
             preloadTags

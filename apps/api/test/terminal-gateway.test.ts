@@ -2,15 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { TerminalGateway } from '../src/modules/terminal/terminal.gateway'
-import { NarraNexusFilesProvider } from '../src/modules/narranexus/files/narranexus-files.provider'
-
-const narraNexusFiles = new NarraNexusFilesProvider(
-    {} as never,
-    {} as never,
-    {} as never
-)
-const defaultTerminalCwd = (agent: never): string =>
-    narraNexusFiles.defaultTerminalCwd(agent)
 
 const baseAgent = {
     id: 'agent-1',
@@ -121,47 +112,4 @@ test('TerminalGateway resolveCwd rejects paths outside the selected root', async
             harness.resolveCwd(baseAgent, 'codex-home', '/home/sprite/.claude'),
         ForbiddenException
     )
-})
-
-test('defaultTerminalCwd uses NarraNexus home root instead of lazy workspace', () => {
-    const cwd = defaultTerminalCwd({
-        ...baseAgent,
-        framework: 'narranexus',
-        runtime: 'sprites',
-        workspacePath:
-            '/home/sprite/.narranexus/data/workspaces/agt_1_mf_user_1',
-        mountPath:
-            '/home/sprite/.narranexus/data/workspaces/agt_1_mf_user_1',
-        fileRoots: [
-            {
-                id: 'workspace',
-                label: 'Workspace',
-                path: '/home/sprite/.narranexus/data/workspaces/agt_1_mf_user_1',
-                writable: true
-            },
-            {
-                id: 'home',
-                label: 'Home',
-                path: '/home/sprite/.narranexus',
-                writable: true
-            }
-        ]
-    } as never)
-
-    assert.equal(cwd, '/home/sprite/.narranexus')
-})
-
-test('defaultTerminalCwd falls back to NarraNexus data dir for old rows', () => {
-    const cwd = defaultTerminalCwd({
-        ...baseAgent,
-        framework: 'narranexus',
-        runtime: 'sprites',
-        workspacePath:
-            '/home/sprite/.narranexus/data/workspaces/agt_1_mf_user_1',
-        mountPath:
-            '/home/sprite/.narranexus/data/workspaces/agt_1_mf_user_1',
-        fileRoots: []
-    } as never)
-
-    assert.equal(cwd, '/home/sprite/.narranexus/data')
 })

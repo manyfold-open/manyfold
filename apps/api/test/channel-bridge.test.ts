@@ -252,7 +252,7 @@ test('without agentManagedReply the turn carries no channelSource', async () => 
     assert.equal(
         harness.sendMessageCalls[0]?.channelSource,
         undefined,
-        'default-off channels keep the wire body unchanged so NarraNexus stays in owner-chat mode'
+        'default-off channels keep the wire body unchanged so the agent stays in owner-chat mode'
     )
 })
 
@@ -2640,7 +2640,7 @@ test('bridge sends a retryable notice when ingest fails, not the capability copy
             ingest: (input: unknown) => Promise<never>
         }
     ).ingest = async () => {
-        throw new Error('narranexus files/write failed (status 502)')
+        throw new Error('gateway files/write failed (status 502)')
     }
     await withCdnMock(
         (pool) =>

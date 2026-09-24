@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-definition'
+import { FIXTURE, FIXTURE_FORK } from './helpers/fixture-framework'
 import { appSettings, auditLogs } from '@manyfold/db'
 import { AdminSettingsService } from '../src/modules/admin-settings/admin-settings.service'
 
@@ -469,19 +469,19 @@ test('AdminSettingsService rejects malformed blocked version windows', async () 
     await rejects({ 'gemini-cli': 'everything' }, /must be an array/)
 })
 
-const FORK = 'protagolabs/NarraNexus'
+const FORK = FIXTURE_FORK
 
 test('AdminSettingsService stores an allowlisted version source repository', async () => {
     const service = serviceWith()
 
     const saved = await service.updateFrameworkDefaultVersions('admin-1', {
         defaults: {},
-        sourceRepos: { narranexus: FORK }
+        sourceRepos: { [FIXTURE]: FORK }
     })
 
-    assert.equal(saved.sourceRepos.narranexus, FORK)
+    assert.equal(saved.sourceRepos[FIXTURE], FORK)
     assert.equal(
-        (await service.getFrameworkDefaultVersions()).sourceRepos.narranexus,
+        (await service.getFrameworkDefaultVersions()).sourceRepos[FIXTURE],
         FORK
     )
 })
@@ -494,7 +494,7 @@ test('AdminSettingsService rejects a repository outside the allowlist', async ()
     await assert.rejects(
         service.updateFrameworkDefaultVersions('admin-1', {
             defaults: {},
-            sourceRepos: { narranexus: 'attacker/NarraNexus' }
+            sourceRepos: { [FIXTURE]: 'attacker/fixture-gateway' }
         }),
         /is not an allowed repository/
     )
@@ -519,7 +519,7 @@ test('AdminSettingsService keeps the version source when the update omits it', a
     const service = serviceWith()
     await service.updateFrameworkDefaultVersions('admin-1', {
         defaults: {},
-        sourceRepos: { narranexus: FORK }
+        sourceRepos: { [FIXTURE]: FORK }
     })
 
     const saved = await service.updateFrameworkDefaultVersions('admin-1', {
@@ -528,7 +528,7 @@ test('AdminSettingsService keeps the version source when the update omits it', a
         allowDowngrade: {}
     })
 
-    assert.equal(saved.sourceRepos.narranexus, FORK)
+    assert.equal(saved.sourceRepos[FIXTURE], FORK)
     assert.equal(saved.defaults.codex, '1.0.0')
 })
 
@@ -537,7 +537,7 @@ test('AdminSettingsService clears the version source on an explicit empty map', 
     const service = serviceWith()
     await service.updateFrameworkDefaultVersions('admin-1', {
         defaults: {},
-        sourceRepos: { narranexus: FORK }
+        sourceRepos: { [FIXTURE]: FORK }
     })
 
     const saved = await service.updateFrameworkDefaultVersions('admin-1', {
@@ -557,7 +557,7 @@ test('AdminSettingsService refuses a pre-release pin while the opt-in is off', a
     await assert.rejects(
         () =>
             service.updateFrameworkDefaultVersions('admin-1', {
-                defaults: { narranexus: '1.15.1-rc.1' }
+                defaults: { [FIXTURE]: '1.15.1-rc.1' }
             }),
         /pre-release/
     )
@@ -567,12 +567,12 @@ test('AdminSettingsService accepts a pre-release pin once the framework opts in'
     const service = serviceWith()
 
     const saved = await service.updateFrameworkDefaultVersions('admin-1', {
-        defaults: { narranexus: '1.15.1-rc.1' },
-        allowPrerelease: { narranexus: true }
+        defaults: { [FIXTURE]: '1.15.1-rc.1' },
+        allowPrerelease: { [FIXTURE]: true }
     })
 
-    assert.equal(saved.defaults.narranexus, '1.15.1-rc.1')
-    assert.equal(saved.allowPrerelease.narranexus, true)
+    assert.equal(saved.defaults[FIXTURE], '1.15.1-rc.1')
+    assert.equal(saved.allowPrerelease[FIXTURE], true)
 })
 
 // Apps deploy independently, so an Admin build predating this field can PUT
@@ -582,15 +582,15 @@ test('AdminSettingsService keeps a stored pre-release opt-in when the field is o
     const service = serviceWith()
     await service.updateFrameworkDefaultVersions('admin-1', {
         defaults: {},
-        allowPrerelease: { narranexus: true }
+        allowPrerelease: { [FIXTURE]: true }
     })
 
     const saved = await service.updateFrameworkDefaultVersions('admin-1', {
-        defaults: { narranexus: '1.15.1-rc.1' }
+        defaults: { [FIXTURE]: '1.15.1-rc.1' }
     })
 
-    assert.equal(saved.allowPrerelease.narranexus, true)
-    assert.equal(saved.defaults.narranexus, '1.15.1-rc.1')
+    assert.equal(saved.allowPrerelease[FIXTURE], true)
+    assert.equal(saved.defaults[FIXTURE], '1.15.1-rc.1')
 })
 
 // The floor is a policy statement, and semver says an rc precedes its release.
@@ -602,9 +602,9 @@ test('AdminSettingsService reads a pre-release as below its own release floor', 
     await assert.rejects(
         () =>
             service.updateFrameworkDefaultVersions('admin-1', {
-                defaults: { narranexus: '1.15.1-rc.1' },
-                minVersions: { narranexus: '1.15.1' },
-                allowPrerelease: { narranexus: true }
+                defaults: { [FIXTURE]: '1.15.1-rc.1' },
+                minVersions: { [FIXTURE]: '1.15.1' },
+                allowPrerelease: { [FIXTURE]: true }
             }),
         /below its minimum supported version/
     )

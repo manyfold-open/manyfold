@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-definition'
 import {
     BadRequestException,
     ServiceUnavailableException
@@ -214,7 +213,7 @@ test('with no version catalog the framework keeps its built-in default', async (
 test('a git framework without catalog admission is refused before preparation', async () => {
     const h = buildHarness({ frameworkVersions: false })
     await assert.rejects(
-        h.svc.prepareRuntime('user_1', 'sbx_1', 'narranexus'),
+        h.svc.prepareRuntime('user_1', 'sbx_1', 'hermes'),
         ServiceUnavailableException
     )
     assert.equal(h.calls.prepare.length, 0)

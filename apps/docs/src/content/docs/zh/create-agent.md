@@ -23,7 +23,6 @@ order: 3
 | Pi | 开源编程 CLI，可接多家模型厂商。支持 sandbox、Kubernetes 和自己的电脑，凭证可以是已保存的模型提供方或厂商 API key（Anthropic、OpenAI 或 Google Gemini），也可以是它在该环境里自己的登录——Claude、ChatGPT 或 Copilot 订阅。 |
 | Hermes Agent | 连接器密集型工作流和后台任务。 |
 | OpenClaw | 需要服务、gateway 或定时任务的工具型 Agent 应用。 |
-| NarraNexus | 叙事驱动的 Agent 工作区，模型提供方和聊天由 NarraNexus 原生 UI 管理。 |
 
 ## 选择运行位置
 

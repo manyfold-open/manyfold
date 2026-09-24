@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
-import './helpers/narranexus-version'
+import {
+    FIXTURE,
+    FIXTURE_FORK,
+    FIXTURE_UPSTREAM,
+    FixtureSpriteBootstrap,
+    fixtureVersion
+} from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
-import { narraNexusVersion } from '../src/modules/narranexus/version/narranexus-version'
 import { BadRequestException, HttpException } from '@nestjs/common'
 import type {
     FrameworkDefaultVersionsSettings,
@@ -13,7 +18,6 @@ import { WebSocketServer } from 'ws'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
-import { NarraNexusSpriteBootstrap } from '../src/modules/narranexus/bootstrap/narranexus-sprite'
 import { HermesSpriteBootstrap } from '../src/modules/agents/bootstrap/hermes-sprite'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import {
@@ -23,8 +27,8 @@ import {
 import type { SpriteServiceBootstrap } from '../src/modules/agents/bootstrap/sprite-framework-bootstrap'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
-const UPSTREAM = 'NetMindAI-Open/NarraNexus'
-const FORK = 'protagolabs/NarraNexus'
+const UPSTREAM = FIXTURE_UPSTREAM
+const FORK = FIXTURE_FORK
 const SHARED = 'v9.1.0'
 const FORK_ONLY = 'v9.2.0'
 const boundary = new BadRequestException('fixture provisioning boundary')
@@ -33,11 +37,11 @@ const settingsFor = (
     repo: string,
     pin?: string
 ): FrameworkDefaultVersionsSettings => ({
-    defaults: pin ? { narranexus: pin } : {},
+    defaults: pin ? { [FIXTURE]: pin } : {},
     minVersions: {},
     allowDowngrade: {},
     blockedVersions: {},
-    sourceRepos: { narranexus: repo },
+    sourceRepos: { [FIXTURE]: repo },
     allowPrerelease: {}
 })
 
@@ -45,7 +49,7 @@ const catalogFor = (
     repo: string,
     versions = [SHARED]
 ): FrameworkVersionCatalogEntry => ({
-    framework: 'narranexus',
+    framework: FIXTURE,
     latest: versions[0] ?? null,
     versions,
     source: 'github',
@@ -72,7 +76,7 @@ const cachedFixture = () => {
     const f = fixture()
     f.box.catalog.fetchedAt = '2000-01-01T00:00:00.000Z'
     let stored: unknown = {
-        narranexus: { ...f.box.catalog, repo: UPSTREAM }
+        [FIXTURE]: { ...f.box.catalog, repo: UPSTREAM }
     }
     const db = {
         select: () => ({
@@ -163,10 +167,7 @@ const consumer = async (
 ) => {
     const sprite = await peer(t)
     const calls: Record<string, unknown>[] = []
-    const bootstrap = new NarraNexusSpriteBootstrap(
-        { install: async () => {} } as never,
-        { get: () => undefined } as never
-    )
+    const bootstrap = new FixtureSpriteBootstrap()
     const provision = async (args: Record<string, unknown>) => {
         calls.push(args)
         await bootstrap.run(
@@ -198,7 +199,7 @@ const consumer = async (
                 })
             },
             credentialsResolver: {
-                resolve: async () => ({ framework: 'narranexus', value: {} })
+                resolve: async () => ({ framework: FIXTURE, value: {} })
             },
             adminSettings: f.admin,
             frameworkVersions: f.versions,
@@ -215,7 +216,7 @@ const consumer = async (
                         actorUserId: 'usr_fixture',
                         isAdmin: false,
                         dto: {
-                            framework: 'narranexus',
+                            framework: FIXTURE,
                             name: 'fixture',
                             frameworkVersion: requested
                         }
@@ -250,7 +251,7 @@ const consumer = async (
             service.prepareRuntime(
                 'usr_fixture',
                 'sbx_fixture',
-                'narranexus'
+                FIXTURE
             ) as Promise<unknown>
     }
 }
@@ -268,7 +269,7 @@ for (const kind of ['create', 'prepare'] as const) {
                 assert.ok(error instanceof HttpException)
                 assert.equal(error.getStatus(), 400)
                 assert.match(error.message, /admin.*pin|pin.*admin/i)
-                assert.match(error.message, /NarraNexus/)
+                assert.match(error.message, /fixture-gateway/)
                 return true
             })
             assert.equal(h.calls.length, 0)
@@ -347,7 +348,7 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
     let repoReads = 0
     f.versions.repoFor = async () => {
         repoReads++
-        return f.box.settings.sourceRepos.narranexus!
+        return f.box.settings.sourceRepos[FIXTURE]!
     }
     const runtime = {
         id: 'art_fixture',
@@ -370,7 +371,7 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         {
             findForCaller: async () => ({
                 id: 'agt_fixture',
-                framework: 'narranexus',
+                framework: FIXTURE,
                 runtimeId: runtime.id
             }),
             get: async () => ({ id: 'agt_fixture' })
@@ -379,8 +380,8 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         { probeAndPersist: async () => SHARED } as never,
         f.admin as never,
         extensionsWith({
-            framework: 'narranexus',
-            version: narraNexusVersion()
+            framework: FIXTURE,
+            version: fixtureVersion
         }) as never
     )
     Object.assign(service, { spriteClientFor: async () => sprite.client })
@@ -510,7 +511,7 @@ for (const refresh of ['rejects', 'succeeds'] as const) {
             await running
             assert.equal(h.calls.length, 0)
             assert.equal(h.shells.length, 0)
-            const entry = await f.versions.getForFramework('narranexus')
+            const entry = await f.versions.getForFramework(FIXTURE)
             assert.equal(entry.sourceRepo, FORK)
             assert.deepEqual(entry.versions, [])
         }
@@ -556,7 +557,7 @@ for (const tier of ['explicit', 'admin', 'latest'] as const) {
         f.versions.refreshFramework = async () => f.box.catalog
         await assert.rejects(
             f.versions.resolveInstallVersion(
-                'narranexus',
+                FIXTURE,
                 tier === 'explicit' ? SHARED : undefined
             ),
             (error: unknown) =>
@@ -565,7 +566,7 @@ for (const tier of ['explicit', 'admin', 'latest'] as const) {
     })
 }
 
-for (const framework of ['narranexus', 'hermes'] as const) {
+for (const framework of [FIXTURE, 'hermes'] as const) {
     test(
         `git latest ${framework} installation never retries an unadmitted default`,
         { timeout: 10_000 },
@@ -573,11 +574,8 @@ for (const framework of ['narranexus', 'hermes'] as const) {
             const h = await peer(t)
             h.failAll()
             const bootstrap: SpriteServiceBootstrap =
-                framework === 'narranexus'
-                    ? new NarraNexusSpriteBootstrap(
-                          {} as never,
-                          { get: () => undefined } as never
-                      )
+                framework === FIXTURE
+                    ? new FixtureSpriteBootstrap()
                     : new HermesSpriteBootstrap({} as never)
             const run = bootstrap.run.bind(bootstrap)
             let originalError: unknown
@@ -597,7 +595,7 @@ for (const framework of ['narranexus', 'hermes'] as const) {
             )
             const provisioner = Object.create(SpritesProvisioner.prototype)
             const repo =
-                framework === 'narranexus' ? FORK : 'NousResearch/hermes-agent'
+                framework === FIXTURE ? FORK : 'NousResearch/hermes-agent'
             await assert.rejects(
                 provisioner.runServiceBootstrap(
                     bootstrap,

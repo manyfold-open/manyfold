@@ -58,8 +58,8 @@ history。每个 framework 的 base URL 和 model option 请查看
 `mf agent create --help`。Pi 需要同时传 `--pi-api-key` 和
 `--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
 
-这个命令不会创建 daemon、Kubernetes、cloud-computer、external、Hermes、
-OpenClaw 或 NarraNexus Agent。完整 framework/runtime matrix 请使用网页
+这个命令不会创建 daemon、Kubernetes、cloud-computer、external、Hermes 或
+OpenClaw Agent。完整 framework/runtime matrix 请使用网页
 **New agent** 流程。在现有 multi-agent runtime 中增加 framework Agent，请使用
 `mf runtime agents add`。
 

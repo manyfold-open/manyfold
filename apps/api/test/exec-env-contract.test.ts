@@ -30,7 +30,6 @@ import {
     EXTRAS_MARKERS,
     withEnv
 } from './exec-env-harness'
-import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
@@ -159,14 +158,7 @@ test('every framework with an exec surface is registered in the chat adapter reg
         }) as never,
         stub('dify'),
         stub('langflow'),
-        stub('a2a'),
-        extensionsWith({
-            framework: 'narranexus',
-            chatAdapter: buildAdapter(seam, {
-                framework: 'narranexus',
-                runtime: 'sprites'
-            }) as never
-        })
+        stub('a2a')
     )
     for (const framework of ALL_FRAMEWORKS) {
         assert.equal(

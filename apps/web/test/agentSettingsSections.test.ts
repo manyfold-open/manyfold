@@ -11,6 +11,7 @@ import {
     sectionsFor,
     supportsSection
 } from '../src/lib/agentSettingsSections'
+import { FIXTURE_FRAMEWORK } from './fixture-framework'
 
 let seq = 0
 const makeAgent = (over: Partial<SdkAgent> = {}): SdkAgent => {
@@ -189,7 +190,7 @@ test('collapsing never reorders what is left', () => {
         makeAgent({ runtime: 'daemon', daemonId: 'dmn_1' }),
         makeAgent({ runtime: 'external', runtimeId: null, framework: 'dify' }),
         makeAgent({ runtimeId: null }),
-        makeAgent({ framework: 'narranexus' })
+        makeAgent({ framework: FIXTURE_FRAMEWORK })
     ]) {
         const ids = sectionsFor(agent).map((section) => section.id)
         assert.deepEqual(
@@ -203,7 +204,7 @@ test('collapsing never reorders what is left', () => {
 test('skills needs both a supporting framework and an attached runtime', () => {
     assert.equal(supportsSection(makeAgent({ runtimeId: null }), 'skills'), false)
     assert.equal(
-        supportsSection(makeAgent({ framework: 'narranexus' }), 'skills'),
+        supportsSection(makeAgent({ framework: FIXTURE_FRAMEWORK }), 'skills'),
         false
     )
     assert.equal(supportsSection(makeAgent(), 'skills'), true)

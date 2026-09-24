@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-definition'
 import {
     ChatApiFileService,
     sanitizeFilename,
@@ -117,7 +116,7 @@ test('a daemon agent without binary support rejects files', async () => {
     )
 })
 
-// A proxied workspace write can fail after the bytes landed (#577: narranexus
+// A proxied workspace write can fail after the bytes landed (#577: a gateway
 // 502 arriving after the body was fully streamed). Accounting must follow the
 // disk, not the error: a verifiably landed file is a written file, and only a
 // genuinely absent or partial file may fail the ingest.
@@ -144,7 +143,7 @@ const makeWriteFailService = (opts: {
             mountPath: '/workspace',
             mkdir: async () => undefined,
             write: async () => {
-                throw new Error('narranexus files/write failed (status 502)')
+                throw new Error('gateway files/write failed (status 502)')
             },
             stat: async (abs: string) => {
                 const entry = await opts.stat(abs)
@@ -256,15 +255,6 @@ test('supportsAttachments reflects framework capabilities', async () => {
 
     const { service: langflow } = makeService('langflow')
     assert.equal(await langflow.supportsAttachments('agent-1'), false)
-})
-
-// This capability is what channel-bridge consults before it downloads a single
-// inbound byte: with it off the file is dropped at the gate, whatever the
-// workspace can do. It is on now that narraNexusCtx.write reaches the gateway's
-// write endpoint.
-test('supportsAttachments is on for narranexus now that the workspace accepts writes', async () => {
-    const { service } = makeService('narranexus')
-    assert.equal(await service.supportsAttachments('agent-1'), true)
 })
 
 test('supportsAttachments is false for a missing agent', async () => {

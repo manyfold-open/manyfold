@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import type { Plugin } from 'vite'
 
@@ -36,10 +36,13 @@ const BASE_MARK = 'mf-overlay-base'
 const isBaseMarked = (id: string): boolean =>
     new URLSearchParams(id.split('?')[1] ?? '').has(BASE_MARK)
 
+// Seen on the cloud web build [2026-09-24]: an overlay-only folder imported
+// by its name matched the bare '' probe as a folder, and Rollup died reading
+// it (EISDIR). A folder is never a module; its index is.
 const probe = (candidate: string): string | null => {
     for (const ext of EXTENSION_PROBES) {
         const withExt = candidate + ext
-        if (existsSync(withExt)) return withExt
+        if (existsSync(withExt) && statSync(withExt).isFile()) return withExt
     }
     return null
 }

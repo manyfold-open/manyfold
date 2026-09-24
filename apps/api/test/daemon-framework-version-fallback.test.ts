@@ -174,11 +174,11 @@ test('the unpinned retry keeps the repository it was given', async () => {
     }
     const ctx = {
         ...ctxFor('1.9.9', 'latest'),
-        frameworkRepo: 'protagolabs/NarraNexus'
+        frameworkRepo: 'example-org/example-gateway'
     } as BootstrapContext
 
     await runService(bootstrap, ctx)
 
     assert.deepEqual(versions, ['1.9.9', null])
-    assert.deepEqual(repos, ['protagolabs/NarraNexus', 'protagolabs/NarraNexus'])
+    assert.deepEqual(repos, ['example-org/example-gateway', 'example-org/example-gateway'])
 })

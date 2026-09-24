@@ -232,7 +232,7 @@ test(
             await h.seed(h.oldHostId, 'claude-code')
             await h.seed(h.oldHostId, 'codex')
             await h.seed(h.oldHostId, 'openclaw')
-            await h.seed(h.oldHostId, 'narranexus')
+            await h.seed(h.oldHostId, 'hermes')
             const { runtime, hostCreated } = await reserve(h, {
                 hostId: h.oldHostId,
                 framework: 'gemini-cli'

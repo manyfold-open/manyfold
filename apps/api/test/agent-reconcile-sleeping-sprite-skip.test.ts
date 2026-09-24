@@ -9,7 +9,7 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     id: 'rt-1',
     userId: 'u-1',
     name: 'main',
-    framework: 'narranexus',
+    framework: 'hermes',
     kind: 'sprites',
     status: 'ready',
     accountId: 'acc-1',
@@ -35,7 +35,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     id: 'agent-1',
     userId: 'u-1',
     runtimeId: 'rt-1',
-    framework: 'narranexus',
+    framework: 'hermes',
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
@@ -120,7 +120,7 @@ const recordingRegistry = (live: Array<Record<string, unknown>>) => {
 // WHY: listing a sleeping service-framework sprite wakes the VM (billing + the
 // exact #108 wake race), and stale pre-sleep misses must not combine with a
 // post-wake fresh-boot empty list.
-test('reconcile skips sleeping narranexus sprite: no adapter call, no writes, pendingOrphans cleared', async () => {
+test('reconcile skips sleeping service-framework sprite: no adapter call, no writes, pendingOrphans cleared', async () => {
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
@@ -167,7 +167,7 @@ test('reconcile skips sleeping narranexus sprite: no adapter call, no writes, pe
 
 // Scenario 2: one row spriteStatus 'running' on the same runtime.
 // WHY: an awake sprite is the only state where the gateway answer is meaningful.
-test('reconcile lists narranexus sprite when any row is running', async () => {
+test('reconcile lists a service-framework sprite when any row is running', async () => {
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
@@ -224,9 +224,9 @@ test('reconcile never lists claude-code sprites (DB-backed fast path)', async ()
     )
 })
 
-// Scenario 4: narranexus on k8s with spriteStatus null rows.
+// Scenario 4: a service framework on k8s with spriteStatus null rows.
 // WHY: the gate is sprites-only; k8s/daemon must not regress.
-test('reconcile lists narranexus k8s runtime regardless of spriteStatus', async () => {
+test('reconcile lists a service-framework k8s runtime regardless of spriteStatus', async () => {
     const rows = [fakeDbAgent({ runtime: 'k8s', spriteStatus: null })]
     const db = makeDb(rows)
     const registry = recordingRegistry([
@@ -282,7 +282,7 @@ test('reconcile heals poisoned stopped row when running sprite lists it', async 
 // both the wake-billing and fresh-boot-race reasons for the gate — the
 // subsequent adapter listing is the real verification that keeps the report
 // a hint.
-test('reconcile with verifiedByReport lists a sleeping narranexus sprite', async () => {
+test('reconcile with verifiedByReport lists a sleeping service-framework sprite', async () => {
     const rows = [
         fakeDbAgent({
             id: 'agent-1',

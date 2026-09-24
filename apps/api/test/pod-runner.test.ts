@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-definition'
 import {
     POD_RUNNER_PROFILE,
     buildPodRunnerEnv,
@@ -133,14 +132,14 @@ test('the declared workspace root contains the agent workspaces on that pod', ()
 
 test('service pods register a runner under the existing PVC root', async () => {
     const { provisioner, mints } = buildProvisioner({ apiBaseUrl: 'https://api.test' })
-    for (const framework of ['openclaw', 'hermes', 'narranexus'] as const) {
+    for (const framework of ['openclaw', 'hermes'] as const) {
         assert.equal(provisioner.supports(framework), true)
         const result = await provisioner.mint({ userId: 'user_1', runtimeId: 'art_pod', framework, homeRoot: '/data' })
         assert.ok(result)
         assert.equal(result.env.MF_CONFIG_DIR, '/data/.manyfold-runner')
         assert.equal(result.env.MF_DAEMON_WORKSPACE_ROOT, '/data')
     }
-    assert.equal(mints.length, 3)
+    assert.equal(mints.length, 2)
 })
 
 test('a Pod without a reachable API URL is rejected before minting a token', async () => {

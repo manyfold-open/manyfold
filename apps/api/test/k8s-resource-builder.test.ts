@@ -10,7 +10,6 @@ import {
     resourceName,
     type K8sResourceSpec
 } from '../src/modules/agents/orchestration/k8s-resource-builder'
-import { NarraNexusK8sBootstrap } from '../src/modules/narranexus/bootstrap/narranexus-k8s'
 import type { K8sSidecarSpec } from '../src/modules/agents/bootstrap/k8s-framework-bootstrap'
 
 // Carved out of k8s-runtime-sidecar.service.test.ts when the k8s hermes
@@ -164,33 +163,51 @@ test('readSecretEnv decodes k8s data and treats a missing Secret as nothing to p
     )
 })
 
-test('NarraNexus shares its PVC and Pod network with a runner without exposing a port', () => {
-    const bootstrap = new NarraNexusK8sBootstrap({ get: () => 'runner:fixture' } as never)
-    const plan = bootstrap.plan({} as never, { gatewayToken: 'fixture' })
-    const withRunner = { ...spec, framework: 'narranexus' as const, port: plan.port, pvcMountPath: plan.pvcMountPath, sidecars: plan.sidecars, envSecretKeys: [...PRESERVED_SECRET_ENV_KEYS, 'PROVIDER_KEY'] }
+// A runner sidecar shares the Pod's PVC and network and exposes no port; the
+// main container keeps the platform's keys and none of the daemon's own.
+test('a runner sidecar shares its PVC and Pod network without exposing a port', () => {
+    const runner: K8sSidecarSpec = {
+        name: 'mf-runner',
+        image: 'runner:fixture',
+        command: ['mf-daemon-boot'],
+        envFromMainSecret: true,
+        mountPvc: true,
+        resources: {
+            requests: { cpu: '50m', memory: '64Mi' },
+            limits: { cpu: '300m', memory: '256Mi' }
+        }
+    }
+    const withRunner = {
+        ...spec,
+        port: 8000,
+        pvcMountPath: '/data',
+        sidecars: [runner],
+        envSecretKeys: [...PRESERVED_SECRET_ENV_KEYS, 'PROVIDER_KEY']
+    }
     const deployment = buildDeployment(withRunner)
-    const runner = deployment.spec?.template.spec?.containers.find(c => c.name === 'mf-runner')
-    assert.ok(runner)
+    const container = deployment.spec?.template.spec?.containers.find(
+        (c) => c.name === 'mf-runner'
+    )
+    assert.ok(container)
     const main = deployment.spec?.template.spec?.containers[0]
     assert.equal(main?.envFrom, undefined)
-    const mainKeys = main?.env?.map(e => e.name) ?? []
+    const mainKeys = main?.env?.map((e) => e.name) ?? []
     assert.ok(mainKeys.includes('MF_API_URL'))
     assert.ok(mainKeys.includes('MF_API_TOKEN'))
     assert.ok(mainKeys.includes('PROVIDER_KEY'))
-    assert.ok(!mainKeys.some(k => k.startsWith('MF_DAEMON_')))
+    assert.ok(!mainKeys.some((k) => k.startsWith('MF_DAEMON_')))
     assert.ok(!mainKeys.includes('MF_PROFILE'))
     assert.ok(!mainKeys.includes('MF_CONFIG_DIR'))
-    assert.equal(runner.ports, undefined)
-    assert.deepEqual(runner.resources, {
-        requests: { cpu: '50m', memory: '64Mi' },
-        limits: { cpu: '300m', memory: '256Mi' }
-    })
-    assert.deepEqual(runner.volumeMounts, [{ name: 'data', mountPath: '/data' }])
-    assert.deepEqual(runner.envFrom, [{ secretRef: { name: spec.envSecretName } }])
-    assert.ok(buildService(withRunner).spec?.ports?.every(p => p.name !== 'mf-runner'))
-})
-
-test('NarraNexus rejects provisioning without a configured runner image', () => {
-    const bootstrap = new NarraNexusK8sBootstrap({ get: () => undefined } as never)
-    assert.throws(() => bootstrap.plan({} as never, {}), /MF_POD_RUNNER_IMAGE/)
+    assert.equal(container.ports, undefined)
+    assert.deepEqual(container.volumeMounts, [
+        { name: 'data', mountPath: '/data' }
+    ])
+    assert.deepEqual(container.envFrom, [
+        { secretRef: { name: spec.envSecretName } }
+    ])
+    assert.ok(
+        buildService(withRunner).spec?.ports?.every(
+            (p) => p.name !== 'mf-runner'
+        )
+    )
 })

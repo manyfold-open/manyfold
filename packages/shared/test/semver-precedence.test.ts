@@ -132,9 +132,9 @@ test('the version tag guard rejects anything that could reach the shell', () => 
 })
 
 // The guard trims before matching, so every caller that goes on to interpolate
-// the value must use the trimmed form — which is why the three install-site
-// guards (assertNarraNexusVersion, assertHermesVersion, buildNpmUpgradeShell)
-// return `version.trim()` rather than their raw input.
+// the value must use the trimmed form — which is why the install-site guards
+// (assertHermesVersion, buildNpmUpgradeShell and the like) return
+// `version.trim()` rather than their raw input.
 test('the guard trims, and the pattern it exports agrees with it', () => {
     assert.equal(isSemverVersionTag(' 1.15.1-rc.1 '), true)
     assert.equal(' 1.15.1-rc.1 '.trim(), '1.15.1-rc.1')

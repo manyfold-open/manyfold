@@ -15,8 +15,8 @@ test('loginUrl carries the whole deep link, query included', () => {
     // The reported case: a shared /agents/new link is useless to a signed-out
     // visitor unless `framework` survives the bounce through /login.
     assert.equal(
-        loginUrl(nextPath(at('/agents/new', '?framework=narranexus'))),
-        '/login?redirect_url=%2Fagents%2Fnew%3Fframework%3Dnarranexus'
+        loginUrl(nextPath(at('/agents/new', '?framework=hermes'))),
+        '/login?redirect_url=%2Fagents%2Fnew%3Fframework%3Dhermes'
     )
     assert.equal(
         loginUrl(nextPath(at('/agents/ag_1/chat', '?sessionId=cs_2&draft=1'))),
@@ -35,7 +35,7 @@ test('loginUrl handles a bare path and the root', () => {
 
 test('what loginUrl produces is what the login page accepts', () => {
     for (const next of [
-        '/agents/new?framework=narranexus',
+        '/agents/new?framework=hermes',
         '/connections?connected=github',
         '/skills/library/edit?id=lsk_1&edit=1',
         '/skills/shared/shr_1'

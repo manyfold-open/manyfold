@@ -129,7 +129,6 @@ const zh: Translations = {
             pi: 'Pi',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
-            narraNexus: 'NarraNexus',
             dify: 'Dify',
             langflow: 'Langflow',
             a2a: 'A2A'
@@ -391,7 +390,7 @@ const zh: Translations = {
                         '外部 Agent 运行在自己的 Provider 上，模型在托管它的那一侧选择，不在这里。'
                 },
                 notFound: '未找到该 Agent。',
-                openNativeFailed: '打开 NarraNexus 失败',
+                openNativeFailed: '打开原生 UI 失败',
                 openNativeUi: '打开原生 UI ↗',
                 permissions: {
                     addAction: '添加权限',
@@ -3504,7 +3503,6 @@ const zh: Translations = {
                 pi: '开源的编码 CLI，可接多家模型厂商',
                 openclaw: '常驻对话服务，接 IM 渠道',
                 hermes: '常驻助理服务，日程与邮件',
-                narranexus: '常驻编排服务',
                 dify: '接入你的 Dify 应用',
                 langflow: '接入你的 Langflow 流程',
                 a2a: '接入任何支持 A2A 协议的 agent'
@@ -3832,7 +3830,7 @@ const zh: Translations = {
             daemonBackground: 'daemon 在用户机器运行时可用。',
             deployableAgents: '可部署的 Agent',
             deployableAgentsFull:
-                'Claude Code、Codex、Gemini CLI、OpenClaw、Hermes Agent、NarraNexus',
+                'Claude Code、Codex、Gemini CLI、OpenClaw、Hermes Agent',
             deployableAgentsShort:
                 'Claude Code、Codex、Gemini CLI、OpenClaw、Hermes Agent',
             compareFrameworksDesc: '比较各框架的主要用途、运行时支持和可用性。',
@@ -3854,8 +3852,6 @@ const zh: Translations = {
                 geminiCli:
                     'Google Gemini CLI，用于在托管工作区中编程和执行通用终端自动化。',
                 pi: '开源编程 Agent CLI，可运行在 Anthropic、OpenAI 或 Google 模型上，内置会话、skills 和 AGENTS.md 支持。',
-                narraNexus:
-                    '叙事驱动、可热插拔的 Agent 框架，每个运行时都有独立工作区；聊天和 Provider 在 NarraNexus 原生界面中管理。',
                 hermes: '面向连接器、自动化和后台工作流的持久服务 Agent，需要长期运行环境。',
                 openclaw:
                     '面向需要服务、网关或定时任务的丰富工具型 Agent 应用的框架运行时。',
@@ -3903,7 +3899,7 @@ const zh: Translations = {
             frameworkChecking: '检测中…',
             frameworkInstalled: '已安装',
             frameworkServiceSlotTaken:
-                '这台沙箱已在运行 {{framework}}；OpenClaw、Hermes、NarraNexus 同一时间只能装一个。',
+                '这台沙箱已在运行 {{framework}}；OpenClaw、Hermes 同一时间只能装一个。',
             deleteHasAgents: '先删除其上的 agent',
             renameSandbox: '重命名沙箱',
             checkSandbox: '检查沙箱',
@@ -4745,7 +4741,7 @@ const zh: Translations = {
                 runtimeSprites: 'Stateful sandbox（默认）',
                 runtimeK8s: 'Cloud computer',
                 runtimeHint:
-                    '选择 agent 的运行位置。Claude Code / Codex / Gemini CLI / OpenClaw / Hermes / NarraNexus 支持 Stateful sandbox；需要长期在线容器时使用 Cloud computer。',
+                    '选择 agent 的运行位置。Claude Code / Codex / Gemini CLI / OpenClaw / Hermes 支持 Stateful sandbox；需要长期在线容器时使用 Cloud computer。',
                 clusterLabel: 'Cloud computer 集群',
                 clusterHint: '选择要把 agent 部署到哪个已注册的集群。',
                 clusterEmpty:

@@ -5,6 +5,7 @@ import {
     renderStaticPages,
     type EditionSeoPages
 } from '../src/seo/renderStatic'
+import type { WorksWithChip } from '../src/seo/landingContent'
 import type { SeoPageDefinition } from '../src/seo/pages'
 import type { SeoSnapshotBodies } from '../src/seo/snapshots'
 
@@ -43,4 +44,20 @@ const loadEditionSeo = async (): Promise<EditionSeoPages> => {
     return { pages: EDITION_SEO_PAGES, snapshots: EDITION_SNAPSHOTS }
 }
 
-await renderStaticPages(resolve(appDir, 'dist'), await loadEditionSeo())
+/* The composition's extra "works with" framework chips, loaded by path for
+   the same reason. Plain data, under the same two rules. */
+const loadEditionWorksWith = async (): Promise<readonly WorksWithChip[]> => {
+    const overlay = process.env.MF_WEB_OVERLAY_DIR
+    if (!overlay) return []
+    const file = resolve(appDir, overlay, 'seo/worksWithEdition.ts')
+    if (!existsSync(file)) return []
+    const { worksWithEditionFrameworks } = (await import(
+        pathToFileURL(file).href
+    )) as { worksWithEditionFrameworks: readonly WorksWithChip[] }
+    return worksWithEditionFrameworks
+}
+
+await renderStaticPages(resolve(appDir, 'dist'), {
+    ...(await loadEditionSeo()),
+    worksWithFrameworks: await loadEditionWorksWith()
+})

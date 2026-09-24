@@ -2,20 +2,24 @@ import { frameworkRepoCloneUrl } from '@manyfold/shared'
 import type { FrameworkDefaultVersionsSettings } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import './helpers/narranexus-version'
+import {
+    FIXTURE,
+    FIXTURE_FORK,
+    FIXTURE_UPSTREAM,
+    fixtureVersion
+} from './helpers/fixture-framework'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
-import { buildNarraNexusRebuildShell } from '../src/modules/narranexus/bootstrap/narranexus-sprite'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 
-// NarraNexus is published to two repositories whose tag sets differ, so "which
+// A framework published to two repositories whose tag sets differ makes "which
 // repo" is not cosmetic: it decides which versions exist. The catalog and the
 // clone must resolve it from one place, because nothing downstream can catch a
 // disagreement — the same tag name exists in both repos at different commits,
 // so neither `git describe` nor the post-upgrade semver comparison can tell
 // which repository a sprite was actually built from.
 
-const UPSTREAM = 'NetMindAI-Open/NarraNexus'
-const FORK = 'protagolabs/NarraNexus'
+const UPSTREAM = FIXTURE_UPSTREAM
+const FORK = FIXTURE_FORK
 
 // v1.7.18 is fork-only; v1.15.0 is on both.
 const FORK_ONLY = 'v1.7.18'
@@ -25,7 +29,7 @@ const storedFrom = (
     versions: string[],
     prereleases: string[] = []
 ) => ({
-    narranexus: {
+    [FIXTURE]: {
         latest: versions[0],
         versions,
         prereleases,
@@ -98,11 +102,8 @@ const serviceWith = (
 test('an unconfigured platform resolves to the default repository', async () => {
     const { service } = serviceWith()
 
-    assert.equal(await service.repoFor('narranexus'), UPSTREAM)
-    assert.equal(
-        (await service.getForFramework('narranexus')).sourceRepo,
-        UPSTREAM
-    )
+    assert.equal(await service.repoFor(FIXTURE), UPSTREAM)
+    assert.equal((await service.getForFramework(FIXTURE)).sourceRepo, UPSTREAM)
 })
 
 test('repoFor is null for an npm-installed framework', async () => {
@@ -114,36 +115,36 @@ test('repoFor is null for an npm-installed framework', async () => {
 // The one assertion that can catch a half-wired implementation: the versions on
 // offer and the repository cloned have to move together.
 test('the offered versions and the cloned repository never disagree', async () => {
-    const box = settingsBox(baseSettings({ narranexus: FORK }))
+    const box = settingsBox(baseSettings({ [FIXTURE]: FORK }))
     const { service } = serviceWith(
         box,
         storedFrom(FORK, ['v1.15.0', FORK_ONLY, 'v1.7.15'])
     )
 
-    const onFork = await service.getForFramework('narranexus')
+    const onFork = await service.getForFramework(FIXTURE)
     assert.ok(onFork.versions.includes(FORK_ONLY))
     assert.equal(onFork.sourceRepo, FORK)
 
-    const forkShell = buildNarraNexusRebuildShell(
-        FORK_ONLY,
-        (await service.repoFor('narranexus'))!
-    )
+    const forkShell = fixtureVersion.rebuildShells!({
+        version: FORK_ONLY,
+        repo: (await service.repoFor(FIXTURE))!
+    }).rebuild
     assert.ok(forkShell.includes(frameworkRepoCloneUrl(FORK)))
     assert.equal(forkShell.match(/github\.com/g)?.length, 1)
 
     // flip the source back: the catalog must stop offering the fork-only tag in
     // the same breath as the clone stops pointing at the fork
-    box.value = baseSettings({ narranexus: UPSTREAM })
+    box.value = baseSettings({ [FIXTURE]: UPSTREAM })
 
-    const backOnUpstream = await service.getForFramework('narranexus')
+    const backOnUpstream = await service.getForFramework(FIXTURE)
     assert.deepEqual(backOnUpstream.versions, [])
     assert.equal(backOnUpstream.latest, null)
     assert.equal(backOnUpstream.sourceRepo, UPSTREAM)
 
-    const upstreamShell = buildNarraNexusRebuildShell(
-        'v1.15.0',
-        (await service.repoFor('narranexus'))!
-    )
+    const upstreamShell = fixtureVersion.rebuildShells!({
+        version: 'v1.15.0',
+        repo: (await service.repoFor(FIXTURE))!
+    }).rebuild
     assert.ok(upstreamShell.includes(frameworkRepoCloneUrl(UPSTREAM)))
     assert.ok(!upstreamShell.includes(FORK))
 })
@@ -152,11 +153,11 @@ test('the offered versions and the cloned repository never disagree', async () =
 // trusting the previous repository's newest tag.
 test('a stored entry from another repository reads as never fetched', async () => {
     const { service } = serviceWith(
-        settingsBox(baseSettings({ narranexus: FORK })),
+        settingsBox(baseSettings({ [FIXTURE]: FORK })),
         storedFrom(UPSTREAM, ['v1.15.0', 'v1.7.15'])
     )
 
-    const entry = await service.getForFramework('narranexus')
+    const entry = await service.getForFramework(FIXTURE)
 
     assert.deepEqual(entry.versions, [])
     assert.equal(entry.latest, null)
@@ -168,7 +169,7 @@ test('a stored entry from another repository reads as never fetched', async () =
 // from the default, so they must keep working without a refresh.
 test('a legacy entry with no recorded repository counts as the default', async () => {
     const { service } = serviceWith(settingsBox(baseSettings()), {
-        narranexus: {
+        [FIXTURE]: {
             latest: 'v1.15.0',
             versions: ['v1.15.0', 'v1.7.15'],
             source: 'github' as const,
@@ -176,7 +177,7 @@ test('a legacy entry with no recorded repository counts as the default', async (
         }
     })
 
-    const entry = await service.getForFramework('narranexus')
+    const entry = await service.getForFramework(FIXTURE)
 
     assert.deepEqual(entry.versions, ['v1.15.0', 'v1.7.15'])
     assert.equal(entry.sourceRepo, UPSTREAM)
@@ -192,25 +193,25 @@ test('switching the source takes effect without waiting out the catalog cache', 
     )
 
     assert.equal((await service.getCached()).length > 0, true)
-    assert.deepEqual((await service.getForFramework('narranexus')).versions, [
+    assert.deepEqual((await service.getForFramework(FIXTURE)).versions, [
         'v1.15.0',
         'v1.7.15'
     ])
 
-    box.value = baseSettings({ narranexus: FORK })
+    box.value = baseSettings({ [FIXTURE]: FORK })
 
-    assert.deepEqual((await service.getForFramework('narranexus')).versions, [])
+    assert.deepEqual((await service.getForFramework(FIXTURE)).versions, [])
 })
 
 test('unreadable settings still resolve to the default repository', async () => {
     const { service } = serviceWith(settingsBox(new Error('relation missing')))
 
-    assert.equal(await service.repoFor('narranexus'), UPSTREAM)
+    assert.equal(await service.repoFor(FIXTURE), UPSTREAM)
 })
 
 test('refreshFramework fetches the resolved repository and records it', async () => {
     const { service, db } = serviceWith(
-        settingsBox(baseSettings({ narranexus: FORK })),
+        settingsBox(baseSettings({ [FIXTURE]: FORK })),
         storedFrom(UPSTREAM, ['v1.15.0'])
     )
     const seen: string[] = []
@@ -223,7 +224,7 @@ test('refreshFramework fetches the resolved repository and records it', async ()
     }) as typeof fetch
 
     try {
-        await service.refreshFramework('narranexus')
+        await service.refreshFramework(FIXTURE)
     } finally {
         globalThis.fetch = originalFetch
     }
@@ -238,61 +239,10 @@ test('refreshFramework fetches the resolved repository and records it', async ()
     // recording the repo alongside the tags is what lets a later read notice
     // the stored list came from somewhere the platform no longer points at
     const written = db.written as {
-        frameworks: { narranexus: { repo: string; versions: string[] } }
+        frameworks: Record<string, { repo: string; versions: string[] }>
     }
-    assert.equal(written.frameworks.narranexus.repo, FORK)
-    assert.deepEqual(written.frameworks.narranexus.versions, [FORK_ONLY])
-})
-
-// An admin default pin reaches the clone as a raw string, so this guard is the
-// one thing between it and the sprite's shell. Unquoted, that `;` would end the
-// git command and run the rest.
-//
-// Admitting semver prereleases must not widen this: a valid semver string is
-// drawn from `[0-9A-Za-z.+-]`, so every case below still fails the guard — this
-// test is deliberately unchanged from before the opt-in.
-test('both clone builders refuse a version that could reach the shell', () => {
-    for (const bad of [
-        '1.2.3-;rm -rf /tmp/pwned',
-        '1.2.3+$(id)',
-        '1.2.3 && id',
-        'main'
-    ])
-        assert.throws(
-            () => buildNarraNexusRebuildShell(bad, UPSTREAM),
-            /invalid narranexus version/,
-            bad
-        )
-})
-
-// The tag this whole feature exists for. `1.15.1-rc.1` is fork-only and, being
-// hyphenated, was dropped by the catalog and refused by the clone guard.
-test('the clone builder accepts a semver prerelease tag', () => {
-    for (const good of ['1.15.1-rc.1', 'v1.15.1-rc.1', 'v1.7.13-oss'])
-        assert.ok(
-            buildNarraNexusRebuildShell(good, FORK).includes(
-                `git clone --depth 1 --branch "${good}"`
-            ),
-            good
-        )
-})
-
-test('the clone builder refuses a repository outside the allowlist shape', () => {
-    assert.throws(
-        () => buildNarraNexusRebuildShell('v1.15.0', 'foo/bar; rm -rf /'),
-        /invalid framework repo slug/
-    )
-})
-
-test('the clone command quotes the tag and the url', () => {
-    const shell = buildNarraNexusRebuildShell('v1.15.0', UPSTREAM)
-
-    assert.ok(
-        shell.includes(
-            `git clone --depth 1 --branch "v1.15.0" "${frameworkRepoCloneUrl(UPSTREAM)}"`
-        ),
-        shell
-    )
+    assert.equal(written.frameworks[FIXTURE].repo, FORK)
+    assert.deepEqual(written.frameworks[FIXTURE].versions, [FORK_ONLY])
 })
 
 // Pin selection reads settings once; catalog admission owns the repository
@@ -312,11 +262,11 @@ const orchestratorWith = (sourceRepos: Record<string, string>) => {
         frameworkVersions: {
             latestForFresh: async () => 'v1.15.0',
             catalogForFresh: async () => ({
-                framework: 'narranexus',
+                framework: FIXTURE,
                 latest: 'v1.15.0',
                 versions: ['v1.15.0'],
                 source: 'github',
-                sourceRepo: sourceRepos.narranexus ?? UPSTREAM,
+                sourceRepo: sourceRepos[FIXTURE] ?? UPSTREAM,
                 fetchedAt: new Date().toISOString(),
                 blocked: []
             })
@@ -340,9 +290,9 @@ const orchestratorWith = (sourceRepos: Record<string, string>) => {
 }
 
 test('a create preserves the catalog repository without a later settings read', async () => {
-    const { resolve, reads } = orchestratorWith({ narranexus: FORK })
+    const { resolve, reads } = orchestratorWith({ [FIXTURE]: FORK })
 
-    const resolved = await resolve('narranexus')
+    const resolved = await resolve(FIXTURE)
 
     assert.equal(resolved.repo, FORK)
     assert.equal(resolved.selection.version, 'v1.15.0')
@@ -361,19 +311,19 @@ test('a create for an npm framework resolves no repository', async () => {
 test('the prerelease opt-in withholds and admits at read time', async () => {
     // stored from the fork, and pointed at it: 1.15.1-rc.1 is fork-only, so any
     // other pairing would be emptied by the source check instead
-    const box = settingsBox(baseSettings({ narranexus: FORK }))
+    const box = settingsBox(baseSettings({ [FIXTURE]: FORK }))
     const { service } = serviceWith(
         box,
         storedFrom(FORK, ['v1.15.0', 'v1.7.15'], ['1.15.1-rc.1'])
     )
 
-    const off = await service.getForFramework('narranexus')
+    const off = await service.getForFramework(FIXTURE)
     assert.deepEqual(off.versions, ['v1.15.0', 'v1.7.15'])
     assert.equal(off.latest, 'v1.15.0')
 
-    box.value = baseSettings({ narranexus: FORK }, { narranexus: true })
+    box.value = baseSettings({ [FIXTURE]: FORK }, { [FIXTURE]: true })
 
-    const on = await service.getForFramework('narranexus')
+    const on = await service.getForFramework(FIXTURE)
     // merged by precedence: the rc of an unreleased 1.15.1 outranks v1.15.0
     assert.deepEqual(on.versions, ['1.15.1-rc.1', 'v1.15.0', 'v1.7.15'])
     // ...but `latest` stays the newest STABLE release, because it is the tier a
@@ -386,9 +336,9 @@ test('the prerelease opt-in withholds and admits at read time', async () => {
 // catalog when the toggle changes.
 test('a catalog row predating the opt-in reads as having no prereleases', async () => {
     const { service } = serviceWith(
-        settingsBox(baseSettings({}, { narranexus: true })),
+        settingsBox(baseSettings({}, { [FIXTURE]: true })),
         {
-            narranexus: {
+            [FIXTURE]: {
                 latest: 'v1.15.0',
                 versions: ['v1.15.0', 'v1.7.15'],
                 source: 'github' as const,
@@ -398,7 +348,7 @@ test('a catalog row predating the opt-in reads as having no prereleases', async 
         }
     )
 
-    const entry = await service.getForFramework('narranexus')
+    const entry = await service.getForFramework(FIXTURE)
 
     assert.deepEqual(entry.versions, ['v1.15.0', 'v1.7.15'])
     assert.equal(entry.latest, 'v1.15.0')
@@ -408,7 +358,7 @@ test('a catalog row predating the opt-in reads as having no prereleases', async 
 // newest stable at WRITE time too — not a property applied by readers.
 test('a fetch partitions tags and keeps latest stable', async () => {
     const { service, db } = serviceWith(
-        settingsBox(baseSettings({ narranexus: FORK })),
+        settingsBox(baseSettings({ [FIXTURE]: FORK })),
         storedFrom(FORK, [])
     )
     const originalFetch = globalThis.fetch
@@ -428,29 +378,26 @@ test('a fetch partitions tags and keeps latest stable', async () => {
         )) as typeof fetch
 
     try {
-        await service.refreshFramework('narranexus')
+        await service.refreshFramework(FIXTURE)
     } finally {
         globalThis.fetch = originalFetch
     }
 
     const written = db.written as {
-        frameworks: {
-            narranexus: {
-                latest: string
-                versions: string[]
-                prereleases: string[]
-            }
-        }
+        frameworks: Record<
+            string,
+            { latest: string; versions: string[]; prereleases: string[] }
+        >
     }
-    assert.deepEqual(written.frameworks.narranexus.versions, [
+    assert.deepEqual(written.frameworks[FIXTURE].versions, [
         'v1.15.0',
         'v1.7.15'
     ])
-    assert.deepEqual(written.frameworks.narranexus.prereleases, [
+    assert.deepEqual(written.frameworks[FIXTURE].prereleases, [
         '1.15.1-rc.1',
         'v0.1.0-alpha.1'
     ])
-    assert.equal(written.frameworks.narranexus.latest, 'v1.15.0')
+    assert.equal(written.frameworks[FIXTURE].latest, 'v1.15.0')
 })
 
 // Switching the source repository has to empty the prerelease list with the
@@ -458,13 +405,11 @@ test('a fetch partitions tags and keeps latest stable', async () => {
 // would be the exact picker/clone split the source resolver exists to prevent.
 test('a source switch drops the previous repository prereleases too', async () => {
     const { service } = serviceWith(
-        settingsBox(
-            baseSettings({ narranexus: UPSTREAM }, { narranexus: true })
-        ),
+        settingsBox(baseSettings({ [FIXTURE]: UPSTREAM }, { [FIXTURE]: true })),
         storedFrom(FORK, ['v1.15.0'], ['1.15.1-rc.1'])
     )
 
-    const entry = await service.getForFramework('narranexus')
+    const entry = await service.getForFramework(FIXTURE)
 
     assert.deepEqual(entry.versions, [])
     assert.equal(entry.latest, null)
@@ -479,7 +424,7 @@ test('the served entry carries no internal prerelease field', async () => {
         storedFrom(FORK, ['v1.15.0'], ['1.15.1-rc.1'])
     )
 
-    const entry = await service.getForFramework('narranexus')
+    const entry = await service.getForFramework(FIXTURE)
 
     assert.equal('prereleases' in entry, false)
 })

@@ -509,8 +509,8 @@ test('concurrent turns on one sprite share a single bring-up', async () => {
 // A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
 // outside the machine-scoped root the runner registered, and the daemon exec
 // guard refuses a cwd it does not know. Staging 2026-08-04: a claude agent
-// co-resident on a NarraNexus sandbox with workspace /home/sprite/.narranexus
-// failed every runner turn with `claude_exec_failed: … outside allowed roots`
+// co-resident on a service framework's sandbox, with its workspace under that
+// framework's home, failed every runner turn with `claude_exec_failed: … outside allowed roots`
 // — while the direct sprite exec the runner replaced would have run it. The
 // runner has to be told about the workspace the same way a daemon-runtime
 // attach is: workspace.ensure in register-existing mode.
@@ -518,7 +518,7 @@ test('a custom workspace is registered with the runner before dispatch', async (
     const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
 
     const res = await h.service.ensureRunner(
-        args(h.exec as never, { workspacePath: '/home/sprite/.narranexus' })
+        args(h.exec as never, { workspacePath: '/home/sprite/.service-home' })
     )
 
     assert.deepEqual(res.handle, {
@@ -534,7 +534,7 @@ test('a custom workspace is registered with the runner before dispatch', async (
             // create:false pins register-existing: the workspace already exists
             // on the sprite, and `create` would instead mean "make a managed
             // dir under the workspaces root".
-            payload: { path: '/home/sprite/.narranexus', create: false },
+            payload: { path: '/home/sprite/.service-home', create: false },
             // The setup deadline, NOT the registry's generic 30s default: a
             // frozen socket inside the presence grace window must cost the turn
             // seconds before the sprite-exec fallback, not the full RPC budget
@@ -579,7 +579,7 @@ test('a failed workspace registration degrades to null, not a doomed dispatch', 
     })
 
     const res = await h.service.ensureRunner(
-        args(h.exec as never, { workspacePath: '/home/sprite/.narranexus' })
+        args(h.exec as never, { workspacePath: '/home/sprite/.service-home' })
     )
 
     // WHY: dispatching anyway would fail the exec with `outside allowed roots`.
@@ -659,7 +659,7 @@ const preflightHarness = (
         {} as never,
         registry as never
     )
-    const resolve = (workspacePath = '/home/sprite/.narranexus') =>
+    const resolve = (workspacePath = '/home/sprite/.service-home') =>
         service.ensureRunner({
             agentId: 'agt_1',
             userId: 'user-1',
@@ -733,9 +733,9 @@ test('a registered workspace is not re-ensured within one daemon generation', as
 test('each distinct path is ensured once within one generation', async () => {
     const h = preflightHarness()
 
-    await h.resolve('/home/sprite/.narranexus')
+    await h.resolve('/home/sprite/.service-home')
     await h.resolve('/home/sprite/legacy-project')
-    const cachedA = await h.resolve('/home/sprite/.narranexus')
+    const cachedA = await h.resolve('/home/sprite/.service-home')
     const cachedB = await h.resolve('/home/sprite/legacy-project')
 
     // One registration per path: sharing a daemon must not let one path's

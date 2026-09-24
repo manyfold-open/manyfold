@@ -831,7 +831,7 @@ test('RuntimeAccessService.reserveSpriteRuntime attaches past the old four-runti
         'claude-code',
         'codex',
         'openclaw',
-        'narranexus'
+        'hermes'
     ] as const)
         db.runtimeRows.push(
             runtimeRow({

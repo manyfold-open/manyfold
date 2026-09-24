@@ -1,5 +1,4 @@
 import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
-import './helpers/narranexus-definition'
 
 // Test-only mirror of what a chat turn's process is launched with, declared per
 // execution surface. It stays outside src so the API build does not ship a
@@ -315,12 +314,6 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         providerCreds: runtime === 'daemon' ? 'daemon-local' : 'per-exec',
         auth: 'none', path: 'not-applicable', resume: 'attach-no-env',
         payloadEnvKeys: runtime === 'daemon' ? ['HERMES_YOLO_MODE'] : ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY']
-    })),
-    ...(['sprites', 'k8s'] as const).map((runtime): ExecEnvSurface => ({
-        framework: 'narranexus', runtime, transport: 'turn-rpc',
-        gatedBy: ['daemon:turn.openclaw'],
-        identity: 'none', connections: 'none', extras: 'service-env', providerCreds: 'service-env',
-        auth: 'none', path: 'not-applicable', resume: 'attach-no-env', payloadEnvKeys: []
     }))
 ]
 

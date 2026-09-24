@@ -286,19 +286,19 @@ test('buildKeepAliveCleanupScript always scans /proc for keepalive.sh, even leas
 
 test('buildKeepAliveCleanupScript deletes current prefix and legacy tasks', () => {
     const script = buildKeepAliveCleanupScript({
-        taskName: 'nca-narranexus-abc-gen',
-        taskPrefix: 'nca-narranexus-abc-',
-        stateDir: '/home/sprite/.narranexus/.nca/keepalive',
-        startScriptPath: '/home/sprite/.narranexus/start.sh',
+        taskName: 'nca-hermes-abc-gen',
+        taskPrefix: 'nca-hermes-abc-',
+        stateDir: '/home/sprite/.hermes/.nca/keepalive',
+        startScriptPath: '/home/sprite/.hermes/start.sh',
         killStartScriptProcesses: true
     })
 
-    assert.match(script, /TASK_NAME='nca-narranexus-abc-gen'/)
-    assert.match(script, /TASK_PREFIX='nca-narranexus-abc-'/)
+    assert.match(script, /TASK_NAME='nca-hermes-abc-gen'/)
+    assert.match(script, /TASK_PREFIX='nca-hermes-abc-'/)
     assert.doesNotMatch(script, /LEGACY_TASKS_JSON/)
     assert.match(
         script,
-        /START_SCRIPT_PATH='\/home\/sprite\/\.narranexus\/start\.sh'/
+        /START_SCRIPT_PATH='\/home\/sprite\/\.hermes\/start\.sh'/
     )
     assert.match(script, /KILL_START_SCRIPT_PROCESSES=1/)
     assert.match(script, /remainingTasks/)
