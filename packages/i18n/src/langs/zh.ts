@@ -3555,6 +3555,7 @@ const zh: Translations = {
                 providerUntested: '还没测过模型 · 先去设置里测一次',
                 signedIn: '已登录',
                 inUseBy: '{{count}} 个 agent 在用',
+                sharedAccount: '这台机器上已有 {{count}} 个 agent，其中按账户计费的会一并改用你在这里选的方式。',
                 expired: '凭据过期，选它需要重新登录',
                 aboutAMinute: '约 1 分钟',
                 signInTo: '你的 {{vendor}} 账号',

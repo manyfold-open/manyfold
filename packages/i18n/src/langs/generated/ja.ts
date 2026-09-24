@@ -2095,6 +2095,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'テスト済みのモデルがまだありません · まず設定でテストしてください',
     'web.agentNewV4.cost.signedIn': 'ログイン済み',
     'web.agentNewV4.cost.inUseBy': 'エージェント {{count}} 件が使用中',
+    'web.agentNewV4.cost.sharedAccount': 'このマシンではすでにエージェント {{count}} 件が動いています。アカウントで課金されているものは、ここで選んだ方法に切り替わります。',
     'web.agentNewV4.cost.expired': '資格情報の期限切れ。選ぶと再ログインが必要です',
     'web.agentNewV4.cost.aboutAMinute': '1 分ほど',
     'web.agentNewV4.cost.signInTo': 'あなたの {{vendor}} アカウント',

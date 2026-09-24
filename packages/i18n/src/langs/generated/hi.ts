@@ -2101,6 +2101,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'अभी कोई परखा हुआ मॉडल नहीं · पहले सेटिंग्स में परखें',
     'web.agentNewV4.cost.signedIn': 'लॉगिन हो चुका है',
     'web.agentNewV4.cost.inUseBy': '{{count}} एजेंट इस्तेमाल कर रहे हैं',
+    'web.agentNewV4.cost.sharedAccount': 'इस मशीन पर पहले से {{count}} एजेंट चल रहे हैं; जिनका बिल आपके खाते पर आता है, वे भी यहाँ चुने गए तरीके पर चले जाएँगे।',
     'web.agentNewV4.cost.expired': 'प्रमाण-पत्र की अवधि बीत चुकी है, इसे चुनने पर फिर लॉगिन करना होगा',
     'web.agentNewV4.cost.aboutAMinute': 'लगभग एक मिनट',
     'web.agentNewV4.cost.signInTo': 'आपका {{vendor}} खाता',

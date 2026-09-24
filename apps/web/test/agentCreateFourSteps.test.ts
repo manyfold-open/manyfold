@@ -31,12 +31,13 @@ import {
     runsOnOurMachine
 } from '../src/pages/AgentNew/v4/frameworkCatalog'
 import {
+    joinBindingFor,
     managedChannelFor,
+    providerBindingFor,
+    providerRowVerdict,
     serviceCreateBody,
-    serviceModelFor,
-    serviceRowVerdict,
-    withServiceBinding
-} from '../src/pages/AgentNew/v4/serviceModel'
+    withBinding
+} from '../src/pages/AgentNew/v4/providerBinding'
 import {
     buildMachineOptions,
     buildNewMachineOptions
@@ -553,27 +554,33 @@ test('the model is the economical default on the protocol the API will resolve t
     // A built-in that speaks several protocols is resolved to the first in
     // the resolver's own order — anthropic_messages before the OpenAI pair —
     // so the model has to come from THAT list, not from the longest one.
-    assert.equal(serviceModelFor('openclaw', netmind), 'anthropic/claude-haiku-4-5')
-    assert.equal(serviceModelFor('openclaw', managedOpenAI), 'gpt-5.4-mini')
-    assert.equal(serviceModelFor('openclaw', untested), null)
+    assert.equal(providerBindingFor('openclaw', netmind)?.model, 'anthropic/claude-haiku-4-5')
+    assert.equal(providerBindingFor('openclaw', managedOpenAI)?.model, 'gpt-5.4-mini')
+    assert.equal(providerBindingFor('openclaw', untested), null)
 })
 
 test('a row the API would refuse stays on screen and says why', () => {
-    assert.equal(serviceRowVerdict('openclaw', managedGemini), 'incompatible')
-    assert.equal(serviceRowVerdict('openclaw', managedAnthropic), 'incompatible')
-    assert.equal(serviceRowVerdict('openclaw', untested), 'untested')
-    assert.equal(serviceRowVerdict('openclaw', netmind), 'usable')
+    assert.equal(providerRowVerdict('openclaw', managedGemini), 'incompatible')
+    assert.equal(providerRowVerdict('openclaw', managedAnthropic), 'incompatible')
+    assert.equal(providerRowVerdict('openclaw', untested), 'untested')
+    assert.equal(providerRowVerdict('openclaw', netmind), 'usable')
+    // A coding CLI speaks one protocol, so the same rows read differently
+    // for it — and a key never tested still names no model.
+    assert.equal(providerRowVerdict('claude-code', managedOpenAI), 'incompatible')
+    assert.equal(providerRowVerdict('claude-code', managedAnthropic), 'usable')
+    assert.equal(providerRowVerdict('gemini-cli', managedGemini), 'usable')
+    assert.equal(providerRowVerdict('codex', untested), 'untested')
 })
 
-test('a step ③ answer carries its binding only for a framework installed at create', () => {
+test('a step ③ answer carries its binding for a framework installed at create or a coding CLI', () => {
     const providers = [managedAnthropic, managedOpenAI, netmind]
-    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'openclaw', providers), {
+    assert.deepEqual(withBinding({ kind: 'platform' }, 'openclaw', providers), {
         kind: 'platform',
         providerId: 'm-openai',
         model: 'gpt-5.4-mini'
     })
     assert.deepEqual(
-        withServiceBinding(
+        withBinding(
             { kind: 'provider', providerId: 'k-netmind', label: 'NetMind API' },
             'openclaw',
             providers
@@ -585,15 +592,64 @@ test('a step ③ answer carries its binding only for a framework installed at cr
             model: 'anthropic/claude-haiku-4-5'
         }
     )
-    // A coding CLI was installed at step ② and picks its model later.
-    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'claude-code', providers), {
-        kind: 'platform'
-    })
+    // A coding CLI joins its runtime with no provider and is bound right
+    // after, so its answer names the channel too: the managed row resolves to
+    // the one channel Claude Code speaks.
+    const claude = withBinding({ kind: 'platform' }, 'claude-code', providers)
+    assert.equal(claude?.kind, 'platform')
+    assert.equal(claude?.kind === 'platform' ? claude.providerId : null, 'm-anthropic')
+    // A sign-in on the machine is not bound to anything here.
+    assert.deepEqual(
+        withBinding({ kind: 'runtime-local', profileId: 'p1', label: 'me' }, 'codex', providers),
+        { kind: 'runtime-local', profileId: 'p1', label: 'me' }
+    )
     // NarraNexus takes no provider from us at all.
-    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'narranexus', providers), {
+    assert.deepEqual(withBinding({ kind: 'platform' }, 'narranexus', providers), {
         kind: 'platform'
     })
-    assert.equal(withServiceBinding({ kind: 'platform' }, 'hermes', [managedAnthropic]), null)
+    assert.equal(withBinding({ kind: 'platform' }, 'hermes', [managedAnthropic]), null)
+    assert.equal(withBinding({ kind: 'platform' }, 'codex', [managedAnthropic]), null)
+})
+
+// POST /agent-runtimes/:id/agents takes no provider, and a daemon agent that
+// is never told otherwise runs on the machine's own sign-in — so a coding
+// agent is bound by the two requests its own settings would send.
+test('a joined coding agent is bound by its credentials, then its platform model settings', () => {
+    const providers = [managedAnthropic, managedOpenAI, managedGemini, netmind]
+    const claude = joinBindingFor(
+        'claude-code',
+        { kind: 'platform', providerId: 'm-anthropic', model: 'x' },
+        providers
+    )
+    assert.deepEqual(claude?.credentials, {
+        claudeCodeCredentials: { providerId: 'm-anthropic' }
+    })
+    assert.equal(claude?.modelConfig?.modelConfigSource, 'platform')
+    assert.equal(claude?.modelConfig?.modelConfig?.framework, 'claude-code')
+    const codex = joinBindingFor(
+        'codex',
+        { kind: 'provider', providerId: 'm-openai', label: 'OpenAI' },
+        providers
+    )
+    assert.deepEqual(codex?.credentials, { codexCredentials: { providerId: 'm-openai' } })
+    assert.equal(codex?.modelConfig?.modelConfig?.framework, 'codex')
+    assert.equal(
+        codex?.modelConfig?.modelConfig?.model,
+        providerBindingFor('codex', managedOpenAI)?.model
+    )
+    // Gemini CLI keeps its own default; only the source is written down.
+    assert.deepEqual(
+        joinBindingFor('gemini-cli', { kind: 'platform', providerId: 'm-gemini' }, providers),
+        {
+            credentials: { geminiCliCredentials: { providerId: 'm-gemini' } },
+            modelConfig: { modelConfigSource: 'platform' }
+        }
+    )
+    assert.equal(
+        joinBindingFor('codex', { kind: 'runtime-local', profileId: 'p1', label: 'me' }, providers),
+        null
+    )
+    assert.equal(joinBindingFor('openclaw', { kind: 'platform', providerId: 'm-openai' }, providers), null)
 })
 
 test('the create request is the one v3 sends: install onto the sandbox and bind, in one POST', () => {

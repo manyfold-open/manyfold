@@ -2103,6 +2103,7 @@ const es: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'Sin modelos probados aún · pruébalo antes en Ajustes',
     'web.agentNewV4.cost.signedIn': 'Sesión iniciada',
     'web.agentNewV4.cost.inUseBy': 'En uso por {{count}} agentes',
+    'web.agentNewV4.cost.sharedAccount': 'En esta máquina ya se ejecutan {{count}} agentes; los que se facturan a tu cuenta pasarán a usar lo que elijas aquí.',
     'web.agentNewV4.cost.expired': 'Credenciales caducadas: elegirla exige iniciar sesión de nuevo',
     'web.agentNewV4.cost.aboutAMinute': 'alrededor de un minuto',
     'web.agentNewV4.cost.signInTo': 'Tu cuenta de {{vendor}}',

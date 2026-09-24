@@ -297,6 +297,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'لا نماذج مُختبَرة بعد · اختبره أولاً في الإعدادات',
     'web.agentNewV4.cost.signedIn': 'تم تسجيل الدخول',
     'web.agentNewV4.cost.inUseBy': 'يستخدمه {{count}} وكلاء',
+    'web.agentNewV4.cost.sharedAccount': 'يعمل على هذا الجهاز بالفعل {{count}} من الوكلاء؛ وما يُحتسب منها على حسابك سينتقل إلى ما تختاره هنا.',
     'web.agentNewV4.cost.expired': 'انتهت صلاحية بيانات الاعتماد، واختياره يتطلب تسجيل دخول جديد',
     'web.agentNewV4.cost.aboutAMinute': 'دقيقة تقريباً',
     'web.agentNewV4.cost.signInTo': 'حسابك على {{vendor}}',

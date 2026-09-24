@@ -2103,6 +2103,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'Aucun modèle testé pour l\'instant · testez-le d\'abord dans les réglages',
     'web.agentNewV4.cost.signedIn': 'Connecté',
     'web.agentNewV4.cost.inUseBy': 'Utilisé par {{count}} agents',
+    'web.agentNewV4.cost.sharedAccount': 'Cette machine exécute déjà {{count}} agents ; ceux facturés sur votre compte passeront à ce que vous choisissez ici.',
     'web.agentNewV4.cost.expired': 'Identifiants expirés : le choisir demande une nouvelle connexion',
     'web.agentNewV4.cost.aboutAMinute': 'une minute environ',
     'web.agentNewV4.cost.signInTo': 'Votre compte {{vendor}}',

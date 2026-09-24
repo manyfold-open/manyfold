@@ -2103,6 +2103,7 @@ const de: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'Noch keine getesteten Modelle · zuerst in den Einstellungen testen',
     'web.agentNewV4.cost.signedIn': 'Angemeldet',
     'web.agentNewV4.cost.inUseBy': 'Von {{count}} Agenten genutzt',
+    'web.agentNewV4.cost.sharedAccount': 'Auf diesem Rechner laufen schon {{count}} Agenten; die über dein Konto abgerechneten wechseln mit auf das, was du hier wählst.',
     'web.agentNewV4.cost.expired': 'Zugangsdaten abgelaufen — eine neue Anmeldung ist nötig',
     'web.agentNewV4.cost.aboutAMinute': 'etwa eine Minute',
     'web.agentNewV4.cost.signInTo': 'Dein {{vendor}}-Konto',
