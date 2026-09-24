@@ -98,7 +98,7 @@ mf daemon stop                # 停止 daemon（连同它拥有的 exec）并移
 mf daemon stop --keep-execs   # 只停 daemon，留下正在跑的 exec 给下一个 daemon 接管
 mf daemon doctor              # 诊断注册 / 框架检测问题
 mf doctor                     # 检查每个 profile 的 daemon、登录与 API，并给出修复方法
-mf daemon hooks status        # claude / codex 的 session hook（见下）
+mf daemon hooks status        # claude / codex / pi 的 session hook（见下）
 ```
 
 Daemon 日志在 `~/.manyfold/profiles/<profile>/daemon/daemon.log`。
@@ -118,11 +118,9 @@ macOS 和 Linux；Windows 需要前台进程或自行配置 service manager。
 
 ### Session hook
 
-从 web 打开某个对话的终端（TUI resume）之后，Manyfold 需要知道终端里的 `claude` / `codex` 进程正在哪个对话上：它有没有换掉 session id、有没有 `/clear`、有没有另起新会话。这些由 CLI 自己的 `SessionStart` / `SessionEnd` hook 上报，所以 `mf daemon register` 会问一次是否安装（`-y` 视为同意，`--no-hooks` 视为拒绝）。安装内容是一个脚本，加上 `~/.claude/settings.json` 与 `~/.codex/hooks.json` 里每个事件一条带 Manyfold 标记的条目，和你已有的 hook 并存。
+从 web 打开某个对话的终端（TUI resume）之后，Manyfold 需要知道终端里的 `claude` / `codex` / `pi` 进程正在哪个对话上：它有没有换掉 session id、有没有 `/clear`、有没有另起新会话。这些由 CLI 自己的会话事件上报，所以 `mf daemon register` 会问一次是否安装 hook（`-y` 视为同意，`--no-hooks` 视为拒绝）。Claude Code 与 Codex 的 hook 是一个脚本，加上 `~/.claude/settings.json` 与 `~/.codex/hooks.json` 里每个事件一条带 Manyfold 标记的条目，和你已有的 hook 并存；Pi 的 hook 是一个扩展文件 `~/.pi/agent/extensions/mf-session.ts`，由 Pi 自己加载。
 
 hook 只在 Manyfold 打开的终端里生效（shell 带有 `MF_TERMINAL_ID`），并且不输出任何内容，所以你自己的 shell 和模型上下文都不受影响。Codex 对新装的 hook 需要你在它的 TUI 里用 `/hooks` 批准一次才会执行。
-
-Pi 没有这类 hook。在终端里续接的 Pi 对话一直停留在打开时的 session 上，关闭终端或回到 chat 视图时交还给 chat。
 
 ```sh
 mf daemon hooks install       # 为本机已有的框架安装，并在 daemon 启动时保持最新

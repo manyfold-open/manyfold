@@ -825,12 +825,13 @@ export interface SessionHerdrFocusResponse {
 // Manyfold opened (ADR-0029 §3). The terminal is resolved from the token that
 // authenticated the report, never from this body; transcript paths are not
 // accepted — the API reads transcripts through the runtime it already has.
-export const TERMINAL_HOOK_FRAMEWORKS = ['claude-code', 'codex'] as const
+export const TERMINAL_HOOK_FRAMEWORKS = ['claude-code', 'codex', 'pi'] as const
 export type TerminalHookFramework = (typeof TERMINAL_HOOK_FRAMEWORKS)[number]
 export const TERMINAL_HOOK_EVENTS = ['start', 'end'] as const
 export type TerminalHookEvent = (typeof TERMINAL_HOOK_EVENTS)[number]
 // SessionStart's `source` (how the session began) or SessionEnd's `reason`,
-// both CLIs' vocabularies folded together; anything else is sent as 'other'.
+// the CLIs' vocabularies folded together (pi's are mapped onto these by its
+// extension); anything else is sent as 'other'.
 export const TERMINAL_HOOK_SOURCES = [
     'startup',
     'resume',

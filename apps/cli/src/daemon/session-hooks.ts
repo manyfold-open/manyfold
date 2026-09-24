@@ -42,13 +42,19 @@ import { createCliFetch } from '@/transport'
 export const MF_SESSION_HOOK_VERSION = 1
 
 const SCRIPT_NAME = 'mf-session.sh'
-const SCRIPT_VERSION_LINE = /^# mf-session-hook version=(\d+)/m
+const PI_EXTENSION_NAME = 'mf-session.ts'
+const SCRIPT_VERSION_LINE = /^(?:#|\/\/) mf-session-hook version=(\d+)/m
 export const SESSION_HOOK_EVENTS = ['SessionStart', 'SessionEnd'] as const
 
 export type SessionHooksConsent = 'enabled' | 'disabled'
 
 export interface SessionHookTarget {
     framework: TerminalHookFramework
+    // `settings`: a script the CLI's settings file names per event (claude,
+    // codex). `extension`: a file the CLI loads on its own from a directory
+    // (pi's agent-dir extensions), so there is no settings file to merge and
+    // `settingsPath` is the file itself.
+    kind: 'settings' | 'extension'
     scriptPath: string
     settingsPath: string
     // Seconds the CLI gives the hook. Codex caps SessionEnd at three, and
@@ -57,21 +63,45 @@ export interface SessionHookTarget {
     configTomlPath?: string
 }
 
+// pi loads every file in <agent-dir>/extensions, and the agent dir is the one
+// PI_CODING_AGENT_DIR names when set.
+const piExtensionsDir = (home: string): string => {
+    const raw = process.env.PI_CODING_AGENT_DIR?.trim()
+    const agentDir =
+        raw && home === homedir()
+            ? raw === '~'
+                ? home
+                : raw.startsWith('~/')
+                  ? join(home, raw.slice(2))
+                  : raw
+            : join(home, '.pi', 'agent')
+    return join(agentDir, 'extensions')
+}
+
 export const sessionHookTargets = (
     home: string = homedir()
 ): SessionHookTarget[] => [
     {
         framework: 'claude-code',
+        kind: 'settings',
         scriptPath: join(home, '.claude', 'hooks', SCRIPT_NAME),
         settingsPath: join(home, '.claude', 'settings.json'),
         timeoutSeconds: 5
     },
     {
         framework: 'codex',
+        kind: 'settings',
         scriptPath: join(home, '.codex', 'hooks', SCRIPT_NAME),
         settingsPath: join(home, '.codex', 'hooks.json'),
         timeoutSeconds: 3,
         configTomlPath: join(home, '.codex', 'config.toml')
+    },
+    {
+        framework: 'pi',
+        kind: 'extension',
+        scriptPath: join(piExtensionsDir(home), PI_EXTENSION_NAME),
+        settingsPath: join(piExtensionsDir(home), PI_EXTENSION_NAME),
+        timeoutSeconds: 0
     }
 ]
 
@@ -114,9 +144,105 @@ export const buildSessionHookScript = (invocation: string[]): string =>
         ''
     ].join('\n')
 
-// The inverse of buildSessionHookScript's call line, so `mf doctor` can tell
-// when an installed script calls back into a binary that is no longer there.
+// pi's version of the hook: an extension pi loads from its agent dir in every
+// mode, TUI included (headless chat turns pass --no-extensions, so only a
+// terminal reports). It maps pi's session events onto the SessionStart /
+// SessionEnd input the claude and codex hooks hand the same `report` command:
+// pi resumes a session under its own id, so a resume reports the ref the
+// terminal was opened on, and `/new`, `/fork` and `/resume` end one ref and
+// start another. `reload` swaps the extension runtime inside one session and
+// reports nothing. The session id comes from pi's session manager — the events
+// themselves carry none.
+export const buildPiSessionHookExtension = (invocation: string[]): string =>
+    [
+        `// mf-session-hook version=${MF_SESSION_HOOK_VERSION}`,
+        '// Installed by `mf daemon hooks install`; `mf daemon hooks uninstall` removes it.',
+        '// Reports the pi session running in this terminal to Manyfold. It acts only',
+        '// inside a terminal Manyfold opened (MF_TERMINAL_ID is set), never prints and',
+        '// never waits on the report, so your own pi sessions are untouched.',
+        "import { spawn } from 'node:child_process'",
+        '',
+        `const MF_INVOCATION: string[] = ${JSON.stringify(invocation)}`,
+        '',
+        'const START_SOURCE: Record<string, string> = {',
+        "    startup: 'startup',",
+        "    resume: 'resume',",
+        "    new: 'clear',",
+        "    fork: 'fork'",
+        '}',
+        "const END_REASON: Record<string, string> = { new: 'clear', fork: 'fork' }",
+        '',
+        '// pi says startup for `--continue` and `--session <id>` too: a session that',
+        '// already holds messages when it starts was resumed, not begun.',
+        'const startSource = (reason: string, ctx: any): string | undefined => {',
+        "    if (reason !== 'startup') return START_SOURCE[reason]",
+        '    const entries = ctx?.sessionManager?.getEntries?.() ?? []',
+        "    return entries.some((entry: any) => entry?.type === 'message')",
+        "        ? 'resume'",
+        "        : 'startup'",
+        '}',
+        '',
+        'const report = (',
+        "    hookEventName: 'SessionStart' | 'SessionEnd',",
+        "    field: 'source' | 'reason',",
+        '    value: string,',
+        '    ctx: any',
+        '): void => {',
+        '    try {',
+        '        const sessionId = ctx?.sessionManager?.getSessionId?.()',
+        '        if (!sessionId) return',
+        '        const child = spawn(',
+        '            MF_INVOCATION[0],',
+        "            [...MF_INVOCATION.slice(1), 'daemon', 'hooks', 'report', 'pi'],",
+        "            { detached: true, stdio: ['pipe', 'ignore', 'ignore'] }",
+        '        )',
+        "        child.on('error', () => {})",
+        "        child.stdin?.on('error', () => {})",
+        '        child.stdin?.end(',
+        '            JSON.stringify({',
+        '                session_id: sessionId,',
+        '                hook_event_name: hookEventName,',
+        '                [field]: value,',
+        '                cwd: ctx?.sessionManager?.getCwd?.() ?? ctx?.cwd',
+        '            })',
+        '        )',
+        '        child.unref()',
+        '    } catch {}',
+        '}',
+        '',
+        'export default function (pi: any): void {',
+        '    if (!process.env.MF_TERMINAL_ID) return',
+        "    pi.on('session_start', (event: any, ctx: any) => {",
+        '        const source = startSource(event?.reason, ctx)',
+        "        if (source) report('SessionStart', 'source', source, ctx)",
+        '    })',
+        "    pi.on('session_shutdown', (event: any, ctx: any) => {",
+        "        if (event?.reason === 'reload') return",
+        "        report('SessionEnd', 'reason', END_REASON[event?.reason] ?? 'other', ctx)",
+        '    })',
+        '}',
+        ''
+    ].join('\n')
+
+// The inverse of buildSessionHookScript's call line (or the pi extension's
+// invocation constant), so `mf doctor` can tell when an installed hook calls
+// back into a binary that is no longer there.
 export const sessionHookInvocation = (script: string): string[] | null => {
+    const embedded = /^const MF_INVOCATION: string\[\] = (\[.*\])$/m.exec(
+        script
+    )?.[1]
+    if (embedded) {
+        try {
+            const parsed: unknown = JSON.parse(embedded)
+            return Array.isArray(parsed) &&
+                parsed.length > 0 &&
+                parsed.every((part) => typeof part === 'string')
+                ? parsed
+                : null
+        } catch {
+            return null
+        }
+    }
     const line = /\| (.+?) daemon hooks report "\$1"/.exec(script)?.[1]
     if (!line) return null
     const args: string[] = []
@@ -313,10 +439,13 @@ export const sessionHooksStatus = async (opts?: {
     for (const target of sessionHookTargets(opts?.home)) {
         const script = await readText(target.scriptPath)
         const version = script ? scriptVersion(script) : null
-        const settingsInstalled = settingsHaveSessionHooks(
-            await readText(target.settingsPath),
-            target
-        )
+        const settingsInstalled =
+            target.kind === 'extension'
+                ? version !== null
+                : settingsHaveSessionHooks(
+                      await readText(target.settingsPath),
+                      target
+                  )
         const installed = version !== null && settingsInstalled
         let note: string | null = null
         if (installed && target.configTomlPath) {
@@ -387,13 +516,38 @@ export const installSessionHooks = async (opts: {
 }): Promise<SessionHookChange[]> => {
     if (!sessionHooksSupported()) return []
     const wanted = frameworksToTouch(opts.detected)
-    const script = buildSessionHookScript(
-        opts.invocation ?? resolveMfInvocation()
-    )
+    const invocation = opts.invocation ?? resolveMfInvocation()
+    const script = buildSessionHookScript(invocation)
+    const extension = buildPiSessionHookExtension(invocation)
     const changes: SessionHookChange[] = []
     for (const target of sessionHookTargets(opts.home)) {
         if (!wanted.has(target.framework)) continue
         const existingScript = await readText(target.scriptPath)
+        if (target.kind === 'extension') {
+            // A file of the same name that is not ours stays the user's.
+            if (
+                existingScript !== null &&
+                scriptVersion(existingScript) === null
+            ) {
+                changes.push({
+                    framework: target.framework,
+                    action: 'unchanged',
+                    error: `${target.scriptPath} exists and is not a Manyfold hook; move it aside and run mf daemon hooks install again`
+                })
+                continue
+            }
+            const changed = existingScript !== extension
+            if (changed) await writeInPlace(target.scriptPath, extension, 0o644)
+            changes.push({
+                framework: target.framework,
+                action: !changed
+                    ? 'unchanged'
+                    : existingScript === null
+                      ? 'installed'
+                      : 'updated'
+            })
+            continue
+        }
         const existingSettings = await readText(target.settingsPath)
         const merge = mergeSessionHookSettings(
             existingSettings,
@@ -431,6 +585,17 @@ export const uninstallSessionHooks = async (opts?: {
     const changes: SessionHookChange[] = []
     for (const target of sessionHookTargets(opts?.home)) {
         const existingScript = await readText(target.scriptPath)
+        if (target.kind === 'extension') {
+            const ownExtension =
+                existingScript !== null &&
+                scriptVersion(existingScript) !== null
+            if (ownExtension) await rm(target.scriptPath, { force: true })
+            changes.push({
+                framework: target.framework,
+                action: ownExtension ? 'removed' : 'absent'
+            })
+            continue
+        }
         const existingSettings = await readText(target.settingsPath)
         const merge = mergeSessionHookSettings(
             existingSettings,

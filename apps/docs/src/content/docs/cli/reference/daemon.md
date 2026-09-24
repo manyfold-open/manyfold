@@ -21,7 +21,7 @@ order: 17
 | [`mf daemon stop`](#mf-daemon-stop) | Stop the Manyfold daemon and remove its autostart unit |
 | [`mf daemon logs`](#mf-daemon-logs) | Tail the daemon log |
 | [`mf daemon doctor`](#mf-daemon-doctor) | Probe local frameworks and daemon terminal support |
-| [`mf daemon hooks`](#mf-daemon-hooks) | Session hooks Manyfold installs into claude / codex settings (act only inside Manyfold terminals) |
+| [`mf daemon hooks`](#mf-daemon-hooks) | Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals) |
 
 ## `mf daemon register`
 
@@ -38,7 +38,7 @@ Register this machine as a Manyfold local daemon
 | `--workspace-root <path>` | workspace base dir this daemon manages (default: the shared ~/.manyfold/workspaces) |
 | `--skills-dir <path>` | skill store dir this daemon manages (default: the shared ~/.manyfold/skills) |
 | `-y, --yes` | skip confirmation: start the daemon and install the session hooks after registering |
-| `--no-hooks` | do not install the claude / codex session hooks (they act only inside Manyfold terminals) |
+| `--no-hooks` | do not install the claude / codex / pi session hooks (they act only inside Manyfold terminals) |
 | `-h, --help` | display help for command |
 
 ## `mf daemon start`
@@ -113,7 +113,7 @@ Probe local frameworks and daemon terminal support
 
 ## `mf daemon hooks`
 
-Session hooks Manyfold installs into claude / codex settings (act only inside Manyfold terminals)
+Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals)
 
 **Usage:** `mf daemon hooks [command]`
 
