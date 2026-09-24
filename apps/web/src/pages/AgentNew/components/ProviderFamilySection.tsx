@@ -3,8 +3,8 @@ import { FilterChip, FilterChipRow } from '@/components/FilterChip'
 import type { ProviderFamilyFilter } from '@/lib/agentCreate/providerSource'
 import { useI18n } from '@/lib/i18n'
 
-// The provider section for a framework without a Local side (OpenClaw,
-// Hermes, NarraNexus), in the same shape as the Cloud / Local one: a chip
+// The provider section for a framework without a Local side (the service
+// frameworks), in the same shape as the Cloud / Local one: a chip
 // row that only filters, ONE grid of pick cards, one row of dashed add
 // chips. Here the chips are the provider families the framework can talk
 // to; a framework that takes no provider at all gets the grid alone, with

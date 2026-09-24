@@ -15,8 +15,8 @@ interface Options {
 
 // NetMind credential orchestration: email/password and OAuth (popup +
 // postMessage) both converge on a loginToken handed to onToken. Shared by the
-// login page (Surface A) and the Account "Connect NetMind" card. Mirrors
-// NarraNexus's useNetmindAuth but never mints a session itself.
+// login page (Surface A) and the Account "Connect NetMind" card. It never
+// mints a session itself.
 export const useNetmindAuth = ({ onToken }: Options) => {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')

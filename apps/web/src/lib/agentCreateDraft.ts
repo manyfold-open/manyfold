@@ -112,11 +112,7 @@ export const buildCreateAgentBody = (
                       primaryModelName: trimOptional(draft.primaryModelName),
                       ...(explicitBaseUrl ? { baseUrl: explicitBaseUrl } : {})
                   }
-    } else if (draft.framework === 'narranexus') {
-        // NarraNexus manages providers via its native UI (deep-link). No
-        // Manyfold-side credentials field — the resolver accepts empty value
-        // and the bootstrap mints the gateway token internally.
-    } else {
+    } else if (draft.framework === 'hermes') {
         const provider = serviceModelProvider(draft.persistentModelProvider)
         base.hermesCredentials =
             draft.picker.mode === 'saved'
@@ -133,6 +129,8 @@ export const buildCreateAgentBody = (
                           : {})
                   }
     }
+    // Any other framework manages its providers in its runtime's own UI and
+    // takes no credential block.
 
     if (
         draft.picker.mode === 'inline' &&
@@ -153,8 +151,8 @@ export const buildCreateAgentBody = (
 // The same per-framework payloads the create body carries, addressed at an
 // agent that already exists: PATCH /agents/:id/credentials takes them verbatim,
 // resolves the provider, rewrites the runtime's stored credential and rebinds
-// the agent. Narranexus and the external frameworks are rejected there, so
-// callers must not offer this for them.
+// the agent. Frameworks whose runtime manages its providers and the external
+// ones are rejected there, so callers must not offer this for them.
 export const buildAgentCredentialsBody = (draft: {
     framework: CreateableFramework
     picker: CloudCredentialPicker

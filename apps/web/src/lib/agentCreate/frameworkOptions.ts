@@ -1,17 +1,24 @@
 import {
     frameworkCapability,
     isExternal,
+    isRegisteredFramework,
     supportsRuntime
 } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntime
 } from '@manyfold/shared'
+import { t as translate } from '@manyfold/i18n'
 import type {
     CreateableFramework,
     PersistentModelProvider
 } from '@/lib/agentCreateDraft'
 import { modelProviderForFramework } from '@/lib/agentCreateDraft'
+import {
+    listFrameworkPresentations,
+    spliceAfterCodingClis,
+    type FrameworkPresentation
+} from '@/lib/frameworkPresentation'
 import type { TFn } from '@/lib/i18n'
 
 export type FrameworkChoice = AgentFramework
@@ -29,15 +36,10 @@ export const runtimeCategoryShortLabel = (
     return t('web.agentNew.localDaemon')
 }
 
-export const REUSE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
-    'openclaw',
-    'hermes',
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'pi',
-    'narranexus'
-])
+// Every framework that runs on a host of ours, i.e. all but the external
+// ones, can join a runtime that already exists.
+export const reusesRuntimes = (framework: AgentFramework): boolean =>
+    isRegisteredFramework(framework) && !isExternal(framework)
 
 export const reuseRuntimeKindsFor = (
     framework: AgentFramework
@@ -105,7 +107,7 @@ export interface FrameworkOptionEntry {
     disabled?: boolean
 }
 
-export const frameworkOptions: FrameworkOptionEntry[] = [
+const CORE_FRAMEWORK_OPTIONS: FrameworkOptionEntry[] = [
     {
         value: 'claude-code',
         label: 'Claude Code',
@@ -125,11 +127,6 @@ export const frameworkOptions: FrameworkOptionEntry[] = [
         value: 'pi',
         label: 'Pi',
         descriptionKey: 'web.agentNew.frameworkDescriptions.pi'
-    },
-    {
-        value: 'narranexus',
-        label: 'NarraNexus',
-        descriptionKey: 'web.agentNew.frameworkDescriptions.narraNexus'
     },
     {
         value: 'hermes',
@@ -157,6 +154,32 @@ export const frameworkOptions: FrameworkOptionEntry[] = [
         descriptionKey: 'web.agentNew.frameworkDescriptions.a2a'
     }
 ]
+
+const optionFor = (
+    presentation: FrameworkPresentation
+): FrameworkOptionEntry => ({
+    value: presentation.definition.id,
+    label: translate(presentation.labelKey),
+    descriptionKey: presentation.descriptionKey
+})
+
+// The core options plus every framework an edition registers, so it is read
+// at render time, after registration.
+export const frameworkOptions = (): FrameworkOptionEntry[] => {
+    const presented = listFrameworkPresentations()
+    return [
+        ...spliceAfterCodingClis(
+            CORE_FRAMEWORK_OPTIONS,
+            (option) => option.value,
+            presented
+                .filter(({ definition }) => definition.kind !== 'external')
+                .map(optionFor)
+        ),
+        ...presented
+            .filter(({ definition }) => definition.kind === 'external')
+            .map(optionFor)
+    ]
+}
 
 export const remoteIdLabelFor = (framework: FrameworkChoice, t: TFn): string =>
     framework === 'langflow'

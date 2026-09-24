@@ -8,6 +8,10 @@ import {
     resolveFrameworkRepo
 } from '../src/frameworkVersionSources'
 import { listVersionedFrameworks } from '../src/framework-versions'
+import { narraNexusFrameworkDefinition } from '../src/frameworks/narranexus'
+import { registerFramework } from '../src/frameworks/registry'
+
+registerFramework(narraNexusFrameworkDefinition)
 
 const UPSTREAM = 'NetMindAI-Open/NarraNexus'
 const FORK = 'protagolabs/NarraNexus'

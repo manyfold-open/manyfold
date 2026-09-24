@@ -1,3 +1,4 @@
+import './narranexus-definition'
 import { registerFrameworkVersionDescriptor } from '../../src/modules/framework-versions/framework-version-registry'
 import { narraNexusVersion } from '../../src/modules/narranexus/version/narranexus-version'
 

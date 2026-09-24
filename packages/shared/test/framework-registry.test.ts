@@ -137,7 +137,6 @@ test('a registered framework lists after every core one', () => {
         'pi',
         'openclaw',
         'hermes',
-        'narranexus',
         'fixture-gateway'
     ])
 })

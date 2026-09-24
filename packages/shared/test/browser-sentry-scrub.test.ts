@@ -3,7 +3,8 @@ import test from 'node:test'
 import { createBrowserSentryScrubber } from '../src/browser-sentry-scrub'
 
 const policy = createBrowserSentryScrubber({
-    removedQueryParams: ['private_touch']
+    removedQueryParams: ['private_touch'],
+    redactedFragmentParams: ['handoff_token']
 })
 
 test('every navigation phase keeps timings while removing its retained URL token', () => {
@@ -69,14 +70,14 @@ test('standalone SDK URL, query and fragment fields use the same policy', () => 
                 page: '2'
             },
             'http.fragment': '#session=SESSION_VALUE&next=home',
-            'url.fragment': 'nmtoken=NM_VALUE&error=denied',
+            'url.fragment': 'handoff_token=HANDOFF_VALUE&error=denied',
             PRIVATE_TOUCH: 'PRIVATE_VALUE',
             count: 4
         }
     })
     assert.doesNotMatch(
         JSON.stringify(span),
-        /PRIVATE_VALUE|KEY_VALUE|SESSION_VALUE|NM_VALUE|private_touch|PRIVATE_TOUCH/
+        /PRIVATE_VALUE|KEY_VALUE|SESSION_VALUE|HANDOFF_VALUE|private_touch|PRIVATE_TOUCH/
     )
     assert.match(String(span.data['http.query']), /utm_id=campaign/)
     assert.deepEqual(span.data['url.query'], { key: 'REDACTED', page: '2' })
@@ -141,4 +142,9 @@ test('edition-specific removal lists are isolated from each other', () => {
         other.scrubUrl('/?private_touch=a&other_private=b'),
         '/?private_touch=a'
     )
+    assert.equal(
+        policy.scrubUrl('/#handoff_token=a'),
+        '/#handoff_token=REDACTED'
+    )
+    assert.equal(other.scrubUrl('/#handoff_token=a'), '/#handoff_token=a')
 })

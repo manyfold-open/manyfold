@@ -78,8 +78,9 @@ export const isManagedProtocolAllowedForFramework = (
 
 // Which wire protocols each agent framework can actually talk. Mirrors the
 // assertProtocol() narrowing inside CredentialsResolverService — keep both in
-// sync. Frameworks not in the switch (narranexus / dify / langflow) don't go
-// through the saved-provider picker, so they return true as a safe default.
+// sync. Frameworks not in the switch (dify / langflow and any framework whose
+// runtime manages its own credentials) don't go through the saved-provider
+// picker, so they return true as a safe default.
 export const frameworkSupportsProtocol = (
     framework: AgentFramework,
     protocol: InferenceProtocol

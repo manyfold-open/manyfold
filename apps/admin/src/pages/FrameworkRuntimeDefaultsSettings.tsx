@@ -89,9 +89,8 @@ const FrameworkRuntimeDefaultsSettingsPage: FC = (): ReactNode => {
                     Choose which runtime new agents should land on when the
                     caller does not specify one. This page currently exposes the
                     configurable defaults for Hermes and OpenClaw; Claude Code /
-                    Codex / Gemini CLI default to sprites, Dify / Langflow
-                    always use external, and NarraNexus supports sprites or K8s
-                    from the create flow.
+                    Codex / Gemini CLI default to sprites, and Dify / Langflow
+                    always use external.
                 </p>
             </div>
 

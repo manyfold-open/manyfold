@@ -1,4 +1,5 @@
 import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import './helpers/narranexus-definition'
 
 // Test-only mirror of what a chat turn's process is launched with, declared per
 // execution surface. It stays outside src so the API build does not ship a

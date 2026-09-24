@@ -1,5 +1,6 @@
 import { isCoreFramework } from '@manyfold/shared'
 import type { AgentFramework, CoreFramework } from '@manyfold/shared'
+import { frameworkPresentation } from '@/lib/frameworkPresentation'
 import type { CreateProviderChoice } from '@/lib/newChannelOptions'
 
 export type NewChatActionId =
@@ -50,10 +51,6 @@ export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
         actionIds: ['channel', 'native', 'automation'],
         recommended: 'channel'
     },
-    narranexus: {
-        actionIds: ['native', 'channel'],
-        recommended: 'native'
-    },
     dify: {
         actionIds: ['provider', 'channel', 'automation'],
         recommended: 'provider'
@@ -73,7 +70,9 @@ export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
 export const newChatLaunchpadConfigFor = (
     framework: AgentFramework
 ): NewChatLaunchpadConfig | null =>
-    isCoreFramework(framework) ? NEW_CHAT_LAUNCHPAD_CONFIG[framework] : null
+    isCoreFramework(framework)
+        ? NEW_CHAT_LAUNCHPAD_CONFIG[framework]
+        : (frameworkPresentation(framework)?.launchpad ?? null)
 
 // Which chat someone lives in is a fact about their workplace, not about the
 // agent's framework, and no framework signal predicts it. Rather than pick one

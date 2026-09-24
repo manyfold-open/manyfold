@@ -191,7 +191,7 @@ export default tseslint.config(
                 FRAMEWORK_LISTING_SYNTAX,
                 {
                     selector:
-                        'BinaryExpression[operator=/^(===|!==|==|!=)$/] > Literal[value=/^(claude-code|codex|gemini-cli|pi|openclaw|hermes|narranexus|dify|langflow)$/]',
+                        'BinaryExpression[operator=/^(===|!==|==|!=)$/] > Literal[value=/^(claude-code|codex|gemini-cli|pi|openclaw|hermes|dify|langflow)$/]',
                     message:
                         'Framework facts come from frameworkCapability()/supportsRuntime()/isExternal() (ADR-0006), not raw framework-literal comparisons.'
                 }

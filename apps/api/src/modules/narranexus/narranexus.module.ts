@@ -1,6 +1,8 @@
 import {
     NARRANEXUS_SPRITE_BASE_WORKING_PATH,
-    SPRITE_HOME_BASE
+    SPRITE_HOME_BASE,
+    narraNexusFrameworkDefinition,
+    registerFramework
 } from '@manyfold/shared'
 import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
@@ -32,6 +34,10 @@ import { NarraNexusSyncAdminController } from './sync/narranexus-sync-admin.cont
 import { NarraNexusSyncService } from './sync/narranexus-sync.service'
 
 const NARRANEXUS_HOME = `${SPRITE_HOME_BASE}/.narranexus`
+
+// At module load, ahead of every request: the definition has to be in the
+// registry before anything lists it (ADR-0034).
+registerFramework(narraNexusFrameworkDefinition)
 
 // Everything NarraNexus-specific the API runs, registered into the core's
 // framework seams (ADR-0034). A leaf: no core module imports this one.

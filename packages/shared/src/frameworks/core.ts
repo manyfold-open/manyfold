@@ -1,7 +1,5 @@
-import { SPRITE_HOME_BASE } from '../constants'
 import {
     DAEMON_FEATURE_TURN_HERMES,
-    DAEMON_FEATURE_TURN_OPENCLAW,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP
 } from '../daemon'
 import type { FrameworkDefinition } from './definition'
@@ -15,7 +13,6 @@ export const coreFrameworks = [
     'pi',
     'openclaw',
     'hermes',
-    'narranexus',
     'dify',
     'langflow',
     'a2a'
@@ -159,41 +156,6 @@ export const coreFrameworkDefinitions = {
         },
         reservedEnvPrefixes: ['HERMES_'],
         runner: { requiredFeatures: [DAEMON_FEATURE_TURN_HERMES] }
-    },
-    narranexus: {
-        id: 'narranexus',
-        displayName: 'NarraNexus',
-        kind: 'service',
-        runtimes: ['sprites', 'k8s'],
-        chat: FULL_CHAT,
-        version: {
-            upgradeMode: 'rebuild',
-            // Measured on github [2026-08-12]: the same tag names different
-            // commits here — `v1.15.0` is 5869502c on NetMindAI-Open and
-            // e2083c28 on protagolabs.
-            repoCandidates: [
-                {
-                    repo: 'NetMindAI-Open/NarraNexus',
-                    label: 'NetMindAI-Open',
-                    note: 'The public NarraNexus release line.'
-                },
-                {
-                    repo: 'protagolabs/NarraNexus',
-                    label: 'protagolabs',
-                    note: 'Carries additional patch and historical tags that the public line never published.'
-                }
-            ]
-        },
-        reservedEnvPrefixes: ['NARRANEXUS_', 'NEXUS_'],
-        defaultRuntime: 'sprites',
-        credentials: 'runtime-ui',
-        runner: {
-            requiredFeatures: [DAEMON_FEATURE_TURN_OPENCLAW],
-            lazyWorkspace: true,
-            homeRoots: { sprites: [`${SPRITE_HOME_BASE}/.narranexus`] }
-        },
-        // The gateway's own read limit: it answers larger reads 413.
-        files: { servedBy: 'framework', maxDownloadBytes: 64 * 1024 * 1024 }
     },
     dify: {
         id: 'dify',

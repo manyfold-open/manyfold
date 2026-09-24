@@ -12,7 +12,7 @@ export const fmtTokens = (n: number): string =>
     }).format(n)
 
 // NetMind finance strings can carry 4 decimals ("9.9300"); show 2 with a $
-// prefix. null / '' / non-numeric → em dash. Ported from NarraNexus money().
+// prefix. null / '' / non-numeric → em dash.
 /** @public consumed by the web-cloud overlay tree */
 export const fmtNetmindMoney = (v: string | number | null): string => {
     if (v === null || v === '') return '—'

@@ -23,8 +23,8 @@ export type DaemonDetectableFramework = Extract<
 
 // Every framework a self-owned daemon can detect + run (capability fact:
 // supportsRuntime(f, 'daemon')). MUST stay in lockstep with the daemon's
-// detect.ts BINARY_FOR_FRAMEWORK. narranexus is sprites/k8s-only; dify/langflow/
-// a2a are external endpoints — none belong on a daemon machine.
+// detect.ts BINARY_FOR_FRAMEWORK. dify/langflow/a2a are external endpoints —
+// none belong on a daemon machine.
 export const DAEMON_DETECTABLE_FRAMEWORKS: DaemonDetectableFramework[] = [
     'claude-code',
     'codex',
@@ -579,10 +579,10 @@ export const DAEMON_FEATURE_FS_WRITE_BINARY = 'fs.write.binary'
 export const DAEMON_FEATURE_DAEMON_UPDATE_DRAIN = 'daemon.update.drain'
 // The daemon accepts turn.start for the named framework (see
 // DaemonTurnStartPayload). `turn.openclaw` is the gateway-http shape, which
-// only narranexus sends now (openclaw chat is ACP-only since ADR-0027 O9); the
-// API falls back to its own client when it is absent, so it gates the
-// transport choice per daemon. For hermes it is an admission gate since
-// ADR-0024 (chat is ACP-only): a daemon without it is refused with
+// only gateway-transport frameworks send now (openclaw chat is ACP-only since
+// ADR-0027 O9); the API falls back to its own client when it is absent, so it
+// gates the transport choice per daemon. For hermes it is an admission gate
+// since ADR-0024 (chat is ACP-only): a daemon without it is refused with
 // `hermes_daemon_upgrade_required`.
 export const DAEMON_FEATURE_TURN_HERMES = 'turn.hermes'
 export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'

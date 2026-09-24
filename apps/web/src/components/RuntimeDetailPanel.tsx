@@ -576,7 +576,7 @@ const RuntimeDetailPanel: FC<{
         setFwStep(null)
         try {
             if (frameworkUpgradeMode(agent.framework) === 'rebuild') {
-                // heavy rebuild (narranexus / hermes) — stream phase events
+                // heavy rebuild — stream phase events
                 await client.agents.upgradeFrameworkStream(
                     agent.id,
                     fwTarget,

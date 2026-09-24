@@ -1,4 +1,5 @@
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import assert from 'node:assert/strict'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 

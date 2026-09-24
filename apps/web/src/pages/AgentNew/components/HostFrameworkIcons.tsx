@@ -13,8 +13,8 @@ import { useI18n } from '@/lib/i18n'
 
 // One framework a sandbox can hold: whether it is there, at which version,
 // against the catalog, and who already runs it. The coding CLIs the sprite
-// image ships install and upgrade in place; a service framework (OpenClaw,
-// Hermes, NarraNexus) is installed and started as an agent-less runtime, and
+// image ships install and upgrade in place; a service framework such as
+// OpenClaw or Hermes is installed and started as an agent-less runtime, and
 // upgraded through its first agent.
 export interface HostFrameworkEntry {
     framework: AgentFramework

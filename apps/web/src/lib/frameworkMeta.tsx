@@ -17,8 +17,10 @@ import {
     PiMono,
     type IconType
 } from '@/lib/brandIcons'
-import nexusLightIcon from '@/assets/agent-logos/nexus-light.svg'
-import nexusDarkIcon from '@/assets/agent-logos/nexus-dark.svg'
+import {
+    frameworkPresentation,
+    type FrameworkPresentation
+} from '@/lib/frameworkPresentation'
 import a2aLightIcon from '@/assets/agent-logos/a2a-light.svg'
 import a2aDarkIcon from '@/assets/agent-logos/a2a-dark.svg'
 // Local copy of the Langflow GitHub avatar, sized for its largest rendered
@@ -103,16 +105,6 @@ const frameworkMeta = {
         modelPresets: [],
         defaultProvider: 'openrouter'
     },
-    narranexus: {
-        labelKey: 'web.frameworks.narraNexus',
-        Icon: null,
-        mono: false,
-        iconSrc: nexusLightIcon,
-        iconSrcDark: nexusDarkIcon,
-        supportsModelOverride: false,
-        modelPresets: [],
-        defaultProvider: 'anthropic'
-    },
     dify: {
         labelKey: 'web.frameworks.dify',
         Icon: DifyColor,
@@ -145,10 +137,24 @@ const frameworkMeta = {
     }
 } satisfies Record<CoreFramework, FrameworkMeta>
 
+const presentedMeta = (presentation: FrameworkPresentation): FrameworkMeta => ({
+    labelKey: presentation.labelKey,
+    Icon: null,
+    mono: false,
+    iconSrc: presentation.icon.light,
+    iconSrcDark: presentation.icon.dark ?? null,
+    supportsModelOverride: false,
+    modelPresets: [],
+    defaultProvider: 'anthropic'
+})
+
 // undefined for a framework id this build does not know: it still renders,
 // as its raw id and an empty icon slot.
-const metaFor = (framework: AgentFramework): FrameworkMeta | undefined =>
-    isCoreFramework(framework) ? frameworkMeta[framework] : undefined
+const metaFor = (framework: AgentFramework): FrameworkMeta | undefined => {
+    if (isCoreFramework(framework)) return frameworkMeta[framework]
+    const presentation = frameworkPresentation(framework)
+    return presentation ? presentedMeta(presentation) : undefined
+}
 
 export const frameworkLabel = (framework: AgentFramework): string => {
     const meta = metaFor(framework)

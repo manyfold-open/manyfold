@@ -6,6 +6,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-definition'
 import { ChatAdapterRegistry } from '../src/modules/chat/adapters/adapter-registry.service'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'

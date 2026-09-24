@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { schedulesMirrored } from '@manyfold/shared'
 import type {
     AutomationDetail,
     AutomationSchedulePreset,
@@ -57,7 +58,7 @@ const CreateAutomationModal: FC<CreateAutomationModalProps> = ({
     const { t } = useI18n()
     const client = useApiClient()
     const runnableAgents = useMemo(
-        () => agents.filter((agent) => agent.framework !== 'narranexus'),
+        () => agents.filter((agent) => !schedulesMirrored(agent.framework)),
         [agents]
     )
     const [agentId, setAgentId] = useState(

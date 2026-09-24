@@ -125,7 +125,6 @@ const FRAMEWORK_SUPPORTS_MODEL: Record<CoreFramework, boolean> = {
     pi: true,
     openclaw: true,
     hermes: true,
-    narranexus: false,
     dify: false,
     langflow: false,
     a2a: false

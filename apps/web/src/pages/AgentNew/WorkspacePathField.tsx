@@ -2,8 +2,9 @@ import type { FC, ReactNode } from 'react'
 import { useRef } from 'react'
 
 // The default workspace path carries placeholder tokens the backend fills in
-// at create time (`{agent-id}`, and `<mf-user>` for narranexus). Rendering them
-// as literal editable text made users think they had to hand-replace the token
+// at create time (`{agent-id}`, and `<mf-user>` in some frameworks' paths).
+// Rendering them as literal editable text made users think they had to
+// hand-replace the token
 // or that the field was broken. We keep the whole path editable, but paint the
 // token segments in a quiet "will be generated" hint style so they read as
 // system placeholders rather than values the user typed.
