@@ -11,11 +11,11 @@ import {
     UserFrameworkRuntimeOverridesSettings,
     agentRuntime,
     auditAction,
-    isConfigurableFramework,
     codingAgentWorkspacePath,
     configurableFrameworkRuntimeDefaults,
     createObjectId,
     isExternal,
+    isModelConfigFramework,
     normalizeAgentName,
     supportsRuntime
 } from '@manyfold/shared'
@@ -129,6 +129,7 @@ const PLATFORM_RUNTIME_DEFAULTS: Partial<Record<AgentFramework, AgentRuntime>> =
         'claude-code': agentRuntime.SPRITES,
         codex: agentRuntime.SPRITES,
         'gemini-cli': agentRuntime.SPRITES,
+        pi: agentRuntime.SPRITES,
         narranexus: agentRuntime.SPRITES
     }
 
@@ -1333,7 +1334,7 @@ export class AgentOrchestratorService {
         // user's click. Coding frameworks only — they are the ones with a
         // runtime-local surface; the service frameworks bring theirs up on
         // the turn path as before.
-        if (isConfigurableFramework(dto.framework) && runtime.spriteName) {
+        if (isModelConfigFramework(dto.framework) && runtime.spriteName) {
             emitter.step('starting_runner')
             await this.prepareSpriteRunner({
                 userId,
@@ -1690,6 +1691,7 @@ const extractSpritesCredentials = (
     if (resolved.framework === 'claude-code') return resolved.value
     if (resolved.framework === 'codex') return resolved.value
     if (resolved.framework === 'gemini-cli') return resolved.value
+    if (resolved.framework === 'pi') return resolved.value
     if (resolved.framework === 'hermes') return resolved.value
     if (resolved.framework === 'openclaw') return resolved.value
     if (resolved.framework === 'narranexus') return resolved.value

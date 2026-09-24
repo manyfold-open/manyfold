@@ -1,5 +1,5 @@
 import type { AgentFramework, AgentRuntime } from './constants'
-import type { ConfigurableFramework } from './framework-catalog'
+import type { ModelConfigFramework } from './framework-catalog'
 import { isObjectId } from './object-id'
 import {
     runtimeAccountSupport,
@@ -204,6 +204,7 @@ export interface RuntimeAuthOperationView {
 export const AMBIENT_VENDOR_AUTH_ENV = [
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_OAUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
     'CLAUDE_CODE_OAUTH_TOKEN',
     'CLAUDE_CONFIG_DIR',
@@ -218,7 +219,8 @@ export const AMBIENT_VENDOR_AUTH_ENV = [
     'GOOGLE_APPLICATION_CREDENTIALS',
     'GOOGLE_GENAI_USE_VERTEXAI',
     'GOOGLE_GENAI_USE_GCA',
-    'GEMINI_CLI_HOME'
+    'GEMINI_CLI_HOME',
+    'PI_CODING_AGENT_DIR'
 ] as const
 
 // The non-secret environment that points a CLI at a profile's credential
@@ -226,14 +228,16 @@ export const AMBIENT_VENDOR_AUTH_ENV = [
 // 0.58.0): CLAUDE_CONFIG_DIR also keys the macOS Keychain entry to the dir,
 // CODEX_HOME holds auth.json, and Gemini needs the file backend forced because
 // GEMINI_CLI_HOME alone leaves the OAuth Keychain entry shared. The view path
-// stays stable per profile for exactly the Keychain reason.
+// stays stable per profile for exactly the Keychain reason. pi keeps every
+// credential in its agent dir's auth.json, so the view IS that dir.
 export const runtimeAuthProfileEnv = (
-    framework: ConfigurableFramework,
+    framework: ModelConfigFramework,
     viewDir: string,
     authMethod: RuntimeAuthMethod = 'subscription'
 ): Record<string, string> => {
     if (framework === 'claude-code') return { CLAUDE_CONFIG_DIR: viewDir }
     if (framework === 'codex') return { CODEX_HOME: viewDir }
+    if (framework === 'pi') return { PI_CODING_AGENT_DIR: viewDir }
     return {
         GEMINI_CLI_HOME: viewDir,
         GEMINI_FORCE_FILE_STORAGE: 'true',
@@ -283,13 +287,13 @@ export interface UpdateAgentRuntimeAuthBody {
 // own config root and refuses ids that do not parse.
 
 export interface DaemonAuthProfileRef {
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
     runtimeId: string
     profileId: string
 }
 
 export interface DaemonAuthListPayload {
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
     runtimeId: string
     // false = enumerate the store without reading credentials or calling the
     // vendor (cheap; used for existence checks).
@@ -346,7 +350,7 @@ export interface DaemonAuthOperationPayload {
 // profile's context itself, strips every ambient vendor variable, and holds
 // the profile lock for the process's lifetime.
 export interface DaemonAuthContextRef {
-    framework: ConfigurableFramework
+    framework: ModelConfigFramework
     runtimeId: string
     profileId: string
     bindingVersion: number

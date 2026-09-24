@@ -6,7 +6,10 @@ import TerminalSession from '@/components/TerminalSession'
 import type { TerminalConnectionStatus } from '@/components/TerminalSession'
 import { useAppAuth } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
-import { runtimeSignInCommandFor } from '@/lib/runtimeSignIn'
+import {
+    runtimeSignInCommandFor,
+    runtimeSignInHintKey
+} from '@/lib/runtimeSignIn'
 
 // The runtime page's sign-in shell: a bare host terminal (no agent behind
 // it) that starts on the CLI's own sign-in command, so the user only has to
@@ -33,12 +36,7 @@ const RuntimeSignInTerminal: FC<{
     // connected keeps its error and Reconnect affordance on screen.
     const openedRef = useRef(false)
     const command = runtimeSignInCommandFor(framework)
-    const hint =
-        framework === 'claude-code'
-            ? t('web.chat.runtimeSignIn.claudeHint')
-            : framework === 'codex'
-              ? t('web.chat.runtimeSignIn.codexHint')
-              : t('web.chat.runtimeSignIn.geminiHint')
+    const hint = t(runtimeSignInHintKey(framework))
     const handleStatus = (
         _tabId: string,
         status: TerminalConnectionStatus

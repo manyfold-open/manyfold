@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
+    buildPiSessionHookExtension,
     buildSessionHookScript,
     codexHooksDisabledInConfig,
     hookReportFromInput,
@@ -246,7 +248,8 @@ test('install writes the script and settings for detected frameworks only, and u
             status.frameworks.map((f) => [f.framework, f.installed, f.current]),
             [
                 ['claude-code', true, true],
-                ['codex', false, false]
+                ['codex', false, false],
+                ['pi', false, false]
             ]
         )
 
@@ -291,7 +294,8 @@ test('install writes the script and settings for detected frameworks only, and u
         const removed = await uninstallSessionHooks({ home })
         assert.deepEqual(removed, [
             { framework: 'claude-code', action: 'removed' },
-            { framework: 'codex', action: 'removed' }
+            { framework: 'codex', action: 'removed' },
+            { framework: 'pi', action: 'absent' }
         ])
         assert.equal(
             await readFile(claude.scriptPath, 'utf8'),
@@ -315,7 +319,62 @@ test('install writes the script and settings for detected frameworks only, and u
         )
         assert.deepEqual(
             (await uninstallSessionHooks({ home })).map((c) => c.action),
-            ['absent', 'absent']
+            ['absent', 'absent', 'absent']
+        )
+    })
+})
+
+// pi takes its hook as an extension it loads by itself from the agent dir:
+// one marked file, no settings to merge, and a user's file of the same name
+// is never replaced.
+test('the pi hook is one marked extension file that pi loads on its own', async () => {
+    await withHome(async (home) => {
+        const pi = sessionHookTargets(home).find((t) => t.framework === 'pi')!
+        assert.equal(pi.kind, 'extension')
+        assert.equal(
+            pi.scriptPath,
+            join(home, '.pi', 'agent', 'extensions', 'mf-session.ts')
+        )
+        const changes = await installSessionHooks({
+            detected: [{ framework: 'pi', version: '0.87.1', path: '/bin/pi' }],
+            home,
+            invocation: ['/opt/node', "/opt/mf's/index.js"]
+        })
+        assert.deepEqual(changes, [{ framework: 'pi', action: 'installed' }])
+        const extension = await readFile(pi.scriptPath, 'utf8')
+        assert.equal(scriptVersion(extension), MF_SESSION_HOOK_VERSION)
+        assert.match(extension, /if \(!process\.env\.MF_TERMINAL_ID\) return/)
+        assert.match(extension, /'daemon', 'hooks', 'report', 'pi'/)
+        // `mf doctor` reads the callback back out of it, quotes and all.
+        assert.deepEqual(sessionHookInvocation(extension), [
+            '/opt/node',
+            "/opt/mf's/index.js"
+        ])
+        const status = await sessionHooksStatus({ home, consent: 'enabled' })
+        const piStatus = status.frameworks.find((f) => f.framework === 'pi')!
+        assert.deepEqual([piStatus.installed, piStatus.current], [true, true])
+
+        assert.deepEqual(
+            (await uninstallSessionHooks({ home })).find(
+                (c) => c.framework === 'pi'
+            ),
+            { framework: 'pi', action: 'removed' }
+        )
+        await assert.rejects(stat(pi.scriptPath))
+
+        await writeFile(pi.scriptPath, 'export default () => {}\n')
+        const refused = await installSessionHooks({
+            detected: 'all',
+            home,
+            invocation: ['/opt/mf']
+        })
+        assert.match(
+            refused.find((c) => c.framework === 'pi')?.error ?? '',
+            /not a Manyfold hook/
+        )
+        assert.equal(
+            await readFile(pi.scriptPath, 'utf8'),
+            'export default () => {}\n'
         )
     })
 })
@@ -434,5 +493,92 @@ test('the report is one POST with the terminal token and never throws', async ()
         status: null,
         outcome: null,
         error: 'ECONNREFUSED'
+    })
+})
+
+// The extension is generated source no typecheck sees: run it the way pi
+// does, handing its default export the event bus, and read what it reported.
+test('the pi extension reports sessions only inside a Manyfold terminal', async () => {
+    await withHome(async (home) => {
+        const sink = join(home, 'reports.jsonl')
+        const recorder = join(home, 'record.mjs')
+        await writeFile(
+            recorder,
+            [
+                "import { appendFileSync } from 'node:fs'",
+                "let input = ''",
+                "process.stdin.on('data', (chunk) => (input += chunk))",
+                "process.stdin.on('end', () =>",
+                `    appendFileSync(${JSON.stringify(sink)}, JSON.stringify({ args: process.argv.slice(2), input: JSON.parse(input) }) + '\\n')`,
+                ')'
+            ].join('\n')
+        )
+        const file = join(home, 'mf-session.ts')
+        await writeFile(
+            file,
+            buildPiSessionHookExtension([process.execPath, recorder])
+        )
+        const { default: register } = (await import(
+            pathToFileURL(file).href
+        )) as { default: (pi: unknown) => void }
+        type Handler = (event: unknown, ctx: unknown) => void
+        const handlers = new Map<string, Handler>()
+        const bus = {
+            on: (name: string, handler: Handler) => handlers.set(name, handler)
+        }
+        const ctx = (entries: unknown[]) => ({
+            sessionManager: {
+                getSessionId: () => 'sess-1',
+                getCwd: () => '/work',
+                getEntries: () => entries
+            }
+        })
+
+        const terminalId = process.env.MF_TERMINAL_ID
+        try {
+            delete process.env.MF_TERMINAL_ID
+            register(bus)
+            assert.equal(handlers.size, 0)
+            process.env.MF_TERMINAL_ID = 'tms_test'
+            register(bus)
+        } finally {
+            if (terminalId === undefined) delete process.env.MF_TERMINAL_ID
+            else process.env.MF_TERMINAL_ID = terminalId
+        }
+        const start = handlers.get('session_start')!
+        const shutdown = handlers.get('session_shutdown')!
+        start({ reason: 'startup' }, ctx([]))
+        // `pi --continue` starts with history: that is a resume.
+        start({ reason: 'startup' }, ctx([{ type: 'message' }]))
+        start({ reason: 'new' }, ctx([]))
+        shutdown({ reason: 'reload' }, ctx([]))
+        shutdown({ reason: 'quit' }, ctx([]))
+
+        const lines = async (): Promise<string[]> =>
+            (await readFile(sink, 'utf8').catch(() => ''))
+                .split('\n')
+                .filter(Boolean)
+        for (let i = 0; i < 100 && (await lines()).length < 4; i++)
+            await new Promise((r) => setTimeout(r, 50))
+        // A reload is the same session: nothing more may arrive.
+        await new Promise((r) => setTimeout(r, 300))
+        const reports = (await lines()).map(
+            (line) => JSON.parse(line) as { args: string[]; input: unknown }
+        )
+        for (const report of reports)
+            assert.deepEqual(report.args, ['daemon', 'hooks', 'report', 'pi'])
+        const filed = reports
+            .map((report) => hookReportFromInput('pi', report.input))
+            .map(
+                (body) =>
+                    `${body?.event}:${body?.source}:${body?.sessionRef}:${body?.cwd}`
+            )
+            .sort()
+        assert.deepEqual(filed, [
+            'end:other:sess-1:/work',
+            'start:clear:sess-1:/work',
+            'start:resume:sess-1:/work',
+            'start:startup:sess-1:/work'
+        ])
     })
 })

@@ -86,6 +86,13 @@ export const BUILTIN_BLOCKED_FRAMEWORK_VERSIONS: Partial<
             max: '0.54.0',
             reason: 'gemini-cli 0.53.0-0.54.0 drops the thought signature from completed tool-call history (google-gemini/gemini-cli#28604), so every later turn of a tool-using session fails with a provider 400. Use 0.52.0 or a release carrying the #28607 fix.'
         }
+    ],
+    pi: [
+        {
+            min: '0.0.0',
+            max: '0.84.3',
+            reason: 'pi before 0.84.0 emits the pre-0.84 `--mode json` message_update shape the chat adapter cannot parse, and 0.84.0-0.84.3 can corrupt a session file whose last line lacks a newline (fixed in 0.84.4). Use 0.84.4 or newer.'
+        }
     ]
 }
 

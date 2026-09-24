@@ -1,4 +1,4 @@
-import { isConfigurableFramework } from '@manyfold/shared'
+import { isModelConfigFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentModelConfigSource,
@@ -14,13 +14,19 @@ import type {
    gemini-cli is absent because its --resume takes a session index or the
    literal "latest", not the id we store, so there is nothing to point it at.
    codex needs no credential opt-in: it logs in on the sandbox at bootstrap
-   and its auth lives on disk where a login shell reads it. */
+   and its auth lives on disk where a login shell reads it. pi reads its key
+   from the vendor env var the turn injects, so like claude it needs the
+   opt-in before a login shell can authenticate. */
 const RESUME_SUPPORT: Partial<
     Record<AgentFramework, { needsModelCredentials: boolean }>
 > = {
     'claude-code': { needsModelCredentials: true },
-    codex: { needsModelCredentials: false }
+    codex: { needsModelCredentials: false },
+    pi: { needsModelCredentials: true }
 }
+
+export const supportsTerminalResume = (framework: AgentFramework): boolean =>
+    Boolean(RESUME_SUPPORT[framework])
 
 export type TerminalResumeBlocked =
     | 'runtime-unsupported'
@@ -78,7 +84,7 @@ export const terminalResumeAvailability = (args: {
     // which is the same credential the TUI will find — so they need no opt-in,
     // but they do need that sign-in to exist.
     if (
-        isConfigurableFramework(args.framework) &&
+        isModelConfigFramework(args.framework) &&
         args.modelSource === 'runtime-local'
     )
         return args.runtimeLocalReady

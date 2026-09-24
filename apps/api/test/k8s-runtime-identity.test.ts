@@ -187,6 +187,7 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
         claudeCodeK8s as never, // claudeCodeK8s
         {} as never, // codexK8s
         {} as never, // geminiCliK8s
+        {} as never, // piK8s
         {} as never, // narraNexusK8s
         {} as never, // podExecFactory
         runtimes as never, // runtimes

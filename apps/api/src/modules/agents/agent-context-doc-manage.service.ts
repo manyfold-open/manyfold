@@ -109,8 +109,10 @@ export class AgentContextDocManageService {
         return this.getStatus(userId, agentId, isAdmin)
     }
 
-    // Best-effort push after a connection change (the caller already authorized
-    // the agent). Only writes for a running agent; never throws.
+    // Best-effort push for an agent whose doc may be missing or stale — after
+    // a connection change, or for an agent just added to a running sandbox
+    // (the caller already authorized the agent). Only writes for a running
+    // agent; never throws.
     async refreshOnChange(agent: Agent): Promise<void> {
         if (!this.isSupported(agent) || agent.status !== 'running') return
         try {

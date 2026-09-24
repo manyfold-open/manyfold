@@ -95,6 +95,16 @@ const DESCRIPTORS: Record<VersionedFramework, FrameworkVersionDescriptor> = {
         unshadowNodeBinDir: true,
         probeShell: 'export PATH="$HOME/.local/bin:$PATH"; gemini --version'
     },
+    pi: {
+        framework: 'pi',
+        runtimeKind: 'coding',
+        source: { kind: 'npm', package: '@earendil-works/pi-coding-agent' },
+        binName: 'pi',
+        unshadowNodeBinDir: true,
+        // PI_OFFLINE keeps the probe from reaching pi.dev for an update check.
+        probeShell:
+            'export PATH="$HOME/.local/bin:$PATH"; PI_OFFLINE=1 pi --version'
+    },
     openclaw: {
         framework: 'openclaw',
         runtimeKind: 'daemon',

@@ -11,7 +11,7 @@ The public v1 API exposes one integration surface:
 POST /api/v1/chat/completions
 ```
 
-It works with hosted agents such as Claude Code, Codex, Gemini CLI, OpenClaw, Hermes, Dify, and Langflow agents through the same request shape.
+It works with hosted agents such as Claude Code, Codex, Gemini CLI, Pi, OpenClaw, Hermes, Dify, and Langflow agents through the same request shape.
 
 ## Before you start
 
@@ -228,6 +228,7 @@ Coding-agent turns started through this API run unrestricted by default:
 | Claude Code | `bypassPermissions`                                 |
 | Codex       | Full access, with approvals and sandboxing bypassed |
 | Gemini CLI  | `--approval-mode yolo`                              |
+| Pi          | No permission mode; tools always run unprompted     |
 
 These defaults let API-driven agents complete file edits, terminal commands, and workspace automation without interactive approval prompts. The OpenAI-compatible v1 endpoint does not expose per-request permission controls; use the Manyfold chat UI or native chat API when you need to choose a narrower mode for a turn.
 

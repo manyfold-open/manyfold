@@ -4,7 +4,10 @@ import type { AgentModelConfigView } from '@manyfold/shared'
 import { Spinner } from '@/components/Loading'
 import { useI18n } from '@/lib/i18n'
 import { profileDisplayName } from '@/lib/runtimeAuth'
-import { runtimeSignInCommandFor } from '@/lib/runtimeSignIn'
+import {
+    runtimeSignInCommandFor,
+    runtimeSignInHintKey
+} from '@/lib/runtimeSignIn'
 
 interface Props {
     view: AgentModelConfigView
@@ -33,12 +36,7 @@ export const RuntimeLocalSignInCard: FC<Props> = ({
     }, [needsFirstProbe, onRefresh, refreshing])
 
     const command = runtimeSignInCommandFor(view.framework)
-    const hint =
-        view.framework === 'claude-code'
-            ? t('web.chat.runtimeSignIn.claudeHint')
-            : view.framework === 'codex'
-              ? t('web.chat.runtimeSignIn.codexHint')
-              : t('web.chat.runtimeSignIn.geminiHint')
+    const hint = t(runtimeSignInHintKey(view.framework))
     // A bound account: the terminal below opens inside that account's own
     // credential store, so signing in there signs in the account, not the
     // host. Name it so the user knows which one the CLI will ask for.

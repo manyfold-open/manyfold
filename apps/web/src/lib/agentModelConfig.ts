@@ -32,6 +32,7 @@ import {
     isClaudeCodeModelAlias,
     isClaudeCodeOneMillionModelAlias,
     isGeminiAutoModel,
+    isModelConfigFramework,
     normalizeClaudeCodeEffortForModel,
     preferredClaudeCodeModelAlias,
     providerModelIdsForProtocol,
@@ -61,10 +62,7 @@ export interface AgentModelConfigViewUpdatedDetail {
 export const frameworkUsesModelConfig = (
     framework: string | null | undefined,
     _runtime?: AgentRuntime | null
-): boolean =>
-    framework === 'claude-code' ||
-    framework === 'codex' ||
-    framework === 'gemini-cli'
+): boolean => isModelConfigFramework(framework)
 
 export const modelConfigViewCacheKey = (agentId: string): string =>
     `${modelConfigViewCachePrefix}${agentId}`
@@ -234,6 +232,14 @@ export const draftFromModelConfigView = (
             model: existing?.model ?? null
         }
     }
+    if (view.framework === 'pi')
+        return {
+            framework: 'pi',
+            model:
+                view.config?.framework === 'pi'
+                    ? (view.config.model ?? null)
+                    : null
+        }
     return null
 }
 
@@ -318,7 +324,13 @@ export const modelConfigViewForProviderModels = (
                     ? resolveCodexModelOptions(models)
                     : view.framework === 'gemini-cli'
                       ? view.options
-                      : []
+                      : view.framework === 'pi'
+                        ? models.map((model) => ({
+                              value: model,
+                              label: model,
+                              enabled: true
+                          }))
+                        : []
     }
 }
 
@@ -516,6 +528,7 @@ export const patchRuntimeLocalDraft = (
                       ? (draft.intelligence ?? null)
                       : null
         }
+    if (framework === 'pi') return { framework: 'pi', model }
     return { framework: 'gemini-cli', model }
 }
 
@@ -539,6 +552,9 @@ export const validateModelConfigDraft = (
                 message('web.composer.validation.runtimeLocalNotReady')
         }
     }
+    // pi runs any id its provider serves (the API checks nothing against a
+    // list either), so there is nothing to have tested first.
+    if (view.framework === 'pi') return { valid: true, message: null }
     if (view.providerModelsStatus !== 'ready')
         return {
             valid: false,
@@ -664,7 +680,7 @@ export const modelConfigDisplayLabel = (
             parts.push(formatCodexIntelligenceLabel(draft.intelligence, t))
         return parts.join(' · ')
     }
-    if (draft.framework === 'gemini-cli') {
+    if (draft.framework === 'gemini-cli' || draft.framework === 'pi') {
         return draft.model ?? fallback
     }
     return fallback

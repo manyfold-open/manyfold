@@ -26,6 +26,7 @@ const ALL_FRAMEWORKS: AgentFramework[] = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'openclaw',
     'hermes',
     'narranexus'

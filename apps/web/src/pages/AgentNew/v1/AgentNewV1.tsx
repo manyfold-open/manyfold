@@ -11,7 +11,7 @@ import {
     externalSteps,
     brandFor,
     frameworkUpgradeMode,
-    isConfigurableFramework,
+    isModelConfigFramework,
     lookupBuiltIn,
     normalizeAgentName,
     providerSupportsTarget,
@@ -86,10 +86,12 @@ import {
     type PersistentModelProvider
 } from '@/lib/agentCreateDraft'
 import {
+    defaultPersistentModelProvider,
     frameworkOptions,
     isCreateableFramework,
     isExternalFramework,
     isK8sOnlyFramework,
+    persistentModelProvidersFor,
     REUSE_FRAMEWORKS,
     reuseRuntimeKindsFor,
     supportsSandbox,
@@ -1014,10 +1016,13 @@ const AgentNew: FC = (): ReactNode => {
         if (!selected) return
         const family = providerFamilyOf(selected, providerFamilies)
         if (
-            (family === 'anthropic' || family === 'openai') &&
-            family !== persistentModelProvider
+            family &&
+            family !== persistentModelProvider &&
+            persistentModelProvidersFor(framework).includes(
+                family as PersistentModelProvider
+            )
         )
-            setPersistentModelProvider(family)
+            setPersistentModelProvider(family as PersistentModelProvider)
     }, [
         framework,
         persistentModelProvider,
@@ -1141,7 +1146,7 @@ const AgentNew: FC = (): ReactNode => {
         runtimeMode === 'existing' &&
         pickedRuntime &&
         pickedRuntime.kind !== null &&
-        isConfigurableFramework(framework) &&
+        isModelConfigFramework(framework) &&
         runtimeAuthSupported(pickedRuntime.framework, pickedRuntime.kind)
             ? pickedRuntime.id
             : null
@@ -1245,24 +1250,30 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
         setFrameworkVersionSel('')
-        const nextFamilies = usesConfigurableModelProvider(next)
-            ? ['openai' as const, 'anthropic' as const]
-            : [modelProviderForFramework(next)]
+        const defaultFamily = defaultPersistentModelProvider(next)
+        const nextFamilies: readonly UserModelProvider[] =
+            usesConfigurableModelProvider(next)
+                ? [
+                      defaultFamily,
+                      ...persistentModelProvidersFor(next).filter(
+                          (family) => family !== defaultFamily
+                      )
+                  ]
+                : [modelProviderForFramework(next)]
         const preferred = preferredSavedProviderForFamilies(
             providers,
             nextFamilies,
             next
         )
-        // OpenClaw / Hermes take either vendor: the one the preferred saved
-        // provider speaks, else OpenAI as before.
+        // OpenClaw, Hermes and pi take several vendors: the one the preferred
+        // saved provider speaks, else the framework's default.
         const preferredFamily = preferred
             ? providerFamilyOf(preferred, nextFamilies)
             : null
         const nextPersistentProvider: PersistentModelProvider =
             usesConfigurableModelProvider(next)
-                ? preferredFamily === 'anthropic'
-                    ? 'anthropic'
-                    : 'openai'
+                ? ((preferredFamily as PersistentModelProvider | null) ??
+                  defaultFamily)
                 : modelProviderForFramework(next) === 'google'
                   ? 'anthropic'
                   : (modelProviderForFramework(next) as PersistentModelProvider)
@@ -1469,7 +1480,7 @@ const AgentNew: FC = (): ReactNode => {
     // narranexus — none of them configurable) simply inherit; the API rejects
     // a credentials change for the last two anyway.
     const providerInherited =
-        runtimeMode === 'existing' && !isConfigurableFramework(framework)
+        runtimeMode === 'existing' && !isModelConfigFramework(framework)
 
     // What the create button says while the picked sandbox is still on its
     // way to being usable: creating, checked, prepared, its runner starting.
@@ -1827,7 +1838,7 @@ const AgentNew: FC = (): ReactNode => {
     const pickedSandbox =
         runtimeMode === 'sandbox' &&
         attachSandboxHostId !== '' &&
-        isConfigurableFramework(framework)
+        isModelConfigFramework(framework)
             ? (sandboxes.find((s) => s.id === attachSandboxHostId) ?? null)
             : null
     // What the last probe said about the framework's CLI on it: nothing yet,
@@ -2580,7 +2591,7 @@ const AgentNew: FC = (): ReactNode => {
         if (runtimeMode === 'existing') {
             if (!pickedRuntime) return
             const local =
-                isConfigurableFramework(framework) &&
+                isModelConfigFramework(framework) &&
                 providerSourceOf(picker.mode) === 'local'
             const created = await submitAddToRuntime({
                 runtimeId: pickedRuntime.id,
@@ -2616,11 +2627,19 @@ const AgentNew: FC = (): ReactNode => {
                         })
                     )
                     // The mapping picked above lands the same way the
-                    // credentials did: on the agent, once it exists.
+                    // credentials did: on the agent, once it exists. The
+                    // other model-config CLIs have no mapping to send, but
+                    // the platform source is still written down — on a
+                    // daemon the default is the machine's own sign-in, which
+                    // would leave the provider just bound unused.
                     if (frameworkModelConfigRequired && frameworkModelConfig)
                         await client.agents.updateModelConfig(created.id, {
                             modelConfigSource: 'platform',
                             modelConfig: frameworkModelConfig
+                        })
+                    else if (isModelConfigFramework(framework))
+                        await client.agents.updateModelConfig(created.id, {
+                            modelConfigSource: 'platform'
                         })
                 } catch (err) {
                     // The agent exists either way; saying so beats a bare

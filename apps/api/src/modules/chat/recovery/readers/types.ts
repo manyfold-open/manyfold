@@ -25,6 +25,9 @@ export interface ReaderContext {
     fs: RecoveryFs
     agentId: string
     frameworkSessionRef: string
+    // The agent's working directory, for a CLI that files transcripts per
+    // cwd and can hold the same id in two of them (pi's `--session-id`).
+    workspacePath?: string | null
     openclawRpc?: OpenclawRpcClient | null
 }
 

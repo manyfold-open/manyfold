@@ -59,6 +59,7 @@ export const FRAMEWORK_CAPABILITIES: Record<FrameworkChoice, CapabilityId[]> = {
     'claude-code': ['general', 'code', 'terminal'],
     codex: ['code', 'fastIteration'],
     'gemini-cli': ['code', 'multimodal'],
+    pi: ['code', 'terminal', 'lightweight'],
     hermes: ['assistant', 'research', 'lightweight'],
     openclaw: ['personalAssistant', 'channels', 'calendarEmail'],
     narranexus: ['multiAgent', 'memory', 'channels'],

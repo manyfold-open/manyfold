@@ -38,6 +38,23 @@ test('the credential opt-in unblocks claude', () => {
     )
 })
 
+// pi reads its vendor key from the env each exec injects, so like claude its
+// TUI has nothing until the sandbox hands the credential over.
+test('pi resumes like claude: blocked without the opt-in, open with it', () => {
+    assert.deepEqual(terminalResumeAvailability({ ...base, framework: 'pi' }), {
+        available: false,
+        blocked: 'needs-credential-toggle'
+    })
+    assert.deepEqual(
+        terminalResumeAvailability({
+            ...base,
+            framework: 'pi',
+            sandboxModelCredentials: true
+        }),
+        { available: true, blocked: null }
+    )
+})
+
 // A runtime-local agent runs on the CLI's own on-disk sign-in — the same
 // credential the TUI will pick up — so it needs that sign-in, never the
 // sandbox opt-in.

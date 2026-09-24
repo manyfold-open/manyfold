@@ -12,6 +12,7 @@ export type K8sFramework =
     | 'claude-code'
     | 'codex'
     | 'gemini-cli'
+    | 'pi'
     | 'narranexus'
 
 export interface K8sBootstrapContext {

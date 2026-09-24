@@ -9,11 +9,14 @@ import {
     isVersionedFramework,
     resolveFrameworkRepo,
     supportsRuntime,
+    DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
+    herdrFrameworksFor,
     runnerHostName
 } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
+    DaemonHerdrFramework,
     CreateSandboxBody,
     DetectedFramework,
     MfCliChannel,
@@ -157,7 +160,7 @@ export class SandboxesService {
             : await this.runtimes.listSandboxesForUser(userId)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
-        const runnerCanHerdr = await this.runnerHerdrByHost(
+        const runnerHerdr = await this.runnerHerdrByHost(
             isAdmin ? null : userId
         )
         const activeSeconds =
@@ -172,7 +175,7 @@ export class SandboxesService {
                 latest,
                 activeSeconds.get(r.host.id) ?? 0,
                 latestHerdr,
-                runnerCanHerdr(r.host)
+                runnerHerdr(r.host)
             )
         )
     }
@@ -188,7 +191,7 @@ export class SandboxesService {
         if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
-        const runnerCanHerdr = await this.runnerHerdrByHost(r.host.userId)
+        const runnerHerdr = await this.runnerHerdrByHost(r.host.userId)
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost([
                 { id: r.host.id, userId: r.host.userId }
@@ -200,29 +203,28 @@ export class SandboxesService {
             latest,
             activeSeconds.get(r.host.id) ?? 0,
             latestHerdr,
-            runnerCanHerdr(r.host)
+            runnerHerdr(r.host)
         )
     }
 
-    // Whether each sandbox's runner can drive herdr (ADR-0031): a runner that
-    // exists but predates the handoff cannot, until the Update Center moves its
-    // CLI; a sandbox with no runner yet gets one on the current CLI.
+    // What each sandbox's runner can start in herdr (ADR-0031): nothing for a
+    // runner that predates the handoff, until the Update Center moves its
+    // CLI; everything for a sandbox with no runner yet, which gets one on the
+    // current CLI.
     private async runnerHerdrByHost(
         userId: string | null
-    ): Promise<(host: RuntimeHostRow) => boolean> {
+    ): Promise<(host: RuntimeHostRow) => DaemonHerdrFramework[]> {
         const runners = new Map<string, RuntimeHostRow>()
         for (const runner of await this.runtimes.listRunnerHosts(userId))
             runners.set(`${runner.userId}:${runner.name}`, runner)
         return (host) => {
-            if (!host.spriteName) return false
+            if (!host.spriteName) return []
             const runner = runners.get(
                 `${host.userId}:${runnerHostName(host.spriteName)}`
             )
             return runner
-                ? (runner.clientFeatures ?? []).includes(
-                      DAEMON_FEATURE_HERDR_TERMINAL
-                  )
-                : true
+                ? herdrFrameworksFor(runner.clientFeatures ?? [])
+                : NEW_RUNNER_HERDR
         }
     }
 
@@ -266,9 +268,17 @@ export class SandboxesService {
                   latest,
                   0,
                   latestHerdr,
-                  true
+                  NEW_RUNNER_HERDR
               )
-            : toSandboxSummary(host, null, 0, latest, 0, latestHerdr, true)
+            : toSandboxSummary(
+                  host,
+                  null,
+                  0,
+                  latest,
+                  0,
+                  latestHerdr,
+                  NEW_RUNNER_HERDR
+              )
     }
 
     async delete(
@@ -1360,6 +1370,12 @@ export const parseHerdrVersionLine = (output: string): string | null => {
     return match ? match[1] : null
 }
 
+// What a runner brought up now — on the current CLI — starts in herdr.
+const NEW_RUNNER_HERDR = herdrFrameworksFor([
+    DAEMON_FEATURE_HERDR_TERMINAL,
+    DAEMON_FEATURE_HERDR_PI
+])
+
 const toSandboxSummary = (
     host: RuntimeHostRow,
     accountSlug: string | null,
@@ -1367,7 +1383,7 @@ const toSandboxSummary = (
     latest: LatestCliVersion,
     activeSecondsThisPeriod: number,
     latestHerdrVersion: string | null,
-    runnerCanHerdr: boolean
+    runnerHerdr: DaemonHerdrFramework[]
 ): SandboxSummary => ({
     id: host.id,
     userId: host.userId,
@@ -1396,7 +1412,8 @@ const toSandboxSummary = (
                 host.herdrVersion,
                 latestHerdrVersion
             )),
-    canOpenInHerdr: host.herdrVersion !== null && runnerCanHerdr,
+    canOpenInHerdr: host.herdrVersion !== null && runnerHerdr.length > 0,
+    herdrFrameworks: host.herdrVersion !== null ? runnerHerdr : [],
     activeSecondsThisPeriod,
     emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
     createdAt: host.createdAt.toISOString(),

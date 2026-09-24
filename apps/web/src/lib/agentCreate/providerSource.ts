@@ -1,9 +1,10 @@
 import {
     BUILT_IN_PROVIDERS,
+    PI_PROVIDERS,
     builtInSupportsProtocol,
     compatibleProtocolsForProvider,
     frameworkSupportsProtocol,
-    isConfigurableFramework,
+    isModelConfigFramework,
     isManagedProtocolAllowedForFramework,
     providerProtocolForTarget,
     providerSupportsTarget
@@ -55,7 +56,7 @@ export const NEW_RUNTIME_TARGET: ProviderTarget = {
 }
 
 export const localSourceAvailable = (framework: AgentFramework): boolean =>
-    isConfigurableFramework(framework)
+    isModelConfigFramework(framework)
 
 export const providerSourceOf = (mode: ProviderPickerMode): ProviderSource =>
     mode === 'runtime' ? 'local' : 'cloud'
@@ -77,7 +78,7 @@ export const defaultProviderSource = (
     target: ProviderTarget,
     defaultMode: string = PROVIDER_PICKER_DEFAULT_MODE
 ): ProviderSource => {
-    if (!isConfigurableFramework(framework)) return 'cloud'
+    if (!isModelConfigFramework(framework)) return 'cloud'
     if (target.runtimeKind === 'daemon') return 'local'
     return defaultMode === 'runtime' ? 'local' : 'cloud'
 }
@@ -131,9 +132,9 @@ export const selectableProvidersFor = (
         })
 
 // The provider families a framework's Cloud list draws from. OpenClaw and
-// Hermes speak both vendors' protocols, so their list is the union and a
-// chip row filters it by family; a coding CLI has the one family its vendor
-// gives it.
+// Hermes speak both vendors' protocols and pi all three of its own, so their
+// list is the union and a chip row filters it by family; any other coding CLI
+// has the one family its vendor gives it.
 export type ProviderFamilyFilter = 'all' | UserModelProvider
 
 export const PERSISTENT_PROVIDER_FAMILIES: readonly UserModelProvider[] = [
@@ -147,7 +148,9 @@ export const providerFamiliesFor = (
 ): readonly UserModelProvider[] =>
     framework === 'openclaw' || framework === 'hermes'
         ? PERSISTENT_PROVIDER_FAMILIES
-        : [fallback]
+        : framework === 'pi'
+          ? PI_PROVIDERS
+          : [fallback]
 
 // The family a saved row belongs to, in the caller's order of preference: a
 // built-in that speaks both protocols counts for the first family listed.

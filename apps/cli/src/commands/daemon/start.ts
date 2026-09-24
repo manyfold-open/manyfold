@@ -5,6 +5,7 @@ import type { HeartbeatRequest } from '@manyfold/shared'
 import {
     apiPaths,
     DAEMON_CLIENT_FEATURES,
+    DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
@@ -216,7 +217,11 @@ const runClaimedForeground = async (
         // framework probe re-runs or an update lands (herdr.update).
         const clientFeatures = (): string[] =>
             currentHerdr()
-                ? [...baseClientFeatures, DAEMON_FEATURE_HERDR_TERMINAL]
+                ? [
+                      ...baseClientFeatures,
+                      DAEMON_FEATURE_HERDR_TERMINAL,
+                      DAEMON_FEATURE_HERDR_PI
+                  ]
                 : baseClientFeatures
         // What the last update on this install did, reported once.
         let pendingRollback = await takeUpdateRollback(

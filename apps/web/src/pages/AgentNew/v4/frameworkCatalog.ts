@@ -3,23 +3,24 @@ import {
     SPRITE_HOME_BASE,
     codingAgentWorkspacePathForHome,
     frameworkCapability,
+    isModelConfigFramework,
     narraNexusBaseWorkingPath
 } from '@manyfold/shared'
 import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
 
-// Step ① groups the nine frameworks by ONE fact: does it need a machine from
+// Step ① groups the ten frameworks by ONE fact: does it need a machine from
 // us, or does it connect to a service the user already runs. That boundary is
 // binary, has no exceptions, and is exactly where step ② forks — machines on
 // one side, services on the other — so the group heading previews the next
 // question.
 //
 // It deliberately does NOT group by ability ("writes code" / "assistant and
-// orchestration"). The nine are not mutually exclusive that way: Claude Code
+// orchestration"). The ten are not mutually exclusive that way: Claude Code
 // orchestrates, OpenClaw writes code. A group asserts exclusivity, a row
 // attribute does not — so ability claims stay out of both the headings and the
 // row lines, which say what the thing *is* (whose CLI, what shape of service).
 //
-// It also does not group by billing. A subscription is something the three
+// It also does not group by billing. A subscription is something the four
 // coding CLIs *can* use, not something they must — Claude Code runs just as
 // well on managed billing — so that is a row attribute, worded "can use".
 //
@@ -64,6 +65,11 @@ export const FRAMEWORK_GROUPS: FrameworkGroup[] = [
                 framework: 'gemini-cli',
                 identityKey: 'web.agentNewV4.identity.geminiCli',
                 subscriptionKey: 'web.agentNewV4.subscription.gemini'
+            },
+            {
+                framework: 'pi',
+                identityKey: 'web.agentNewV4.identity.pi',
+                subscriptionKey: 'web.agentNewV4.subscription.pi'
             },
             {
                 framework: 'narranexus',
@@ -149,7 +155,8 @@ export const defaultWorkspacePath = (
 // Only a CLI that carries its own vendor sign-in can run on the user's
 // subscription. Step ③ says so in as many words rather than greying rows out.
 export const canUseSubscription = (framework: AgentFramework): boolean =>
-    frameworkCapability(framework).kind === 'coding'
+    frameworkCapability(framework).kind === 'coding' &&
+    isModelConfigFramework(framework)
 
 // A service framework is installed at step ④, together with the agent, not at
 // step ② like a coding CLI. OpenClaw writes its model provider into its own

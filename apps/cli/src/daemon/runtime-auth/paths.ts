@@ -5,10 +5,14 @@ import {
     isRuntimeAuthOperationId,
     isRuntimeAuthProfileId,
     runtimeAuthRoot,
-    type ConfigurableFramework
+    type ModelConfigFramework
 } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
-import { codexHomeDir, type FrameworkConfigDirs } from '../inspect-fs'
+import {
+    codexHomeDir,
+    piAgentDir,
+    type FrameworkConfigDirs
+} from '../inspect-fs'
 
 // Host-local layout for runtime auth profiles. Every path is derived here
 // from ids the API sends; an id that does not parse never reaches the
@@ -88,9 +92,9 @@ export const operationPath = (
     join(operationsDir(scope), `${assertOperationId(operationId)}.json`)
 
 // The framework dirs a profile view stands in for. The view IS the config
-// dir for claude/codex and the HOME for gemini (which appends .gemini).
+// dir for claude/codex/pi and the HOME for gemini (which appends .gemini).
 export const viewConfigDirs = (
-    framework: ConfigurableFramework,
+    framework: ModelConfigFramework,
     viewDir: string
 ): FrameworkConfigDirs => {
     const native = nativeDirsFor()
@@ -105,6 +109,7 @@ export const viewConfigDirs = (
         }
     if (framework === 'codex')
         return { ...native, codexHome: viewDir, envAuth: false, apiKeyFile }
+    if (framework === 'pi') return { ...native, piDir: viewDir, envAuth: false }
     return {
         ...native,
         geminiDir: join(viewDir, '.gemini'),
@@ -122,5 +127,6 @@ export const nativeDirsFor = (): FrameworkConfigDirs => ({
     claudeJson: join(homedir(), '.claude.json'),
     codexHome: codexHomeDir(),
     geminiDir: join(homedir(), '.gemini'),
+    piDir: piAgentDir(),
     envAuth: true
 })

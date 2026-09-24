@@ -62,6 +62,52 @@ test('only the exact dispatched credential route establishes a managed pricing s
     )
 })
 
+test('a pi credential establishes the scope of the provider its key and vendor route to', () => {
+    const key = randomBytes(32).toString('hex')
+    const provider = {
+        id: 'fixture-provider',
+        source: 'managed',
+        managedBrand: 'openai',
+        builtInId: null,
+        inferenceProtocol: 'openai_responses',
+        baseUrl: 'https://fixture.invalid/v1'
+    } as UserModelProviderRow
+    const resolve = (patch: Record<string, unknown> = {}) =>
+        verifiedCodingPriceScope({
+            framework: 'pi',
+            credentials: {
+                apiKey: key,
+                provider: 'openai',
+                baseUrl: 'https://fixture.invalid/v1/',
+                inferenceProtocol: 'openai_responses',
+                ...patch
+            },
+            provider,
+            providerApiKey: key
+        })
+    assert.deepEqual(resolve(), {
+        modelProviderId: provider.id,
+        modelProviderBuiltInId: null,
+        modelProviderManagedBrand: 'openai'
+    })
+    // The vendor decides the protocol pi speaks, so a key the resolver bound
+    // under another vendor never borrows this provider's prices.
+    assert.deepEqual(
+        resolve({ provider: 'anthropic', inferenceProtocol: undefined }),
+        UNKNOWN_PRICE_SCOPE
+    )
+    assert.deepEqual(resolve({ provider: 'mistral' }), UNKNOWN_PRICE_SCOPE)
+    assert.deepEqual(
+        resolve({ apiKey: randomBytes(32).toString('hex') }),
+        UNKNOWN_PRICE_SCOPE
+    )
+    assert.deepEqual(
+        resolve({ baseUrl: undefined }),
+        UNKNOWN_PRICE_SCOPE,
+        'no base URL dispatches the official endpoint, not the managed one'
+    )
+})
+
 test('request DTO validation cannot supply a served pricing scope', async () => {
     const body = plainToInstance(CreateMessageDto, {
         text: 'Fixture prompt',

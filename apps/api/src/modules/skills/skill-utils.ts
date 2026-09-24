@@ -9,6 +9,7 @@ export const SKILL_FRAMEWORKS = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'hermes'
 ] as const
 
@@ -30,10 +31,11 @@ export const skillStateDirName = (
             return 'claude'
         case 'codex':
         case 'gemini-cli':
-            // Codex and Gemini CLI both discover skills from the cross-tool
+        case 'pi':
+            // Codex, Gemini CLI and pi all discover skills from the cross-tool
             // `.agents/skills` convention (`$HOME/.agents/skills`), not their
-            // own `~/.codex` / `~/.gemini` dirs — materialize into `.agents`
-            // so installed skills actually load.
+            // own `~/.codex` / `~/.gemini` / `~/.pi` dirs — materialize into
+            // `.agents` so installed skills actually load.
             return 'agents'
         case 'hermes':
             return 'hermes'
@@ -205,7 +207,8 @@ export const installDirWithSuffix = (
 export const STORE_ACTIVATION_FRAMEWORKS = [
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    'pi'
 ] as const
 
 export type StoreActivationFramework =
@@ -251,14 +254,18 @@ export const libraryStoreKey = (input: {
     )
 
 // Where the agent's per-agent activation entries live inside its workspace.
-// claude-code discovers `<cwd>/.claude/skills`; codex/gemini discover the
-// cross-tool `.agents/skills` (codex via USER scope under HOME=<workspace>).
+// claude-code discovers `<cwd>/.claude/skills`; codex/gemini/pi discover the
+// cross-tool `.agents/skills` (codex via USER scope under HOME=<workspace>;
+// pi treats `<cwd>/.agents/skills` as a project resource, which the chat
+// adapter trusts with `--approve` on managed workspaces).
 export const skillActivationSubdir = (
     framework: StoreActivationFramework
 ): string => (framework === 'claude-code' ? '.claude/skills' : '.agents/skills')
 
-// claude-code & gemini-cli follow symlinks into the store; codex ignores a
-// symlinked skills dir (openai/codex#11314), so it gets real-dir copies.
+// claude-code, gemini-cli & pi follow symlinks into the store (pi: measured on
+// macOS dev [2026-09-10] with a symlinked `.agents/skills` entry); codex
+// ignores a symlinked skills dir (openai/codex#11314), so it gets real-dir
+// copies.
 export const skillActivationMode = (
     framework: StoreActivationFramework
 ): 'symlink' | 'copy' => (framework === 'codex' ? 'copy' : 'symlink')

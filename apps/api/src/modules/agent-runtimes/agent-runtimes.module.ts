@@ -16,6 +16,7 @@ import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
+import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
@@ -58,6 +59,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         ExternalAgentProvisioner,
         ClaudeCodeBootstrap,
         CodexBootstrap,
+        PiBootstrap,
         GeminiCliBootstrap,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,

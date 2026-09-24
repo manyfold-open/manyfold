@@ -9,10 +9,13 @@ import { frameworkLabel } from '@/lib/frameworkMeta'
 // It lives apart from `frameworkCatalog` because it reaches `frameworkMeta`,
 // which imports .svg assets that `tsx --test` cannot load, and the catalog's
 // grouping rules are covered by a node:test suite.
+// pi signs in to whichever vendor its /login is pointed at; these are the
+// subscriptions people come to it with.
 const VENDOR_LABEL: Partial<Record<AgentFramework, string>> = {
     'claude-code': 'Claude',
     codex: 'ChatGPT',
-    'gemini-cli': 'Google'
+    'gemini-cli': 'Google',
+    pi: 'Claude, ChatGPT or Copilot'
 }
 
 export const vendorLabel = (framework: AgentFramework): string =>

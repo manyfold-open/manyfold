@@ -126,6 +126,7 @@ const zh: Translations = {
             claudeCode: 'Claude Code',
             codex: 'Codex',
             geminiCli: 'Gemini CLI',
+            pi: 'Pi',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
             narraNexus: 'NarraNexus',
@@ -2604,6 +2605,7 @@ const zh: Translations = {
                 codexHint:
                     '在任意浏览器中批准设备代码（可能需要先在 ChatGPT 安全设置中启用 device-code 登录）。',
                 geminiHint: '打开打印出的链接并把代码粘贴回来。',
+                piHint: '输入 /login，选择要登录的 provider（订阅或 API key），然后按打印出的链接完成。',
                 openTerminal: '打开终端',
                 refresh: '刷新状态',
                 checking: '检查中…'
@@ -2912,7 +2914,7 @@ const zh: Translations = {
             hintChat: '把对话收回到聊天：关闭 TUI，并把在其中说过的内容加入这段对话。',
             herdrNeedsSession: '先开始一段对话，再把它交给 herdr。',
             herdrNeedsSessionRef: '这段对话还没有可恢复的 CLI 会话。先发送一条消息。',
-            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
+            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code、Codex 与 Pi 的对话。',
             herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
             herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
             herdrNeedsSandboxCliUpgrade: '先在 Update Center 里更新这个沙箱的 Manyfold CLI，才能把对话交给 herdr。',
@@ -3481,7 +3483,7 @@ const zh: Translations = {
                 runtime: '登录是跟着机器走的，所以每一行都写清楚要花多少代价，包括之后要不要再登录一次。',
                 cost: '厂商登录写在那台机器的磁盘上，只在那台有效；账户级的额度跟着你走，所有机器通用。agent 建好之后随时可以改。',
                 name: '确认一下，然后就建好了。',
-                type: '九种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
+                type: '十种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
             },
             blocked: {
                 type: '选一种才能继续',
@@ -3499,6 +3501,7 @@ const zh: Translations = {
                 claudeCode: 'Anthropic 的编码 CLI',
                 codex: 'OpenAI 的编码 CLI',
                 geminiCli: 'Google 的编码 CLI',
+                pi: '开源的编码 CLI，可接多家模型厂商',
                 openclaw: '常驻对话服务，接 IM 渠道',
                 hermes: '常驻助理服务，日程与邮件',
                 narranexus: '常驻编排服务',
@@ -3509,7 +3512,8 @@ const zh: Translations = {
             subscription: {
                 claude: '可用 Claude Pro / Max',
                 codex: '可用 ChatGPT Plus / Pro',
-                gemini: '可用 Google 订阅'
+                gemini: '可用 Google 订阅',
+                pi: '可用 Claude Pro / Max、ChatGPT Plus / Pro 或 Copilot'
             },
             machine: {
                 yours: '你的机器',
@@ -3555,6 +3559,7 @@ const zh: Translations = {
                 providerUntested: '还没测过模型 · 先去设置里测一次',
                 signedIn: '已登录',
                 inUseBy: '{{count}} 个 agent 在用',
+                sharedAccount: '这台机器上已有 {{count}} 个 agent，其中按账户计费的会一并改用你在这里选的方式。',
                 expired: '凭据过期，选它需要重新登录',
                 aboutAMinute: '约 1 分钟',
                 signInTo: '你的 {{vendor}} 账号',
@@ -3848,6 +3853,7 @@ const zh: Translations = {
                 codex: 'OpenAI 编程 Agent，适合代码库修改、审查和面向工作区的开发任务。',
                 geminiCli:
                     'Google Gemini CLI，用于在托管工作区中编程和执行通用终端自动化。',
+                pi: '开源编程 Agent CLI，可运行在 Anthropic、OpenAI 或 Google 模型上，内置会话、skills 和 AGENTS.md 支持。',
                 narraNexus:
                     '叙事驱动、可热插拔的 Agent 框架，每个运行时都有独立工作区；聊天和 Provider 在 NarraNexus 原生界面中管理。',
                 hermes: '面向连接器、自动化和后台工作流的持久服务 Agent，需要长期运行环境。',
@@ -4724,6 +4730,7 @@ const zh: Translations = {
                 frameworkClaudeCode: 'Claude Code',
                 frameworkCodex: 'Codex',
                 frameworkGeminiCli: 'Gemini CLI',
+                frameworkPi: 'Pi',
                 frameworkOpenclaw: 'OpenClaw',
                 frameworkHermes: 'Hermes',
                 frameworkDify: 'Dify',
@@ -4769,6 +4776,19 @@ const zh: Translations = {
                 openclawModelNameHint:
                     '所选厂商下的模型 id，例如 gpt-4o-mini、claude-3.5-sonnet、anthropic/claude-3.5-sonnet。',
                 openclawBaseUrlLabel: 'Base URL（可选）',
+                piProviderLabel: '模型厂商',
+                piProviderAnthropic: 'Anthropic',
+                piProviderOpenai: 'OpenAI',
+                piProviderGoogle: 'Google Gemini',
+                piApiKeyLabel: 'API Key',
+                piApiKeyHint:
+                    '所选厂商的 API Key；pi 会从该厂商对应的环境变量读取，加密存储。',
+                piBaseUrlLabel: 'Base URL（可选）',
+                piBaseUrlHint:
+                    '自有电脑只接受厂商官方端点；sandbox 还可以使用网关地址。',
+                piModelLabel: '默认模型（可选）',
+                piModelHint:
+                    '按 provider 的命名填写模型 id，例如 claude-sonnet-4-6；留空则使用 pi 为上方所选厂商预设的默认模型。',
                 hermesPrimaryModelSection: '主模型',
                 hermesPrimaryProviderLabel: '模型厂商',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

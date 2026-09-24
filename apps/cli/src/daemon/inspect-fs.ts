@@ -27,6 +27,13 @@ export const codexHomeDir = (): string => {
     return raw ? resolve(expandHome(raw)) : join(homedir(), '.codex')
 }
 
+// pi's agent directory (settings, auth.json, models.json, sessions): the one
+// PI_CODING_AGENT_DIR names, tilde expanded the way pi does, else ~/.pi/agent.
+export const piAgentDir = (): string => {
+    const raw = process.env.PI_CODING_AGENT_DIR?.trim()
+    return raw ? resolve(expandHome(raw)) : join(homedir(), '.pi', 'agent')
+}
+
 export const parseJsonRecord = (
     text: string | null
 ): Record<string, unknown> | null => {
@@ -92,6 +99,7 @@ export interface FrameworkConfigDirs {
     claudeJson: string
     codexHome: string
     geminiDir: string
+    piDir: string
     envAuth: boolean
     // An api-key profile keeps its key in this file and injects it as the
     // vendor env var at execution; its presence is the view's key evidence.
@@ -103,5 +111,6 @@ export const nativeConfigDirs = (): FrameworkConfigDirs => ({
     claudeJson: join(homedir(), '.claude.json'),
     codexHome: codexHomeDir(),
     geminiDir: join(homedir(), '.gemini'),
+    piDir: piAgentDir(),
     envAuth: true
 })

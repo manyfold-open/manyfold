@@ -42,7 +42,14 @@ const fixture = async (shellBody?: string) => {
     await mkdir(bin)
     await mkdir(workspace)
     await writeFile(join(workspace, 'kept.txt'), 'original workspace')
-    for (const name of ['claude', 'codex', 'gemini', 'openclaw', 'hermes']) {
+    for (const name of [
+        'claude',
+        'codex',
+        'gemini',
+        'pi',
+        'openclaw',
+        'hermes'
+    ]) {
         await writeFile(
             join(bin, name),
             '#!/bin/sh\nprintf "fixture 1.0\\n"\n',

@@ -20,9 +20,10 @@ import {
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
+    bindsModelAfterJoin,
     managedChannelFor,
-    serviceRowVerdict
-} from '@/pages/AgentNew/v4/serviceModel'
+    providerRowVerdict
+} from '@/pages/AgentNew/v4/providerBinding'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
 
@@ -80,14 +81,20 @@ export const StepCost: FC<{
     // usage", plus the balance once it is known.
     managedDetail: string
     managedUnavailableReason: string | null
-    // True when the pick decides which provider a service framework is
-    // INSTALLED with (the install happens at create, and the API needs a
-    // concrete channel plus a model name). Then a row the API would refuse —
-    // a protocol this framework cannot speak, a managed channel closed to it,
-    // a key never tested — stays on screen, disabled, and says why. When the
-    // agent joins an instance that already runs, it inherits that instance's
-    // provider and every row is pickable as before.
+    // True when the pick decides which provider the agent is bound to: a
+    // service framework INSTALLED with it at create, or a coding CLI bound
+    // right after it joins (see `bindsModelAfterJoin`). The API needs a
+    // concrete channel plus a model name either way, so a row it would
+    // refuse — a protocol this framework cannot speak, a managed channel
+    // closed to it, a key never tested — stays on screen, disabled, and says
+    // why. When a service agent joins an instance that already runs, it
+    // inherits that instance's provider and every row is pickable as before.
     bindsModel: boolean
+    // How many agents already run on the machine picked in step ②. A coding
+    // CLI's account-level credential belongs to the machine, not to one
+    // agent, so picking one here moves those agents too — said once, under
+    // the rows it applies to.
+    sharedWith: number
     value: CostPick | null
     onChange: (pick: CostPick) => void
     onBackToType: () => void
@@ -100,6 +107,7 @@ export const StepCost: FC<{
     managedDetail,
     managedUnavailableReason,
     bindsModel,
+    sharedWith,
     value,
     onChange,
     onBackToType
@@ -131,7 +139,7 @@ export const StepCost: FC<{
             />
             {ownKeys.map((provider) => {
                 const verdict = bindsModel
-                    ? serviceRowVerdict(framework, provider)
+                    ? providerRowVerdict(framework, provider)
                     : 'usable'
                 return (
                     <OptionRow
@@ -166,6 +174,21 @@ export const StepCost: FC<{
             })}
         </OptionGroup>
     )
+    // Outside the radio group: it is a consequence of the rows above, not one
+    // more thing to pick, and it reads the same whichever of them is chosen.
+    const sharedNote = bindsModelAfterJoin(framework) && sharedWith > 0 && (
+        <p className='text-caption text-subtle mt-2 flex items-start gap-2 px-3'>
+            <InfoIcon
+                className='mt-0.5 h-3.5 w-3.5 shrink-0'
+                aria-hidden='true'
+            />
+            <span>
+                {t('web.agentNewV4.cost.sharedAccount', {
+                    count: String(sharedWith)
+                })}
+            </span>
+        </p>
+    )
     // A framework that calls a model API rather than carrying its own sign-in
     // has no subscription path at all. Say that in as many words and offer the
     // way back, instead of rendering three greyed-out rows that look like a
@@ -174,6 +197,7 @@ export const StepCost: FC<{
         return (
             <>
                 {accountLevel}
+                {sharedNote}
                 <Note>
                     {t('web.agentNewV4.cost.noSubscriptionFor', { vendor })}
                     <button
@@ -254,6 +278,7 @@ export const StepCost: FC<{
                 )}
             </OptionGroup>
             {accountLevel}
+            {sharedNote}
             {/* A sleeping sandbox reports what it last knew rather than being
                 woken to answer this list — waking one starts its billed running
                 time, and nobody asked for that by arriving on this step.

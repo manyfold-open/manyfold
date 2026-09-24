@@ -172,6 +172,7 @@ export class SessionRecoveryService {
                     fs: handle.fs,
                     agentId: agent.id,
                     frameworkSessionRef: ref,
+                    workspacePath: agent.workspacePath,
                     openclawRpc
                 })
             )
@@ -482,6 +483,7 @@ export class SessionRecoveryService {
                     fs: handle.fs,
                     agentId: agent.id,
                     frameworkSessionRef: ref,
+                    workspacePath: agent.workspacePath,
                     openclawRpc
                 })
             )
@@ -637,6 +639,7 @@ export class SessionRecoveryService {
                     fs: handle.fs,
                     agentId: agent.id,
                     frameworkSessionRef: ref,
+                    workspacePath: agent.workspacePath,
                     openclawRpc
                 })
             )
@@ -756,6 +759,7 @@ export class SessionRecoveryService {
                     fs: handle.fs,
                     agentId: agent.id,
                     frameworkSessionRef: ref,
+                    workspacePath: agent.workspacePath,
                     openclawRpc
                 })
             )
@@ -912,6 +916,7 @@ export class SessionRecoveryService {
                     fs: handle.fs,
                     agentId: agent.id,
                     frameworkSessionRef: ref,
+                    workspacePath: agent.workspacePath,
                     openclawRpc
                 })
             )
@@ -1074,7 +1079,8 @@ export class SessionRecoveryService {
             reader.readMessages({
                 fs: handle.fs,
                 agentId: agent.id,
-                frameworkSessionRef: ref
+                frameworkSessionRef: ref,
+                workspacePath: agent.workspacePath
             })
         )
         const warnings = [...result.warnings]

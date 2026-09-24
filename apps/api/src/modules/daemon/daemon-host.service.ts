@@ -18,6 +18,7 @@ import {
     isCliVersionTooOld,
     isObjectId,
     DAEMON_FEATURE_HERDR_TERMINAL,
+    herdrFrameworksFor,
     type UpgradeHerdrResponse
 } from '@manyfold/shared'
 import {
@@ -557,6 +558,11 @@ export class DaemonHostService {
             canOpenInHerdr:
                 host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
                 host.clientFeatures.includes(DAEMON_FEATURE_PTY_COMMAND),
+            herdrFrameworks: host.clientFeatures.includes(
+                DAEMON_FEATURE_PTY_COMMAND
+            )
+                ? herdrFrameworksFor(host.clientFeatures)
+                : [],
             herdrVersion: host.herdrVersion,
             latestHerdrVersion,
             herdrUpdateAvailable: HerdrVersionService.updateAvailable(

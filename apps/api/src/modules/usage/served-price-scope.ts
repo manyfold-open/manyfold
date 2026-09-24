@@ -1,7 +1,10 @@
 import { timingSafeEqual } from 'node:crypto'
 import {
     OFFICIAL_PROVIDER_BASE_URL,
+    PI_OFFICIAL_BASE_URL,
+    PI_PROTOCOL_BY_PROVIDER,
     builtInBaseUrlForProtocol,
+    isPiProvider,
     lookupBuiltIn,
     type AgentFramework,
     type InferenceProtocol
@@ -90,6 +93,11 @@ export const verifiedCodingPriceScope = (input: {
         baseUrl = credentials.googleGeminiBaseUrl
         protocol = 'google_generate_content'
         defaultUrl = OFFICIAL_PROVIDER_BASE_URL.google
+    } else if (input.framework === 'pi' && isPiProvider(credentials.provider)) {
+        key = credentials.apiKey
+        baseUrl = credentials.baseUrl
+        protocol = PI_PROTOCOL_BY_PROVIDER[credentials.provider]
+        defaultUrl = PI_OFFICIAL_BASE_URL[credentials.provider]
     } else return { ...UNKNOWN_PRICE_SCOPE }
     if (typeof key !== 'string' || !key) return { ...UNKNOWN_PRICE_SCOPE }
     const left = Buffer.from(key)

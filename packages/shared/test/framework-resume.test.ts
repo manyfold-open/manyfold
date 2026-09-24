@@ -18,6 +18,13 @@ test('resume argv is each CLI documented resume-by-id form', () => {
         'resume',
         'sess-1'
     ])
+    // `--session-id`, never `--session`: a bare id given to `--session` that
+    // matches a session in another project prompts y/N with no TTY check.
+    assert.deepEqual(frameworkResumeArgv('pi', 'sess-1'), [
+        'pi',
+        '--session-id',
+        'sess-1'
+    ])
 })
 
 // The copied command runs wherever it is pasted, so it must not carry the

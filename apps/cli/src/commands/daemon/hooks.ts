@@ -37,7 +37,7 @@ const printChanges = (changes: SessionHookChange[]): void => {
     if (changes.length === 0) {
         console.log(
             kleur.yellow(
-                'nothing to do: no supported framework (claude / codex) detected on PATH'
+                'nothing to do: no supported framework (claude / codex / pi) detected on PATH'
             )
         )
         return
@@ -84,7 +84,7 @@ export const registerDaemonHooks = (program: Command): void => {
     const hooks = program
         .command('hooks')
         .description(
-            'Session hooks Manyfold installs into claude / codex settings (act only inside Manyfold terminals)'
+            'Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals)'
         )
 
     jsonOption(

@@ -4,6 +4,7 @@ import {
     AgentFramework,
     InferenceProtocol,
     OFFICIAL_PROVIDER_BASE_URL,
+    PI_PROTOCOL_BY_PROVIDER,
     UpdateAgentCredentialsBody,
     UserModelProvider,
     auditAction,
@@ -54,6 +55,7 @@ import type {
     ResolvedClaudeCodeCredentials,
     ResolvedCodexCredentials,
     ResolvedGeminiCliCredentials,
+    ResolvedPiCredentials,
     ResolvedHermesCredentials,
     ResolvedOpenclawCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
@@ -62,6 +64,7 @@ import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
 import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
 import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
 import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
+import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
 import type {
     K8sBootstrapContext,
     K8sFramework,
@@ -107,6 +110,7 @@ export class AgentCredentialsService {
         private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
         private readonly codexK8s: CodexK8sBootstrap,
         private readonly geminiCliK8s: GeminiCliK8sBootstrap,
+        private readonly piK8s: PiK8sBootstrap,
         private readonly runtimeAccess: RuntimeAccessService,
         // Appended LAST and @Optional so positional test construction keeps
         // working; without it, gateway-framework credential updates degrade
@@ -395,11 +399,15 @@ export class AgentCredentialsService {
         if (
             resolved.framework !== 'codex' &&
             resolved.framework !== 'claude-code' &&
-            resolved.framework !== 'gemini-cli'
+            resolved.framework !== 'gemini-cli' &&
+            resolved.framework !== 'pi'
         )
             throw new InternalServerErrorException(
                 `framework ${resolved.framework} should not run on sprites`
             )
+        // Claude Code, Gemini CLI and pi keep nothing a credential decides on
+        // the sprite: the key rides each exec, and pi's endpoint is written
+        // into its platform view at every start (pi-agent-dir.ts).
         if (resolved.framework !== 'codex') return
         if (!agent.spriteName || !agent.accountId || !agent.hostId)
             throw new InternalServerErrorException(
@@ -597,6 +605,8 @@ export class AgentCredentialsService {
                 return this.codexK8s
             case 'gemini-cli':
                 return this.geminiCliK8s
+            case 'pi':
+                return this.piK8s
             case 'narranexus':
                 throw new InternalServerErrorException(
                     'narranexus credentials do not flow through K8s bootstrap apply'
@@ -717,6 +727,17 @@ const providerDetail = (resolved: ResolvedAgentCredentials): ProviderDetail => {
             extras: { model: v.model ?? null }
         }
     }
+    if (resolved.framework === 'pi') {
+        const v = resolved.value as ResolvedPiCredentials
+        return {
+            provider: v.provider,
+            inferenceProtocol:
+                v.inferenceProtocol ?? PI_PROTOCOL_BY_PROVIDER[v.provider],
+            apiKey: v.apiKey ?? null,
+            baseUrl: v.baseUrl ?? null,
+            extras: { model: v.model ?? null }
+        }
+    }
     if (resolved.framework === 'openclaw') {
         const v = resolved.value as ResolvedOpenclawCredentials
         const provider = (v.modelProvider ?? null) as UserModelProvider | null
@@ -766,6 +787,8 @@ const defaultModelFromResolved = (
 ): string | null | undefined => {
     if (resolved.framework === 'gemini-cli')
         return normalizeDefaultModel(resolved.value.model)
+    if (resolved.framework === 'pi')
+        return normalizeDefaultModel(resolved.value.model)
     if (resolved.framework === 'openclaw')
         return normalizeDefaultModel(resolved.value.primaryModelName)
     if (resolved.framework === 'hermes')
@@ -781,6 +804,8 @@ const frameworkBodyKey = (framework: AgentFramework): string => {
             return 'codexCredentials'
         case 'gemini-cli':
             return 'geminiCliCredentials'
+        case 'pi':
+            return 'piCredentials'
         case 'openclaw':
             return 'openclawCredentials'
         case 'hermes':
@@ -817,6 +842,8 @@ const providerSwitchHint = (
     if (framework === 'codex' && body.codexCredentials?.providerId)
         return 'providerId'
     if (framework === 'gemini-cli' && body.geminiCliCredentials?.providerId)
+        return 'providerId'
+    if (framework === 'pi' && body.piCredentials?.providerId)
         return 'providerId'
     if (framework === 'openclaw' && body.openclawCredentials?.providerId)
         return 'providerId'

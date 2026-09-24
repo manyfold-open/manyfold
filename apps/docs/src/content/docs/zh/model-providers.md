@@ -12,6 +12,7 @@ order: 4
 | Anthropic | Claude Code |
 | OpenAI | Codex |
 | Google Gemini | Gemini CLI |
+| Anthropic、OpenAI、Google Gemini | Pi |
 | OpenRouter | 模型路由和兼容模型访问 |
 
 你的工作区也可能有托管模型额度。如果有，创建流程会展示可用选项，而不要求你粘贴个人 API key。

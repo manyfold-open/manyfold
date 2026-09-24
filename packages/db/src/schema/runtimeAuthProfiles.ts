@@ -25,7 +25,7 @@ export const runtimeAuthProfiles = pgTable(
             .notNull()
             .references(() => agentRuntimes.id, { onDelete: 'cascade' }),
         framework: text('framework', {
-            enum: ['claude-code', 'codex', 'gemini-cli']
+            enum: ['claude-code', 'codex', 'gemini-cli', 'pi']
         }).notNull(),
         label: text('label').notNull(),
         authMethod: text('auth_method', {

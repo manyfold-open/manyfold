@@ -12,6 +12,7 @@ export const BINARY_FOR_FRAMEWORK: Record<
     'claude-code': 'claude',
     codex: 'codex',
     'gemini-cli': 'gemini',
+    pi: 'pi',
     openclaw: 'openclaw',
     hermes: 'hermes'
 }
