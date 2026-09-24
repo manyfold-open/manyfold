@@ -1,5 +1,17 @@
 # @manyfold/web
 
+## 2.5.0
+
+### Minor Changes
+
+- [#511](https://github.com/manyfold-open/manyfold/pull/511) [`1b66a70`](https://github.com/manyfold-open/manyfold/commit/1b66a709399ced6506236f64e860b6d0080ea9d4) Thanks [@yingca1](https://github.com/yingca1)! - The workbench and the admin console now take framework names, logos, create-flow entries and per-framework behaviour from the framework registry rather than from fixed lists, so a framework an edition registers shows up wherever the built-in ones do; on the API side, such a framework's own module registers its definition. The composer's agent picker now names Pi, Dify, Langflow and A2A agents instead of showing a generic "Agent", and the admin's framework default-versions page lists frameworks in registry order under their full names.
+
+- [#509](https://github.com/manyfold-open/manyfold/pull/509) [`849e518`](https://github.com/manyfold-open/manyfold/commit/849e51893c1893009b58adc5c91b9360d7c7313b) Thanks [@yingca1](https://github.com/yingca1)! - Framework facts — runtimes, chat capabilities, version sources, reserved env prefixes — now come from one framework registry that an edition can extend with frameworks of its own. An agent whose framework this build does not provide now gets `409 framework_unavailable` instead of an internal error, and the web shows it under its raw framework id instead of failing to render it.
+
+### Patch Changes
+
+- [#518](https://github.com/manyfold-open/manyfold/pull/518) [`073be02`](https://github.com/manyfold-open/manyfold/commit/073be028b918c08466deab398ca1c7c30ccffd11) Thanks [@yingca1](https://github.com/yingca1)! - Pi agents show Pi's own logo, the `Pi` mark from LobeHub's icon set, instead of a hand-drawn π that was not Pi's mark. Like the Hermes mark, it takes the text color, so it stays legible in light and dark mode.
+
 ## 2.4.0
 
 ### Minor Changes
