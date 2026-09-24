@@ -11,11 +11,6 @@ test('runtime image release publishes every immutable runner dependency', () => 
     assert.equal(workflow.permissions.packages, 'write')
     assert.equal(workflow.env.IMAGE_OWNER, 'manyfold-open')
     assert.equal(workflow.env.MF_CLI_VERSION, '0.34.0')
-    assert.equal(workflow.env.NARRANEXUS_REF, 'v1.15.0')
-    assert.equal(
-        workflow.env.NARRANEXUS_SHA,
-        '5869502c9a405b3e762206ecd21ea16540d75794'
-    )
     assert.deepEqual(
         workflow.jobs.manyfold.strategy.matrix.include,
         [
@@ -34,8 +29,17 @@ test('runtime image release publishes every immutable runner dependency', () => 
     const rendered = JSON.stringify(workflow)
     assert.doesNotMatch(rendered, /:latest/)
     assert.match(rendered, /MF_RUNTIME_BASE=/)
-    assert.ok(workflow.jobs.public.needs.includes('manyfold'))
-    assert.ok(workflow.jobs.public.needs.includes('narranexus'))
+    assert.deepEqual(workflow.jobs.public.needs, ['base', 'manyfold'])
+    // The public check covers exactly the images this workflow publishes.
+    const packages = workflow.jobs.manyfold.strategy.matrix.include.map(
+        (entry) => entry.package
+    )
+    const publicCheck = workflow.jobs.public.steps.find((step) => step.run).run
+    assert.ok(
+        publicCheck.includes(
+            `for package in ${['base', ...packages].join(' ')};`
+        )
+    )
     for (const directory of workflow.jobs.manyfold.strategy.matrix.include.map(
         (entry) => entry.directory
     )) {
