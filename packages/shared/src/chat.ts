@@ -3,6 +3,7 @@ import type { ChannelProviderName } from './channels'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
 import type { ChatUsage } from './usage'
 import type { ChatFailureCause } from './chat-failure'
+import { frameworkDefinition } from './frameworks/registry'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
@@ -246,89 +247,20 @@ export const isOpenclawPermissionMode = (
     typeof value === 'string' &&
     openclawPermissionModes.includes(value as OpenclawPermissionMode)
 
-// This table, not the adapter's own getCapabilities(), is what the Web
-// renderer gates thinking and tool blocks on, and nothing in production reads
-// an adapter's declaration at all — so a row that disagrees with its adapter
-// drops blocks the server streamed and persisted, with nothing to say so
-// (#677). Both sides are kept honest by
-// apps/api/test/chat-capability-contract.test.ts, which asserts every row
-// field-for-field against the adapter the registry resolves for that
-// framework.
-export const chatCapabilitiesByFramework: Record<
-    AgentFramework,
-    ChatCapabilities
-> = {
-    'claude-code': {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    codex: {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    'gemini-cli': {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    pi: {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    openclaw: {
-        streaming: true,
-        toolCalls: true,
-        thinking: false,
-        attachments: true,
-        multiTurn: true
-    },
-    hermes: {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    narranexus: {
-        streaming: true,
-        toolCalls: true,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    dify: {
-        streaming: true,
-        toolCalls: false,
-        thinking: true,
-        attachments: true,
-        multiTurn: true
-    },
-    langflow: {
-        streaming: true,
-        toolCalls: false,
-        thinking: false,
-        attachments: false,
-        multiTurn: true
-    },
-    a2a: {
-        streaming: true,
-        toolCalls: false,
-        thinking: false,
-        attachments: false,
-        multiTurn: true
-    }
+// A framework's chat capabilities come from its definition (see
+// FrameworkDefinition.chat for why that table, not the adapter, is what the
+// Web renderer gates on). An id this build does not register renders with
+// the conservative set: plain streamed text, no tool or thinking blocks.
+const UNREGISTERED_FRAMEWORK_CHAT: ChatCapabilities = {
+    streaming: true,
+    toolCalls: false,
+    thinking: false,
+    attachments: false,
+    multiTurn: true
 }
+
+export const chatCapabilitiesFor = (framework: unknown): ChatCapabilities =>
+    frameworkDefinition(framework)?.chat ?? UNREGISTERED_FRAMEWORK_CHAT
 
 export interface ChatError {
     code: string

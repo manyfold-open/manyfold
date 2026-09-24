@@ -1,6 +1,7 @@
 import {
     BUILTIN_BLOCKED_FRAMEWORK_VERSIONS,
     buildManagedPathScript,
+    type CoreVersionedFramework,
     VersionedFramework,
     defaultFrameworkRepo,
     isSemverVersionTag,
@@ -69,7 +70,7 @@ export interface FrameworkVersionDescriptor {
     serviceName?: string
 }
 
-const DESCRIPTORS: Record<VersionedFramework, FrameworkVersionDescriptor> = {
+const DESCRIPTORS = {
     'claude-code': {
         framework: 'claude-code',
         runtimeKind: 'coding',
@@ -136,11 +137,12 @@ const DESCRIPTORS: Record<VersionedFramework, FrameworkVersionDescriptor> = {
             'git -C "$HOME/.narranexus/app" describe --tags 2>/dev/null || true',
         serviceName: 'narranexus'
     }
-}
+} satisfies Record<CoreVersionedFramework, FrameworkVersionDescriptor>
 
 export const frameworkVersionDescriptor = (
     framework: VersionedFramework
-): FrameworkVersionDescriptor => DESCRIPTORS[framework]
+): FrameworkVersionDescriptor =>
+    DESCRIPTORS[framework as CoreVersionedFramework]
 
 export const allFrameworkVersionDescriptors =
     (): FrameworkVersionDescriptor[] => Object.values(DESCRIPTORS)

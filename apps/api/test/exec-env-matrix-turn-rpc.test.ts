@@ -1,11 +1,9 @@
 import {
     MF_RUNTIME_IDENTITY_ENV_KEYS,
-    frameworkCapabilities
+    frameworkCapability,
+    listFrameworks
 } from '@manyfold/shared'
-import type {
-    AgentFramework,
-    AgentRuntime
-} from '@manyfold/shared'
+import type { AgentRuntime } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -239,10 +237,8 @@ test('every transport observed at the seam has a declared surface', async () => 
         return [...seen]
     }
 
-    for (const framework of Object.keys(
-        frameworkCapabilities
-    ) as AgentFramework[]) {
-        const capability = frameworkCapabilities[framework]
+    for (const framework of listFrameworks()) {
+        const capability = frameworkCapability(framework)
         if (capability.kind === 'external') continue
         for (const runtime of capability.runtimes as AgentRuntime[]) {
             // A sprite turn reaches different transports with and without a

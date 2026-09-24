@@ -1,7 +1,4 @@
-import {
-    ChatMessage,
-    chatCapabilitiesByFramework
-} from '@manyfold/shared'
+import { ChatMessage, chatCapabilitiesFor } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -201,9 +198,9 @@ test('a failed file upload terminalizes the turn and never calls chat-messages',
 })
 
 test('dify exposes the attachments capability; langflow and a2a do not', () => {
-    assert.equal(chatCapabilitiesByFramework.dify.attachments, true)
-    assert.equal(chatCapabilitiesByFramework.langflow.attachments, false)
-    assert.equal(chatCapabilitiesByFramework.a2a.attachments, false)
+    assert.equal(chatCapabilitiesFor('dify').attachments, true)
+    assert.equal(chatCapabilitiesFor('langflow').attachments, false)
+    assert.equal(chatCapabilitiesFor('a2a').attachments, false)
     const adapter = new DifyChatAdapter(
         null as never,
         null as never,

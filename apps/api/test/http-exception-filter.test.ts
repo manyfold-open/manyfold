@@ -16,6 +16,7 @@ import {
     type Context,
     type ContextManager
 } from '@opentelemetry/api'
+import { UnknownFrameworkError } from '@manyfold/shared'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 
 // The default no-op context manager ignores context.with(), so getActiveSpan()
@@ -233,4 +234,19 @@ test('a 409 with an object body keeps its stable code', () => {
     assert.equal(captured.status, 409)
     assert.equal(captured.body?.error.code, 'session_held_by_terminal')
     assert.equal(captured.body?.error.message, 'session is open in a terminal')
+})
+
+test('an unregistered framework is a 409 framework_unavailable, not a report', () => {
+    const reported: unknown[] = []
+    const captured: Captured = { headers: {} }
+    new HttpExceptionFilter((e) => reported.push(e)).catch(
+        new UnknownFrameworkError('retired-framework'),
+        fakeHost(captured)
+    )
+    assert.equal(captured.status, 409)
+    assert.equal(captured.body?.error.code, 'framework_unavailable')
+    assert.deepEqual(captured.body?.error.details, {
+        framework: 'retired-framework'
+    })
+    assert.equal(reported.length, 0)
 })

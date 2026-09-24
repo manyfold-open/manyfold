@@ -1,4 +1,4 @@
-import { chatCapabilitiesByFramework } from '@manyfold/shared'
+import { chatCapabilitiesFor } from '@manyfold/shared'
 import type {
     A2aTaskTraceItem,
     ChatMessage
@@ -173,7 +173,7 @@ const TaskDetail: FC<{
         task.assistantMessageId
     ])
 
-    const capabilities = chatCapabilitiesByFramework[agent.framework]
+    const capabilities = chatCapabilitiesFor(agent.framework)
     const elapsed = formatElapsed(task.createdAt, taskEnd(task))
     const tokens = formatTokens(task.usage)
     const cost =

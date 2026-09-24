@@ -1,4 +1,4 @@
-import { chatCapabilitiesByFramework } from '@manyfold/shared'
+import { chatCapabilitiesFor } from '@manyfold/shared'
 import type {
     AgentFramework,
     ChatCapabilities,
@@ -125,7 +125,7 @@ abstract class ExternalApiChatAdapterBase implements ApiChatAdapter {
     ) {}
 
     getCapabilities(): ChatCapabilities {
-        return chatCapabilitiesByFramework[this.framework]
+        return chatCapabilitiesFor(this.framework)
     }
 
     private async persistUpstreamRef(

@@ -1,51 +1,32 @@
 import { compareCliSemver, parseCliSemver } from './cliVersion'
 import { compareSemverPrecedence, isPrereleaseVersion } from './semver'
+import type { AgentFramework } from './frameworks/core'
+import { frameworkDefinition, listFrameworks } from './frameworks/registry'
 
-// Frameworks whose agent CLI carries an installable, upgradeable version on a
-// sprite. dify / langflow / a2a are external-API runtimes with no CLI, so they
-// are intentionally excluded.
-export const versionedFrameworks = [
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'pi',
-    'openclaw',
-    'hermes',
-    'narranexus'
-] as const
-export type VersionedFramework = (typeof versionedFrameworks)[number]
+// Frameworks whose runtime carries an installable, upgradeable version (the
+// ones whose definition declares `version`). The external-API frameworks have
+// no CLI and are intentionally excluded.
+export type VersionedFramework = AgentFramework
+
+export const listVersionedFrameworks = (): readonly AgentFramework[] =>
+    listFrameworks().filter(
+        (framework) => frameworkDefinition(framework)?.version !== undefined
+    )
 
 export const isVersionedFramework = (
     value: unknown
 ): value is VersionedFramework =>
-    typeof value === 'string' &&
-    versionedFrameworks.includes(value as VersionedFramework)
+    frameworkDefinition(value)?.version !== undefined
 
 export type FrameworkUpgradeMode = 'npm' | 'rebuild'
 
-// How each framework's in-place upgrade is driven (null = not upgradeable yet):
+// How a framework's in-place upgrade is driven (null = not upgradeable):
 //  - 'npm'     fast `npm i -g` + ~/.local/bin symlink (synchronous endpoint)
-//  - 'rebuild' heavy git re-clone + build, streamed (narranexus, hermes)
-// hermes re-runs NousResearch's install.sh pinned to a CalVer tag
-// (`--branch v2026.x.y`); the catalog tag is the version of record, not the
-// decoupled pyproject version `hermes --version` prints.
+//  - 'rebuild' heavy git re-clone + build, streamed
 export const frameworkUpgradeMode = (
     framework: unknown
-): FrameworkUpgradeMode | null => {
-    switch (framework) {
-        case 'claude-code':
-        case 'codex':
-        case 'gemini-cli':
-        case 'pi':
-        case 'openclaw':
-            return 'npm'
-        case 'narranexus':
-        case 'hermes':
-            return 'rebuild'
-        default:
-            return null
-    }
-}
+): FrameworkUpgradeMode | null =>
+    frameworkDefinition(framework)?.version?.upgradeMode ?? null
 
 export const isUpgradeableFramework = (framework: unknown): boolean =>
     frameworkUpgradeMode(framework) !== null

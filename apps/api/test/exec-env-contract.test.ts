@@ -1,7 +1,7 @@
 import {
     MF_RUNTIME_IDENTITY_ENV_KEYS,
-    agentFramework,
-    frameworkCapabilities,
+    frameworkCapability,
+    listFrameworks,
     supportsRuntime
 } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
@@ -31,7 +31,7 @@ import {
     withEnv
 } from './exec-env-harness'
 
-const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
+const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
 // Integrity of the exec env surface contract itself: that the vocabulary is
 // pinned, that the table covers every framework × runtime the platform claims
@@ -69,7 +69,7 @@ test('every framework × supported runtime has at least one declared surface', (
     // runtime cannot be added without landing here first.
     const missing: string[] = []
     for (const framework of ALL_FRAMEWORKS) {
-        for (const runtime of frameworkCapabilities[framework].runtimes) {
+        for (const runtime of frameworkCapability(framework).runtimes) {
             if (execEnvSurfacesFor(framework, runtime).length === 0)
                 missing.push(`${framework} × ${runtime}`)
         }
@@ -79,7 +79,7 @@ test('every framework × supported runtime has at least one declared surface', (
 
 test('each coding runtime has exactly one daemon-carried surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
-        const capability = frameworkCapabilities[framework]
+        const capability = frameworkCapability(framework)
         if (capability.kind !== 'coding') continue
         for (const runtime of capability.runtimes) {
             const rows = execEnvSurfacesFor(framework, runtime)
@@ -111,7 +111,7 @@ test('every runner-exec surface carries the full per-exec base env', () => {
 
 test('external frameworks declare exactly one all-absent provider surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
-        if (frameworkCapabilities[framework].kind !== 'external') continue
+        if (frameworkCapability(framework).kind !== 'external') continue
         const rows = execEnvSurfaces.filter(
             (surface) => surface.framework === framework
         )

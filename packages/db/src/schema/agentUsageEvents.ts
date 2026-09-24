@@ -23,20 +23,7 @@ export const agentUsageEvents = pgTable(
         runtimeId: text('runtime_id'),
         sessionId: text('session_id'),
         messageId: text('message_id'),
-        framework: text('framework', {
-            enum: [
-                'openclaw',
-                'hermes',
-                'narranexus',
-                'claude-code',
-                'codex',
-                'gemini-cli',
-                'pi',
-                'dify',
-                'langflow',
-                'a2a'
-            ]
-        }).notNull(),
+        framework: text('framework').notNull(),
         runtimeKind: text('runtime_kind', {
             enum: ['sprites', 'k8s', 'daemon', 'external']
         }).notNull(),

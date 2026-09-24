@@ -31,9 +31,9 @@ import { and, eq, inArray } from 'drizzle-orm'
 import {
     agents,
     type ChannelDeliveryRow,
-    type ChannelOrigin,
     type ChannelRow,
     type Database,
+    type MirrorOrigin,
     type NewChannelRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -436,7 +436,7 @@ export class ChannelsService {
         body: CreateChannelBody,
         opts: {
             externalId?: string | null
-            origin?: ChannelOrigin
+            origin?: MirrorOrigin
         } = {}
     ): Promise<ChannelDetail> {
         await this.assertAgentOwned(userId, body.agentId)
@@ -910,7 +910,7 @@ export class ChannelsService {
         agentId: string,
         provider: ChannelProviderName,
         config: ChannelConfig,
-        origin: ChannelOrigin | null
+        origin: MirrorOrigin | null
     ): Promise<void> {
         if (config.agentManagedReply !== true) return
         if (

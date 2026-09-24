@@ -2,6 +2,22 @@
 // and GET /manyfold/channels) — keep in sync with
 // repos/NarraNexus/backend/routes/manyfold_sync.py.
 
+// The origin a mirrored row carries (a MirrorOrigin): which runtime and which
+// NarraNexus object it came from, plus the content hash of the last sync.
+export type NarraNexusJobOrigin = {
+    kind: 'narranexus'
+    runtimeId: string
+    jobId: string
+    contentHash?: string
+}
+
+export type NarraNexusChannelOrigin = {
+    kind: 'narranexus'
+    runtimeId: string
+    nxAgentId: string
+    contentHash?: string
+}
+
 export interface NarraNexusJob {
     job_id: string
     agent_id: string

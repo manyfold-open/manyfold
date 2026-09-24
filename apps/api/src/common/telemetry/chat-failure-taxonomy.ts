@@ -1,7 +1,4 @@
-import {
-    agentFramework,
-    agentRuntime
-} from '@manyfold/shared'
+import { agentRuntime, isRegisteredFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntime
@@ -49,7 +46,6 @@ export const UNKNOWN_RUNTIME_KIND = 'unknown'
 export type ChatFailureRuntimeKind = AgentRuntime | typeof UNKNOWN_RUNTIME_KIND
 
 const phases: ReadonlySet<string> = new Set(chatTurnPhases)
-const frameworks: ReadonlySet<string> = new Set(Object.values(agentFramework))
 const runtimeKinds: ReadonlySet<string> = new Set([
     ...Object.values(agentRuntime),
     UNKNOWN_RUNTIME_KIND
@@ -59,7 +55,7 @@ export const isChatTurnPhase = (value: unknown): value is ChatTurnPhase =>
     typeof value === 'string' && phases.has(value)
 
 export const isAgentFramework = (value: unknown): value is AgentFramework =>
-    typeof value === 'string' && frameworks.has(value)
+    isRegisteredFramework(value)
 
 export const isChatFailureRuntimeKind = (
     value: unknown

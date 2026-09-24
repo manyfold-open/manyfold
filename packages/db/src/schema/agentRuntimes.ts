@@ -22,20 +22,7 @@ export const agentRuntimes = pgTable(
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
         name: text('name').notNull(),
-        framework: text('framework', {
-            enum: [
-                'openclaw',
-                'hermes',
-                'narranexus',
-                'claude-code',
-                'codex',
-                'gemini-cli',
-                'pi',
-                'dify',
-                'langflow',
-                'a2a'
-            ]
-        }).notNull(),
+        framework: text('framework').notNull(),
         kind: text('kind', {
             enum: ['sprites', 'k8s', 'daemon', 'external']
         }).notNull(),

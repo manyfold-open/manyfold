@@ -1,18 +1,4 @@
-export const agentFramework = {
-    OPENCLAW: 'openclaw',
-    HERMES: 'hermes',
-    NARRA_NEXUS: 'narranexus',
-    CLAUDE_CODE: 'claude-code',
-    CODEX: 'codex',
-    GEMINI_CLI: 'gemini-cli',
-    PI: 'pi',
-    DIFY: 'dify',
-    LANGFLOW: 'langflow',
-    A2A: 'a2a'
-} as const
-
-export type AgentFramework =
-    (typeof agentFramework)[keyof typeof agentFramework]
+export type { AgentFramework, CoreFramework } from './frameworks/core'
 
 export const agentRuntime = {
     SPRITES: 'sprites',

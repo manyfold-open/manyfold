@@ -1,10 +1,11 @@
 import type { ChannelProviderName } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
-import type { AutomationOrigin, ChannelOrigin } from '@manyfold/db'
 import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import type {
     NarraNexusChannelBinding,
-    NarraNexusJob
+    NarraNexusChannelOrigin,
+    NarraNexusJob,
+    NarraNexusJobOrigin
 } from './narranexus-sync.types'
 
 export const RUN_JOB_PROMPT_VERSION = 'v1'
@@ -36,7 +37,7 @@ export interface MappedJob {
     status: 'active' | 'paused'
     nextRunAt: Date | null
     contentHash: string
-    origin: AutomationOrigin
+    origin: NarraNexusJobOrigin
 }
 
 export const mapJob = (
@@ -81,7 +82,7 @@ export interface MappedChannel {
     credentials: Record<string, unknown>
     externalId: string | null
     contentHash: string
-    origin: ChannelOrigin
+    origin: NarraNexusChannelOrigin
 }
 
 export const mapChannel = (

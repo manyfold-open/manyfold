@@ -10,7 +10,6 @@ import {
     MAX_AUTOMATION_RETENTION_DAYS,
     MAX_CHAT_EXEC_TIMEOUT_SECONDS,
     MIN_A2A_TURN_TIMEOUT_SECONDS,
-    agentFramework,
     blockedVersionMessage,
     blockedVersionRangesFor,
     compareCliSemver,
@@ -22,6 +21,7 @@ import {
     frameworkUpgradeMode,
     isFeatureToggleKey,
     isPrereleaseVersion,
+    isRegisteredFramework,
     parseCliSemver,
     resolveChatExecTimeoutMs
 } from '@manyfold/shared'
@@ -124,10 +124,6 @@ const FRAMEWORK_RUNTIME_CHOICES: ReadonlySet<FrameworkRuntimeChoice> = new Set([
     'sprites',
     'k8s'
 ])
-
-const ALL_AGENT_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set(
-    Object.values(agentFramework) as AgentFramework[]
-)
 
 const CONFIGURABLE_FRAMEWORK_RUNTIME_DEFAULTS: ReadonlySet<AgentFramework> =
     new Set(configurableFrameworkRuntimeDefaults)
@@ -1044,7 +1040,7 @@ export class AdminSettingsService {
                 throw new BadRequestException(
                     `framework '${key}' default must be one of: sprites, k8s`
                 )
-            if (!ALL_AGENT_FRAMEWORKS.has(key as AgentFramework))
+            if (!isRegisteredFramework(key))
                 throw new BadRequestException(
                     `unknown framework '${key}' in defaults`
                 )
@@ -1131,6 +1127,7 @@ export class AdminSettingsService {
         // pinning a release the platform refuses to install would fail every
         // create against that framework; reject the pin instead
         for (const [framework, version] of Object.entries(defaults)) {
+            if (!version) continue
             const range = findBlockedVersionRange(
                 version,
                 blockedVersionRangesFor(framework as AgentFramework, {

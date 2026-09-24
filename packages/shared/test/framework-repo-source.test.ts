@@ -2,13 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { AgentFramework } from '../src/constants'
 import {
-    NARRANEXUS_REPO_CANDIDATES,
     defaultFrameworkRepo,
     frameworkRepoCandidates,
     frameworkRepoCloneUrl,
     resolveFrameworkRepo
 } from '../src/frameworkVersionSources'
-import { versionedFrameworks } from '../src/framework-versions'
+import { listVersionedFrameworks } from '../src/framework-versions'
 
 const UPSTREAM = 'NetMindAI-Open/NarraNexus'
 const FORK = 'protagolabs/NarraNexus'
@@ -85,7 +84,7 @@ test('the clone URL rejects anything that could reach the shell', () => {
 // A candidate whose URL named a different org than its slug would reintroduce
 // exactly the catalog/clone split this module exists to prevent.
 test('every candidate URL names that candidate', () => {
-    for (const framework of versionedFrameworks)
+    for (const framework of listVersionedFrameworks())
         for (const candidate of frameworkRepoCandidates(framework))
             assert.equal(
                 frameworkRepoCloneUrl(candidate.repo),
@@ -95,7 +94,7 @@ test('every candidate URL names that candidate', () => {
 })
 
 test('candidate slugs are unique and the default is first', () => {
-    for (const framework of versionedFrameworks) {
+    for (const framework of listVersionedFrameworks()) {
         const repos = frameworkRepoCandidates(framework).map((c) => c.repo)
         assert.equal(new Set(repos).size, repos.length, framework)
         if (repos.length)
@@ -107,7 +106,7 @@ test('candidate slugs are unique and the default is first', () => {
 // choice for a framework whose clone ignores the slug would move the picker
 // without moving the install.
 test('only slug-driven clone paths may offer a choice', () => {
-    for (const framework of versionedFrameworks)
+    for (const framework of listVersionedFrameworks())
         if (frameworkRepoCandidates(framework).length > 1)
             assert.ok(
                 SLUG_DRIVEN_CLONE.includes(framework),
@@ -117,7 +116,7 @@ test('only slug-driven clone paths may offer a choice', () => {
 
 test('narranexus offers both published repositories', () => {
     assert.deepEqual(
-        NARRANEXUS_REPO_CANDIDATES.map((c) => c.repo),
+        frameworkRepoCandidates('narranexus').map((c) => c.repo),
         [UPSTREAM, FORK]
     )
 })

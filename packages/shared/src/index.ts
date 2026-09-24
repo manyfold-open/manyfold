@@ -91,7 +91,6 @@ export {
     type LibraryFilePathValidationResult
 } from './librarySkillFiles'
 export {
-    agentFramework,
     agentRuntime,
     agentRuntimeStatus,
     agentStatus,
@@ -142,6 +141,7 @@ export { apiError } from './envelopes'
 export type { ApiError } from './envelopes'
 export type {
     AgentFramework,
+    CoreFramework,
     AgentRuntime,
     AgentRuntimeStatus,
     AgentStatus,
@@ -531,8 +531,22 @@ export {
     stepsFor
 } from './agent-progress'
 export type { AgentCreateStep, AgentCreateEvent } from './agent-progress'
+export { coreFrameworks } from './frameworks/core'
+export type { CoreVersionedFramework } from './frameworks/core'
+export { UnknownFrameworkError } from './frameworks/definition'
+export type {
+    FrameworkDefinition,
+    FrameworkVersionFacts
+} from './frameworks/definition'
 export {
-    frameworkCapabilities,
+    frameworkDefinition,
+    isCoreFramework,
+    isRegisteredFramework,
+    listFrameworks,
+    registerFramework,
+    requireFrameworkDefinition
+} from './frameworks/registry'
+export {
     frameworkCapability,
     supportsRuntime,
     isExternal,
@@ -580,7 +594,7 @@ export {
     mcpDeliveryFromExtras,
     validateMcpJson
 } from './mcp'
-export { chatCapabilitiesByFramework, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
+export { chatCapabilitiesFor, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
 export {
     agentModelConfigSources,
     claudeCodeModelAliases,
@@ -728,7 +742,7 @@ export {
     safeNpmVersionSpec,
     selectFrameworkInstallVersion,
     shouldInstallFrameworkVersion,
-    versionedFrameworks
+    listVersionedFrameworks
 } from './framework-versions'
 export type {
     FrameworkBlockedVersionRange,
@@ -1063,8 +1077,6 @@ export type {
     UpdateFrameworkDefaultVersionsSettingsBody
 } from './frameworkDefaultVersions'
 export {
-    HERMES_REPO_CANDIDATES,
-    NARRANEXUS_REPO_CANDIDATES,
     defaultFrameworkRepo,
     frameworkRepoCandidates,
     frameworkRepoCloneUrl,

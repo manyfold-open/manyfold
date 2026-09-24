@@ -46,9 +46,9 @@ import {
     chatStreamEvents,
     users,
     type Agent,
-    type AutomationOrigin,
     type AutomationRow,
     type AutomationRunRow,
+    type MirrorOrigin,
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -73,7 +73,7 @@ export interface ManagedAutomationSpec {
     prompt: string
     status: 'active' | 'paused'
     nextRunAt: Date | null
-    origin: AutomationOrigin
+    origin: MirrorOrigin
 }
 
 const MANAGED_RRULE = 'RRULE:FREQ=DAILY;COUNT=1'

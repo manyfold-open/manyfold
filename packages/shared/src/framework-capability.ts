@@ -1,4 +1,9 @@
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentRuntime } from './constants'
+import type { AgentFramework } from './frameworks/core'
+import {
+    frameworkDefinition,
+    requireFrameworkDefinition
+} from './frameworks/registry'
 
 export type FrameworkKind = 'coding' | 'service' | 'external'
 
@@ -28,6 +33,10 @@ export interface FrameworkMcpSupport {
     scopes: readonly FrameworkMcpScope[]
 }
 
+// Framework STATIC facts (ADR-0006), read from the framework registry
+// (ADR-0034). Behavioural per-framework differences (exec/file/terminal/chat
+// adapters, bootstrap implementations) stay explicit in their own modules.
+// `runtimes` is the support set; sandbox/daemon/external all derive from it.
 export interface FrameworkCapability {
     kind: FrameworkKind
     runtimes: readonly AgentRuntime[]
@@ -35,82 +44,29 @@ export interface FrameworkCapability {
     mcp?: FrameworkMcpSupport
 }
 
-// Single source of truth for framework STATIC facts (ADR-0006). Behavioural
-// per-framework differences (exec/file/terminal/chat adapters, bootstrap
-// implementations) stay explicit in their own modules — only policy/facts live
-// here. `runtimes` is the support set; sandbox/daemon/external all derive from it.
-export const frameworkCapabilities: Record<AgentFramework, FrameworkCapability> = {
-    'claude-code': {
-        kind: 'coding',
-        runtimes: ['sprites', 'k8s', 'daemon'],
-        configHome: { rootId: 'claude-home', label: 'Claude config', subdir: '.claude' },
-        mcp: {
-            format: 'json',
-            scopes: [
-                { id: 'user', label: 'User', path: '~/.claude.json' },
-                { id: 'project', label: 'Project', path: '<workspace>/.mcp.json' }
-            ]
-        }
-    },
-    codex: {
-        kind: 'coding',
-        runtimes: ['sprites', 'k8s', 'daemon'],
-        configHome: { rootId: 'codex-home', label: 'Codex config', subdir: '.codex' },
-        mcp: {
-            format: 'toml',
-            scopes: [
-                { id: 'global', label: 'Global', path: '~/.codex/config.toml' }
-            ]
-        }
-    },
-    'gemini-cli': {
-        kind: 'coding',
-        runtimes: ['sprites', 'k8s', 'daemon'],
-        configHome: { rootId: 'gemini-home', label: 'Gemini config', subdir: '.gemini' },
-        mcp: {
-            format: 'json',
-            scopes: [
-                { id: 'user', label: 'User', path: '~/.gemini/settings.json' }
-            ]
-        }
-    },
-    // pi reads MCP servers only through extensions (no config file), so it
-    // carries no `mcp` entry; the config home is the parent of ~/.pi/agent so
-    // the file root shows sessions and settings alike.
-    pi: {
-        kind: 'coding',
-        runtimes: ['sprites', 'k8s', 'daemon'],
-        configHome: { rootId: 'pi-home', label: 'Pi config', subdir: '.pi' }
-    },
-    openclaw: { kind: 'service', runtimes: ['sprites', 'k8s', 'daemon'] },
-    hermes: { kind: 'service', runtimes: ['sprites', 'k8s', 'daemon'] },
-    narranexus: { kind: 'service', runtimes: ['sprites', 'k8s'] },
-    dify: { kind: 'external', runtimes: ['external'] },
-    langflow: { kind: 'external', runtimes: ['external'] },
-    a2a: { kind: 'external', runtimes: ['external'] }
-}
-
+// Throws UnknownFrameworkError for an id this build does not register.
 export const frameworkCapability = (
     framework: AgentFramework
-): FrameworkCapability => frameworkCapabilities[framework]
+): FrameworkCapability => requireFrameworkDefinition(framework)
 
 export const supportsRuntime = (
     framework: AgentFramework,
     runtime: AgentRuntime
-): boolean => frameworkCapabilities[framework].runtimes.includes(runtime)
+): boolean =>
+    frameworkDefinition(framework)?.runtimes.includes(runtime) ?? false
 
 export const isExternal = (framework: AgentFramework): boolean =>
-    frameworkCapabilities[framework].kind === 'external'
+    frameworkDefinition(framework)?.kind === 'external'
 
 export const frameworkMcpSupport = (
     framework: AgentFramework
-): FrameworkMcpSupport | undefined => frameworkCapabilities[framework].mcp
+): FrameworkMcpSupport | undefined => frameworkDefinition(framework)?.mcp
 
 export const isKnownMcpScope = (
     framework: AgentFramework,
     scopeId: string
 ): boolean =>
-    (frameworkCapabilities[framework].mcp?.scopes ?? []).some(
+    (frameworkDefinition(framework)?.mcp?.scopes ?? []).some(
         (scope) => scope.id === scopeId
     )
 
@@ -127,17 +83,13 @@ const MANAGED_AUX_SERVICE_NAMES: ReadonlySet<string> = new Set([
 ])
 
 // A sprites.dev service name is Manyfold-managed when the platform — not the
-// agent — registered it: either a service-kind framework's main service
-// (hermes/openclaw/narranexus) or one of the auxiliary services above. Used
-// to surface such services read-only on the host detail surface and to block
-// their deletion.
+// agent — registered it: either a service-kind framework's main service (named
+// after the framework) or one of the auxiliary services above. Used to surface
+// such services read-only on the host detail surface and to block their
+// deletion.
 export const isServiceFrameworkName = (name: string): boolean =>
     MANAGED_AUX_SERVICE_NAMES.has(name) ||
-    (Object.keys(frameworkCapabilities) as AgentFramework[]).some(
-        (framework) =>
-            framework === name &&
-            frameworkCapabilities[framework].kind === 'service'
-    )
+    frameworkDefinition(name)?.kind === 'service'
 
 // Sprite activity tasks (`/v1/tasks`) registered by the Manyfold platform. The
 // keep-alive lease service names its tasks `nca-<framework>-<unique>-<gen>`;
@@ -147,10 +99,10 @@ export const isServiceFrameworkName = (name: string): boolean =>
 // can't drift.
 export const PLATFORM_TASK_PREFIX = 'nca-'
 
+const LEGACY_KEEPALIVE_SUFFIX = '-keepalive'
+
 export const isPlatformTaskName = (name: string): boolean =>
     name.startsWith(PLATFORM_TASK_PREFIX) ||
-    (Object.keys(frameworkCapabilities) as AgentFramework[]).some(
-        (framework) =>
-            frameworkCapabilities[framework].kind === 'service' &&
-            name === `${framework}-keepalive`
-    )
+    (name.endsWith(LEGACY_KEEPALIVE_SUFFIX) &&
+        frameworkDefinition(name.slice(0, -LEGACY_KEEPALIVE_SUFFIX.length))
+            ?.kind === 'service')
