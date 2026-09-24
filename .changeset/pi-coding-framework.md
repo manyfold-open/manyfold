@@ -16,7 +16,9 @@ Copilot subscription, or an API key). Sessions resume with `pi --session-id`
 in chat and in the terminal, whose new messages sync back to the chat, and
 `mf daemon hooks install` adds Pi's session hook, an extension Pi loads on its
 own: leaving the TUI hands the conversation back, and a session started in the
-terminal joins the chat list when the terminal closes. The composer switches
+terminal joins the chat list when the terminal closes. A Pi turn cut off by an
+API restart finishes under its own message, read back from Pi's session file
+when the runner's stream cannot be picked up again. The composer switches
 between the provider's models and the ones `pi --list-models` offers locally,
 the credentials dialog can move an agent to another vendor's provider, the
 four-step create flow lists Pi, and `mf agent create --framework pi` takes

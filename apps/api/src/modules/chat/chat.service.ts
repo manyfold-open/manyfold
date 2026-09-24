@@ -189,6 +189,10 @@ import {
     recoverTurnFromGeminiSession,
     type GeminiTurnVerdict
 } from '@/modules/chat/recovery/turn-gemini-session-recovery'
+import {
+    recoverTurnFromPiSession,
+    type PiTurnVerdict
+} from '@/modules/chat/recovery/turn-pi-session-recovery'
 import { messageToPromptText } from '@/modules/chat/adapters/message-content'
 import type { RecoveryFs } from '@/modules/chat/recovery/recovery-fs'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
@@ -3319,10 +3323,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // emits only the unseen tail); Codex turns re-poll the rollout (explicit
     // task_started/task_complete framing, per-kind text cursors dedup the
     // delivered prefix); gemini-cli turns re-poll their append-only session
-    // JSONL and emit once at the terminal poll. Frameworks outside that set —
-    // and any recovery miss — close out with the retryable server_restart
-    // terminal. Throwing leaves the lease held-then-lapsing so a later sweep
-    // retries.
+    // JSONL and emit once at the terminal poll; pi turns re-poll their session
+    // file, where each message lands once finished. Frameworks outside that
+    // set — and any recovery miss — close out with the retryable
+    // server_restart terminal. Throwing leaves the lease held-then-lapsing so
+    // a later sweep retries.
     async adoptTurnExecution(row: TurnExecutionRow): Promise<void> {
         if (this.drainingForShutdown) return
         if (this.runningAdapters.has(row.messageId)) return
@@ -3383,7 +3388,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             const adoptable =
                 agentCtx.framework === 'claude-code' ||
                 ((agentCtx.framework === 'codex' ||
-                    agentCtx.framework === 'gemini-cli') &&
+                    agentCtx.framework === 'gemini-cli' ||
+                    agentCtx.framework === 'pi') &&
                     !!session.frameworkSessionRef)
             if (!adoptable || !this.execDrivers) {
                 // A daemon-carried turn may still be executing inside its
@@ -3576,7 +3582,25 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             checkExecAlive,
                             generation: fence.generation
                         })
-                      : adopted()
+                      : agentCtx.framework === 'pi'
+                        ? this.adoptedPiLiveStream({
+                              fs: fsHandle.fs,
+                              frameworkSessionRef: expectedSessionRef,
+                              workspacePath: agentCtx.workspacePath,
+                              promptText,
+                              baseline: deliveredBaseline,
+                              model: agentCtx.model,
+                              messageCreatedAt: message.createdAt,
+                              settledLines: session.runtimeSyncCursor ?? null,
+                              sessionId: session.id,
+                              agentId: session.agentId,
+                              messageId: row.messageId,
+                              adoptCount: row.adoptCount,
+                              abortSignal: abortController.signal,
+                              checkExecAlive,
+                              fence
+                          })
+                        : adopted()
             try {
                 adoptOutcome = await this.runAdapterFromIterable(
                     adoptedStream,
@@ -4249,6 +4273,198 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     ownerId,
                     TURN_LEASE_SECONDS,
                     args.generation
+                )
+                if (!renewed) throw new TurnFenceLostError(args.messageId)
+            }
+            await this.abortableSleep(
+                ADOPT_REPOLL_INTERVAL_MS,
+                args.abortSignal
+            )
+        }
+    }
+
+    // pi twin of adoptedCodexLiveStream: re-poll the session file, where pi
+    // appends each message once it is finished, and stream what lies past the
+    // line cursor. Tool events keep the live stream's ids (pi's own tool-call
+    // ids), so they dedup by id; text aligns against the delivered prefix as
+    // everywhere else. A settled turn records the file's line count as the
+    // session's runtime-sync cursor, as the adapter does, so the next sync
+    // does not read this turn back as TUI output.
+    private async *adoptedPiLiveStream(args: {
+        fs: RecoveryFs
+        frameworkSessionRef: string
+        workspacePath: string | null
+        promptText: string
+        baseline: DeliveredBaseline
+        model: string | null
+        messageCreatedAt: Date
+        settledLines: number | null
+        sessionId: string
+        agentId: string
+        messageId: string
+        adoptCount: number
+        abortSignal: AbortSignal
+        checkExecAlive?: () => Promise<boolean>
+        fence: TurnExecutionFence
+    }): AsyncIterable<EmittedChatEvent> {
+        const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
+        const ownerId = this.turnAdoption?.ownerId
+        const interceptor = createAdoptionInterceptor(args.baseline, {
+            toolDedup: 'id'
+        })
+        let sinceLine = 0
+        let previousLineCount: number | null = null
+        let lastProgress = -1
+        let stall = 0
+        let failedStreak = 0
+        let polls = 0
+        const settleCursor = async (lineCount: number): Promise<void> => {
+            await this.repo
+                .setRuntimeSyncCursor(args.sessionId, lineCount, args.fence)
+                .catch((err: Error) => {
+                    if (err instanceof TurnFenceLostError) throw err
+                    this.logger.warn(
+                        `pi adopt cursor persist failed session=${args.sessionId}: ${err.message}`
+                    )
+                })
+        }
+        for (;;) {
+            if (args.abortSignal.aborted) {
+                yield cancelledByUserEvent()
+                return
+            }
+            const verdict: PiTurnVerdict = await recoverTurnFromPiSession({
+                fs: args.fs,
+                frameworkSessionRef: args.frameworkSessionRef,
+                workspacePath: args.workspacePath,
+                promptText: args.promptText,
+                model: args.model,
+                messageCreatedAt: args.messageCreatedAt,
+                settledLines: args.settledLines,
+                sinceLine,
+                previousLineCount
+            }).catch(
+                (err): PiTurnVerdict => ({
+                    outcome: 'failed',
+                    detail: err instanceof Error ? err.message : String(err)
+                })
+            )
+            polls += 1
+            if (verdict.outcome !== 'failed') {
+                for (const ev of verdict.events) {
+                    const res = interceptor.intercept(ev)
+                    if (res.mismatch) {
+                        this.logger.warn(
+                            `pi adopt session diverged messageId=${args.messageId}: ${res.mismatch}`
+                        )
+                        this.telemetry.event('chat.turn.adopt_result_lost', {
+                            sessionId: args.sessionId,
+                            agentId: args.agentId,
+                            assistantMessageId: args.messageId,
+                            reason: `session diverged: ${res.mismatch}`,
+                            polls
+                        })
+                        yield interruptedErrorEvent()
+                        return
+                    }
+                    for (const out of res.events) yield out
+                }
+                sinceLine = verdict.lastSourceSeq
+                previousLineCount = verdict.lastSourceSeq
+            }
+            this.logger.log(
+                `adopt poll (pi) messageId=${args.messageId} #${polls} outcome=${verdict.outcome} ` +
+                    `detail=${'detail' in verdict ? verdict.detail : ''} lastSourceSeq=${
+                        'lastSourceSeq' in verdict ? verdict.lastSourceSeq : ''
+                    } stall=${stall} failed=${failedStreak}`
+            )
+            if (verdict.outcome === 'recovered') {
+                await settleCursor(verdict.lastSourceSeq)
+                this.telemetry.event('chat.turn.adopt_recovered', {
+                    sessionId: args.sessionId,
+                    agentId: args.agentId,
+                    assistantMessageId: args.messageId,
+                    recoveredLines: verdict.recoveredLines,
+                    adoptCount: args.adoptCount,
+                    polls
+                })
+                const usageRes = interceptor.intercept({
+                    type: 'usage',
+                    usage: verdict.usage
+                })
+                for (const out of usageRes.events) yield out
+                yield { type: 'done', finalMessageId: args.messageId }
+                return
+            }
+            if (verdict.outcome === 'turn_failed') {
+                await settleCursor(verdict.lastSourceSeq)
+                this.telemetry.event('chat.turn.adopt_result_lost', {
+                    sessionId: args.sessionId,
+                    agentId: args.agentId,
+                    assistantMessageId: args.messageId,
+                    reason: verdict.errorMessage
+                        ? 'turn error'
+                        : 'turn aborted',
+                    polls
+                })
+                // The error the turn would have ended on had its stream
+                // lived; an abort is the process being stopped, which a
+                // retry answers.
+                yield verdict.errorMessage
+                    ? {
+                          type: 'error',
+                          error: {
+                              code: 'pi_result_error',
+                              message: verdict.errorMessage,
+                              retryable: false
+                          }
+                      }
+                    : interruptedErrorEvent()
+                return
+            }
+            if (verdict.outcome === 'result_lost') {
+                failedStreak = 0
+                if (verdict.lastSourceSeq > lastProgress) {
+                    lastProgress = verdict.lastSourceSeq
+                    stall = 0
+                } else {
+                    stall += 1
+                }
+            } else {
+                failedStreak += 1
+            }
+            let giveUp: string | null = null
+            if (Date.now() >= deadline) giveUp = `deadline (${polls} polls)`
+            else if (failedStreak >= ADOPT_REPOLL_FAILED_LIMIT)
+                giveUp = `session unreadable (${failedStreak})`
+            else if (stall >= ADOPT_REPOLL_STALL_LIMIT) {
+                const alive = args.checkExecAlive
+                    ? await args.checkExecAlive().catch(() => null)
+                    : null
+                if (alive === true) stall = 0
+                else
+                    giveUp =
+                        alive === false
+                            ? 'exec session ended'
+                            : 'no session growth'
+            }
+            if (giveUp) {
+                this.telemetry.event('chat.turn.adopt_result_lost', {
+                    sessionId: args.sessionId,
+                    agentId: args.agentId,
+                    assistantMessageId: args.messageId,
+                    reason: giveUp,
+                    polls
+                })
+                yield interruptedErrorEvent()
+                return
+            }
+            if (ownerId) {
+                const renewed = await this.repo.renewTurnLease(
+                    args.messageId,
+                    ownerId,
+                    TURN_LEASE_SECONDS,
+                    args.fence.generation
                 )
                 if (!renewed) throw new TurnFenceLostError(args.messageId)
             }

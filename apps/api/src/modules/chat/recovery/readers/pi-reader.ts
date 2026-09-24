@@ -131,7 +131,7 @@ const PI_SESSION_FILE = /_([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\.jsonl$/
 export const piRefFromPath = (path: string): string | null =>
     path.match(PI_SESSION_FILE)?.[1] ?? null
 
-interface PiEntry {
+export interface PiEntry {
     type?: unknown
     id?: unknown
     parentId?: unknown
@@ -242,19 +242,22 @@ interface PendingAssistant {
     sources: RecoveredRawSource[]
 }
 
+export interface PiPathEntry {
+    entry: PiEntry
+    lineNo: number
+}
+
 // pi's session file is a tree: every entry names its parent, a branch appends
 // children to an earlier entry, and the current position is the last entry
 // written. The conversation is the path from that leaf back to the root, so
 // entries off the path (abandoned branches) are read but not reported.
-export const parsePiJsonl = (
+export const piSessionPath = (
     text: string,
-    sourceFile?: string | null,
     sourceRef?: string | null
-): Pick<ReaderResult, 'messages' | 'warnings' | 'lineCount'> => {
+): { path: PiPathEntry[]; lines: string[]; warnings: string[] } => {
     const warnings: string[] = []
     const lines = text.split('\n')
-    const lineCount = text.endsWith('\n') ? lines.length - 1 : lines.length
-    const byId = new Map<string, { entry: PiEntry; lineNo: number }>()
+    const byId = new Map<string, PiPathEntry>()
     let leafId: string | null = null
     let header: PiEntry | null = null
     let lineNo = 0
@@ -294,7 +297,7 @@ export const parsePiJsonl = (
             `session header id ${header.id} differs from ref ${sourceRef}`
         )
 
-    const path: Array<{ entry: PiEntry; lineNo: number }> = []
+    const path: PiPathEntry[] = []
     const seen = new Set<string>()
     let cursor: string | null = leafId
     while (cursor) {
@@ -313,6 +316,16 @@ export const parsePiJsonl = (
             typeof node.entry.parentId === 'string' ? node.entry.parentId : null
     }
     path.reverse()
+    return { path, lines, warnings }
+}
+
+export const parsePiJsonl = (
+    text: string,
+    sourceFile?: string | null,
+    sourceRef?: string | null
+): Pick<ReaderResult, 'messages' | 'warnings' | 'lineCount'> => {
+    const { path, lines, warnings } = piSessionPath(text, sourceRef)
+    const lineCount = text.endsWith('\n') ? lines.length - 1 : lines.length
 
     const messages: RecoveredMessage[] = []
     let pending: PendingAssistant | null = null
