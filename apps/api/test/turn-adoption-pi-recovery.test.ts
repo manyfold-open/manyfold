@@ -1,11 +1,8 @@
-import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { TurnExecutionRow } from '@manyfold/db'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
-import { ChatService } from '../src/modules/chat/chat.service'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
@@ -19,6 +16,7 @@ import {
     recoverTurnFromPiSession,
     type PiTurnVerdict
 } from '../src/modules/chat/recovery/turn-pi-session-recovery'
+import { runAdoption } from './turn-adoption-harness'
 
 // The fixtures are one real pi 0.87.1 run against a local stub (macOS dev
 // [2026-09-23]): session.jsonl is the session file that run wrote, and
@@ -414,186 +412,20 @@ const shifted = (text: string, byMs: number): string =>
 
 test('an orphaned pi turn is adopted from its session file and settles the sync cursor', async () => {
     const now = new Date()
-    const session = shifted(
-        upTo('session.jsonl', 8),
-        now.getTime() - CREATED_AT.getTime()
-    )
     const stdout = fixture('turn-tool-call.stdout.jsonl').split('\n')
     const cut =
         stdout.findIndex((l) => l.includes('"type":"tool_execution_start"')) + 1
-    const delivered = await streamed(stdout.slice(0, cut).join('\n') + '\n')
-    const emitted: Array<{ type: string; payload: Record<string, unknown> }> =
-        []
-    const cursors: Array<{ cursor: number | null; fenced: boolean }> = []
-    const usage: Array<Record<string, unknown>> = []
-    const agentRow = {
-        id: 'agent-1',
-        userId: 'user-1',
+    const { emitted, cursors, usage } = await runAdoption({
         framework: 'pi',
-        runtime: 'sprites',
-        runtimeId: 'runtime-1',
-        model: 'claude-sonnet-4-6',
-        modelProviderId: null,
-        modelProviderBuiltInId: null,
-        daemonId: null,
-        spriteName: 'sprite-1',
-        workspacePath: '/w'
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                leftJoin: () => ({
-                    where: () => ({ limit: async () => [agentRow] })
-                }),
-                where: () => ({ limit: async () => [agentRow] })
-            })
-        }),
-        update: () => ({ set: () => ({ where: async () => undefined }) })
-    }
-    const execRow = {
-        messageId: 'assistant-1',
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        runtime: 'sprites',
-        spriteName: 'sprite-1',
-        execSessionId: null,
-        upstreamTaskId: null,
-        upstreamMessageId: null,
-        ownerId: 'instance-under-test',
-        generation: 2,
-        leaseExpiresAt: new Date(0),
-        state: 'adopting',
-        adoptCount: 1,
-        createdAt: new Date(0),
-        updatedAt: new Date(0)
-    } as unknown as TurnExecutionRow
-    const repo = {
-        getSessionById: async () => ({
-            id: 'session-1',
-            userId: 'user-1',
-            agentId: 'agent-1',
-            title: null,
-            frameworkSessionRef: REF,
-            runtimeSyncCursor: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        }),
-        getMessageById: async () => ({
-            id: 'assistant-1',
-            sessionId: 'session-1',
-            role: 'assistant' as const,
-            daemonId: 'dh_runner',
-            daemonExecRef: 'assistant-1',
-            contentBlocksJson: [],
-            capabilityEventsJson: null,
-            cancelRequestedAt: null,
-            abortDispatchedAt: null,
-            createdAt: now
-        }),
-        getTurnExecution: async () => ({ ...execRow, state: 'running' }),
-        maxStreamEventSeq: async () => delivered.length,
-        listStreamEventsSince: async () =>
-            delivered.map((e, i) => ({
-                id: BigInt(i + 1),
-                eventType: e.type,
-                payloadJson: e,
-                sourceEventKey: null,
-                sourceEventOrdinal: null
-            })),
-        listMessageSourceRows: async () => [],
-        listForeignSourceUuids: async () => new Set<string>(),
-        latestUserMessageBefore: async () => ({
-            id: 'user-msg-1',
-            sessionId: 'session-1',
-            role: 'user' as const,
-            daemonId: null,
-            daemonExecRef: null,
-            contentBlocksJson: [{ type: 'text', text: FIRST_PROMPT }],
-            capabilityEventsJson: null,
-            cancelRequestedAt: null,
-            abortDispatchedAt: null,
-            createdAt: new Date(now.getTime() - 1000)
-        }),
-        setRuntimeSyncCursor: async (
-            _sessionId: string,
-            cursor: number | null,
-            fence?: unknown
-        ) => {
-            cursors.push({ cursor, fenced: fence !== undefined })
-        },
-        touchSession: async () => undefined,
-        upsertMessageSources: async (rows: unknown[]) => ({
-            upserted: rows.length,
-            fenceLost: false
-        }),
-        writeAssistantContent: async () => ({
-            written: true,
-            fenceLost: false
-        }),
-        releaseInflightTurn: async () => true,
-        renewTurnLease: async () => true,
-        handoffOwnedTurn: async () => true,
-        daemonSeenWithin: async () => false
-    }
-    const record = async (
-        _messageId: string,
-        event: { type: string; payload: Record<string, unknown> }
-    ) => {
-        emitted.push({ type: event.type, payload: event.payload })
-        return { persisted: true, fenceLost: false }
-    }
-    const broadcaster = {
-        hasStream: () => false,
-        beginStream: () => undefined,
-        setStreamFence: () => undefined,
-        beginResumeStream: async () => undefined,
-        endStream: () => undefined,
-        emit: record,
-        emitDetached: async (
-            messageId: string,
-            event: { type: string; payload: Record<string, unknown> }
-        ) => {
-            await record(messageId, event)
-        }
-    }
-    const execDrivers = {
-        recoveryFsForAgent: async () => ({
-            fs: fsOf(session),
-            agent: agentRow,
-            spritesClient: null
-        })
-    }
-    const service = new ChatService(
-        db as never,
-        withRunnerCursors(repo as never),
-        broadcaster as never,
-        { get: () => ({ framework: 'pi' }) } as never,
-        {
-            record: async (row: { usage: Record<string, unknown> }) => {
-                usage.push(row.usage)
-            }
-        } as never,
-        {} as never,
-        { publishStatus: () => undefined } as never,
-        { event: () => undefined, error: () => undefined } as never,
-        undefined as never,
-        undefined as never,
-        undefined as never,
-        undefined,
-        undefined,
-        undefined,
-        readyChatRunner(execDrivers as never),
-        undefined,
-        { emit: () => undefined } as never,
-        {
-            ownerId: 'instance-under-test',
-            enabled: true,
-            kick: () => {},
-            stopClaiming: async () => undefined
-        } as never
-    )
-
-    await service.adoptTurnExecution(execRow)
+        transcript: shifted(
+            upTo('session.jsonl', 8),
+            now.getTime() - CREATED_AT.getTime()
+        ),
+        delivered: await streamed(stdout.slice(0, cut).join('\n') + '\n'),
+        prompt: FIRST_PROMPT,
+        createdAt: now,
+        frameworkSessionRef: REF
+    })
 
     const types = emitted.map((e) => e.type)
     assert.equal(types.at(-1), 'done')

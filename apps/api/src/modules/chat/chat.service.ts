@@ -3564,7 +3564,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                           adoptCount: row.adoptCount,
                           abortSignal: abortController.signal,
                           checkExecAlive,
-                          generation: fence.generation
+                          fence
                       })
                     : agentCtx.framework === 'gemini-cli'
                       ? this.adoptedGeminiLiveStream({
@@ -3933,7 +3933,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // and the sinceLine cursor makes every row emit exactly once. The
     // delivered prefix is suppressed by per-kind text cursors + tool COUNT
     // skip (rollout ids never match the delivered stdout item ids); any text
-    // divergence between the rollout and the delivered log fails loudly.
+    // divergence between the rollout and the delivered log fails loudly. The
+    // session's runtime-sync cursor settles as the adapter's would: the
+    // rollout's line count for a completed turn, cleared for any other end,
+    // so the next sync never reads this turn back as the TUI's.
     private async *adoptedCodexLiveStream(args: {
         fs: RecoveryFs
         frameworkSessionRef: string
@@ -3947,7 +3950,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         adoptCount: number
         abortSignal: AbortSignal
         checkExecAlive?: () => Promise<boolean>
-        generation: number
+        fence: TurnExecutionFence
     }): AsyncIterable<EmittedChatEvent> {
         const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
         const ownerId = this.turnAdoption?.ownerId
@@ -3994,6 +3997,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             reason: `rollout diverged: ${res.mismatch}`,
                             polls
                         })
+                        await this.settleAdoptedCursor(args, null)
                         yield interruptedErrorEvent()
                         return
                     }
@@ -4008,6 +4012,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     } stall=${stall} failed=${failedStreak}`
             )
             if (verdict.outcome === 'recovered') {
+                await this.settleAdoptedCursor(args, verdict.lineCount)
                 this.telemetry.event('chat.turn.adopt_recovered', {
                     sessionId: args.sessionId,
                     agentId: args.agentId,
@@ -4032,6 +4037,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     reason: `turn ${verdict.detail}`,
                     polls
                 })
+                await this.settleAdoptedCursor(args, null)
                 yield interruptedErrorEvent()
                 return
             }
@@ -4069,6 +4075,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     reason: giveUp,
                     polls
                 })
+                await this.settleAdoptedCursor(args, null)
                 yield interruptedErrorEvent()
                 return
             }
@@ -4077,7 +4084,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     args.messageId,
                     ownerId,
                     TURN_LEASE_SECONDS,
-                    args.generation
+                    args.fence.generation
                 )
                 if (!renewed) throw new TurnFenceLostError(args.messageId)
             }
@@ -4318,16 +4325,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let stall = 0
         let failedStreak = 0
         let polls = 0
-        const settleCursor = async (lineCount: number): Promise<void> => {
-            await this.repo
-                .setRuntimeSyncCursor(args.sessionId, lineCount, args.fence)
-                .catch((err: Error) => {
-                    if (err instanceof TurnFenceLostError) throw err
-                    this.logger.warn(
-                        `pi adopt cursor persist failed session=${args.sessionId}: ${err.message}`
-                    )
-                })
-        }
         for (;;) {
             if (args.abortSignal.aborted) {
                 yield cancelledByUserEvent()
@@ -4379,7 +4376,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     } stall=${stall} failed=${failedStreak}`
             )
             if (verdict.outcome === 'recovered') {
-                await settleCursor(verdict.lastSourceSeq)
+                await this.settleAdoptedCursor(args, verdict.lastSourceSeq)
                 this.telemetry.event('chat.turn.adopt_recovered', {
                     sessionId: args.sessionId,
                     agentId: args.agentId,
@@ -4397,7 +4394,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 return
             }
             if (verdict.outcome === 'turn_failed') {
-                await settleCursor(verdict.lastSourceSeq)
+                await this.settleAdoptedCursor(args, verdict.lastSourceSeq)
                 this.telemetry.event('chat.turn.adopt_result_lost', {
                     sessionId: args.sessionId,
                     agentId: args.agentId,
@@ -4473,6 +4470,24 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 args.abortSignal
             )
         }
+    }
+
+    // Where an adopted turn leaves the session's runtime-sync cursor, under
+    // the adopter's fence (see chatSessions.runtimeSyncCursor): a settled
+    // transcript's line count, or null to send the next sync to the content
+    // diff. A lost fence propagates; any other write failure is only logged.
+    private async settleAdoptedCursor(
+        args: { sessionId: string; fence: TurnExecutionFence },
+        cursor: number | null
+    ): Promise<void> {
+        await this.repo
+            .setRuntimeSyncCursor(args.sessionId, cursor, args.fence)
+            .catch((err: Error) => {
+                if (err instanceof TurnFenceLostError) throw err
+                this.logger.warn(
+                    `adopted turn cursor persist failed session=${args.sessionId}: ${err.message}`
+                )
+            })
     }
 
     // Resume only from a proven durable transport watermark.

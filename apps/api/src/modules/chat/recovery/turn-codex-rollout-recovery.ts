@@ -39,6 +39,9 @@ export type CodexTurnVerdict =
           lastSourceSeq: number
           sourceFile: string
           recoveredLines: number
+          // The rollout's newline-terminated lines as read (`wc -l`): what
+          // the session's runtime-sync cursor records for a settled turn.
+          lineCount: number
       }
 
 // Same location scheme as CodexSessionReader (session import) — the rollout
@@ -382,7 +385,8 @@ export const recoverTurnFromCodexRollout = async (args: {
             usage,
             lastSourceSeq: lastLine,
             sourceFile,
-            recoveredLines
+            recoveredLines,
+            lineCount: (text.match(/\n/g) ?? []).length
         }
     } catch (err) {
         return {

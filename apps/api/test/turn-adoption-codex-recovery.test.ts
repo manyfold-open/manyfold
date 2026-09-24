@@ -5,6 +5,7 @@ import {
     type CodexTurnVerdict
 } from '../src/modules/chat/recovery/turn-codex-rollout-recovery'
 import type { RecoveryFs } from '../src/modules/chat/recovery/recovery-fs'
+import { runAdoption } from './turn-adoption-harness'
 
 // The codex rollout carries explicit turn framing (task_started/task_complete
 // by turn_id) and mirrors the CLI's stdout text verbatim in event_msg rows —
@@ -237,4 +238,65 @@ test('raw_source rows carry the rollout line and a stable id', async () => {
     const callSource = sources.find((s) => s.source.externalId === 'call_A')
     assert.ok(callSource, 'tool rows key by call_id')
     assert.ok(callSource.source.rawText.includes('function_call'))
+})
+
+test('a completed turn reports the rollout line count its cursor settles at', async () => {
+    const v = await recover(fullTurn)
+    assert.equal(v.outcome, 'recovered')
+    if (v.outcome !== 'recovered') return
+    assert.equal(v.lineCount, fullTurn.length)
+})
+
+// The adoption itself settles the session's runtime-sync cursor the way the
+// adapter does at the end of a live turn, or the next sync takes the adopted
+// turn's rollout rows for something the TUI added.
+test('an adopted codex turn settles the sync cursor at the rollout line count', async () => {
+    const { emitted, cursors } = await runAdoption({
+        framework: 'codex',
+        transcript: fullTurn.join('\n') + '\n',
+        // What the dead relay delivered: the reasoning, the first message and
+        // the call, under the live stream's own ids.
+        delivered: [
+            { type: 'thinking', text: '**Planning the run**' },
+            { type: 'token', text: 'Running it now.' },
+            {
+                type: 'tool_call',
+                toolCallId: 'item_1',
+                toolName: 'command_execution',
+                args: { cmd: 'echo hi' }
+            }
+        ],
+        prompt: 'run the probe',
+        createdAt: new Date(),
+        frameworkSessionRef: 'thread-1'
+    })
+    assert.equal(emitted.at(-1)?.type, 'done')
+    assert.equal(
+        emitted
+            .filter((e) => e.type === 'token')
+            .map((e) => e.payload.text)
+            .join(''),
+        'Done: hi'
+    )
+    assert.deepEqual(cursors, [{ cursor: fullTurn.length, fenced: true }])
+})
+
+test('an adopted codex turn that ended any other way clears the cursor', async () => {
+    const { emitted, cursors } = await runAdoption({
+        framework: 'codex',
+        transcript:
+            [
+                ...priorTurn,
+                row.taskStarted('turn-1'),
+                row.userMessage('run the probe'),
+                row.agentMessage('Running it now.'),
+                row.turnAborted('turn-1')
+            ].join('\n') + '\n',
+        delivered: [{ type: 'token', text: 'Running it now.' }],
+        prompt: 'run the probe',
+        createdAt: new Date(),
+        frameworkSessionRef: 'thread-1'
+    })
+    assert.equal(emitted.at(-1)?.type, 'error')
+    assert.deepEqual(cursors, [{ cursor: null, fenced: true }])
 })

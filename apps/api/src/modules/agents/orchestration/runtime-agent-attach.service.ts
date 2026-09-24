@@ -32,6 +32,7 @@ import { NotSupportedError } from '@/modules/agents/adapters/agent-adapter'
 import { agentRowToSummary } from '@/modules/agents/agents.service'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
+import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import { SkillsService } from '@/modules/skills/skills.service'
@@ -81,7 +82,9 @@ export class RuntimeAgentAttachService {
         private readonly credentialsResolver: CredentialsResolverService,
         private readonly skills: SkillsService,
         @Optional()
-        private readonly modelConfig?: AgentModelConfigService
+        private readonly modelConfig?: AgentModelConfigService,
+        @Optional()
+        private readonly contextDoc?: AgentContextDocManageService
     ) {}
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
@@ -318,6 +321,11 @@ export class RuntimeAgentAttachService {
                 framework: inserted.framework,
                 runtime: inserted.runtime
             })
+            // A created agent's bootstrap writes its context doc; one added
+            // to a sandbox that is already there runs none, so it is written
+            // now. A daemon's arrives with its configuration delivery.
+            if (inserted.runtime === 'sprites' && isCodingAgentRuntime)
+                await this.contextDoc?.refreshOnChange(inserted)
             return agentRowToSummary(inserted, null, false, {
                 controlUiEnabled: runtime.controlUiEnabled,
                 dashboardEnabled: runtime.dashboardEnabled,
