@@ -38,7 +38,8 @@ import type {
 export const FIXTURE = 'fixture-gateway'
 export const FIXTURE_UPSTREAM = 'example-org/fixture-gateway'
 export const FIXTURE_FORK = 'fork-org/fixture-gateway'
-const HOME = '/home/sprite/.fixture-gateway'
+export const FIXTURE_HOME = '/home/sprite/.fixture-gateway'
+const HOME = FIXTURE_HOME
 export const FIXTURE_WORKSPACE = `${HOME}/workspaces/agent-1`
 
 export const fixtureDefinition: FrameworkDefinition = {
@@ -69,10 +70,13 @@ export const fixtureDefinition: FrameworkDefinition = {
 }
 registerFramework(fixtureDefinition)
 
-const cloneShell = (version: string, repo: string): string =>
-    `git clone --depth 1 --branch "${version}" "${frameworkRepoCloneUrl(repo)}" "${HOME}/app"`
+const cloneShell = (version: string, repo: string, home = HOME): string =>
+    `git clone --depth 1 --branch "${version}" "${frameworkRepoCloneUrl(repo)}" "${home}/app"`
 
-export const FIXTURE_RESTORE_SHELL = `mv "${HOME}/app.bak" "${HOME}/app"`
+const restoreShell = (home: string): string =>
+    `mv "${home}/app.bak" "${home}/app"`
+
+export const FIXTURE_RESTORE_SHELL = restoreShell(HOME)
 
 export const fixtureVersion: FrameworkVersionExtension = {
     descriptor: {
@@ -83,9 +87,9 @@ export const fixtureVersion: FrameworkVersionExtension = {
         probeShell: `git -C "${HOME}/app" describe --tags 2>/dev/null || true`,
         serviceName: FIXTURE
     },
-    rebuildShells: ({ version, repo }) => ({
-        rebuild: cloneShell(version, repo),
-        restore: FIXTURE_RESTORE_SHELL
+    rebuildShells: ({ version, repo, home }) => ({
+        rebuild: cloneShell(version, repo, home),
+        restore: restoreShell(home)
     })
 }
 registerFrameworkVersionDescriptor(fixtureVersion.descriptor)

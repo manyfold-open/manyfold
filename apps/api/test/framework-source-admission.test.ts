@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
 import {
     FIXTURE,
+    FIXTURE_HOME,
     FIXTURE_FORK,
     FIXTURE_UPSTREAM,
     FixtureSpriteBootstrap,
@@ -381,7 +382,9 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         f.admin as never,
         extensionsWith({
             framework: FIXTURE,
-            version: fixtureVersion
+            version: fixtureVersion,
+            // A rebuild on a sandbox reads the framework's home from here.
+            spriteService: { supervision: { homeDir: FIXTURE_HOME } } as never
         }) as never
     )
     Object.assign(service, { spriteClientFor: async () => sprite.client })

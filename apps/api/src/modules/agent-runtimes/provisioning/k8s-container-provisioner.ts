@@ -114,6 +114,8 @@ export interface ProvisionContainerInput {
     // The version the framework installs, resolved by the caller from what the
     // user asked for; absent means the default (admin pin, else latest).
     frameworkVersion?: FrameworkVersionSelection | null
+    // The repository that version was admitted from, resolved with it.
+    frameworkRepo?: string | null
 }
 
 export interface ProvisionContainerResult {
@@ -304,7 +306,8 @@ export class K8sContainerProvisioner {
                     framework,
                     credentials: input.credentials,
                     modelConfigSource: input.modelConfigSource ?? null,
-                    requested: input.frameworkVersion ?? null
+                    requested: input.frameworkVersion ?? null,
+                    requestedRepo: input.frameworkRepo ?? null
                 })
                 const frameworkVersion = installed.frameworkVersion
                 const credentials = withGenerated(
@@ -564,6 +567,7 @@ export class K8sContainerProvisioner {
         credentials: unknown
         modelConfigSource?: AgentModelConfigSource | null
         frameworkVersion?: FrameworkVersionSelection | null
+        frameworkRepo?: string | null
     }): Promise<AgentRuntimeRow> {
         const { host, framework, userId } = input
         assertPodHostFramework(framework)
@@ -617,7 +621,8 @@ export class K8sContainerProvisioner {
                 framework,
                 credentials: input.credentials,
                 modelConfigSource: input.modelConfigSource ?? null,
-                requested: input.frameworkVersion ?? null
+                requested: input.frameworkVersion ?? null,
+                requestedRepo: input.frameworkRepo ?? null
             })
             await this.persistRuntimeCredentials(
                 runtimeId,
@@ -843,12 +848,12 @@ export class K8sContainerProvisioner {
         credentials: unknown
         modelConfigSource: AgentModelConfigSource | null
         requested: FrameworkVersionSelection | null
+        requestedRepo?: string | null
     }): Promise<FrameworkOnHost> {
         assertPodHostFramework(args.framework)
-        const selection =
-            args.requested ??
-            (await this.frameworkVersions.resolveInstallVersion(args.framework))
-                .selection
+        const { selection, repo } = args.requested
+            ? { selection: args.requested, repo: args.requestedRepo ?? null }
+            : await this.frameworkVersions.resolveInstallVersion(args.framework)
         const pod = await resolvePodHostPod(this.k8s, {
             hostId: args.host.hostId,
             clusterId: null,
@@ -868,7 +873,8 @@ export class K8sContainerProvisioner {
         )
         const install = {
             frameworkVersion: selection.version,
-            frameworkVersionSource: selection.source
+            frameworkVersionSource: selection.source,
+            frameworkRepo: repo
         }
         const recipe = podServiceRecipe(args.framework)
         if (!recipe) {

@@ -46,14 +46,20 @@ export interface PodServiceSetup {
     generatedCredentials: Record<string, string>
 }
 
+export interface PodInstallRequest extends FrameworkInstallRequest {
+    // The repository the version was admitted from (ADR-0022), for a
+    // framework whose install clones one.
+    frameworkRepo?: string | null
+}
+
 export interface PodServiceRecipe {
-    readonly framework: 'openclaw' | 'hermes'
+    readonly framework: AgentFramework
     readonly serviceName: string
     readonly home: string
     readonly port: number
     install(
         runner: PodScriptRunner,
-        request: FrameworkInstallRequest
+        request: PodInstallRequest
     ): Promise<string | null>
     // Writes the framework's config for these credentials and returns its
     // service. Rerun on a credential or env change.
@@ -189,10 +195,25 @@ const hermesRecipe: PodServiceRecipe = {
     }
 }
 
-const RECIPES: ReadonlyMap<string, PodServiceRecipe> = new Map(
+const CORE_RECIPES: ReadonlyMap<string, PodServiceRecipe> = new Map(
     [openclawRecipe, hermesRecipe].map((recipe) => [recipe.framework, recipe])
 )
+const extensionRecipes = new Map<string, PodServiceRecipe>()
+
+// An edition's service framework brings its recipe with its framework
+// extension (ADR-0034), which registers it here.
+export const registerPodServiceRecipe = (recipe: PodServiceRecipe): void => {
+    if (
+        CORE_RECIPES.has(recipe.framework) ||
+        extensionRecipes.has(recipe.framework)
+    )
+        throw new Error(
+            `framework '${recipe.framework}' already has a pod service recipe`
+        )
+    extensionRecipes.set(recipe.framework, recipe)
+}
 
 export const podServiceRecipe = (
     framework: AgentFramework
-): PodServiceRecipe | undefined => RECIPES.get(framework)
+): PodServiceRecipe | undefined =>
+    CORE_RECIPES.get(framework) ?? extensionRecipes.get(framework)

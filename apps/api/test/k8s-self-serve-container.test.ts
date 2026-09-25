@@ -94,7 +94,18 @@ const makeService = (opts: {
             getCachedFrameworkDefaultVersions: async () => ({ defaults: {} }),
             isFeatureEnabled: async () => opts.toggleEnabled !== false
         } as never, // adminSettings
-        { latestForFresh: async () => '1.2.3' } as never, // frameworkVersions
+        {
+            latestForFresh: async () => '1.2.3',
+            // What a git-sourced framework installs from: the catalog of the
+            // repository its versions were admitted from.
+            catalogForFresh: async () => ({
+                latest: 'v2026.9.24',
+                versions: ['v2026.9.24'],
+                prereleases: [],
+                sourceRepo: 'NousResearch/hermes-agent',
+                fetchedAt: '2026-09-25T00:00:00.000Z'
+            })
+        } as never, // frameworkVersions
         { getFrameworkRuntimeOverrides: async () => ({}) } as never, // users
         {} as never, // moduleRef
         { recordFirstAgentCreated: async () => undefined } as never, // attribution
@@ -212,13 +223,18 @@ test('a service framework is provisioned onto a pod host', async () => {
     const h = makeService({ cloudComputer: openCloudComputerPort })
     await h.service.create({
         userId: 'usr_1',
-        dto: { ...dto, framework: 'openclaw' },
+        dto: { ...dto, framework: 'hermes' },
         isAdmin: false
     } as never)
     assert.equal(
         h.provisionCalls.length,
         1,
         'the host daemon supervises its services (ADR-0035 P2)'
+    )
+    assert.equal(
+        h.provisionCalls[0].frameworkRepo,
+        'NousResearch/hermes-agent',
+        'a cloned framework installs from the repository its version was admitted from'
     )
 })
 
