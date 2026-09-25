@@ -48,8 +48,13 @@ const isPerAgentCodingRuntime = (runtime: AgentRuntimeRow): boolean =>
     ((runtime.kind === 'k8s' || runtime.kind === 'daemon') &&
         isCodingFramework(runtime))
 
-const serviceSpritePrimaryAlias = (runtime: AgentRuntimeRow): string | null => {
-    if (runtime.kind !== 'sprites') return null
+// The profile a service framework's gateway runs by default. On a sandbox
+// or a cloud computer the runtime's primary agent is that profile, its row
+// keeping the Manyfold agent id as internalId (ADR-0035).
+export const serviceBuiltInProfile = (
+    runtime: Pick<AgentRuntimeRow, 'kind' | 'framework'>
+): string | null => {
+    if (runtime.kind !== 'sprites' && runtime.kind !== 'k8s') return null
     if (runtime.framework === 'hermes') return 'default'
     if (runtime.framework === 'openclaw') return 'main'
     return null
@@ -275,7 +280,7 @@ export class AgentReconcileService {
         const primary = runtime.primaryAgentId
             ? existing.find((a) => a.id === runtime.primaryAgentId)
             : undefined
-        const primaryAlias = serviceSpritePrimaryAlias(runtime)
+        const primaryAlias = serviceBuiltInProfile(runtime)
         const primaryHasExactLiveProfile =
             primary !== undefined &&
             live.some((fa) => fa.id === primary.internalId)
@@ -285,7 +290,7 @@ export class AgentReconcileService {
             let match = existingByInternal.get(fa.id)
             let matchedPrimaryAlias = false
             if (!match && primary && fa.id === primaryAlias) {
-                // Sprite provisioning keeps the primary row's internalId equal
+                // Service provisioning keeps the primary row's internalId equal
                 // to its Manyfold agent id, while Hermes/OpenClaw expose that
                 // same built-in profile as default/main. If a promoted
                 // secondary's exact profile is live, the built-in profile is

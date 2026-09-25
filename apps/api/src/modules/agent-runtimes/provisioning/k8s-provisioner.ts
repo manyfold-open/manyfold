@@ -19,6 +19,9 @@ import {
     K8S_CREATE_INITIAL_AGENT,
     K8sCreateCleanupService
 } from './k8s-create-cleanup.service'
+import { PodHostServices } from './pod-host-services'
+import { podServiceRecipe } from './pod-service-frameworks'
+import { withdrawPodHostFramework } from './pod-host-network'
 
 const HOST_TEARDOWN_TIMEOUT_MS = 180_000
 
@@ -33,7 +36,8 @@ export class K8sProvisioner {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly k8s: KubernetesService,
         private readonly runtimes: AgentRuntimesService,
-        private readonly createCleanup: K8sCreateCleanupService
+        private readonly createCleanup: K8sCreateCleanupService,
+        private readonly podServices: PodHostServices
     ) {}
 
     async teardownRuntime(runtime: AgentRuntimeRow): Promise<void> {
@@ -48,7 +52,34 @@ export class K8sProvisioner {
             await this.createCleanup.retry(runtime)
             return
         }
+        await this.stopService(runtime)
         await this.runtimes.delete(runtime.id)
+    }
+
+    // A service framework leaving its host takes its process and its route
+    // with it. Best effort: the row goes either way, and a host delete
+    // removes whatever is left.
+    private async stopService(runtime: AgentRuntimeRow): Promise<void> {
+        const recipe = podServiceRecipe(runtime.framework)
+        if (!recipe || !runtime.hostId || !runtime.namespace) return
+        const host = { id: runtime.hostId, userId: runtime.userId }
+        try {
+            await this.podServices.remove(host, recipe.serviceName)
+            const client = await this.k8s.getClient(runtime.clusterId)
+            await withdrawPodHostFramework({
+                apis: client.apis,
+                host: {
+                    hostId: runtime.hostId,
+                    userId: runtime.userId,
+                    namespace: runtime.namespace
+                },
+                framework: runtime.framework
+            })
+        } catch (err) {
+            this.log.warn(
+                `service cleanup failed runtimeId=${runtime.id} framework=${runtime.framework}: ${(err as Error).message}`
+            )
+        }
     }
 
     async teardownHost(host: RuntimeHostRow): Promise<void> {

@@ -44,6 +44,14 @@ import type {
 } from '@/modules/agents/credentials/resolved-credentials'
 import { mergeGeneratedCredentials } from '@/modules/agents/credentials/credential-merge'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
+import { KubernetesService } from '@/modules/k8s/kubernetes.service'
+import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
+import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
+import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import { podScriptRunner } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
+
+const POD_SERVICE_READY_TIMEOUT_MS = 180_000
 
 // A claim older than this with no terminal write is an interrupted toggle
 // (API restart mid-orchestration); the sweep marks it error so the CAS can
@@ -58,9 +66,9 @@ interface SpriteToggleTarget {
 }
 
 // Runtime-kind dispatcher for the dashboard/control-UI surface: sprite rows
-// get the sprite service choreography. A pod host runs no service framework
-// until its daemon supervises services (ADR-0035 P2), so the openclaw toggle
-// is sprite-only for now. The hermes dashboard is sprite-only —
+// get the sprite service choreography, and a pod host's rewrites the config
+// and has the host's daemon restart the service (ADR-0035). The hermes
+// dashboard is sprite-only —
 // the k8s host shape (cookie-authed `-dashboard` ingress sidecar) was
 // retired with zero enabled rows measured on prod and staging [2026-08-28].
 // Deliberately does NOT depend on AgentsService — AgentsModule imports this
@@ -78,7 +86,11 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         private readonly hermesBootstrap: HermesSpriteBootstrap,
         private readonly openclawBootstrap: OpenClawSpriteBootstrap,
         @Optional()
-        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
+        // Same convention; absent, a pod host's toggle is refused.
+        @Optional() private readonly k8s?: KubernetesService,
+        @Optional() private readonly podExec?: PodExecFactory,
+        @Optional() private readonly podServices?: PodHostServices
     ) {}
 
     onModuleInit(): void {
@@ -103,21 +115,25 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 'control UI toggle only supported for openclaw runtimes'
             )
-        if (runtime.kind !== 'sprites')
+        if (runtime.kind !== 'sprites' && runtime.kind !== 'k8s')
             throw new BadRequestException(
-                'control UI toggle only supported for sprites runtimes'
+                'control UI toggle only supported for sandboxes and cloud computers'
             )
         if (runtime.controlUiEnabled === enabled)
             return this.runtimes.toSummary(runtime)
 
         await this.claimOrConflict(runtime.id, enabled)
         try {
-            const target = await this.buildSpriteTarget(runtime)
-            await this.openclawBootstrap.setControlUi(
-                target.ctx,
-                target.creds,
-                enabled
-            )
+            if (runtime.kind === 'k8s')
+                await this.reconfigurePodService(runtime, enabled)
+            else {
+                const target = await this.buildSpriteTarget(runtime)
+                await this.openclawBootstrap.setControlUi(
+                    target.ctx,
+                    target.creds,
+                    enabled
+                )
+            }
             await this.runtimes.applyStatusPatch(runtime.id, {
                 controlUiEnabled: enabled,
                 dashboardState: null
@@ -442,6 +458,58 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             dashboardEnabled: runtime.dashboardEnabled
         }
         return { ctx, creds }
+    }
+
+    // The config and service of a framework on a pod host, rewritten for
+    // this control UI setting and restarted by the host's daemon.
+    private async reconfigurePodService(
+        runtime: AgentRuntimeRow,
+        controlUiEnabled: boolean
+    ): Promise<void> {
+        const recipe = podServiceRecipe(runtime.framework)
+        if (
+            !recipe ||
+            !runtime.hostId ||
+            !this.k8s ||
+            !this.podExec ||
+            !this.podServices
+        )
+            throw new BadRequestException(
+                `${runtime.framework} has no service on this cloud computer`
+            )
+        const pod = await resolveAgentPod(this.k8s, runtime)
+        const exec = this.podExec.forClient(
+            pod.client,
+            pod.namespace,
+            pod.podName,
+            pod.containerName
+        )
+        // The service's env carries the runtime's agent env, as on a sprite.
+        const [agent] = runtime.primaryAgentId
+            ? await this.db
+                  .select({ extras: agents.extras })
+                  .from(agents)
+                  .where(eq(agents.id, runtime.primaryAgentId))
+                  .limit(1)
+            : []
+        const setup = await recipe.configure(
+            podScriptRunner(exec, (event, fields) =>
+                this.log.warn(`${event} ${JSON.stringify(fields)}`)
+            ),
+            {
+                credentials: await this.decryptCreds(runtime.id),
+                envText: agent ? (envTextFromExtras(agent.extras) ?? null) : null,
+                controlUiEnabled
+            }
+        )
+        const host = { id: runtime.hostId, userId: runtime.userId }
+        await this.podServices.upsert(host, setup.spec)
+        await this.podServices.restart(host, setup.spec.name)
+        await this.podServices.waitHealthy(
+            host,
+            setup.spec.name,
+            POD_SERVICE_READY_TIMEOUT_MS
+        )
     }
 
     private async decryptCreds(

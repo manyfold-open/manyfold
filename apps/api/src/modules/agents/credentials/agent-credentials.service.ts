@@ -420,17 +420,23 @@ export class AgentCredentialsService {
         })
     }
 
-    // A pod host (ADR-0035): every framework's key rides each exec, so only
+    // A pod host (ADR-0035): every coding CLI's key rides each exec, so only
     // codex, which reads its endpoint and MCP servers from config.toml, has
     // anything on the host to rewrite.
     private async applyOnK8s(
         agent: Agent,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
-        if (frameworkCapability(resolved.framework).kind === 'service')
-            throw new ConflictException(
-                `${resolved.framework} cannot run on a cloud computer yet`
-            )
+        // A service framework's config and env are rewritten and its service
+        // restarted, as on a sprite.
+        if (frameworkCapability(resolved.framework).kind === 'service') {
+            if (!this.serviceRestart)
+                throw new ConflictException(
+                    `${resolved.framework} config cannot be updated in place — credentials are saved; rebuild the agent to apply them`
+                )
+            await this.serviceRestart.restart(agent.id, agent.userId, false)
+            return
+        }
         if (resolved.framework !== 'codex') return
         const runtime = agent.runtimeId
             ? await this.runtimes.findById(agent.runtimeId)

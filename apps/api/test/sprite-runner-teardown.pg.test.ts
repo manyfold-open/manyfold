@@ -454,6 +454,7 @@ test(
                     }
                 } as never,
                 svc(db),
+                {} as never,
                 {} as never
             )
             await provisioner.teardownHost(host)

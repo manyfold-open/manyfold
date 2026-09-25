@@ -307,16 +307,20 @@ test('a cloud computer runs whatever is installed on it', () => {
     assert.equal(install?.disabled, false)
 })
 
-test('a cloud computer that cannot take the agent stays listed with its reason', () => {
-    const service = buildMachineOptions({
+test('a service framework installs onto a cloud computer at create', () => {
+    const [row] = buildMachineOptions({
         framework: 'openclaw',
         runtimes: [],
         sandboxes: [],
         daemonHosts: [],
         podHosts: [podHost({ id: 'pdh_1' })]
     })
-    assert.equal(service[0].state, 'not-installable')
-    assert.equal(service[0].disabled, true)
+    assert.equal(row.state, 'needs-install')
+    assert.equal(row.podHostId, 'pdh_1')
+    assert.equal(row.signInCost, 'install-at-create')
+})
+
+test('a cloud computer that cannot take the agent stays listed with its reason', () => {
     const [starting, failed] = buildMachineOptions({
         framework: 'codex',
         runtimes: [],
@@ -760,7 +764,7 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: 'openclaw',
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: ' Bot ',
             workspace: '',
             cost: { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' }
@@ -776,7 +780,7 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: 'hermes',
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: 'H',
             workspace: '',
             cost: {
@@ -791,12 +795,29 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: FIXTURE_FRAMEWORK,
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: 'N',
             workspace: '/srv/n',
             cost: { kind: 'platform' }
         }),
         { name: 'N', framework: FIXTURE_FRAMEWORK, runtime: 'sprites', sandboxId: 'sb-1', workspace: '/srv/n' }
+    )
+    // Onto a cloud computer, the same request names the host instead.
+    assert.deepEqual(
+        serviceCreateBody({
+            framework: 'openclaw',
+            target: { podHostId: 'pdh_1' },
+            name: 'Bot',
+            workspace: '',
+            cost: { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' }
+        }),
+        {
+            name: 'Bot',
+            framework: 'openclaw',
+            runtime: 'k8s',
+            podHostId: 'pdh_1',
+            openclawCredentials: { providerId: 'm-openai', primaryModelName: 'gpt-5.4-mini' }
+        }
     )
 })
 

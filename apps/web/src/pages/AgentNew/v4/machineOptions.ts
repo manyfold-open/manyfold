@@ -208,10 +208,9 @@ export const buildMachineOptions = (args: {
     }
     // A cloud computer (ADR-0035) runs whatever is installed on it: a runtime
     // for this framework is joined, a ready one without it gets it installed
-    // when picked, and the rest stay listed with the reason they cannot.
-    const podInstallable =
-        frameworkCapability(framework).kind === 'coding' &&
-        supportsRuntime(framework, 'k8s')
+    // (a service framework at create, with its provider), and the rest stay
+    // listed with the reason they cannot.
+    const podInstallable = supportsRuntime(framework, 'k8s')
     for (const host of podHosts) {
         const runtime = host.runtimes.find(
             (r) =>

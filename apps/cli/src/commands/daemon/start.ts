@@ -8,9 +8,11 @@ import {
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_MANUAL_UPDATE,
+    DAEMON_FEATURE_SERVICES,
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
     POD_RUNNER_PROFILE
 } from '@manyfold/shared'
+import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { openSync } from 'node:fs'
 import { channelManifestUrl, CLI_CHANNEL } from '@/channel'
@@ -48,8 +50,10 @@ import {
     rpcHandler,
     setDeclaredWorkspaceRoot,
     setFileExecsAdoptable,
-    setManualUpdateHandoff
+    setManualUpdateHandoff,
+    setServiceSupervisor
 } from '@/daemon/rpc'
+import { ServiceSupervisor } from '@/daemon/services'
 import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
 import { listOwnedTerminals } from '@/daemon/owned-terminals'
 import {
@@ -149,6 +153,7 @@ const runClaimedForeground = async (
     let ws: DaemonWsClient | null = null
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null
     let autoUpdater: DaemonAutoUpdater | null = null
+    let services: ServiceSupervisor | null = null
     let stopping = false
     const abort = new AbortController()
     let resolveStop: (signal: string) => void = () => {}
@@ -213,9 +218,21 @@ const runClaimedForeground = async (
                 ? `herdr: available (${herdr.path}, ${herdr.version ?? 'version unknown'}); socket ${herdrSocketPath()}`
                 : 'herdr: not found'
         )
-        const baseClientFeatures = manualUpdateCapable
-            ? [...DAEMON_CLIENT_FEATURES, DAEMON_FEATURE_MANUAL_UPDATE]
-            : [...DAEMON_CLIENT_FEATURES]
+        // A pod host's daemon keeps the host's service frameworks up
+        // (ADR-0035 §6); the services outlive it and the next one adopts them.
+        if (startupMethod === 'container') {
+            services = new ServiceSupervisor({
+                dir: join(daemonPaths.baseDir, 'services'),
+                log: (line) => void log(line)
+            })
+            await services.resume()
+            setServiceSupervisor(services)
+        }
+        const baseClientFeatures = [
+            ...DAEMON_CLIENT_FEATURES,
+            ...(manualUpdateCapable ? [DAEMON_FEATURE_MANUAL_UPDATE] : []),
+            ...(services ? [DAEMON_FEATURE_SERVICES] : [])
+        ]
         // Read per hello and heartbeat: the detection cache moves when the
         // framework probe re-runs or an update lands (herdr.update).
         const clientFeatures = (): string[] =>
@@ -506,6 +523,9 @@ const runClaimedForeground = async (
         process.removeListener('SIGTERM', onTerminate)
         if (heartbeatTimer) clearInterval(heartbeatTimer)
         autoUpdater?.stop()
+        // The services keep running; the next daemon adopts them.
+        services?.stopLoop()
+        setServiceSupervisor(null)
         ws?.stop()
         try {
             await stopControlServer?.()

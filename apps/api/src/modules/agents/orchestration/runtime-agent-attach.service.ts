@@ -13,7 +13,8 @@ import {
     ConflictException,
     Inject,
     Injectable,
-    Logger
+    Logger,
+    ServiceUnavailableException
 } from '@nestjs/common'
 import { and, eq, isNull } from 'drizzle-orm'
 import {
@@ -30,9 +31,16 @@ import {
     K8S_CREATE_INITIAL_AGENT
 } from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
-import { NotSupportedError } from '@/modules/agents/adapters/agent-adapter'
+import {
+    NotSupportedError,
+    type AddAgentResult,
+    type AgentAdapter
+} from '@/modules/agents/adapters/agent-adapter'
 import { agentRowToSummary } from '@/modules/agents/agents.service'
-import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
+import {
+    AgentReconcileService,
+    serviceBuiltInProfile
+} from '@/modules/agents/reconcile/agent-reconcile.service'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
@@ -50,6 +58,28 @@ const supportsLiveAgents = (framework: AgentFramework): boolean =>
 
 const frameworkInternalIdForAgentId = (agentId: string): string =>
     agentId.replace(/_/g, '-')
+
+// The built-in profile as its gateway lists it: the workspace and model are
+// the service's own.
+const builtInProfileAgent = async (
+    adapter: AgentAdapter,
+    runtime: AgentRuntimeRow,
+    agentId: string,
+    profile: string
+): Promise<AddAgentResult> => {
+    const live = await adapter.listAgents({ runtime, primaryAgentId: null })
+    const found = live.find((agent) => agent.id === profile)
+    if (!found)
+        throw new ServiceUnavailableException(
+            `${runtime.framework} on cloud computer ${runtime.hostId} lists no ${profile} profile`
+        )
+    return {
+        internalId: agentId,
+        workspace: found.workspace,
+        model: found.model,
+        extras: found.extras
+    }
+}
 
 export interface AttachAgentInput {
     runtime: AgentRuntimeRow
@@ -156,9 +186,22 @@ export class RuntimeAgentAttachService {
             )
         const displayName = normalizeAgentName(input.name)
         const agentId = input.agentCreateId ?? createObjectId('agent')
-        const internalId = isCodingAgentRuntime
-            ? agentId
-            : frameworkInternalIdForAgentId(agentId)
+        // A service framework's first agent on a cloud computer is its
+        // gateway's built-in profile, the one the service is configured for
+        // and every chat session binds to, as on a sandbox; not a profile
+        // pushed beside it (ADR-0035).
+        const builtInProfile =
+            runtime.kind === 'k8s' && runtime.primaryAgentId === null
+                ? serviceBuiltInProfile(runtime)
+                : null
+        if (builtInProfile && (workspace || input.cloneFrom))
+            throw new BadRequestException(
+                `the first ${runtime.framework} agent on a cloud computer is its gateway's own; a workspace or clone applies to the agents added after it`
+            )
+        const internalId =
+            isCodingAgentRuntime || builtInProfile
+                ? agentId
+                : frameworkInternalIdForAgentId(agentId)
         const inheritedProviderId =
             runtime.primaryAgentId !== null
                 ? ((
@@ -177,16 +220,23 @@ export class RuntimeAgentAttachService {
         const adapter = this.adapterRegistry.get(runtime.framework)
         try {
             await input.assertAgentCreateActive?.()
-            const res = await adapter.addAgent({
-                runtime,
-                primaryAgentId: runtime.primaryAgentId ?? null,
-                agentId,
-                internalId,
-                name: displayName,
-                workspace: workspace ?? undefined,
-                model: input.model,
-                cloneFrom: input.cloneFrom
-            })
+            const res = builtInProfile
+                ? await builtInProfileAgent(
+                      adapter,
+                      runtime,
+                      agentId,
+                      builtInProfile
+                  )
+                : await adapter.addAgent({
+                      runtime,
+                      primaryAgentId: runtime.primaryAgentId ?? null,
+                      agentId,
+                      internalId,
+                      name: displayName,
+                      workspace: workspace ?? undefined,
+                      model: input.model,
+                      cloneFrom: input.cloneFrom
+                  })
             const now = new Date()
             const workspacePath = res.workspace ?? runtime.mountPath
             const newAgent: NewAgent = {

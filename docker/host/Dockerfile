@@ -52,7 +52,8 @@ ENV HOME=/home/node \
     NPM_CONFIG_PREFIX=/home/node/.local \
     PATH="/home/node/.local/bin:/opt/mise/shims:/opt/manyfold/bin:/usr/local/bin:/usr/bin:/bin"
 
-RUN mise use -g python@3.13 node@22 uv@latest \
+# Node 24: current OpenClaw requires >= 24.16; the coding CLIs run on it too.
+RUN mise use -g python@3.13 node@24 uv@latest \
     && mise install \
     && mise reshim
 
