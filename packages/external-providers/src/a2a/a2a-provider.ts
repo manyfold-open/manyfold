@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
     A2aClient,
     A2aError,
+    A2aTextAccumulator,
     fetchAgentCard,
     resolveAgentCardUrl,
     selectInterface,
@@ -115,7 +116,7 @@ class A2aProvider implements ExternalProvider {
 
         let sentSessionRef = false
         let sentTaskId: string | null = null
-        let streamedArtifact = false
+        const output = new A2aTextAccumulator()
         // Aborting the stream only stops delivery; the remote A2A task keeps
         // running. The protocol has first-class cancel (tasks/cancel), so a
         // user cancel is forwarded best-effort once a task id is known — and
@@ -166,26 +167,15 @@ class A2aProvider implements ExternalProvider {
                     yield { type: 'upstream_ref', taskId }
                 }
 
-                if (event.kind === 'artifact-update') {
-                    // Respect A2A append semantics: append=true is an incremental
-                    // chunk; append=false is a full-artifact replace. Manyfold's
-                    // token stream is append-only, so emit incremental chunks, and
-                    // only emit a replace when nothing was streamed yet (one-shot
-                    // servers) — otherwise the final snapshot duplicates the text.
-                    const text = partsToText(event.artifact.parts)
-                    const isAppend = event.append === true
-                    if (text && (isAppend || !streamedArtifact)) {
-                        yield { type: 'token', text }
-                        if (isAppend) streamedArtifact = true
-                    }
-                } else if (event.kind === 'message') {
-                    const text = partsToText(event.parts)
-                    if (text) yield { type: 'token', text }
-                } else if (event.kind === 'task') {
-                    for (const artifact of event.artifacts ?? []) {
-                        const text = partsToText(artifact.parts)
-                        if (text) yield { type: 'token', text }
-                    }
+                const previous = output.text()
+                const text = output.apply(event)
+                if (text !== previous) {
+                    if (text.startsWith(previous))
+                        yield { type: 'token', text: text.slice(previous.length) }
+                    else
+                        yield { type: 'replace', text, reason: 'a2a_artifact_updated' }
+                }
+                if (event.kind === 'task') {
                     if (isFailure(event.status.state)) {
                         yield errorEvent(event.status.state, undefined)
                         return

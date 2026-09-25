@@ -74,8 +74,8 @@ const A2aGrantDialog: FC<A2aGrantDialogProps> = ({
         const ids = [...selected]
         const results = await Promise.allSettled(
             ids.map((targetId) =>
-                client.a2a.mintGrant(targetId, {
-                    callerAgentId: agentId,
+                client.a2a.mintGrants(targetId, {
+                    callerAgentIds: [agentId],
                     replaceExisting: true
                 })
             )

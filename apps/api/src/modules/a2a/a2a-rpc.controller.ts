@@ -17,6 +17,7 @@ import {
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { ApiQuotaService } from '@/common/api-quota/api-quota.service'
 import { ApiTokenService } from '@/modules/auth/api-token.service'
+import { SSE_MAX_BUFFERED_BYTES } from '@/modules/chat/sse-broadcaster'
 import { A2aService, type A2aAuthContext, type A2aStreamEmit } from './a2a.service'
 import { A2aRateLimitService, clientKey } from './a2a-rate-limit.service'
 import { A2aTicketService } from './a2a-ticket.service'
@@ -106,11 +107,12 @@ export class A2aRpcController {
                     return
                 }
                 case 'message/stream':
-                    await this.streamSse(res, rpc, (emit) =>
+                    await this.streamSse(res, rpc, (emit, signal) =>
                         this.a2a.sendMessage(
                             ctx,
                             rpc.params as MessageSendParams,
-                            emit
+                            emit,
+                            signal
                         )
                     )
                     return
@@ -135,8 +137,8 @@ export class A2aRpcController {
                     return
                 }
                 case 'tasks/resubscribe':
-                    await this.streamSse(res, rpc, (emit) =>
-                        this.a2a.resubscribe(ctx, this.taskId(rpc), emit)
+                    await this.streamSse(res, rpc, (emit, signal) =>
+                        this.a2a.resubscribe(ctx, this.taskId(rpc), emit, signal)
                     )
                     return
                 default:
@@ -170,7 +172,7 @@ export class A2aRpcController {
     private async streamSse(
         res: FastifyReply,
         rpc: RpcRequest,
-        run: (emit: A2aStreamEmit) => Promise<unknown>
+        run: (emit: A2aStreamEmit, signal: AbortSignal) => Promise<unknown>
     ): Promise<void> {
         res.hijack()
         res.raw.socket?.setNoDelay(true)
@@ -180,19 +182,37 @@ export class A2aRpcController {
             connection: 'keep-alive',
             'x-accel-buffering': 'no'
         })
-        const emit = (event: A2aStreamEvent): void => {
-            res.raw.write(
-                `data: ${JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: event })}\n\n`
-            )
+        const attachment = new AbortController()
+        const close = (): void => {
+            attachment.abort()
+            clearInterval(keepalive)
         }
+        const write = (frame: string): void => {
+            if (attachment.signal.aborted) return
+            if (res.raw.writableLength > SSE_MAX_BUFFERED_BYTES) {
+                close()
+                res.raw.end()
+                return
+            }
+            res.raw.write(frame)
+        }
+        const emit = (event: A2aStreamEvent): void =>
+            write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: event })}\n\n`)
+        const keepalive = setInterval(() => write(': keepalive\n\n'), 15000)
+        keepalive.unref()
+        res.raw.on('close', close)
+        if (res.raw.destroyed) close()
         try {
-            await run(emit)
+            await run(emit, attachment.signal)
         } catch (err) {
-            res.raw.write(
+            write(
                 `data: ${JSON.stringify({ jsonrpc: '2.0', id: rpc.id, error: toJsonRpcError(err) })}\n\n`
             )
+        } finally {
+            close()
+            res.raw.off('close', close)
+            res.raw.end()
         }
-        res.raw.end()
     }
 
     private parseRpc(body: unknown): RpcRequest | null {

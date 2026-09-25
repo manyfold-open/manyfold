@@ -49,6 +49,10 @@ Stream events:
 mf a2a send peer-name "Run the full audit." --stream
 ```
 
+Status updates appear as they arrive. Human output prints the final artifact
+text once, incorporating any corrections from the agent. Add `--json` to
+receive each status and artifact event as it arrives.
+
 Or submit and return immediately:
 
 ```sh
@@ -68,9 +72,10 @@ mf a2a tasks get peer-name aat_xxx
 mf a2a tasks cancel peer-name aat_xxx
 ```
 
-`subscribe` reconnects to the task's SSE stream. Use `get` after a disconnect
-before deciding whether to retry; resending a prompt can create separate work
-unless you deliberately reuse its context or task ID.
+`subscribe` reconnects to the task's SSE stream and follows it until completion.
+Use `get` after a disconnect before deciding whether to retry. Each CLI send
+creates a new message ID, so resending a prompt starts another turn even when
+you reuse its context or task ID.
 
 ## Manage inbound access
 

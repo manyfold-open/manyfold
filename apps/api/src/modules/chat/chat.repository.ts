@@ -223,8 +223,11 @@ export class ChatRepository {
         )
     }
 
-    async createSession(row: NewChatSession): Promise<DbChatSession> {
-        const [created] = await this.db
+    async createSession(
+        row: NewChatSession,
+        db: Pick<Database, 'insert'> = this.db
+    ): Promise<DbChatSession> {
+        const [created] = await db
             .insert(chatSessions)
             .values(row)
             .returning()
