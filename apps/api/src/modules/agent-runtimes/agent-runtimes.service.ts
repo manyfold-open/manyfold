@@ -779,16 +779,12 @@ export class AgentRuntimesService {
         const accountIds = collectIds(runtimes.map((r) => r.accountId))
         const clusterIds = collectIds(runtimes.map((r) => r.clusterId))
         const daemonIds = collectIds(runtimes.map((r) => r.daemonId))
-        const podHostIds = collectIds(
-            runtimes.map((r) => (r.kind === 'k8s' ? r.hostId : null))
-        )
-        const [
-            accountRows,
-            clusterRows,
-            daemonRows,
-            agentCountRows,
-            podHostRows
-        ] =
+        // Read with the daemon hosts: both are runtime_hosts rows.
+        const hostIds = collectIds([
+            ...daemonIds,
+            ...runtimes.map((r) => (r.kind === 'k8s' ? r.hostId : null))
+        ])
+        const [accountRows, clusterRows, daemonRows, agentCountRows] =
             await Promise.all([
                 accountIds.length
                     ? this.db
@@ -808,7 +804,7 @@ export class AgentRuntimesService {
                           .from(k8sClusters)
                           .where(inArray(k8sClusters.id, clusterIds))
                     : [],
-                daemonIds.length
+                hostIds.length
                     ? this.db
                           .select({
                               id: runtimeHosts.id,
@@ -818,7 +814,7 @@ export class AgentRuntimesService {
                               rpcLastSeenAt: runtimeHosts.rpcLastSeenAt
                           })
                           .from(runtimeHosts)
-                          .where(inArray(runtimeHosts.id, daemonIds))
+                          .where(inArray(runtimeHosts.id, hostIds))
                     : [],
                 this.db
                     .select({ runtimeId: agents.runtimeId, value: count() })
@@ -829,19 +825,9 @@ export class AgentRuntimesService {
                             runtimes.map((r) => r.id)
                         )
                     )
-                    .groupBy(agents.runtimeId),
-                podHostIds.length
-                    ? this.db
-                          .select({
-                              id: runtimeHosts.id,
-                              name: runtimeHosts.name
-                          })
-                          .from(runtimeHosts)
-                          .where(inArray(runtimeHosts.id, podHostIds))
-                    : []
+                    .groupBy(agents.runtimeId)
             ])
         const slugByAccountId = new Map(accountRows.map((a) => [a.id, a.slug]))
-        const nameByPodHostId = new Map(podHostRows.map((h) => [h.id, h.name]))
         const nameByClusterId = new Map(clusterRows.map((c) => [c.id, c.name]))
         const daemonById = new Map(daemonRows.map((d) => [d.id, d]))
         const agentsCountByRuntimeId = new Map(
@@ -880,7 +866,7 @@ export class AgentRuntimesService {
                 hostId: runtime.hostId,
                 podHostName:
                     runtime.kind === 'k8s' && runtime.hostId
-                        ? (nameByPodHostId.get(runtime.hostId) ?? null)
+                        ? (daemonById.get(runtime.hostId)?.name ?? null)
                         : null,
                 mountPath: runtime.mountPath,
                 namespace: runtime.namespace,

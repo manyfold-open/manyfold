@@ -202,14 +202,10 @@ export class AgentCredentialsService {
             throw new BadRequestException(
                 `body must contain ${frameworkBodyKey(agent.framework)} for framework "${agent.framework}"`
             )
-        // A daemon runtime never had a row; a sprites runtime prepared on a
-        // bare sandbox has none until its first agent picks a provider. Both
-        // resolve from the body alone. A k8s runtime is provisioned with its
-        // credentials, so a missing row there is the inconsistency it was.
-        const cred =
-            agent.runtime === 'daemon' || agent.runtime === 'sprites'
-                ? await this.findCredentialsRow(agent)
-                : await this.requireCredentialsRow(agent)
+        // A daemon runtime never had a row, and a runtime prepared bare on a
+        // sandbox or a cloud computer has none until its first agent picks a
+        // provider. Those resolve from the body alone.
+        const cred = await this.findCredentialsRow(agent)
         const next = cred
             ? await this.resolver.resolveForUpdate({
                   ownerUserId: agent.userId,

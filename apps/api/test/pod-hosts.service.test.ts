@@ -1,0 +1,219 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import 'reflect-metadata'
+import { ConflictException, ForbiddenException } from '@nestjs/common'
+import { podRunnerHostName } from '@manyfold/shared'
+import { PodHostsService } from '../src/modules/pod-hosts/pod-hosts.service'
+import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
+
+// Cloud computers (ADR-0035) from the user's side: the gates on creating
+// one, the refusal to delete one still being created, and how its daemon's
+// CLI is updated.
+
+const host = (over: Record<string, unknown> = {}) => ({
+    id: 'pdh_1',
+    userId: 'usr_1',
+    kind: 'pod',
+    name: 'computer-001',
+    podStatus: 'ready',
+    podPhase: 'Running',
+    podFailureReason: null,
+    clusterId: 'clus_1',
+    namespace: 'nca-user-1',
+    region: null,
+    cpuMillicores: 1000,
+    memoryMb: 2048,
+    diskGb: 10,
+    createdAt: new Date('2026-09-25T00:00:00Z'),
+    updatedAt: new Date('2026-09-25T00:00:00Z'),
+    ...over
+})
+
+const runner = (over: Record<string, unknown> = {}) => ({
+    id: 'dh_runner',
+    userId: 'usr_1',
+    kind: 'daemon',
+    managed: true,
+    name: podRunnerHostName('pdh_1'),
+    cliVersion: '3.0.1',
+    startupMethod: 'container',
+    ...over
+})
+
+// Every select answers from `rows` in call order: the host lookup first, then
+// whatever the operation reads next.
+const fakeDb = (rows: unknown[][]) => {
+    let call = 0
+    const next = () => rows[call++] ?? []
+    const chain: Record<string, unknown> = {}
+    for (const method of ['from', 'where', 'orderBy', 'groupBy'])
+        chain[method] = () => chain
+    chain.limit = async () => next()
+    chain.then = (resolve: (v: unknown) => void) => resolve(next())
+    return { select: () => chain }
+}
+
+const build = (over: {
+    db?: unknown
+    toggle?: boolean
+    port?: unknown
+    provisioner?: unknown
+    k8sProvisioner?: unknown
+    daemonHosts?: unknown
+    podExec?: unknown
+}) =>
+    new PodHostsService(
+        (over.db ?? fakeDb([])) as never,
+        { toSummaries: async () => [], toSummary: async (r: unknown) => r } as never,
+        (over.provisioner ?? {}) as never,
+        (over.k8sProvisioner ?? {}) as never,
+        { isFeatureEnabled: async () => over.toggle !== false } as never,
+        {
+            getCachedLatest: async () => ({ version: '3.1.0', channel: 'stable' })
+        } as never,
+        { isInstallableVersion: async () => true } as never,
+        (over.daemonHosts ?? {}) as never,
+        {
+            getClient: async () => ({
+                kubeConfig: {},
+                apis: {}
+            })
+        } as never,
+        (over.podExec ?? {}) as never,
+        over.port as never
+    )
+
+test('creating a cloud computer needs the master switch and a self-serve envelope', async () => {
+    await assert.rejects(
+        build({ toggle: false }).create('usr_1', {}),
+        (err: unknown) => err instanceof ForbiddenException
+    )
+    await assert.rejects(
+        build({
+            port: { ...openCloudComputerPort, selfServeContainerSpec: () => null }
+        }).create('usr_1', {}),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'CONTAINER_REQUIRED'
+    )
+})
+
+test('a cloud computer still being created is not deleted under its bring-up', async () => {
+    let tornDown = false
+    const service = build({
+        db: fakeDb([[host({ podStatus: 'provisioning' })]]),
+        k8sProvisioner: {
+            teardownHost: async () => {
+                tornDown = true
+            }
+        }
+    })
+    await assert.rejects(
+        service.delete('usr_1', 'pdh_1'),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'POD_HOST_PROVISIONING'
+    )
+    assert.equal(tornDown, false)
+})
+
+test('deleting a cloud computer ends what bought it', async () => {
+    const calls: string[] = []
+    const service = build({
+        db: fakeDb([[host()]]),
+        k8sProvisioner: {
+            teardownHost: async () => {
+                calls.push('teardown')
+            }
+        },
+        port: {
+            ...openCloudComputerPort,
+            onPodHostTeardown: async (id: string) => {
+                calls.push(`port:${id}`)
+            }
+        }
+    })
+    await service.delete('usr_1', 'pdh_1')
+    assert.deepEqual(calls, ['teardown', 'port:pdh_1'])
+})
+
+test('a daemon its host restarts updates itself', async () => {
+    const upgrades: unknown[] = []
+    const service = build({
+        db: fakeDb([[host()], [runner()], [host()], [], [], [runner()]]),
+        daemonHosts: {
+            upgrade: async (args: unknown) => {
+                upgrades.push(args)
+                return { ok: true }
+            }
+        },
+        podExec: {
+            forClient: () => {
+                throw new Error('a container daemon is not installed over')
+            }
+        }
+    })
+    await service.upgradeCli('usr_1', 'pdh_1', '3.1.0')
+    assert.equal(upgrades.length, 1)
+    assert.equal(
+        (upgrades[0] as { targetVersion: string }).targetVersion,
+        '3.1.0'
+    )
+})
+
+test('a daemon from an older image is installed over, then left to the boot loop', async () => {
+    const scripts: string[] = []
+    const service = build({
+        db: fakeDb([
+            [host()],
+            [runner({ startupMethod: 'manual' })],
+            [host()],
+            [],
+            [],
+            [runner()]
+        ]),
+        daemonHosts: {
+            upgrade: async () => {
+                throw new Error('a daemon without the container marker cannot restart itself')
+            }
+        },
+        podExec: {
+            forClient: () => ({
+                run: async (req: { cmd: string[] }) => {
+                    scripts.push(req.cmd[2])
+                    return {
+                        exitCode: 0,
+                        stdout: 'mf-upgraded=3.1.0\n',
+                        stderr: ''
+                    }
+                }
+            })
+        }
+    })
+    // resolvePodHostPod lists the host's pod through the cluster client.
+    const k8sClient = {
+        kubeConfig: {
+            makeApiClient: () => ({
+                listNamespacedPod: async () => ({
+                    items: [
+                        {
+                            metadata: { name: 'host-pdh-1-0' },
+                            status: { phase: 'Running' },
+                            spec: { containers: [{ name: 'agent' }] }
+                        }
+                    ]
+                })
+            })
+        }
+    }
+    ;(service as never as { k8s: unknown }).k8s = {
+        getClient: async () => k8sClient
+    }
+    await service.upgradeCli('usr_1', 'pdh_1', '3.1.0')
+    assert.equal(scripts.length, 1)
+    assert.match(scripts[0], /VERSION="3\.1\.0"/)
+    assert.match(scripts[0], /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
+    assert.match(scripts[0], /pkill -TERM -x mf/)
+})
