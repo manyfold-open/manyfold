@@ -627,7 +627,7 @@ for (const framework of [FIXTURE, 'hermes'] as const) {
             assert.ok(
                 h.shells[0].includes(
                     framework === 'hermes'
-                        ? `https://raw.githubusercontent.com/${repo}/main/scripts/install.sh`
+                        ? `https://raw.githubusercontent.com/${repo}/${SHARED}/scripts/install.sh`
                         : `https://github.com/${repo}.git`
                 )
             )

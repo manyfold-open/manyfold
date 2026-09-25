@@ -202,7 +202,15 @@ const fixture = async (t: TestContext) => {
             repo: null
         })
     }
-    const k8sProvisioner = new K8sProvisioner(db, k8s, runtimes, cleanup)
+    // Coding frameworks only: nothing here runs as a host service.
+    const podServices = {} as never
+    const k8sProvisioner = new K8sProvisioner(
+        db,
+        k8s,
+        runtimes,
+        cleanup,
+        podServices
+    )
     const provisioner = new K8sContainerProvisioner(
         db,
         k8s,
@@ -212,7 +220,8 @@ const fixture = async (t: TestContext) => {
         cleanup,
         podExec as never,
         frameworkVersions as never,
-        k8sProvisioner
+        k8sProvisioner,
+        podServices
     )
     const adapter = {
         addAgent: async (input: {

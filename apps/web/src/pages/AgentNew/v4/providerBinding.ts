@@ -204,7 +204,8 @@ export const withBinding = (
 // Shapes per framework follow `buildCreateAgentBody`'s saved-provider branch.
 export const serviceCreateBody = (args: {
     framework: AgentFramework
-    sandboxId: string
+    // The sandbox or cloud computer the framework installs onto.
+    target: { sandboxId: string } | { podHostId: string }
     name: string
     workspace: string
     cost: CostChoice | null
@@ -212,8 +213,9 @@ export const serviceCreateBody = (args: {
     const body: CreateAgentBody = {
         name: args.name.trim(),
         framework: args.framework,
-        runtime: 'sprites',
-        sandboxId: args.sandboxId
+        ...('podHostId' in args.target
+            ? { runtime: 'k8s', podHostId: args.target.podHostId }
+            : { runtime: 'sprites', sandboxId: args.target.sandboxId })
     }
     const workspace = optionalWorkspace(args.workspace)
     if (workspace) body.workspace = workspace

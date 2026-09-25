@@ -1,6 +1,7 @@
 import {
     cliChannelOfVersion,
     FEATURE_TOGGLE_KEYS,
+    frameworkCapability,
     isCliUpdateAvailable,
     parseProbedSemver,
     podRunnerHostName,
@@ -180,6 +181,13 @@ export class PodHostsService {
             )
             .limit(1)
         if (existing) return this.runtimes.toSummary(existing)
+        // A service framework's gateway is configured with its provider, so it
+        // is installed when its first agent is created.
+        if (frameworkCapability(framework).kind === 'service')
+            throw new BadRequestException({
+                code: 'POD_HOST_SERVICE_AT_CREATE',
+                message: `${framework} is installed on a cloud computer with its first agent`
+            })
         // Bare, like a sandbox's prepared runtime: the key an agent's turns
         // use travels with each turn, so the install needs none.
         const runtime = await this.provisioner.addFrameworkRuntime({

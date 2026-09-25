@@ -55,15 +55,19 @@ const exportLines = (env?: Record<string, string>): string =>
         .map(([key, value]) => `export ${key}=${shellQuote(value)}\n`)
         .join('')
 
-const runStep = async (
+export const runPodStep = async (
     runner: PodScriptRunner,
     step: string,
     script: string,
-    env?: Record<string, string>
+    options: { env?: Record<string, string>; timeoutMs?: number } = {}
 ): Promise<ExecResult> => {
     let result: ExecResult
     try {
-        result = await runner.run(script, SETUP_TIMEOUT_MS, env)
+        result = await runner.run(
+            script,
+            options.timeoutMs ?? SETUP_TIMEOUT_MS,
+            options.env
+        )
     } catch (err) {
         throw new BootstrapError(step, (err as Error).message, err)
     }
@@ -94,21 +98,21 @@ export const setUpPodFramework = async (args: {
     const mkWorkspace = `mkdir -p ${shellQuote(workspaceBase)}`
     switch (framework) {
         case 'claude-code':
-            await runStep(
+            await runPodStep(
                 runner,
                 'claude-code-setup-dirs',
                 ['set -eu', mkWorkspace, 'mkdir -p "$HOME/.claude"'].join('\n')
             )
             break
         case 'gemini-cli':
-            await runStep(
+            await runPodStep(
                 runner,
                 'gemini-cli-setup-dirs',
                 ['set -eu', mkWorkspace, 'mkdir -p "$HOME/.gemini"'].join('\n')
             )
             break
         case 'pi':
-            await runStep(
+            await runPodStep(
                 runner,
                 'pi-setup-dirs',
                 [piAgentDirSetupScript(), mkWorkspace].join('\n')
@@ -122,7 +126,7 @@ export const setUpPodFramework = async (args: {
             const configToml = buildCodexConfigToml(
                 creds?.openaiBaseUrl?.trim() || OFFICIAL_PROVIDER_BASE_URL.openai
             )
-            await runStep(
+            await runPodStep(
                 runner,
                 'codex-setup-dirs',
                 [
@@ -145,7 +149,9 @@ export const setUpPodFramework = async (args: {
     )
 
     if (framework === 'pi')
-        await runStep(runner, 'pi-verify', 'pi --version', { PI_OFFLINE: '1' })
+        await runPodStep(runner, 'pi-verify', 'pi --version', {
+            env: { PI_OFFLINE: '1' }
+        })
     return { frameworkVersion }
 }
 
@@ -164,7 +170,7 @@ export const applyCodexCredentialsOnPod = async (args: {
         args.mcpToml,
         args.composioKey
     )
-    await runStep(
+    await runPodStep(
         args.runner,
         'codex-config',
         [

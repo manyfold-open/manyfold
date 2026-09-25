@@ -1,4 +1,8 @@
-import { protocolToHermesBrand } from '@manyfold/shared'
+import {
+    envTextToRecord,
+    isSemverVersionTag,
+    protocolToHermesBrand
+} from '@manyfold/shared'
 import { randomBytes } from 'node:crypto'
 import type { ResolvedHermesCredentials } from '@/modules/agents/credentials/resolved-credentials'
 
@@ -134,3 +138,126 @@ export const buildHermesEnv = (
     }
     return env
 }
+
+// Where hermes lives under a host's hermes home: a sprite's or a pod host's
+// (ADR-0035), laid out the same way.
+export const hermesPaths = (home: string) => {
+    const appDir = `${home}/hermes-agent`
+    return {
+        home,
+        appDir,
+        appBak: `${appDir}.bak`,
+        bin: `${appDir}/venv/bin/hermes`,
+        webDistDir: `${appDir}/hermes_cli/web_dist`
+    }
+}
+
+// The CalVer tag is interpolated into the installer's `--branch` argument, so
+// this is the gate that keeps a shell metacharacter out of it: a valid semver
+// string cannot carry one, which is why admitting prereleases here does not
+// widen the shell surface. Returns the trimmed value because the string that
+// was validated is the string that must be interpolated.
+const assertHermesVersion = (version: string): string => {
+    if (!isSemverVersionTag(version))
+        throw new Error(`invalid hermes version "${version}"`)
+    return version.trim()
+}
+
+// NousResearch publishes the installer in the repository. `--skip-setup` skips
+// the interactive onboarding wizard (we supply env vars). The git config
+// rewrites switch SSH→HTTPS for pip dependencies hitting GitHub from a sprite
+// where outbound SSH may be slow or blocked. A `ref` (CalVer tag) pins the
+// CHECKOUT via the installer's `--branch`, which `git clone --depth 1 --branch`
+// honours for tags, and the installer is read from that same tag; no ref keeps
+// the historical `main` behaviour.
+// Seen on a kind cloud computer [2026-09-25]: main's installer set up a `pm`
+// package manager that the v2026.9.24 checkout does not have, so an install
+// pinned to that tag failed with "No module named 'pm'".
+export const buildHermesInstallScript = (ref?: string | null): string => {
+    const installArgs = ['--skip-setup']
+    const tag = ref ? assertHermesVersion(ref) : null
+    if (tag) installArgs.push('--branch', tag)
+    return [
+        // pipefail: a failed download would hand bash an empty script, and
+        // the pipeline would report the install done.
+        'set -euo pipefail',
+        'git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"',
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"',
+        `curl --proto '=https' -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/${tag ?? 'main'}/scripts/install.sh | bash -s -- ${installArgs.join(' ')}`
+    ].join(' && ')
+}
+
+// In-place version upgrade: re-run the installer pinned to a new tag. The old
+// checkout is moved aside first so the installer does a clean clone (it would
+// otherwise take its in-place "update" path, which can't fast-forward a detached
+// tag); on any failure `set -e` aborts and the caller runs the restore shell to
+// roll back. Config + sessions live in $HERMES_HOME OUTSIDE hermes-agent/ and are
+// left untouched. Caller stops the service before and starts it after.
+export const buildHermesRebuildShell = (
+    version: string,
+    home: string
+): string => {
+    const tag = assertHermesVersion(version)
+    const { appDir, appBak, bin } = hermesPaths(home)
+    return [
+        'set -eu',
+        `rm -rf "${appBak}"`,
+        `if [ -d "${appDir}" ]; then mv "${appDir}" "${appBak}"; fi`,
+        buildHermesInstallScript(tag),
+        // The old checkout goes only once the new one runs; otherwise the
+        // caller's restore shell puts it back.
+        // Seen on a kind cloud computer [2026-09-25]: a rebuild exited 0
+        // without a new checkout and removed the old one with it.
+        `"${bin}" --version >/dev/null`,
+        `rm -rf "${appBak}"`
+    ].join('\n')
+}
+
+// Roll back to the pre-upgrade checkout after a failed rebuild.
+export const buildHermesRestoreShell = (home: string): string => {
+    const { appDir, appBak } = hermesPaths(home)
+    return [
+        'set -u',
+        `if [ -d "${appBak}" ]; then rm -rf "${appDir}"; mv "${appBak}" "${appDir}"; fi`
+    ].join('\n')
+}
+
+// The gateway service's env on any host. HERMES_DASHBOARD_ENABLED stays false
+// for the gateway itself: a dashboard is a separate `hermes dashboard`
+// service, never gateway-managed.
+export const hermesServiceEnv = (opts: {
+    creds: ResolvedHermesCredentials
+    apiServerKey: string
+    envText?: string | null
+}): Record<string, string> => {
+    const rawProvider =
+        (opts.creds.primaryModelProvider as string | undefined) ?? 'openai'
+    return {
+        ...envTextToRecord(opts.envText),
+        ...buildHermesEnv({
+            creds: opts.creds,
+            apiServerKey: opts.apiServerKey,
+            dashboardEnabled: false
+        }),
+        // Hermes reads `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / etc. — not
+        // `HERMES_PRIMARY_MODEL_API_KEY`. Mirror what docker/hermes/
+        // entrypoint.sh re-exports.
+        ...hermesProviderAliasEnv(
+            rawProvider,
+            opts.creds.primaryModelApiKey ?? ''
+        )
+    }
+}
+
+// config.yaml, which `hermes acp` and the gateway read for model/provider;
+// service env alone never reaches an ACP child.
+export const hermesConfigYamlFor = (creds: ResolvedHermesCredentials): string =>
+    buildHermesConfigYaml({
+        profile: creds.profile ?? 'default',
+        provider: mapHermesProvider(
+            (creds.primaryModelProvider as string | undefined) ?? 'openai'
+        ),
+        modelName: creds.primaryModelName ?? undefined,
+        baseUrl: creds.primaryModelBaseUrl ?? undefined,
+        apiKey: creds.primaryModelApiKey ?? undefined
+    })

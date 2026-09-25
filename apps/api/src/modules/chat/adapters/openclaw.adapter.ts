@@ -67,6 +67,15 @@ const OPENCLAW_PERMISSION_TIMEOUT_MS = Math.max(
 const OPENCLAW_ACP_PARSER_NAME = 'openclaw-acp'
 const OPENCLAW_ACP_PARSER_VERSION = '1'
 
+// The Manyfold-provisioned gateway names its one provider `primary`
+// (buildOpenclawConfigJson). A pick from the model list is a bare id under
+// it; the agent's stored model can already be the ref OpenClaw listed.
+// Seen on a kind cloud computer [2026-09-25]: openclaw 2026.9.6 lists every
+// agent's effective model as primary/<model>, and prefixing it again made the
+// provider 404 the turn.
+const openclawModelRef = (model: string): string =>
+    model.startsWith('primary/') ? model : `primary/${model}`
+
 // The gateway session key that pins cross-turn continuity. Measured against
 // openclaw@2026.5.18 [2026-09-07]: history survives a bridge restart when a new
 // session/new carries the SAME _meta.sessionKey — the ACP sessionId itself is
@@ -207,7 +216,13 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
         if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
-        const refusal = await this.daemonAdmissionRefusal(daemonId)
+        const refusal = await this.daemonAdmissionRefusal(daemonId, {
+            // A cloud computer's gateway is the platform's own service, kept
+            // up (and health-checked) by the host's daemon (ADR-0035): there
+            // is nothing to discover, and a detection from before it was
+            // installed must not refuse the turn.
+            platformGateway: agentRow.runtime === 'k8s'
+        })
         if (refusal) {
             yield refusal
             return
@@ -221,7 +236,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     // "couldn't check" must never surface as the non-retryable upgrade demand
     // that a definite `false` produces.
     private async daemonAdmissionRefusal(
-        daemonId: string
+        daemonId: string,
+        options: { platformGateway: boolean }
     ): Promise<EmittedErrorEvent | null> {
         let capable: boolean
         try {
@@ -250,6 +266,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
                     retryable: false
                 }
             }
+        if (options.platformGateway) return null
         // The bridge connects to a gateway the daemon only DISCOVERS — it
         // never starts one (ADR-0027, zero host ownership). The heartbeat
         // reports what it found, so refuse here with the fix in the message
@@ -331,7 +348,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         // 'default' turns exec approval on; the enum is the probe-verified
         // posture. A per-message model pick routes as primary/<model>.
         if (permissionMode === 'default') patch.execAsk = 'on-miss'
-        if (ctx.modelOverride) patch.model = `primary/${ctx.modelOverride}`
+        if (ctx.modelOverride) patch.model = openclawModelRef(ctx.modelOverride)
         const budgets = await this.streamBudgets()
         const payload: DaemonOpenclawAcpTurnPayload = {
             framework: 'openclaw',

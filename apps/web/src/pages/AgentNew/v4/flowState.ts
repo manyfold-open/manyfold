@@ -22,6 +22,8 @@ export type RuntimeChoice =
           kind: 'runtime'
           runtimeId: string | null
           sandboxId: string | null
+          // A cloud computer a service framework installs onto at create.
+          podHostId?: string
           hostKind: AgentRuntime
           hostLabel: string
           // Only a daemon host makes the workspace a real question, so only it

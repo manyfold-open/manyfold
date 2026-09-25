@@ -1,7 +1,9 @@
 import type {
     V1Deployment,
+    V1Ingress,
     V1PersistentVolumeClaim,
-    V1Secret
+    V1Secret,
+    V1Service
 } from '@kubernetes/client-node'
 import { K8S_HOME_BASE } from '@manyfold/shared'
 
@@ -40,7 +42,9 @@ export const POD_HOST_ID_LABEL = 'nca.netmind.ai/host-id'
 export const podHostSelector = (hostId: string): string =>
     `${POD_HOST_ID_LABEL}=${hostId}`
 
-const podHostLabels = (spec: PodHostSpec): Record<string, string> => ({
+type PodHostRef = Pick<PodHostSpec, 'hostId' | 'userId' | 'namespace'>
+
+const podHostLabels = (spec: PodHostRef): Record<string, string> => ({
     [POD_HOST_ID_LABEL]: spec.hostId,
     'nca.netmind.ai/user-id': spec.userId,
     'app.kubernetes.io/managed-by': MANAGED_BY
@@ -130,3 +134,81 @@ export const buildPodHostDeployment = (spec: PodHostSpec): V1Deployment => {
         }
     }
 }
+
+// The ports of the service frameworks on the host, one per framework
+// (ADR-0035 §7), behind a Service named after the host.
+export const buildPodHostService = (
+    host: PodHostRef,
+    ports: ReadonlyArray<{ framework: string; port: number }>
+): V1Service => ({
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+        name: podHostResourceName(host.hostId),
+        namespace: host.namespace,
+        labels: podHostLabels(host)
+    },
+    spec: {
+        type: 'ClusterIP',
+        selector: { [POD_HOST_ID_LABEL]: host.hostId },
+        ports: ports.map((p) => ({
+            name: p.framework,
+            port: p.port,
+            targetPort: p.port,
+            protocol: 'TCP'
+        }))
+    }
+})
+
+// Each service framework gets a hostname of its own, because the gateways
+// and UIs behind them assume they are mounted at `/`.
+export const podHostFrameworkIngressHost = (
+    hostId: string,
+    framework: string,
+    suffix: string
+): string => `${framework}-${podHostResourceName(hostId)}.${suffix}`
+
+export const podHostIngressName = (hostId: string, framework: string): string =>
+    `${podHostResourceName(hostId)}-${framework}`
+
+export const buildPodHostIngress = (
+    host: PodHostRef,
+    framework: string,
+    ingressHost: string,
+    port: number
+): V1Ingress => ({
+    apiVersion: 'networking.k8s.io/v1',
+    kind: 'Ingress',
+    metadata: {
+        name: podHostIngressName(host.hostId, framework),
+        namespace: host.namespace,
+        labels: podHostLabels(host),
+        annotations: {
+            'nginx.ingress.kubernetes.io/proxy-read-timeout': '600',
+            'nginx.ingress.kubernetes.io/proxy-send-timeout': '600',
+            'nginx.ingress.kubernetes.io/proxy-buffering': 'off'
+        }
+    },
+    spec: {
+        ingressClassName: 'nginx',
+        rules: [
+            {
+                host: ingressHost,
+                http: {
+                    paths: [
+                        {
+                            path: '/',
+                            pathType: 'Prefix',
+                            backend: {
+                                service: {
+                                    name: podHostResourceName(host.hostId),
+                                    port: { number: port }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+})

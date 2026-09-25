@@ -11,6 +11,7 @@ import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from './provisioning/pod-runner-provisioner'
 import { K8sCreateCleanupService } from './provisioning/k8s-create-cleanup.service'
+import { PodHostServices } from './provisioning/pod-host-services'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
@@ -53,6 +54,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         SpritesProvisioner,
         K8sProvisioner,
         K8sCreateCleanupService,
+        PodHostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
         ClaudeCodeBootstrap,
@@ -74,6 +76,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         SpriteKeepAliveLeaseService,
         K8sProvisioner,
         K8sCreateCleanupService,
+        PodHostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
         HermesSpriteBootstrap,

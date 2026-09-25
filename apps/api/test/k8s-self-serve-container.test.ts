@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
+import { assertPodHostFramework } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 
 // #971: a k8s create without a purchased container. The port decides the
 // edition's answer — cloud keeps CONTAINER_REQUIRED, the open default
@@ -195,21 +196,30 @@ test('port absence falls back to the open default and provisions', async () => {
     assert.equal(h.provisionCalls.length, 1)
 })
 
-test('a service framework is refused before any pod host work', async () => {
-    const h = makeService({ cloudComputer: openCloudComputerPort })
-    await assert.rejects(
-        h.service.create({
-            userId: 'usr_1',
-            dto: { ...dto, framework: 'openclaw' },
-            isAdmin: false
-        } as never),
+test('a cloud computer runs the coding and service frameworks, nothing else', () => {
+    for (const framework of ['codex', 'claude-code', 'openclaw', 'hermes'])
+        assert.doesNotThrow(() => assertPodHostFramework(framework))
+    assert.throws(
+        () => assertPodHostFramework('dify'),
         (err: unknown) =>
             err instanceof BadRequestException &&
             (err.getResponse() as { code?: string }).code ===
-                'FRAMEWORK_NOT_ON_POD_HOST',
-        'a pod host runs no service framework until its daemon supervises services (ADR-0035 P2)'
+                'FRAMEWORK_NOT_ON_POD_HOST'
     )
-    assert.equal(h.provisionCalls.length, 0)
+})
+
+test('a service framework is provisioned onto a pod host', async () => {
+    const h = makeService({ cloudComputer: openCloudComputerPort })
+    await h.service.create({
+        userId: 'usr_1',
+        dto: { ...dto, framework: 'openclaw' },
+        isAdmin: false
+    } as never)
+    assert.equal(
+        h.provisionCalls.length,
+        1,
+        'the host daemon supervises its services (ADR-0035 P2)'
+    )
 })
 
 test('the cloud_computer master toggle blocks self-serve provisioning', async () => {

@@ -55,12 +55,20 @@ import {
     runOnRuntimeHost,
     upgradeLockTarget
 } from './runtime-host-shell'
+import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
+import {
+    podServiceRecipe,
+    type PodServiceRecipe
+} from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import {
+    HERMES_WEB_BUILD_SHELL,
+    HERMES_WEB_BUILD_TIMEOUT_MS,
+    SPRITE_HERMES_HOME
+} from '@/modules/agents/bootstrap/hermes-sprite'
 import {
     buildHermesRebuildShell,
-    buildHermesRestoreShell,
-    HERMES_WEB_BUILD_SHELL,
-    HERMES_WEB_BUILD_TIMEOUT_MS
-} from '@/modules/agents/bootstrap/hermes-sprite'
+    buildHermesRestoreShell
+} from '@/modules/agents/bootstrap/hermes-shared'
 
 // npm installs of the coding-agent CLIs can take a while (claude-code is a
 // large package); keep the synchronous exec window generous.
@@ -70,6 +78,7 @@ const UPGRADE_TIMEOUT_MS = 180_000
 // timeout).
 const REBUILD_TIMEOUT_MS = 900_000
 const RESTORE_TIMEOUT_MS = 120_000
+const POD_SERVICE_READY_TIMEOUT_MS = 180_000
 
 export interface FrameworkUpgradeEmitter {
     step(step: FrameworkUpgradeStep): void
@@ -90,7 +99,8 @@ export class FrameworkUpgradeService {
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
         // Same convention; absent, only sprites upgrade.
         @Optional() private readonly k8s?: KubernetesService,
-        @Optional() private readonly podExec?: PodExecFactory
+        @Optional() private readonly podExec?: PodExecFactory,
+        @Optional() private readonly podServices?: PodHostServices
     ) {}
 
     async upgrade(
@@ -182,6 +192,9 @@ export class FrameworkUpgradeService {
                     await (
                         await this.spriteClientFor(agent, runtime)
                     ).restartService(spriteName, descriptor.serviceName)
+                const recipe = podServiceRecipe(agent.framework)
+                if (runtime.kind === 'k8s' && recipe)
+                    await this.restartPodService(runtime, recipe)
 
                 // Re-probe persists the new version. Assert it actually changed —
                 // catches the case where a pre-installed binary still shadows the
@@ -232,12 +245,17 @@ export class FrameworkUpgradeService {
         if (!agent.runtimeId)
             throw new BadRequestException('agent has no runtime')
         const runtime = await this.loadRuntime(agent.runtimeId)
-        if (!runtime || runtime.kind !== 'sprites')
+        if (!runtime || !hostsFrameworkCli(runtime))
             throw new BadRequestException(
-                'framework upgrade is only supported on sprite runtimes'
+                'framework upgrade is only supported on sprites and cloud computers'
+            )
+        const podRecipe =
+            runtime.kind === 'k8s' ? podServiceRecipe(framework) : undefined
+        if (runtime.kind === 'k8s' && !podRecipe)
+            throw new BadRequestException(
+                `${framework} rebuild upgrade is not available on cloud computers`
             )
         const spriteName = agent.spriteName ?? runtime.spriteName
-        if (!spriteName) throw new BadRequestException('agent has no sprite')
         const serviceName = frameworkVersionDescriptor(framework).serviceName
         if (!serviceName)
             throw new InternalServerErrorException(
@@ -270,6 +288,24 @@ export class FrameworkUpgradeService {
             catalog.blocked
         )
 
+        if (podRecipe)
+            return withRuntimeUpgradeLock(
+                this.db,
+                upgradeLockTarget(agent, runtime, agent.framework),
+                async () => {
+                    await this.rebuildOnPod({
+                        agent,
+                        runtime,
+                        recipe: podRecipe,
+                        targetVersion,
+                        sourceRepo,
+                        emitter
+                    })
+                    return this.agents.get(agentId, callerUserId, isAdmin)
+                }
+            )
+
+        if (!spriteName) throw new BadRequestException('agent has no sprite')
         return withRuntimeUpgradeLock(
             this.db,
             {
@@ -285,7 +321,8 @@ export class FrameworkUpgradeService {
                 const shells = this.rebuildShellsFor(
                     agent.framework,
                     targetVersion,
-                    sourceRepo
+                    sourceRepo,
+                    SPRITE_HERMES_HOME
                 )
                 // Dashboard topology: proxy + dashboard serve out of (and route to)
                 // the checkout the rebuild is about to replace — stop them first and
@@ -399,15 +436,16 @@ export class FrameworkUpgradeService {
     private rebuildShellsFor(
         framework: AgentFramework,
         targetVersion: string,
-        repo: string | null
+        repo: string | null,
+        hermesHome: string
     ): { rebuild: string; restore: string } {
         // hermes pipes NousResearch's install.sh, which clones a repository
         // named inside that script, so `repo` cannot steer it — which is why
         // hermes is held to a single candidate.
         if (framework === 'hermes')
             return {
-                rebuild: buildHermesRebuildShell(targetVersion),
-                restore: buildHermesRestoreShell()
+                rebuild: buildHermesRebuildShell(targetVersion, hermesHome),
+                restore: buildHermesRestoreShell(hermesHome)
             }
         const shells = this.extensions.get(framework)?.version?.rebuildShells
         if (!shells)
@@ -419,6 +457,92 @@ export class FrameworkUpgradeService {
                 `no ${framework} repository could be resolved`
             )
         return shells({ version: targetVersion, repo })
+    }
+
+    // A rebuilt service framework on a pod host: its daemon stops the
+    // service, the checkout is replaced (restored on failure), and the service
+    // comes back up before the version is read back (ADR-0035).
+    private async rebuildOnPod(args: {
+        agent: Agent
+        runtime: AgentRuntimeRow
+        recipe: PodServiceRecipe
+        targetVersion: string
+        sourceRepo: string | null
+        emitter: FrameworkUpgradeEmitter
+    }): Promise<void> {
+        const { agent, runtime, recipe, emitter } = args
+        if (!this.podServices || !runtime.hostId)
+            throw new ServiceUnavailableException(
+                'cloud computer services are not available'
+            )
+        const host = { id: runtime.hostId, userId: runtime.userId }
+        const shellDeps = {
+            accounts: this.accounts,
+            k8s: this.k8s,
+            podExec: this.podExec
+        }
+        emitter.step('validating')
+        const shells = this.rebuildShellsFor(
+            agent.framework,
+            args.targetVersion,
+            args.sourceRepo,
+            recipe.home
+        )
+        emitter.step('stopping_service')
+        await this.podServices.stop(host, recipe.serviceName)
+        emitter.step('rebuilding')
+        const rebuild = await runOnRuntimeHost(
+            shellDeps,
+            agent,
+            runtime,
+            shells.rebuild,
+            REBUILD_TIMEOUT_MS
+        )
+        if (rebuild.exitCode !== 0) {
+            await runOnRuntimeHost(
+                shellDeps,
+                agent,
+                runtime,
+                shells.restore,
+                RESTORE_TIMEOUT_MS
+            ).catch(() => undefined)
+            await this.podServices
+                .start(host, recipe.serviceName)
+                .catch(() => undefined)
+            throw new InternalServerErrorException(
+                `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
+            )
+        }
+        emitter.step('starting_service')
+        await this.podServices.start(host, recipe.serviceName)
+        await this.podServices.waitHealthy(
+            host,
+            recipe.serviceName,
+            POD_SERVICE_READY_TIMEOUT_MS
+        )
+        emitter.step('verifying')
+        const installed = await this.probe.probeAndPersist(agent)
+        if (
+            installed !== null &&
+            compareSemverPrecedence(installed, args.targetVersion) !== 0
+        )
+            throw new InternalServerErrorException(
+                `${agent.framework} upgrade verification mismatch: expected ${args.targetVersion}, the host reports ${installed}`
+            )
+    }
+
+    private async restartPodService(
+        runtime: AgentRuntimeRow,
+        recipe: PodServiceRecipe
+    ): Promise<void> {
+        if (!this.podServices || !runtime.hostId) return
+        const host = { id: runtime.hostId, userId: runtime.userId }
+        await this.podServices.restart(host, recipe.serviceName)
+        await this.podServices.waitHealthy(
+            host,
+            recipe.serviceName,
+            POD_SERVICE_READY_TIMEOUT_MS
+        )
     }
 
     // A release inside a broken window is never installable, by anyone: an

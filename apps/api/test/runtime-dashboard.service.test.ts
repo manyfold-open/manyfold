@@ -247,21 +247,47 @@ test('getControlUiUrl honors an explicit agentId over the primary agent', async 
 // kind dispatch + toggles
 // ---------------------------------------------------------------------------
 
-test('setControlUi refuses k8s runtimes', async () => {
+// A cloud computer's gateway is a service of its host's daemon (ADR-0035):
+// the toggle rewrites the service's config and restarts it. The pod and
+// daemon plumbing is bypassed here, as the sprite tests bypass theirs.
+test('cloud computer openclaw toggle reconfigures its service, patches flag and audits', async () => {
+    const audits: Array<Record<string, unknown>> = []
+    const statusPatches: Array<Record<string, unknown>> = []
+    const reconfigured: boolean[] = []
+    const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
     const service = serviceFor({
-        runtimes: runtimesFor([runtime({ framework: 'openclaw', kind: 'k8s' })])
+        runtimes: runtimesFor([current, current], statusPatches),
+        db: dbFor({ audits, credsCiphertext: 'ENC1' })
+    })
+    ;(service as never as Record<string, unknown>).reconfigurePodService =
+        async (_runtime: unknown, enabled: boolean) => {
+            reconfigured.push(enabled)
+        }
+    await service.setControlUi('user-1', 'runtime-1', true, false)
+    assert.deepEqual(reconfigured, [true])
+    assert.deepEqual(statusPatches, [
+        { controlUiEnabled: true, dashboardState: null }
+    ])
+    assert.equal(audits[0].action, 'agent_runtime.control_ui.toggled')
+})
+
+test('cloud computer toggle without pod host services records the failure', async () => {
+    const audits: Array<Record<string, unknown>> = []
+    const statusPatches: Array<Record<string, unknown>> = []
+    const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
+    const service = serviceFor({
+        runtimes: runtimesFor([current, current], statusPatches),
+        db: dbFor({ audits, credsCiphertext: 'ENC1' })
     })
     await assert.rejects(
         () => service.setControlUi('user-1', 'runtime-1', true, false),
-        (err: unknown) => {
-            assert.ok(err instanceof BadRequestException)
-            assert.match(
-                (err as Error).message,
-                /only supported for sprites runtimes/
-            )
-            return true
-        }
+        /failed to toggle openclaw control UI/
     )
+    assert.match(
+        String(statusPatches[0]?.dashboardState),
+        /^error:.*no service on this cloud computer/
+    )
+    assert.equal(audits[0].action, 'agent_runtime.control_ui.toggle_failed')
 })
 
 test('setDashboard refuses k8s runtimes', async () => {
