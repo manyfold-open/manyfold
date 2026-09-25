@@ -3623,6 +3623,7 @@ const ar: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'التشغيل التلقائي · تسجيل الدخول (systemd)',
     'web.selfOwned.startupSystemdSystem': 'التشغيل التلقائي · الإقلاع (systemd)',
     'web.selfOwned.startupManual': 'يدوي',
+    'web.selfOwned.startupContainer': 'التشغيل التلقائي · حاوية',
     'web.selfOwned.startupUnknown': 'بدء التشغيل غير معروف',
     'web.agentNewV3.managedProvider': 'مُدار بواسطة Manyfold',
     'web.apiTokens.title': 'رموز API',

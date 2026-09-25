@@ -3617,6 +3617,7 @@ const ko: Record<string, string> = {
     "web.selfOwned.startupSystemdUser": "자동 시작 · 로그인(systemd)",
     "web.selfOwned.startupSystemdSystem": "자동 시작 · 부팅(systemd)",
     "web.selfOwned.startupManual": "수동",
+    "web.selfOwned.startupContainer": "자동 시작 · 컨테이너",
     "web.selfOwned.startupUnknown": "시작 방법 알 수 없음",
     "web.agentNewV3.managedProvider": "Manyfold 관리형",
     "web.apiTokens.title": "API 토큰",

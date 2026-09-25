@@ -3625,6 +3625,7 @@ const hi: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'ऑटो-स्टार्ट · लॉग इन (systemd)',
     'web.selfOwned.startupSystemdSystem': 'ऑटो-स्टार्ट · बूट (systemd)',
     'web.selfOwned.startupManual': 'मैन्युअल',
+    'web.selfOwned.startupContainer': 'ऑटो-स्टार्ट · कंटेनर',
     'web.selfOwned.startupUnknown': 'स्टार्टअप अज्ञात',
     'web.agentNewV3.managedProvider': 'Manyfold प्रबंधित',
     'web.apiTokens.title': 'API टोकन',

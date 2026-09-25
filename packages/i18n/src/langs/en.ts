@@ -4273,6 +4273,7 @@ const en = {
             startupSystemdUser: 'autostart · login (systemd)',
             startupSystemdSystem: 'autostart · boot (systemd)',
             startupManual: 'manual',
+            startupContainer: 'autostart · container',
             startupUnknown: 'startup unknown'
         },
         agentNewV3: {

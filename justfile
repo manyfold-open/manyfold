@@ -186,5 +186,9 @@ docker-build-gemini-cli TAG=IMAGE_TAG: docker-build-base
 docker-build-pi TAG=IMAGE_TAG: docker-build-base
     docker build -t pi:{{TAG}} -t pi:latest docker/pi
 
+# The pod host image (ADR-0035). Standalone: it pins its own first-boot mf.
+docker-build-host TAG=IMAGE_TAG:
+    docker build -t manyfold-runtime-host:{{TAG}} -t manyfold-runtime-host:latest docker/host
+
 clean:
     rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .turbo

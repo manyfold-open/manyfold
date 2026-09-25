@@ -10,6 +10,9 @@ export type DaemonStartupMethod =
     | 'systemd-user'
     | 'systemd-system'
     | 'manual'
+    // A pod host's boot loop (ADR-0035): nothing installs a unit, but the
+    // container's main process restarts the daemon whenever it exits.
+    | 'container'
 
 export type DaemonCodingFramework = Extract<
     AgentFramework,

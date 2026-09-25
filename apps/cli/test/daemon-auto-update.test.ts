@@ -49,6 +49,12 @@ test('a self-update without a supervisor would kill the daemon — hard-gated of
     assert.equal(dev.enabled, false)
 })
 
+test('a pod host daemon waits for the platform to upgrade it, even on the official API', () => {
+    const container = decision({ startupMethod: 'container', envValue: '1' })
+    assert.equal(container.enabled, false)
+    assert.match(container.reason, /platform/)
+})
+
 test('MF_DAEMON_AUTO_UPDATE overrides the default in both directions, garbage fails closed', () => {
     assert.equal(decision({ envValue: '0' }).enabled, false)
     assert.equal(decision({ envValue: 'off' }).enabled, false)
