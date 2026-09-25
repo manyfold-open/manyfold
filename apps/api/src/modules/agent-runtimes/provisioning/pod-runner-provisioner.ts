@@ -3,22 +3,21 @@ import { ConfigService } from '@nestjs/config'
 import type { Database } from '@manyfold/db'
 import {
     buildPodRunnerEnv,
-    supportsRuntime,
-    frameworkCapability,
-    podRunnerHostName,
-    type AgentFramework
+    K8S_HOME_BASE,
+    podRunnerHostName
 } from '@manyfold/shared'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
 export interface PodRunnerProvision {
-    // Merged into the pod's env Secret.
+    // The whole of the pod host's env Secret.
     env: Record<string, string>
     // So a failed provision can discard a credential the pod never bound.
     tokenId: string
 }
 
-// Every supported Pod needs a persistent daemon registration before it can chat.
+// Every pod host runs one daemon, which carries the turns of every framework
+// runtime on it (ADR-0035); it has to register before any of them can chat.
 @Injectable()
 export class PodRunnerProvisioner {
     private readonly log = new Logger(PodRunnerProvisioner.name)
@@ -28,24 +27,15 @@ export class PodRunnerProvisioner {
         private readonly config: ConfigService
     ) {}
 
-    supports(framework: AgentFramework): boolean {
-        return supportsRuntime(framework, 'k8s')
-    }
-
     async mint(
-        args: {
-            userId: string
-            runtimeId: string
-            framework: AgentFramework
-            // The image's manyfold home root; for coding images this is the PVC
-            // mount path, which is what puts the daemon's uuid on durable storage.
-            homeRoot: string
-        },
+        args: { userId: string; podHostId: string },
         db?: Pick<Database, 'insert'>
-    ): Promise<PodRunnerProvision | null> {
-        if (!this.supports(args.framework)) return null
+    ): Promise<PodRunnerProvision> {
         const apiBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')
-        if (!apiBaseUrl) throw new BadRequestException('PUBLIC_API_BASE_URL is required for the Pod daemon runner')
+        if (!apiBaseUrl)
+            throw new BadRequestException(
+                'PUBLIC_API_BASE_URL is required for the pod host daemon'
+            )
 
         // No expiry, deliberately. The daemon presents this token on every
         // websocket connect, and nothing re-mints it: a sprite runner is
@@ -60,8 +50,8 @@ export class PodRunnerProvisioner {
             {
                 userId: args.userId,
                 // The host name the pod will register under; teardown re-derives
-                // it from the runtime id, so it is not carried on the result.
-                name: podRunnerHostName(args.runtimeId),
+                // it from the pod host id, so it is not carried on the result.
+                name: podRunnerHostName(args.podHostId),
                 purpose: 'pod_runner'
             },
             db
@@ -70,10 +60,8 @@ export class PodRunnerProvisioner {
             env: buildPodRunnerEnv({
                 apiBaseUrl: publicApiUrlWithApiPrefix(apiBaseUrl),
                 daemonToken: minted.plaintext,
-                runtimeId: args.runtimeId,
-                homeRoot: frameworkCapability(args.framework).kind === 'coding'
-                    ? args.homeRoot : `${args.homeRoot}/.manyfold-runner`,
-                ...(frameworkCapability(args.framework).kind === 'coding' ? {} : { workspaceRoot: args.homeRoot })
+                podHostId: args.podHostId,
+                homeRoot: `${K8S_HOME_BASE}/.manyfold`
             }),
             tokenId: minted.tokenId
         }

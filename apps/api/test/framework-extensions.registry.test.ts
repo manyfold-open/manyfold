@@ -48,7 +48,6 @@ const complete = (): FrameworkExtension => ({
             fallbackExec: () => ['fixture']
         }
     },
-    k8sBootstrap: adapter('fixture-gateway'),
     version: {
         descriptor: {
             framework: 'fixture-gateway',
@@ -79,12 +78,7 @@ test('an extension must match a registered definition, slot for slot', () => {
             }),
         /adapters name another framework/
     )
-    for (const slot of [
-        'spriteService',
-        'k8sBootstrap',
-        'version',
-        'files'
-    ] as const)
+    for (const slot of ['spriteService', 'version', 'files'] as const)
         assert.throws(
             () => registry.register({ ...complete(), [slot]: undefined }),
             /is missing its/,

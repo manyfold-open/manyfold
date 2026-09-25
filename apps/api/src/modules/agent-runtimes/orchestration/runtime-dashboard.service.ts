@@ -32,7 +32,6 @@ import {
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { K8sRuntimeSidecarService } from '@/modules/agent-runtimes/orchestration/k8s-runtime-sidecar.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
@@ -59,8 +58,9 @@ interface SpriteToggleTarget {
 }
 
 // Runtime-kind dispatcher for the dashboard/control-UI surface: sprite rows
-// get the sprite service choreography; openclaw control-UI on k8s still
-// delegates to the sidecar service. The hermes dashboard is sprite-only —
+// get the sprite service choreography. A pod host runs no service framework
+// until its daemon supervises services (ADR-0035 P2), so the openclaw toggle
+// is sprite-only for now. The hermes dashboard is sprite-only —
 // the k8s host shape (cookie-authed `-dashboard` ingress sidecar) was
 // retired with zero enabled rows measured on prod and staging [2026-08-28].
 // Deliberately does NOT depend on AgentsService — AgentsModule imports this
@@ -73,7 +73,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
-        private readonly k8sSidecar: K8sRuntimeSidecarService,
         private readonly accounts: SpritesAccountsService,
         private readonly crypto: CryptoService,
         private readonly hermesBootstrap: HermesSpriteBootstrap,
@@ -105,11 +104,8 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 'control UI toggle only supported for openclaw runtimes'
             )
         if (runtime.kind !== 'sprites')
-            return this.k8sSidecar.setControlUi(
-                callerUserId,
-                runtimeId,
-                enabled,
-                isAdmin
+            throw new BadRequestException(
+                'control UI toggle only supported for sprites runtimes'
             )
         if (runtime.controlUiEnabled === enabled)
             return this.runtimes.toSummary(runtime)

@@ -257,7 +257,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             cmd.push('--resume', ctx.frameworkSessionRef)
 
         const env =
-            (runtime === 'sprites' || ctx.modelConfig?.framework === 'gemini-cli') && geminiCreds && !runtimeLocalTurn && !authContext
+            (runtime === 'sprites' || runtime === 'k8s' || ctx.modelConfig?.framework === 'gemini-cli') && geminiCreds && !runtimeLocalTurn && !authContext
                 ? {
                       GEMINI_API_KEY: geminiCreds.googleApiKey,
                       GOOGLE_GEMINI_BASE_URL:
@@ -288,7 +288,9 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             return
         }
         const handle = driver.stream({
-            cmd: env && runtime !== 'sprites' ? [
+            // The platform launcher keeps a user's own machine's settings
+            // untouched; a platform host (sprite, pod host) runs the bootstrap.
+            cmd: env && runtime !== 'sprites' && runtime !== 'k8s' ? [
                 'bash', '-lc', `${PATH_PREPEND_LOCAL_BIN}\nexport GEMINI_CLI_TRUST_WORKSPACE=true\nexec node -e "$1" -- "\${@:2}"`,
                 'gemini', geminiPlatformLauncher(GEMINI_INTERNAL_MODEL_TARGETS), ...cmd.slice(1)
             ] : [

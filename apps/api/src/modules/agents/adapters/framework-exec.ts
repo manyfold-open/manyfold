@@ -132,7 +132,6 @@ export class FrameworkExecResolver {
 
     async forRuntime(
         runtime: AgentRuntimeRow,
-        primaryAgentId: string | null,
         logger?: Logger
     ): Promise<FrameworkExec> {
         if (runtime.kind === 'daemon') {
@@ -143,11 +142,7 @@ export class FrameworkExecResolver {
             return new DaemonFrameworkExec(this.registry, runtime.daemonId)
         }
         if (runtime.kind === 'k8s') {
-            const pod = await resolveAgentPod(
-                this.k8s,
-                runtime,
-                primaryAgentId
-            )
+            const pod = await resolveAgentPod(this.k8s, runtime)
             const podExec = this.podExecFactory.forClient(
                 pod.client,
                 pod.namespace,

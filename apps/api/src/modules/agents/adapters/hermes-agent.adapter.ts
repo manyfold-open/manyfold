@@ -81,12 +81,8 @@ export class HermesAgentAdapter implements AgentAdapter {
     async deleteAgent(): Promise<void> {}
 
     async listAgents(ctx: AgentAdapterListContext): Promise<FrameworkAgent[]> {
-        const { runtime, primaryAgentId } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const profiles = await tryPythonList(exec, hermesHomeFor(runtime))
         if (!profiles)
             throw new Error(
@@ -96,12 +92,8 @@ export class HermesAgentAdapter implements AgentAdapter {
     }
 
     async addAgent(ctx: AddAgentContext): Promise<AddAgentResult> {
-        const { runtime, primaryAgentId, internalId, cloneFrom } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime, internalId, cloneFrom } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const cmd = ['hermes', 'profile', 'create', internalId]
         if (cloneFrom) cmd.push('--clone', '--clone-from', cloneFrom)
         const create = await exec.run({ cmd, timeoutMs: EXEC_TIMEOUT_MS })
@@ -123,12 +115,8 @@ export class HermesAgentAdapter implements AgentAdapter {
     }
 
     async removeAgent(ctx: RemoveAgentContext): Promise<void> {
-        const { runtime, agent, primaryAgentId } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime, agent } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const res = await exec.run({
             cmd: ['hermes', 'profile', 'delete', agent.internalId, '-y'],
             timeoutMs: EXEC_TIMEOUT_MS

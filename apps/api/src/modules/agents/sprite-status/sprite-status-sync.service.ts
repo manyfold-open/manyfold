@@ -39,7 +39,7 @@ import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import {
     derivePodPhase,
-    fetchPodForRuntime
+    fetchPodForHost
 } from '@/modules/agents/sprite-status/k8s-pod-phase'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
@@ -135,6 +135,10 @@ const SPRITE_FAST_INTERVAL_MS = 3_000
 const SPRITE_SLOW_INTERVAL_MS = 30_000
 // K8s pod state changes are not bursty; a steady 10s cadence is fine.
 const K8S_INTERVAL_MS = 10_000
+// A pod host's bring-up runs in the API process that started it; one that
+// restarted mid-way leaves the host provisioning forever. Far past the
+// readiness timeout, it is failed so the user can delete it.
+const POD_HOST_PROVISION_DEADLINE_MS = 30 * 60_000
 const MAX_BACKOFF_MS = 5 * 60_000
 // A sprite absent from one listing is indistinguishable from a transient
 // control-plane inconsistency; require continuous absence for this window
@@ -227,8 +231,8 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     private inflight = false
     private readonly accountFailures = new Map<string, FailureState>()
     private readonly accountNextEligibleAt = new Map<string, number>()
-    private readonly runtimeFailures = new Map<string, FailureState>()
-    private readonly runtimeNextEligibleAt = new Map<string, number>()
+    private readonly podHostFailures = new Map<string, FailureState>()
+    private readonly podHostNextEligibleAt = new Map<string, number>()
     private readonly readyEmitted = new Set<string>()
     private readonly quotaNextEligibleAt = new Map<string, number>()
     // runtimeId → epoch ms of the first listing missing the runtime's sprite.
@@ -782,24 +786,52 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async tickK8s(): Promise<void> {
-        const runtimes = await this.activeK8sRuntimes()
-        for (const runtime of runtimes) {
-            const next = this.runtimeNextEligibleAt.get(runtime.id) ?? 0
+        await this.db
+            .update(runtimeHosts)
+            .set({
+                podStatus: 'failed',
+                podPhase: null,
+                podFailureReason: 'provisioning did not finish',
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(runtimeHosts.kind, 'pod'),
+                    eq(runtimeHosts.podStatus, 'provisioning'),
+                    lte(
+                        runtimeHosts.createdAt,
+                        new Date(Date.now() - POD_HOST_PROVISION_DEADLINE_MS)
+                    )
+                )
+            )
+        // A host still provisioning shows its provisioning step in pod_phase;
+        // the pod's own phase takes over once it is ready.
+        const hosts = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(
+                    eq(runtimeHosts.kind, 'pod'),
+                    eq(runtimeHosts.podStatus, 'ready')
+                )
+            )
+        for (const host of hosts) {
+            const next = this.podHostNextEligibleAt.get(host.id) ?? 0
             if (Date.now() < next) continue
             try {
-                await this.syncK8sRuntime(runtime)
-                this.runtimeFailures.delete(runtime.id)
-                this.runtimeNextEligibleAt.set(
-                    runtime.id,
+                await this.syncPodHost(host)
+                this.podHostFailures.delete(host.id)
+                this.podHostNextEligibleAt.set(
+                    host.id,
                     Date.now() + K8S_INTERVAL_MS
                 )
             } catch (err) {
                 this.recordFailure(
-                    'runtime',
-                    runtime.id,
+                    'pod host',
+                    host.id,
                     err,
-                    this.runtimeFailures,
-                    this.runtimeNextEligibleAt
+                    this.podHostFailures,
+                    this.podHostNextEligibleAt
                 )
             }
         }
@@ -834,13 +866,6 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         for (const r of [...agentRows, ...hostRows])
             if (r.accountId) ids.add(r.accountId)
         return [...ids]
-    }
-
-    private async activeK8sRuntimes(): Promise<AgentRuntimeRow[]> {
-        return this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.kind, 'k8s'))
     }
 
     /**
@@ -1333,26 +1358,24 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         })
     }
 
-    private async syncK8sRuntime(runtime: AgentRuntimeRow): Promise<void> {
-        if (!runtime.namespace) return
-        const rows = await this.db
-            .select()
-            .from(agents)
-            .where(
-                and(eq(agents.runtimeId, runtime.id), eq(agents.runtime, 'k8s'))
-            )
-        if (rows.length === 0) return
-
-        const client = await this.k8s.getClient(runtime.clusterId)
-        const labelAgentId = runtime.primaryAgentId ?? rows[0].id
-        const pod = await fetchPodForRuntime(
-            client,
-            runtime.namespace,
-            labelAgentId
-        )
+    // One pod per host (ADR-0035): its phase is the host's and every agent's
+    // on it, whichever framework runtime the agent belongs to.
+    private async syncPodHost(host: RuntimeHostRow): Promise<void> {
+        if (!host.namespace) return
+        const client = await this.k8s.getClient(host.clusterId)
+        const pod = await fetchPodForHost(client, host.namespace, host.id)
         const phase = derivePodPhase(pod)
 
         const now = new Date()
+        if (phase !== host.podPhase)
+            await this.db
+                .update(runtimeHosts)
+                .set({ podPhase: phase, updatedAt: now })
+                .where(eq(runtimeHosts.id, host.id))
+        const rows = await this.db
+            .select()
+            .from(agents)
+            .where(and(eq(agents.hostId, host.id), eq(agents.runtime, 'k8s')))
         for (const row of rows) {
             if (phase === row.k8sPodPhase) continue
             await this.db
@@ -1379,7 +1402,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     private recordFailure(
-        kind: 'account' | 'runtime',
+        kind: 'account' | 'pod host',
         key: string,
         err: unknown,
         failures: Map<string, FailureState>,

@@ -1,39 +1,27 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import 'reflect-metadata'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
-import { HermesBootstrap } from '../src/modules/agents/bootstrap/hermes'
+import { buildHermesEnv } from '../src/modules/agents/bootstrap/hermes-shared'
+import type { ResolvedHermesCredentials } from '../src/modules/agents/credentials/resolved-credentials'
 import { CreateAgentDto } from '../src/modules/agents/dto/create-agent.dto'
 import { UpdateAgentCredentialsDto } from '../src/modules/agents/dto/update-agent-credentials.dto'
 
-const ctx = {
-    agentId: 'agent-1',
-    runtimeId: 'runtime-1',
-    userId: 'user-1',
-    namespace: 'nca',
-    host: 'agent.example.org',
-    image: 'hermes:latest',
-    controlUiEnabled: false,
-    dashboardEnabled: false
-}
-
-test('HermesBootstrap injects Matrix homeserver and access token env', () => {
-    const bootstrap = new HermesBootstrap({} as never)
-    const plan = bootstrap.plan(ctx, {
-        primaryModelProvider: 'openrouter',
-        primaryModelApiKey: 'sk-primary-model-token',
-        matrixHomeserver: 'https://matrix.example.org',
-        matrixAccessToken: 'matrix-access-token-123456'
+test('buildHermesEnv injects Matrix homeserver and access token env', () => {
+    const env = buildHermesEnv({
+        creds: {
+            primaryModelProvider: 'openrouter',
+            primaryModelApiKey: 'sk-primary-model-token',
+            matrixHomeserver: 'https://matrix.example.org',
+            matrixAccessToken: 'matrix-access-token-123456'
+        } as ResolvedHermesCredentials,
+        apiServerKey: 'api-server-key',
+        dashboardEnabled: false
     })
 
-    assert.equal(
-        plan.envSecretData.HERMES_MATRIX_HOMESERVER,
-        'https://matrix.example.org'
-    )
-    assert.equal(
-        plan.envSecretData.HERMES_MATRIX_ACCESS_TOKEN,
-        'matrix-access-token-123456'
-    )
+    assert.equal(env.HERMES_MATRIX_HOMESERVER, 'https://matrix.example.org')
+    assert.equal(env.HERMES_MATRIX_ACCESS_TOKEN, 'matrix-access-token-123456')
 })
 
 test('Hermes create DTO rejects partial Matrix credentials', async () => {

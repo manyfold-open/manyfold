@@ -131,7 +131,23 @@ test('a pinned install that does not win on PATH is fatal', async () => {
     })
     await assert.rejects(h.run(), (err: unknown) => {
         assert.ok(err instanceof BootstrapError)
-        assert.match(err.message, /sprite reports 2\.1\.92/)
+        assert.match(err.message, /host reports 2\.1\.92/)
+        return true
+    })
+})
+
+// A pod host starts with no CLI at all (ADR-0035): an implicit-latest install
+// that fails there has nothing to degrade to, so it must not report success.
+test('a failed latest install is fatal on a host that has no binary to keep', async () => {
+    const h = buildHarness({
+        version: '2.1.197',
+        source: 'latest',
+        probes: [null],
+        install: { exitCode: 1, stdout: '', stderr: 'E404' } as ExecResult
+    })
+    await assert.rejects(h.run(), (err: unknown) => {
+        assert.ok(err instanceof BootstrapError)
+        assert.match(err.message, /install claude-code@2\.1\.197 failed/)
         return true
     })
 })

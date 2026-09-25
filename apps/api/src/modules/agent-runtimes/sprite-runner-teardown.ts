@@ -53,12 +53,11 @@ export const deleteSpriteRunnerHostForSprite = async (
 ): Promise<void> =>
     deleteManagedRunnerHostByName(db, userId, runnerHostName(spriteName))
 
-// The pod twin. Keyed by runtime id rather than by a VM name because the pod is
-// created before any agent exists and is addressed by its runtime row
-// throughout — see podRunnerHostName.
-export const deletePodRunnerHostForRuntime = async (
+// The pod twin. Keyed by the pod host, which the daemon runs in and which
+// carries every framework runtime on the pod — see podRunnerHostName.
+export const deletePodRunnerHostForPodHost = async (
     db: CleanupDatabase,
     userId: string,
-    runtimeId: string
+    podHostId: string
 ): Promise<void> =>
-    deleteManagedRunnerHostByName(db, userId, podRunnerHostName(runtimeId))
+    deleteManagedRunnerHostByName(db, userId, podRunnerHostName(podHostId))

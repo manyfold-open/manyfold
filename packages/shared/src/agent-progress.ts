@@ -105,6 +105,8 @@ export const k8sSteps: AgentCreateStep[] = [
     'finalizing'
 ]
 
+// A coding framework on a pod host (ADR-0035): the pod comes up (unless the
+// agent joins an existing one), then the framework is installed into it.
 export const k8sCliSteps: AgentCreateStep[] = [
     'validating',
     'checking_quota',
@@ -112,10 +114,8 @@ export const k8sCliSteps: AgentCreateStep[] = [
     'creating_secret',
     'creating_storage',
     'creating_deployment',
-    'creating_service',
-    'creating_ingress',
     'waiting_for_ready',
-    'bootstrapping',
+    'installing_framework',
     'storing_credentials',
     'restoring_backup',
     'finalizing'

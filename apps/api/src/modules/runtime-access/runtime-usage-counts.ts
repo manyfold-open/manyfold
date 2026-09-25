@@ -12,6 +12,10 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 // asked for — they are already hidden from the user's lists, and counting them
 // against the always-online limit is what deadlocks a full Free account (#804).
 // Runtimes on a normal daemon host, and every k8s runtime, still count.
+//
+// A pod host (ADR-0035) is metered like a daemon host: the host is the
+// always-online runtime and the persistent container, and each framework
+// runtime on it takes an always-online agent slot.
 const notOnManagedHost = (db: Database | Tx) =>
     notExists(
         db
@@ -48,7 +52,7 @@ export const usageCountsForUsers = async (
     const result = new Map<string, RuntimeUsageCounts>()
     if (userIds.length === 0) return result
 
-    const [runtimeRows, daemonHostRows, spriteHostRows] = await Promise.all([
+    const [runtimeRows, daemonHostRows, spriteHostRows, podHostRows] = await Promise.all([
         db
             .select({
                 userId: agentRuntimes.userId,
@@ -92,6 +96,19 @@ export const usageCountsForUsers = async (
                     eq(runtimeHosts.status, 'active')
                 )
             )
+            .groupBy(runtimeHosts.userId),
+        db
+            .select({
+                userId: runtimeHosts.userId,
+                value: count()
+            })
+            .from(runtimeHosts)
+            .where(
+                and(
+                    inArray(runtimeHosts.userId, userIds),
+                    eq(runtimeHosts.kind, 'pod')
+                )
+            )
             .groupBy(runtimeHosts.userId)
     ])
 
@@ -112,9 +129,8 @@ export const usageCountsForUsers = async (
                 // counted per sandbox host in spriteHostRows below
                 break
             case 'k8s':
-                usage.alwaysOnlineRuntimesUsed += n
+                // the host is counted in podHostRows below
                 usage.alwaysOnlineAgentsUsed += n
-                usage.persistentContainersUsed += n
                 break
             case 'daemon':
                 usage.alwaysOnlineAgentsUsed += n
@@ -131,6 +147,12 @@ export const usageCountsForUsers = async (
     }
     for (const row of spriteHostRows) {
         ensure(row.userId).statefulSandboxUsage = Number(row.value ?? 0)
+    }
+    for (const row of podHostRows) {
+        const usage = ensure(row.userId)
+        const n = Number(row.value ?? 0)
+        usage.alwaysOnlineRuntimesUsed += n
+        usage.persistentContainersUsed += n
     }
     return result
 }
@@ -150,15 +172,11 @@ export const alwaysOnlineUsageInTx = async (
                 eq(runtimeHosts.managed, false)
             )
         )
-    const [k8sRow] = await tx
+    const [podHostRow] = await tx
         .select({ value: count() })
-        .from(agentRuntimes)
+        .from(runtimeHosts)
         .where(
-            and(
-                eq(agentRuntimes.userId, userId),
-                eq(agentRuntimes.kind, 'k8s'),
-                ne(agentRuntimes.status, 'failed')
-            )
+            and(eq(runtimeHosts.kind, 'pod'), eq(runtimeHosts.userId, userId))
         )
     const [agentsRow] = await tx
         .select({ value: count() })
@@ -172,7 +190,8 @@ export const alwaysOnlineUsageInTx = async (
             )
         )
     return {
-        runtimesUsed: Number(hostRow?.value ?? 0) + Number(k8sRow?.value ?? 0),
+        runtimesUsed:
+            Number(hostRow?.value ?? 0) + Number(podHostRow?.value ?? 0),
         agentsUsed: Number(agentsRow?.value ?? 0)
     }
 }

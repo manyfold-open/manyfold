@@ -247,34 +247,26 @@ test('getControlUiUrl honors an explicit agentId over the primary agent', async 
 // kind dispatch + toggles
 // ---------------------------------------------------------------------------
 
-test('setControlUi delegates k8s runtimes to the k8s sidecar unchanged', async () => {
-    const delegated: unknown[] = []
+test('setControlUi refuses k8s runtimes', async () => {
     const service = serviceFor({
-        runtimes: runtimesFor([
-            runtime({ framework: 'openclaw', kind: 'k8s' })
-        ]),
-        k8sSidecar: {
-            setControlUi: async (...args: unknown[]) => {
-                delegated.push(args)
-                return { id: 'runtime-1' }
-            }
-        }
+        runtimes: runtimesFor([runtime({ framework: 'openclaw', kind: 'k8s' })])
     })
-    const res = await service.setControlUi('user-1', 'runtime-1', true, false)
-    assert.deepEqual(delegated, [['user-1', 'runtime-1', true, false]])
-    assert.deepEqual(res, { id: 'runtime-1' })
+    await assert.rejects(
+        () => service.setControlUi('user-1', 'runtime-1', true, false),
+        (err: unknown) => {
+            assert.ok(err instanceof BadRequestException)
+            assert.match(
+                (err as Error).message,
+                /only supported for sprites runtimes/
+            )
+            return true
+        }
+    )
 })
 
-test('setDashboard refuses k8s runtimes and never touches the sidecar', async () => {
-    const delegated: unknown[] = []
+test('setDashboard refuses k8s runtimes', async () => {
     const service = serviceFor({
-        runtimes: runtimesFor([runtime({ framework: 'hermes', kind: 'k8s' })]),
-        k8sSidecar: {
-            setDashboard: async (...args: unknown[]) => {
-                delegated.push(args)
-                return { id: 'runtime-1' }
-            }
-        }
+        runtimes: runtimesFor([runtime({ framework: 'hermes', kind: 'k8s' })])
     })
     await assert.rejects(
         () => service.setDashboard('user-1', 'runtime-1', true, false),
@@ -287,10 +279,6 @@ test('setDashboard refuses k8s runtimes and never touches the sidecar', async ()
             return true
         }
     )
-    // The producer is closed, not delegated: the k8s dashboard host was
-    // removed (legacy-inventory §4.8, zero enabled rows measured on prod and
-    // staging [2026-08-28]).
-    assert.deepEqual(delegated, [])
 })
 
 test('sprite openclaw toggle rewrites config, patches flag, releases state and audits', async () => {
@@ -585,14 +573,12 @@ const serviceFor = (deps: {
     runtimes: unknown
     db?: unknown
     crypto?: unknown
-    k8sSidecar?: unknown
     hermesBootstrap?: unknown
     openclawBootstrap?: unknown
 }): RuntimeDashboardService =>
     new RuntimeDashboardService(
         (deps.db ?? auditDb()) as never,
         deps.runtimes as never,
-        (deps.k8sSidecar ?? {}) as never,
         {} as never,
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,

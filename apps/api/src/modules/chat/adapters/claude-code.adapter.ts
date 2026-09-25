@@ -144,11 +144,14 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         // resolveTurnConfig); injected env would outrank the CLI's on-disk
         // sign-in, which is exactly the credential this mode runs on. The
         // legacy no-modelConfigs fallback leaves BOTH null and keeps
-        // injecting on sprites.
+        // injecting on the platform's own hosts — sprites and pod hosts, whose
+        // key rides every exec (ADR-0035).
         const runtimeLocalTurn = !modelConfig && !!ctx.runtimeLocalTuning
         const shouldInjectPlatformCredentials =
             !runtimeLocalTurn &&
-            (runtime === 'sprites' || (runtime === 'daemon' && !!modelConfig))
+            (runtime === 'sprites' ||
+                runtime === 'k8s' ||
+                (runtime === 'daemon' && !!modelConfig))
         const env =
             shouldInjectPlatformCredentials && credentialEnv
                 ? {

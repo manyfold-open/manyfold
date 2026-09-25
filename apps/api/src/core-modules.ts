@@ -16,6 +16,7 @@ import { AgentsModule } from '@/modules/agents/agents.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { SandboxesModule } from '@/modules/sandboxes/sandboxes.module'
+import { PodHostsModule } from '@/modules/pod-hosts/pod-hosts.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
@@ -76,6 +77,7 @@ export const CORE_MODULES = [
     AgentRuntimesModule,
     RuntimeAuthModule,
     SandboxesModule,
+    PodHostsModule,
     ChatModule,
     TerminalModule,
     FilesModule,

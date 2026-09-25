@@ -117,10 +117,7 @@ test('SpritesFrameworkExec passes env, dir and stdin through and maps the result
 test('forRuntime resolves a sprites runtime to an exec bound to its spriteName', async () => {
     const resolver = seamResolver()
     resolver.result = { exitCode: 0, stdout: 'ok', stderr: '' }
-    const exec = await resolver.forRuntime(
-        fakeRuntime() as never,
-        'agent-1'
-    )
+    const exec = await resolver.forRuntime(fakeRuntime() as never)
     const res = await exec.run({ cmd: ['true'], timeoutMs: 1_000 })
     assert.equal(res.exitCode, 0)
     assert.equal(resolver.execs.length, 1)
@@ -131,10 +128,7 @@ test('forRuntime resolves a sprites runtime to an exec bound to its spriteName',
 test('forRuntime throws for a sprites runtime missing spriteName', async () => {
     const resolver = seamResolver()
     await assert.rejects(
-        resolver.forRuntime(
-            fakeRuntime({ spriteName: null }) as never,
-            'agent-1'
-        ),
+        resolver.forRuntime(fakeRuntime({ spriteName: null }) as never),
         /kind=sprites but no spriteName/
     )
 })
@@ -142,10 +136,7 @@ test('forRuntime throws for a sprites runtime missing spriteName', async () => {
 test('forRuntime throws for a sprites runtime missing accountId', async () => {
     const resolver = seamResolver()
     await assert.rejects(
-        resolver.forRuntime(
-            fakeRuntime({ accountId: null }) as never,
-            'agent-1'
-        ),
+        resolver.forRuntime(fakeRuntime({ accountId: null }) as never),
         /kind=sprites but no accountId/
     )
 })
@@ -153,7 +144,7 @@ test('forRuntime throws for a sprites runtime missing accountId', async () => {
 test('forRuntime throws when the sprites account row is gone', async () => {
     const resolver = seamResolver(accountsStub(false))
     await assert.rejects(
-        resolver.forRuntime(fakeRuntime() as never, 'agent-1'),
+        resolver.forRuntime(fakeRuntime() as never),
         /sprites account acc-1 not found/
     )
 })
@@ -163,10 +154,7 @@ test('forRuntime throws when the sprites account row is gone', async () => {
 test('forRuntime still rejects unsupported runtime kinds', async () => {
     const resolver = seamResolver()
     await assert.rejects(
-        resolver.forRuntime(
-            fakeRuntime({ kind: 'external' }) as never,
-            'agent-1'
-        ),
+        resolver.forRuntime(fakeRuntime({ kind: 'external' }) as never),
         /framework exec only supports k8s, daemon or sprites/
     )
 })

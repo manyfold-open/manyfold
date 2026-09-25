@@ -44,9 +44,10 @@ export const agentRuntimes = pgTable(
         daemonId: text('daemon_id').references(() => runtimeHosts.id, {
             onDelete: 'set null'
         }),
-        // Unified machine FK (runtime_hosts row, kind daemon|sandbox). For daemon
-        // runtimes this equals daemonId; for sprites it points at the sandbox VM
-        // host so one VM can carry many per-framework runtimes. daemonId is kept
+        // Unified machine FK (runtime_hosts row, kind daemon|sandbox|pod). For
+        // daemon runtimes this equals daemonId; for sprites it points at the
+        // sandbox VM host and for k8s at the pod host (ADR-0035), so one machine
+        // can carry many per-framework runtimes. daemonId is kept
         // as a redundant daemon-only FK (the daemon RPC route id); not retired.
         hostId: text('host_id').references(() => runtimeHosts.id, {
             onDelete: 'set null'
@@ -125,6 +126,15 @@ export const agentRuntimes = pgTable(
             .on(table.hostId, table.framework)
             .where(
                 sql`${table.kind} = 'sprites' and ${table.status} not in ('failed', 'stopped')`
+            ),
+        // The same rule for a pod host (ADR-0035): several frameworks, one
+        // runtime each.
+        podHostFrameworkUnique: uniqueIndex(
+            'agent_runtimes_pod_host_framework_uq'
+        )
+            .on(table.hostId, table.framework)
+            .where(
+                sql`${table.kind} = 'k8s' and ${table.status} not in ('failed', 'stopped')`
             ),
         // Daemon runtime listings: /api/daemon/me, /api/daemon/hosts and the
         // heartbeat runtime sync all load runtimes by daemon_id (#607).

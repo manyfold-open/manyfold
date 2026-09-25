@@ -43,10 +43,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import {
-    deletePodRunnerHostForRuntime,
-    deleteSpriteRunnerHostForSprite
-} from '@/modules/agent-runtimes/sprite-runner-teardown'
+import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
 
 export interface RuntimeStatusPatch {
     status?: AgentRuntimeStatus
@@ -296,25 +293,8 @@ export class AgentRuntimesService {
 
     async delete(id: string): Promise<void> {
         const existing = await this.findById(id)
-        // A k8s runtime may own a pod runner: a managed daemon host bound to it
-        // by NAME only (no FK reaches it from the runtime row), so deleting the
-        // row here would strand the host as an online daemon with no pod. Done
-        // at this choke point rather than trusted to each caller — the sprite
-        // twin needed oss#192 for exactly the caller that forgot. Best-effort:
-        // the delete the caller asked for must not hinge on it.
-        if (existing?.kind === 'k8s') {
-            try {
-                await deletePodRunnerHostForRuntime(
-                    this.db,
-                    existing.userId,
-                    existing.id
-                )
-            } catch (err) {
-                this.log.warn(
-                    `pod runner host cleanup failed runtimeId=${id}: ${(err as Error).message}`
-                )
-            }
-        }
+        // A k8s runtime is one framework on a pod host; the host's daemon
+        // serves every runtime there and goes with the host (ADR-0035).
         await this.db.delete(agentRuntimes).where(eq(agentRuntimes.id, id))
         if (existing) {
             this.telemetry.event('agent.runtime.delete', {
@@ -799,7 +779,16 @@ export class AgentRuntimesService {
         const accountIds = collectIds(runtimes.map((r) => r.accountId))
         const clusterIds = collectIds(runtimes.map((r) => r.clusterId))
         const daemonIds = collectIds(runtimes.map((r) => r.daemonId))
-        const [accountRows, clusterRows, daemonRows, agentCountRows] =
+        const podHostIds = collectIds(
+            runtimes.map((r) => (r.kind === 'k8s' ? r.hostId : null))
+        )
+        const [
+            accountRows,
+            clusterRows,
+            daemonRows,
+            agentCountRows,
+            podHostRows
+        ] =
             await Promise.all([
                 accountIds.length
                     ? this.db
@@ -840,9 +829,19 @@ export class AgentRuntimesService {
                             runtimes.map((r) => r.id)
                         )
                     )
-                    .groupBy(agents.runtimeId)
+                    .groupBy(agents.runtimeId),
+                podHostIds.length
+                    ? this.db
+                          .select({
+                              id: runtimeHosts.id,
+                              name: runtimeHosts.name
+                          })
+                          .from(runtimeHosts)
+                          .where(inArray(runtimeHosts.id, podHostIds))
+                    : []
             ])
         const slugByAccountId = new Map(accountRows.map((a) => [a.id, a.slug]))
+        const nameByPodHostId = new Map(podHostRows.map((h) => [h.id, h.name]))
         const nameByClusterId = new Map(clusterRows.map((c) => [c.id, c.name]))
         const daemonById = new Map(daemonRows.map((d) => [d.id, d]))
         const agentsCountByRuntimeId = new Map(
@@ -879,6 +878,10 @@ export class AgentRuntimesService {
                 spriteName: runtime.spriteName,
                 spriteId: runtime.spriteId,
                 hostId: runtime.hostId,
+                podHostName:
+                    runtime.kind === 'k8s' && runtime.hostId
+                        ? (nameByPodHostId.get(runtime.hostId) ?? null)
+                        : null,
                 mountPath: runtime.mountPath,
                 namespace: runtime.namespace,
                 ingressHost: runtime.ingressHost,

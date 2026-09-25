@@ -5,7 +5,7 @@ import {
     Injectable,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -22,8 +22,8 @@ import {
     KubernetesService,
     type K8sApis
 } from '@/modules/k8s/kubernetes.service'
-import { teardownCreatedK8sRuntime } from '@/modules/agents/orchestration/k8s-strict-teardown'
-import { deletePodRunnerHostForRuntime } from '../sprite-runner-teardown'
+import { teardownCreatedPodHost } from '@/modules/agents/orchestration/k8s-strict-teardown'
+import { deletePodRunnerHostForPodHost } from '../sprite-runner-teardown'
 import {
     K8S_CREATE_CLEANUP_PENDING,
     K8S_CREATE_INITIAL_AGENT,
@@ -276,6 +276,17 @@ export class K8sCreateCleanupService {
                 current.namespace !== runtime.namespace
             )
                 throw new ConflictException('runtime cleanup ownership changed')
+            // The pod host this create made for the runtime (ADR-0035). Locked
+            // first: a framework added to it meanwhile has to either commit
+            // before this cleanup (and be seen as a sibling below) or fail on
+            // the host it referenced.
+            const hostId = current.hostId
+            if (!hostId) throw new Error('fresh runtime has no pod host')
+            await tx
+                .select({ id: runtimeHosts.id })
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.id, hostId))
+                .for('update')
             signal.throwIfAborted()
             const lease = await lockK8sCreateLease(tx, runtime.id)
             if (lease?.active) throw k8sCreateInProgress()
@@ -291,7 +302,7 @@ export class K8sCreateCleanupService {
                 .where(
                     and(
                         eq(daemonTokens.userId, current.userId),
-                        eq(daemonTokens.name, podRunnerHostName(current.id)),
+                        eq(daemonTokens.name, podRunnerHostName(hostId)),
                         eq(daemonTokens.purpose, 'pod_runner')
                     )
                 )
@@ -305,7 +316,7 @@ export class K8sCreateCleanupService {
                         eq(runtimeHosts.userId, current.userId),
                         eq(runtimeHosts.managed, true),
                         eq(runtimeHosts.kind, 'daemon'),
-                        eq(runtimeHosts.name, podRunnerHostName(current.id))
+                        eq(runtimeHosts.name, podRunnerHostName(hostId))
                     )
                 )
                 .for('update')
@@ -345,23 +356,41 @@ export class K8sCreateCleanupService {
                 )
             if (!current.namespace)
                 throw new Error('fresh runtime namespace is missing')
-            await teardownCreatedK8sRuntime({
+            // Another framework added to the fresh host in the meantime keeps
+            // the host: only this runtime goes.
+            const siblings = await tx
+                .select({ id: agentRuntimes.id })
+                .from(agentRuntimes)
+                .where(
+                    and(
+                        eq(agentRuntimes.hostId, hostId),
+                        ne(agentRuntimes.id, current.id)
+                    )
+                )
+                .for('update')
+            if (siblings.length > 0) {
+                await tx
+                    .delete(agentRuntimes)
+                    .where(eq(agentRuntimes.id, current.id))
+                return
+            }
+            await teardownCreatedPodHost({
                 apis,
                 namespace: current.namespace,
-                runtimeId: current.id,
+                hostId,
                 signal
             })
             signal.throwIfAborted()
             // Same transaction: a second DB connection would wait on the FK
             // locks held here and could leave the runner untracked on failure.
-            await deletePodRunnerHostForRuntime(tx, current.userId, current.id)
+            await deletePodRunnerHostForPodHost(tx, current.userId, hostId)
             signal.throwIfAborted()
             await tx
                 .delete(daemonTokens)
                 .where(
                     and(
                         eq(daemonTokens.userId, current.userId),
-                        eq(daemonTokens.name, podRunnerHostName(current.id)),
+                        eq(daemonTokens.name, podRunnerHostName(hostId)),
                         eq(daemonTokens.purpose, 'pod_runner'),
                         isNull(daemonTokens.daemonId)
                     )
@@ -370,6 +399,14 @@ export class K8sCreateCleanupService {
             await tx
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.id, current.id))
+            await tx
+                .delete(runtimeHosts)
+                .where(
+                    and(
+                        eq(runtimeHosts.id, hostId),
+                        eq(runtimeHosts.kind, 'pod')
+                    )
+                )
             signal.throwIfAborted()
         })
     }

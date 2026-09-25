@@ -6,7 +6,6 @@ import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { AgentRuntimesController } from './agent-runtimes.controller'
 import { AdminAgentRuntimesController } from './admin-agent-runtimes.controller'
-import { K8sRuntimeSidecarService } from './orchestration/k8s-runtime-sidecar.service'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
@@ -50,7 +49,6 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     providers: [
         AdminGuard,
         AgentRuntimesService,
-        K8sRuntimeSidecarService,
         RuntimeDashboardService,
         SpritesProvisioner,
         K8sProvisioner,
@@ -71,7 +69,6 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     exports: [
         AgentRuntimesService,
         RuntimeAccountService,
-        K8sRuntimeSidecarService,
         RuntimeDashboardService,
         SpritesProvisioner,
         SpriteKeepAliveLeaseService,

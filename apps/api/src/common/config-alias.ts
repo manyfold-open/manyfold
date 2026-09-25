@@ -10,11 +10,3 @@ export const configString = (
     }
     return undefined
 }
-
-export const envString = (keys: readonly string[]): string | undefined => {
-    for (const key of keys) {
-        const value = process.env[key]?.trim()
-        if (value) return value
-    }
-    return undefined
-}

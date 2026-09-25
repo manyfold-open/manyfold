@@ -297,8 +297,11 @@ test('selects progress steps from runtime target and framework family', () => {
         'checking_quota',
         'creating_sprite'
     ])
+    // A coding framework is installed into the cloud computer (ADR-0035).
     assert.equal(
-        progressStepsForCreate('codex', 'persistent').includes('bootstrapping'),
+        progressStepsForCreate('codex', 'persistent').includes(
+            'installing_framework'
+        ),
         true
     )
     assert.equal(

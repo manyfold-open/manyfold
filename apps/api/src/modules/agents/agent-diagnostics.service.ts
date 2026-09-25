@@ -317,11 +317,7 @@ export class AgentDiagnosticsService {
         if (runtime.kind === 'daemon')
             return this.runDaemonCommand(agent, runtime, input)
 
-        const pod = await resolveAgentPod(
-            this.k8s,
-            runtime,
-            runtime.primaryAgentId ?? agent.id
-        )
+        const pod = await resolveAgentPod(this.k8s, runtime)
         const exec = this.podExecFactory.forClient(
             pod.client,
             pod.namespace,

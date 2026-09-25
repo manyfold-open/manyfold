@@ -301,10 +301,9 @@ test('a BYOD daemon coding agent gets the full per-exec base env', async () => {
 })
 
 test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', async () => {
-    // #782 in one assertion. The pod Secret is baked once at provision and
-    // carries no connection env or extras at all, and its MF_AGENT_ID names
-    // whichever agent provisioned the pod — so a turn carried by the pod's own
-    // runner has to be handed the per-agent env instead of inheriting it.
+    // #782 in one assertion. A pod host's Secret carries only its daemon's
+    // enrolment, and one host carries several agents (ADR-0035) — so a turn
+    // carried by the host's runner has to be handed the per-agent env.
     await withEnv({}, async () => {
         const handle = await buildFactory('k8s').forAgent('agt_factory')
         assert.equal(handle.runtime, 'k8s')
@@ -324,38 +323,24 @@ test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', asy
     })
 })
 
-test('a k8s coding agent whose active identity cannot be decrypted is never rotated', async () => {
-    // The pod is running on the identity its Secret was provisioned with. A
-    // legacy row with no ciphertext used to trigger ensure→mint→REVOKE of that
-    // very token; the pod then 401s on every `mf` call under the default
-    // pod-exec transport. The read-through path must leave it alone.
-    await withEnv({}, async () => {
-        const ensured: unknown[] = []
-        let readOrMintCalls = 0
-        const factory = buildFactory('k8s', 'claude-code', {
-            identityRows: [{ ciphertext: null, keyVersion: null }],
-            runtimeTokens: {
-                ensureRuntimeIdentity: async (args: unknown) => {
-                    ensured.push(args)
-                    return { plaintext: 'mfr_rotated' }
-                },
-                readOrMintRuntimeIdentity: async () => {
-                    readOrMintCalls++
-                    return null
-                }
+test('a k8s coding agent with no identity row gets one ensured on first use', async () => {
+    // A pod host bakes no identity into its Secret (ADR-0035): a k8s turn gets
+    // the same lazily minted, rotatable token as a sprite or daemon turn.
+    const ensured: Array<Record<string, unknown>> = []
+    const factory = buildFactory('k8s', 'claude-code', {
+        identityRows: [],
+        runtimeTokens: {
+            ensureRuntimeIdentity: async (args: Record<string, unknown>) => {
+                ensured.push(args)
+                return { plaintext: 'mfr_minted_on_miss' }
             }
-        })
-        const handle = await factory.forAgent('agt_factory')
-        assert.equal(ensured.length, 0, 'the rotating path must not be used')
-        assert.equal(readOrMintCalls, 1)
-        assert.equal(
-            'MF_API_TOKEN' in (handle.baseEnv ?? {}),
-            false,
-            "no per-exec token: the daemon inherits the Secret's"
-        )
-        // The rest of the identity still rides the swap.
-        assert.equal(handle.baseEnv?.MF_AGENT_ID, 'agt_factory')
+        }
     })
+    const handle = await factory.forAgent('agt_factory')
+    assert.equal(handle.baseEnv?.MF_API_TOKEN, 'mfr_minted_on_miss')
+    assert.equal(ensured.length, 1)
+    assert.equal(ensured[0].runtimeKind, 'k8s')
+    assert.equal(ensured[0].agentId, 'agt_factory')
 })
 
 test('a k8s service agent still gets no platform base env', async () => {

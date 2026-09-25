@@ -124,6 +124,11 @@ export class K8sLifecycleFixture {
                                 uid: randomUUID(),
                                 labels: body.metadata.labels
                             },
+                            spec: (
+                                body.spec as {
+                                    template?: { spec?: unknown }
+                                } | undefined
+                            )?.template?.spec,
                             status: { phase: 'Running' }
                         })
                     }

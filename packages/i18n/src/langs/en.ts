@@ -3691,7 +3691,9 @@ const en = {
                 needsInstallIdle: '{{cli}} has to be installed first; nothing on this machine yet',
                 notInstallable: 'Your computer does not have {{cli}}. Install it there and the daemon finds it within about five minutes',
                 slotTaken: 'Already serving {{other}}, and a sandbox has only one public port',
-                frameworkFixed: 'Fixed to {{other}} by the image chosen at purchase'
+                podHostStarting: 'Still starting — it can take an agent once it is ready',
+                podHostFailed: 'Failed to start; delete it under Settings › Cloud computers',
+                podHostNoService: '{{cli}} cannot run on a cloud computer yet'
             },
             newMachine: {
                 sandbox: 'New sandbox',
@@ -4459,7 +4461,22 @@ const en = {
                 'Platform-rented always-online runtimes. Each cloud computer is a dedicated k8s pod that can host multiple agents.',
             empty: 'No cloud computers yet. Rent one to deploy always-online runtimes.',
             tag: 'Cloud computer',
-            contains: 'contains {{count}} agents'
+            contains: 'contains {{count}} agents',
+            create: 'New cloud computer',
+            creating: 'Creating…',
+            emptyCreate: 'No cloud computers yet. Create one to run agents that stay online.',
+            resources: '{{cpu}} vCPU · {{memory}} GiB memory · {{disk}} GiB disk',
+            cli: 'Manyfold CLI {{version}}',
+            starting: 'Starting — this takes a minute or two',
+            noFrameworks: 'Nothing installed yet',
+            install: 'Install {{cli}}',
+            installing: 'Installing {{cli}}…',
+            updateCli: 'Update the Manyfold CLI to {{version}}',
+            updating: 'Updating…',
+            delete: 'Delete',
+            deleting: 'Deleting…',
+            deleteTitle: 'Delete {{name}}?',
+            deleteDescription: 'Its agents, the frameworks installed on it and its home directory are deleted with it. Type its name to confirm.'
         },
         managedModelProvider: {
             title: 'Create managed key',

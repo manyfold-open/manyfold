@@ -40,16 +40,7 @@ export class K8sTerminal {
             throw new NotFoundException(
                 `runtime ${agent.runtimeId} not found for agent ${agent.id}`
             )
-        if (!runtime.primaryAgentId)
-            throw new ServiceUnavailableException(
-                `runtime ${runtime.id} has no primaryAgentId; terminal unavailable`
-            )
-
-        const pod = await resolveAgentPod(
-            this.k8s,
-            runtime,
-            runtime.primaryAgentId
-        ).catch((err) => {
+        const pod = await resolveAgentPod(this.k8s, runtime).catch((err) => {
             throw new ServiceUnavailableException((err as Error).message)
         })
 

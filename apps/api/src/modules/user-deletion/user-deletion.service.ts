@@ -560,9 +560,9 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
         )
     }
 
-    // The same teardown recipe the explicit runtime-delete endpoint uses:
-    // sprites drop the VM when it empties, k8s tears the namespace down by
-    // RUNTIME id, daemon rows are derived state that cascades with the user
+    // The same teardown recipes the explicit delete endpoints use: sprites drop
+    // the VM when it empties, a pod host goes with every runtime on it
+    // (ADR-0035), daemon rows are derived state that cascades with the user
     // (the machine is the user's own — only the tokens die).
     private async teardownRuntimes(userId: string): Promise<void> {
         const rows = await this.db
@@ -577,13 +577,17 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
                 await sprites.teardownRuntime(row, {
                     reapImmediatelyIfEmpty: true
                 })
-            } else if (row.kind === 'k8s') {
-                const k8s = this.moduleRef.get(K8sProvisioner, {
-                    strict: false
-                })
-                await k8s.teardownRuntime(row, row.id)
             }
         }
+        const pods = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(eq(runtimeHosts.userId, userId), eq(runtimeHosts.kind, 'pod'))
+            )
+        if (pods.length === 0) return
+        const k8s = this.moduleRef.get(K8sProvisioner, { strict: false })
+        for (const host of pods) await k8s.teardownHost(host)
     }
 
     private async teardownChannels(userId: string): Promise<void> {

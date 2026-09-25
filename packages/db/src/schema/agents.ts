@@ -17,7 +17,7 @@ import { agentRuntimes } from './agentRuntimes'
 import { userModelProviders } from './userModelProviders'
 import { runtimeAuthProfiles } from './runtimeAuthProfiles'
 
-export type FileRootTransport = 'dufs' | 'pod-exec'
+export type FileRootTransport = 'pod-exec'
 
 export interface FileRoot {
     id: string
