@@ -7,12 +7,14 @@ import {
 import {
     Inject,
     Injectable,
+    Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { runtimeHosts, type Database, type RuntimeHostRow } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
 
 const SERVICE_RPC_TIMEOUT_MS = 60_000
 const HEALTH_POLL_MS = 3_000
@@ -26,7 +28,10 @@ type PodHostRef = Pick<RuntimeHostRow, 'id' | 'userId'>
 export class PodHostServices {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly registry: DaemonRegistryService
+        private readonly registry: DaemonRegistryService,
+        // Absent in tests that build the service positionally: a daemon
+        // without services is then refused rather than updated.
+        @Optional() private readonly cli?: PodHostCliService
     ) {}
 
     private async runnerId(host: PodHostRef): Promise<string> {
@@ -46,12 +51,32 @@ export class PodHostServices {
             throw new ServiceUnavailableException(
                 `cloud computer ${host.id} has no registered daemon`
             )
-        if (!runner.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
+        if (runner.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
+            return runner.id
+        // A host started from an image whose CLI predates services has it
+        // updated in place first (ADR-0035 §5).
+        const [podHost] = this.cli
+            ? await this.db
+                  .select()
+                  .from(runtimeHosts)
+                  .where(
+                      and(
+                          eq(runtimeHosts.id, host.id),
+                          eq(runtimeHosts.userId, host.userId),
+                          eq(runtimeHosts.kind, 'pod')
+                      )
+                  )
+                  .limit(1)
+            : []
+        if (!this.cli || !podHost)
             throw new ServiceUnavailableException({
                 code: 'POD_HOST_DAEMON_TOO_OLD',
                 message: `the Manyfold CLI on cloud computer ${host.id} is too old to run services; update it first`
             })
-        return runner.id
+        const updated = await this.cli.ensure(podHost, runner, {
+            feature: DAEMON_FEATURE_SERVICES
+        })
+        return updated.id
     }
 
     private async call(
@@ -70,6 +95,12 @@ export class PodHostServices {
             payload,
             timeoutMs: SERVICE_RPC_TIMEOUT_MS
         })
+    }
+
+    // Throws unless the host's daemon runs services, updating its CLI first
+    // when it predates them.
+    async ready(host: PodHostRef): Promise<void> {
+        await this.runnerId(host)
     }
 
     async upsert(host: PodHostRef, spec: DaemonServiceSpec): Promise<void> {

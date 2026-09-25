@@ -1,11 +1,8 @@
 import {
-    cliChannelOfVersion,
     FEATURE_TOGGLE_KEYS,
     frameworkCapability,
     isCliUpdateAvailable,
-    parseProbedSemver,
     podRunnerHostName,
-    type MfCliChannel,
     type AgentRuntimeSummary,
     type CreatePodHostBody,
     type PodHostSummary
@@ -16,10 +13,8 @@ import {
     ForbiddenException,
     Inject,
     Injectable,
-    Logger,
     NotFoundException,
-    Optional,
-    ServiceUnavailableException
+    Optional
 } from '@nestjs/common'
 import { and, asc, count, eq, inArray, notInArray } from 'drizzle-orm'
 import {
@@ -44,22 +39,14 @@ import {
     DaemonCliVersionService,
     type LatestCliVersion
 } from '@/modules/daemon/daemon-cli-version.service'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
-import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
-import { buildCliInstallScript } from '@/modules/agent-self/sprite-shell-env.service'
-import { resolvePodHostPod } from '@/modules/agents/adapters/k8s-pod-resolver'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
 
-const CLI_INSTALL_TIMEOUT_MS = 180_000
 
 // Cloud computers (ADR-0035): what a user sees of a pod host, and the
 // operations on the host itself. Agents land on a host through the agent
 // create flow; this is the machine around them.
 @Injectable()
 export class PodHostsService {
-    private readonly log = new Logger(PodHostsService.name)
-
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
@@ -67,10 +54,7 @@ export class PodHostsService {
         private readonly k8sProvisioner: K8sProvisioner,
         private readonly adminSettings: AdminSettingsService,
         private readonly cliVersion: DaemonCliVersionService,
-        private readonly cliCatalog: CliVersionCatalogService,
-        private readonly daemonHosts: DaemonHostService,
-        private readonly k8s: KubernetesService,
-        private readonly podExec: PodExecFactory,
+        private readonly cli: PodHostCliService,
         // Appended last + @Optional: absence means the open defaults.
         @Optional()
         @Inject(CLOUD_COMPUTER_PORT)
@@ -212,75 +196,8 @@ export class PodHostsService {
                 message: `cloud computer ${id} has no registered daemon yet`,
                 code: 'POD_HOST_DAEMON_MISSING'
             })
-        // A daemon that knows its host restarts it (startup method
-        // 'container') updates itself and exits, and the host's boot loop
-        // starts the new binary from the home volume (ADR-0035). One baked
-        // into an image from before that is installed over instead, and
-        // stopped so the boot loop starts the binary just installed.
-        if (runner.startupMethod === 'container')
-            await this.daemonHosts.upgrade({
-                host: runner,
-                actorId: userId,
-                targetVersion
-            })
-        else await this.installCliOver(host, targetVersion)
+        await this.cli.update({ host, runner, actorId: userId, targetVersion })
         return this.get(userId, id)
-    }
-
-    private async installCliOver(
-        host: RuntimeHostRow,
-        targetVersion?: string
-    ): Promise<void> {
-        let channel: MfCliChannel
-        if (targetVersion) {
-            if (!(await this.cliCatalog.isInstallableVersion(targetVersion)))
-                throw new BadRequestException(
-                    `unknown mf CLI version ${targetVersion}`
-                )
-            channel = cliChannelOfVersion(targetVersion)
-        } else channel = (await this.cliVersion.getCachedLatest()).channel
-        const pod = await resolvePodHostPod(this.k8s, {
-            hostId: host.id,
-            clusterId: host.clusterId,
-            namespace: host.namespace
-        })
-        const exec = this.podExec.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
-        const result = await exec
-            .run({
-                cmd: [
-                    'bash',
-                    '-lc',
-                    [
-                        buildCliInstallScript(channel, targetVersion),
-                        'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"',
-                        'pkill -TERM -x mf || true'
-                    ].join('\n')
-                ],
-                timeoutMs: CLI_INSTALL_TIMEOUT_MS
-            })
-            .catch((err: Error) => {
-                throw new ServiceUnavailableException(
-                    `mf CLI upgrade failed: ${err.message}`
-                )
-            })
-        const line = `${result.stdout}\n${result.stderr}`
-            .split('\n')
-            .find((l) => l.startsWith('mf-upgraded='))
-        const installed = parseProbedSemver(
-            line ? line.slice('mf-upgraded='.length) : ''
-        )
-        if (result.exitCode !== 0 || !installed)
-            throw new ServiceUnavailableException(
-                `mf CLI upgrade did not complete on ${host.name}`
-            )
-        this.log.log(
-            `pod host cli installed host=${host.id} version=${installed}`
-        )
     }
 
     private async requireHost(

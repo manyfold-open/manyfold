@@ -11,6 +11,7 @@ import {
     BadRequestException,
     ConflictException,
     GatewayTimeoutException,
+    HttpException,
     Inject,
     Injectable,
     InternalServerErrorException,
@@ -180,6 +181,12 @@ export const pickProvisionCluster = async (
 // daemon keeps up from a recipe (ADR-0035 P2).
 export const podHostCanRun = (framework: AgentFramework): boolean =>
     isPodHostFramework(framework) || podServiceRecipe(framework) !== undefined
+
+// A refusal with its own code (the host's CLI is too old for services, …)
+// tells the user what to do; it is not a provisioning failure.
+const isTypedRefusal = (err: unknown): err is HttpException =>
+    err instanceof HttpException &&
+    typeof (err.getResponse() as { code?: unknown }).code === 'string'
 
 export function assertPodHostFramework(framework: AgentFramework): void {
     if (!podHostCanRun(framework))
@@ -471,7 +478,8 @@ export class K8sContainerProvisioner {
                     clusterId: cluster.id,
                     namespace: placement.namespace
                 })
-                if (err instanceof GatewayTimeoutException) throw err
+                if (err instanceof GatewayTimeoutException || isTypedRefusal(err))
+                    throw err
                 throw new InternalServerErrorException({
                     message: 'container provisioning failed',
                     reason
@@ -483,7 +491,8 @@ export class K8sContainerProvisioner {
                 provisionState.podRunner,
                 reason
             )
-            if (err instanceof GatewayTimeoutException) throw err
+            if (err instanceof GatewayTimeoutException || isTypedRefusal(err))
+                throw err
             throw new InternalServerErrorException({
                 message: 'container provisioning failed',
                 reason
@@ -653,6 +662,7 @@ export class K8sContainerProvisioner {
             await this.db
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.id, runtimeId))
+            if (isTypedRefusal(err)) throw err
             throw new InternalServerErrorException({
                 message: `installing ${framework} failed`,
                 reason: sanitizeReason(err)
@@ -890,14 +900,16 @@ export class K8sContainerProvisioner {
             })
         }
         // A service framework: installed like a sprite's, then kept up by the
-        // host's daemon and routed to a hostname of its own.
+        // host's daemon and routed to a hostname of its own. The daemon has to
+        // run services before the install is worth starting.
+        const hostRef = { id: args.host.hostId, userId: args.userId }
+        await this.podServices.ready(hostRef)
         const frameworkVersion = await recipe.install(runner, install)
         const setup = await recipe.configure(runner, {
             credentials: args.credentials,
             envText: null,
             controlUiEnabled: true
         })
-        const hostRef = { id: args.host.hostId, userId: args.userId }
         await this.podServices.upsert(hostRef, setup.spec)
         await this.podServices.start(hostRef, setup.spec.name)
         await this.podServices.waitHealthy(
