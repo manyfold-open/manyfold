@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import {
     A2aClient,
+    A2aTextAccumulator,
     fetchAgentCard,
     type A2aStreamEvent,
     type AgentCard,
@@ -165,23 +166,22 @@ const renderStream = async (
     stream: AsyncIterable<A2aStreamEvent>,
     json: boolean
 ): Promise<void> => {
+    const output = new A2aTextAccumulator()
     for await (const event of stream) {
         if (json) {
             console.log(JSON.stringify(event))
             continue
         }
+        output.apply(event)
         if (event.kind === 'status-update')
             console.error(
                 kleur.dim(`[${event.status.state}]${event.final ? ' (final)' : ''}`)
             )
-        else if (event.kind === 'artifact-update')
-            process.stdout.write(partsToText(event.artifact.parts))
         else if (event.kind === 'task')
             console.error(kleur.dim(`task ${event.id} — ${event.status.state}`))
-        else if (event.kind === 'message')
-            process.stdout.write(partsToText(event.parts))
     }
-    if (!json) process.stderr.write('\n')
+    // stdout may be a pipe: provisional text cannot be retracted there.
+    if (!json && output.text()) console.log(output.text())
 }
 
 const renderTask = (task: Task, json?: boolean): void => {

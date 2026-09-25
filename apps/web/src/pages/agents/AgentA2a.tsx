@@ -204,7 +204,7 @@ export const AgentA2a: FC<AgentA2aProps> = ({ agentId }): ReactNode => {
             if (!ok) return
             setError(null)
             try {
-                await client.a2a.revokeGrant(agentId, grant.tokenId)
+                await client.a2a.revokeGrant(grant.targetAgentId, grant.tokenId)
                 setOutboundGrants((prev) =>
                     prev.filter((g) => g.tokenId !== grant.tokenId)
                 )

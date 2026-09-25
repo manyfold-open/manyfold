@@ -1573,20 +1573,34 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     async createSession(
         userId: string,
         agentId: string,
-        title?: string
+        title?: string,
+        db: Pick<Database, 'select' | 'insert'> = this.db
     ): Promise<ChatSessionSummary> {
-        await this.assertAgentAccess(agentId, userId)
-        const created = await this.repo.createSession({
-            id: createObjectId('chatSession'),
-            userId,
-            agentId,
-            title: title ?? null,
-            frameworkSessionRef: null,
-            createdAt: new Date(),
-            updatedAt: new Date()
-        })
-        this.emitSessionsChanged(userId, agentId, created.id, 'created')
+        await this.assertAgentAccess(agentId, userId, db)
+        const created = await this.repo.createSession(
+            {
+                id: createObjectId('chatSession'),
+                userId,
+                agentId,
+                title: title ?? null,
+                frameworkSessionRef: null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            },
+            db
+        )
+        // A transaction owner announces only after the session is committed.
+        if (db === this.db)
+            this.announceSessionCreated(userId, agentId, created.id)
         return toApiSession(created, null)
+    }
+
+    announceSessionCreated(
+        userId: string,
+        agentId: string,
+        sessionId: string
+    ): void {
+        this.emitSessionsChanged(userId, agentId, sessionId, 'created')
     }
 
     async updateSession(
@@ -6591,9 +6605,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
     private async assertAgentAccess(
         agentId: string,
-        userId: string
+        userId: string,
+        db: Pick<Database, 'select'> = this.db
     ): Promise<void> {
-        const rows = await this.db
+        const rows = await db
             .select()
             .from(agents)
             .where(eq(agents.id, agentId))
@@ -6602,7 +6617,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!agent) throw new NotFoundException('agent not found')
         if (agent.userId !== userId)
             throw new NotFoundException('agent not found')
-        await this.assertK8sCreatePublished(agent)
+        await this.assertK8sCreatePublished(agent, db)
     }
 
     private async assertSessionAccess(
@@ -6720,9 +6735,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         return row
     }
 
-    private async assertK8sCreatePublished(agent: Agent): Promise<void> {
+    private async assertK8sCreatePublished(
+        agent: Agent,
+        db: Pick<Database, 'select'> = this.db
+    ): Promise<void> {
         if (agent.runtime !== 'k8s' || !agent.runtimeId) return
-        const [runtime] = await this.db
+        const [runtime] = await db
             .select({
                 phase: agentRuntimes.currentPhase
             })

@@ -227,6 +227,106 @@ const fixture = async (agents: Record<string, SdkAgent>) => {
     }
 }
 
+test('A2A outbound grants use the peer endpoint and revoke the target durably', async () => {
+    const caller = agent('caller', 'sprites')
+    const target = agent('target', 'sprites')
+    const f = await fixture({ caller, target })
+    let granted = false
+    const mutations: Array<{ method: string; path: string; body: unknown }> = []
+    await f.page.route('**/api/agents', (route) =>
+        route.fulfill({ json: [caller, target] })
+    )
+    await f.page.route('**/api/a2a/**', async (route) => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        const method = request.method()
+        if (method !== 'GET')
+            mutations.push({ method, path, body: request.postDataJSON() })
+        if (method === 'POST') {
+            if (path !== '/api/a2a/agents/target/grants/batch')
+                return route.fulfill({
+                    status: 410,
+                    json: { error: { message: 'peer bearer retired' } }
+                })
+            granted = true
+            return route.fulfill({
+                json: {
+                    grants: [{ callerAgentId: 'caller', tokenId: 'grant' }]
+                }
+            })
+        }
+        if (method === 'DELETE') {
+            if (path === '/api/a2a/agents/target/grants/grant') granted = false
+            return route.fulfill({ status: 204 })
+        }
+        const body = path.endsWith('/exposure')
+            ? { enabled: true }
+            : path.endsWith('/tasks')
+              ? { tasks: [], nextCursor: null }
+              : path.endsWith('/outbound-grants') && granted
+                ? [
+                      {
+                          tokenId: 'grant',
+                          targetAgentId: 'target',
+                          targetAgentName: target.name,
+                          targetExposed: true,
+                          scopes: ['a2a:edit'],
+                          createdAt: '2026-09-01T00:00:00Z',
+                          expiresAt: null,
+                          lastUsedAt: null
+                      }
+                  ]
+                : []
+        await route.fulfill({ json: body })
+    })
+    try {
+        await f.page.goto(origin + '/agents/caller/settings/a2a')
+        await f.page
+            .getByRole('button', { name: 'Add target', exact: true })
+            .click()
+        const dialog = f.page.getByRole('dialog')
+        await dialog.getByRole('checkbox').check()
+        await dialog
+            .getByRole('button', {
+                name: 'Authorize selected (1)',
+                exact: true
+            })
+            .click()
+        await dialog.waitFor({ state: 'hidden' })
+        assert.equal(granted, true)
+        assert.deepEqual(mutations[0], {
+            method: 'POST',
+            path: '/api/a2a/agents/target/grants/batch',
+            body: { callerAgentIds: ['caller'], replaceExisting: true }
+        })
+        await f.page
+            .getByRole('button', { name: 'Revoke authorization', exact: true })
+            .click()
+        await f.page
+            .getByRole('dialog')
+            .getByRole('button', { name: 'Revoke', exact: true })
+            .click()
+        await f.page.getByRole('dialog').waitFor({ state: 'hidden' })
+        assert.equal(granted, false)
+        assert.equal(mutations[1].path, '/api/a2a/agents/target/grants/grant')
+        await f.page.reload()
+        await f.page
+            .getByRole('button', { name: 'Add target', exact: true })
+            .waitFor()
+        assert.equal(
+            await f.page
+                .getByRole('button', {
+                    name: 'Revoke authorization',
+                    exact: true
+                })
+                .count(),
+            0
+        )
+    } finally {
+        await f.close()
+    }
+})
+
 for (const path of [
     '/agents/external/settings/model',
     '/agents/external/settings/storage',

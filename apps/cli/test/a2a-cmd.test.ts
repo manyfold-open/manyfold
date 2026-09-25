@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Command } from 'commander'
+import http from 'node:http'
+import { once } from 'node:events'
+import type { AddressInfo } from 'node:net'
 import { registerA2a } from '../src/commands/a2a'
 import {
     artifactText,
@@ -211,4 +214,79 @@ test('A2A caller add validates mode-specific flags and expiry', () => {
             }),
         /only valid with --external/
     )
+})
+
+test('human streaming output contains the final artifact once; JSON preserves events', async () => {
+    const artifact = (text: string, append: boolean) => ({
+        kind: 'artifact-update',
+        taskId: 't',
+        contextId: 'c',
+        artifact: { artifactId: 'a', parts: [{ kind: 'text', text }] },
+        append
+    })
+    const events = [
+        artifact('draft', true),
+        artifact(' answer', true),
+        artifact('draft answer', false),
+        artifact('corrected', false),
+        {
+            kind: 'status-update',
+            taskId: 't',
+            contextId: 'c',
+            status: { state: 'completed' },
+            final: true
+        }
+    ]
+    const server = http.createServer((req, res) => {
+        req.resume()
+        req.on('end', () => {
+            res.writeHead(200, { 'content-type': 'text/event-stream' })
+            for (const result of events)
+                res.write(
+                    `data: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result })}\n\n`
+                )
+            res.end()
+        })
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const log = console.log
+    const error = console.error
+    try {
+        console.error = () => {}
+        for (const json of [false, true]) {
+            let output = ''
+            console.log = (line: string) => {
+                output += `${line}\n`
+            }
+            const program = new Command().exitOverride()
+            registerA2a(program)
+            await program.parseAsync(
+                [
+                    'a2a',
+                    'send',
+                    `http://127.0.0.1:${(server.address() as AddressInfo).port}/rpc`,
+                    'work',
+                    '--stream',
+                    '--allow-http-localhost',
+                    ...(json ? ['--json'] : [])
+                ],
+                { from: 'user' }
+            )
+            if (json)
+                assert.deepEqual(
+                    output
+                        .trim()
+                        .split('\n')
+                        .map((line) => JSON.parse(line)),
+                    events
+                )
+            else assert.equal(output, 'corrected\n')
+        }
+    } finally {
+        console.log = log
+        console.error = error
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
 })

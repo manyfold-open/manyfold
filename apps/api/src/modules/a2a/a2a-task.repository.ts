@@ -1,9 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, count, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import { a2aTasks, type A2aTask, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 
 export type A2aTaskState = A2aTask['state']
+type TaskDatabase = Pick<
+    Database,
+    'select' | 'insert' | 'update' | 'transaction' | 'execute'
+>
 
 export interface A2aTaskScope {
     targetAgentId: string
@@ -64,7 +68,24 @@ const scopeCondition = (scope: A2aTaskScope): SQL | undefined => {
 
 @Injectable()
 export class A2aTaskRepository {
-    constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+    constructor(@Inject(DRIZZLE) private readonly db: TaskDatabase) {}
+
+    // Keep duplicate detection, session creation and admission in one transaction.
+    // The per-user lock also prevents concurrent requests overspending the cap.
+    withUserLock<T>(
+        userId: string,
+        reserve: (
+            tasks: A2aTaskRepository,
+            db: Pick<Database, 'select' | 'insert'>
+        ) => Promise<T>
+    ): Promise<T> {
+        return this.db.transaction(async (tx) => {
+            await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${'a2a-send:' + userId}, 0))`
+            )
+            return reserve(new A2aTaskRepository(tx), tx)
+        })
+    }
 
     async create(input: CreateA2aTaskInput): Promise<A2aTask> {
         const [row] = await this.db
@@ -118,14 +139,16 @@ export class A2aTaskRepository {
         const [row] = await this.db
             .select()
             .from(a2aTasks)
-            .where(and(eq(a2aTasks.contextId, contextId), scopeCondition(scope)))
+            .where(
+                and(eq(a2aTasks.contextId, contextId), scopeCondition(scope))
+            )
             .orderBy(desc(a2aTasks.createdAt))
             .limit(1)
         return row ?? null
     }
 
     async findByClientMessage(
-        chatSessionId: string,
+        scope: A2aTaskScope,
         clientMessageId: string
     ): Promise<A2aTask | null> {
         const [row] = await this.db
@@ -133,10 +156,11 @@ export class A2aTaskRepository {
             .from(a2aTasks)
             .where(
                 and(
-                    eq(a2aTasks.chatSessionId, chatSessionId),
+                    scopeCondition(scope),
                     eq(a2aTasks.clientMessageId, clientMessageId)
                 )
             )
+            .orderBy(a2aTasks.createdAt, a2aTasks.id)
             .limit(1)
         return row ?? null
     }
