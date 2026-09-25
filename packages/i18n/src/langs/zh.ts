@@ -4069,6 +4069,7 @@ const zh: Translations = {
             startupSystemdUser: '自动启动 · 登录时（systemd）',
             startupSystemdSystem: '自动启动 · 开机时（systemd）',
             startupManual: '手动',
+            startupContainer: '自动启动 · 容器',
             startupUnknown: '启动方式未知'
         },
         agentNewV3: {

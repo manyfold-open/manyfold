@@ -72,9 +72,10 @@ const isInitUnitStartup = (
 ): method is Exclude<DaemonStartupMethod, 'manual'> =>
     method !== null && method !== 'manual'
 
-// Who brings the daemon back after the swap: its init unit, or — for a
-// manual start that says so (ADR-0029 §5) — the daemon itself, by handing
-// off to a successor it starts and rolling back if that never comes up.
+// Who brings the daemon back after the swap: its init unit or a pod host's
+// boot loop (ADR-0035), or — for a manual start that says so (ADR-0029 §5) —
+// the daemon itself, by handing off to a successor it starts and rolling back
+// if that never comes up.
 const canRestartAfterUpdate = (host: {
     startupMethod: DaemonStartupMethod | null
     clientFeatures: string[]

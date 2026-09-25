@@ -200,6 +200,11 @@ export const survivalForKillMode = (
                   survive: false,
                   reason: `systemd KillMode=${killMode ?? 'unknown'}; reinstall the unit with mf daemon stop && mf daemon start`
               }
+    if (startupMethod === 'container')
+        return {
+            survive: false,
+            reason: 'container boot loop; an update drains execs first'
+        }
     return {
         survive: false,
         reason: 'no init unit; only mf daemon stop --keep-execs keeps them'

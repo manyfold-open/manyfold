@@ -3617,6 +3617,7 @@ const ja: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': '自動起動 · ログイン（systemd）',
     'web.selfOwned.startupSystemdSystem': '自動起動 · 起動時（systemd）',
     'web.selfOwned.startupManual': '手動',
+    'web.selfOwned.startupContainer': '自動起動 · コンテナ',
     'web.selfOwned.startupUnknown': '起動方法不明',
     'web.agentNewV3.managedProvider': 'Manyfold 管理対象',
     'web.apiTokens.title': 'API トークン',

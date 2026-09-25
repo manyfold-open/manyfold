@@ -3627,6 +3627,7 @@ const fr: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'démarrage automatique · connexion (systemd)',
     'web.selfOwned.startupSystemdSystem': 'démarrage automatique · démarrage (systemd)',
     'web.selfOwned.startupManual': 'manuel',
+    'web.selfOwned.startupContainer': 'démarrage automatique · conteneur',
     'web.selfOwned.startupUnknown': 'démarrage inconnu',
     'web.agentNewV3.managedProvider': 'Géré par Manyfold',
     'web.apiTokens.title': 'Jetons API',

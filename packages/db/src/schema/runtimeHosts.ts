@@ -88,7 +88,8 @@ export const runtimeHosts = pgTable(
                 'launchd-system',
                 'systemd-user',
                 'systemd-system',
-                'manual'
+                'manual',
+                'container'
             ]
         }),
         homeDir: text('home_dir'),

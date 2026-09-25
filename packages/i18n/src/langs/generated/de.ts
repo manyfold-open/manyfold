@@ -3626,6 +3626,7 @@ const de: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'Autostart · Anmeldung (systemd)',
     'web.selfOwned.startupSystemdSystem': 'Autostart · Systemstart (systemd)',
     'web.selfOwned.startupManual': 'manuell',
+    'web.selfOwned.startupContainer': 'Autostart · Container',
     'web.selfOwned.startupUnknown': 'Start unbekannt',
     'web.agentNewV3.managedProvider': 'Manyfold verwaltet',
     'web.apiTokens.title': 'API-Tokens',

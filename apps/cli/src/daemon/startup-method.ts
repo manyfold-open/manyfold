@@ -3,7 +3,12 @@ import type { DaemonStartupMethod } from '@manyfold/shared'
 import { resolveProfile } from '@/config'
 import { launchdLabelFor } from './init-unit/darwin'
 
+// A pod host's boot script sets this before it starts the daemon (ADR-0035);
+// it is the only supervisor there, and it restarts the daemon on every exit.
+export const CONTAINER_SUPERVISOR_ENV = 'MF_DAEMON_SUPERVISOR'
+
 export const detectStartupMethod = (): DaemonStartupMethod => {
+    if (process.env[CONTAINER_SUPERVISOR_ENV] === 'container') return 'container'
     if (process.platform === 'darwin') {
         if (process.env.XPC_SERVICE_NAME === launchdLabelFor(resolveProfile())) {
             return (process.getuid?.() ?? -1) === 0

@@ -3628,6 +3628,7 @@ const ru: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'автозапуск · вход (systemd)',
     'web.selfOwned.startupSystemdSystem': 'автозапуск · загрузка (systemd)',
     'web.selfOwned.startupManual': 'вручную',
+    'web.selfOwned.startupContainer': 'автозапуск · контейнер',
     'web.selfOwned.startupUnknown': 'способ запуска неизвестен',
     'web.agentNewV3.managedProvider': 'Провайдер Manyfold',
     'web.apiTokens.title': 'Токены API',

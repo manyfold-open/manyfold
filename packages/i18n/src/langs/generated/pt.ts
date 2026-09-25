@@ -3627,6 +3627,7 @@ const pt: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'inicialização automática · login (systemd)',
     'web.selfOwned.startupSystemdSystem': 'inicialização automática · boot (systemd)',
     'web.selfOwned.startupManual': 'manual',
+    'web.selfOwned.startupContainer': 'inicialização automática · contêiner',
     'web.selfOwned.startupUnknown': 'inicialização desconhecida',
     'web.agentNewV3.managedProvider': 'Manyfold gerenciado',
     'web.apiTokens.title': 'Tokens de API',

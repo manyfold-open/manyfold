@@ -137,7 +137,9 @@ const runClaimedForeground = async (
     const startupMethod = detectStartupMethod()
     const daemonLog = await createDaemonLog(daemonPaths.logPath, {
         echo:
-            process.stdout.isTTY || startupMethod === 'manual'
+            process.stdout.isTTY ||
+            startupMethod === 'manual' ||
+            startupMethod === 'container'
                 ? process.stdout
                 : undefined,
         onError: (message) => process.stderr.write(`${message}\n`)
@@ -190,7 +192,8 @@ const runClaimedForeground = async (
         )
         // A daemon without a supervisor updates itself by handing off to a
         // successor it starts (ADR-0029 §5): only a standalone POSIX binary
-        // can, and never the pod runner, whose binary the image pins.
+        // can. A pod host's daemon is never manual: its boot loop restarts
+        // it after an update (ADR-0035), so it takes the plain exit path.
         const manualUpdateCapable =
             startupMethod === 'manual' &&
             isBunStandalone() &&

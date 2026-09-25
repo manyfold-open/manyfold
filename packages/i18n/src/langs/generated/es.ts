@@ -3627,6 +3627,7 @@ const es: Record<string, string> = {
     'web.selfOwned.startupSystemdUser': 'Inicio systemd (usuario)',
     'web.selfOwned.startupSystemdSystem': 'Inicio systemd (sistema)',
     'web.selfOwned.startupManual': 'Inicio manual',
+    'web.selfOwned.startupContainer': 'Inicio en contenedor',
     'web.selfOwned.startupUnknown': 'Inicio desconocido',
     'web.agentNewV3.managedProvider': 'Gestionado por Manyfold',
     'web.apiTokens.title': 'Tokens de API',
