@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 7.6.0
+
+### Minor Changes
+
+- [#538](https://github.com/manyfold-open/manyfold/pull/538) [`052dc96`](https://github.com/manyfold-open/manyfold/commit/052dc961470ec76d4e0894fe393079cc0fe440d2) Thanks [@yingca1](https://github.com/yingca1)! - A cloud computer's Manyfold CLI now updates itself when something needs a newer one. Installing a service framework (OpenClaw, Hermes) on a computer whose CLI predates services updates the CLI first, and a computer whose daemon is below the supported floor is updated before its turns run. When there is no newer CLI to install, creating the agent fails right away with `POD_HOST_DAEMON_TOO_OLD` and a message that says so, instead of a generic install failure after the install has run.
+
 ## 7.5.0
 
 ### Minor Changes
