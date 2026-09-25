@@ -27,8 +27,6 @@ env:
     REGISTRY: ghcr.io
     IMAGE_OWNER: manyfold-open
     MF_CLI_VERSION: 0.34.0
-    NARRANEXUS_REF: v1.15.0
-    NARRANEXUS_SHA: 5869502c9a405b3e762206ecd21ea16540d75794
 
 jobs:
     base:
@@ -158,61 +156,8 @@ jobs:
                   printf '%s: %s@%s\n' \
                       "$PACKAGE" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
-    narranexus:
-        needs: base
-        runs-on: ubuntu-24.04
-        timeout-minutes: 60
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  repository: NetMindAI-Open/NarraNexus
-                  ref: ${{ env.NARRANEXUS_REF }}
-                  path: narranexus
-
-            - id: meta
-              name: Verify source and resolve image coordinate
-              run: |
-                  set -euo pipefail
-                  test "$(git -C narranexus rev-parse HEAD)" = "$NARRANEXUS_SHA"
-                  image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-narranexus"
-                  echo "image=$image" >> "$GITHUB_OUTPUT"
-
-            - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-            - name: Login to GHCR
-              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - id: build
-              name: Build and push NarraNexus
-              uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-              with:
-                  context: narranexus
-                  file: narranexus/docker/Dockerfile.manyfold
-                  platforms: linux/amd64
-                  push: true
-                  tags: ${{ steps.meta.outputs.image }}:${{ needs.base.outputs.tag }}
-                  labels: |
-                      org.opencontainers.image.source=https://github.com/NetMindAI-Open/NarraNexus
-                      org.opencontainers.image.revision=${{ env.NARRANEXUS_SHA }}
-                      ai.manyfold.release-revision=${{ needs.base.outputs.source_sha }}
-                  cache-from: type=gha,scope=runtime-narranexus
-                  cache-to: type=gha,mode=max,scope=runtime-narranexus
-
-            - name: Verify NarraNexus
-              env:
-                  IMAGE: ${{ steps.meta.outputs.image }}
-                  DIGEST: ${{ steps.build.outputs.digest }}
-              run: |
-                  set -euo pipefail
-                  docker buildx imagetools inspect "${IMAGE}@${DIGEST}" >/dev/null
-                  printf 'NarraNexus: %s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
-
     public:
-        needs: [base, manyfold, narranexus]
+        needs: [base, manyfold]
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
@@ -223,7 +168,7 @@ jobs:
                   TAG: ${{ needs.base.outputs.tag }}
               run: |
                   set -euo pipefail
-                  for package in base claude-code codex gemini-cli pi openclaw hermes runner narranexus; do
+                  for package in base claude-code codex gemini-cli pi openclaw hermes runner; do
                       image="${REGISTRY}/${IMAGE_OWNER}/manyfold-runtime-${package}:${TAG}"
                       if ! docker buildx imagetools inspect "$image" >/dev/null; then
                           echo "::error::runtime image is not public: $image"
