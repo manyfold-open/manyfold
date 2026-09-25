@@ -102,7 +102,7 @@ export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
             spriteName: ctx.spriteName
         })
 
-        // Write the same config.yaml that docker/hermes/entrypoint.sh would.
+        // Write the config.yaml Hermes reads its model and provider from.
         // Without it, Hermes can't resolve the model/provider and emits
         // empty SSE streams ("No inference provider configured" in logs).
         await this.writeConfigYaml(ctx, creds)

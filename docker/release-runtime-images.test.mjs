@@ -7,51 +7,24 @@ const workflow = parse(
     fs.readFileSync('.github/workflows/release-runtime-images.yml', 'utf8')
 )
 
-test('runtime image release publishes every immutable runner dependency', () => {
+// ADR-0035: one image runs every pod host, and frameworks are installed into
+// it on demand, so it is the only image this workflow publishes.
+test('runtime image release publishes the pod host image alone, immutably', () => {
     assert.equal(workflow.permissions.packages, 'write')
     assert.equal(workflow.env.IMAGE_OWNER, 'manyfold-open')
-    assert.equal(workflow.env.MF_CLI_VERSION, '0.34.0')
-    assert.deepEqual(
-        workflow.jobs.manyfold.strategy.matrix.include,
-        [
-            ['claude-code', 'claude-code'],
-            ['codex', 'codex'],
-            ['gemini-cli', 'gemini-cli'],
-            ['pi', 'pi'],
-            ['openclaw', 'openclaw'],
-            ['hermes', 'hermes'],
-            ['mf-runner', 'runner']
-        ].map(([directory, packageName]) => ({
-            directory,
-            package: packageName
-        }))
-    )
-    const rendered = JSON.stringify(workflow)
-    assert.doesNotMatch(rendered, /:latest/)
-    assert.match(rendered, /MF_RUNTIME_BASE=/)
-    assert.deepEqual(workflow.jobs.public.needs, ['base', 'manyfold', 'host'])
-    // The public check covers exactly the images this workflow publishes.
-    const packages = workflow.jobs.manyfold.strategy.matrix.include.map(
-        (entry) => entry.package
-    )
+    assert.deepEqual(Object.keys(workflow.jobs), ['host', 'public'])
+    assert.doesNotMatch(JSON.stringify(workflow), /:latest/)
+    const meta = workflow.jobs.host.steps.find((step) => step.id === 'meta').run
+    assert.match(meta, /tag="sha-\$\{source_sha:0:12\}"/)
+    assert.match(meta, /manyfold-runtime-host"/)
+    assert.equal(workflow.jobs.public.needs, 'host')
     const publicCheck = workflow.jobs.public.steps.find((step) => step.run).run
-    assert.ok(
-        publicCheck.includes(
-            `for package in ${['base', 'host', ...packages].join(' ')};`
-        )
-    )
-    for (const directory of workflow.jobs.manyfold.strategy.matrix.include.map(
-        (entry) => entry.directory
-    )) {
-        const dockerfile = fs.readFileSync(
-            `docker/${directory}/Dockerfile`,
-            'utf8'
-        )
-        assert.match(
-            dockerfile,
-            /ARG MF_RUNTIME_BASE=mf-runtime-base:debian-bookworm\nFROM \$\{MF_RUNTIME_BASE\}/
-        )
-    }
+    assert.match(publicCheck, /manyfold-runtime-host:\$\{TAG\}/)
+    const images = fs
+        .readdirSync('docker', { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    assert.deepEqual(images, ['host'])
 })
 
 // CI here runs with zero repository secrets (SECURITY.md), so the pushes
@@ -61,7 +34,7 @@ test('runtime image release publishes with the workflow token alone', () => {
     const secrets = JSON.stringify(workflow).match(/secrets\.\w+/g)
     assert.deepEqual([...new Set(secrets)], ['secrets.GITHUB_TOKEN'])
     assert.equal(
-        workflow.jobs.base.if,
+        workflow.jobs.host.if,
         "github.repository == 'manyfold-open/manyfold'"
     )
 })
@@ -71,7 +44,6 @@ test('runtime image release publishes with the workflow token alone', () => {
 test('the pod host image is generic and keeps its own files out of the home volume', () => {
     const dockerfile = fs.readFileSync('docker/host/Dockerfile', 'utf8')
     const job = workflow.jobs.host
-    assert.equal(job.needs, 'base')
     const build = job.steps.find((step) => step.id === 'build').with
     assert.equal(build.context, 'docker/host')
     assert.equal(build.file, 'docker/host/Dockerfile')

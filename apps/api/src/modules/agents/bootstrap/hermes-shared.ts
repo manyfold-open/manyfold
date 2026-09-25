@@ -30,8 +30,6 @@ export const generateHermesApiServerKey = (
  * Other built-in providers (openrouter, anthropic, etc.) keep their own
  * provider key and read from provider-specific env vars (OPENROUTER_API_KEY,
  * ANTHROPIC_API_KEY, …).
- *
- * Mirrors `docker/hermes/entrypoint.sh` exactly.
  */
 export const mapHermesProvider = (provider: string): string =>
     provider === 'openai' ? 'custom' : provider
@@ -68,9 +66,9 @@ interface HermesConfigYamlOptions {
 }
 
 /**
- * Generates `~/.hermes/config.yaml` content matching what
- * `docker/hermes/entrypoint.sh` lays down. The provider name is the
- * already-mapped value (use `mapHermesProvider` first).
+ * Generates the `~/.hermes/config.yaml` Hermes resolves its model and
+ * provider from. The provider name is the already-mapped value (use
+ * `mapHermesProvider` first).
  */
 export const buildHermesConfigYaml = (opts: HermesConfigYamlOptions): string => {
     const lines: string[] = []
@@ -240,8 +238,8 @@ export const hermesServiceEnv = (opts: {
             dashboardEnabled: false
         }),
         // Hermes reads `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / etc. — not
-        // `HERMES_PRIMARY_MODEL_API_KEY`. Mirror what docker/hermes/
-        // entrypoint.sh re-exports.
+        // `HERMES_PRIMARY_MODEL_API_KEY` — so the key is re-exported under
+        // the name its provider reads.
         ...hermesProviderAliasEnv(
             rawProvider,
             opts.creds.primaryModelApiKey ?? ''
