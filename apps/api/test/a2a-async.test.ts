@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { A2aService } from '../src/modules/a2a/a2a.service'
 import { A2aSelfController } from '../src/modules/a2a/a2a-self.controller'
+import type { A2aTaskRepository } from '../src/modules/a2a/a2a-task.repository'
 
 // writeAudit is best-effort; a no-op insert keeps it from throwing.
 const dbFake = { insert: () => ({ values: async () => {} }) } as never
@@ -17,6 +18,8 @@ const makeTasksFake = () => {
     const updates: UpdateCall[] = []
     let created: Record<string, unknown> | undefined
     const fake = {
+        withUserLock: async (_userId: string, reserve: (tasks: A2aTaskRepository, db: never) => Promise<unknown>): Promise<unknown> =>
+            reserve(fake as unknown as A2aTaskRepository, dbFake),
         create: async (input: Record<string, unknown>) => {
             created = {
                 ...input,
@@ -56,6 +59,7 @@ const makeTasksFake = () => {
 
 // A ChatService fake that drives one successful turn through the observer.
 const makeChatFake = (onTurn?: () => void) => ({
+    announceSessionCreated: () => {},
     createSession: async () => ({ id: 'cs_1' }),
     sendMessage: async (...args: unknown[]) => {
         const observer = args[args.length - 1] as
@@ -226,6 +230,7 @@ const makeStuckChatFake = () => {
     return {
         state,
         fake: {
+            announceSessionCreated: () => {},
             createSession: async () => ({ id: 'cs_1' }),
             sendMessage: async () => ({
                 userMessage: { id: 'um_1' },
@@ -273,6 +278,7 @@ test('blocking send fails with turn_timeout at the blocking cap and cancels the 
 test('detached turn uses the async cap, not the blocking cap', async () => {
     const { fake: tasks, updates } = makeTasksFake()
     const chat = {
+        announceSessionCreated: () => {},
         createSession: async () => ({ id: 'cs_1' }),
         sendMessage: async (...args: unknown[]) => {
             const observer = args[args.length - 1] as

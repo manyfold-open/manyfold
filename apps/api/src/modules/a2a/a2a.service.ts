@@ -10,6 +10,7 @@ import {
     createObjectId
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
     Inject,
     Injectable,
@@ -46,6 +47,7 @@ import {
     SessionImportPendingError
 } from '@/modules/chat/chat.service'
 import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
+import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
 
 // Stable codes for a task that failed before its turn started; the session
 // ownership ones mirror the HTTP 409 body codes (ADR-0029).
@@ -116,6 +118,9 @@ const textArtifact = (text: string): Artifact => ({
     parts: [{ kind: 'text', text } as Part]
 })
 
+const isActive = (task: A2aTask): boolean =>
+    task.state === 'submitted' || task.state === 'working'
+
 @Injectable()
 export class A2aService implements OnModuleInit, OnModuleDestroy {
     private readonly log = new Logger(A2aService.name)
@@ -127,13 +132,17 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         private readonly tasks: A2aTaskRepository,
         @Optional() private readonly config?: ConfigService,
         @Optional() private readonly adminSettings?: AdminSettingsService,
-        @Optional() private readonly telemetry?: TelemetryService
+        @Optional() private readonly telemetry?: TelemetryService,
+        @Optional() private readonly broadcaster?: ChatSseBroadcaster
     ) {}
 
     onModuleInit(): void {
-        this.sweepTimer = setInterval(inBackgroundContext(() => {
-            void this.sweepStaleTasks()
-        }), STALE_SWEEP_INTERVAL_MS)
+        this.sweepTimer = setInterval(
+            inBackgroundContext(() => {
+                void this.sweepStaleTasks()
+            }),
+            STALE_SWEEP_INTERVAL_MS
+        )
         this.sweepTimer.unref?.()
     }
 
@@ -363,62 +372,37 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
     async sendMessage(
         ctx: A2aAuthContext,
         params: MessageSendParams,
-        onEvent?: A2aStreamEmit
+        onEvent?: A2aStreamEmit,
+        signal?: AbortSignal
     ): Promise<Task> {
         const scope: A2aTaskScope = {
             targetAgentId: ctx.targetAgentId,
             callerAgentId: ctx.callerAgentId,
             externalSubject: ctx.externalSubject
         }
-        const incoming = params.message
+        const incoming = params?.message
         if (!incoming || incoming.kind !== 'message')
             throw new A2aError(A2aErrorCode.invalidParams, 'message required')
         const clientMessageId = incoming.messageId
-        if (!clientMessageId)
+        if (typeof clientMessageId !== 'string' || !clientMessageId.trim())
             throw new A2aError(
                 A2aErrorCode.invalidParams,
                 'message.messageId required'
             )
 
-        // resolve session + context (never expose raw chat_sessions.id)
-        let chatSessionId: string
-        let contextId: string
-        if (incoming.taskId) {
-            const prior = await this.tasks.findById(incoming.taskId, scope)
-            if (!prior)
-                throw new A2aError(A2aErrorCode.taskNotFound, 'task not found')
-            if (incoming.contextId && incoming.contextId !== prior.contextId)
-                throw new A2aError(
-                    A2aErrorCode.invalidParams,
-                    'contextId does not match taskId'
-                )
-            chatSessionId = prior.chatSessionId
-            contextId = prior.contextId
-        } else if (incoming.contextId) {
-            const prior = await this.tasks.findByContext(
-                incoming.contextId,
-                scope
+        if (
+            incoming.role !== 'user' ||
+            !Array.isArray(incoming.parts) ||
+            incoming.parts.some(
+                (part) =>
+                    !part ||
+                    (part.kind === 'text' && typeof part.text !== 'string')
             )
-            if (!prior)
-                throw new A2aError(A2aErrorCode.taskNotFound, 'context not found')
-            chatSessionId = prior.chatSessionId
-            contextId = prior.contextId
-        } else {
-            const session = await this.chat.createSession(
-                ctx.userId,
-                ctx.targetAgentId
-            )
-            chatSessionId = session.id
-            contextId = createObjectId('a2aContext')
-        }
-
-        // idempotency: a replayed messageId returns the existing task
-        const dupe = await this.tasks.findByClientMessage(
-            chatSessionId,
-            clientMessageId
         )
-        if (dupe) return this.toWireTask(dupe)
-
+            throw new A2aError(
+                A2aErrorCode.invalidParams,
+                'user message with valid parts required'
+            )
         const prompt = messageText(incoming)
         if (!prompt)
             throw new A2aError(
@@ -426,25 +410,84 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 'only non-empty text/plain input is supported'
             )
 
-        const inflight = await this.tasks.countInflightForUser(ctx.userId)
-        const maxInflight = this.maxInflightPerUser()
-        if (inflight >= maxInflight)
-            throw new A2aError(
-                A2aErrorCode.internalError,
-                `too many concurrent A2A delegations (${inflight}/${maxInflight}); retry when one finishes`,
-                { code: 'delegation_limit', inflight, limit: maxInflight }
-            )
+        const { task, created, newSession } = await this.tasks.withUserLock(
+            ctx.userId,
+            async (tasks, db) => {
+                const prior = incoming.taskId
+                    ? await tasks.findById(incoming.taskId, scope)
+                    : incoming.contextId
+                      ? await tasks.findByContext(incoming.contextId, scope)
+                      : null
+                if ((incoming.taskId || incoming.contextId) && !prior)
+                    throw new A2aError(
+                        A2aErrorCode.taskNotFound,
+                        'task or context not found'
+                    )
+                if (
+                    prior &&
+                    incoming.contextId &&
+                    incoming.contextId !== prior.contextId
+                )
+                    throw new A2aError(
+                        A2aErrorCode.invalidParams,
+                        'contextId does not match taskId'
+                    )
 
-        const task = await this.tasks.create({
-            id: createObjectId('a2aTask'),
-            userId: ctx.userId,
-            targetAgentId: ctx.targetAgentId,
-            callerAgentId: ctx.callerAgentId,
-            externalSubject: ctx.externalSubject,
-            contextId,
-            chatSessionId,
-            clientMessageId
-        })
+                const dupe = await tasks.findByClientMessage(
+                    scope,
+                    clientMessageId
+                )
+                if (dupe) {
+                    if (prior && prior.contextId !== dupe.contextId)
+                        throw new A2aError(
+                            A2aErrorCode.invalidParams,
+                            'messageId belongs to another context'
+                        )
+                    return { task: dupe, created: false, newSession: false }
+                }
+                const inflight = await tasks.countInflightForUser(ctx.userId)
+                const maxInflight = this.maxInflightPerUser()
+                if (inflight >= maxInflight)
+                    throw new A2aError(
+                        A2aErrorCode.internalError,
+                        `too many concurrent A2A delegations (${inflight}/${maxInflight}); retry when one finishes`,
+                        {
+                            code: 'delegation_limit',
+                            inflight,
+                            limit: maxInflight
+                        }
+                    )
+                const chatSessionId =
+                    prior?.chatSessionId ??
+                    (
+                        await this.chat.createSession(
+                            ctx.userId,
+                            ctx.targetAgentId,
+                            undefined,
+                            db
+                        )
+                    ).id
+                const task = await tasks.create({
+                    id: createObjectId('a2aTask'),
+                    userId: ctx.userId,
+                    ...scope,
+                    contextId: prior?.contextId ?? createObjectId('a2aContext'),
+                    chatSessionId,
+                    clientMessageId
+                })
+                return { task, created: true, newSession: !prior }
+            }
+        )
+        if (!created) {
+            if (onEvent) await this.resubscribe(ctx, task.id, onEvent, signal)
+            return this.getTask(ctx, task.id)
+        }
+        if (newSession)
+            this.chat.announceSessionCreated(
+                ctx.userId,
+                ctx.targetAgentId,
+                task.chatSessionId
+            )
 
         await this.writeAudit(
             auditAction.A2A_TASK_STARTED,
@@ -645,6 +688,19 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             userMessageId: sent.userMessage.id,
             assistantMessageId: sent.assistantMessageId
         })
+        const attached = await this.tasks.findById(
+            task.id,
+            this.scopeOfTask(task)
+        )
+        if (attached && !isActive(attached)) {
+            await this.chat.cancelMessage(
+                task.userId,
+                task.targetAgentId,
+                sent.assistantMessageId
+            )
+            this.emitSnapshot(attached, emit)
+            return this.toWireTask(attached)
+        }
 
         const { blockingMs, asyncMs } = await this.resolveTurnTimeouts()
         const timeoutMs = mode === 'detached' ? asyncMs : blockingMs
@@ -704,13 +760,23 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
 
         // Conditional: if a cancel/sweep already terminalized this task while the
         // turn was finishing, don't overwrite that terminal state (or its result).
-        await this.tasks.updateIfActive(task.id, {
+        const terminalized = await this.tasks.updateIfActive(task.id, {
             state: finalState,
             artifactJson: artifactJson as unknown as Record<string, unknown>,
             errorJson,
             usageJson: usage,
             completedAt
         })
+
+        if (!terminalized) {
+            const current = await this.tasks.findById(
+                task.id,
+                this.scopeOfTask(task)
+            )
+            if (!current) throw new A2aError(A2aErrorCode.taskNotFound)
+            this.emitSnapshot(current, emit)
+            return this.toWireTask(current)
+        }
 
         await this.writeAudit(
             outcome.error
@@ -824,12 +890,17 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             state: 'canceled',
             completedAt
         })
-        if (row.assistantMessageId)
+        const current =
+            (await this.tasks.findById(taskId, this.scopeOf(ctx))) ?? row
+        // Pair this post-cancel read with runTurn's post-attach read. Whichever
+        // write wins the race sees the other side's ID/state and aborts the turn.
+        if (canceled && current.assistantMessageId)
             await this.chat.cancelMessage(
                 ctx.userId,
                 ctx.targetAgentId,
-                row.assistantMessageId
+                current.assistantMessageId
             )
+        if (!canceled) return this.toWireTask(current)
         await this.writeAudit(
             auditAction.A2A_TASK_CANCELED,
             row.id,
@@ -847,60 +918,133 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             callerAgentId: ctx.callerAgentId,
             durationMs: Date.now() - row.createdAt.getTime()
         })
-        if (canceled)
-            return this.toWireTask({
-                ...row,
-                state: 'canceled',
-                completedAt,
-                updatedAt: completedAt
-            })
-        // Raced to terminal between read and cancel — return the real state.
-        const fresh =
-            (await this.tasks.findById(taskId, this.scopeOf(ctx))) ?? row
-        return this.toWireTask(fresh)
+        return this.toWireTask({
+            ...current,
+            state: 'canceled',
+            completedAt,
+            updatedAt: completedAt
+        })
     }
 
-    // ---- tasks/resubscribe ----
-    // MVP: sweep a restart-orphaned turn, then replay the current snapshot and
-    // close. Gap-free live replay of in-flight chunks during a concurrent
-    // blocking send is a follow-up (would subscribe via ChatSseBroadcaster).
-    async resubscribe(
-        ctx: A2aAuthContext,
-        taskId: string,
-        emit: A2aStreamEmit
-    ): Promise<void> {
-        const row = await this.tasks.findById(taskId, this.scopeOf(ctx))
-        if (!row)
-            throw new A2aError(A2aErrorCode.taskNotFound, 'task not found')
-        if (row.assistantMessageId)
-            await this.chat.terminalizeDeadInflightMessage(
-                row.assistantMessageId
-            )
-        const current =
-            (await this.tasks.findById(taskId, this.scopeOf(ctx))) ?? row
-        if (current.artifactJson)
+    private emitSnapshot(row: A2aTask, emit: A2aStreamEmit): void {
+        const task = this.toWireTask(row)
+        for (const artifact of task.artifacts ?? [])
             emit({
                 kind: 'artifact-update',
-                taskId: current.id,
-                contextId: current.contextId,
-                artifact: current.artifactJson as unknown as Artifact,
+                taskId: task.id,
+                contextId: task.contextId,
+                artifact,
                 append: false,
-                lastChunk: true
+                lastChunk: !isActive(row)
             })
         emit({
             kind: 'status-update',
-            taskId: current.id,
-            contextId: current.contextId,
-            status: { state: current.state as TaskState },
-            final: true
+            taskId: task.id,
+            contextId: task.contextId,
+            status: task.status,
+            final: !isActive(row)
         })
+    }
+
+    // Chat's DB-backed broadcaster follows the turn across API replicas. The
+    // task row decides the terminal so a concurrent cancel/sweep always wins.
+    async resubscribe(
+        ctx: A2aAuthContext,
+        taskId: string,
+        emit: A2aStreamEmit,
+        signal?: AbortSignal
+    ): Promise<void> {
+        let current = await this.tasks.findById(taskId, this.scopeOf(ctx))
+        if (!current)
+            throw new A2aError(A2aErrorCode.taskNotFound, 'task not found')
+        if (signal?.aborted) return
+        this.emitSnapshot(current, emit)
+        if (!isActive(current)) return
+
+        const attachment = new AbortController()
+        const stopped = signal
+            ? AbortSignal.any([signal, attachment.signal])
+            : attachment.signal
+        let unsubscribe: (() => void) | undefined
+        try {
+            while (!stopped.aborted) {
+                if (!unsubscribe && current.assistantMessageId) {
+                    if (!this.broadcaster)
+                        throw new Error('chat broadcaster unavailable')
+                    const messageId = current.assistantMessageId
+                    await this.chat.terminalizeDeadInflightMessage(messageId)
+                    // Replay starts at this message, so reset any partial artifact
+                    // the reconnecting client kept from its previous connection.
+                    emit({
+                        kind: 'artifact-update',
+                        taskId,
+                        contextId: current.contextId,
+                        artifact: textArtifact(''),
+                        append: false,
+                        lastChunk: false
+                    })
+                    const contextId = current.contextId
+                    unsubscribe = await this.broadcaster.subscribe(
+                        current.chatSessionId,
+                        {
+                            send: (event) => {
+                                if (
+                                    stopped.aborted ||
+                                    event.messageId !== messageId
+                                )
+                                    return
+                                if (
+                                    event.type === 'token' ||
+                                    event.type === 'replace'
+                                )
+                                    emit({
+                                        kind: 'artifact-update',
+                                        taskId,
+                                        contextId,
+                                        artifact: textArtifact(event.text),
+                                        append: event.type === 'token',
+                                        lastChunk: false
+                                    })
+                            },
+                            close: () => attachment.abort()
+                        },
+                        null,
+                        messageId,
+                        stopped
+                    )
+                }
+                await delay(250, undefined, { signal: stopped })
+                const fresh = await this.tasks.findById(
+                    taskId,
+                    this.scopeOf(ctx)
+                )
+                if (!fresh) throw new A2aError(A2aErrorCode.taskNotFound)
+                current = fresh
+                if (!isActive(current)) {
+                    unsubscribe?.()
+                    attachment.abort()
+                    if (!signal?.aborted) this.emitSnapshot(current, emit)
+                    return
+                }
+            }
+        } catch (err) {
+            if (!stopped.aborted) throw err
+        } finally {
+            attachment.abort()
+            unsubscribe?.()
+        }
     }
 
     // ---- tasks/list ----
 
     async listTasks(
         ctx: A2aAuthContext,
-        opts: { limit?: number; cursor?: string; state?: TaskState; contextId?: string }
+        opts: {
+            limit?: number
+            cursor?: string
+            state?: TaskState
+            contextId?: string
+        }
     ): Promise<{ tasks: Task[]; nextCursor: string | null }> {
         const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
         const cursor = opts.cursor ? this.decodeCursor(opts.cursor) : undefined

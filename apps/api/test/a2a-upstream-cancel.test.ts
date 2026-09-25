@@ -141,3 +141,71 @@ test('abort mid-stream cancels the remote A2A task', async () => {
         await server.close()
     }
 })
+
+test('A2A artifacts preserve replacements, new artifacts and final snapshots', async () => {
+    const artifact = (text: string, append: boolean, artifactId = 'a') => ({
+        kind: 'artifact-update',
+        taskId: 't',
+        contextId: 'c',
+        append,
+        artifact: { artifactId, parts: [{ kind: 'text', text }] }
+    })
+    const server = http.createServer((req, res) => {
+        req.resume()
+        req.on('end', () => {
+            res.writeHead(200, { 'content-type': 'text/event-stream' })
+            for (const result of [
+                artifact('draft', true),
+                artifact('corrected', false),
+                artifact('second', false, 'b'),
+                artifact('corrected', false),
+                artifact('', false, 'b'),
+                {
+                    kind: 'status-update',
+                    taskId: 't',
+                    contextId: 'c',
+                    status: { state: 'completed' },
+                    final: true
+                }
+            ])
+                res.write(
+                    `data: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result })}\n\n`
+                )
+            res.end()
+        })
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    try {
+        const events: EmittedEvent[] = []
+        const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rpc`
+        for await (const event of getExternalProvider('a2a').invoke(
+            invokeInput(url, []),
+            new AbortController().signal
+        ))
+            events.push(event)
+        assert.deepEqual(
+            events.filter(
+                (event) => event.type === 'token' || event.type === 'replace'
+            ),
+            [
+                { type: 'token', text: 'draft' },
+                {
+                    type: 'replace',
+                    text: 'corrected',
+                    reason: 'a2a_artifact_updated'
+                },
+                { type: 'token', text: '\nsecond' },
+                {
+                    type: 'replace',
+                    text: 'corrected',
+                    reason: 'a2a_artifact_updated'
+                }
+            ]
+        )
+        assert.equal(events.at(-1)?.type, 'done')
+    } finally {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+})

@@ -47,6 +47,9 @@ Stream event：
 mf a2a send peer-name "Run the full audit." --stream
 ```
 
+状态更新会实时显示。普通文本模式会合并 Agent 对内容的修正，只输出一次最终结果。
+添加 `--json` 可实时接收每条状态和 artifact 事件。
+
 或提交后立即返回：
 
 ```sh
@@ -66,8 +69,9 @@ mf a2a tasks get peer-name aat_xxx
 mf a2a tasks cancel peer-name aat_xxx
 ```
 
-`subscribe` 会重新连接 task SSE stream。断线后先用 `get` 判断状态再决定是否重试；
-除非显式复用 context 或 task ID，重新发送 prompt 可能创建另一份工作。
+`subscribe` 会重新连接 task SSE stream，持续接收更新直到任务结束。
+断线后先用 `get` 判断状态再决定是否重试。CLI 每次发送都会生成新的 message ID，
+因此即使复用 context 或 task ID，重新发送 prompt 仍会启动新一轮工作。
 
 ## 管理 inbound access
 

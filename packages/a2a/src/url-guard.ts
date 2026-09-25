@@ -91,10 +91,16 @@ const assertPublicAddress = (address: string, host: string): void => {
 }
 
 const isPrivateAddress = (address: string): boolean => {
-    const normalized = normalizeHost(address)
+    // URL canonicalization also covers expanded and dotted IPv4-mapped IPv6.
+    const normalized = isIP(address) === 6
+        ? normalizeHost(new URL(`http://[${address}]`).hostname)
+        : normalizeHost(address)
     if (normalized.startsWith('::ffff:')) {
         const mapped = normalized.slice('::ffff:'.length)
-        if (isIP(mapped) === 4) return isPrivateIpv4(mapped)
+        const [high, low] = mapped.split(':').map((word) => Number.parseInt(word, 16))
+        return isPrivateIpv4(
+            [high >>> 8, high & 255, low >>> 8, low & 255].join('.')
+        )
     }
     const family = isIP(normalized)
     if (family === 4) return isPrivateIpv4(normalized)
