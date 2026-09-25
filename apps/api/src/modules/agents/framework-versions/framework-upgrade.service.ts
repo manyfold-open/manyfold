@@ -322,7 +322,7 @@ export class FrameworkUpgradeService {
                     agent.framework,
                     targetVersion,
                     sourceRepo,
-                    SPRITE_HERMES_HOME
+                    this.spriteHomeFor(agent.framework)
                 )
                 // Dashboard topology: proxy + dashboard serve out of (and route to)
                 // the checkout the rebuild is about to replace — stop them first and
@@ -433,19 +433,20 @@ export class FrameworkUpgradeService {
     // re-clone the app at the target tag and rebuild; on failure the caller runs
     // `restore` to bring the pre-upgrade checkout back. Any 'rebuild'-mode
     // framework not wired here fails loud rather than silently no-op'ing.
+    // `home` is the framework's home on the host being rebuilt.
     private rebuildShellsFor(
         framework: AgentFramework,
         targetVersion: string,
         repo: string | null,
-        hermesHome: string
+        home: string
     ): { rebuild: string; restore: string } {
         // hermes pipes NousResearch's install.sh, which clones a repository
         // named inside that script, so `repo` cannot steer it — which is why
         // hermes is held to a single candidate.
         if (framework === 'hermes')
             return {
-                rebuild: buildHermesRebuildShell(targetVersion, hermesHome),
-                restore: buildHermesRestoreShell(hermesHome)
+                rebuild: buildHermesRebuildShell(targetVersion, home),
+                restore: buildHermesRestoreShell(home)
             }
         const shells = this.extensions.get(framework)?.version?.rebuildShells
         if (!shells)
@@ -456,7 +457,20 @@ export class FrameworkUpgradeService {
             throw new InternalServerErrorException(
                 `no ${framework} repository could be resolved`
             )
-        return shells({ version: targetVersion, repo })
+        return shells({ version: targetVersion, repo, home })
+    }
+
+    // A framework's home on a sandbox: hermes's own, or the one an edition's
+    // sprite service declares.
+    private spriteHomeFor(framework: AgentFramework): string {
+        if (framework === 'hermes') return SPRITE_HERMES_HOME
+        const home =
+            this.extensions.get(framework)?.spriteService?.supervision.homeDir
+        if (!home)
+            throw new BadRequestException(
+                `${framework} rebuild upgrade is not implemented yet`
+            )
+        return home
     }
 
     // A rebuilt service framework on a pod host: its daemon stops the

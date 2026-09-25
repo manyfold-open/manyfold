@@ -1,5 +1,6 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 import type { Agent, AgentRuntimeRow, FileRoot } from '@manyfold/db'
+import type { PodServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
 import type { AgentAdapter } from '@/modules/agents/adapters/agent-adapter'
 import type { SpriteServiceBootstrap } from '@/modules/agents/bootstrap/sprite-framework-bootstrap'
 import type { FilesContext } from '@/modules/agents/files/files-context'
@@ -30,8 +31,10 @@ export interface FrameworkSpriteService {
 export interface FrameworkVersionExtension {
     descriptor: FrameworkVersionDescriptor
     // Shells for an upgradeMode 'rebuild' framework: rebuild installs
-    // `version` from `repo`, restore puts the previous install back.
-    rebuildShells?(input: { version: string; repo: string }): {
+    // `version` from `repo` into `home` (the framework's home on the host
+    // being rebuilt, a sandbox or a cloud computer), restore puts the
+    // previous install back.
+    rebuildShells?(input: { version: string; repo: string; home: string }): {
         rebuild: string
         restore: string
     }
@@ -97,6 +100,9 @@ export interface FrameworkExtension {
     // into it right after provisioning, so the first reconcile finds it.
     pushPrimaryAgent?: boolean
     spriteService?: FrameworkSpriteService
+    // How a service framework is installed on a cloud computer and run as a
+    // service of its daemon (ADR-0035 §4, §6).
+    podService?: PodServiceRecipe
     version?: FrameworkVersionExtension
     files?: FrameworkFilesProvider
     controlUi?: FrameworkControlUi

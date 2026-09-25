@@ -650,6 +650,7 @@ export class AgentOrchestratorService {
             agentCreateId = createObjectId('agent')
             fresh = await this.k8sProvisioner.provision({
                 frameworkVersion: version.selection,
+                frameworkRepo: version.repo,
                 userId,
                 agentCreateId,
                 framework: dto.framework,
@@ -766,7 +767,8 @@ export class AgentOrchestratorService {
             name: dto.name,
             credentials: resolved.value,
             modelConfigSource: dto.modelConfigSource ?? null,
-            frameworkVersion: version.selection
+            frameworkVersion: version.selection,
+            frameworkRepo: version.repo
         })
     }
 
