@@ -46,6 +46,7 @@ import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/r
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import { K8sLifecycleFixture } from './helpers/k8s-lifecycle-fixture'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 
@@ -903,7 +904,7 @@ test(
                     hostname: null,
                     os: 'linux',
                     arch: 'x64',
-                    cliVersion: '3.0.2',
+                    cliVersion: CLI_AT_FLOOR,
                     homeDir: '/home/node',
                     workspaceBaseDir: '/home/node/.manyfold/workspaces',
                     detectedFrameworks: []
