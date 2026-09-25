@@ -2187,7 +2187,9 @@ const AgentNew: FC = (): ReactNode => {
             key: `runtime:${r.id}`,
             kind: (r.kind ?? 'sprites') as RuntimeTargetKind,
             group: 'existing' as const,
-            name: r.name,
+            // A cloud computer is the machine; its runtimes are frameworks on
+            // it (ADR-0035).
+            name: r.kind === 'k8s' ? (r.podHostName ?? r.name) : r.name,
             status:
                 r.kind === 'daemon' && !r.daemonOnline
                     ? {

@@ -215,6 +215,9 @@ export type {
     CliUpgradeBody,
     InstallSandboxFrameworkBody,
     CreateSandboxBody,
+    PodHostStatus,
+    PodHostSummary,
+    CreatePodHostBody,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody,
     FrameworkAgentSummary,
@@ -1147,7 +1150,6 @@ export {
 } from './exec-env'
 export type { MfRuntimeIdentityEnvKey } from './exec-env'
 export {
-    POD_RUNNER_ENV_KEYS,
     POD_RUNNER_PROFILE,
     PROFILE_NAME_RE,
     RUNNER_PROFILE,

@@ -385,22 +385,20 @@ export class RunnerManagerService {
         }
     }
 
-    // The pod twin of ensureRunner. A pod's daemon is in the image and started
-    // by the entrypoint, so there is nothing to install, register or launch and
-    // nothing to keep awake — the whole resolution is "is this pod's runner
-    // registered and online", plus the same workspace preflight a sprite turn
-    // does. Anything short of an online runner returns null and the turn takes
-    // the pod-exec path it took before, which is what keeps this safe to enable
-    // per agent.
+    // The pod twin of ensureRunner. A pod host's daemon is started by the
+    // image's boot loop, so there is nothing to launch and nothing to keep
+    // awake — the whole resolution is "is this host's runner registered and
+    // online", plus the same workspace preflight a sprite turn does. One runner
+    // serves every framework runtime on the host (ADR-0035).
     async resolvePodRunner(args: {
         userId: string
-        runtimeId: string
+        podHostId: string
         workspacePath?: string | null
         extraRoots?: readonly string[]
     }): Promise<RunnerResolution> {
         const existing = await this.findRunnerHost({
             userId: args.userId,
-            hostName: podRunnerHostName(args.runtimeId)
+            hostName: podRunnerHostName(args.podHostId)
         })
         if (!existing)
             return { handle: null, fallbackReason: 'runner_missing', workspace: { outcome: 'none' } }

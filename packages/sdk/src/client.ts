@@ -90,6 +90,8 @@ import type {
     SandboxTaskSummary,
     CliVersionCatalog,
     CreateSandboxBody,
+    CreatePodHostBody,
+    PodHostSummary,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody,
     RenameBody,
@@ -680,6 +682,23 @@ export interface SandboxesClient {
     stop: (id: string) => Promise<SandboxStopResponse>
 }
 
+// Cloud computers: Kubernetes pod hosts (ADR-0035).
+export interface PodHostsClient {
+    list: () => Promise<PodHostSummary[]>
+    get: (id: string) => Promise<PodHostSummary>
+    // Resolves once the host is recorded; `status` turns ready (or failed)
+    // as it comes up.
+    create: (body: CreatePodHostBody) => Promise<PodHostSummary>
+    rename: (id: string, name: string) => Promise<PodHostSummary>
+    delete: (id: string) => Promise<void>
+    // Install a framework on the host with no agent for it yet.
+    prepareRuntime: (
+        id: string,
+        framework: string
+    ) => Promise<AgentRuntimeSummary>
+    upgradeCli: (id: string, targetVersion?: string) => Promise<PodHostSummary>
+}
+
 export interface CliVersionsClient {
     list: () => Promise<CliVersionCatalog>
 }
@@ -1059,6 +1078,7 @@ export interface NcaClient {
     agentRuntimes: AgentRuntimesClient
     runtimeAuth: RuntimeAuthClient
     sandboxes: SandboxesClient
+    podHosts: PodHostsClient
     cliVersions: CliVersionsClient
     daemons: DaemonsClient
     apiTokens: ApiTokensClient
@@ -2676,6 +2696,31 @@ export const createClient = (options: ClientOptions): NcaClient => {
             stop: (id) =>
                 request<SandboxStopResponse>(apiPaths.SANDBOX_STOP(id), {
                     method: 'POST'
+                })
+        },
+        podHosts: {
+            list: () => request<PodHostSummary[]>(apiPaths.POD_HOSTS),
+            get: (id) => request<PodHostSummary>(apiPaths.POD_HOST_BY_ID(id)),
+            create: (body) =>
+                request<PodHostSummary>(apiPaths.POD_HOSTS, {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                }),
+            rename: (id, name) =>
+                request<PodHostSummary>(apiPaths.POD_HOST_RENAME(id), {
+                    method: 'PATCH',
+                    body: JSON.stringify({ name } as RenameBody)
+                }),
+            delete: (id) => deleteNoBody(apiPaths.POD_HOST_BY_ID(id)),
+            prepareRuntime: (id, framework) =>
+                request<AgentRuntimeSummary>(
+                    apiPaths.POD_HOST_FRAMEWORK_RUNTIME(id, framework),
+                    { method: 'POST' }
+                ),
+            upgradeCli: (id, targetVersion) =>
+                request<PodHostSummary>(apiPaths.POD_HOST_CLI_UPGRADE(id), {
+                    method: 'POST',
+                    body: JSON.stringify({ targetVersion })
                 })
         },
         cliVersions: {

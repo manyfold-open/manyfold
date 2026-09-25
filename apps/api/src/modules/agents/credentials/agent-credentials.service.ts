@@ -27,7 +27,6 @@ import {
     Optional
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { PatchStrategy, setHeaderOptions } from '@kubernetes/client-node'
 import {
     createClient as createSpritesClient,
     type SpritesLogger
@@ -61,25 +60,13 @@ import type {
     ResolvedHermesCredentials,
     ResolvedOpenclawCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
-import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
-import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
-import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
-import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
-import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
-import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
-import type {
-    K8sBootstrapContext,
-    K8sFramework,
-    K8sFrameworkBootstrap
-} from '@/modules/agents/bootstrap/k8s-framework-bootstrap'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
+import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import {
-    buildSecret,
-    mergePreservedSecretEnv,
-    readSecretEnv,
-    resourceName,
-    type K8sResourceSpec
-} from '@/modules/agents/orchestration/k8s-resource-builder'
+    applyCodexCredentialsOnPod,
+    podScriptRunner
+} from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
 
 const maskApiKey = (raw: string | null | undefined): string | null => {
     if (!raw) return null
@@ -107,12 +94,7 @@ export class AgentCredentialsService {
         private readonly k8s: KubernetesService,
         private readonly accounts: SpritesAccountsService,
         private readonly runtimes: AgentRuntimesService,
-        private readonly hermes: HermesBootstrap,
-        private readonly openclaw: OpenClawBootstrap,
-        private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
-        private readonly codexK8s: CodexK8sBootstrap,
-        private readonly geminiCliK8s: GeminiCliK8sBootstrap,
-        private readonly piK8s: PiK8sBootstrap,
+        private readonly podExec: PodExecFactory,
         private readonly runtimeAccess: RuntimeAccessService,
         // Appended LAST and @Optional so positional test construction keeps
         // working; without it, gateway-framework credential updates degrade
@@ -220,14 +202,10 @@ export class AgentCredentialsService {
             throw new BadRequestException(
                 `body must contain ${frameworkBodyKey(agent.framework)} for framework "${agent.framework}"`
             )
-        // A daemon runtime never had a row; a sprites runtime prepared on a
-        // bare sandbox has none until its first agent picks a provider. Both
-        // resolve from the body alone. A k8s runtime is provisioned with its
-        // credentials, so a missing row there is the inconsistency it was.
-        const cred =
-            agent.runtime === 'daemon' || agent.runtime === 'sprites'
-                ? await this.findCredentialsRow(agent)
-                : await this.requireCredentialsRow(agent)
+        // A daemon runtime never had a row, and a runtime prepared bare on a
+        // sandbox or a cloud computer has none until its first agent picks a
+        // provider. Those resolve from the body alone.
+        const cred = await this.findCredentialsRow(agent)
         const next = cred
             ? await this.resolver.resolveForUpdate({
                   ownerUserId: agent.userId,
@@ -442,89 +420,47 @@ export class AgentCredentialsService {
         })
     }
 
+    // A pod host (ADR-0035): every framework's key rides each exec, so only
+    // codex, which reads its endpoint and MCP servers from config.toml, has
+    // anything on the host to rewrite.
     private async applyOnK8s(
         agent: Agent,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
-        if (!agent.namespace)
-            throw new InternalServerErrorException(
-                `agent ${agent.id} has no namespace`
+        if (frameworkCapability(resolved.framework).kind === 'service')
+            throw new ConflictException(
+                `${resolved.framework} cannot run on a cloud computer yet`
             )
-        if (!agent.runtimeId)
-            throw new InternalServerErrorException(
-                `agent ${agent.id} has no runtimeId`
-            )
-        const runtime = await this.runtimes.findById(agent.runtimeId)
+        if (resolved.framework !== 'codex') return
+        const runtime = agent.runtimeId
+            ? await this.runtimes.findById(agent.runtimeId)
+            : null
         if (!runtime)
             throw new InternalServerErrorException(
                 `runtime ${agent.runtimeId} not found for agent ${agent.id}`
             )
-        const bootstrap = this.pickK8sBootstrap(agent.framework as K8sFramework)
-        const ctx: K8sBootstrapContext = {
-            agentId: agent.id,
-            runtimeId: agent.runtimeId,
-            userId: agent.userId,
-            namespace: agent.namespace,
-            host: agent.ingressHost ?? '',
-            image: '',
-            controlUiEnabled: runtime.controlUiEnabled,
-            dashboardEnabled: runtime.dashboardEnabled
-        }
-        const plan = bootstrap.plan(ctx, resolved.value)
-        const envSecretName = `${resourceName(agent.id)}-env`
-        const spec: K8sResourceSpec = {
-            agentId: agent.id,
-            userId: agent.userId,
-            namespace: agent.namespace,
-            framework: agent.framework as K8sFramework,
-            image: '',
-            port: plan.port,
-            host: agent.ingressHost ?? '',
-            storageClass: '',
-            pvcMountPath: plan.pvcMountPath,
-            envSecretName,
-            envSecretKeys: Object.keys(plan.envSecretData)
-        }
-        const k8sClient = await this.k8s.getClient(agent.clusterId)
-        const apis = k8sClient.apis
-        // The plan regenerates provider credentials; it cannot regenerate what
-        // provisioning minted into this Secret once — the agent's runtime
-        // identity and the pod runner's registration credential. Replacing the
-        // Secret from the plan alone restarted the pod as a stranger: no
-        // MF_API_TOKEN for its `mf` calls, and no daemon token, so the runner
-        // that had been carrying its turns never came back.
-        const existing = await readSecretEnv(
-            apis.core,
-            agent.namespace,
-            envSecretName
+        const pod = await resolveAgentPod(this.k8s, runtime)
+        const exec = this.podExec.forClient(
+            pod.client,
+            pod.namespace,
+            pod.podName,
+            pod.containerName
         )
-        await apis.core.replaceNamespacedSecret({
-            name: envSecretName,
-            namespace: agent.namespace,
-            body: buildSecret(
-                spec,
-                mergePreservedSecretEnv(existing, plan.envSecretData)
-            )
+        const composioKey = await decryptComposioKey(
+            this.db,
+            this.crypto,
+            agent.userId,
+            (agent.extras as { composioConnectionId?: string | null })
+                .composioConnectionId
+        )
+        await applyCodexCredentialsOnPod({
+            runner: podScriptRunner(exec, (event, fields) =>
+                this.log.warn(`${event} ${JSON.stringify(fields)}`)
+            ),
+            baseUrl: resolved.value.openaiBaseUrl ?? null,
+            mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
+            composioKey
         })
-        await apis.apps.patchNamespacedDeployment(
-            {
-                name: resourceName(agent.id),
-                namespace: agent.namespace,
-                body: {
-                    spec: {
-                        template: {
-                            metadata: {
-                                annotations: {
-                                    'nca.netmind.ai/restartedAt':
-                                        new Date().toISOString()
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            setHeaderOptions('Content-Type', PatchStrategy.StrategicMergePatch)
-        )
     }
 
     private async requireAgent(
@@ -588,27 +524,6 @@ export class AgentCredentialsService {
             framework,
             value: parsed
         } as ResolvedAgentCredentials
-    }
-
-    private pickK8sBootstrap(framework: K8sFramework): K8sFrameworkBootstrap {
-        switch (framework) {
-            case 'openclaw':
-                return this.openclaw
-            case 'hermes':
-                return this.hermes
-            case 'claude-code':
-                return this.claudeCodeK8s
-            case 'codex':
-                return this.codexK8s
-            case 'gemini-cli':
-                return this.geminiCliK8s
-            case 'pi':
-                return this.piK8s
-            default:
-                throw new InternalServerErrorException(
-                    `${framework} credentials do not flow through K8s bootstrap apply`
-                )
-        }
     }
 
     private async audit(

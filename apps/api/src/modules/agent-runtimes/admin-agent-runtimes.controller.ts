@@ -22,7 +22,7 @@ import {
     UseGuards
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agentRuntimes, agents, type Database } from '@manyfold/db'
+import { agentRuntimes, type Database } from '@manyfold/db'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
@@ -76,15 +76,7 @@ export class AdminAgentRuntimesController {
             return
         }
         if (row.kind === 'k8s') {
-            const [firstAgent] = await this.db
-                .select({ id: agents.id })
-                .from(agents)
-                .where(eq(agents.runtimeId, row.id))
-                .limit(1)
-            await this.k8sProvisioner.teardownRuntime(
-                row,
-                firstAgent?.id ?? row.id
-            )
+            await this.k8sProvisioner.teardownRuntime(row)
             return
         }
         throw new InternalServerErrorException(

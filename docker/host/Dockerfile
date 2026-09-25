@@ -29,6 +29,12 @@ RUN groupadd --gid 1000 node \
 
 RUN curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh
 
+# A login shell — what pod exec runs — starts from /etc/profile, which resets
+# PATH for a non-root user, and the empty home volume has no ~/.profile to
+# add anything back; this restores the image's order.
+RUN echo 'export PATH="/home/node/.local/bin:/opt/mise/shims:/opt/manyfold/bin:$PATH"' \
+        > /etc/profile.d/manyfold-host.sh
+
 COPY --chmod=755 mf-host-boot.sh /usr/local/bin/mf-host-boot
 
 USER node

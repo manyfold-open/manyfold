@@ -27,11 +27,7 @@ export class K8sAgentAttacher {
         primaryAgentId: string | null
         workspace?: string
     }): Promise<{ workspacePath: string; internalId: string }> {
-        const pod = await resolveAgentPod(
-            this.k8s,
-            args.runtime,
-            args.primaryAgentId
-        )
+        const pod = await resolveAgentPod(this.k8s, args.runtime)
         const exec = this.podExecFactory.forClient(
             pod.client,
             pod.namespace,
@@ -66,11 +62,7 @@ export class K8sAgentAttacher {
         if (!isAgentWorkspaceManaged(args.agent)) return
         let pod
         try {
-            pod = await resolveAgentPod(
-                this.k8s,
-                args.runtime,
-                args.primaryAgentId
-            )
+            pod = await resolveAgentPod(this.k8s, args.runtime)
         } catch (err) {
             this.log.warn(
                 `k8s-agent-attacher detach: pod not found for runtime ${args.runtime.id} (agent ${args.agent.id}); skipping rm: ${(err as Error).message}`

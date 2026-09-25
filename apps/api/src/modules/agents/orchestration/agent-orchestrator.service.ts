@@ -36,13 +36,14 @@ import {
     Optional
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, eq, ne, notInArray } from 'drizzle-orm'
 import {
     agents,
     agentCredentials,
     agentRuntimes,
     auditLogs,
     jsonbMerge,
+    runtimeHosts,
     type Agent,
     type AgentRuntimeRow,
     type Database
@@ -88,6 +89,7 @@ import {
     type CloudComputerPort
 } from '@/common/ports/cloud-computer.ports'
 import {
+    assertPodHostFramework,
     K8sContainerProvisioner,
     type ProvisionAgentContainerResult
 } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
@@ -606,17 +608,13 @@ export class AgentOrchestratorService {
                     code: 'CONTAINER_NOT_READY',
                     status: existing.status
                 })
-            const attachDenial = await this.cloudComputer?.agentAttachDenial({
-                runtimeId: existing.id,
-                isAdmin
-            })
-            if (attachDenial)
-                throw new ConflictException({
-                    message: attachDenial.message,
-                    code: attachDenial.code
-                })
+            if (existing.hostId) await this.assertPodHostAttachable(existing.hostId, isAdmin)
             runtimeRow = existing
+        } else if (dto.podHostId) {
+            assertPodHostFramework(dto.framework)
+            runtimeRow = await this.placeOnPodHost(ctx, dto.podHostId, emitter)
         } else {
+            assertPodHostFramework(dto.framework)
             // No purchased container named. The port decides whether creates
             // may provision one on the fly (self-hosted BYO k8s) or whether
             // containers are strictly a purchased product (cloud) — #971.
@@ -644,14 +642,19 @@ export class AgentOrchestratorService {
                     kind: 'k8s'
                 })
             const resolved = await this.credentialsResolver.resolve(userId, dto)
+            const version = await this.resolveFrameworkVersion(
+                dto.framework,
+                dto.frameworkVersion
+            )
             emitter.step('creating_deployment')
             agentCreateId = createObjectId('agent')
             fresh = await this.k8sProvisioner.provision({
+                frameworkVersion: version.selection,
                 userId,
                 agentCreateId,
+                framework: dto.framework,
                 sku: {
                     id: null,
-                    framework: dto.framework,
                     region: null,
                     cpuMillicores: spec.cpuMillicores,
                     memoryMb: spec.memoryMb,
@@ -703,6 +706,83 @@ export class AgentOrchestratorService {
             await fresh?.rollbackAgentCreate(error)
             throw error
         }
+    }
+
+    // A k8s agent placed on an existing pod host (ADR-0035): it joins the
+    // host's runtime for its framework, or that framework is installed on the
+    // host first.
+    private async placeOnPodHost(
+        ctx: OrchestratorContext,
+        podHostId: string,
+        emitter: AgentProgressEmitter
+    ): Promise<AgentRuntimeRow> {
+        const { userId, dto, isAdmin } = ctx
+        const [host] = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(eq(runtimeHosts.id, podHostId), eq(runtimeHosts.kind, 'pod'))
+            )
+            .limit(1)
+        if (!host || (host.userId !== userId && !isAdmin))
+            throw new NotFoundException(`cloud computer ${podHostId} not found`)
+        await this.assertPodHostAttachable(host.id, isAdmin)
+        const [existing] = await this.db
+            .select()
+            .from(agentRuntimes)
+            .where(
+                and(
+                    eq(agentRuntimes.hostId, host.id),
+                    eq(agentRuntimes.kind, 'k8s'),
+                    eq(agentRuntimes.framework, dto.framework),
+                    notInArray(agentRuntimes.status, ['failed', 'stopped'])
+                )
+            )
+            .limit(1)
+        if (existing) {
+            if (existing.status !== 'ready')
+                throw new ConflictException({
+                    message: `${dto.framework} on cloud computer ${podHostId} is not ready (status=${existing.status})`,
+                    code: 'CONTAINER_NOT_READY',
+                    status: existing.status
+                })
+            return existing
+        }
+        if (!this.k8sProvisioner)
+            throw new ConflictException({
+                message: 'cloud computers are not available',
+                code: 'CONTAINER_REQUIRED'
+            })
+        const resolved = await this.credentialsResolver.resolve(userId, dto)
+        const version = await this.resolveFrameworkVersion(
+            dto.framework,
+            dto.frameworkVersion
+        )
+        emitter.step('installing_framework')
+        return this.k8sProvisioner.addFrameworkRuntime({
+            userId: host.userId,
+            host,
+            framework: dto.framework,
+            name: dto.name,
+            credentials: resolved.value,
+            modelConfigSource: dto.modelConfigSource ?? null,
+            frameworkVersion: version.selection
+        })
+    }
+
+    private async assertPodHostAttachable(
+        podHostId: string,
+        isAdmin: boolean
+    ): Promise<void> {
+        const denial = await this.cloudComputer?.agentAttachDenial({
+            podHostId,
+            isAdmin
+        })
+        if (denial)
+            throw new ConflictException({
+                message: denial.message,
+                code: denial.code
+            })
     }
 
     // Best-effort: the sign-in card's "Open terminal" should not detour

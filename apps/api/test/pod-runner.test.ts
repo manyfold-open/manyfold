@@ -8,14 +8,15 @@ import {
 } from '@manyfold/shared'
 import { isManagedDaemonTokenPurpose } from '@manyfold/db'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
-import { ClaudeCodeK8sBootstrap } from '../src/modules/agents/bootstrap/claude-code-k8s'
+import { POD_HOST_WORKSPACE_BASE } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 
 // A pod runner is the third managed runner, and it differs from the sprite one
-// in exactly the two ways these tests pin: nothing brings it up (the image owns
-// the binary, the entrypoint owns the process), and nothing keeps it awake (a
+// in exactly the two ways these tests pin: nothing brings it up (the host
+// image's boot loop registers and starts it), and nothing keeps it awake (a
 // pod does not suspend). Everything else — the host row, the transport swap,
 // the teardown — is the sprite runner's machinery, reached by a different name.
+// One runner serves every framework runtime on its pod host (ADR-0035).
 
 // --- provisioning: what lands in the pod's Secret -----------------------------
 
@@ -55,23 +56,20 @@ const buildProvisioner = (opts: {
     }
 }
 
-test('a coding pod gets a pod_runner credential and the daemon env', async () => {
+test('a pod host gets a pod_runner credential and the daemon env', async () => {
     const { provisioner, mints } = buildProvisioner({
         apiBaseUrl: 'https://api.test'
     })
     const provision = await provisioner.mint({
         userId: 'user_1',
-        runtimeId: 'art_pod',
-        framework: 'claude-code',
-        homeRoot: '/home/node/.manyfold'
+        podHostId: 'pdh_1'
     })
-    assert.ok(provision)
     // The purpose is the whole trust boundary: it is what makes the register
     // quota-exempt and the host platform-managed, and the user-facing mint can
     // never ask for it.
     assert.equal(mints[0].purpose, 'pod_runner')
     assert.equal(isManagedDaemonTokenPurpose('pod_runner'), true)
-    assert.equal(mints[0].name, 'pod-runner:art_pod')
+    assert.equal(mints[0].name, 'pod-runner:pdh_1')
     // No TTL. The daemon presents this token on every reconnect and nothing
     // ever re-mints it into the Secret, so an expiry would not rotate the
     // credential — it would switch the runner off on the day it lapsed and
@@ -81,14 +79,15 @@ test('a coding pod gets a pod_runner credential and the daemon env', async () =>
         false,
         'pod runner tokens must not expire'
     )
+    assert.equal(provision.tokenId, 'ldt_pod_id')
     assert.deepEqual(provision.env, {
         MF_API_URL: 'https://api.test/api',
         MF_DAEMON_TOKEN: 'ldt_pod_secret',
-        MF_DAEMON_HOST_NAME: 'pod-runner:art_pod',
+        MF_DAEMON_HOST_NAME: 'pod-runner:pdh_1',
         MF_PROFILE: POD_RUNNER_PROFILE,
-        // Must be the PVC-backed home root, not the default $HOME/.manyfold:
-        // off the PVC the daemon uuid is regenerated on every pod restart and
-        // the token, bound to the first uuid, is refused for the new one.
+        // Must be on the PVC, not a default outside it: off the PVC the daemon
+        // uuid is regenerated on every pod restart and the token, bound to the
+        // first uuid, is refused for the new one.
         MF_CONFIG_DIR: '/home/node/.manyfold'
     })
 })
@@ -97,31 +96,17 @@ test('the declared workspace root contains the agent workspaces on that pod', ()
     // ADR-0014: registration DECLARES the host's roots (`<MF_CONFIG_DIR>/
     // workspaces`). The API dispatches codingAgentWorkspacePath('k8s', id); a
     // dir outside the declared root is not refused outright — the preflight
-    // registers it with a `workspace.ensure` RPC per generation, or falls the
-    // turn back to pod-exec if that fails — but the whole point of aligning the
-    // two is that the common path never pays that RPC. Both sides are DERIVED:
-    // homeRoot from the same bootstrap plan the provisioner hands the mint,
-    // and the dispatched dir from the same helper the orchestrator uses.
-    const plan = new ClaudeCodeK8sBootstrap({} as never).plan(
-        {
-            agentId: 'agt_1',
-            runtimeId: 'art_pod',
-            userId: 'user_1',
-            namespace: 'ns',
-            host: 'agent.test',
-            image: 'img',
-            controlUiEnabled: false,
-            dashboardEnabled: false
-        },
-        { anthropicAuthToken: 'sk-test' }
-    )
+    // registers it with a `workspace.ensure` RPC per generation — but the
+    // whole point of aligning the two is that the common path never pays that
+    // RPC.
     const env = buildPodRunnerEnv({
         apiBaseUrl: 'https://api.test/api',
         daemonToken: 'ldt_x',
-        runtimeId: 'art_pod',
-        homeRoot: plan.pvcMountPath
+        podHostId: 'pdh_1',
+        homeRoot: '/home/node/.manyfold'
     })
     const declaredWorkspaceRoot = `${env.MF_CONFIG_DIR}/workspaces`
+    assert.equal(POD_HOST_WORKSPACE_BASE, declaredWorkspaceRoot)
     const dispatched = codingAgentWorkspacePath('k8s', 'agt_1')
     assert.equal(
         dispatched.startsWith(`${declaredWorkspaceRoot}/`),
@@ -130,21 +115,12 @@ test('the declared workspace root contains the agent workspaces on that pod', ()
     )
 })
 
-test('service pods register a runner under the existing PVC root', async () => {
-    const { provisioner, mints } = buildProvisioner({ apiBaseUrl: 'https://api.test' })
-    for (const framework of ['openclaw', 'hermes'] as const) {
-        assert.equal(provisioner.supports(framework), true)
-        const result = await provisioner.mint({ userId: 'user_1', runtimeId: 'art_pod', framework, homeRoot: '/data' })
-        assert.ok(result)
-        assert.equal(result.env.MF_CONFIG_DIR, '/data/.manyfold-runner')
-        assert.equal(result.env.MF_DAEMON_WORKSPACE_ROOT, '/data')
-    }
-    assert.equal(mints.length, 2)
-})
-
-test('a Pod without a reachable API URL is rejected before minting a token', async () => {
+test('a pod host without a reachable API URL is rejected before minting a token', async () => {
     const { provisioner, mints } = buildProvisioner({})
-    await assert.rejects(provisioner.mint({ userId: 'user_1', runtimeId: 'art_pod', framework: 'codex', homeRoot: '/home/node/.manyfold' }), /PUBLIC_API_BASE_URL/)
+    await assert.rejects(
+        provisioner.mint({ userId: 'user_1', podHostId: 'pdh_1' }),
+        /PUBLIC_API_BASE_URL/
+    )
     assert.equal(mints.length, 0)
 })
 
@@ -241,11 +217,11 @@ const buildResolver = (opts: {
 
 test('an online pod runner resolves without any bring-up', async () => {
     const { service, rpcCalls, hostReads } = buildResolver({
-        hostName: podRunnerHostName('art_pod')
+        hostName: podRunnerHostName('pdh_1')
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod',
+        podHostId: 'pdh_1',
         workspacePath: '/home/node/.manyfold/workspaces/agt_1'
     })
     assert.equal(resolution.handle?.daemonId, 'dh_pod')
@@ -262,16 +238,16 @@ test('an online pod runner resolves without any bring-up', async () => {
 
 test('a pod runner below the CLI floor is not used', async () => {
     // Nothing per turn checks that the daemon supports the stdin the prompt
-    // arrives on — the sprite runner is reinstalled below the floor instead,
-    // and nothing reinstalls a pod's. Below the floor, the turn stays on
-    // pod-exec until the image moves.
+    // arrives on — the sprite runner is reinstalled below the floor instead.
+    // A pod's is upgraded through the platform (startup method 'container'),
+    // so below the floor the turn is refused until it is.
     const { service } = buildResolver({
-        hostName: podRunnerHostName('art_pod'),
+        hostName: podRunnerHostName('pdh_1'),
         cliVersion: '0.33.1'
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod'
+        podHostId: 'pdh_1'
     })
     assert.equal(resolution.handle, null)
     assert.equal(resolution.fallbackReason, 'runner_cli_too_old')
@@ -279,12 +255,12 @@ test('a pod runner below the CLI floor is not used', async () => {
 
 test('a pod runner that never reported a version is not used either', async () => {
     const { service } = buildResolver({
-        hostName: podRunnerHostName('art_pod'),
+        hostName: podRunnerHostName('pdh_1'),
         cliVersion: null
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod'
+        podHostId: 'pdh_1'
     })
     assert.equal(resolution.handle, null)
     assert.equal(resolution.fallbackReason, 'runner_cli_too_old')
@@ -292,22 +268,22 @@ test('a pod runner that never reported a version is not used either', async () =
 
 test('an offline pod runner reports unavailability', async () => {
     const { service } = buildResolver({
-        hostName: podRunnerHostName('art_pod'),
+        hostName: podRunnerHostName('pdh_1'),
         online: false
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod'
+        podHostId: 'pdh_1'
     })
     assert.equal(resolution.handle, null)
     assert.equal(resolution.fallbackReason, 'runner_unavailable')
 })
 
-test('a pod with no registered runner reports that an image upgrade is needed', async () => {
+test('a pod host with no registered runner reports it missing', async () => {
     const { service } = buildResolver({})
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod'
+        podHostId: 'pdh_1'
     })
     assert.equal(resolution.handle, null)
     assert.equal(resolution.fallbackReason, 'runner_missing')
@@ -315,12 +291,12 @@ test('a pod with no registered runner reports that an image upgrade is needed', 
 
 test('a workspace outside the declared root is registered before dispatch', async () => {
     const { service, rpcCalls } = buildResolver({
-        hostName: podRunnerHostName('art_pod'),
+        hostName: podRunnerHostName('pdh_1'),
         workspaceBaseDir: '/home/node/.manyfold/workspaces'
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod',
+        podHostId: 'pdh_1',
         workspacePath: '/srv/custom-workspace'
     })
     assert.equal(resolution.handle?.daemonId, 'dh_pod')
@@ -331,21 +307,21 @@ test('a workspace outside the declared root is registered before dispatch', asyn
 
 test('a failed workspace register falls back instead of dispatching', async () => {
     // The daemon would refuse the cwd, so a turn dispatched anyway would fail
-    // where the pod-exec path would have succeeded.
+    // there instead of reporting why.
     const { service } = buildResolver({
-        hostName: podRunnerHostName('art_pod'),
+        hostName: podRunnerHostName('pdh_1'),
         workspaceEnsureFails: true
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
-        runtimeId: 'art_pod',
+        podHostId: 'pdh_1',
         workspacePath: '/srv/custom-workspace'
     })
     assert.equal(resolution.handle, null)
     assert.equal(resolution.workspace.outcome, 'failed')
 })
 
-// Name scoping — that one pod's runner is never mistaken for another's, and
+// Name scoping — that one pod host's runner is never mistaken for another's, and
 // that one user's is never mistaken for another user's — is NOT tested here on
 // purpose: this suite's db fake ignores the where clause, so such a test could
 // only pass. It is proved against real SQL in sprite-runner-teardown.pg.test.ts,

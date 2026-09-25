@@ -375,11 +375,7 @@ export class SkillMaterializerService {
                 }
                 const key = materializationLockKey(runtime.userId, agent.id)
                 return this.withLock(key, async () => {
-                    const pod = await resolveAgentPod(
-                        this.k8s,
-                        runtime,
-                        runtime.primaryAgentId ?? null
-                    )
+                    const pod = await resolveAgentPod(this.k8s, runtime)
                     const exec = this.podExecFactory.forClient(
                         pod.client,
                         pod.namespace,
@@ -525,12 +521,8 @@ export class SkillMaterializerService {
         if (input.runtime.framework !== 'hermes') return []
         if (input.runtime.kind !== 'k8s') return []
         if (input.runtime.status !== 'ready') return []
-        if (!input.runtime.namespace || !input.runtime.primaryAgentId) return []
-        const pod = await resolveAgentPod(
-            this.k8s,
-            input.runtime,
-            input.runtime.primaryAgentId
-        )
+        if (!input.runtime.namespace || !input.runtime.hostId) return []
+        const pod = await resolveAgentPod(this.k8s, input.runtime)
         const exec = this.podExecFactory.forClient(
             pod.client,
             pod.namespace,

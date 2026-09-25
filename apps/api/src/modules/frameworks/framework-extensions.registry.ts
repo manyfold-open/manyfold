@@ -39,8 +39,6 @@ export class FrameworkExtensionsRegistry implements OnApplicationBootstrap {
             !extension.spriteService
         )
             missing('sprite service')
-        if (definition.runtimes.includes('k8s') && !extension.k8sBootstrap)
-            missing('k8s bootstrap')
         if (definition.version && !extension.version)
             missing('version descriptor')
         if (

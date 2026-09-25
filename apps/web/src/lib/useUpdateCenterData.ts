@@ -51,6 +51,7 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
         const [
             daemonHosts,
             sandboxes,
+            podHosts,
             runtimes,
             frameworkCatalog,
             skillGroups,
@@ -58,6 +59,7 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
         ] = await Promise.all([
             orValue(client.daemons.listHosts(), snapshot.current.daemonHosts),
             orEmpty(client.sandboxes.list()),
+            orEmpty(client.podHosts.list()),
             orEmpty(client.agentRuntimes.list()),
             orEmpty(client.frameworkVersions.list()),
             orValue(client.skills.installed(), snapshot.current.skillGroups),
@@ -68,6 +70,7 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
         snapshot.current = {
             daemonHosts,
             sandboxes,
+            podHosts,
             runtimes,
             frameworkCatalog,
             skillGroups,

@@ -1,7 +1,6 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 import type { Agent, AgentRuntimeRow, FileRoot } from '@manyfold/db'
 import type { AgentAdapter } from '@/modules/agents/adapters/agent-adapter'
-import type { K8sFrameworkBootstrap } from '@/modules/agents/bootstrap/k8s-framework-bootstrap'
 import type { SpriteServiceBootstrap } from '@/modules/agents/bootstrap/sprite-framework-bootstrap'
 import type { FilesContext } from '@/modules/agents/files/files-context'
 import type { NormalizedInboundAttachment } from '@/modules/channels/channel-provider'
@@ -98,7 +97,6 @@ export interface FrameworkExtension {
     // into it right after provisioning, so the first reconcile finds it.
     pushPrimaryAgent?: boolean
     spriteService?: FrameworkSpriteService
-    k8sBootstrap?: K8sFrameworkBootstrap
     version?: FrameworkVersionExtension
     files?: FrameworkFilesProvider
     controlUi?: FrameworkControlUi

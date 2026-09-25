@@ -84,6 +84,11 @@ test('the pod host image is generic and keeps its own files out of the home volu
     assert.match(dockerfile, /MF_INSTALL_DIR=\/opt\/manyfold\/bin/)
     assert.match(dockerfile, /NPM_CONFIG_PREFIX=\/home\/node\/\.local/)
     assert.match(dockerfile, /PATH="\/home\/node\/\.local\/bin:/)
+    // /etc/profile resets PATH in the login shells pod exec runs.
+    assert.match(
+        dockerfile,
+        /export PATH="\/home\/node\/\.local\/bin:\/opt\/mise\/shims:[^\n]*\n[^\n]*> \/etc\/profile\.d\//
+    )
     assert.match(
         dockerfile,
         /COPY --chmod=755 mf-host-boot\.sh \/usr\/local\/bin\/mf-host-boot/

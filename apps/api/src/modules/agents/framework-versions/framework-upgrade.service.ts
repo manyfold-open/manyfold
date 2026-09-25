@@ -48,6 +48,13 @@ import {
 } from '@/modules/framework-versions/framework-version-registry'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
+import { KubernetesService } from '@/modules/k8s/kubernetes.service'
+import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import {
+    hostsFrameworkCli,
+    runOnRuntimeHost,
+    upgradeLockTarget
+} from './runtime-host-shell'
 import {
     buildHermesRebuildShell,
     buildHermesRestoreShell,
@@ -80,7 +87,10 @@ export class FrameworkUpgradeService {
         private readonly probe: FrameworkVersionProbeService,
         private readonly adminSettings: AdminSettingsService,
         @Optional()
-        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
+        // Same convention; absent, only sprites upgrade.
+        @Optional() private readonly k8s?: KubernetesService,
+        @Optional() private readonly podExec?: PodExecFactory
     ) {}
 
     async upgrade(
@@ -110,12 +120,13 @@ export class FrameworkUpgradeService {
         if (!agent.runtimeId)
             throw new BadRequestException('agent has no runtime')
         const runtime = await this.loadRuntime(agent.runtimeId)
-        if (!runtime || runtime.kind !== 'sprites')
+        if (!runtime || !hostsFrameworkCli(runtime))
             throw new BadRequestException(
-                'framework upgrade is only supported on sprite runtimes'
+                'framework upgrade is only supported on sprites and cloud computers'
             )
         const spriteName = agent.spriteName ?? runtime.spriteName
-        if (!spriteName) throw new BadRequestException('agent has no sprite')
+        if (runtime.kind === 'sprites' && !spriteName)
+            throw new BadRequestException('agent has no sprite')
 
         const catalog = await this.versions.getForFramework(agent.framework)
         // Blocked before "not in catalog": the denylist already removed the
@@ -137,22 +148,23 @@ export class FrameworkUpgradeService {
 
         return withRuntimeUpgradeLock(
             this.db,
-            {
-                accountId: agent.accountId ?? runtime.accountId ?? '',
-                spriteName,
-                component: agent.framework
-            },
+            upgradeLockTarget(agent, runtime, agent.framework),
             async () => {
                 const shell = buildNpmUpgradeShell(descriptor, targetVersion)
                 this.log.log(
                     `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
                 )
-                const client = await this.spriteClientFor(agent, runtime)
-                const result = await execSprite(client, spriteName, {
-                    cmd: ['bash', '-lc', shell],
-                    stdin: '',
-                    timeoutMs: UPGRADE_TIMEOUT_MS
-                })
+                const result = await runOnRuntimeHost(
+                    {
+                        accounts: this.accounts,
+                        k8s: this.k8s,
+                        podExec: this.podExec
+                    },
+                    agent,
+                    runtime,
+                    shell,
+                    UPGRADE_TIMEOUT_MS
+                )
                 if (result.exitCode !== 0)
                     throw new InternalServerErrorException(
                         `framework upgrade install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
@@ -162,13 +174,14 @@ export class FrameworkUpgradeService {
                 // so the new version takes effect. env is unchanged so a plain restart
                 // is safe (the env-not-propagated caveat only bites on env changes).
                 if (
+                    runtime.kind === 'sprites' &&
+                    spriteName &&
                     descriptor.runtimeKind === 'daemon' &&
                     descriptor.serviceName
                 )
-                    await client.restartService(
-                        spriteName,
-                        descriptor.serviceName
-                    )
+                    await (
+                        await this.spriteClientFor(agent, runtime)
+                    ).restartService(spriteName, descriptor.serviceName)
 
                 // Re-probe persists the new version. Assert it actually changed —
                 // catches the case where a pre-installed binary still shadows the
@@ -182,7 +195,7 @@ export class FrameworkUpgradeService {
                     (installed === null && descriptor.runtimeKind === 'daemon')
                 if (!verifiedOk)
                     throw new InternalServerErrorException(
-                        `framework upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed ?? 'unknown'}`
+                        `framework upgrade verification mismatch: expected ${targetVersion}, the host reports ${installed ?? 'unknown'}`
                     )
 
                 return this.agents.get(agentId, callerUserId, isAdmin)

@@ -56,9 +56,9 @@ export const rootCapabilities = ({
             binarySafe: binaryWriteSafe,
             atomicWrite: false
         }
-    // sprites exec and dufs stream both ways and have no cap of their own, so
-    // the global ceiling is what bounds them; both write through a temp path and
-    // rename, so a failed upload leaves the destination alone
+    // sprites exec streams both ways and has no cap of its own, so the global
+    // ceiling is what bounds it; it writes through a temp path and renames, so
+    // a failed upload leaves the destination alone
     return {
         maxUploadBytes: FILES_UPLOAD_MAX_BYTES,
         streamRead: true,

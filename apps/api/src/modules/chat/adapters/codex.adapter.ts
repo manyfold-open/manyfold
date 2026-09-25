@@ -177,14 +177,15 @@ export class CodexAdapter implements ApiChatAdapter {
             env,
             stdin: prompt,
             dir: agent.workspacePath ?? undefined,
-            // Sprite codex: relocate HOME to the workspace so its USER skill
-            // scope `$HOME/.agents/skills` is per-agent (CODEX_HOME keeps config/
+            // Codex on a platform host (a sprite or a pod host, ADR-0035):
+            // relocate HOME to the workspace so its USER skill scope
+            // `$HOME/.agents/skills` is per-agent (CODEX_HOME keeps config/
             // auth in the real `~/.codex`). Keyed on runtime, not transport: a
-            // runner turn stays runtime 'sprites', so it gets this over the
-            // daemon driver too (see codexHome in exec-driver.ts). The daemon
-            // RUNTIME (the user's own machine) and k8s are unaffected.
+            // runner turn stays runtime 'sprites' or 'k8s', so it gets this over
+            // the daemon driver too (see codexHome in exec-driver.ts). The
+            // daemon RUNTIME (the user's own machine) is unaffected.
             codexHome:
-                runtime === 'sprites'
+                runtime === 'sprites' || runtime === 'k8s'
                     ? (agent.workspacePath ?? undefined)
                     : undefined,
             timeoutMs: execTimeouts.timeoutMs,

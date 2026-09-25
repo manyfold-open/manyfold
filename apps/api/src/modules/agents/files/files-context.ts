@@ -52,17 +52,6 @@ import {
     expectedRootIds
 } from '@/modules/agents/bootstrap/file-roots'
 import { extractHomeDir } from '@/modules/agents/bootstrap/home-probe'
-import {
-    k8sListDir,
-    k8sMkdir,
-    k8sMv,
-    k8sReadFile,
-    k8sRm,
-    k8sStatFile,
-    k8sWriteFile,
-    k8sDufsPathMappingForRoot,
-    type K8sFilesTarget
-} from '@/modules/agents/files/k8s-files-client'
 import { K8sPodFilesClient } from '@/modules/agents/files/k8s-pod-files-client'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { isCustomWorkspace } from '@/modules/agents/workspace/workspace-preflight'
@@ -180,15 +169,11 @@ export class FilesContextBuilder {
     private async resolvePodCached(
         runtime: AgentRuntimeRow
     ): Promise<Awaited<ReturnType<typeof resolveAgentPod>>> {
-        const key = `${runtime.id}:${runtime.primaryAgentId ?? ''}`
+        const key = runtime.hostId ?? runtime.id
         const cached = this.podCache.get(key)
         const now = Date.now()
         if (cached && cached.expiresAt > now) return cached.pod
-        const pod = await resolveAgentPod(
-            this.k8s,
-            runtime,
-            runtime.primaryAgentId
-        )
+        const pod = await resolveAgentPod(this.k8s, runtime)
         this.podCache.set(key, { pod, expiresAt: now + POD_CACHE_TTL_MS })
         return pod
     }
@@ -637,54 +622,6 @@ export class FilesContextBuilder {
         if (!runtime)
             throw new NotFoundException(
                 `runtime ${agent.runtimeId} not found for agent ${agent.id}`
-            )
-        if (root.transport === 'pod-exec')
-            return this.k8sPodExecCtx(agent, root, runtime)
-        if (!runtime.ingressHost)
-            throw new NotFoundException(
-                `runtime ${runtime.id} missing ingressHost; files unavailable`
-            )
-        if (!runtime.primaryAgentId)
-            throw new NotFoundException(
-                `runtime ${runtime.id} has no primaryAgentId; files unavailable`
-            )
-        const target: K8sFilesTarget = {
-            runtimeId: runtime.id,
-            primaryAgentId: runtime.primaryAgentId,
-            ingressHost: runtime.ingressHost,
-            pathMapping: k8sDufsPathMappingForRoot(agent, root)
-        }
-        return {
-            agent,
-            root,
-            mountPath: root.path,
-            list: (abs) => k8sListDir(agent, target, abs),
-            stat: (abs) => k8sStatFile(target, abs),
-            read: async (abs) => {
-                const r = await k8sReadFile(target, abs)
-                if (!r) return null
-                return r
-            },
-            write: (abs, body) =>
-                k8sWriteFile(
-                    target,
-                    abs,
-                    boundedChunks(body, uploadBound(agent, root))
-                ),
-            mkdir: (abs) => k8sMkdir(target, abs),
-            mv: (src, dst) => k8sMv(target, src, dst),
-            rm: (abs) => k8sRm(target, abs)
-        }
-    }
-
-    private async k8sPodExecCtx(
-        agent: Agent,
-        root: FileRoot,
-        runtime: AgentRuntimeRow
-    ): Promise<FilesContext> {
-        if (!runtime.primaryAgentId)
-            throw new NotFoundException(
-                `runtime ${runtime.id} has no primaryAgentId; files unavailable`
             )
         const pod = await this.resolvePodCached(runtime)
         const podExec = this.podExecFactory.forClient(

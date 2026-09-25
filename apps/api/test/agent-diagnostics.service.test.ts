@@ -64,7 +64,11 @@ test('redactDiagnosticText removes secret-like output', () => {
 test('storageUsage returns a failed item when k8s pod resolution is unavailable', async () => {
     const service = diagnosticsService({
         agent: diagnosticsAgent({ runtime: 'k8s', namespace: null }),
-        runtime: diagnosticsRuntime({ kind: 'k8s', namespace: null })
+        runtime: diagnosticsRuntime({
+            kind: 'k8s',
+            hostId: 'pdh_1',
+            namespace: null
+        })
     })
 
     const result = await service.storageUsage('user-1', 'agent-1', false)

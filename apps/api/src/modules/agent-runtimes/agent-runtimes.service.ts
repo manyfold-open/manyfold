@@ -43,10 +43,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import {
-    deletePodRunnerHostForRuntime,
-    deleteSpriteRunnerHostForSprite
-} from '@/modules/agent-runtimes/sprite-runner-teardown'
+import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
 
 export interface RuntimeStatusPatch {
     status?: AgentRuntimeStatus
@@ -296,25 +293,8 @@ export class AgentRuntimesService {
 
     async delete(id: string): Promise<void> {
         const existing = await this.findById(id)
-        // A k8s runtime may own a pod runner: a managed daemon host bound to it
-        // by NAME only (no FK reaches it from the runtime row), so deleting the
-        // row here would strand the host as an online daemon with no pod. Done
-        // at this choke point rather than trusted to each caller — the sprite
-        // twin needed oss#192 for exactly the caller that forgot. Best-effort:
-        // the delete the caller asked for must not hinge on it.
-        if (existing?.kind === 'k8s') {
-            try {
-                await deletePodRunnerHostForRuntime(
-                    this.db,
-                    existing.userId,
-                    existing.id
-                )
-            } catch (err) {
-                this.log.warn(
-                    `pod runner host cleanup failed runtimeId=${id}: ${(err as Error).message}`
-                )
-            }
-        }
+        // A k8s runtime is one framework on a pod host; the host's daemon
+        // serves every runtime there and goes with the host (ADR-0035).
         await this.db.delete(agentRuntimes).where(eq(agentRuntimes.id, id))
         if (existing) {
             this.telemetry.event('agent.runtime.delete', {
@@ -799,6 +779,11 @@ export class AgentRuntimesService {
         const accountIds = collectIds(runtimes.map((r) => r.accountId))
         const clusterIds = collectIds(runtimes.map((r) => r.clusterId))
         const daemonIds = collectIds(runtimes.map((r) => r.daemonId))
+        // Read with the daemon hosts: both are runtime_hosts rows.
+        const hostIds = collectIds([
+            ...daemonIds,
+            ...runtimes.map((r) => (r.kind === 'k8s' ? r.hostId : null))
+        ])
         const [accountRows, clusterRows, daemonRows, agentCountRows] =
             await Promise.all([
                 accountIds.length
@@ -819,7 +804,7 @@ export class AgentRuntimesService {
                           .from(k8sClusters)
                           .where(inArray(k8sClusters.id, clusterIds))
                     : [],
-                daemonIds.length
+                hostIds.length
                     ? this.db
                           .select({
                               id: runtimeHosts.id,
@@ -829,7 +814,7 @@ export class AgentRuntimesService {
                               rpcLastSeenAt: runtimeHosts.rpcLastSeenAt
                           })
                           .from(runtimeHosts)
-                          .where(inArray(runtimeHosts.id, daemonIds))
+                          .where(inArray(runtimeHosts.id, hostIds))
                     : [],
                 this.db
                     .select({ runtimeId: agents.runtimeId, value: count() })
@@ -879,6 +864,10 @@ export class AgentRuntimesService {
                 spriteName: runtime.spriteName,
                 spriteId: runtime.spriteId,
                 hostId: runtime.hostId,
+                podHostName:
+                    runtime.kind === 'k8s' && runtime.hostId
+                        ? (daemonById.get(runtime.hostId)?.name ?? null)
+                        : null,
                 mountPath: runtime.mountPath,
                 namespace: runtime.namespace,
                 ingressHost: runtime.ingressHost,

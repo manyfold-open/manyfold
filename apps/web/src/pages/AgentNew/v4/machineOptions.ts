@@ -4,6 +4,7 @@ import type {
     AgentRuntime,
     AgentRuntimeSummary,
     DaemonHostSummary,
+    PodHostSummary,
     RuntimeAccessSummary,
     SandboxSummary
 } from '@manyfold/shared'
@@ -47,7 +48,9 @@ export type MachineState =
     | 'needs-install'
     | 'service-slot-taken'
     | 'not-installable'
-    | 'framework-fixed'
+    // A cloud computer that cannot take an agent right now: still starting
+    // (or still installing this framework), or failed to start.
+    | 'unavailable'
 
 export interface MachineOption {
     id: string
@@ -57,6 +60,9 @@ export interface MachineOption {
     // happens when the user picks the row, not when they leave the step.
     runtimeId: string | null
     sandboxId: string | null
+    // The cloud computer the row is, when the framework still has to be
+    // installed on it.
+    podHostId: string | null
     hostKind: AgentRuntime
     ownComputer: boolean
     agentsCount: number
@@ -65,6 +71,7 @@ export interface MachineOption {
     // at something deletable instead of only saying "full".
     idle: boolean
     blockedBy?: AgentFramework
+    unavailableReason?: 'starting' | 'failed'
     disabled: boolean
 }
 
@@ -100,8 +107,9 @@ export const buildMachineOptions = (args: {
     runtimes: AgentRuntimeSummary[]
     sandboxes: SandboxSummary[]
     daemonHosts: DaemonHostSummary[]
+    podHosts: PodHostSummary[]
 }): MachineOption[] => {
-    const { framework, runtimes, sandboxes, daemonHosts } = args
+    const { framework, runtimes, sandboxes, daemonHosts, podHosts } = args
     const rows: MachineOption[] = []
     for (const target of computeSpriteTargets(runtimes, framework, sandboxes)) {
         if (target.type === 'reuse') {
@@ -115,6 +123,7 @@ export const buildMachineOptions = (args: {
                 state: 'ready',
                 runtimeId: runtime.id,
                 sandboxId: target.hostId,
+                podHostId: null,
                 hostKind: 'sprites',
                 ownComputer: false,
                 agentsCount: runtime.agentsCount,
@@ -131,6 +140,7 @@ export const buildMachineOptions = (args: {
                 state: 'needs-install',
                 runtimeId: null,
                 sandboxId: target.hostId,
+                podHostId: null,
                 hostKind: 'sprites',
                 ownComputer: false,
                 agentsCount: 0,
@@ -146,6 +156,7 @@ export const buildMachineOptions = (args: {
             state: 'service-slot-taken',
             runtimeId: null,
             sandboxId: target.hostId,
+            podHostId: null,
             hostKind: 'sprites',
             ownComputer: false,
             agentsCount: 0,
@@ -169,6 +180,7 @@ export const buildMachineOptions = (args: {
                 state: 'not-installable',
                 runtimeId: null,
                 sandboxId: null,
+                podHostId: null,
                 hostKind: 'daemon',
                 ownComputer: true,
                 agentsCount: 0,
@@ -184,6 +196,7 @@ export const buildMachineOptions = (args: {
             state: 'ready',
             runtimeId: runtime.id,
             sandboxId: null,
+            podHostId: null,
             hostKind: 'daemon',
             ownComputer: true,
             agentsCount: runtime.agentsCount,
@@ -193,40 +206,59 @@ export const buildMachineOptions = (args: {
             disabled: false
         })
     }
-    // A cloud computer takes its framework from the image chosen at purchase,
-    // so one that holds a different framework can never host this agent. It
-    // stays visible with that reason rather than vanishing.
-    for (const runtime of runtimes) {
-        if (runtime.kind !== 'k8s') continue
-        if (runtime.framework === framework) {
+    // A cloud computer (ADR-0035) runs whatever is installed on it: a runtime
+    // for this framework is joined, a ready one without it gets it installed
+    // when picked, and the rest stay listed with the reason they cannot.
+    const podInstallable =
+        frameworkCapability(framework).kind === 'coding' &&
+        supportsRuntime(framework, 'k8s')
+    for (const host of podHosts) {
+        const runtime = host.runtimes.find(
+            (r) =>
+                r.framework === framework &&
+                r.status !== 'failed' &&
+                r.status !== 'stopped'
+        )
+        const row = {
+            title: host.name,
+            sandboxId: null,
+            hostKind: 'k8s' as const,
+            ownComputer: false,
+            idle: false
+        }
+        if (runtime?.status === 'ready') {
             rows.push({
+                ...row,
                 id: 'runtime:' + runtime.id,
-                title: runtime.clusterName ?? runtime.name,
                 state: 'ready',
                 runtimeId: runtime.id,
-                sandboxId: null,
-                hostKind: 'k8s',
-                ownComputer: false,
+                podHostId: null,
                 agentsCount: runtime.agentsCount,
                 signInCost: runtime.agentsCount > 0 ? 'none' : 'next-step',
-                idle: false,
                 disabled: false
             })
             continue
         }
+        const unavailableReason =
+            host.status === 'failed'
+                ? 'failed'
+                : host.status === 'provisioning' || runtime !== undefined
+                  ? 'starting'
+                  : undefined
         rows.push({
-            id: 'runtime:' + runtime.id,
-            title: runtime.clusterName ?? runtime.name,
-            state: 'framework-fixed',
+            ...row,
+            id: 'podHost:' + host.id,
+            state: !podInstallable
+                ? 'not-installable'
+                : unavailableReason !== undefined
+                  ? 'unavailable'
+                  : 'needs-install',
             runtimeId: null,
-            sandboxId: null,
-            hostKind: 'k8s',
-            ownComputer: false,
-            agentsCount: runtime.agentsCount,
+            podHostId: host.id,
+            agentsCount: 0,
             signInCost: 'after',
-            idle: false,
-            blockedBy: runtime.framework,
-            disabled: true
+            ...(unavailableReason !== undefined ? { unavailableReason } : {}),
+            disabled: !podInstallable || unavailableReason !== undefined
         })
     }
     return rows.map((row) => ({

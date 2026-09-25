@@ -35,10 +35,6 @@ import {
 } from '@/common/decorators/subject-agent.decorator'
 import { boundAgentIdFromUser } from '@/modules/agents/agents.controller'
 import { DRIZZLE } from '@/db/tokens'
-import {
-    CLOUD_COMPUTER_PORT,
-    type CloudComputerPort
-} from '@/common/ports/cloud-computer.ports'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { RenameRuntimeDto } from './dto/rename-runtime.dto'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
@@ -56,11 +52,7 @@ export class AgentRuntimesController {
         private readonly k8sProvisioner: K8sProvisioner,
         private readonly dashboard: RuntimeDashboardService,
         // Appended last + @Optional so positional test construction keeps
-        // working; absence means the open default (no-op teardown hook).
-        @Optional()
-        @Inject(CLOUD_COMPUTER_PORT)
-        private readonly cloudComputer?: CloudComputerPort,
-        // Same convention; absent only in positional test construction.
+        // working; absent only there.
         @Optional()
         private readonly account?: RuntimeAccountService
     ) {}
@@ -108,13 +100,9 @@ export class AgentRuntimesController {
             return
         }
         if (row.kind === 'k8s') {
-            // Container-model resources are keyed by RUNTIME id (the
-            // provisioner names deployment/PVC/ingress after it). The old
-            // first-agent key dated the pre-container per-agent model; with
-            // ignoreNotFound it silently deleted nothing and orphaned the
-            // pod. Seen on a kind BYO cluster [2026-08-20].
-            await this.k8sProvisioner.teardownRuntime(row, row.id)
-            await this.cloudComputer?.onRuntimeTeardown(row.id)
+            // One framework on a pod host; the host, and whatever bought it,
+            // stay (ADR-0035).
+            await this.k8sProvisioner.teardownRuntime(row)
             return
         }
         if (row.kind === 'daemon')

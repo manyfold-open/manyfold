@@ -1,7 +1,7 @@
 import * as posix from 'node:path/posix'
 import { createHash } from 'node:crypto'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import type { Agent, FileRoot } from '@manyfold/db'
+import type { Agent } from '@manyfold/db'
 import {
     createClient,
     execSprite,
@@ -13,16 +13,14 @@ import {
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory, type PodExec } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import {
-    k8sDufsPathMappingForRoot,
-    k8sReadFile,
-    k8sWriteStream,
-    type K8sFilesTarget
-} from '@/modules/agents/files/k8s-files-client'
+    drainText,
+    PodExecFactory,
+    type PodExec,
+    type PodExecStreamHandle
+} from '@/modules/k8s/pod-exec'
+import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { isCustomWorkspace } from '@/modules/agents/workspace/workspace-preflight'
 import {
     cancelWorkspaceOperationScript,
     shellQuote,
@@ -30,7 +28,9 @@ import {
     workspaceOperationRoot
 } from './workspace-operation-scripts'
 
-const DAEMON_BACKUP_MAX_BYTES = 100 * 1024 * 1024
+// Daemon RPC and pod exec both hold the archive in memory on the way through
+// (neither gives backpressure), so both cap it.
+const BUFFERED_BACKUP_MAX_BYTES = 100 * 1024 * 1024
 
 export interface WorkspaceArchive {
     path: string
@@ -47,6 +47,7 @@ export interface WorkspaceRestoreResult {
 
 const EXEC_TIMEOUT_MS = 10 * 60_000
 const RESTORE_WRITE_TIMEOUT_MS = 10 * 60_000
+const POD_PROBE_TIMEOUT_MS = 30_000
 
 @Injectable()
 export class WorkspaceRuntimeService {
@@ -86,12 +87,12 @@ export class WorkspaceRuntimeService {
         const metrics = parseMetrics(result.stdout)
         const archiveBytes = numberMetric(metrics, 'archiveBytes')
         if (
-            agent.runtime === 'daemon' &&
-            archiveBytes > DAEMON_BACKUP_MAX_BYTES
+            (agent.runtime === 'daemon' || agent.runtime === 'k8s') &&
+            archiveBytes > BUFFERED_BACKUP_MAX_BYTES
         ) {
             await this.cleanupPath(agent, archivePath)
             throw new Error(
-                `workspace archive too large for daemon backup (limit ${DAEMON_BACKUP_MAX_BYTES / (1024 * 1024)} MB, actual ${Math.ceil(archiveBytes / (1024 * 1024))} MB)`
+                `workspace archive too large for ${agent.runtime} backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB, actual ${Math.ceil(archiveBytes / (1024 * 1024))} MB)`
             )
         }
         const archive = await this.readFile(agent, archivePath)
@@ -204,12 +205,7 @@ export class WorkspaceRuntimeService {
         }
         if (agent.runtime === 'daemon')
             return this.readFileFromDaemon(agent, absPath)
-        if (isCustomWorkspace(agent))
-            return this.readFileFromK8sExec(agent, absPath)
-        const target = await this.k8sTarget(agent)
-        const result = await k8sReadFile(target, absPath)
-        if (!result) throw new NotFoundException(`no such file: ${absPath}`)
-        return { stream: result.stream }
+        return this.readFileFromPod(agent, absPath)
     }
 
     private async writeFile(
@@ -235,9 +231,7 @@ export class WorkspaceRuntimeService {
         }
         if (agent.runtime === 'daemon')
             return this.writeFileToDaemon(agent, absPath, stream)
-        if (isCustomWorkspace(agent))
-            return this.writeFileToK8sExec(agent, absPath, stream)
-        await k8sWriteStream(await this.k8sTarget(agent), absPath, stream)
+        await this.writeFileToPod(agent, absPath, stream)
     }
 
     private async run(
@@ -337,7 +331,7 @@ export class WorkspaceRuntimeService {
                 if (kind !== 'fs.chunk') return
                 const buf = Buffer.from(data, 'base64')
                 totalBytes += buf.length
-                if (totalBytes > DAEMON_BACKUP_MAX_BYTES) {
+                if (totalBytes > BUFFERED_BACKUP_MAX_BYTES) {
                     stream.cancel()
                     return
                 }
@@ -347,9 +341,9 @@ export class WorkspaceRuntimeService {
         try {
             await stream.result
         } catch (err) {
-            if (totalBytes > DAEMON_BACKUP_MAX_BYTES)
+            if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
                 throw new Error(
-                    `workspace archive too large for daemon backup (limit ${DAEMON_BACKUP_MAX_BYTES / (1024 * 1024)} MB)`
+                    `workspace archive too large for daemon backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB)`
                 )
             const msg = (err as Error).message
             if (/ENOENT|no such file/i.test(msg))
@@ -378,9 +372,9 @@ export class WorkspaceRuntimeService {
         for await (const chunk of stream) {
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             totalBytes += buf.length
-            if (totalBytes > DAEMON_BACKUP_MAX_BYTES)
+            if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
                 throw new Error(
-                    `daemon restore archive exceeds ${DAEMON_BACKUP_MAX_BYTES} bytes`
+                    `daemon restore archive exceeds ${BUFFERED_BACKUP_MAX_BYTES} bytes`
                 )
             chunks.push(buf)
         }
@@ -398,58 +392,69 @@ export class WorkspaceRuntimeService {
         await this.runOnDaemon(agent, script)
     }
 
-    private async readFileFromK8sExec(
+    // Over the exec websocket rather than the gateway, whose request body
+    // (stdin) is capped far below an archive. stdout arrives as text, so the
+    // archive crosses base64-encoded.
+    private async readFileFromPod(
         agent: Agent,
         absPath: string
     ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        let result: { stdout: string; stderr: string }
-        try {
-            result = await this.run(
-                agent,
-                [
-                    'set -euo pipefail',
-                    `target=${shellQuote(absPath)}`,
-                    'if [ ! -f "$target" ]; then exit 2; fi',
-                    'base64 -w0 < "$target" 2>/dev/null || base64 < "$target"'
-                ].join('\n')
-            )
-        } catch (err) {
-            const msg = (err as Error).message
-            if (/exited 2|no such file/i.test(msg))
-                throw new NotFoundException(`no such file: ${absPath}`)
-            throw err
-        }
-        const buf = Buffer.from(result.stdout.replace(/\s+/g, ''), 'base64')
-        async function* iter(): AsyncIterable<Uint8Array> {
-            yield buf
-        }
-        return { stream: iter() }
+        const exec = await this.k8sExec(agent)
+        const q = shellQuote(absPath)
+        const probe = await exec.run({
+            cmd: ['bash', '-c', `[ -f ${q} ]`],
+            timeoutMs: POD_PROBE_TIMEOUT_MS
+        })
+        if (probe.exitCode !== 0)
+            throw new NotFoundException(`no such file: ${absPath}`)
+        const handle = exec.stream({
+            cmd: ['bash', '-c', `base64 -w0 < ${q}`],
+            timeoutMs: EXEC_TIMEOUT_MS
+        })
+        // Observed now, awaited once stdout is drained: see observedResult.
+        void handle.result.catch(() => undefined)
+        return { stream: decodeBase64Stdout(handle, absPath) }
     }
 
-    private async writeFileToK8sExec(
+    private async writeFileToPod(
         agent: Agent,
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        const chunks: Buffer[] = []
+        const exec = await this.k8sExec(agent)
+        const q = shellQuote(absPath)
+        const handle = exec.streamInteractive({
+            cmd: [
+                'bash',
+                '-c',
+                `set -euo pipefail; mkdir -p "$(dirname ${q})"; umask 077; cat > ${q}`
+            ],
+            timeoutMs: RESTORE_WRITE_TIMEOUT_MS
+        })
+        void handle.result.catch(() => undefined)
+        const stderr = drainText(handle.stderr)
+        void drainText(handle.stdout)
         let totalBytes = 0
-        for await (const chunk of stream) {
-            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-            totalBytes += buf.length
-            if (totalBytes > DAEMON_BACKUP_MAX_BYTES)
-                throw new Error(
-                    `k8s restore archive exceeds ${DAEMON_BACKUP_MAX_BYTES} bytes`
-                )
-            chunks.push(buf)
+        try {
+            for await (const chunk of stream) {
+                totalBytes += chunk.byteLength
+                if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
+                    throw new Error(
+                        `k8s restore archive exceeds ${BUFFERED_BACKUP_MAX_BYTES} bytes`
+                    )
+                handle.stdin.write(Buffer.from(chunk))
+            }
+        } catch (err) {
+            handle.abort()
+            await handle.result.catch(() => undefined)
+            throw err
         }
-        const encoded = Buffer.concat(chunks).toString('base64')
-        const script = [
-            'set -euo pipefail',
-            `mkdir -p "$(dirname ${shellQuote(absPath)})"`,
-            `printf '%s' ${shellQuote(encoded)} | base64 -d > ${shellQuote(absPath)}`,
-            `chmod 600 ${shellQuote(absPath)}`
-        ].join('\n')
-        await this.run(agent, script)
+        handle.stdin.end()
+        const result = await handle.result
+        if (result.exitCode !== 0)
+            throw new Error(
+                `k8s restore write exited ${result.exitCode}: ${(await stderr).slice(0, 512)}`
+            )
     }
 
     private async spriteTarget(agent: Agent): Promise<{
@@ -484,38 +489,13 @@ export class WorkspaceRuntimeService {
             throw new NotFoundException(
                 `runtime ${agent.runtimeId} not found for agent ${agent.id}`
             )
-        const pod = await resolveAgentPod(
-            this.k8s,
-            runtime,
-            runtime.primaryAgentId
-        )
+        const pod = await resolveAgentPod(this.k8s, runtime)
         return this.podExecFactory.forClient(
             pod.client,
             pod.namespace,
             pod.podName,
             pod.containerName
         )
-    }
-
-    private async k8sTarget(agent: Agent): Promise<K8sFilesTarget> {
-        const runtime = await this.runtimes.findById(agent.runtimeId)
-        if (!runtime)
-            throw new NotFoundException(
-                `runtime ${agent.runtimeId} not found for agent ${agent.id}`
-            )
-        if (!runtime.ingressHost || !runtime.primaryAgentId)
-            throw new NotFoundException(
-                `runtime ${runtime.id} missing files endpoint metadata`
-            )
-        return {
-            runtimeId: runtime.id,
-            primaryAgentId: runtime.primaryAgentId,
-            ingressHost: runtime.ingressHost,
-            pathMapping: k8sDufsPathMappingForRoot(
-                agent,
-                workspaceFileRoot(agent)
-            )
-        }
     }
 }
 
@@ -528,18 +508,11 @@ export const workspaceOperationKey = (agent: Agent): string => {
             ? [agent.accountId, agent.spriteName]
             : agent.runtime === 'daemon'
               ? [agent.daemonId]
-              : [agent.runtimeId]
+              : [agent.hostId]
     return createHash('sha256')
         .update(JSON.stringify([agent.runtime, host, workspaceRoot(agent)]))
         .digest('hex')
 }
-
-const workspaceFileRoot = (agent: Agent): FileRoot => ({
-    id: 'workspace',
-    label: 'Workspace',
-    path: workspaceRoot(agent),
-    writable: true
-})
 
 const normalizeAbsPath = (path: string): string => {
     const normalized = posix.normalize(path)
@@ -662,3 +635,30 @@ const spritesLoggerFor = (log: Logger): SpritesLogger => ({
     error: (m, meta) =>
         log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
 })
+
+async function* decodeBase64Stdout(
+    handle: PodExecStreamHandle,
+    absPath: string
+): AsyncIterable<Uint8Array> {
+    const stderr = drainText(handle.stderr)
+    let done = false
+    try {
+        let pending = ''
+        for await (const chunk of handle.stdout) {
+            pending += chunk.replace(/\s+/g, '')
+            const whole = pending.length - (pending.length % 4)
+            if (whole === 0) continue
+            yield Buffer.from(pending.slice(0, whole), 'base64')
+            pending = pending.slice(whole)
+        }
+        if (pending) yield Buffer.from(pending, 'base64')
+        const result = await handle.result
+        done = true
+        if (result.exitCode !== 0)
+            throw new Error(
+                `k8s read of ${absPath} exited ${result.exitCode}: ${(await stderr).slice(0, 512)}`
+            )
+    } finally {
+        if (!done) handle.abort()
+    }
+}

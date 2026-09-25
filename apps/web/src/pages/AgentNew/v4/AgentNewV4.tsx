@@ -195,9 +195,17 @@ const AgentNewV4: FC = (): ReactNode => {
                       framework,
                       runtimes: create.runtimes,
                       sandboxes: create.sandboxes,
-                      daemonHosts: create.daemonHosts
+                      daemonHosts: create.daemonHosts,
+                      podHosts: create.podHosts
                   }),
-        [framework, onMachine, create.runtimes, create.sandboxes, create.daemonHosts]
+        [
+            framework,
+            onMachine,
+            create.runtimes,
+            create.sandboxes,
+            create.daemonHosts,
+            create.podHosts
+        ]
     )
     const newMachines = useMemo(
         () =>
@@ -298,6 +306,25 @@ const AgentNewV4: FC = (): ReactNode => {
                 ownComputer: row.ownComputer
             }
         try {
+            // A cloud computer gets the framework installed on it here, as a
+            // sandbox does; a service framework never reaches this (its rows
+            // are disabled on a cloud computer).
+            if (row !== undefined && row.podHostId !== null) {
+                setPreparing(row.title)
+                const runtime = await client.podHosts.prepareRuntime(
+                    row.podHostId,
+                    framework
+                )
+                await create.refetchRuntimes()
+                return {
+                    kind: 'runtime',
+                    runtimeId: runtime.id,
+                    sandboxId: null,
+                    hostKind: 'k8s',
+                    hostLabel: row.title,
+                    ownComputer: false
+                }
+            }
             if (row !== undefined && row.sandboxId !== null) {
                 if (deferred)
                     return {

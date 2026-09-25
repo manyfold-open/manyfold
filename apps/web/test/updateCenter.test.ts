@@ -7,6 +7,7 @@ import type {
     DaemonHostSummary,
     FrameworkVersionCatalogEntry,
     InstalledSkillSummary,
+    PodHostSummary,
     SandboxSummary
 } from '@manyfold/shared'
 import { MANYFOLD_CLI_USAGE_SKILL_ID } from '@manyfold/shared'
@@ -121,6 +122,7 @@ const makeRuntime = (
         spriteName: `sprite-${seq}`,
         spriteId: null,
         hostId: null,
+        podHostName: null,
         mountPath: '/home',
         namespace: null,
         ingressHost: null,
@@ -394,23 +396,59 @@ test("a framework on the user's own machine offers the command, not a mutation",
     })
 })
 
-test('a k8s runtime links to its runtime page instead of a shell command', () => {
+test('a cloud computer upgrades its framework in place, addressed by its agent', () => {
     const runtime = makeRuntime({
         kind: 'k8s',
-        clusterId: 'clu_1',
-        clusterName: 'prod'
+        hostId: 'pdh_1',
+        podHostName: 'computer-001',
+        primaryAgentId: 'agt_1'
     })
     const rows = build({
         runtimes: [runtime],
         frameworkCatalog: [catalogEntry()]
     })
-    assert.equal(rows[0].blocker, 'manual')
-    assert.equal(rows[0].targetKey, 'k8s:clu_1')
+    assert.equal(rows[0].blocker, null)
+    assert.equal(rows[0].targetKey, 'k8s:pdh_1')
+    assert.equal(rows[0].targetLabel, 'computer-001')
     assert.deepEqual(rows[0].exec, {
-        type: 'none',
-        guideFramework: null,
-        href: `/settings/runtimes/${runtime.id}`
+        type: 'agentFramework',
+        agentId: 'agt_1',
+        framework: 'claude-code',
+        mode: 'npm',
+        targetVersion: '2.1.0'
     })
+})
+
+test('a cloud computer runtime with no agent has no endpoint to address', () => {
+    const rows = build({
+        runtimes: [
+            makeRuntime({ kind: 'k8s', hostId: 'pdh_1', primaryAgentId: null })
+        ],
+        frameworkCatalog: [catalogEntry()]
+    })
+    assert.equal(rows[0].blocker, 'noAgent')
+})
+
+test("a cloud computer's stale CLI is updated through its daemon", () => {
+    const podHost = {
+        id: 'pdh_1',
+        name: 'computer-001',
+        status: 'ready',
+        cliVersion: '3.0.1',
+        latestCliVersion: '3.1.0',
+        cliUpdateAvailable: true
+    } as PodHostSummary
+    const rows = build({ podHosts: [podHost] })
+    assert.equal(rows[0].id, 'cli:podHost:pdh_1')
+    assert.equal(rows[0].blocker, null)
+    assert.deepEqual(rows[0].exec, { type: 'podHostCli', podHostId: 'pdh_1' })
+    assert.deepEqual(planBatch(rows), [
+        { type: 'podHostCli', rowId: 'cli:podHost:pdh_1', podHostId: 'pdh_1' }
+    ])
+    const starting = build({
+        podHosts: [{ ...podHost, status: 'provisioning' }]
+    })
+    assert.equal(starting[0].blocker, 'offline')
 })
 
 test('a blocked installed version raises the row to required and carries the reason', () => {

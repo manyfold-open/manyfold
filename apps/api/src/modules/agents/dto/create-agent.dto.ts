@@ -561,8 +561,18 @@ export class CreateAgentDto {
     @Length(1, 64)
     sandboxId?: string
 
+    // ID of an existing pod host (runtime_hosts row, kind 'pod') to place this
+    // k8s agent on (ADR-0035). The framework is installed on it if the host
+    // does not run it yet; if it does, the agent joins that runtime. Omit to
+    // get a fresh pod host.
+    @IsOptional()
+    @IsString()
+    @Length(1, 64)
+    podHostId?: string
+
     // Pin the framework to a specific version at provision time (npm coding
-    // frameworks on sprites). Omit to use the admin default / image version.
+    // frameworks on sprites and pod hosts). Omit to use the admin default, else
+    // the latest release.
     // Early feedback only — semver shape, prereleases included. Whether a
     // prerelease may actually be installed is the opt-in's call
     // (selectFrameworkInstallVersion), and the shell boundary is guarded

@@ -1,30 +1,42 @@
-import { Injectable, Logger } from '@nestjs/common'
-import type { AgentRuntimeRow } from '@manyfold/db'
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
+import { and, eq } from 'drizzle-orm'
+import {
+    agentRuntimes,
+    daemonTokens,
+    runtimeHosts,
+    type AgentRuntimeRow,
+    type Database,
+    type RuntimeHostRow
+} from '@manyfold/db'
+import { podRunnerHostName } from '@manyfold/shared'
+import { DRIZZLE } from '@/db/tokens'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import type { K8sApis } from '@/modules/k8s/kubernetes.service'
-import { teardownAgent } from '@/modules/agents/orchestration/k8s-teardown'
-import { resourceName } from '@/modules/agents/orchestration/k8s-resource-builder'
+import { teardownCreatedPodHost } from '@/modules/agents/orchestration/k8s-strict-teardown'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
+import { deletePodRunnerHostForPodHost } from '@/modules/agent-runtimes/sprite-runner-teardown'
 import {
     K8S_CREATE_CLEANUP_PENDING,
     K8S_CREATE_INITIAL_AGENT,
     K8sCreateCleanupService
 } from './k8s-create-cleanup.service'
 
+const HOST_TEARDOWN_TIMEOUT_MS = 180_000
+
+// Deletes k8s runtimes and pod hosts (ADR-0035). A runtime is one framework on
+// a pod host, so deleting it leaves the host and its home volume alone; the
+// host is the machine and is deleted on its own, with everything on it.
 @Injectable()
 export class K8sProvisioner {
     private readonly log = new Logger(K8sProvisioner.name)
 
     constructor(
+        @Inject(DRIZZLE) private readonly db: Database,
         private readonly k8s: KubernetesService,
         private readonly runtimes: AgentRuntimesService,
         private readonly createCleanup: K8sCreateCleanupService
     ) {}
 
-    async teardownRuntime(
-        runtime: AgentRuntimeRow,
-        resourceKey: string
-    ): Promise<void> {
+    async teardownRuntime(runtime: AgentRuntimeRow): Promise<void> {
         if (runtime.kind !== 'k8s')
             throw new Error(
                 `K8sProvisioner.teardownRuntime called for kind=${runtime.kind}`
@@ -36,31 +48,50 @@ export class K8sProvisioner {
             await this.createCleanup.retry(runtime)
             return
         }
-        if (!runtime.namespace)
-            throw new Error('k8s runtime has no namespace recorded')
+        await this.runtimes.delete(runtime.id)
+    }
 
-        let apis: K8sApis | null = null
+    async teardownHost(host: RuntimeHostRow): Promise<void> {
+        if (host.kind !== 'pod')
+            throw new BadRequestException(`host ${host.id} is not a pod host`)
         try {
-            const client = await this.k8s.getClient(runtime.clusterId)
-            apis = client.apis
+            await deletePodRunnerHostForPodHost(this.db, host.userId, host.id)
         } catch (err) {
             this.log.warn(
-                `cluster unreachable for runtime=${runtime.id}: ${(err as Error).message}; falling back to DB-only cleanup`
+                `pod runner host cleanup failed hostId=${host.id}: ${(err as Error).message}`
             )
         }
-        if (apis) {
-            await teardownAgent({
-                apis,
-                namespace: runtime.namespace,
-                agentId: resourceKey,
-                envSecretName: `${resourceName(resourceKey)}-env`,
-                ignoreNotFound: true,
-                logger: this.log
+        if (host.namespace) {
+            const client = await this.k8s.getClient(host.clusterId)
+            await teardownCreatedPodHost({
+                apis: client.apis,
+                namespace: host.namespace,
+                hostId: host.id,
+                signal: AbortSignal.timeout(HOST_TEARDOWN_TIMEOUT_MS)
             })
         }
-        // `runtimes.delete` also removes the pod's runner host (a managed
-        // daemon bound to the runtime by name), so nothing extra is owed here.
-        await this.runtimes.delete(runtime.id)
+        await this.db.transaction(async (tx) => {
+            // A runtime added while the objects were going waits here, then
+            // goes with the host.
+            await tx
+                .select({ id: runtimeHosts.id })
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.id, host.id))
+                .for('update')
+            await tx
+                .delete(daemonTokens)
+                .where(
+                    and(
+                        eq(daemonTokens.userId, host.userId),
+                        eq(daemonTokens.name, podRunnerHostName(host.id)),
+                        eq(daemonTokens.purpose, 'pod_runner')
+                    )
+                )
+            await tx
+                .delete(agentRuntimes)
+                .where(eq(agentRuntimes.hostId, host.id))
+            await tx.delete(runtimeHosts).where(eq(runtimeHosts.id, host.id))
+        })
     }
 
     async finalizeReady(runtimeId: string, now: Date): Promise<void> {

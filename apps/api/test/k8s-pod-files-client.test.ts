@@ -16,12 +16,13 @@ const stubPodExec = (
     handler: (req: PodExecStreamRequest) => PodExecRunResult
 ): { exec: PodExec; calls: RecordedCall[] } => {
     const calls: RecordedCall[] = []
-    const exec = {
-        run: async (req: PodExecStreamRequest): Promise<PodExecRunResult> => {
-            calls.push({ cmd: req.cmd, stdin: req.stdin })
-            return handler(req)
-        }
-    } as unknown as PodExec
+    const run = async (
+        req: PodExecStreamRequest
+    ): Promise<PodExecRunResult> => {
+        calls.push({ cmd: req.cmd, stdin: req.stdin })
+        return handler(req)
+    }
+    const exec = { run, runOverSocket: run } as unknown as PodExec
     return { exec, calls }
 }
 
