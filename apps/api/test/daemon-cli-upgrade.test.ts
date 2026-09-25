@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import type { Database, RuntimeHostRow } from '@manyfold/db'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import { CLI_ABOVE_FLOOR, CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
     ({
@@ -16,7 +17,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'laptop.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.34.0',
+        cliVersion: CLI_AT_FLOOR,
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.manyfold/workspaces',
         detectedFrameworks: [],
@@ -33,7 +34,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
 
 const auditDb = { insert: () => ({ values: async () => undefined }) }
 
-const DEV_TARGET = '1.3.0-dev.202608240920.a72f4de'
+const DEV_TARGET = `${CLI_ABOVE_FLOOR}-dev.202608240920.a72f4de`
 
 const makeService = (opts: {
     rpc?: (args: unknown) => Promise<Record<string, unknown> | undefined>
@@ -49,12 +50,12 @@ const makeService = (opts: {
         {
             rpc:
                 opts.rpc ??
-                (async () => ({ toVersion: '1.2.0', restarting: true }))
+                (async () => ({ toVersion: CLI_ABOVE_FLOOR, restarting: true }))
         } as never,
         { consume: opts.consume ?? ((): void => {}) } as never,
         {
             getCachedLatest: async () => ({
-                version: opts.latest ?? '1.2.0',
+                version: opts.latest ?? CLI_ABOVE_FLOOR,
                 channel: 'stable'
             })
         } as never,
@@ -89,17 +90,17 @@ test('isCliUpdateAvailable: stable compares by semver, dev by exact build', () =
 })
 
 test('toSummary surfaces latest version, updateAvailable and canRemoteUpgrade', async () => {
-    const service = makeService({ latest: '1.2.0' })
-    const summary = await service.toSummary(host({ cliVersion: '0.34.0' }), [], 0)
-    assert.equal(summary.latestCliVersion, '1.2.0')
+    const service = makeService({ latest: CLI_ABOVE_FLOOR })
+    const summary = await service.toSummary(host(), [], 0)
+    assert.equal(summary.latestCliVersion, CLI_ABOVE_FLOOR)
     assert.equal(summary.updateAvailable, true)
     assert.equal(summary.canRemoteUpgrade, true)
 })
 
 test('canRemoteUpgrade is false when the daemon does not advertise daemon.update', async () => {
-    const service = makeService({ latest: '1.2.0' })
+    const service = makeService({ latest: CLI_ABOVE_FLOOR })
     const summary = await service.toSummary(
-        host({ cliVersion: '0.34.0', clientFeatures: [] }),
+        host({ clientFeatures: [] }),
         [],
         0
     )
@@ -161,7 +162,7 @@ test('upgrade dispatches daemon.update and returns versions for an eligible daem
         rpc: async (args) => {
             const a = args as { method: string; payload: unknown }
             calls.push({ method: a.method, payload: a.payload })
-            return { toVersion: '1.2.0', restarting: true }
+            return { toVersion: CLI_ABOVE_FLOOR, restarting: true }
         }
     })
 
@@ -169,10 +170,10 @@ test('upgrade dispatches daemon.update and returns versions for an eligible daem
 
     assert.equal(calls.length, 1)
     assert.equal(calls[0].method, 'daemon.update')
-    assert.deepEqual(calls[0].payload, { targetVersion: '1.2.0' })
+    assert.deepEqual(calls[0].payload, { targetVersion: CLI_ABOVE_FLOOR })
     assert.equal(res.ok, true)
-    assert.equal(res.fromVersion, '0.34.0')
-    assert.equal(res.toVersion, '1.2.0')
+    assert.equal(res.fromVersion, CLI_AT_FLOOR)
+    assert.equal(res.toVersion, CLI_ABOVE_FLOOR)
     assert.equal(res.restarting, true)
 })
 
@@ -201,7 +202,7 @@ test('upgrade sends the canonical dev channel without an old capability check', 
 test('upgrade passes a drain deferral through so the admin sees it is not restarting yet', async () => {
     const service = makeService({
         rpc: async () => ({
-            toVersion: '1.2.0',
+            toVersion: CLI_ABOVE_FLOOR,
             restarting: false,
             deferred: true,
             activeSessions: 3

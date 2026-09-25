@@ -10,6 +10,7 @@ import postgres from 'postgres'
 import { runtimeHosts, schema, users } from '@manyfold/db'
 import { createObjectId, type DetectedFramework } from '@manyfold/shared'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 const old = new Date('2020-01-01T00:00:00Z')
@@ -54,7 +55,7 @@ test(
         const args = {
             daemonId: hostId,
             detectedFrameworks,
-            cliVersion: '0.34.0',
+            cliVersion: CLI_AT_FLOOR,
             startupMethod: 'manual' as const,
             terminalPty: true,
             clientFeatures: ['exec.resume', 'fs.write.mode']

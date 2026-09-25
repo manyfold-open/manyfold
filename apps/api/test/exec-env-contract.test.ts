@@ -30,6 +30,7 @@ import {
     EXTRAS_MARKERS,
     withEnv
 } from './exec-env-harness'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
@@ -193,7 +194,7 @@ const factoryDb = (
                                 }
                             ]
                         )
-                    if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.1.0', rpcLastSeenAt: new Date(), clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw'] }]
+                    if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw'] }]
                     if (table === agents)
                         return [
                             {

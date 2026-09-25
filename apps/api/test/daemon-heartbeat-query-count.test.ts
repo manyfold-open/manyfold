@@ -11,6 +11,7 @@ import {
 import { DaemonController } from '../src/modules/daemon/daemon.controller'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
 import { DaemonRuntimeSyncService } from '../src/modules/daemon/daemon-runtime-sync.service'
+import { CLI_ABOVE_FLOOR, CLI_AT_FLOOR } from './helpers/cli-floor'
 
 // #629: the 15s daemon heartbeat drove syncForDaemon, which rewrote EVERY
 // matched runtime row and then issued one stopped->running agents UPDATE per
@@ -102,7 +103,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'mac.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.34.0',
+        cliVersion: CLI_AT_FLOOR,
         homeDir: HOST_HOME,
         workspaceBaseDir: HOST_WORKSPACES,
         detectedFrameworks: [],
@@ -335,7 +336,7 @@ class HostDb {
 const heartbeatArgs = {
     daemonId: 'dh-1',
     detectedFrameworks: detected(3),
-    cliVersion: '0.34.0',
+    cliVersion: CLI_AT_FLOOR,
     startupMethod: 'launchd-user' as const,
     clientFeatures: ['exec.resume']
 }
@@ -383,9 +384,9 @@ test('changed host metadata is written alongside the presence column', async () 
     )
     const service = hostService(db as unknown as Database)
 
-    await service.heartbeat({ ...heartbeatArgs, cliVersion: '0.34.1' })
+    await service.heartbeat({ ...heartbeatArgs, cliVersion: CLI_ABOVE_FLOOR })
 
-    assert.equal(db.patches[0].cliVersion, '0.34.1')
+    assert.equal(db.patches[0].cliVersion, CLI_ABOVE_FLOOR)
     assert.ok(db.patches[0].updatedAt instanceof Date)
     assert.ok(db.patches[0].lastSeenAt instanceof Date)
 })
@@ -415,7 +416,7 @@ test('the heartbeat route resolves its host with a single read', async () => {
         { tokenId: 'ldt-1', daemonId: 'dh-1' } as never,
         {
             detectedFrameworks: detected(3),
-            cliVersion: '0.34.0',
+            cliVersion: CLI_AT_FLOOR,
             startupMethod: 'launchd'
         } as never
     )

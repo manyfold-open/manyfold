@@ -15,6 +15,7 @@ import {
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
 import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 const features = [
     'turn.hermes',
@@ -66,7 +67,7 @@ const rig = (
                                           kind: 'daemon',
                                           status: 'active',
                                           cliVersion:
-                                              options.version ?? '4.1.0',
+                                              options.version ?? CLI_AT_FLOOR,
                                           rpcLastSeenAt: new Date(
                                               Date.now() -
                                                   (options.offline
@@ -155,7 +156,11 @@ for (const runtime of ['daemon', 'sprites', 'k8s'] as const) {
     for (const [reason, options, code] of [
         ['missing', { missing: true }, 'chat_runner_unavailable'],
         ['offline', { offline: true }, 'chat_runner_unavailable'],
-        ['old CLI', { version: '0.1.0' }, 'chat_runner_upgrade_required'],
+        [
+            'old CLI',
+            { version: CLI_BELOW_FLOOR },
+            'chat_runner_upgrade_required'
+        ],
         ['missing ACP', { features: [] }, 'chat_runner_upgrade_required']
     ] as const) {
         test(`${runtime}: ${reason} refuses before any exec`, async () => {

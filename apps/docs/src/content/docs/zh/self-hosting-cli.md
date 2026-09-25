@@ -113,7 +113,7 @@ MF_DAEMON_AUTO_UPDATE=1 mf daemon start
 
 `mf daemon status` 会显示该机器上自动更新是否开启。
 
-Daemon 注册、heartbeat 和 WebSocket 要求 CLI 0.34.0 或更新版本。升级 API 前,
+Daemon 注册、heartbeat 和 WebSocket 要求 CLI 4.6.1 或更新版本。升级 API 前,
 先在 daemon 机器上运行 `mf update`。管理员可以推荐更高的最低版本,但不能降低
 协议下限。更新通道只使用 `stable` 和 `dev`。
 

@@ -11,6 +11,7 @@ import { isManagedDaemonTokenPurpose } from '@manyfold/db'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { POD_HOST_WORKSPACE_BASE } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 // A pod runner is the third managed runner, and it differs from the sprite one
 // in exactly the two ways these tests pin: nothing brings it up (the host
@@ -162,7 +163,9 @@ const buildResolver = (opts: {
               status: 'active',
               managed: true,
               cliVersion:
-                  opts.cliVersion === undefined ? '0.34.0' : opts.cliVersion,
+                  opts.cliVersion === undefined
+                      ? CLI_AT_FLOOR
+                      : opts.cliVersion,
               workspaceBaseDir:
                   opts.workspaceBaseDir === undefined
                       ? '/home/node/.manyfold/workspaces'
@@ -259,8 +262,8 @@ test('a pod runner below the CLI floor is updated in place, then used', async ()
     const ensured: unknown[] = []
     const { service } = buildResolver({
         hostName: podRunnerHostName('pdh_1'),
-        cliVersion: '0.33.1',
-        updatedCliVersion: '4.6.0',
+        cliVersion: CLI_BELOW_FLOOR,
+        updatedCliVersion: CLI_AT_FLOOR,
         podHostCli: {
             runnerOf: async () => ({ id: 'dh_pod' }),
             ensure: async (host: { id: string }, runner: { id: string }, need: unknown) => {
@@ -283,8 +286,8 @@ test('a pod runner below the CLI floor is updated in place, then used', async ()
 test('a pod runner below the CLI floor that cannot be updated is not used', async () => {
     const { service } = buildResolver({
         hostName: podRunnerHostName('pdh_1'),
-        cliVersion: '0.33.1',
-        updatedCliVersion: '0.33.1',
+        cliVersion: CLI_BELOW_FLOOR,
+        updatedCliVersion: CLI_BELOW_FLOOR,
         podHostCli: {
             runnerOf: async () => ({ id: 'dh_pod' }),
             ensure: async () => {

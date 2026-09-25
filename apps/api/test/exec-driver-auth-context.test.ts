@@ -5,6 +5,7 @@ import { DAEMON_FEATURE_AUTH_CONTEXT } from '@manyfold/shared'
 import { agentCredentials, runtimeHosts, userModelProviders, type Agent } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const ref: DaemonAuthContextRef = {
     framework: 'codex',
@@ -18,7 +19,7 @@ test('per-turn auth selection controls the actual driver, and local/profile oper
     const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
         if (table === userModelProviders) { providerReads++; throw new Error('stale provider cannot be decrypted') }
         if (table === agentCredentials) return []
-        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.1.0', rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
+        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
     const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never, {} as never, {} as never, {} as never,
@@ -95,7 +96,7 @@ test('the codex HOME relocation no longer re-pins CODEX_HOME over a daemon-injec
 test('a runtime-local sandbox turn needs no stored credential; a platform one still does', async () => {
     const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
         if (table === agentCredentials) return []
-        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.2.0', rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
+        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
     const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => '{}' } as never, {} as never, {} as never,

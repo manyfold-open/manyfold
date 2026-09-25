@@ -25,6 +25,7 @@ import {
     MANYFOLD_CONTEXT_START,
     MANYFOLD_CONTEXT_END
 } from '../src/modules/agent-self/agent-context-doc.service'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 
@@ -82,7 +83,7 @@ const openHelloSocket = async (url: string) => {
     await once(socket, 'open')
     socket.send(JSON.stringify({
         type: 'hello',
-        cliVersion: '4.0.0',
+        cliVersion: CLI_AT_FLOOR,
         clientFeatures: ['fs.write.config-commit'],
         inflightStreams: []
     }))
