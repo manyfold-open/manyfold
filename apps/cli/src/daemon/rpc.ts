@@ -159,8 +159,7 @@ const FRAMEWORK_HOME_ROOTS = [
     join(homedir(), '.gemini'),
     join(homedir(), '.pi'),
     join(homedir(), '.openclaw'),
-    join(homedir(), '.hermes'),
-    join(homedir(), '.narranexus')
+    join(homedir(), '.hermes')
 ]
 // Exact files the containment admits (DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG):
 // Claude Code's user-level config is a SIBLING of the ~/.claude root, so the

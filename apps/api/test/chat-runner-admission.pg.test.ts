@@ -6,6 +6,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { createDb, runtimeHosts, users, type Agent } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 
@@ -37,7 +38,7 @@ test(
             kind: 'daemon',
             name: 'runner fixture',
             status: 'active',
-            cliVersion: '4.1.0',
+            cliVersion: CLI_AT_FLOOR,
             rpcLastSeenAt: new Date(),
             clientFeatures: ['turn.hermes']
         })

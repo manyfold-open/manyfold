@@ -61,8 +61,10 @@ RUN mise use -g python@3.13 node@24 uv@latest \
 # where `daemon.update` can replace it; this copy is also the fallback when an
 # update will not start. VERSION must name a published stable release:
 # install.sh resolves `cli-v<VERSION>/manifest.json` and fails the build
-# otherwise, and the API refuses a daemon below its protocol baseline (0.34.0).
-ARG MF_CLI_VERSION=3.0.1
+# otherwise. It must also meet DAEMON_MIN_CLI_VERSION: the API refuses to
+# register a daemon below it, and a new host is not ready until its daemon has
+# registered and connected.
+ARG MF_CLI_VERSION=4.6.1
 RUN curl -fsSL https://manyfold.ai/cli/install.sh \
         | VERSION="${MF_CLI_VERSION}" MF_INSTALL_DIR=/opt/manyfold/bin sh \
     && /opt/manyfold/bin/mf --version

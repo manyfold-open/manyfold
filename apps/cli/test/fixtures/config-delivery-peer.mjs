@@ -26,7 +26,8 @@ syncBuiltinESMExports()
 const { rpcHandler, setDeclaredWorkspaceRoot } =
     await import('../../src/daemon/rpc.ts')
 const { WebSocket } = await import('ws')
-const { DAEMON_CLIENT_FEATURES } = await import('@manyfold/shared')
+const { DAEMON_CLIENT_FEATURES, DAEMON_MIN_CLI_VERSION } =
+    await import('@manyfold/shared')
 setDeclaredWorkspaceRoot(process.env.FIXTURE_WORKSPACE)
 const sockets = new Set()
 const cancel = new Map()
@@ -34,7 +35,7 @@ let socket
 const connect = (
     url,
     inventory = true,
-    version = '3.0.3',
+    version = DAEMON_MIN_CLI_VERSION,
     features = DAEMON_CLIENT_FEATURES
 ) => {
     socket = new WebSocket(url, {
@@ -198,7 +199,7 @@ process.on('message', (message) => {
         socket.send(
             JSON.stringify({
                 type: 'hello',
-                cliVersion: '3.0.3',
+                cliVersion: DAEMON_MIN_CLI_VERSION,
                 clientFeatures: DAEMON_CLIENT_FEATURES,
                 inflightStreams: []
             })

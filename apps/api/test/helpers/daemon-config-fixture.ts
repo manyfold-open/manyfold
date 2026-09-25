@@ -31,6 +31,7 @@ import {
     daemonConfigLeaseName
 } from '../../src/modules/daemon/daemon-config-delivery.service'
 import { DaemonConfigReconciler } from '../../src/modules/agents/daemon-config-reconciler.service'
+import { CLI_AT_FLOOR } from './cli-floor'
 
 export const until = async (
     predicate: () => boolean | Promise<boolean>,
@@ -133,7 +134,7 @@ export const configFixture = async (t: TestContext) => {
             name: 'owned daemon',
             daemonUuid: daemonId,
             status: 'offline',
-            cliVersion: '3.0.3',
+            cliVersion: CLI_AT_FLOOR,
             homeDir: home
         })
     await db

@@ -94,8 +94,9 @@ v0.11.0（API 5.1.0）。当前客户端要求 canonical API 契约：`mf whoami
 `{ ok: false, error: { code, message, details? } }`。旧 flat error 字段不再作为错误
 metadata 解析，缺少 whoami 端点仍以 404 失败。
 
-升级到 API 4.0.0 之后的版本前,先把每台 daemon 更新到 CLI 0.34.0 或更新版本。
-更旧的部署须先运行 API 4.0.0,完成套餐、runtime identity、shell 和 skill 的迁移。
+升级 API 前,先把每台 daemon 更新到 CLI 4.6.1 或更新版本:更旧的 daemon 会被 API
+拒绝注册、heartbeat 和连接。早于 API 4.0.0 的部署须先运行 API 4.0.0,完成套餐、
+runtime identity、shell 和 skill 的迁移。
 新版本不会在启动或日常 runtime 操作中执行这些一次性迁移。
 
 Editions journal 拆分之前的数据库(包括 API 0.51.1)须先用原发行版完成 journal

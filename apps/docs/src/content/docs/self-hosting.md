@@ -107,9 +107,10 @@ account endpoint, and structured failures use
 `{ ok: false, error: { code, message, details? } }`. Older flat error fields are
 not interpreted as error metadata. A missing whoami endpoint remains a 404.
 
-Before upgrading beyond API 4.0.0, update every daemon to CLI 0.34.0 or newer.
-Older installations must first run API 4.0.0 and complete their plan, runtime
-identity, shell and skill migrations. The new release does not run those
+Before upgrading the API, update every daemon to CLI 4.6.1 or newer: the API
+refuses registration, heartbeats and connections from older daemons.
+Installations older than API 4.0.0 must first run API 4.0.0 and complete their
+plan, runtime identity, shell and skill migrations. The new release does not run those
 one-time migrations during startup or normal runtime operations.
 
 Databases from before the editions journal split, including API 0.51.1,

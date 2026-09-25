@@ -72,7 +72,7 @@ const buildHarness = (opts: {
                 exitCode,
                 stdout: `installed=${opts.installed === false ? 0 : 1}\nregistered=${
                     opts.registered === false ? 0 : 1
-                }\nversion=${opts.version ?? '0.34.0'}${
+                }\nversion=${opts.version ?? DAEMON_MIN_CLI_VERSION}${
                     opts.herdr === undefined ? '' : `\nherdr=${opts.herdr ? 1 : 0}`
                 }`,
                 stderr: ''
@@ -817,7 +817,7 @@ test('a CLI too old to read the token from stdin is reinstalled and retried', as
             // backstop unreachable.
             return {
                 exitCode: 0,
-                stdout: 'installed=1\nregistered=0\nversion=0.34.0',
+                stdout: `installed=1\nregistered=0\nversion=${DAEMON_MIN_CLI_VERSION}`,
                 stderr: ''
             }
         if (cmd.includes('install.sh')) {
@@ -914,7 +914,10 @@ test('a runner predating header authentication is upgraded even though it cleare
     )
 })
 
-for (const version of ['0.34.0', '0.34.0-dev.test'])
+for (const version of [
+    DAEMON_MIN_CLI_VERSION,
+    `${DAEMON_MIN_CLI_VERSION}-dev.test`
+])
     test(`a sprite on ${version} is not reinstalled`, async () => {
         const h = buildHarness({ version })
 
@@ -1205,7 +1208,7 @@ test('releasing waits for the in-flight create so the DELETE cannot overtake it'
 // process, and what it refuses to do.
 
 const OLD_BUILD = '0.31.2-dev.202609091242.909c84a'
-const NEW_BUILD = '0.34.0-dev.test'
+const NEW_BUILD = `${DAEMON_MIN_CLI_VERSION}-dev.test`
 
 const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
     JSON.stringify({ configured: true, localPid: pid, local })

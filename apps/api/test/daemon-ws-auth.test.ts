@@ -6,6 +6,7 @@ import websocket from '@fastify/websocket'
 import { Logger } from '@nestjs/common'
 import { WebSocket } from 'ws'
 import { DaemonGateway } from '../src/modules/daemon/daemon.gateway'
+import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 Logger.overrideLogger(false)
 
@@ -16,7 +17,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     const registered: string[] = []
     const clientProcesses: unknown[] = []
     const helloLogs: string[] = []
-    let cliVersion: string | null = '0.34.0'
+    let cliVersion: string | null = CLI_AT_FLOOR
     const gateway = new DaemonGateway(
         {
             select: () => ({ from: () => ({ where: async () => [] }) })
@@ -73,7 +74,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     const connect = (
         query: string,
         authorization?: string,
-        processVersion = '0.34.0',
+        processVersion = CLI_AT_FLOOR,
         clientProcess?: unknown,
         secondProcess?: unknown
     ): Promise<string | number> =>
@@ -135,7 +136,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     assert.equal(await connect('?token=a&token=b'), 4400)
     assert.equal(registered.length, 2)
     assert.deepEqual(verified, ['fixture-header', 'fixture-header', 'invalid'])
-    for (const version of ['0.33.9', null, 'unknown']) {
+    for (const version of [CLI_BELOW_FLOOR, null, 'unknown']) {
         cliVersion = version
         assert.equal(await connect('', 'Bearer fixture-header'), 4406)
     }
@@ -144,8 +145,11 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         2,
         'unsupported hosts never register an RPC connection'
     )
-    cliVersion = '0.34.0'
-    assert.equal(await connect('', 'Bearer fixture-header', '0.33.9'), 4406)
+    cliVersion = CLI_AT_FLOOR
+    assert.equal(
+        await connect('', 'Bearer fixture-header', CLI_BELOW_FLOOR),
+        4406
+    )
     assert.equal(
         registered.length,
         2,
@@ -172,7 +176,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         await connect(
             '',
             'Bearer fixture-header',
-            '0.34.0',
+            CLI_AT_FLOOR,
             firstProcess,
             secondProcess
         ),
@@ -189,7 +193,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
             )
     )
     assert.equal(
-        await connect('', 'Bearer fixture-header', '0.34.0', {
+        await connect('', 'Bearer fixture-header', CLI_AT_FLOOR, {
             instanceId: 'bad\nforged=true',
             pid: -1
         }),

@@ -15,6 +15,12 @@ import {
 import { DaemonController } from '../src/modules/daemon/daemon.controller'
 import { DaemonGateway } from '../src/modules/daemon/daemon.gateway'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import {
+    CLI_ABOVE_FLOOR,
+    CLI_AT_FLOOR,
+    CLI_BELOW_FLOOR,
+    FLOOR_REFUSAL
+} from './helpers/cli-floor'
 
 class HostDb {
     rows: RuntimeHostRow[] = []
@@ -123,7 +129,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'laptop.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.34.0',
+        cliVersion: CLI_AT_FLOOR,
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.nca/workspaces',
         detectedFrameworks: [],
@@ -154,7 +160,7 @@ const hostService = (
     )
 
 test('retired daemon versions cannot register or update heartbeat metadata', async () => {
-    for (const cliVersion of ['0.33.9', '', 'unknown']) {
+    for (const cliVersion of [CLI_BELOW_FLOOR, '0.33.9', '', 'unknown']) {
         const db = new HostDb()
         db.rows = [host()]
         const service = hostService(db as unknown as Database)
@@ -164,7 +170,7 @@ test('retired daemon versions cannot register or update heartbeat metadata', asy
                 request: { cliVersion } as never,
                 lastIp: null
             }),
-            /daemon CLI 0\.34\.0 or newer is required/
+            FLOOR_REFUSAL
         )
         await assert.rejects(
             () => service.heartbeat({
@@ -173,7 +179,7 @@ test('retired daemon versions cannot register or update heartbeat metadata', asy
                 startupMethod: 'manual',
                 cliVersion
             }),
-            /daemon CLI 0\.34\.0 or newer is required/
+            FLOOR_REFUSAL
         )
         assert.equal(db.updates.length, 0)
     }
@@ -189,7 +195,7 @@ test('revoked daemon heartbeat is rejected and does not reactivate host', async 
             service.heartbeat({
                 daemonId: 'dh-1',
                 detectedFrameworks: [],
-                cliVersion: '0.34.0',
+                cliVersion: CLI_AT_FLOOR,
                 startupMethod: 'manual'
             }),
         ForbiddenException
@@ -218,7 +224,7 @@ test('revoked daemon re-register reactivates the host', async () => {
             hostname: 'laptop.local',
             os: 'darwin',
             arch: 'arm64',
-            cliVersion: '0.34.0',
+            cliVersion: CLI_AT_FLOOR,
             homeDir: '/Users/me',
             workspaceBaseDir: '/Users/me/.nca/workspaces',
             detectedFrameworks: []
@@ -238,7 +244,7 @@ test('heartbeat persists terminalPty and resets it when absent', async () => {
     await service.heartbeat({
         daemonId: 'dh-1',
         detectedFrameworks: [],
-        cliVersion: '0.34.1',
+        cliVersion: CLI_ABOVE_FLOOR,
         startupMethod: 'manual',
         terminalPty: true
     })
@@ -247,7 +253,7 @@ test('heartbeat persists terminalPty and resets it when absent', async () => {
     await service.heartbeat({
         daemonId: 'dh-1',
         detectedFrameworks: [],
-        cliVersion: '0.34.0',
+        cliVersion: CLI_AT_FLOOR,
         startupMethod: 'manual'
     })
     assert.equal(db.updates[1].terminalPty, null)
@@ -272,7 +278,7 @@ test('register persists terminalPty from the request', async () => {
             hostname: 'laptop.local',
             os: 'darwin',
             arch: 'arm64',
-            cliVersion: '0.34.1',
+            cliVersion: CLI_ABOVE_FLOOR,
             homeDir: '/Users/me',
             workspaceBaseDir: '/Users/me/.nca/workspaces',
             detectedFrameworks: [],
@@ -293,7 +299,7 @@ test('only a managed token skips the always-online reservation', async () => {
             hostname: 'sprite',
             os: 'linux',
             arch: 'x86_64',
-            cliVersion: '0.34.0',
+            cliVersion: CLI_AT_FLOOR,
             homeDir: '/home/sprite',
             workspaceBaseDir: '/home/sprite/.manyfold/workspaces',
             detectedFrameworks: []

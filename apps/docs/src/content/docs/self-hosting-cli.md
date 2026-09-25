@@ -128,7 +128,7 @@ MF_DAEMON_AUTO_UPDATE=1 mf daemon start
 
 `mf daemon status` shows whether auto-update is on for that machine.
 
-Daemon registration, heartbeat and WebSocket connections require CLI 0.34.0
+Daemon registration, heartbeat and WebSocket connections require CLI 4.6.1
 or newer. Run `mf update` on daemon machines before upgrading the API.
 An administrator can recommend a higher minimum, but cannot lower this
 protocol baseline. Update channel names are `stable` and `dev`.
