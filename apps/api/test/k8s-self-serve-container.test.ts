@@ -3,11 +3,16 @@ import assert from 'node:assert/strict'
 import {
     BadRequestException,
     ConflictException,
-    ForbiddenException
+    ForbiddenException,
+    InternalServerErrorException,
+    ServiceUnavailableException
 } from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
-import { assertPodHostFramework } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
+import {
+    K8sContainerProvisioner,
+    assertPodHostFramework
+} from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 
 // #971: a k8s create without a purchased container. The port decides the
 // edition's answer — cloud keeps CONTAINER_REQUIRED, the open default
@@ -236,6 +241,74 @@ test('a service framework is provisioned onto a pod host', async () => {
         'NousResearch/hermes-agent',
         'a cloned framework installs from the repository its version was admitted from'
     )
+})
+
+test('installing onto a cloud computer passes a typed refusal through and wraps anything else', async () => {
+    const deletes: string[] = []
+    const db = {
+        insert: () => ({ values: async () => {} }),
+        delete: () => ({
+            where: async () => {
+                deletes.push('runtime')
+            }
+        })
+    }
+    const none = {} as never
+    const provisioner = new K8sContainerProvisioner(
+        db as never,
+        { getClient: async () => ({}) } as never,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none
+    )
+    const host = {
+        id: 'pdh_1',
+        userId: 'usr_1',
+        kind: 'pod',
+        podStatus: 'ready',
+        namespace: 'nca-user-1',
+        clusterId: 'clus_1',
+        ingressHost: null
+    }
+    const install = (failure: Error) => {
+        ;(
+            provisioner as unknown as { installFramework: () => Promise<never> }
+        ).installFramework = async () => {
+            throw failure
+        }
+        return provisioner.addFrameworkRuntime({
+            userId: 'usr_1',
+            host: host as never,
+            framework: 'openclaw',
+            name: 'claw',
+            credentials: {}
+        })
+    }
+    await assert.rejects(
+        install(
+            new ServiceUnavailableException({
+                code: 'POD_HOST_DAEMON_TOO_OLD',
+                message: 'the Manyfold CLI on cloud computer pdh_1 is too old'
+            })
+        ),
+        (err: unknown) =>
+            err instanceof ServiceUnavailableException &&
+            (err.getResponse() as { code?: string }).code ===
+                'POD_HOST_DAEMON_TOO_OLD'
+    )
+    await assert.rejects(
+        install(new Error('npm exited 1')),
+        (err: unknown) =>
+            err instanceof InternalServerErrorException &&
+            err.message === 'installing openclaw failed'
+    )
+    // Neither leaves a runtime behind.
+    assert.deepEqual(deletes, ['runtime', 'runtime'])
 })
 
 test('the cloud_computer master toggle blocks self-serve provisioning', async () => {
