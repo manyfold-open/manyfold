@@ -21,7 +21,7 @@ TypeScript monorepo (Turborepo + pnpm) for Manyfold — a platform for creating,
 
 Apps depend on packages; only `apps/api` writes the database or talks to runtimes. Front ends and the CLI consume the API through `@manyfold/sdk` and `@manyfold/shared`. Details in `docs/engineering/architecture.md` and `docs/product/system-overview.md`.
 
-`docker/` holds the agent runtime images Kubernetes pods run (`ghcr.io/manyfold-open/manyfold-runtime-*`). `.github/workflows/release-runtime-images.yml` publishes them from `develop`, and `pnpm runtime-images:check` covers their contract.
+`docker/host` is the image every Kubernetes pod host runs (`ghcr.io/manyfold-open/manyfold-runtime-host`, ADR-0035); frameworks are installed into it on demand. `.github/workflows/release-runtime-images.yml` publishes it from `develop`, and `pnpm runtime-images:check` covers its contract.
 
 ## Setup
 

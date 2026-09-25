@@ -4442,7 +4442,7 @@ const en = {
         buyContainer: {
             title: 'Buy a container',
             description:
-                'Each container is a dedicated k8s pod with the framework runtime, sized to your selected SKU. Multiple agents can share one container.',
+                'Each container is a dedicated cloud computer, sized to the SKU you select. The frameworks your agents need are installed on it when you create them, and several agents can share one.',
             purchased: 'Purchased {{name}}! Provisioning your container now.',
             purchaseDisabled:
                 'Self-serve purchase is coming soon. Please contact an administrator to grant you this container.',
@@ -4460,7 +4460,6 @@ const en = {
             description:
                 'Platform-rented always-online runtimes. Each cloud computer is a dedicated k8s pod that can host multiple agents.',
             empty: 'No cloud computers yet. Rent one to deploy always-online runtimes.',
-            tag: 'Cloud computer',
             contains: 'contains {{count}} agents',
             create: 'New cloud computer',
             creating: 'Creating…',

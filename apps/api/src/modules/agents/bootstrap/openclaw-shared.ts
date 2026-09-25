@@ -77,11 +77,9 @@ interface OpenclawConfigOptions {
 }
 
 /**
- * The full `~/.openclaw/openclaw.json` mirrors `docker/openclaw/entrypoint.sh`
- * in the K8s runtime — see `skills/nca-kb-openclaw/references/runtime-image.md`
- * — except for `trustedProxies`, which names this runtime's own ingress. The
- * K8s image still pins an OpenClaw old enough not to attribute proxy traffic;
- * bumping it needs the nginx ingress controller's pod range there.
+ * The full `~/.openclaw/openclaw.json` of a Manyfold-provisioned gateway;
+ * `trustedProxies` names the private range the host's own ingress proxies
+ * from.
  *
  * The `gateway.http.endpoints.chatCompletions.enabled = true` flag is what
  * exposes the OpenAI-compatible HTTP `/v1/chat/completions` endpoint. Chat no

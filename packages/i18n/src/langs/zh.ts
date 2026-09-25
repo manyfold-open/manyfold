@@ -4228,7 +4228,7 @@ const zh: Translations = {
         buyContainer: {
             title: '购买容器',
             description:
-                '每个容器都是运行框架的独立 k8s Pod，规格取决于所选 SKU。多个 Agent 可以共享一个容器。',
+                '每个容器都是一台独立的云电脑，规格取决于所选 SKU。Agent 需要的框架会在创建时装到上面，多个 Agent 可以共享一台。',
             purchased: '已购买 {{name}}！正在配置你的容器。',
             purchaseDisabled: '自助购买即将推出，请联系管理员为你分配容器。',
             noSkus: '目前没有可用 SKU，请稍后再来。',
@@ -4245,7 +4245,6 @@ const zh: Translations = {
             description:
                 '平台租用的常驻运行时。每台云电脑都是可承载多个 Agent 的独立 k8s Pod。',
             empty: '还没有云电脑。租用一台来部署常驻运行时。',
-            tag: '云电脑',
             contains: '包含 {{count}} 个 Agent',
             create: '新建云电脑',
             creating: '创建中…',
