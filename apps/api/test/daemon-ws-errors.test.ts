@@ -6,6 +6,7 @@ import websocket from '@fastify/websocket'
 import { Logger } from '@nestjs/common'
 import { WebSocket } from 'ws'
 import { DaemonGateway } from '../src/modules/daemon/daemon.gateway'
+import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 Logger.overrideLogger(false)
 
@@ -32,7 +33,7 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
         {
             findById: async () => ({
                 id: 'daemon',
-                cliVersion: '0.34.0',
+                cliVersion: CLI_AT_FLOOR,
                 userId: 'owner',
                 status: 'active'
             }),
@@ -80,7 +81,7 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
                     JSON.stringify({
                         type: 'hello',
                         daemonUuid: 'fixture',
-                        cliVersion: '0.34.0',
+                        cliVersion: CLI_AT_FLOOR,
                         inflightStreams: []
                     })
             )

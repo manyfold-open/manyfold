@@ -7,6 +7,7 @@ import {
     podRunnerHostName
 } from '@manyfold/shared'
 import { PodHostCliService } from '../src/modules/chat/runner/pod-host-cli.service'
+import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 // A cloud computer's mf CLI (ADR-0035 §5): how it is updated, and how a
 // caller that needs more of it than the host has gets it updated first.
@@ -181,13 +182,16 @@ test('a daemon without what the caller needs is updated, and used once it is bac
 })
 
 test('a daemon below the floor is installed over, since it never comes online', async () => {
-    const rig = build({ registrations: [runner({ cliVersion: '4.6.0' })] })
+    const rig = build({
+        registrations: [runner({ cliVersion: CLI_AT_FLOOR })],
+        latest: { version: CLI_AT_FLOOR, channel: 'stable' }
+    })
     const got = await rig.cli.ensure(
         host(),
-        runner({ cliVersion: '0.33.1', online: false }),
+        runner({ cliVersion: CLI_BELOW_FLOOR, online: false }),
         { minVersion: DAEMON_MIN_CLI_VERSION }
     )
-    assert.equal((got as { cliVersion: string }).cliVersion, '4.6.0')
+    assert.equal((got as { cliVersion: string }).cliVersion, CLI_AT_FLOOR)
     assert.deepEqual(rig.upgrades, [])
     assert.equal(rig.scripts.length, 1)
 })

@@ -427,9 +427,12 @@ export type DaemonWsFrame =
 // host API that renders the badge.
 export const DAEMON_ONLINE_THRESHOLD_MS = 45_000
 
-// Protocol baseline: stdin, split budgets, authoritative hello, secure file
-// writes, credential facts and the dev update-channel spelling are required.
-export const DAEMON_MIN_CLI_VERSION = '0.34.0'
+// Protocol baseline: scoped storage reports (4.0.0), Pi's ~/.pi home (4.4.0),
+// services.v1, the container startup method and Hermes turns that do not stall
+// under the compiled binary (4.6.0) are required. 4.6.1 is the stable release
+// that carries them all; isCliVersionTooOld drops the prerelease suffix, so
+// 4.6.1-dev builds pass too.
+export const DAEMON_MIN_CLI_VERSION = '4.6.1'
 
 // How often the daemon actually re-runs the `<bin> --version` probes behind
 // `detectedFrameworks`. The 15s heartbeat replays the cached result on the
