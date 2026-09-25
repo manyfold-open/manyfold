@@ -49,10 +49,47 @@ test('services go to the host daemon, which has to advertise them', async () => 
     await assert.rejects(old.services.start(HOST, 'openclaw'), (err: { response?: { code?: string } }) =>
         err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
     )
+    // Callers about to install a service framework ask first.
+    await assert.rejects(old.services.ready(HOST), (err: { response?: { code?: string } }) =>
+        err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
+    )
     assert.deepEqual(old.calls, [])
+    await rig.services.ready(HOST)
 
     const none = servicesWith(null)
     await assert.rejects(none.services.start(HOST, 'openclaw'), /has no registered daemon/)
+})
+
+test('a host whose CLI predates services has it updated first', async () => {
+    const reads = [
+        [{ id: 'dh_old', clientFeatures: [] }],
+        [{ id: 'pdh_1', userId: 'usr_1', kind: 'pod' }]
+    ]
+    const db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({ limit: async () => reads.shift() ?? [] })
+            })
+        })
+    }
+    const ensured: unknown[] = []
+    const cli = {
+        ensure: async (podHost: { id: string }, runner: { id: string }, need: unknown) => {
+            ensured.push([podHost.id, runner.id, need])
+            return { id: 'dh_new', clientFeatures: [DAEMON_FEATURE_SERVICES] }
+        }
+    }
+    const calls: unknown[] = []
+    const registry = {
+        rpc: async (req: { daemonId: string; method: string }) => {
+            calls.push([req.daemonId, req.method])
+            return {}
+        }
+    }
+    const services = new PodHostServices(db as never, registry as never, cli as never)
+    await services.start(HOST, 'openclaw')
+    assert.deepEqual(ensured, [['pdh_1', 'dh_old', { feature: DAEMON_FEATURE_SERVICES }]])
+    assert.deepEqual(calls, [['dh_new', 'service.start']])
 })
 
 test('a service is ready when it answers its health path, not when it runs', async () => {

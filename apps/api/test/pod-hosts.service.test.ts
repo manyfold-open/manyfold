@@ -59,8 +59,7 @@ const build = (over: {
     port?: unknown
     provisioner?: unknown
     k8sProvisioner?: unknown
-    daemonHosts?: unknown
-    podExec?: unknown
+    cli?: unknown
 }) =>
     new PodHostsService(
         (over.db ?? fakeDb([])) as never,
@@ -71,15 +70,7 @@ const build = (over: {
         {
             getCachedLatest: async () => ({ version: '3.1.0', channel: 'stable' })
         } as never,
-        { isInstallableVersion: async () => true } as never,
-        (over.daemonHosts ?? {}) as never,
-        {
-            getClient: async () => ({
-                kubeConfig: {},
-                apis: {}
-            })
-        } as never,
-        (over.podExec ?? {}) as never,
+        (over.cli ?? {}) as never,
         over.port as never
     )
 
@@ -139,81 +130,41 @@ test('deleting a cloud computer ends what bought it', async () => {
     assert.deepEqual(calls, ['teardown', 'port:pdh_1'])
 })
 
-test('a daemon its host restarts updates itself', async () => {
-    const upgrades: unknown[] = []
+test("a cloud computer's CLI is updated through its daemon", async () => {
+    const updates: unknown[] = []
     const service = build({
         db: fakeDb([[host()], [runner()], [host()], [], [], [runner()]]),
-        daemonHosts: {
-            upgrade: async (args: unknown) => {
-                upgrades.push(args)
-                return { ok: true }
-            }
-        },
-        podExec: {
-            forClient: () => {
-                throw new Error('a container daemon is not installed over')
+        cli: {
+            update: async (args: unknown) => {
+                updates.push(args)
             }
         }
     })
     await service.upgradeCli('usr_1', 'pdh_1', '3.1.0')
-    assert.equal(upgrades.length, 1)
-    assert.equal(
-        (upgrades[0] as { targetVersion: string }).targetVersion,
-        '3.1.0'
-    )
+    assert.deepEqual(updates, [
+        {
+            host: host(),
+            runner: runner(),
+            actorId: 'usr_1',
+            targetVersion: '3.1.0'
+        }
+    ])
 })
 
-test('a daemon from an older image is installed over, then left to the boot loop', async () => {
-    const scripts: string[] = []
+test('a cloud computer whose daemon has not registered has nothing to update', async () => {
     const service = build({
-        db: fakeDb([
-            [host()],
-            [runner({ startupMethod: 'manual' })],
-            [host()],
-            [],
-            [],
-            [runner()]
-        ]),
-        daemonHosts: {
-            upgrade: async () => {
-                throw new Error('a daemon without the container marker cannot restart itself')
+        db: fakeDb([[host()], []]),
+        cli: {
+            update: async () => {
+                throw new Error('nothing to update')
             }
-        },
-        podExec: {
-            forClient: () => ({
-                run: async (req: { cmd: string[] }) => {
-                    scripts.push(req.cmd[2])
-                    return {
-                        exitCode: 0,
-                        stdout: 'mf-upgraded=3.1.0\n',
-                        stderr: ''
-                    }
-                }
-            })
         }
     })
-    // resolvePodHostPod lists the host's pod through the cluster client.
-    const k8sClient = {
-        kubeConfig: {
-            makeApiClient: () => ({
-                listNamespacedPod: async () => ({
-                    items: [
-                        {
-                            metadata: { name: 'host-pdh-1-0' },
-                            status: { phase: 'Running' },
-                            spec: { containers: [{ name: 'agent' }] }
-                        }
-                    ]
-                })
-            })
-        }
-    }
-    ;(service as never as { k8s: unknown }).k8s = {
-        getClient: async () => k8sClient
-    }
-    await service.upgradeCli('usr_1', 'pdh_1', '3.1.0')
-    assert.equal(scripts.length, 1)
-    assert.match(scripts[0], /VERSION="3\.1\.0"/)
-    assert.match(scripts[0], /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
-    assert.match(scripts[0], /pkill -TERM -x mf/)
+    await assert.rejects(
+        service.upgradeCli('usr_1', 'pdh_1'),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'POD_HOST_DAEMON_MISSING'
+    )
 })

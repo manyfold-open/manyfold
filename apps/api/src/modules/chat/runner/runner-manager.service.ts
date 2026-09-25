@@ -12,7 +12,7 @@ import {
     runnerHostName,
     DAEMON_FEATURE_HERDR_TERMINAL
 } from '@manyfold/shared'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
 import { runtimeHosts, type Database } from '@manyfold/db'
 import {
@@ -31,6 +31,7 @@ import {
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+import { PodHostCliService } from './pod-host-cli.service'
 
 // Bring an agent's sprite-side runner up so a turn can be dispatched through
 // the daemon protocol instead of a bare sprite exec.
@@ -174,9 +175,8 @@ export type RunnerFallbackReason =
     // hermes only, decided by the caller: the runner came up but its daemon
     // does not advertise turn.hermes, so it cannot own the ACP client.
     | 'runner_missing_turn_rpc'
-    // pod only: the daemon in the image is older than the runner floor. A
-    // sprite runner below the floor is reinstalled; nothing reinstalls a pod's,
-    // so the turn stays on pod-exec until the image moves.
+    // pod only: the host's daemon is older than the runner floor and could
+    // not be updated in place.
     | 'runner_cli_too_old'
 
 // How the sprite's exec endpoint refused the runner inspect, when the refusal is
@@ -332,7 +332,10 @@ export class RunnerManagerService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: DaemonHostService,
         private readonly tokens: DaemonTokenService,
-        private readonly registry: DaemonRegistryService
+        private readonly registry: DaemonRegistryService,
+        // Absent in tests that build the service positionally: a pod runner
+        // below the floor is then refused rather than updated.
+        @Optional() private readonly podHostCli?: PodHostCliService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -396,14 +399,24 @@ export class RunnerManagerService {
         workspacePath?: string | null
         extraRoots?: readonly string[]
     }): Promise<RunnerResolution> {
-        const existing = await this.findRunnerHost({
+        let existing = await this.findRunnerHost({
             userId: args.userId,
             hostName: podRunnerHostName(args.podHostId)
         })
         if (!existing)
             return { handle: null, fallbackReason: 'runner_missing', workspace: { outcome: 'none' } }
-        if (isCliVersionTooOld(existing.cliVersion, DAEMON_MIN_CLI_VERSION))
-            return { handle: null, fallbackReason: 'runner_cli_too_old', workspace: { outcome: 'none' } }
+        if (isCliVersionTooOld(existing.cliVersion, DAEMON_MIN_CLI_VERSION)) {
+            // Below the floor, the host's CLI is updated in place, as a
+            // sprite runner is reinstalled (ADR-0035 §5).
+            if (!(await this.updatePodRunner(args)))
+                return { handle: null, fallbackReason: 'runner_cli_too_old', workspace: { outcome: 'none' } }
+            existing = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: podRunnerHostName(args.podHostId)
+            })
+            if (!existing)
+                return { handle: null, fallbackReason: 'runner_missing', workspace: { outcome: 'none' } }
+        }
         if (!existing.online)
             return { handle: null, fallbackReason: 'runner_unavailable', workspace: { outcome: 'none' } }
         const workspace = await this.workspacePreflight(
@@ -433,6 +446,38 @@ export class RunnerManagerService {
                     ? { ensureMs: workspace.ensureMs }
                     : {})
             }
+        }
+    }
+
+    // True once the host's CLI is at the floor again.
+    private async updatePodRunner(args: {
+        userId: string
+        podHostId: string
+    }): Promise<boolean> {
+        if (!this.podHostCli) return false
+        const [host] = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(
+                    eq(runtimeHosts.id, args.podHostId),
+                    eq(runtimeHosts.userId, args.userId),
+                    eq(runtimeHosts.kind, 'pod')
+                )
+            )
+            .limit(1)
+        const runner = host ? await this.podHostCli.runnerOf(host) : null
+        if (!host || !runner) return false
+        try {
+            await this.podHostCli.ensure(host, runner, {
+                minVersion: DAEMON_MIN_CLI_VERSION
+            })
+            return true
+        } catch (err) {
+            this.logger.warn(
+                `pod runner update failed podHostId=${args.podHostId}: ${(err as Error).message}`
+            )
+            return false
         }
     }
 

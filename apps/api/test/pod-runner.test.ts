@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    DAEMON_MIN_CLI_VERSION,
     POD_RUNNER_PROFILE,
     buildPodRunnerEnv,
     codingAgentWorkspacePath,
@@ -142,6 +143,9 @@ const buildResolver = (opts: {
     cliVersion?: string | null
     workspaceBaseDir?: string | null
     workspaceEnsureFails?: boolean
+    podHostCli?: unknown
+    // The version the runner registers again with once its CLI is updated.
+    updatedCliVersion?: string
 }): {
     service: RunnerManagerService
     rpcCalls: Array<{ method: string; payload: Record<string, unknown> }>
@@ -167,11 +171,22 @@ const buildResolver = (opts: {
               rpcConnectedAt: new Date('2026-09-09T00:00:00Z')
           }
         : null
+    let reads = 0
     const db = {
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => (row ? [row] : [])
+                    limit: async () => {
+                        const read = reads++
+                        if (!row) return []
+                        // With an update: the runner, the pod host it runs
+                        // on, then the runner as it came back.
+                        if (opts.updatedCliVersion && read === 1)
+                            return [{ id: 'pdh_1', userId: 'user_1', kind: 'pod' }]
+                        if (opts.updatedCliVersion && read > 1)
+                            return [{ ...row, cliVersion: opts.updatedCliVersion }]
+                        return [row]
+                    }
                 })
             })
         })
@@ -208,7 +223,8 @@ const buildResolver = (opts: {
             db as never,
             hosts as never,
             tokens as never,
-            registry as never
+            registry as never,
+            opts.podHostCli as never
         ),
         rpcCalls,
         hostReads: () => hostReads
@@ -236,14 +252,45 @@ test('an online pod runner resolves without any bring-up', async () => {
     assert.equal(hostReads(), 0)
 })
 
-test('a pod runner below the CLI floor is not used', async () => {
+test('a pod runner below the CLI floor is updated in place, then used', async () => {
     // Nothing per turn checks that the daemon supports the stdin the prompt
-    // arrives on — the sprite runner is reinstalled below the floor instead.
-    // A pod's is upgraded through the platform (startup method 'container'),
-    // so below the floor the turn is refused until it is.
+    // arrives on, so below the floor the host's CLI is updated first, the way
+    // a sprite runner is reinstalled.
+    const ensured: unknown[] = []
     const { service } = buildResolver({
         hostName: podRunnerHostName('pdh_1'),
-        cliVersion: '0.33.1'
+        cliVersion: '0.33.1',
+        updatedCliVersion: '4.6.0',
+        podHostCli: {
+            runnerOf: async () => ({ id: 'dh_pod' }),
+            ensure: async (host: { id: string }, runner: { id: string }, need: unknown) => {
+                ensured.push([host.id, runner.id, need])
+                return runner
+            }
+        }
+    })
+    const resolution = await service.resolvePodRunner({
+        userId: 'user_1',
+        podHostId: 'pdh_1'
+    })
+    assert.deepEqual(ensured, [
+        ['pdh_1', 'dh_pod', { minVersion: DAEMON_MIN_CLI_VERSION }]
+    ])
+    assert.equal(resolution.handle?.daemonId, 'dh_pod')
+    assert.equal(resolution.fallbackReason, undefined)
+})
+
+test('a pod runner below the CLI floor that cannot be updated is not used', async () => {
+    const { service } = buildResolver({
+        hostName: podRunnerHostName('pdh_1'),
+        cliVersion: '0.33.1',
+        updatedCliVersion: '0.33.1',
+        podHostCli: {
+            runnerOf: async () => ({ id: 'dh_pod' }),
+            ensure: async () => {
+                throw new Error('the pod is not running')
+            }
+        }
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
