@@ -1,5 +1,6 @@
 import type { V1Pod } from '@kubernetes/client-node'
 import type { K8sClient } from '@/modules/k8s/kubernetes.service'
+import { podHostSelector } from '@/modules/agent-runtimes/provisioning/pod-host-resources'
 
 const FAILURE_REASONS = new Set<string>([
     'CrashLoopBackOff',
@@ -40,14 +41,14 @@ export const derivePodPhase = (pod: V1Pod | undefined): string | null => {
     return phase
 }
 
-export const fetchPodForRuntime = async (
+export const fetchPodForHost = async (
     client: K8sClient,
     namespace: string,
-    agentIdLabel: string
+    hostId: string
 ): Promise<V1Pod | undefined> => {
     const res = await client.apis.core.listNamespacedPod({
         namespace,
-        labelSelector: `nca.netmind.ai/agent-id=${agentIdLabel}`
+        labelSelector: podHostSelector(hostId)
     })
     return (
         res.items.find((item) => item.status?.phase === 'Running') ??

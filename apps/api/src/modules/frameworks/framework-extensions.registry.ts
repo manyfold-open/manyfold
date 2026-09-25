@@ -5,6 +5,7 @@ import {
     type AgentFramework
 } from '@manyfold/shared'
 import { Injectable, type OnApplicationBootstrap } from '@nestjs/common'
+import { registerPodServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
 import { registerFrameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import type { FrameworkExtension } from './framework-extension'
 
@@ -39,8 +40,14 @@ export class FrameworkExtensionsRegistry implements OnApplicationBootstrap {
             !extension.spriteService
         )
             missing('sprite service')
-        if (definition.runtimes.includes('k8s') && !extension.k8sBootstrap)
-            missing('k8s bootstrap')
+        if (
+            definition.kind === 'service' &&
+            definition.runtimes.includes('k8s') &&
+            !extension.podService
+        )
+            missing('pod service recipe')
+        if (extension.podService && extension.podService.framework !== id)
+            throw new Error(`framework '${id}' pod service recipe names another framework`)
         if (definition.version && !extension.version)
             missing('version descriptor')
         if (
@@ -52,6 +59,7 @@ export class FrameworkExtensionsRegistry implements OnApplicationBootstrap {
             missing('files provider')
         if (extension.version)
             registerFrameworkVersionDescriptor(extension.version.descriptor)
+        if (extension.podService) registerPodServiceRecipe(extension.podService)
         this.extensions.set(id, extension)
     }
 

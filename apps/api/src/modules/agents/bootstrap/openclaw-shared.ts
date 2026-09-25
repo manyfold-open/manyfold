@@ -1,4 +1,4 @@
-import { protocolToOpenclawBrand } from '@manyfold/shared'
+import { envTextToRecord, protocolToOpenclawBrand } from '@manyfold/shared'
 import { randomBytes } from 'node:crypto'
 import type { ResolvedOpenclawCredentials } from '@/modules/agents/credentials/resolved-credentials'
 
@@ -77,11 +77,9 @@ interface OpenclawConfigOptions {
 }
 
 /**
- * The full `~/.openclaw/openclaw.json` mirrors `docker/openclaw/entrypoint.sh`
- * in the K8s runtime — see `skills/nca-kb-openclaw/references/runtime-image.md`
- * — except for `trustedProxies`, which names this runtime's own ingress. The
- * K8s image still pins an OpenClaw old enough not to attribute proxy traffic;
- * bumping it needs the nginx ingress controller's pod range there.
+ * The full `~/.openclaw/openclaw.json` of a Manyfold-provisioned gateway;
+ * `trustedProxies` names the private range the host's own ingress proxies
+ * from.
  *
  * The `gateway.http.endpoints.chatCompletions.enabled = true` flag is what
  * exposes the OpenAI-compatible HTTP `/v1/chat/completions` endpoint. Chat no
@@ -161,3 +159,52 @@ export const buildOpenclawEnv = (
     if (creds.baseUrl) env.OPENCLAW_PRIMARY_MODEL_BASE_URL = creds.baseUrl
     return env
 }
+
+// openclaw.json for a gateway whose home is `home`, on a sprite or a pod host
+// (ADR-0035). `gateway.http.endpoints.chatCompletions.enabled` is what exposes
+// the OpenAI-compatible `/v1/chat/completions` endpoint the agent publishes;
+// without it the gateway is WebSocket-only and that URL 404s. The gateway
+// binds 0.0.0.0 so the host's own proxy or the pod's Service can reach it.
+export const openclawConfigJsonFor = (opts: {
+    creds: ResolvedOpenclawCredentials
+    gatewayToken: string
+    home: string
+    controlUiEnabled: boolean
+}): string => {
+    const provider =
+        (opts.creds.modelProvider as string | undefined) ??
+        (opts.creds.inferenceProtocol as string | undefined) ??
+        null
+    return buildOpenclawConfigJson({
+        gatewayPort: OPENCLAW_PORT,
+        gatewayToken: opts.gatewayToken,
+        workspacePath: openclawDefaultWorkspace(opts.home),
+        controlUiEnabled: opts.controlUiEnabled,
+        bindHost: '0.0.0.0',
+        providerBaseUrl: canonicalizeOpenclawBaseUrl(provider, opts.creds.baseUrl),
+        providerApiKey: opts.creds.apiKey ?? '',
+        wireApi: openclawWireApiFor(provider),
+        modelName: opts.creds.primaryModelName
+    })
+}
+
+// The gateway service's env on any host. OPENCLAW_CONFIG_PATH and
+// OPENCLAW_STATE_DIR keep openclaw on the config and state under `home`
+// instead of its own default paths.
+export const openclawServiceEnv = (opts: {
+    creds: ResolvedOpenclawCredentials
+    gatewayToken: string
+    home: string
+    controlUiEnabled: boolean
+    envText?: string | null
+}): Record<string, string> => ({
+    ...envTextToRecord(opts.envText),
+    ...buildOpenclawEnv({
+        creds: opts.creds,
+        gatewayToken: opts.gatewayToken,
+        workspacePath: openclawDefaultWorkspace(opts.home),
+        controlUiEnabled: opts.controlUiEnabled
+    }),
+    OPENCLAW_CONFIG_PATH: `${opts.home}/openclaw.json`,
+    OPENCLAW_STATE_DIR: opts.home
+})

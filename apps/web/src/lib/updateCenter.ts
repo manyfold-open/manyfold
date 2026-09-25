@@ -15,6 +15,7 @@ import type {
     DaemonHostSummary,
     FrameworkUpgradeMode,
     FrameworkVersionCatalogEntry,
+    PodHostSummary,
     SandboxSummary
 } from '@manyfold/shared'
 
@@ -40,6 +41,8 @@ export type UpdateExec =
     // which is what the endpoints do with an absent `targetVersion`.
     | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
     | { type: 'sandboxCli'; sandboxId: string; targetVersion: string | null }
+    // A cloud computer's daemon updates itself; the host restarts it.
+    | { type: 'podHostCli'; podHostId: string }
     // herdr rides herdr's own updater, always to its latest (ADR-0031).
     | { type: 'daemonHerdr'; hostId: string }
     | { type: 'sandboxHerdr'; sandboxId: string }
@@ -75,6 +78,7 @@ export interface UpdateRow {
 export interface UpdateCenterInputs {
     daemonHosts: DaemonHostSummary[]
     sandboxes: SandboxSummary[]
+    podHosts: PodHostSummary[]
     runtimes: AgentRuntimeSummary[]
     frameworkCatalog: FrameworkVersionCatalogEntry[]
     skillGroups: AgentSkillsGroup[]
@@ -84,6 +88,7 @@ export interface UpdateCenterInputs {
 export const emptyUpdateCenterInputs: UpdateCenterInputs = {
     daemonHosts: [],
     sandboxes: [],
+    podHosts: [],
     runtimes: [],
     frameworkCatalog: [],
     skillGroups: [],
@@ -198,6 +203,27 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             }
         })
     }
+    for (const host of inputs.podHosts) {
+        if (!host.cliUpdateAvailable) continue
+        rows.push({
+            id: `cli:podHost:${host.id}`,
+            kind: 'cli',
+            subjectLabel: 'mf CLI',
+            framework: null,
+            targetKind: 'k8s',
+            targetKey: `k8s:${host.id}`,
+            targetLabel: host.name,
+            installedVersion: host.cliVersion,
+            latestVersion: host.latestCliVersion,
+            // To the daemon's own channel's latest: it is a daemon, and the
+            // channel rules a daemon's update obeys apply to it.
+            targetChoices: [],
+            severity: 'recommended',
+            blockedReason: null,
+            blocker: host.status === 'ready' ? null : 'offline',
+            exec: { type: 'podHostCli', podHostId: host.id }
+        })
+    }
     return rows
 }
 
@@ -275,10 +301,10 @@ const runtimeTarget = (
             key: `daemon:${runtime.daemonId}`,
             label: runtime.daemonName ?? runtime.name
         }
-    if (runtime.kind === 'k8s' && runtime.clusterId)
+    if (runtime.kind === 'k8s' && runtime.hostId)
         return {
-            key: `k8s:${runtime.clusterId}`,
-            label: runtime.clusterName ?? runtime.name
+            key: `k8s:${runtime.hostId}`,
+            label: runtime.podHostName ?? runtime.name
         }
     if (runtime.hostId)
         return {
@@ -340,11 +366,15 @@ const frameworkRows = (
 
         const mode = frameworkUpgradeMode(runtime.framework)
         const target = runtimeTarget(runtime, sandboxNames)
-        const remote =
-            runtime.kind === 'sprites' && mode !== null && runtime.primaryAgentId
+        // A cloud computer upgrades an npm CLI in place, as a sprite does; its
+        // rebuilt service frameworks are not on it yet (ADR-0035).
+        const onOurs =
+            runtime.kind === 'sprites' ||
+            (runtime.kind === 'k8s' && mode === 'npm')
+        const remote = onOurs && mode !== null && runtime.primaryAgentId
         const blocker: UpdateBlocker | null = remote
             ? null
-            : runtime.kind === 'sprites'
+            : onOurs
               ? 'noAgent'
               : 'manual'
         const blocked = findBlockedVersionRange(
@@ -607,6 +637,7 @@ export type BatchStep =
           sandboxId: string
           targetVersion: string | null
       }
+    | { type: 'podHostCli'; rowId: string; podHostId: string }
     | { type: 'daemonHerdr'; rowId: string; hostId: string }
     | { type: 'sandboxHerdr'; rowId: string; sandboxId: string }
 
@@ -621,6 +652,7 @@ const stepOrder = (step: BatchStep): number => {
             return 1
         case 'daemonCli':
         case 'daemonHerdr':
+        case 'podHostCli':
             return 2
         case 'framework':
             // A rebuild takes minutes while every other step takes seconds, so
@@ -677,6 +709,13 @@ export const planBatch = (
                     rowId: row.id,
                     sandboxId: row.exec.sandboxId,
                     targetVersion: picked ?? row.exec.targetVersion
+                })
+                break
+            case 'podHostCli':
+                steps.push({
+                    type: 'podHostCli',
+                    rowId: row.id,
+                    podHostId: row.exec.podHostId
                 })
                 break
             case 'daemonHerdr':

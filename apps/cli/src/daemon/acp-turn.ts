@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { closeSync } from 'node:fs'
 import type { DaemonHermesTurnPayload, DaemonTurnFinalPayload } from '@manyfold/shared'
 import {
     acpModelMatches,
@@ -8,6 +9,7 @@ import {
 } from '@manyfold/shared'
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
+import { fifoStdout } from './fifo-stdout'
 
 // The daemon is the ACP client. The earlier shape — the API speaking ACP over a
 // forwarded exec pipe — could not survive an API restart BY CONSTRUCTION: ACP
@@ -25,6 +27,9 @@ const ACP_PROTOCOL_VERSION = 1
 const DEFAULT_TURN_TIMEOUT_MS = 240_000
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 30_000
 const KILL_ESCALATION_MS = 5_000
+// How long the child's last stdout lines may trail its exit. A grandchild
+// still holding the FIFO would otherwise hold the turn open.
+const STDOUT_DRAIN_MS = 2_000
 
 // hermes predates the request-carried options array, so its headless
 // auto-approve keeps the legacy id for builds that advertise none.
@@ -95,14 +100,26 @@ export const runAcpTurn = (args: {
     const interactivePermissions =
         payload.permissionMode === 'default' ||
         payload.permissionMode === 'acceptEdits'
-    const child = spawn(cmd[0], cmd.slice(1), {
-        cwd,
-        env: {
-            ...process.env,
-            ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
-            ...(payload.env ?? {})
-        },
-        stdio: ['pipe', 'pipe', 'pipe']
+    const fifo = fifoStdout()
+    let child: ChildProcess
+    try {
+        child = spawn(cmd[0], cmd.slice(1), {
+            cwd,
+            env: {
+                ...process.env,
+                ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
+                ...(payload.env ?? {})
+            },
+            stdio: ['pipe', fifo ? fifo.fd : 'pipe', 'pipe']
+        })
+    } finally {
+        if (fifo) closeSync(fifo.fd)
+    }
+    const childStdout = fifo ? fifo.stream : child.stdout
+    childStdout?.on('error', () => {})
+    const stdoutDrained = new Promise<void>((resolve) => {
+        if (!fifo) return resolve()
+        fifo.stream.once('close', () => resolve())
     })
     child.stdin?.on('error', () => {})
     args.registerChild(child, stream)
@@ -383,8 +400,8 @@ export const runAcpTurn = (args: {
     }
 
     let stdoutBuf = ''
-    child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
+    childStdout?.setEncoding('utf8')
+    childStdout?.on('data', (chunk: string) => {
         stdoutBuf += chunk
         let nl = stdoutBuf.indexOf('\n')
         while (nl !== -1) {
@@ -432,14 +449,22 @@ export const runAcpTurn = (args: {
     child.on('close', (code) => {
         // The child ending while requests are pending means the turn died;
         // reject the waiters with the most informative stderr line so the
-        // failure names its cause instead of a bare timeout.
-        const reason =
-            fatalError ??
-            new Error(
-                pickStderrErrorLine(stderrTail) ??
-                    `hermes acp exited with code ${code ?? 'unknown'}`
-            )
-        settleAll(reason)
+        // failure names its cause instead of a bare timeout. A FIFO stdout
+        // is not one of the child's own streams, so its last lines are read
+        // first: they may be the very answers the waiters want.
+        void Promise.race([
+            stdoutDrained,
+            new Promise((resolve) => setTimeout(resolve, STDOUT_DRAIN_MS).unref())
+        ]).then(() => {
+            fifo?.stream.destroy()
+            const reason =
+                fatalError ??
+                new Error(
+                    pickStderrErrorLine(stderrTail) ??
+                        `hermes acp exited with code ${code ?? 'unknown'}`
+                )
+            settleAll(reason)
+        })
     })
 
     ctx.onCancel(() => {

@@ -215,6 +215,9 @@ export type {
     CliUpgradeBody,
     InstallSandboxFrameworkBody,
     CreateSandboxBody,
+    PodHostStatus,
+    PodHostSummary,
+    CreatePodHostBody,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody,
     FrameworkAgentSummary,
@@ -905,6 +908,9 @@ export type {
     DaemonStreamKind,
     DaemonWsFrame,
     DaemonClientProcess,
+    DaemonServiceSpec,
+    DaemonServiceState,
+    DaemonServiceStatus,
     DaemonExecRecoveryReport,
     DaemonUpdateRollbackReport,
     DaemonOwnedTerminal,
@@ -955,6 +961,7 @@ export {
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_PI_LOCAL,
+    DAEMON_FEATURE_SERVICES,
     DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_HERDR_PI,
@@ -1147,7 +1154,6 @@ export {
 } from './exec-env'
 export type { MfRuntimeIdentityEnvKey } from './exec-env'
 export {
-    POD_RUNNER_ENV_KEYS,
     POD_RUNNER_PROFILE,
     PROFILE_NAME_RE,
     RUNNER_PROFILE,

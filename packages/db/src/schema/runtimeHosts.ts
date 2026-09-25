@@ -12,6 +12,7 @@ import {
 import { sql } from 'drizzle-orm'
 import { users } from './users'
 import { spritesAccounts } from './spritesAccounts'
+import { k8sClusters } from './k8sClusters'
 
 // sandbox-only: one measurement of the whole sprite VM, taken inside the VM.
 // vmUsedBytes is the rootfs df reading — sprites.dev bills per-VM rootfs, so
@@ -62,11 +63,12 @@ export const runtimeHosts = pgTable(
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
         // Discriminator: 'daemon' = registered local machine, 'sandbox' = sprite
-        // VM. Both share this machine table so one host can carry many
-        // per-framework agent_runtimes. Defaults to 'daemon' so the existing
-        // daemon register/heartbeat inserts need no change.
+        // VM, 'pod' = Kubernetes pod host (ADR-0035). All share this machine
+        // table so one host can carry many per-framework agent_runtimes.
+        // Defaults to 'daemon' so the existing daemon register/heartbeat inserts
+        // need no change.
         kind: text('kind', {
-            enum: ['daemon', 'sandbox']
+            enum: ['daemon', 'sandbox', 'pod']
         })
             .notNull()
             .default('daemon'),
@@ -88,7 +90,8 @@ export const runtimeHosts = pgTable(
                 'launchd-system',
                 'systemd-user',
                 'systemd-system',
-                'manual'
+                'manual',
+                'container'
             ]
         }),
         homeDir: text('home_dir'),
@@ -123,6 +126,27 @@ export const runtimeHosts = pgTable(
         }),
         spriteName: text('sprite_name'),
         spriteId: text('sprite_id'),
+        // pod-only (kind='pod', ADR-0035): where the pod runs and what it was
+        // given. The pod's Kubernetes objects are named after this row's id;
+        // its framework runtimes point here through agent_runtimes.host_id and
+        // copy the placement columns, as sprite runtimes copy spriteName.
+        clusterId: text('cluster_id').references(() => k8sClusters.id, {
+            onDelete: 'set null'
+        }),
+        namespace: text('namespace'),
+        ingressHost: text('ingress_host'),
+        cpuMillicores: integer('cpu_millicores'),
+        memoryMb: integer('memory_mb'),
+        diskGb: integer('disk_gb'),
+        region: text('region'),
+        // pod-only: provisioning until the pod runs and its daemon has
+        // registered, then ready — the gate for adding framework runtimes, as
+        // sprite_id is for a sandbox — or failed with the reason.
+        podStatus: text('pod_status', {
+            enum: ['provisioning', 'ready', 'failed']
+        }),
+        podPhase: text('pod_phase'),
+        podFailureReason: text('pod_failure_reason'),
         // Whose identity the VM's persisted shell profile defaults to (bare
         // interactive shells only — per-agent auth is injected per-exec).
         primaryAgentId: text('primary_agent_id'),

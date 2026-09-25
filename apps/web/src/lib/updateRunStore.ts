@@ -170,6 +170,10 @@ const runSteps = async (
                         await client.sandboxes.upgradeHerdr(step.sandboxId)
                         succeed(ids)
                         break
+                    case 'podHostCli':
+                        await client.podHosts.upgradeCli(step.podHostId)
+                        succeed(ids)
+                        break
                     case 'daemonHerdr':
                         await client.daemons.upgradeHerdr(step.hostId)
                         succeed(ids)

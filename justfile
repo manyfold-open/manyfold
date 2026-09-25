@@ -6,13 +6,6 @@ IMAGE_DATE := `date -u +%Y%m%d`
 IMAGE_SHA := `git rev-parse --short HEAD 2>/dev/null || echo nogit`
 IMAGE_TAG := IMAGE_VERSION + "-" + IMAGE_DATE + "-" + IMAGE_SHA
 
-# The mf CLI baked into every agent image, and therefore the daemon version a
-# k8s pod runs. A pod's daemon never self-updates (in a container it reports
-# startup method 'manual'), so this value is the only thing that moves it. It
-# must be a PUBLISHED stable release (install.sh fails the build otherwise) at
-# or above DAEMON_MIN_CLI_VERSION, below which a pod runner is refused. CI
-# builds with the value in .github/workflows/release-runtime-images.yml.
-MF_CLI_VERSION := env_var_or_default("MF_CLI_VERSION", "0.34.0")
 
 default:
     @just --list
@@ -162,29 +155,9 @@ health:
 image-tag:
     @echo {{IMAGE_TAG}}
 
-docker-build-base TAG="debian-bookworm":
-    docker build --build-arg MF_CLI_VERSION={{MF_CLI_VERSION}} -t mf-runtime-base:{{TAG}} docker/mf-base
-
-docker-build-openclaw TAG=IMAGE_TAG: docker-build-base
-    docker build -t openclaw:{{TAG}} -t openclaw:latest docker/openclaw
-
-docker-build-runner TAG=IMAGE_TAG: docker-build-base
-    docker build -t mf-runner:{{TAG}} docker/mf-runner
-
-docker-build-hermes TAG=IMAGE_TAG: docker-build-base
-    docker build -t hermes:{{TAG}} -t hermes:latest docker/hermes
-
-docker-build-claude-code TAG=IMAGE_TAG: docker-build-base
-    docker build -t claude-code:{{TAG}} -t claude-code:latest docker/claude-code
-
-docker-build-codex TAG=IMAGE_TAG: docker-build-base
-    docker build -t codex:{{TAG}} -t codex:latest docker/codex
-
-docker-build-gemini-cli TAG=IMAGE_TAG: docker-build-base
-    docker build -t gemini-cli:{{TAG}} -t gemini-cli:latest docker/gemini-cli
-
-docker-build-pi TAG=IMAGE_TAG: docker-build-base
-    docker build -t pi:{{TAG}} -t pi:latest docker/pi
+# The pod host image (ADR-0035). Standalone: it pins its own first-boot mf.
+docker-build-host TAG=IMAGE_TAG:
+    docker build -t manyfold-runtime-host:{{TAG}} -t manyfold-runtime-host:latest docker/host
 
 clean:
     rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .turbo

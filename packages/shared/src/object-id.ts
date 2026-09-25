@@ -44,6 +44,8 @@ export const objectIdPrefixes = Object.freeze({
     mcpCatalogEntry: 'mcp',
     notificationWebhook: 'nwh',
     oauthState: 'oas',
+    // A Kubernetes pod host (ADR-0035): one pod, several framework runtimes.
+    podHost: 'pdh',
     // Retired, never reusable (prefixes are forever): 'rti' (runtimeInvite),
     // 'rir' (runtimeInviteRedemption) — allocated by ADR-0004, no row was ever
     // minted, resource kinds removed with the invite feature.

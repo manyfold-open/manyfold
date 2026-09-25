@@ -40,15 +40,17 @@ const machineDetail = (
             ? t('web.agentNewV4.machine.needsInstallIdle', { cli })
             : t('web.agentNewV4.machine.needsInstall', { cli })
     if (row.state === 'not-installable')
-        return t('web.agentNewV4.machine.notInstallable', { cli })
+        return row.hostKind === 'k8s'
+            ? t('web.agentNewV4.machine.podHostNoService', { cli })
+            : t('web.agentNewV4.machine.notInstallable', { cli })
     if (row.state === 'service-slot-taken')
         return t('web.agentNewV4.machine.slotTaken', {
             other: row.blockedBy !== undefined ? frameworkLabel(row.blockedBy) : ''
         })
-    if (row.state === 'framework-fixed')
-        return t('web.agentNewV4.machine.frameworkFixed', {
-            other: row.blockedBy !== undefined ? frameworkLabel(row.blockedBy) : ''
-        })
+    if (row.state === 'unavailable')
+        return row.unavailableReason === 'failed'
+            ? t('web.agentNewV4.machine.podHostFailed')
+            : t('web.agentNewV4.machine.podHostStarting')
     return row.agentsCount > 0
         ? t('web.agentNewV4.machine.readyWithAgents', {
               cli,

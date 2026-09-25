@@ -75,6 +75,11 @@ rl.on('line', (line) => {
             process.exit(3)
         }
         if (mode === 'hang') return
+        if (mode === 'stdout-kind') {
+            const fifo = require('node:fs').fstatSync(1).isFIFO()
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'stdout=' + (fifo ? 'fifo' : 'other') } })
+            return send({ jsonrpc: '2.0', id: frame.id, result: { stopReason: 'end_turn' } })
+        }
         // 'trickle' streams for ~1s then finishes; 'endless' never finishes.
         // Both exist to prove the idle budget rearms on session/update.
         if (mode === 'trickle' || mode === 'endless') {
@@ -235,6 +240,28 @@ test('a turn is driven to completion and every frame is durable', async () => {
     assert.equal(meta?.status, 'completed')
     // env can carry credentials and nothing reads it back from the buffer.
     assert.ok(!('env' in ((meta?.payload as object) ?? {})))
+})
+
+// Bun, which the compiled `mf` runs on, gives a child a stdout socket that
+// reads as EOF, and CPython's asyncio then closes the stream hermes answers
+// on; the daemon hands the agent a FIFO instead.
+test('the agent answers into a FIFO, not the runtime\'s socket', async () => {
+    const h = makeCtx('turn-stdout-kind-1')
+    const ack = await runAcpTurn({
+        payload: payloadFor('stdout-kind'),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const text = h.events
+        .filter((e) => e.kind === 'stdout')
+        .map((e) => JSON.parse(e.data) as { method?: string; params?: { update: { content?: { text: string } } } })
+        .filter((f) => f.method === 'session/update')
+        .map((f) => f.params?.update.content?.text ?? '')
+        .join('')
+    assert.equal(text, 'stdout=fifo')
 })
 
 test('a prior sessionId is resumed and the resolved id reported', async () => {

@@ -1,7 +1,4 @@
-import {
-    SPRITE_HOME_BASE,
-    envTextToRecord
-} from '@manyfold/shared'
+import { SPRITE_HOME_BASE } from '@manyfold/shared'
 import { Injectable } from '@nestjs/common'
 import { execSprite, spriteWriteFile } from '@manyfold/sprites'
 import type { ResolvedOpenclawCredentials } from '@/modules/agents/credentials/resolved-credentials'
@@ -10,13 +7,10 @@ import {
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
-    buildOpenclawConfigJson,
-    buildOpenclawEnv,
-    canonicalizeOpenclawBaseUrl,
     generateOpenclawGatewayToken,
     OPENCLAW_PORT,
-    openclawDefaultWorkspace,
-    openclawWireApiFor
+    openclawConfigJsonFor,
+    openclawServiceEnv
 } from '@/modules/agents/bootstrap/openclaw-shared'
 import type {
     SpriteServiceBootstrap,
@@ -153,39 +147,16 @@ export class OpenClawSpriteBootstrap implements SpriteServiceBootstrap {
         await this.restart(nextCtx, credentials)
     }
 
-    // Write the full openclaw.json mirroring K8s entrypoint.sh —
-    // critically, `gateway.http.endpoints.chatCompletions.enabled = true`
-    // is what exposes the OpenAI-compatible HTTP `/v1/chat/completions`
-    // endpoint the agent publishes as its endpoint URL. Chat itself stopped
-    // calling it in ADR-0027 O9 (openclaw turns run `openclaw acp` in-box),
-    // but without the flag the gateway is WebSocket-only and that URL 404s.
     private async writeConfig(
         ctx: BootstrapContext,
         creds: ResolvedOpenclawCredentials,
         gatewayToken: string
     ): Promise<void> {
-        const workspacePath = openclawDefaultWorkspace(OPENCLAW_HOME)
-        const provider =
-            (creds.modelProvider as string | undefined) ??
-            (creds.inferenceProtocol as string | undefined) ??
-            null
-        const providerBaseUrl = canonicalizeOpenclawBaseUrl(
-            provider,
-            creds.baseUrl
-        )
-        const openclawConfig = buildOpenclawConfigJson({
-            gatewayPort: OPENCLAW_PORT,
+        const openclawConfig = openclawConfigJsonFor({
+            creds,
             gatewayToken,
-            workspacePath,
-            controlUiEnabled: ctx.controlUiEnabled ?? true,
-            // Bind 0.0.0.0 so the sprite platform proxy can reach the gateway
-            // from the host network (loopback also works since proxy is in
-            // the VM, but 0.0.0.0 matches the K8s deployment).
-            bindHost: '0.0.0.0',
-            providerBaseUrl,
-            providerApiKey: creds.apiKey ?? '',
-            wireApi: openclawWireApiFor(provider),
-            modelName: creds.primaryModelName
+            home: OPENCLAW_HOME,
+            controlUiEnabled: ctx.controlUiEnabled ?? true
         })
         await spriteWriteFile(
             ctx.client,
@@ -205,21 +176,13 @@ export class OpenClawSpriteBootstrap implements SpriteServiceBootstrap {
         creds: ResolvedOpenclawCredentials,
         gatewayToken: string
     ): Record<string, string> {
-        const workspacePath = openclawDefaultWorkspace(OPENCLAW_HOME)
-        return {
-            ...envTextToRecord(ctx.envText),
-            ...buildOpenclawEnv({
-                creds,
-                gatewayToken,
-                workspacePath,
-                controlUiEnabled: ctx.controlUiEnabled ?? true
-            }),
-            // Point OpenClaw at the config + state we lay down inside
-            // OPENCLAW_HOME so it doesn't fall back to its own default paths
-            // (which would land outside the agent's home dir).
-            OPENCLAW_CONFIG_PATH: `${OPENCLAW_HOME}/openclaw.json`,
-            OPENCLAW_STATE_DIR: OPENCLAW_HOME
-        }
+        return openclawServiceEnv({
+            creds,
+            gatewayToken,
+            home: OPENCLAW_HOME,
+            controlUiEnabled: ctx.controlUiEnabled ?? true,
+            envText: ctx.envText
+        })
     }
 
     // Sprite env only propagates via delete→upsert→start; run() calls this after

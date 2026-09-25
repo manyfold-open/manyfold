@@ -24,7 +24,7 @@ import {
 } from '@manyfold/db'
 import { createObjectId, podRunnerHostName } from '@manyfold/shared'
 import type { ConfigService } from '@nestjs/config'
-import { Logger } from '@nestjs/common'
+import { GatewayTimeoutException, Logger } from '@nestjs/common'
 import { CryptoService } from '../src/modules/secrets/crypto.service'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
 import { KubernetesService } from '../src/modules/k8s/kubernetes.service'
@@ -49,10 +49,8 @@ import { K8sLifecycleFixture } from './helpers/k8s-lifecycle-fixture'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 
-const fixture = async (
-    t: TestContext,
-    framework: 'codex' | 'openclaw' = 'codex'
-) => {
+const fixture = async (t: TestContext) => {
+    const framework = 'codex'
     assert(process.env.DATABASE_URL)
     const client = postgres(process.env.DATABASE_URL, { max: 4 })
     const db: Database = drizzle(client, { schema })
@@ -87,8 +85,7 @@ const fixture = async (
     const configValues: Record<string, string> = {
         API_CRYPTO_KEY: randomBytes(32).toString('base64'),
         K8S_CONTAINER_PROVISION_TIMEOUT_MS: '2000',
-        K8S_IMAGE_CODEX: 'fixture-only',
-        K8S_IMAGE_OPENCLAW: 'fixture-only'
+        K8S_RUNTIME_IMAGE: 'fixture-only'
     }
     const config = { get: (key: string) => configValues[key] } as ConfigService
     const crypto = new CryptoService(config)
@@ -107,21 +104,23 @@ const fixture = async (
     const k8s = new KubernetesService(config, db, crypto)
     const cleanup = new K8sCreateCleanupService(db, k8s)
     const runtimes = new AgentRuntimesService(db, { event() {} } as never)
+    // pod host id -> the runner token minted for it
     const minted = new Map<string, string>()
+    const registered = new Set<string>()
     const podRunner = {
         mint: async (
-            input: { runtimeId: string },
+            input: { podHostId: string },
             store: Pick<Database, 'insert'> = db
         ) => {
             const tokenId = `ldt_${randomUUID()}`
             await store.insert(daemonTokens).values({
                 id: tokenId,
                 userId,
-                name: podRunnerHostName(input.runtimeId),
+                name: podRunnerHostName(input.podHostId),
                 tokenHash: `fixture-${tokenId}`,
                 purpose: 'pod_runner'
             })
-            minted.set(input.runtimeId, tokenId)
+            minted.set(input.podHostId, tokenId)
             return { env: { MF_DAEMON_TOKEN: 'fixture-only' }, tokenId }
         },
         discardUnbound: async (_userId: string, tokenId: string) => {
@@ -135,42 +134,14 @@ const fixture = async (
                 )
         }
     }
-    const bootstrap = {
-        plan: () => ({
-            framework: 'codex',
-            port: 2222,
-            pvcMountPath: '/workspace',
-            envSecretData: {},
-            readinessProbe: null,
-            httpReadinessPath: null,
-            sidecars: [
-                {
-                    name: 'dashboard',
-                    image: 'fixture-only',
-                    containerPort: 8080,
-                    servicePortName: 'dashboard',
-                    servicePort: 8080,
-                    ingressPath: '/dashboard',
-                    authUrlAnnotation: 'http://fixture.invalid/authorize'
-                }
-            ]
-        })
-    }
-    const provisioner = new K8sContainerProvisioner(
-        db,
-        k8s,
-        config,
-        crypto,
-        { get: () => bootstrap, image: () => 'fixture-only' } as never,
-        podRunner as never,
-        cleanup
-    )
     const failure = new Error('owned fixture attach timeout')
     const behavior: {
         failAttach: boolean
         failConfig: boolean
         failDefaults: boolean
-        seedRunner: boolean
+        // The host's daemon registering the moment its pod runs; the
+        // provisioner waits for it before installing anything.
+        registerRunner: boolean
         beforeAttach?: (runtime: AgentRuntimeRow) => Promise<void>
         afterRunner?: () => Promise<void>
         beforeDefaults?: () => Promise<void>
@@ -178,24 +149,26 @@ const fixture = async (
         failAttach: true,
         failConfig: false,
         failDefaults: false,
-        seedRunner: false
+        registerRunner: true
     }
-    const bindRunner = async (runtime: AgentRuntimeRow): Promise<void> => {
+    const registerRunner = async (podHostId: string): Promise<void> => {
         const hostId = createObjectId('daemonHost')
-        const childRuntimeId = createObjectId('agentRuntime')
         await db.insert(runtimeHosts).values({
             id: hostId,
             userId,
             kind: 'daemon',
             managed: true,
-            name: podRunnerHostName(runtime.id)
+            daemonUuid: randomUUID(),
+            name: podRunnerHostName(podHostId),
+            status: 'active',
+            rpcConnectedAt: new Date()
         })
         await db
             .update(daemonTokens)
             .set({ daemonId: hostId })
-            .where(eq(daemonTokens.id, minted.get(runtime.id)!))
+            .where(eq(daemonTokens.id, minted.get(podHostId)!))
         await db.insert(agentRuntimes).values({
-            id: childRuntimeId,
+            id: createObjectId('agentRuntime'),
             userId,
             name: 'fixture runner',
             kind: 'daemon',
@@ -203,16 +176,59 @@ const fixture = async (
             daemonId: hostId
         })
     }
+    const hooks: {
+        afterCreate?: (collection: string, name: string) => Promise<void>
+    } = {}
+    api.afterCreate = async (collection, name) => {
+        await hooks.afterCreate?.(collection, name)
+        if (collection !== 'deployments' || !behavior.registerRunner) return
+        for (const podHostId of minted.keys()) {
+            if (registered.has(podHostId)) continue
+            registered.add(podHostId)
+            await registerRunner(podHostId)
+            await behavior.afterRunner?.()
+        }
+    }
+    // Every install step answers as a host that already runs the requested
+    // version, so a create reaches its attach without touching npm.
+    const podExec = {
+        forClient: () => ({
+            run: async () => ({ exitCode: 0, stdout: '1.0.0', stderr: '' })
+        })
+    }
+    const frameworkVersions = {
+        resolveInstallVersion: async () => ({
+            selection: { version: '1.0.0', source: 'latest' },
+            repo: null
+        })
+    }
+    // Coding frameworks only: nothing here runs as a host service.
+    const podServices = {} as never
+    const k8sProvisioner = new K8sProvisioner(
+        db,
+        k8s,
+        runtimes,
+        cleanup,
+        podServices
+    )
+    const provisioner = new K8sContainerProvisioner(
+        db,
+        k8s,
+        config,
+        crypto,
+        podRunner as never,
+        cleanup,
+        podExec as never,
+        frameworkVersions as never,
+        k8sProvisioner,
+        podServices
+    )
     const adapter = {
         addAgent: async (input: {
             runtime: AgentRuntimeRow
             agentId: string
         }) => {
             await behavior.beforeAttach?.(input.runtime)
-            if (behavior.seedRunner) {
-                await bindRunner(input.runtime)
-                await behavior.afterRunner?.()
-            }
             if (behavior.failAttach) throw failure
             return {
                 internalId: input.agentId,
@@ -247,7 +263,13 @@ const fixture = async (
             attach,
             k8sProvisioner: provisioner,
             cloudComputer: openCloudComputerPort,
-            adminSettings: { isFeatureEnabled: async () => true },
+            adminSettings: {
+                isFeatureEnabled: async () => true,
+                getCachedFrameworkDefaultVersions: async () => ({
+                    defaults: {}
+                })
+            },
+            frameworkVersions: { latestForFresh: async () => '1.0.0' },
             credentialsResolver: credentials,
             modelConfig: {
                 updateForAgent: async () => {
@@ -287,18 +309,14 @@ const fixture = async (
         )
     const controller = Object.assign(
         Object.create(AgentRuntimesController.prototype),
-        {
-            db,
-            runtimes,
-            k8sProvisioner: new K8sProvisioner(k8s, runtimes, cleanup),
-            cloudComputer: openCloudComputerPort
-        }
+        { db, runtimes, k8sProvisioner }
     ) as AgentRuntimesController
     const remove = (runtimeId: string) =>
         controller.delete({ userId } as never, runtimeId)
     const addCluster = async () => {
         const nextApi = new K8sLifecycleFixture()
         await nextApi.start()
+        nextApi.afterCreate = api.afterCreate
         apis.push(nextApi)
         const id = createObjectId('k8sCluster')
         clusterIds.push(id)
@@ -317,12 +335,14 @@ const fixture = async (
         db,
         client,
         api,
+        hooks,
         userId,
         clusterId,
         create,
         failure,
         behavior,
         provisioner,
+        k8sProvisioner,
         runtimes,
         attach,
         k8s,
@@ -339,7 +359,6 @@ test(
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
-        h.behavior.seedRunner = true
         for (let attempt = 0; attempt < 2; attempt++)
             await assert.rejects(h.create(), (error) => error === h.failure)
         assert.deepEqual(
@@ -377,9 +396,9 @@ test(
             name: 'existing fixture',
             credentials: {},
             clusterId: h.clusterId,
+            framework: 'codex',
             sku: {
                 id: null,
-                framework: 'codex',
                 region: null,
                 cpuMillicores: 1000,
                 memoryMb: 2048,
@@ -417,7 +436,12 @@ test(
         const [row] = await h.db
             .select()
             .from(agentRuntimes)
-            .where(eq(agentRuntimes.userId, h.userId))
+            .where(
+                and(
+                    eq(agentRuntimes.userId, h.userId),
+                    eq(agentRuntimes.kind, 'k8s')
+                )
+            )
         assert.equal(row.status, 'ready')
         assert.deepEqual(
             await h.db
@@ -444,7 +468,6 @@ for (const phase of ['failConfig', 'failDefaults'] as const)
         async (t) => {
             const h = await fixture(t)
             h.behavior.failAttach = false
-            h.behavior.seedRunner = true
             h.behavior[phase] = true
             await assert.rejects(h.create(), (error) => error === h.failure)
             assert.deepEqual(await h.runtimes.listByUser(h.userId), [])
@@ -475,7 +498,7 @@ test(
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
-        h.api.failCreate = 'services'
+        h.api.failCreate = 'deployments'
         await assert.rejects(h.create(), /container provisioning failed/)
         assert.deepEqual(await h.runtimes.listByUser(h.userId), [])
         assert.equal(
@@ -497,8 +520,7 @@ for (const failedStage of ['provision', 'attach'] as const)
         { skip: !RUN, timeout: 30_000 },
         async (t) => {
             const h = await fixture(t)
-            if (failedStage === 'provision') h.api.failCreate = 'services'
-            else h.behavior.seedRunner = true
+            if (failedStage === 'provision') h.api.failCreate = 'deployments'
             h.api.failDelete = 'persistentvolumeclaims'
             await assert.rejects(
                 h.create(),
@@ -613,9 +635,9 @@ test(
             name: 'interrupted fixture',
             credentials: {},
             clusterId: h.clusterId,
+            framework: 'codex',
             sku: {
                 id: null,
-                framework: 'codex',
                 region: null,
                 cpuMillicores: 1000,
                 memoryMb: 2048,
@@ -696,7 +718,7 @@ test(
         const gate = barrier()
         const h = await fixture(t)
         h.behavior.failAttach = false
-        h.api.afterCreate = async (collection) => {
+        h.hooks.afterCreate = async (collection) => {
             if (collection !== 'secrets') return
             gate.enter()
             await bounded(gate.released)
@@ -799,11 +821,7 @@ for (const role of ['user', 'admin'] as const)
                     {
                         db: h.db,
                         runtimes: h.runtimes,
-                        k8sProvisioner: new K8sProvisioner(
-                            h.k8s,
-                            h.runtimes,
-                            h.cleanup
-                        )
+                        k8sProvisioner: h.k8sProvisioner
                     }
                 ) as AdminAgentRuntimesController
                 deletionError = await (
@@ -841,8 +859,12 @@ test(
     'cleanup fences a pod runner registration already holding its token lock',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
+        // The daemon registers just as the create gives up waiting for it:
+        // cleanup must neither miss the runner nor delete anything remote
+        // before that registration commits.
         const gate = barrier()
         const h = await fixture(t)
+        h.behavior.registerRunner = false
         let registrationPid = 0
         const daemonHosts = Object.assign(
             Object.create(DaemonHostService.prototype),
@@ -861,23 +883,29 @@ test(
             }
         ) as DaemonHostService
         let registering: Promise<unknown> | undefined
-        h.behavior.beforeAttach = async (runtime) => {
+        h.hooks.afterCreate = async (collection) => {
+            if (collection !== 'deployments') return
             const [token] = await h.db
                 .select()
                 .from(daemonTokens)
-                .where(eq(daemonTokens.name, podRunnerHostName(runtime.id)))
+                .where(
+                    and(
+                        eq(daemonTokens.userId, h.userId),
+                        eq(daemonTokens.purpose, 'pod_runner')
+                    )
+                )
             registering = daemonHosts.upsertOnRegister({
                 tokenId: token.id,
                 lastIp: null,
                 request: {
                     daemonUuid: randomUUID(),
-                    name: podRunnerHostName(runtime.id),
+                    name: token.name,
                     hostname: null,
                     os: 'linux',
                     arch: 'x64',
                     cliVersion: '3.0.2',
-                    homeDir: '/home/fixture',
-                    workspaceBaseDir: '/workspace',
+                    homeDir: '/home/node',
+                    workspaceBaseDir: '/home/node/.manyfold/workspaces',
                     detectedFrameworks: []
                 }
             })
@@ -886,7 +914,7 @@ test(
         }
         const failed = assert.rejects(
             h.create(),
-            (error) => error === h.failure
+            (error) => error instanceof GatewayTimeoutException
         )
         void failed.catch(() => undefined)
         let deletesBeforeRegistrationCommitted = -1
@@ -945,7 +973,7 @@ test(
     async (t) => {
         const gate = barrier()
         t.after(() => gate.release())
-        const h = await fixture(t, 'openclaw')
+        const h = await fixture(t)
         let pendingRuntime!: AgentRuntimeRow
         h.behavior.beforeAttach = async (runtime) => {
             pendingRuntime = runtime
@@ -1022,7 +1050,7 @@ test(
     }
 )
 
-for (const target of ['parent', 'runner', 'host'] as const)
+for (const target of ['parent', 'runner', 'host', 'pod host'] as const)
     test(
         `runtime row locks fence a concurrent ${target} FK insert through remote deletion and commit`,
         { skip: !RUN, timeout: 30_000 },
@@ -1030,9 +1058,8 @@ for (const target of ['parent', 'runner', 'host'] as const)
             const gate = barrier()
             t.after(() => gate.release())
             const h = await fixture(t)
-            h.behavior.seedRunner = target !== 'parent'
             h.api.beforeDelete = async (collection) => {
-                if (collection === 'ingresses') {
+                if (collection === 'deployments') {
                     gate.enter()
                     await gate.released
                 }
@@ -1070,7 +1097,16 @@ for (const target of ['parent', 'runner', 'host'] as const)
             await writer`set statement_timeout = '5000'`
             const writerDb = drizzle(writer, { schema })
             const insertion =
-                target === 'host'
+                target === 'pod host'
+                    ? writerDb.insert(agentRuntimes).values({
+                          id: createObjectId('agentRuntime'),
+                          userId: h.userId,
+                          name: 'late framework runtime',
+                          framework: 'claude-code',
+                          kind: 'k8s',
+                          hostId: runtime.hostId
+                      })
+                    : target === 'host'
                     ? writerDb.insert(agentRuntimes).values({
                           id: createObjectId('agentRuntime'),
                           userId: h.userId,
@@ -1139,7 +1175,6 @@ test(
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
-        h.behavior.seedRunner = true
         let executions = 0
         const registry = {
             get: () => ({
@@ -1209,7 +1244,6 @@ test(
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
-        h.behavior.seedRunner = true
         const foreignId = createObjectId('agent')
         h.behavior.afterRunner = async () => {
             const [child] = await h.db
@@ -1380,7 +1414,7 @@ test(
             warnings.push(args)
         })
         const h = await fixture(t)
-        h.api.failCreate = 'services'
+        h.api.failCreate = 'deployments'
         h.api.failDelete = 'persistentvolumeclaims'
         h.api.errorBody = {
             arbitrary: 'sensitive-fixture-body',
@@ -1648,8 +1682,8 @@ for (const provisionStage of ['secrets', 'deployments'] as const)
         async (t) => {
             const gate = barrier()
             t.after(() => gate.release())
-            const h = await fixture(t, 'openclaw')
-            h.api.afterCreate = async (collection) => {
+            const h = await fixture(t)
+            h.hooks.afterCreate = async (collection) => {
                 if (collection === provisionStage) {
                     gate.enter()
                     await gate.released
@@ -1769,7 +1803,7 @@ test(
             })
         }
         h.api.beforeDelete = async (collection) => {
-            if (collection === 'ingresses') {
+            if (collection === 'deployments') {
                 gate.enter()
                 await gate.released
             }

@@ -6,12 +6,12 @@ import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { AgentRuntimesController } from './agent-runtimes.controller'
 import { AdminAgentRuntimesController } from './admin-agent-runtimes.controller'
-import { K8sRuntimeSidecarService } from './orchestration/k8s-runtime-sidecar.service'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from './provisioning/pod-runner-provisioner'
 import { K8sCreateCleanupService } from './provisioning/k8s-create-cleanup.service'
+import { PodHostServices } from './provisioning/pod-host-services'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
@@ -50,11 +50,11 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     providers: [
         AdminGuard,
         AgentRuntimesService,
-        K8sRuntimeSidecarService,
         RuntimeDashboardService,
         SpritesProvisioner,
         K8sProvisioner,
         K8sCreateCleanupService,
+        PodHostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
         ClaudeCodeBootstrap,
@@ -71,12 +71,12 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     exports: [
         AgentRuntimesService,
         RuntimeAccountService,
-        K8sRuntimeSidecarService,
         RuntimeDashboardService,
         SpritesProvisioner,
         SpriteKeepAliveLeaseService,
         K8sProvisioner,
         K8sCreateCleanupService,
+        PodHostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
         HermesSpriteBootstrap,

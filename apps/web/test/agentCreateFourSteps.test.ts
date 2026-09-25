@@ -4,6 +4,7 @@ import { listFrameworks } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
     DaemonHostSummary,
+    PodHostSummary,
     RuntimeAccessSummary,
     SandboxSummary,
     UserModelProviderSummary
@@ -61,6 +62,7 @@ const runtime = (
         spriteName: 'sprite',
         spriteId: null,
         hostId: null,
+        podHostName: null,
         mountPath: '/',
         namespace: null,
         ingressHost: null,
@@ -94,6 +96,17 @@ const sandbox = (id: string, name: string): SandboxSummary =>
 
 const daemon = (id: string, name: string): DaemonHostSummary =>
     ({ id, name }) as DaemonHostSummary
+
+const podHost = (
+    over: Partial<PodHostSummary> & Pick<PodHostSummary, 'id'>
+): PodHostSummary =>
+    ({
+        name: 'computer-001',
+        status: 'ready',
+        runtimes: [],
+        agentsCount: 0,
+        ...over
+    }) as PodHostSummary
 
 const access = (over: Partial<RuntimeAccessSummary>): RuntimeAccessSummary =>
     ({
@@ -188,7 +201,8 @@ test('a machine already running agents costs no sign-in; a prepared one does', (
             runtime({ id: 'r2', hostId: 'h2', agentsCount: 0 })
         ],
         sandboxes: [sandbox('h1', 'dev-box'), sandbox('h2', 'sandbox-a1b2')],
-        daemonHosts: []
+        daemonHosts: [],
+        podHosts: []
     })
     const working = rows.find((r) => r.title === 'dev-box')
     const prepared = rows.find((r) => r.title === 'sandbox-a1b2')
@@ -204,7 +218,8 @@ test('a sandbox without the CLI offers to install it, and flags an empty one', (
         framework: 'claude-code',
         runtimes: [],
         sandboxes: [sandbox('h9', 'scratch')],
-        daemonHosts: []
+        daemonHosts: [],
+        podHosts: []
     })
     assert.equal(rows.length, 1)
     assert.equal(rows[0].state, 'needs-install')
@@ -217,7 +232,8 @@ test('your own computer is never installed onto, and says so in place', () => {
         framework: 'gemini-cli',
         runtimes: [],
         sandboxes: [],
-        daemonHosts: [daemon('d1', 'My MacBook')]
+        daemonHosts: [daemon('d1', 'My MacBook')],
+        podHosts: []
     })
     assert.equal(rows[0].state, 'not-installable')
     assert.equal(rows[0].disabled, true)
@@ -236,7 +252,8 @@ test('a service slot already taken stays in the list with its reason', () => {
             })
         ],
         sandboxes: [sandbox('h1', 'dev-box')],
-        daemonHosts: []
+        daemonHosts: [],
+        podHosts: []
     })
     const blocked = rows.find((r) => r.state === 'service-slot-taken')
     assert.ok(blocked, 'the blocked sandbox must not be hidden')
@@ -244,23 +261,80 @@ test('a service slot already taken stays in the list with its reason', () => {
     assert.equal(blocked?.blockedBy, 'hermes')
 })
 
-test('a cloud computer holding another framework is shown, not dropped', () => {
+test('a cloud computer runs whatever is installed on it', () => {
+    // ADR-0035: no framework is fixed at purchase. A host running this
+    // framework is joined; a ready one without it gets it installed on pick.
     const rows = buildMachineOptions({
         framework: 'claude-code',
-        runtimes: [
-            runtime({
-                id: 'r1',
-                kind: 'k8s',
-                framework: 'hermes',
-                clusterName: 'hermes-prod'
-            })
-        ],
+        runtimes: [],
         sandboxes: [],
-        daemonHosts: []
+        daemonHosts: [],
+        podHosts: [
+            podHost({
+                id: 'pdh_1',
+                name: 'computer-001',
+                runtimes: [
+                    runtime({
+                        id: 'r1',
+                        kind: 'k8s',
+                        framework: 'claude-code',
+                        hostId: 'pdh_1',
+                        agentsCount: 2
+                    })
+                ]
+            }),
+            podHost({
+                id: 'pdh_2',
+                name: 'computer-002',
+                runtimes: [
+                    runtime({
+                        id: 'r2',
+                        kind: 'k8s',
+                        framework: 'codex',
+                        hostId: 'pdh_2'
+                    })
+                ]
+            })
+        ]
     })
-    assert.equal(rows[0].state, 'framework-fixed')
-    assert.equal(rows[0].disabled, true)
-    assert.equal(rows[0].blockedBy, 'hermes')
+    const joined = rows.find((r) => r.id === 'runtime:r1')
+    assert.equal(joined?.state, 'ready')
+    assert.equal(joined?.hostKind, 'k8s')
+    assert.equal(joined?.signInCost, 'none')
+    const install = rows.find((r) => r.id === 'podHost:pdh_2')
+    assert.equal(install?.state, 'needs-install')
+    assert.equal(install?.podHostId, 'pdh_2')
+    assert.equal(install?.disabled, false)
+})
+
+test('a service framework installs onto a cloud computer at create', () => {
+    const [row] = buildMachineOptions({
+        framework: 'openclaw',
+        runtimes: [],
+        sandboxes: [],
+        daemonHosts: [],
+        podHosts: [podHost({ id: 'pdh_1' })]
+    })
+    assert.equal(row.state, 'needs-install')
+    assert.equal(row.podHostId, 'pdh_1')
+    assert.equal(row.signInCost, 'install-at-create')
+})
+
+test('a cloud computer that cannot take the agent stays listed with its reason', () => {
+    const [starting, failed] = buildMachineOptions({
+        framework: 'codex',
+        runtimes: [],
+        sandboxes: [],
+        daemonHosts: [],
+        podHosts: [
+            podHost({ id: 'pdh_1', status: 'provisioning' }),
+            podHost({ id: 'pdh_2', status: 'failed' })
+        ]
+    })
+    assert.equal(starting.state, 'unavailable')
+    assert.equal(starting.unavailableReason, 'starting')
+    assert.equal(starting.disabled, true)
+    assert.equal(failed.unavailableReason, 'failed')
 })
 
 test('an exhausted sandbox quota disables the row instead of hiding it', () => {
@@ -465,7 +539,8 @@ test('a service framework installs at create, and its rows owe no sign-in', () =
             runtime({ id: 'r1', framework: 'openclaw', hostId: 'h1', agentsCount: 0 })
         ],
         sandboxes: [sandbox('h1', 'busy'), sandbox('h2', 'empty')],
-        daemonHosts: []
+        daemonHosts: [],
+        podHosts: []
     })
     assert.equal(rows.find((r) => r.id === 'sandbox:h2')?.signInCost, 'install-at-create')
     // Joining the instance that already runs costs nothing more — and never
@@ -689,7 +764,7 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: 'openclaw',
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: ' Bot ',
             workspace: '',
             cost: { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' }
@@ -705,7 +780,7 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: 'hermes',
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: 'H',
             workspace: '',
             cost: {
@@ -720,12 +795,29 @@ test('the create request is the one v3 sends: install onto the sandbox and bind,
     assert.deepEqual(
         serviceCreateBody({
             framework: FIXTURE_FRAMEWORK,
-            sandboxId: 'sb-1',
+            target: { sandboxId: 'sb-1' },
             name: 'N',
             workspace: '/srv/n',
             cost: { kind: 'platform' }
         }),
         { name: 'N', framework: FIXTURE_FRAMEWORK, runtime: 'sprites', sandboxId: 'sb-1', workspace: '/srv/n' }
+    )
+    // Onto a cloud computer, the same request names the host instead.
+    assert.deepEqual(
+        serviceCreateBody({
+            framework: 'openclaw',
+            target: { podHostId: 'pdh_1' },
+            name: 'Bot',
+            workspace: '',
+            cost: { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' }
+        }),
+        {
+            name: 'Bot',
+            framework: 'openclaw',
+            runtime: 'k8s',
+            podHostId: 'pdh_1',
+            openclawCredentials: { providerId: 'm-openai', primaryModelName: 'gpt-5.4-mini' }
+        }
     )
 })
 

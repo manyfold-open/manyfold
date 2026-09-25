@@ -16,13 +16,6 @@ import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-o
 import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { PodRunnerProvisioner } from '@/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
-import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
-import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
-import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
-import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
-import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
-import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
-import { K8sBootstraps } from '@/modules/agents/bootstrap/k8s-bootstraps'
 import { createClient, spriteMkdir, spriteRm } from '@manyfold/sprites'
 import { SpritesAgentAttacher } from '@/modules/agents/adapters/sprites-agent-attacher'
 import { K8sAgentAttacher } from '@/modules/agents/adapters/k8s-agent-attacher'
@@ -113,13 +106,6 @@ import {
         K8sContainerProvisioner,
         PodRunnerProvisioner,
         RuntimeAgentAttachService,
-        ClaudeCodeK8sBootstrap,
-        CodexK8sBootstrap,
-        GeminiCliK8sBootstrap,
-        PiK8sBootstrap,
-        OpenClawBootstrap,
-        HermesBootstrap,
-        K8sBootstraps,
         {
             provide: SpritesAgentAttacher,
             useFactory: (accounts: SpritesAccountsService) =>

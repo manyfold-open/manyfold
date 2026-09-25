@@ -24,6 +24,7 @@ const runtime = (
     spriteName: 'sprite-a',
     spriteId: 'spr_a',
     hostId: 'host_a',
+    podHostName: null,
     mountPath: '/work',
     namespace: null,
     ingressHost: null,

@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
 import {
     FIXTURE,
+    FIXTURE_HOME,
     FIXTURE_FORK,
     FIXTURE_UPSTREAM,
     FixtureSpriteBootstrap,
@@ -381,7 +382,9 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         f.admin as never,
         extensionsWith({
             framework: FIXTURE,
-            version: fixtureVersion
+            version: fixtureVersion,
+            // A rebuild on a sandbox reads the framework's home from here.
+            spriteService: { supervision: { homeDir: FIXTURE_HOME } } as never
         }) as never
     )
     Object.assign(service, { spriteClientFor: async () => sprite.client })
@@ -627,7 +630,7 @@ for (const framework of [FIXTURE, 'hermes'] as const) {
             assert.ok(
                 h.shells[0].includes(
                     framework === 'hermes'
-                        ? `https://raw.githubusercontent.com/${repo}/main/scripts/install.sh`
+                        ? `https://raw.githubusercontent.com/${repo}/${SHARED}/scripts/install.sh`
                         : `https://github.com/${repo}.git`
                 )
             )

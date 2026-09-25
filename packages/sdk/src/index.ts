@@ -14,6 +14,7 @@ export type {
     FilesRootOptions,
     FilesWriteOptions,
     NcaClient,
+    PodHostsClient,
     SkillsClient,
     SkillsInstalledOptions
 } from './client.js'

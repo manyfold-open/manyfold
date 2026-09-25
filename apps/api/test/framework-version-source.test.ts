@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
     FIXTURE,
+    FIXTURE_HOME,
     FIXTURE_FORK,
     FIXTURE_UPSTREAM,
     fixtureVersion
@@ -127,7 +128,8 @@ test('the offered versions and the cloned repository never disagree', async () =
 
     const forkShell = fixtureVersion.rebuildShells!({
         version: FORK_ONLY,
-        repo: (await service.repoFor(FIXTURE))!
+        repo: (await service.repoFor(FIXTURE))!,
+        home: FIXTURE_HOME
     }).rebuild
     assert.ok(forkShell.includes(frameworkRepoCloneUrl(FORK)))
     assert.equal(forkShell.match(/github\.com/g)?.length, 1)
@@ -143,7 +145,8 @@ test('the offered versions and the cloned repository never disagree', async () =
 
     const upstreamShell = fixtureVersion.rebuildShells!({
         version: 'v1.15.0',
-        repo: (await service.repoFor(FIXTURE))!
+        repo: (await service.repoFor(FIXTURE))!,
+        home: FIXTURE_HOME
     }).rebuild
     assert.ok(upstreamShell.includes(frameworkRepoCloneUrl(UPSTREAM)))
     assert.ok(!upstreamShell.includes(FORK))

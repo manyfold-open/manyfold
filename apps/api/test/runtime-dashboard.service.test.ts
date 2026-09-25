@@ -247,34 +247,52 @@ test('getControlUiUrl honors an explicit agentId over the primary agent', async 
 // kind dispatch + toggles
 // ---------------------------------------------------------------------------
 
-test('setControlUi delegates k8s runtimes to the k8s sidecar unchanged', async () => {
-    const delegated: unknown[] = []
+// A cloud computer's gateway is a service of its host's daemon (ADR-0035):
+// the toggle rewrites the service's config and restarts it. The pod and
+// daemon plumbing is bypassed here, as the sprite tests bypass theirs.
+test('cloud computer openclaw toggle reconfigures its service, patches flag and audits', async () => {
+    const audits: Array<Record<string, unknown>> = []
+    const statusPatches: Array<Record<string, unknown>> = []
+    const reconfigured: boolean[] = []
+    const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
     const service = serviceFor({
-        runtimes: runtimesFor([
-            runtime({ framework: 'openclaw', kind: 'k8s' })
-        ]),
-        k8sSidecar: {
-            setControlUi: async (...args: unknown[]) => {
-                delegated.push(args)
-                return { id: 'runtime-1' }
-            }
-        }
+        runtimes: runtimesFor([current, current], statusPatches),
+        db: dbFor({ audits, credsCiphertext: 'ENC1' })
     })
-    const res = await service.setControlUi('user-1', 'runtime-1', true, false)
-    assert.deepEqual(delegated, [['user-1', 'runtime-1', true, false]])
-    assert.deepEqual(res, { id: 'runtime-1' })
+    ;(service as never as Record<string, unknown>).reconfigurePodService =
+        async (_runtime: unknown, enabled: boolean) => {
+            reconfigured.push(enabled)
+        }
+    await service.setControlUi('user-1', 'runtime-1', true, false)
+    assert.deepEqual(reconfigured, [true])
+    assert.deepEqual(statusPatches, [
+        { controlUiEnabled: true, dashboardState: null }
+    ])
+    assert.equal(audits[0].action, 'agent_runtime.control_ui.toggled')
 })
 
-test('setDashboard refuses k8s runtimes and never touches the sidecar', async () => {
-    const delegated: unknown[] = []
+test('cloud computer toggle without pod host services records the failure', async () => {
+    const audits: Array<Record<string, unknown>> = []
+    const statusPatches: Array<Record<string, unknown>> = []
+    const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
     const service = serviceFor({
-        runtimes: runtimesFor([runtime({ framework: 'hermes', kind: 'k8s' })]),
-        k8sSidecar: {
-            setDashboard: async (...args: unknown[]) => {
-                delegated.push(args)
-                return { id: 'runtime-1' }
-            }
-        }
+        runtimes: runtimesFor([current, current], statusPatches),
+        db: dbFor({ audits, credsCiphertext: 'ENC1' })
+    })
+    await assert.rejects(
+        () => service.setControlUi('user-1', 'runtime-1', true, false),
+        /failed to toggle openclaw control UI/
+    )
+    assert.match(
+        String(statusPatches[0]?.dashboardState),
+        /^error:.*no service on this cloud computer/
+    )
+    assert.equal(audits[0].action, 'agent_runtime.control_ui.toggle_failed')
+})
+
+test('setDashboard refuses k8s runtimes', async () => {
+    const service = serviceFor({
+        runtimes: runtimesFor([runtime({ framework: 'hermes', kind: 'k8s' })])
     })
     await assert.rejects(
         () => service.setDashboard('user-1', 'runtime-1', true, false),
@@ -287,10 +305,6 @@ test('setDashboard refuses k8s runtimes and never touches the sidecar', async ()
             return true
         }
     )
-    // The producer is closed, not delegated: the k8s dashboard host was
-    // removed (legacy-inventory §4.8, zero enabled rows measured on prod and
-    // staging [2026-08-28]).
-    assert.deepEqual(delegated, [])
 })
 
 test('sprite openclaw toggle rewrites config, patches flag, releases state and audits', async () => {
@@ -585,14 +599,12 @@ const serviceFor = (deps: {
     runtimes: unknown
     db?: unknown
     crypto?: unknown
-    k8sSidecar?: unknown
     hermesBootstrap?: unknown
     openclawBootstrap?: unknown
 }): RuntimeDashboardService =>
     new RuntimeDashboardService(
         (deps.db ?? auditDb()) as never,
         deps.runtimes as never,
-        (deps.k8sSidecar ?? {}) as never,
         {} as never,
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,

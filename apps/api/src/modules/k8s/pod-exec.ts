@@ -67,6 +67,18 @@ export class PodExec {
         )
     }
 
+    // run() carries stdin in the gateway's request body, which the gateway
+    // caps (1 MiB by default); a payload past that goes over the websocket.
+    async runOverSocket(req: PodExecStreamRequest): Promise<PodExecRunResult> {
+        const handle = this.stream(req)
+        const [stdout, stderr, result] = await Promise.all([
+            drainText(handle.stdout),
+            drainText(handle.stderr),
+            handle.result
+        ])
+        return { exitCode: result.exitCode, stdout, stderr }
+    }
+
     stream(req: PodExecStreamRequest): PodExecStreamHandle {
         const core = this.streamCore(req.cmd, req.timeoutMs)
         if (req.stdin !== undefined) core.stdinWrite(req.stdin)
@@ -279,6 +291,18 @@ const parseExitCode = (status: V1Status): number => {
         if (m) return Number(m[1])
     }
     return 1
+}
+
+// A failed exec destroys its output streams; the handle's result carries the
+// failure, so draining keeps whatever arrived and stops quietly.
+export const drainText = async (
+    chunks: AsyncIterable<string>
+): Promise<string> => {
+    let text = ''
+    try {
+        for await (const chunk of chunks) text += chunk
+    } catch {}
+    return text
 }
 
 const readableToAsyncStrings = (stream: Readable): AsyncIterable<string> => ({

@@ -7,6 +7,7 @@ import type {
     CreateAgentBody,
     DaemonHostSummary,
     FrameworkAgentSummary,
+    PodHostSummary,
     RuntimeAccessSummary,
     SandboxSummary,
     UserExternalAgentProviderSummary,
@@ -37,6 +38,7 @@ export interface AgentCreateLoadState {
     runtimesError: string | null
     daemonHosts: DaemonHostSummary[]
     sandboxes: SandboxSummary[]
+    podHosts: PodHostSummary[]
     runtimeAccess: RuntimeAccessSummary | null
     runtimeAgents: Record<string, FrameworkAgentSummary[]>
     runtimeAgentsLoading: boolean
@@ -83,6 +85,7 @@ export const useAgentCreate = (): UseAgentCreateResult => {
     const [runtimesError, setRuntimesError] = useState<string | null>(null)
     const [daemonHosts, setDaemonHosts] = useState<DaemonHostSummary[]>([])
     const [sandboxes, setSandboxes] = useState<SandboxSummary[]>([])
+    const [podHosts, setPodHosts] = useState<PodHostSummary[]>([])
     const [runtimeAccess, setRuntimeAccess] =
         useState<RuntimeAccessSummary | null>(null)
     const [runtimeAgents, setRuntimeAgents] = useState<
@@ -112,16 +115,18 @@ export const useAgentCreate = (): UseAgentCreateResult => {
         void refetchProviders()
     }, [refetchProviders])
 
-    // Runtimes and daemon hosts are refetched together: a freshly-connected
-    // machine that lacks the target framework has no runtime row yet, so the
-    // reuse list leans on the host list (with its detected frameworks) to show
-    // it as an unavailable option. `refetchRuntimes` powers both the reuse
+    // Runtimes and the hosts they run on are refetched together: a
+    // freshly-connected machine or a cloud computer that lacks the target
+    // framework has no runtime row yet, so the reuse list leans on the host
+    // lists to show it as an option. `refetchRuntimes` powers both the reuse
     // list's refresh control and the post-connect-dialog refresh.
     const refetchRuntimes = useCallback(async (): Promise<void> => {
-        const [runtimeResult, hostResult] = await Promise.allSettled([
-            client.agentRuntimes.list(),
-            client.daemons.listHosts()
-        ])
+        const [runtimeResult, hostResult, podHostResult] =
+            await Promise.allSettled([
+                client.agentRuntimes.list(),
+                client.daemons.listHosts(),
+                (async () => client.podHosts.list())()
+            ])
         if (runtimeResult.status === 'fulfilled') {
             setRuntimes(runtimeResult.value)
             setRuntimesError(null)
@@ -129,6 +134,8 @@ export const useAgentCreate = (): UseAgentCreateResult => {
             setRuntimesError(apiErrorMessage(runtimeResult.reason))
         }
         if (hostResult.status === 'fulfilled') setDaemonHosts(hostResult.value)
+        if (podHostResult.status === 'fulfilled')
+            setPodHosts(podHostResult.value)
     }, [client])
 
     useEffect(() => {
@@ -334,6 +341,7 @@ export const useAgentCreate = (): UseAgentCreateResult => {
         runtimesError,
         daemonHosts,
         sandboxes,
+        podHosts,
         runtimeAccess,
         runtimeAgents,
         runtimeAgentsLoading,

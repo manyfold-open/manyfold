@@ -210,8 +210,8 @@ const groupHealth = (runtimes: AgentRuntimeSummary[]): Health => {
 const vmKeyOf = (r: AgentRuntimeSummary): string => {
     if (r.kind === 'daemon') return `daemon:${r.daemonId ?? r.id}`
     if (r.kind === 'sprites') return `sprite:${r.hostId ?? r.spriteId ?? r.id}`
-    if (r.kind === 'k8s')
-        return `k8s:${r.clusterId ?? r.id}:${r.namespace ?? ''}`
+    // One cloud computer carries a runtime per framework (ADR-0035).
+    if (r.kind === 'k8s') return `k8s:${r.hostId ?? r.id}`
     return `external:${r.id}`
 }
 
@@ -221,7 +221,9 @@ const vmLabelOf = (r: AgentRuntimeSummary, t: TFn): string => {
         return r.spriteName ?? t('web.agentRuntimesList.sandbox')
     if (r.kind === 'k8s')
         return (
-            r.clusterName ?? r.namespace ?? t('web.agentRuntimesList.cluster')
+            r.podHostName ??
+            r.clusterName ??
+            t('web.agentRuntimesList.cluster')
         )
     return r.name
 }

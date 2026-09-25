@@ -8,7 +8,6 @@ import {
 import type { FsEntry, FsEntryType } from '@manyfold/sprites'
 import type { PodExec } from '@/modules/k8s/pod-exec'
 import { containmentPrelude, isContainmentExit } from '@manyfold/sprites'
-import { mimeFromPath } from '@/modules/agents/files/k8s-files-client'
 
 const LIST_TIMEOUT_MS = 30_000
 const STAT_TIMEOUT_MS = 30_000
@@ -22,6 +21,42 @@ export const POD_EXEC_READ_MAX_BYTES = 50 * 1024 * 1024
 export const POD_EXEC_WRITE_MAX_BYTES = 5 * 1024 * 1024
 const READ_MAX_BYTES = POD_EXEC_READ_MAX_BYTES
 const WRITE_MAX_BYTES = POD_EXEC_WRITE_MAX_BYTES
+
+const mimeFromPath = (path: string): string => {
+    const ext = path.toLowerCase().split('.').pop() ?? ''
+    const map: Record<string, string> = {
+        txt: 'text/plain',
+        md: 'text/markdown',
+        markdown: 'text/markdown',
+        html: 'text/html',
+        htm: 'text/html',
+        css: 'text/css',
+        js: 'text/javascript',
+        mjs: 'text/javascript',
+        ts: 'application/typescript',
+        tsx: 'application/typescript',
+        json: 'application/json',
+        jsonl: 'application/x-ndjson',
+        ndjson: 'application/x-ndjson',
+        yml: 'application/yaml',
+        yaml: 'application/yaml',
+        toml: 'application/toml',
+        xml: 'application/xml',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        svg: 'image/svg+xml',
+        webp: 'image/webp',
+        pdf: 'application/pdf',
+        zip: 'application/zip',
+        py: 'text/x-python',
+        sh: 'application/x-sh',
+        env: 'text/plain',
+        log: 'text/plain'
+    }
+    return map[ext] ?? 'application/octet-stream'
+}
 
 const shellEscape = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
@@ -214,7 +249,7 @@ export class K8sPodFilesClient {
         const dir = shellEscape(posix.dirname(trimmed))
         const script = `mkdir -p ${dir} && ${this.guard(trimmed)}base64 -d > ${q}`
         const stdin = body.toString('base64')
-        const result = await this.podExec.run({
+        const result = await this.podExec.runOverSocket({
             cmd: ['bash', '-c', script],
             timeoutMs: WRITE_TIMEOUT_MS,
             stdin

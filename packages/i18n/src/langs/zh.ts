@@ -3525,7 +3525,9 @@ const zh: Translations = {
                 needsInstallIdle: '要先装 {{cli}}；这台上面什么都没有',
                 notInstallable: '你电脑上没有 {{cli}}。自己装好之后 daemon 约五分钟内会发现它',
                 slotTaken: '已经在跑 {{other}}，而一个沙箱只有一个公网端口',
-                frameworkFixed: '这台在购买时随镜像定死为 {{other}}'
+                podHostStarting: '还在启动，就绪后才能加入 agent',
+                podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
+                podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
             },
             newMachine: {
                 sandbox: '新建沙箱',
@@ -4069,6 +4071,7 @@ const zh: Translations = {
             startupSystemdUser: '自动启动 · 登录时（systemd）',
             startupSystemdSystem: '自动启动 · 开机时（systemd）',
             startupManual: '手动',
+            startupContainer: '自动启动 · 容器',
             startupUnknown: '启动方式未知'
         },
         agentNewV3: {
@@ -4225,7 +4228,7 @@ const zh: Translations = {
         buyContainer: {
             title: '购买容器',
             description:
-                '每个容器都是运行框架的独立 k8s Pod，规格取决于所选 SKU。多个 Agent 可以共享一个容器。',
+                '每个容器都是一台独立的云电脑，规格取决于所选 SKU。Agent 需要的框架会在创建时装到上面，多个 Agent 可以共享一台。',
             purchased: '已购买 {{name}}！正在配置你的容器。',
             purchaseDisabled: '自助购买即将推出，请联系管理员为你分配容器。',
             noSkus: '目前没有可用 SKU，请稍后再来。',
@@ -4242,8 +4245,22 @@ const zh: Translations = {
             description:
                 '平台租用的常驻运行时。每台云电脑都是可承载多个 Agent 的独立 k8s Pod。',
             empty: '还没有云电脑。租用一台来部署常驻运行时。',
-            tag: '云电脑',
-            contains: '包含 {{count}} 个 Agent'
+            contains: '包含 {{count}} 个 Agent',
+            create: '新建云电脑',
+            creating: '创建中…',
+            emptyCreate: '还没有云电脑。创建一台，让 Agent 一直在线。',
+            resources: '{{cpu}} vCPU · {{memory}} GiB 内存 · {{disk}} GiB 磁盘',
+            cli: 'Manyfold CLI {{version}}',
+            starting: '正在启动，大约需要一两分钟',
+            noFrameworks: '还没有安装任何框架',
+            install: '安装 {{cli}}',
+            installing: '正在安装 {{cli}}…',
+            updateCli: '把 Manyfold CLI 更新到 {{version}}',
+            updating: '更新中…',
+            delete: '删除',
+            deleting: '删除中…',
+            deleteTitle: '删除 {{name}}？',
+            deleteDescription: '它上面的 Agent、已安装的框架和主目录会一起删除。输入它的名称以确认。'
         },
         managedModelProvider: {
             title: '创建托管密钥',

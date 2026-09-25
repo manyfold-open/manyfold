@@ -1,25 +1,26 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ConflictException, ForbiddenException } from '@nestjs/common'
+import {
+    BadRequestException,
+    ConflictException,
+    ForbiddenException
+} from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
+import { assertPodHostFramework } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 
 // #971: a k8s create without a purchased container. The port decides the
 // edition's answer — cloud keeps CONTAINER_REQUIRED, the open default
-// provisions a container on the fly so BYO k8s actually works on a
+// provisions a pod host on the fly so BYO k8s actually works on a
 // self-hosted install (§6.3). These tests pin both answers and the gate
 // order (master toggle before any provisioning).
 
 const dto = {
     name: 'byo-k8s',
-    framework: 'openclaw',
+    framework: 'codex',
     runtime: 'k8s',
     clusterId: 'clus_1',
-    openclawCredentials: {
-        modelProvider: 'openai',
-        apiKey: 'sk-test',
-        primaryModelName: 'gpt-test'
-    }
+    codexCredentials: { openaiApiKey: 'sk-test' }
 }
 
 interface Harness {
@@ -39,7 +40,8 @@ const makeService = (opts: {
     const freshRuntime = {
         id: 'art_fresh',
         kind: 'k8s',
-        framework: 'openclaw',
+        framework: 'codex',
+        hostId: 'pdh_fresh',
         status: 'ready'
     }
     const provisioner =
@@ -79,9 +81,9 @@ const makeService = (opts: {
         } as never, // attach
         {
             resolve: async () => ({
-                framework: 'openclaw',
+                framework: 'codex',
                 providerId: null,
-                value: { resolved: 'openclaw-creds' }
+                value: { resolved: 'codex-creds' }
             })
         } as never, // credentialsResolver
         {} as never, // backups
@@ -89,9 +91,21 @@ const makeService = (opts: {
         {} as never, // modelConfig
         {
             getCachedFrameworkRuntimeDefaults: async () => ({}),
+            getCachedFrameworkDefaultVersions: async () => ({ defaults: {} }),
             isFeatureEnabled: async () => opts.toggleEnabled !== false
         } as never, // adminSettings
-        {} as never, // frameworkVersions
+        {
+            latestForFresh: async () => '1.2.3',
+            // What a git-sourced framework installs from: the catalog of the
+            // repository its versions were admitted from.
+            catalogForFresh: async () => ({
+                latest: 'v2026.9.24',
+                versions: ['v2026.9.24'],
+                prereleases: [],
+                sourceRepo: 'NousResearch/hermes-agent',
+                fetchedAt: '2026-09-25T00:00:00.000Z'
+            })
+        } as never, // frameworkVersions
         { getFrameworkRuntimeOverrides: async () => ({}) } as never, // users
         {} as never, // moduleRef
         { recordFirstAgentCreated: async () => undefined } as never, // attribution
@@ -146,7 +160,7 @@ test('missing provisioner degrades to CONTAINER_REQUIRED instead of a 500', asyn
     )
 })
 
-test('self-serve create provisions a container and attaches the agent to it', async () => {
+test('self-serve create provisions a pod host and attaches the agent to it', async () => {
     const h = makeService({ cloudComputer: openCloudComputerPort })
     const summary = (await h.service.create(ctx)) as { id: string }
     assert.equal(summary.id, h.attachCalls[0].agentCreateId)
@@ -156,13 +170,18 @@ test('self-serve create provisions a container and attaches the agent to it', as
         input.sku,
         {
             id: null,
-            framework: 'openclaw',
             region: null,
             cpuMillicores: 1000,
             memoryMb: 2048,
             diskGb: 10
         },
-        'a self-serve container carries no SKU and no region — the open default attach-denial port treats every runtime as freely attachable'
+        'a self-serve host carries no SKU and no region — the open default attach-denial port treats every host as freely attachable'
+    )
+    assert.equal(input.framework, 'codex', 'the host is compute only; the framework is its first runtime')
+    assert.deepEqual(
+        input.frameworkVersion,
+        { version: '1.2.3', source: 'latest' },
+        'the install version is resolved before provisioning, as on a sprite'
     )
     assert.equal(
         input.clusterId,
@@ -171,8 +190,8 @@ test('self-serve create provisions a container and attaches the agent to it', as
     )
     assert.deepEqual(
         input.credentials,
-        { resolved: 'openclaw-creds' },
-        'the provisioner must receive RESOLVED credentials (the bootstrap env secret is built from them), not the raw dto shape'
+        { resolved: 'codex-creds' },
+        'the provisioner must receive RESOLVED credentials (the runtime row stores them), not the raw dto shape'
     )
     assert.equal(h.attachCalls.length, 1)
     assert.equal(
@@ -186,6 +205,37 @@ test('port absence falls back to the open default and provisions', async () => {
     const h = makeService({ cloudComputer: undefined })
     await h.service.create(ctx)
     assert.equal(h.provisionCalls.length, 1)
+})
+
+test('a cloud computer runs the coding and service frameworks, nothing else', () => {
+    for (const framework of ['codex', 'claude-code', 'openclaw', 'hermes'])
+        assert.doesNotThrow(() => assertPodHostFramework(framework))
+    assert.throws(
+        () => assertPodHostFramework('dify'),
+        (err: unknown) =>
+            err instanceof BadRequestException &&
+            (err.getResponse() as { code?: string }).code ===
+                'FRAMEWORK_NOT_ON_POD_HOST'
+    )
+})
+
+test('a service framework is provisioned onto a pod host', async () => {
+    const h = makeService({ cloudComputer: openCloudComputerPort })
+    await h.service.create({
+        userId: 'usr_1',
+        dto: { ...dto, framework: 'hermes' },
+        isAdmin: false
+    } as never)
+    assert.equal(
+        h.provisionCalls.length,
+        1,
+        'the host daemon supervises its services (ADR-0035 P2)'
+    )
+    assert.equal(
+        h.provisionCalls[0].frameworkRepo,
+        'NousResearch/hermes-agent',
+        'a cloned framework installs from the repository its version was admitted from'
+    )
 })
 
 test('the cloud_computer master toggle blocks self-serve provisioning', async () => {
@@ -204,13 +254,14 @@ test('the cloud_computer master toggle blocks self-serve provisioning', async ()
     assert.equal(h.provisionCalls.length, 0)
 })
 
-// ---- Phase-4 (§4.1): the attach-denial seam carries the runtime identity ----
+// ---- the attach-denial seam carries the pod host identity (ADR-0035) ----
 
 const ownedRuntime = {
     id: 'art_owned',
     userId: 'usr_1',
     kind: 'k8s',
-    framework: 'openclaw',
+    framework: 'codex',
+    hostId: 'pdh_owned',
     status: 'ready'
 }
 
@@ -220,7 +271,7 @@ const attachCtx = {
     isAdmin: false
 } as never
 
-test('attach passes the runtime identity to the port and an async denial still denies', async () => {
+test('attach passes the pod host identity to the port and an async denial still denies', async () => {
     const seen: Array<Record<string, unknown>> = []
     const h = makeService({
         runtime: ownedRuntime,
@@ -242,8 +293,8 @@ test('attach passes the runtime identity to the port and an async denial still d
     )
     assert.deepEqual(
         seen,
-        [{ runtimeId: 'art_owned', isAdmin: false }],
-        'the adapter resolves the purchase from its own subscription rows by runtime id (design §9 Phase-4)'
+        [{ podHostId: 'pdh_owned', isAdmin: false }],
+        'a purchase buys a pod host, so the adapter resolves it by host id (ADR-0035)'
     )
 })
 

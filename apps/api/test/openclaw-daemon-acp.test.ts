@@ -56,6 +56,7 @@ const buildRig = (script: {
     result: { ok: Record<string, unknown> | undefined } | { error: string }
     clientFeatures?: string[]
     detectedFrameworks?: DetectedFramework[]
+    agent?: { runtime?: string }
     onBudgets?: () => void
 }) => {
     const calls: StreamCall[] = []
@@ -101,7 +102,8 @@ const buildRig = (script: {
                                 runtime: 'daemon',
                                 internalId: 'oc1',
                                 daemonId: 'dh_byod',
-                                workspacePath: '/not-yet-created/workspace'
+                                workspacePath: '/not-yet-created/workspace',
+                                ...script.agent
                             }
                         ]
                     }
@@ -244,6 +246,18 @@ test('the ask mode and a model pick ride the payload as a sessions.patch', async
         assert.equal(rig.calls[0].payload.permissionMode, 'default')
 })
 
+test('a model that is already a primary/ ref is not prefixed again', async () => {
+        const rig = buildRig({
+            lines: [noteLine('ok')],
+            result: { ok: finalWithUsage('end_turn') }
+        })
+        await drain(
+            rig.adapter.sendMessage(ctx({ modelOverride: 'primary/gpt-x' }), USER_MSG)
+        )
+        const patch = rig.calls[0].payload.patch as { model?: string } | undefined
+        assert.equal(patch?.model, 'primary/gpt-x')
+})
+
 test('a turn that ends without a stopReason suspends rather than terminalizing', async () => {
         const rig = buildRig({
             lines: [noteLine('partial')],
@@ -329,6 +343,23 @@ test('a daemon host with no openclaw detected is refused, not dispatched', async
     assert.equal(err?.code, 'openclaw_daemon_gateway_unavailable')
     assert.equal(err?.retryable, false)
     assert.match(err?.message ?? '', /install openclaw/)
+})
+
+test('a cloud computer\'s gateway is the platform\'s service: no detection gate', async () => {
+    const rig = buildRig({
+        lines: [noteLine('ok')],
+        result: { ok: finalWithUsage('end_turn') },
+        detectedFrameworks: [],
+        agent: { runtime: 'k8s' }
+    })
+    const events = await drain(
+        rig.adapter.sendMessage(
+            ctx({ runtimeKind: 'k8s', runnerDaemonId: 'dh_pod' }),
+            USER_MSG
+        )
+    )
+    assert.equal(errorOf(events), undefined)
+    assert.equal(rig.calls[0].daemonId, 'dh_pod')
 })
 
 test('a daemon host whose openclaw has no gateway configured is refused', async () => {

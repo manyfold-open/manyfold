@@ -240,6 +240,12 @@ export const apiPaths = {
     SANDBOX_TASK_BY_NAME: (id: string, name: string) =>
         `/sandboxes/${id}/tasks/${encodeURIComponent(name)}`,
     SANDBOX_STOP: (id: string) => `/sandboxes/${id}/stop`,
+    POD_HOSTS: '/pod-hosts',
+    POD_HOST_BY_ID: (id: string) => `/pod-hosts/${id}`,
+    POD_HOST_RENAME: (id: string) => `/pod-hosts/${id}/name`,
+    POD_HOST_CLI_UPGRADE: (id: string) => `/pod-hosts/${id}/cli/upgrade`,
+    POD_HOST_FRAMEWORK_RUNTIME: (id: string, framework: string) =>
+        `/pod-hosts/${id}/frameworks/${framework}/runtime`,
     CLI_VERSIONS: '/cli/versions',
     ADMIN_AGENT_RUNTIMES: '/admin/agent-runtimes',
     ADMIN_AGENT_RUNTIME_BY_ID: (id: string) => `/admin/agent-runtimes/${id}`,

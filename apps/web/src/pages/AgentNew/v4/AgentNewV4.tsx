@@ -195,9 +195,17 @@ const AgentNewV4: FC = (): ReactNode => {
                       framework,
                       runtimes: create.runtimes,
                       sandboxes: create.sandboxes,
-                      daemonHosts: create.daemonHosts
+                      daemonHosts: create.daemonHosts,
+                      podHosts: create.podHosts
                   }),
-        [framework, onMachine, create.runtimes, create.sandboxes, create.daemonHosts]
+        [
+            framework,
+            onMachine,
+            create.runtimes,
+            create.sandboxes,
+            create.daemonHosts,
+            create.podHosts
+        ]
     )
     const newMachines = useMemo(
         () =>
@@ -298,6 +306,34 @@ const AgentNewV4: FC = (): ReactNode => {
                 ownComputer: row.ownComputer
             }
         try {
+            // A cloud computer gets the framework installed on it here, as a
+            // sandbox does — or, for a service framework, at create.
+            if (row !== undefined && row.podHostId !== null) {
+                if (deferred)
+                    return {
+                        kind: 'runtime',
+                        runtimeId: null,
+                        sandboxId: null,
+                        podHostId: row.podHostId,
+                        hostKind: 'k8s',
+                        hostLabel: row.title,
+                        ownComputer: false
+                    }
+                setPreparing(row.title)
+                const runtime = await client.podHosts.prepareRuntime(
+                    row.podHostId,
+                    framework
+                )
+                await create.refetchRuntimes()
+                return {
+                    kind: 'runtime',
+                    runtimeId: runtime.id,
+                    sandboxId: null,
+                    hostKind: 'k8s',
+                    hostLabel: row.title,
+                    ownComputer: false
+                }
+            }
             if (row !== undefined && row.sandboxId !== null) {
                 if (deferred)
                     return {
@@ -395,14 +431,20 @@ const AgentNewV4: FC = (): ReactNode => {
         // sandbox AND creates the agent — `POST /agents` with `sandboxId`, the
         // path v3 has always taken, so the provider chosen in step ③ reaches
         // the install. Everything else joins a runtime that already exists.
+        const installTarget =
+            target.podHostId !== undefined
+                ? { podHostId: target.podHostId }
+                : target.sandboxId !== null
+                  ? { sandboxId: target.sandboxId }
+                  : null
         const created =
             target.runtimeId === null
-                ? target.sandboxId === null
+                ? installTarget === null
                     ? null
                     : await create.submitCreateStream({
                           body: serviceCreateBody({
                               framework: flow.framework,
-                              sandboxId: target.sandboxId,
+                              target: installTarget,
                               name: flow.name,
                               workspace:
                                   defaultWorkspace === null
@@ -410,7 +452,10 @@ const AgentNewV4: FC = (): ReactNode => {
                                       : flow.workspace,
                               cost: flow.cost
                           }),
-                          steps: stepsFor(flow.framework, 'sprites')
+                          steps: stepsFor(
+                              flow.framework,
+                              'podHostId' in installTarget ? 'k8s' : 'sprites'
+                          )
                       })
                 : await create.submitAddToRuntime({
                       runtimeId: target.runtimeId,

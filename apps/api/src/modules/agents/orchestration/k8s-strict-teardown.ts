@@ -1,18 +1,24 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { Observable, type ConfigurationOptions } from '@kubernetes/client-node'
 import { isApiNotFound, type K8sApis } from '@/modules/k8s/kubernetes.service'
-import { resourceName } from './k8s-resource-builder'
+import {
+    podHostResourceName,
+    podHostSecretName,
+    podHostSelector
+} from '@/modules/agent-runtimes/provisioning/pod-host-resources'
 
-// Failed fresh creates keep their tracking row until every owned resource is
-// absent. The ordinary explicit/purchased teardown retains its older contract.
-export const teardownCreatedK8sRuntime = async (args: {
+// Removes every Kubernetes object of a pod host (ADR-0035) and returns only once
+// each is gone — a failed fresh create keeps its tracking row until then, and a
+// deleted host must not leave its PVC behind.
+export const teardownCreatedPodHost = async (args: {
     apis: K8sApis
     namespace: string
-    runtimeId: string
+    hostId: string
     signal: AbortSignal
 }): Promise<void> => {
-    const { apis, namespace, runtimeId, signal } = args
-    const name = resourceName(runtimeId)
+    const { apis, namespace, hostId, signal } = args
+    const name = podHostResourceName(hostId)
+    const selector = podHostSelector(hostId)
     const options: ConfigurationOptions = {
         middlewareMergeStrategy: 'append',
         middleware: [
@@ -61,22 +67,34 @@ export const teardownCreatedK8sRuntime = async (args: {
                     options
                 )
         )
-    await ingress(name)
-    const sidecars = await apis.networking.listNamespacedIngress(
-        {
-            namespace,
-            labelSelector: `nca.netmind.ai/agent-id=${runtimeId}`
-        },
+    const ingresses = await apis.networking.listNamespacedIngress(
+        { namespace, labelSelector: selector },
         options
     )
-    for (const sidecar of sidecars.items ?? []) {
-        const sidecarName = sidecar.metadata?.name
-        if (sidecarName && sidecarName !== name) await ingress(sidecarName)
+    for (const item of ingresses.items ?? []) {
+        const ingressName = item.metadata?.name
+        if (ingressName) await ingress(ingressName)
     }
-    await remove(
-        () => apis.core.deleteNamespacedService({ name, namespace }, options),
-        () => apis.core.readNamespacedService({ name, namespace }, options)
+    const services = await apis.core.listNamespacedService(
+        { namespace, labelSelector: selector },
+        options
     )
+    for (const item of services.items ?? []) {
+        const serviceName = item.metadata?.name
+        if (!serviceName) continue
+        await remove(
+            () =>
+                apis.core.deleteNamespacedService(
+                    { name: serviceName, namespace },
+                    options
+                ),
+            () =>
+                apis.core.readNamespacedService(
+                    { name: serviceName, namespace },
+                    options
+                )
+        )
+    }
     await remove(
         () =>
             apis.apps.deleteNamespacedDeployment(
@@ -89,10 +107,7 @@ export const teardownCreatedK8sRuntime = async (args: {
     while (true) {
         signal.throwIfAborted()
         const pods = await apis.core.listNamespacedPod(
-            {
-                namespace,
-                labelSelector: `nca.netmind.ai/agent-id=${runtimeId}`
-            },
+            { namespace, labelSelector: selector },
             options
         )
         if ((pods.items?.length ?? 0) === 0) break
@@ -113,12 +128,12 @@ export const teardownCreatedK8sRuntime = async (args: {
     await remove(
         () =>
             apis.core.deleteNamespacedSecret(
-                { name: `${name}-env`, namespace },
+                { name: podHostSecretName(hostId), namespace },
                 options
             ),
         () =>
             apis.core.readNamespacedSecret(
-                { name: `${name}-env`, namespace },
+                { name: podHostSecretName(hostId), namespace },
                 options
             )
     )

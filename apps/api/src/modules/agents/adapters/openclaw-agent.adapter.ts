@@ -1,7 +1,7 @@
 import type { AgentFramework } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
 import { sanitizeMessage } from '@/modules/agents/agents.controller'
-import { openclawDefaultWorkspace } from '@/modules/agents/bootstrap/openclaw'
+import { openclawDefaultWorkspace } from '@/modules/agents/bootstrap/openclaw-shared'
 import {
     assertWorkspaceUsableWithFrameworkExec,
     normalizeWorkspacePathInput
@@ -54,12 +54,8 @@ export class OpenclawAgentAdapter implements AgentAdapter {
     async deleteAgent(): Promise<void> {}
 
     async listAgents(ctx: AgentAdapterListContext): Promise<FrameworkAgent[]> {
-        const { runtime, primaryAgentId } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const res = await exec.run({
             cmd: ['openclaw', 'agents', 'list', '--json'],
             timeoutMs: EXEC_TIMEOUT_MS
@@ -72,12 +68,8 @@ export class OpenclawAgentAdapter implements AgentAdapter {
     }
 
     async addAgent(ctx: AddAgentContext): Promise<AddAgentResult> {
-        const { runtime, primaryAgentId, internalId, workspace, model } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime, internalId, workspace, model } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const normalizedWorkspace = normalizeWorkspacePathInput(workspace)
         if (normalizedWorkspace)
             await assertWorkspaceUsableWithFrameworkExec(
@@ -146,12 +138,8 @@ export class OpenclawAgentAdapter implements AgentAdapter {
     }
 
     async removeAgent(ctx: RemoveAgentContext): Promise<void> {
-        const { runtime, agent, primaryAgentId } = ctx
-        const exec = await this.execResolver.forRuntime(
-            runtime,
-            primaryAgentId,
-            this.log
-        )
+        const { runtime, agent } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         const res = await exec.run({
             cmd: [
                 'openclaw',

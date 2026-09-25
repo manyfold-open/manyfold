@@ -32,6 +32,13 @@ export const resolveAutoUpdateEnabled = (opts: {
             enabled: false,
             reason: 'no init unit to respawn after a self-update'
         }
+    // A pod host's version is the platform's call, like a sprite runner's: it
+    // upgrades through daemon.update, never on the daemon's own schedule.
+    if (opts.startupMethod === 'container')
+        return {
+            enabled: false,
+            reason: 'the platform upgrades a container daemon'
+        }
     const env = opts.envValue?.trim().toLowerCase()
     if (env) {
         if (['0', 'false', 'off', 'no'].includes(env))

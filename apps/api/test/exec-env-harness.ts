@@ -68,9 +68,7 @@ export const DAEMON_BASE_ENV: Record<string, string> = {
 }
 
 // Same composition again for a coding k8s agent, and it exists for the same
-// reason: a pod-runner turn spawns per exec. Note where it is and is not
-// attached below — the handle exposes it, the pod-exec driver never receives
-// it, which is what keeps the direct k8s transport on the pod Secret.
+// reason: a pod host's daemon spawns per exec (ADR-0035).
 export const K8S_BASE_ENV: Record<string, string> = {
     ...EXTRAS_MARKERS,
     ...CONNECTION_MARKERS,
@@ -174,10 +172,9 @@ const captureDriver = (
 })
 
 // The factory handle each runtime produces. The sprites branch builds the full
-// baseEnv; a coding daemon gets the connection + extras env (#781); a coding
-// k8s agent gets it too, but ONLY on the handle — its direct pod-exec driver
-// still inherits the pod Secret and nothing else. A service or external daemon
-// hands the adapter a driver with nothing attached.
+// baseEnv; a coding daemon gets the connection + extras env (#781), and so
+// does a coding k8s agent. A service or external daemon hands the adapter a
+// driver with nothing attached.
 const factoryHandleFor = (
     seam: Seam,
     runtime: AgentRuntime,
@@ -193,9 +190,6 @@ const factoryHandleFor = (
               : runtime === 'k8s' && coding
                 ? K8S_BASE_ENV
                 : undefined
-    // Mirrors ExecDriverFactory: the sprites driver is CONSTRUCTED with the
-    // base env, the k8s one is not. Getting this wrong would let the pod-exec
-    // cell claim env its production driver never carries.
     const driverEnv = baseEnv
     return {
         driver: captureDriver(seam, runtime === 'daemon' ? 'factory' : 'runner', driverEnv, authContext),

@@ -9,6 +9,7 @@ import { AgentAdapterRegistry } from '../src/modules/agents/adapters/adapter-reg
 import { FrameworkExtensionsRegistry } from '../src/modules/frameworks/framework-extensions.registry'
 import type { FrameworkExtension } from '../src/modules/frameworks/framework-extension'
 import { frameworkVersionDescriptor } from '../src/modules/framework-versions/framework-version-registry'
+import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod-service-frameworks'
 
 // Runs in its own process (node --test), so the definition this file
 // registers never reaches another test file.
@@ -48,7 +49,6 @@ const complete = (): FrameworkExtension => ({
             fallbackExec: () => ['fixture']
         }
     },
-    k8sBootstrap: adapter('fixture-gateway'),
     version: {
         descriptor: {
             framework: 'fixture-gateway',
@@ -58,6 +58,22 @@ const complete = (): FrameworkExtension => ({
             probeShell: 'true'
         },
         rebuildShells: () => ({ rebuild: 'true', restore: 'true' })
+    },
+    podService: {
+        framework: 'fixture-gateway',
+        serviceName: 'fixture-gateway',
+        home: '/home/node/.fixture',
+        port: 9000,
+        install: async () => '1.0.0',
+        configure: async () => ({
+            spec: {
+                name: 'fixture-gateway',
+                command: ['fixture'],
+                dir: '/home/node/.fixture',
+                env: {}
+            },
+            generatedCredentials: {}
+        })
     },
     files: {
         resolveRoots: async () => [],
@@ -79,12 +95,7 @@ test('an extension must match a registered definition, slot for slot', () => {
             }),
         /adapters name another framework/
     )
-    for (const slot of [
-        'spriteService',
-        'k8sBootstrap',
-        'version',
-        'files'
-    ] as const)
+    for (const slot of ['spriteService', 'podService', 'version', 'files'] as const)
         assert.throws(
             () => registry.register({ ...complete(), [slot]: undefined }),
             /is missing its/,
@@ -97,6 +108,14 @@ test('an extension must match a registered definition, slot for slot', () => {
                 version: { ...complete().version!, rebuildShells: undefined }
             }),
         /missing its rebuild shells/
+    )
+    assert.throws(
+        () =>
+            registry.register({
+                ...complete(),
+                podService: { ...complete().podService!, framework: 'openclaw' }
+            }),
+        /pod service recipe names another framework/
     )
 })
 
@@ -123,6 +142,8 @@ test('a complete extension is served to the core dispatch points', () => {
         frameworkVersionDescriptor('fixture-gateway'),
         extension.version!.descriptor
     )
+    // and so does its pod service recipe
+    assert.equal(podServiceRecipe('fixture-gateway'), extension.podService)
 
     const agents = new AgentAdapterRegistry(
         adapter('claude-code'),

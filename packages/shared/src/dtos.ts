@@ -1227,6 +1227,8 @@ export interface CreateAgentBody {
     runtime?: AgentRuntime
     accountId?: string
     sandboxId?: string
+    // An existing pod host (ADR-0035) for a k8s agent; omit for a new one.
+    podHostId?: string
     frameworkVersion?: string
     clusterId?: string
     targetUserId?: string
@@ -1939,7 +1941,7 @@ export interface UpdateAutomationBody {
     deliveryTarget?: AutomationDeliveryTarget | null
 }
 
-export type FileRootTransportSdk = 'dufs' | 'pod-exec'
+export type FileRootTransportSdk = 'pod-exec'
 
 // Absolute ceiling on any single upload, whatever the transport allows. Keeps a
 // transport with no cap of its own from accepting unbounded request bodies.
@@ -2300,6 +2302,9 @@ export interface AgentRuntimeSummary {
     spriteName: string | null
     spriteId: string | null
     hostId: string | null
+    // The cloud computer a k8s runtime is installed on (ADR-0035); null for
+    // every other kind.
+    podHostName: string | null
     mountPath: string
     namespace: string | null
     ingressHost: string | null
@@ -2434,6 +2439,40 @@ export interface InstallSandboxFrameworkBody {
 export interface CreateSandboxBody {
     name?: string
     accountId?: string
+}
+
+// A cloud computer: a Kubernetes pod host (ADR-0035) whose home directory is a
+// persistent volume. Frameworks are installed on it on demand, one runtime
+// each, and its own daemon carries every turn.
+export type PodHostStatus = 'provisioning' | 'ready' | 'failed'
+
+export interface PodHostSummary {
+    id: string
+    userId: string
+    name: string
+    status: PodHostStatus
+    // The provisioning step while provisioning; the pod's phase once ready.
+    phase: string | null
+    failureReason: string | null
+    clusterId: string | null
+    region: string | null
+    cpuMillicores: number | null
+    memoryMb: number | null
+    diskGb: number | null
+    // The host daemon's CLI; null until the daemon has registered.
+    cliVersion: string | null
+    latestCliVersion: string | null
+    cliUpdateAvailable: boolean
+    // The framework runtimes installed on the host.
+    runtimes: AgentRuntimeSummary[]
+    agentsCount: number
+    createdAt: string
+    updatedAt: string
+}
+
+export interface CreatePodHostBody {
+    name?: string
+    clusterId?: string
 }
 
 export interface SetSandboxTerminalBody {

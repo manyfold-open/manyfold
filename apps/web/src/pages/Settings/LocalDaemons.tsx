@@ -29,7 +29,8 @@ const formatStartupMethod = (m: DaemonStartupMethod | null, t: TFn): string => {
         'launchd-system': 'web.selfOwned.startupLaunchdSystem',
         'systemd-user': 'web.selfOwned.startupSystemdUser',
         'systemd-system': 'web.selfOwned.startupSystemdSystem',
-        manual: 'web.selfOwned.startupManual'
+        manual: 'web.selfOwned.startupManual',
+        container: 'web.selfOwned.startupContainer'
     }
     return t(keys[m])
 }

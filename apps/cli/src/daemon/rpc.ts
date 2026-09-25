@@ -40,6 +40,7 @@ import {
     type DaemonFrameworkModelCapability,
     type DaemonModelInspectResponse,
     type DaemonRpcMethod,
+    type DaemonServiceSpec,
     type DaemonTurnStartPayload,
     type GeminiCredentialFacts
 } from '@manyfold/shared'
@@ -123,6 +124,7 @@ import { inspectRuntimeAccount } from './account-inspect'
 import { inspectPiModels } from './pi-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
 import { commitConfigFile } from './config-commit'
+import type { ServiceSupervisor } from './services'
 
 interface TerminalSession {
     write(data: string): void
@@ -938,6 +940,31 @@ export const setManualUpdateHandoff = (
 
 export const manualUpdateCapable = (): boolean => manualUpdateHandoff !== null
 
+// Installed by the daemon start on a pod host (startup method 'container'),
+// the one kind of daemon that runs services for the platform (ADR-0035 §6).
+let serviceSupervisor: ServiceSupervisor | null = null
+
+export const setServiceSupervisor = (
+    supervisor: ServiceSupervisor | null
+): void => {
+    serviceSupervisor = supervisor
+}
+
+const withServices = async (
+    work: (supervisor: ServiceSupervisor) => Promise<Record<string, unknown>>
+): Promise<{ ok: boolean; payload?: Record<string, unknown>; error?: string }> => {
+    if (!serviceSupervisor)
+        return { ok: false, error: 'services are not available on this daemon' }
+    try {
+        return { ok: true, payload: await work(serviceSupervisor) }
+    } catch (err) {
+        return { ok: false, error: (err as Error).message }
+    }
+}
+
+const serviceName = (payload: Record<string, unknown>): string =>
+    String(payload.name ?? '')
+
 const updateCoordinator = new UpdateDrainCoordinator({
     activeSessions: () =>
         drainSessionCount({
@@ -1746,6 +1773,28 @@ const handlers: Partial<
             }
         }
     },
+    'service.upsert': async (payload) =>
+        withServices(async (services) => {
+            await services.upsert(payload.spec as DaemonServiceSpec)
+            return {}
+        }),
+    'service.start': async (payload) =>
+        withServices(async (services) => ({
+            service: await services.start(serviceName(payload))
+        })),
+    'service.stop': async (payload) =>
+        withServices(async (services) => ({
+            service: await services.stop(serviceName(payload))
+        })),
+    'service.delete': async (payload) =>
+        withServices(async (services) => {
+            await services.remove(serviceName(payload))
+            return {}
+        }),
+    'service.list': async () =>
+        withServices(async (services) => ({
+            services: await services.list()
+        })),
     'workspace.ensure': async (payload) => {
         const requestedPath = String(payload.path ?? '')
         const mode = workspaceEnsureMode(

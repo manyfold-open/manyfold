@@ -1,9 +1,7 @@
 import {
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
-    SPRITE_HOME_BASE,
-    envTextToRecord,
-    isSemverVersionTag
+    SPRITE_HOME_BASE
 } from '@manyfold/shared'
 import { Injectable } from '@nestjs/common'
 import { WebSocket } from 'ws'
@@ -14,14 +12,14 @@ import {
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
-    buildHermesConfigYaml,
-    buildHermesEnv,
+    buildHermesInstallScript,
     generateHermesApiServerKey,
-    hermesProviderAliasEnv,
+    hermesConfigYamlFor,
+    hermesPaths,
+    hermesServiceEnv,
     HERMES_DASHBOARD_PORT,
     HERMES_PORT,
-    HERMES_PROXY_PORT,
-    mapHermesProvider
+    HERMES_PROXY_PORT
 } from '@/modules/agents/bootstrap/hermes-shared'
 import { renderHermesFrontProxyScript } from '@/modules/agents/bootstrap/hermes-front-proxy'
 import type {
@@ -31,17 +29,19 @@ import type {
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { generateRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-report-token'
 
-const HERMES_HOME = `${SPRITE_HOME_BASE}/.hermes`
-const HERMES_APP_DIR = `${HERMES_HOME}/hermes-agent`
-const HERMES_APP_BAK = `${HERMES_APP_DIR}.bak`
-const HERMES_BIN = `${HERMES_APP_DIR}/venv/bin/hermes`
+export const SPRITE_HERMES_HOME = `${SPRITE_HOME_BASE}/.hermes`
+const HERMES_HOME = SPRITE_HERMES_HOME
+const {
+    appDir: HERMES_APP_DIR,
+    bin: HERMES_BIN,
+    webDistDir: HERMES_WEB_DIST_DIR
+} = hermesPaths(HERMES_HOME)
 // `hermes gateway` is the entry point that exposes the OpenAI-compatible API
 // server when API_SERVER_ENABLED=true (NousResearch docs reference/environment-variables.md).
 // Bare `hermes` boots the interactive TUI and exits on missing stdin.
 const HERMES_GATEWAY_CMD = [HERMES_BIN, 'gateway'] as const
 const HERMES_SERVICE_NAME = 'hermes'
 const HERMES_INSTALL_TIMEOUT_MS = 900_000
-const HERMES_WEB_DIST_DIR = `${HERMES_APP_DIR}/hermes_cli/web_dist`
 const HERMES_PROXY_SCRIPT = `${HERMES_HOME}/mf-front-proxy.mjs`
 // `tsc -b && vite build` in <checkout>/web emits straight into
 // hermes_cli/web_dist (verified on a sprite 2026-07-03: ~22s + npm install).
@@ -63,59 +63,6 @@ export const HERMES_WEB_BUILD_SHELL = [
 ].join('\n')
 const HEALTH_PROBE_ATTEMPTS = 10
 const HEALTH_PROBE_INTERVAL_MS = 3_000
-
-// The CalVer tag is interpolated into the installer's `--branch` argument, so
-// this is the gate that keeps a shell metacharacter out of it: a valid semver
-// string cannot carry one, which is why admitting prereleases here does not
-// widen the shell surface. Returns the trimmed value because the string that
-// was validated is the string that must be interpolated.
-const assertHermesVersion = (version: string): string => {
-    if (!isSemverVersionTag(version))
-        throw new Error(`invalid hermes version "${version}"`)
-    return version.trim()
-}
-
-// NousResearch publishes the installer at this URL (always fetched from `main`;
-// the script itself is version-agnostic). `--skip-setup` skips the interactive
-// onboarding wizard (we supply env vars). The git config rewrites switch
-// SSH→HTTPS for pip dependencies hitting GitHub from a sprite where outbound SSH
-// may be slow or blocked. A `ref` (CalVer tag) pins the CHECKOUT via the
-// installer's `--branch`, which `git clone --depth 1 --branch` honours for tags;
-// no ref keeps the historical `main` behaviour.
-const buildHermesInstallScript = (ref?: string | null): string => {
-    const installArgs = ['--skip-setup']
-    if (ref) installArgs.push('--branch', assertHermesVersion(ref))
-    return [
-        'set -eu',
-        'git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"',
-        'git config --global url."https://github.com/".insteadOf "git@github.com:"',
-        `curl --proto '=https' -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- ${installArgs.join(' ')}`
-    ].join(' && ')
-}
-
-// In-place version upgrade: re-run the installer pinned to a new tag. The old
-// checkout is moved aside first so the installer does a clean clone (it would
-// otherwise take its in-place "update" path, which can't fast-forward a detached
-// tag); on any failure `set -e` aborts and the caller runs the restore shell to
-// roll back. Config + sessions live in $HERMES_HOME OUTSIDE hermes-agent/ and are
-// left untouched. Caller stops the service before and starts it after.
-export const buildHermesRebuildShell = (version: string): string => {
-    const tag = assertHermesVersion(version)
-    return [
-        'set -eu',
-        `rm -rf "${HERMES_APP_BAK}"`,
-        `if [ -d "${HERMES_APP_DIR}" ]; then mv "${HERMES_APP_DIR}" "${HERMES_APP_BAK}"; fi`,
-        buildHermesInstallScript(tag),
-        `rm -rf "${HERMES_APP_BAK}"`
-    ].join('\n')
-}
-
-// Roll back to the pre-upgrade checkout after a failed rebuild.
-export const buildHermesRestoreShell = (): string =>
-    [
-        'set -u',
-        `if [ -d "${HERMES_APP_BAK}" ]; then rm -rf "${HERMES_APP_DIR}"; mv "${HERMES_APP_BAK}" "${HERMES_APP_DIR}"; fi`
-    ].join('\n')
 
 @Injectable()
 export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
@@ -155,7 +102,7 @@ export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
             spriteName: ctx.spriteName
         })
 
-        // Write the same config.yaml that docker/hermes/entrypoint.sh would.
+        // Write the config.yaml Hermes reads its model and provider from.
         // Without it, Hermes can't resolve the model/provider and emits
         // empty SSE streams ("No inference provider configured" in logs).
         await this.writeConfigYaml(ctx, creds)
@@ -228,15 +175,7 @@ export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
         ctx: BootstrapContext,
         creds: ResolvedHermesCredentials
     ): Promise<void> {
-        const rawProvider =
-            (creds.primaryModelProvider as string | undefined) ?? 'openai'
-        const configYaml = buildHermesConfigYaml({
-            profile: creds.profile ?? 'default',
-            provider: mapHermesProvider(rawProvider),
-            modelName: creds.primaryModelName ?? undefined,
-            baseUrl: creds.primaryModelBaseUrl ?? undefined,
-            apiKey: creds.primaryModelApiKey ?? undefined
-        })
+        const configYaml = hermesConfigYamlFor(creds)
         await spriteWriteFile(
             ctx.client,
             ctx.spriteName,
@@ -572,30 +511,14 @@ export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
         )
     }
 
+    // ctx.dashboardEnabled drives the sprite topology and http_port
+    // ownership only; the gateway's own env never enables a dashboard.
     private serviceEnv(
         ctx: BootstrapContext,
         creds: ResolvedHermesCredentials,
         apiServerKey: string
     ): Record<string, string> {
-        const rawProvider =
-            (creds.primaryModelProvider as string | undefined) ?? 'openai'
-        return {
-            ...envTextToRecord(ctx.envText),
-            ...buildHermesEnv({
-                creds,
-                apiServerKey,
-                // Always false for the gateway service: the sprite dashboard
-                // is a separate `hermes dashboard` service, never gateway-
-                // managed, and flipping this env could trigger unvetted
-                // upstream behavior. ctx.dashboardEnabled drives topology and
-                // http_port ownership only.
-                dashboardEnabled: false
-            }),
-            // Hermes reads `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / etc. —
-            // not `HERMES_PRIMARY_MODEL_API_KEY`. Mirror what
-            // docker/hermes/entrypoint.sh re-exports.
-            ...hermesProviderAliasEnv(rawProvider, creds.primaryModelApiKey ?? '')
-        }
+        return hermesServiceEnv({ creds, apiServerKey, envText: ctx.envText })
     }
 
     // Sprite env only propagates via delete→upsert→start; run() calls this after

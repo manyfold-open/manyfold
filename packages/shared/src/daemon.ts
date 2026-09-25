@@ -10,6 +10,9 @@ export type DaemonStartupMethod =
     | 'systemd-user'
     | 'systemd-system'
     | 'manual'
+    // A pod host's boot loop (ADR-0035): nothing installs a unit, but the
+    // container's main process restarts the daemon whenever it exits.
+    | 'container'
 
 export type DaemonCodingFramework = Extract<
     AgentFramework,
@@ -229,6 +232,11 @@ export type DaemonRpcMethod =
     | 'workspace.ensure'
     | 'workspace.delete'
     | 'daemon.update'
+    | 'service.upsert'
+    | 'service.start'
+    | 'service.stop'
+    | 'service.delete'
+    | 'service.list'
 
 // `pty.attach` is the first event on a pty.open stream that carries a
 // terminalId: its data says whether the daemon attached the stream to a
@@ -251,6 +259,33 @@ export interface DaemonInflightStream {
     method: DaemonRpcMethod
     lastSeq: number
     status: DaemonInflightStreamStatus
+}
+
+// A service a pod host's daemon supervises (DAEMON_FEATURE_SERVICES). The env
+// is kept apart from the spec on disk (mode 0600) because it carries the
+// framework's credentials.
+export interface DaemonServiceSpec {
+    // [a-z0-9-], 1–40 characters: the file names derive from it.
+    name: string
+    command: string[]
+    dir: string
+    env: Record<string, string>
+    // Where the service listens on the pod, and what answers when it is up.
+    port?: number
+    healthPath?: string
+}
+
+export type DaemonServiceState = 'running' | 'stopped' | 'restarting'
+
+export interface DaemonServiceStatus {
+    name: string
+    state: DaemonServiceState
+    pid: number | null
+    startedAt: string | null
+    restarts: number
+    lastExit: string | null
+    // null: no port or health path to ask.
+    healthy: boolean | null
 }
 
 export interface DaemonClientProcess {
@@ -709,6 +744,11 @@ export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
 // ~/.pi/agent with its own auth.json). An older daemon reports nothing for
 // pi, which reads as "not signed in" — the API asks for a CLI update instead.
 export const DAEMON_FEATURE_PI_LOCAL = 'pi.runtime-local.v1'
+// The `service.*` RPCs: the daemon keeps a service framework's long-running
+// process up from a spec on the home volume (ADR-0035 §6), as a sprite's
+// Services API does. Only a pod host's daemon (startup method 'container')
+// offers it; nothing asks a user's own machine to run a service.
+export const DAEMON_FEATURE_SERVICES = 'services.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,

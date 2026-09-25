@@ -161,11 +161,10 @@ export class ExecDriverFactory {
                 ? this.tryDecryptCreds(agent.runtimeId)
                 : this.decryptCreds(agent.runtimeId),
             coding ? this.connections.resolveAgentEnv(agent) : undefined,
-            coding
-                ? agent.runtime === 'k8s'
-                    ? this.podIdentityToken(agent)
-                    : this.lazyIdentityToken(agent, agent.runtime)
-                : null
+            // A pod host bakes no identity into its Secret (ADR-0035), so a
+            // k8s turn gets the same lazily minted, rotatable token as a
+            // sprite or daemon turn.
+            coding ? this.lazyIdentityToken(agent, agent.runtime) : null
         ])
         const baseEnv = coding
             ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
@@ -249,11 +248,11 @@ export class ExecDriverFactory {
                     exec
                 })
             } else {
-                if (!agent.runtimeId)
-                    throw new ChatRunnerError(agent.runtime, 'runtime missing')
+                if (!agent.hostId)
+                    throw new ChatRunnerError(agent.runtime, 'pod host missing')
                 resolution = await this.runnerManager.resolvePodRunner({
                     userId: agent.userId,
-                    runtimeId: agent.runtimeId,
+                    podHostId: agent.hostId,
                     workspacePath,
                     extraRoots
                 })
@@ -416,27 +415,9 @@ export class ExecDriverFactory {
     // first turn that needs it: agents attached before daemon identity existed
     // have no 'daemon' token row, and a backfill would mint tokens nothing
     // consumes. Two concurrent first turns can both mint (the second revokes
-    // the first's token for that one turn); the next turn heals. A daemon can
-    // afford that rotation because it holds no baked copy of the token; a pod
-    // cannot, which is why the k8s arm uses podIdentityToken instead.
-    // The k8s twin of lazyIdentityToken, without the rotation. See
-    // RuntimeTokenService.readOrMintRuntimeIdentity for why a pod must never
-    // have an active row rotated out from under it.
-    private async podIdentityToken(agent: Agent): Promise<string | null> {
-        const existing = await decryptActiveIdentityToken(
-            this.db,
-            this.crypto,
-            agent.id,
-            'k8s'
-        )
-        if (existing) return existing
-        if (!this.runtimeTokens) return null
-        return this.runtimeTokens.readOrMintRuntimeIdentity({
-            userId: agent.userId,
-            agentId: agent.id,
-            runtimeKind: 'k8s'
-        })
-    }
+    // the first's token for that one turn); the next turn heals. Every carrier
+    // can afford that rotation because none holds a baked copy of the token:
+    // the token rides each exec.
 
     private async lazyIdentityToken(
         agent: Agent,

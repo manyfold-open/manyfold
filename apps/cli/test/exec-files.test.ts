@@ -1062,6 +1062,8 @@ test('exec survival is decided by the supervisor: launchd always, systemd only w
     )
     assert.equal(survivalForKillMode('manual', null).survive, false)
     assert.match(survivalForKillMode('manual', null).reason, /--keep-execs/)
+    assert.equal(survivalForKillMode('container', null).survive, false)
+    assert.match(survivalForKillMode('container', null).reason, /boot loop/)
 })
 
 test('the systemd user unit keeps detached execs alive across a restart; the system unit is left to its operator', () => {
