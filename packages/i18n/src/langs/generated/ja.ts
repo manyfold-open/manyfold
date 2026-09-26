@@ -2958,6 +2958,7 @@ const ja: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': '任意のブラウザでデバイスコードを承認します（ChatGPT のセキュリティ設定で device-code サインインの有効化が必要な場合があります）。',
     'web.chat.runtimeSignIn.geminiHint': '表示されたリンクを開き、コードを貼り付けてください。',
     'web.chat.runtimeSignIn.piHint': '/login と入力し、サインインするプロバイダー（サブスクリプションまたは API キー）を選んで、表示されたリンクに従ってください。',
+    'web.chat.runtimeSignIn.antigravityHint': 'Google でのサインインを選び、表示されたリンクを開いて、コードを貼り付けます。',
     'web.chat.runtimeSignIn.openTerminal': 'ターミナルを開く',
     'web.chat.runtimeSignIn.refresh': 'ステータスを更新',
     'web.chat.runtimeSignIn.checking': '確認中…',

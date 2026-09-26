@@ -2969,6 +2969,7 @@ const ru: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': 'подтвердите код устройства в любом браузере (возможно, потребуется включить вход по коду устройства в настройках безопасности ChatGPT).',
     'web.chat.runtimeSignIn.geminiHint': 'откройте показанную ссылку и вставьте код.',
     'web.chat.runtimeSignIn.piHint': 'введите /login, выберите провайдера (подписку или API-ключ) и перейдите по показанной ссылке.',
+    'web.chat.runtimeSignIn.antigravityHint': 'выберите вход через Google, откройте выведенную ссылку и вставьте код обратно.',
     'web.chat.runtimeSignIn.openTerminal': 'Открыть терминал',
     'web.chat.runtimeSignIn.refresh': 'Обновить статус',
     'web.chat.runtimeSignIn.checking': 'Проверка…',

@@ -2968,6 +2968,7 @@ const es: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': 'aprueba el código de dispositivo desde cualquier navegador (quizá debas habilitar el inicio de sesión por código de dispositivo en la configuración de seguridad de ChatGPT).',
     'web.chat.runtimeSignIn.geminiHint': 'abre el enlace mostrado y pega el código.',
     'web.chat.runtimeSignIn.piHint': 'escribe /login, elige un proveedor (una suscripción o una clave de API) y sigue el enlace que aparece.',
+    'web.chat.runtimeSignIn.antigravityHint': 'elige iniciar sesión con Google, abre el enlace que se muestra y pega el código.',
     'web.chat.runtimeSignIn.openTerminal': 'Abrir terminal',
     'web.chat.runtimeSignIn.refresh': 'Actualizar estado',
     'web.chat.runtimeSignIn.checking': 'Comprobando…',

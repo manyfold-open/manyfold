@@ -2966,6 +2966,7 @@ const hi: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': 'किसी भी ब्राउज़र से डिवाइस कोड स्वीकृत करें (ChatGPT की सुरक्षा सेटिंग में device-code साइन इन सक्षम करना पड़ सकता है)।',
     'web.chat.runtimeSignIn.geminiHint': 'दिखाए गए लिंक को खोलें और कोड पेस्ट करें।',
     'web.chat.runtimeSignIn.piHint': '/login टाइप करें, कोई प्रदाता चुनें (सदस्यता या API कुंजी), और दिखाए गए लिंक का पालन करें।',
+    'web.chat.runtimeSignIn.antigravityHint': 'Google से साइन इन चुनें, प्रिंट हुआ लिंक खोलें, फिर कोड वापस पेस्ट करें।',
     'web.chat.runtimeSignIn.openTerminal': 'टर्मिनल खोलें',
     'web.chat.runtimeSignIn.refresh': 'स्थिति रिफ़्रेश करें',
     'web.chat.runtimeSignIn.checking': 'जाँच रही है…',

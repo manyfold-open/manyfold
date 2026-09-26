@@ -319,7 +319,8 @@ export class TerminalGateway implements OnModuleInit {
                           modelCredentialsAllowed,
                       injectModelCredentials:
                           agent.runtime === 'sprites' && !runtimeLocalAgent,
-                      workspacePath: agent.workspacePath
+                      workspacePath: agent.workspacePath,
+                      model: agent.model
                   })
                 : null
         let resume = herdrViewer

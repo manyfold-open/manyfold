@@ -1,12 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
-import { isPiProvider } from '@manyfold/shared'
+import { AGY_API_KEY_MODELS, isPiProvider } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
 import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
+import { antigravityPlatformExec } from '@/modules/agents/credentials/antigravity-app-dir'
 import { isManagedSkillWorkspace } from '@/modules/skills/skill-utils'
 import {
     frameworkSupportsTerminalResume,
@@ -80,6 +81,8 @@ export class TerminalResumeService {
         // TUI will use, so there is nothing to inject.
         injectModelCredentials: boolean
         workspacePath?: string | null
+        // The agent's model, which agy's TUI is told like its turns are.
+        model?: string | null
     }): Promise<TerminalResumeResolution> {
         if (!frameworkSupportsTerminalResume(args.framework)) return UNAVAILABLE
 
@@ -157,10 +160,16 @@ export class TerminalResumeService {
             ? { command, env: {} }
             : args.framework === 'pi'
               ? await this.piPlatformResume(args.runtimeId, command)
-              : {
-                    command,
-                    env: await this.claudeCredentialEnv(args.runtimeId)
-                }
+              : args.framework === 'antigravity-cli'
+                ? await this.antigravityPlatformResume(
+                      args.runtimeId,
+                      command,
+                      args.model ?? null
+                  )
+                : {
+                      command,
+                      env: await this.claudeCredentialEnv(args.runtimeId)
+                  }
         if (inject && !Object.keys(resume?.env ?? {}).length) {
             this.log.warn(
                 `terminal.resume.skipped agent=${args.agentId} reason=credentials-unreadable`
@@ -222,6 +231,35 @@ export class TerminalResumeService {
             provider: creds.provider,
             apiKey: creds.apiKey,
             baseUrl: creds.baseUrl
+        })
+        return { command: platform.cmd, env: platform.env }
+    }
+
+    // agy resumes on the platform view and key its turns run on
+    // (antigravity-app-dir.ts), told the agent's model as they are: agy keeps
+    // no model per conversation, so its TUI would open on its own default.
+    private async antigravityPlatformResume(
+        runtimeId: string,
+        command: string[],
+        agentModel: string | null
+    ): Promise<ResolvedTerminalResume | null> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            googleApiKey?: string
+            googleGeminiBaseUrl?: string | null
+            model?: string | null
+        } | null
+        if (!creds?.googleApiKey) return null
+        const model = agentModel?.trim() || creds.model?.trim() || null
+        const known = AGY_API_KEY_MODELS.some((m) => m.slug === model)
+        const platform = antigravityPlatformExec({
+            agyArgs: [
+                ...command.slice(1),
+                ...(model && known ? ['--model', model] : [])
+            ],
+            runtimeId,
+            apiKey: creds.googleApiKey,
+            baseUrl: creds.googleGeminiBaseUrl ?? null,
+            managedHost: true
         })
         return { command: platform.cmd, env: platform.env }
     }

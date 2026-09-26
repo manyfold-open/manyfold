@@ -2606,6 +2606,7 @@ const zh: Translations = {
                     '在任意浏览器中批准设备代码（可能需要先在 ChatGPT 安全设置中启用 device-code 登录）。',
                 geminiHint: '打开打印出的链接并把代码粘贴回来。',
                 piHint: '输入 /login，选择要登录的 provider（订阅或 API key），然后按打印出的链接完成。',
+                antigravityHint: '选择用 Google 登录，打开打印出的链接，再把授权码粘贴回来。',
                 openTerminal: '打开终端',
                 refresh: '刷新状态',
                 checking: '检查中…'

@@ -2964,6 +2964,7 @@ const ar: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': 'وافق على رمز الجهاز من أي متصفح (قد يلزم تفعيل تسجيل الدخول برمز الجهاز في إعدادات أمان ChatGPT).',
     'web.chat.runtimeSignIn.geminiHint': 'افتح الرابط الظاهر والصق الرمز.',
     'web.chat.runtimeSignIn.piHint': 'اكتب /login، واختر مزوّدًا (اشتراكًا أو مفتاح API)، واتبع الرابط الذي يظهر.',
+    'web.chat.runtimeSignIn.antigravityHint': 'اختر تسجيل الدخول باستخدام Google، وافتح الرابط المطبوع، ثم الصق الرمز.',
     'web.chat.runtimeSignIn.openTerminal': 'فتح الطرفية',
     'web.chat.runtimeSignIn.refresh': 'تحديث الحالة',
     'web.chat.runtimeSignIn.checking': 'جارٍ التحقق…',

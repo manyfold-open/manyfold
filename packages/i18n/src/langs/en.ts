@@ -2687,6 +2687,7 @@ const en = {
                     'approve the device code from any browser (device-code sign-in may need enabling in your ChatGPT security settings).',
                 geminiHint: 'open the printed link and paste the code back.',
                 piHint: 'type /login, choose a provider (a subscription or an API key), and follow the link it prints.',
+                antigravityHint: 'choose to sign in with Google, open the printed link, and paste the code back.',
                 openTerminal: 'Open terminal',
                 refresh: 'Refresh status',
                 checking: 'Checking…'

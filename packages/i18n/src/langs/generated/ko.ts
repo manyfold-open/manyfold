@@ -2958,6 +2958,7 @@ const ko: Record<string, string> = {
     "web.chat.runtimeSignIn.codexHint": "아무 브라우저에서나 디바이스 코드를 승인하세요(ChatGPT 보안 설정에서 device-code 로그인을 먼저 활성화해야 할 수 있습니다).",
     "web.chat.runtimeSignIn.geminiHint": "표시된 링크를 열고 코드를 붙여넣으세요.",
     "web.chat.runtimeSignIn.piHint": "/login을 입력하고 로그인할 제공자(구독 또는 API 키)를 고른 뒤 표시된 링크를 따르세요.",
+    "web.chat.runtimeSignIn.antigravityHint": "Google로 로그인을 선택하고, 출력된 링크를 연 다음 코드를 붙여 넣으세요.",
     "web.chat.runtimeSignIn.openTerminal": "터미널 열기",
     "web.chat.runtimeSignIn.refresh": "상태 새로 고침",
     "web.chat.runtimeSignIn.checking": "확인 중…",

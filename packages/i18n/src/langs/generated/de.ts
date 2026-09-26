@@ -2967,6 +2967,7 @@ const de: Record<string, string> = {
     'web.chat.runtimeSignIn.codexHint': 'bestätige den Gerätecode in einem beliebigen Browser (die Gerätecode-Anmeldung muss ggf. in den ChatGPT-Sicherheitseinstellungen aktiviert werden).',
     'web.chat.runtimeSignIn.geminiHint': 'öffne den angezeigten Link und füge den Code ein.',
     'web.chat.runtimeSignIn.piHint': 'gib /login ein, wähle einen Anbieter (Abo oder API-Schlüssel) und folge dem angezeigten Link.',
+    'web.chat.runtimeSignIn.antigravityHint': 'wähle die Anmeldung mit Google, öffne den ausgegebenen Link und füge den Code wieder ein.',
     'web.chat.runtimeSignIn.openTerminal': 'Terminal öffnen',
     'web.chat.runtimeSignIn.refresh': 'Status aktualisieren',
     'web.chat.runtimeSignIn.checking': 'Prüfe…',
