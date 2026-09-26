@@ -136,6 +136,28 @@ test('a rebuild drops what agy wrote into the view and repairs a broken link', (
     }
 })
 
+test('the machine’s Google sign-in never enters the view', () => {
+    const l = lab()
+    try {
+        writeFileSync(join(l.native, 'antigravity-oauth-token'), 'machine')
+        run(l, { MF_AGY_VIEW: 'art_1' })
+        const view = viewOf(l)
+        assert.equal(existsSync(join(view, 'antigravity-oauth-token')), false)
+        // One agy saved in the view itself (a sign-in inside the platform
+        // TUI) is gone at the next start.
+        writeFileSync(join(view, 'antigravity-oauth-token'), 'view')
+        const again = run(l, { MF_AGY_VIEW: 'art_1' })
+        assert.equal(again.status, 0, again.stderr)
+        assert.equal(existsSync(join(view, 'antigravity-oauth-token')), false)
+        assert.equal(
+            readFileSync(join(l.native, 'antigravity-oauth-token'), 'utf8'),
+            'machine'
+        )
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
 test('agy’s exit code comes back unchanged', () => {
     const l = lab()
     try {

@@ -24,7 +24,11 @@ const AGY_PLATFORM_VIEW_PREPARE_ENV = 'MF_AGY_VIEW_PREPARE'
    The view links every other entry back to the machine's dir — the
    transcripts under brain/, the conversation databases, the per-cwd cache —
    so a conversation lands exactly where the session reader and a later TUI
-   find it, and one begun on either side resumes on the other. Those
+   find it, and one begun on either side resumes on the other. A sign-in token
+   (`*-oauth-token`) is the exception: the view never holds one, so a platform
+   exec cannot reach the machine's Google account whatever agy prefers —
+   measured on agy 1.2.11 [2026-09-26], API-key mode used the key even with
+   the machine's token beside it, but that is agy's choice to change. Those
    directories are created first so their links exist before agy writes;
    files agy creates in the view itself (a summaries cache) are dropped at
    the next rebuild. ~/.gemini/config (hooks, MCP servers, skills) is shared
@@ -58,7 +62,7 @@ for entry in "$native"/* "$native"/.[!.]* "$native"/..?*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     name="\${entry##*/}"
     case "$name" in
-        settings.json|*.lock) continue ;;
+        settings.json|*.lock|*-oauth-token) continue ;;
     esac
     link="$view/$name"
     if [ -e "$link" ] || [ -L "$link" ]; then
@@ -73,6 +77,7 @@ for link in "$view"/* "$view"/.[!.]* "$view"/..?*; do
     name="\${link##*/}"
     case "$name" in
         settings.json|*.lock) continue ;;
+        *-oauth-token) rm -rf "$link"; continue ;;
     esac
     [ -L "$link" ] && { [ -e "$native/$name" ] || [ -L "$native/$name" ]; } && continue
     rm -rf "$link"
