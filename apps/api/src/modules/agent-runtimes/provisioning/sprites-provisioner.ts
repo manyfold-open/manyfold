@@ -49,7 +49,10 @@ import {
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import { installFrameworkVersion } from '@/modules/agents/bootstrap/framework-version-install'
-import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
+import {
+    frameworkVersionDescriptor,
+    type FrameworkReleaseArtifacts
+} from '@/modules/framework-versions/framework-version-registry'
 import type {
     SpriteServiceBootstrap,
     SpriteServiceBootstrapResult
@@ -105,6 +108,7 @@ export interface SpritesProvisionInput {
     // Repository a git-installed framework clones from, resolved with
     // `frameworkVersion` so the two cannot name different repos.
     frameworkRepo?: string | null
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
 }
 
 // A runtime on a sandbox the user already owns, with no agent yet: the
@@ -122,6 +126,7 @@ export interface SpritesPrepareInput {
     frameworkVersion?: string | null
     frameworkVersionSource?: FrameworkInstallSource
     frameworkRepo?: string | null
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
 }
 
 export interface SpritesPrepareOutput {
@@ -675,7 +680,8 @@ export class SpritesProvisioner {
                 modelConfigSource: input.modelConfigSource ?? null,
                 frameworkVersion: input.frameworkVersion ?? null,
                 frameworkVersionSource: input.frameworkVersionSource ?? 'none',
-                frameworkRepo: input.frameworkRepo ?? null
+                frameworkRepo: input.frameworkRepo ?? null,
+                frameworkArtifacts: input.frameworkArtifacts ?? null
             }
             let homeDir: string | undefined
             let endpointUrl: string | null | undefined
@@ -877,7 +883,8 @@ export class SpritesProvisioner {
                 execTimeoutMs: 60_000,
                 frameworkVersion: input.frameworkVersion ?? null,
                 frameworkVersionSource: input.frameworkVersionSource ?? 'none',
-                frameworkRepo: input.frameworkRepo ?? null
+                frameworkRepo: input.frameworkRepo ?? null,
+                frameworkArtifacts: input.frameworkArtifacts ?? null
             }
             let homeDir: string | undefined
             let endpointUrl: string | null | undefined

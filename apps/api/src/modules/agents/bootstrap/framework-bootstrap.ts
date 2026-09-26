@@ -4,6 +4,7 @@ import type {
     FrameworkInstallSource
 } from '@manyfold/shared'
 import type { SpritesClient, SpritesLogger } from '@manyfold/sprites'
+import type { FrameworkReleaseArtifacts } from '@/modules/framework-versions/framework-version-registry'
 
 export interface BootstrapContext {
     agentId: string
@@ -33,6 +34,9 @@ export interface BootstrapContext {
     // source switch mid-operation cannot leave a tag chosen from one repository
     // being cloned from another. Undefined for ctx builders that never clone.
     frameworkRepo?: string | null
+    // A release-binary framework's digests for `frameworkVersion`, carried
+    // with it for the same reason.
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
     // User-configured environment variables in raw `.env` text. Merged UNDER the
     // framework env (framework keys win); only valid, non-reserved keys apply.
     envText?: string | null

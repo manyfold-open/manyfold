@@ -750,7 +750,8 @@ export {
     safeNpmVersionSpec,
     selectFrameworkInstallVersion,
     shouldInstallFrameworkVersion,
-    listVersionedFrameworks
+    listVersionedFrameworks,
+    upgradesInPlace
 } from './framework-versions'
 export type {
     FrameworkBlockedVersionRange,

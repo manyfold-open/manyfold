@@ -5,7 +5,6 @@ import {
     EXPERIMENT_KEYS,
     FEATURE_TOGGLE_KEYS,
     FrameworkRuntimeDefaultsSettings,
-    FrameworkVersionSelection,
     RotateRuntimeTokenResponse,
     SPRITE_HOME_BASE,
     UserFrameworkRuntimeOverridesSettings,
@@ -72,7 +71,10 @@ import { DRIZZLE } from '@/db/tokens'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
-import { resolveFrameworkInstallVersion } from '@/modules/framework-versions/resolve-install-version'
+import {
+    resolveFrameworkInstallVersion,
+    type ResolvedInstallVersion
+} from '@/modules/framework-versions/resolve-install-version'
 import { UsersService } from '@/modules/users/users.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -350,14 +352,16 @@ export class AgentOrchestratorService {
     private async resolveFrameworkVersion(
         framework: AgentFramework,
         requested?: string | null
-    ): Promise<{ selection: FrameworkVersionSelection; repo: string | null }> {
+    ): Promise<ResolvedInstallVersion> {
         return resolveFrameworkInstallVersion(
             {
                 settings:
                     await this.adminSettings.getCachedFrameworkDefaultVersions(),
                 latestForFresh: (fw) => this.frameworkVersions.latestForFresh(fw),
                 catalogForFresh: (fw) =>
-                    this.frameworkVersions.catalogForFresh(fw)
+                    this.frameworkVersions.catalogForFresh(fw),
+                releaseArtifacts: (fw, version) =>
+                    this.frameworkVersions.releaseArtifacts(fw, version)
             },
             framework,
             requested
@@ -654,6 +658,7 @@ export class AgentOrchestratorService {
             fresh = await this.k8sProvisioner.provision({
                 frameworkVersion: version.selection,
                 frameworkRepo: version.repo,
+                frameworkArtifacts: version.artifacts,
                 userId,
                 agentCreateId,
                 framework: dto.framework,
@@ -771,7 +776,8 @@ export class AgentOrchestratorService {
             credentials: resolved.value,
             modelConfigSource: dto.modelConfigSource ?? null,
             frameworkVersion: version.selection,
-            frameworkRepo: version.repo
+            frameworkRepo: version.repo,
+            frameworkArtifacts: version.artifacts
         })
     }
 
@@ -1369,7 +1375,8 @@ export class AgentOrchestratorService {
                 modelConfigSource: dto.modelConfigSource ?? null,
                 frameworkVersion: frameworkVersion.selection.version,
                 frameworkVersionSource: frameworkVersion.selection.source,
-                frameworkRepo: frameworkVersion.repo
+                frameworkRepo: frameworkVersion.repo,
+                frameworkArtifacts: frameworkVersion.artifacts
             })
         } catch (err: unknown) {
             if (err instanceof HttpException) throw err

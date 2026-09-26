@@ -6,15 +6,17 @@ import type { FrameworkRepoCandidate } from '../frameworkVersionSources'
 
 export interface FrameworkVersionFacts {
     upgradeMode: FrameworkUpgradeMode
-    // Frameworks whose version catalog AND install both come from a git repo.
+    // Frameworks whose version catalog AND install both come from a GitHub
+    // repository: a git clone ('rebuild') or its release assets ('binary').
     // The FIRST entry is the default: an unconfigured platform resolves to it,
     // and the api-side descriptor takes its `source.repo` from the same slot.
     //
     // Adding a candidate is a trust decision, not a configuration change: a
     // sprite clones it and then RUNS its build (`uv sync`, `npm ci`,
-    // `npm run build`). Before adding one, confirm that (a)
-    // `git ls-remote --tags <url>` serves the framework's built-in fallback
-    // tag, and (b) the framework's clone path is driven by this slug.
+    // `npm run build`), or runs the binary its releases publish. Before adding
+    // one, confirm that (a) `git ls-remote --tags <url>` serves the
+    // framework's built-in fallback tag, and (b) the framework's clone path
+    // (or release asset names) is driven by this slug.
     repoCandidates?: readonly FrameworkRepoCandidate[]
 }
 

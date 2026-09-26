@@ -5,7 +5,8 @@ import {
     findBlockedVersionRange,
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
-    isVersionedFramework
+    isVersionedFramework,
+    upgradesInPlace
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -366,11 +367,12 @@ const frameworkRows = (
 
         const mode = frameworkUpgradeMode(runtime.framework)
         const target = runtimeTarget(runtime, sandboxNames)
-        // A cloud computer upgrades an npm CLI in place, as a sprite does; its
-        // rebuilt service frameworks are not on it yet (ADR-0035).
+        // A cloud computer upgrades an npm or release-binary CLI in place, as
+        // a sprite does; its rebuilt service frameworks are not on it yet
+        // (ADR-0035).
         const onOurs =
             runtime.kind === 'sprites' ||
-            (runtime.kind === 'k8s' && mode === 'npm')
+            (runtime.kind === 'k8s' && upgradesInPlace(mode))
         const remote = onOurs && mode !== null && runtime.primaryAgentId
         const blocker: UpdateBlocker | null = remote
             ? null

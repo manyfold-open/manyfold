@@ -786,7 +786,8 @@ export class SandboxesService {
             hostId,
             frameworkVersion: version?.selection.version ?? null,
             frameworkVersionSource: version?.selection.source ?? 'none',
-            frameworkRepo: version?.repo ?? null
+            frameworkRepo: version?.repo ?? null,
+            frameworkArtifacts: version?.artifacts ?? null
         })
         if (prepared.generatedCredentials && this.crypto) {
             // The gateway tokens the bootstrap minted are the only way to reach

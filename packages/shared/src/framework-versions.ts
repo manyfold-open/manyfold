@@ -18,11 +18,13 @@ export const isVersionedFramework = (
 ): value is VersionedFramework =>
     frameworkDefinition(value)?.version !== undefined
 
-export type FrameworkUpgradeMode = 'npm' | 'rebuild'
+export type FrameworkUpgradeMode = 'npm' | 'rebuild' | 'binary'
 
 // How a framework's in-place upgrade is driven (null = not upgradeable):
 //  - 'npm'     fast `npm i -g` + ~/.local/bin symlink (synchronous endpoint)
 //  - 'rebuild' heavy git re-clone + build, streamed
+//  - 'binary'  a prebuilt release asset, digest-checked, then the same
+//              ~/.local/bin symlink swap (synchronous endpoint)
 export const frameworkUpgradeMode = (
     framework: unknown
 ): FrameworkUpgradeMode | null =>
@@ -30,6 +32,11 @@ export const frameworkUpgradeMode = (
 
 export const isUpgradeableFramework = (framework: unknown): boolean =>
     frameworkUpgradeMode(framework) !== null
+
+// The modes whose upgrade is one short install on the host (no clone, no
+// build), so it runs in place on the synchronous endpoint.
+export const upgradesInPlace = (mode: FrameworkUpgradeMode | null): boolean =>
+    mode === 'npm' || mode === 'binary'
 
 export type FrameworkVersionSourceKind = 'npm' | 'github'
 
