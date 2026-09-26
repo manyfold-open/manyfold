@@ -3489,6 +3489,7 @@ const en = {
             updateSelected: 'Update selected ({{count}})',
             updateOne: 'Update',
             selectAll: 'Select every update that can be run from here',
+            selectGroup: 'Select every update in the {{name}} group that can be run from here',
             selectRow: 'Select {{name}}',
             colUpdate: 'Update',
             colTarget: 'Where',

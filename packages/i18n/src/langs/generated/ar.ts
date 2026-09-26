@@ -4093,6 +4093,7 @@ const ar: Record<string, string> = {
     'web.updates.updateSelected': 'تحديث المحدد ({{count}})',
     'web.updates.updateOne': 'تحديث',
     'web.updates.selectAll': 'تحديد كل تحديث يمكن تشغيله من هنا',
+    'web.updates.selectGroup': 'تحديد كل تحديث في مجموعة {{name}} يمكن تشغيله من هنا',
     'web.updates.selectRow': 'تحديد {{name}}',
     'web.updates.colUpdate': 'التحديث',
     'web.updates.colTarget': 'أين',

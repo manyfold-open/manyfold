@@ -4087,6 +4087,7 @@ const ja: Record<string, string> = {
     'web.updates.updateSelected': '選択项目を更新（{{count}}）',
     'web.updates.updateOne': '更新',
     'web.updates.selectAll': 'ここから実行できるアップデートをすべて選択',
+    'web.updates.selectGroup': '{{name}} グループ内の、ここから実行できるアップデートをすべて選択',
     'web.updates.selectRow': '{{name}} を選択',
     'web.updates.colUpdate': 'アップデート',
     'web.updates.colTarget': '対象',

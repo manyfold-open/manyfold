@@ -23,6 +23,8 @@ import {
     kindParamOf,
     parseKindParam,
     planBatch,
+    selectionState,
+    toggleSelection,
     type UpdateCenterInputs,
     type UpdateRow
 } from '../src/lib/updateCenter'
@@ -661,6 +663,37 @@ test('grouping by none is a single group, and no groups at all when empty', () =
         ['all']
     )
     assert.deepEqual(groupUpdateRows([], 'none', groupLabels), [])
+})
+
+test('a group box counts only its own rows, and an empty group never reads as all', () => {
+    const group = ['a', 'b']
+    assert.equal(selectionState(group, new Set()), 'none')
+    // A selection in another group says nothing about this one.
+    assert.equal(selectionState(group, new Set(['x'])), 'none')
+    assert.equal(selectionState(group, new Set(['a', 'x'])), 'some')
+    assert.equal(selectionState(group, new Set(['a', 'b'])), 'all')
+    // every() over nothing is true; a vacuous 'all' would draw a checked box
+    // over a group whose rows are all blocked.
+    assert.equal(selectionState([], new Set(['a'])), 'none')
+})
+
+test('clicking a partly selected or empty group fills it, as a mixed checkbox turns checked', () => {
+    assert.deepEqual(
+        [...toggleSelection(['a', 'b'], new Set(['a']))].sort(),
+        ['a', 'b']
+    )
+    assert.deepEqual(
+        [...toggleSelection(['a', 'b'], new Set())].sort(),
+        ['a', 'b']
+    )
+})
+
+test('clicking a fully selected group clears it and leaves other groups selected', () => {
+    const selected = new Set(['a', 'b', 'x'])
+    assert.deepEqual([...toggleSelection(['a', 'b'], selected)], ['x'])
+    // The input is React state: mutating it would skip the re-render that
+    // re-applies the box's indeterminate flag.
+    assert.deepEqual([...selected].sort(), ['a', 'b', 'x'])
 })
 
 test('every kind survives a round trip through the url parameter', () => {

@@ -618,6 +618,29 @@ export const filterRowsByKind = (
     kind: UpdateKind | null
 ): UpdateRow[] => (kind === null ? rows : rows.filter((r) => r.kind === kind))
 
+export type SelectionState = 'none' | 'some' | 'all'
+
+export const selectionState = (
+    ids: readonly string[],
+    selected: ReadonlySet<string>
+): SelectionState => {
+    const count = ids.filter((id) => selected.has(id)).length
+    return count === 0 ? 'none' : count === ids.length ? 'all' : 'some'
+}
+
+// A mixed box fills up rather than clearing: it is unchecked underneath, and
+// a click on an unchecked box checks it.
+export const toggleSelection = (
+    ids: readonly string[],
+    selected: ReadonlySet<string>
+): Set<string> => {
+    const next = new Set(selected)
+    if (selectionState(ids, selected) === 'all')
+        for (const id of ids) next.delete(id)
+    else for (const id of ids) next.add(id)
+    return next
+}
+
 export type BatchStep =
     // One call covers many agents, so selecting the same skill on twelve agents
     // is twelve rows but one request.

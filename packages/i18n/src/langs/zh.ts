@@ -3327,6 +3327,7 @@ const zh: Translations = {
             updateSelected: '更新所选（{{count}}）',
             updateOne: '更新',
             selectAll: '选中所有可从这里执行的更新',
+            selectGroup: '选中 {{name}} 分组中所有可从这里执行的更新',
             selectRow: '选中 {{name}}',
             colUpdate: '更新项',
             colTarget: '位置',

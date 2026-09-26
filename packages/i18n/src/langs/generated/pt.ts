@@ -4097,6 +4097,7 @@ const pt: Record<string, string> = {
     'web.updates.updateSelected': 'Atualizar selecionados ({{count}})',
     'web.updates.updateOne': 'Atualizar',
     'web.updates.selectAll': 'Selecionar todas as atualizações que podem ser executadas aqui',
+    'web.updates.selectGroup': 'Selecionar todas as atualizações do grupo {{name}} que podem ser executadas aqui',
     'web.updates.selectRow': 'Selecionar {{name}}',
     'web.updates.colUpdate': 'Atualização',
     'web.updates.colTarget': 'Onde',
