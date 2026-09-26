@@ -7,6 +7,7 @@ import {
     type DaemonFrameworkModelCapability
 } from '@manyfold/shared'
 import {
+    nestedRecord,
     nonEmptyString,
     parseJsonRecord,
     readTextIfPresent,
@@ -15,12 +16,15 @@ import {
 
 // agy keeps its Google sign-in in the OS keyring, which the daemon never
 // reads, or — on a Linux host without a D-Bus session bus — in a token file
-// under ~/.gemini, named per release line (1.2.x first, then 1.1). Neither
-// says whose account it is without reading the token itself, so the facts
-// name only which is there; `agy models` then says whether any of it works.
+// under ~/.gemini. Neither says whose account it is without reading the
+// token itself, so the facts name only which is there; `agy models` then
+// says whether any of it works.
+// Measured on agy 1.2.11 [2026-09-26] (Linux, no D-Bus): a Google sign-in
+// lands in antigravity-cli/antigravity-oauth-token, mode 0600, and a new
+// process reads it; the binary also names jetski-standalone-oauth-token.
 export const AGY_TOKEN_FILES = [
-    'jetski-standalone-oauth-token',
-    'antigravity-cli/antigravity-oauth-token'
+    'antigravity-cli/antigravity-oauth-token',
+    'jetski-standalone-oauth-token'
 ]
 
 // What `agy models` prints on stderr without a sign-in (1.2.11).
@@ -40,13 +44,15 @@ interface TokenFileFacts {
     hasRefreshToken: boolean
 }
 
-// An oauth2 token as Go writes it: `expiry` is RFC 3339, and the zero time
+// An oauth2 token as Go writes it, which agy 1.2.11 saves under `token` beside
+// the sign-in method and an id token: `expiry` is RFC 3339, and the zero time
 // (year 1) means the token never expires.
 const tokenFileFacts = async (geminiDir: string): Promise<TokenFileFacts> => {
     for (const name of AGY_TOKEN_FILES) {
         const file = await readTextIfPresent(join(geminiDir, name))
         if (!file.ok || !file.text?.trim()) continue
-        const token = parseJsonRecord(file.text)
+        const saved = parseJsonRecord(file.text)
+        const token = nestedRecord(saved, 'token') ?? saved
         const expiry =
             typeof token?.expiry === 'string' ? Date.parse(token.expiry) : NaN
         return {

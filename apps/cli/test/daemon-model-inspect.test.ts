@@ -503,6 +503,45 @@ test('agy inspect reads a token file for its expiry, never its values', async ()
     })
 })
 
+// The file agy 1.2.11 writes for a Google sign-in on a Linux host without
+// D-Bus (measured 2026-09-26), with its values replaced.
+test('agy inspect reads the 1.2.11 sign-in file, whose token sits under `token`', async () => {
+    await withHome(async (home) => {
+        await mkdir(join(home, '.gemini', 'antigravity-cli'), {
+            recursive: true
+        })
+        await writeFile(
+            join(home, '.gemini', 'antigravity-cli', 'antigravity-oauth-token'),
+            JSON.stringify({
+                token: {
+                    access_token: 'redacted-access',
+                    token_type: 'Bearer',
+                    refresh_token: 'redacted-refresh',
+                    expiry: '2026-09-26T22:18:29.451323528Z'
+                },
+                auth_method: 'redacted-method',
+                id_token: 'redacted-id'
+            })
+        )
+        await plantAgyLister(home, 'signed-in')
+        const capability = await inspect('antigravity-cli')
+        const facts =
+            capability.credentialFacts as AntigravityCliCredentialFacts
+        assert.equal(facts.tokenFilePresent, true)
+        assert.equal(facts.tokenFileParsed, true)
+        assert.equal(
+            facts.tokenExpiresAt,
+            Date.parse('2026-09-26T22:18:29.451Z')
+        )
+        assert.equal(facts.hasRefreshToken, true)
+        assert.equal(
+            capability.current,
+            'antigravity-cli/antigravity-oauth-token'
+        )
+        assert.equal(JSON.stringify(capability).includes('redacted'), false)
+    })
+})
+
 test('agy inspect without a sign-in is not ready and says so, whatever files exist', async () => {
     await withHome(async (home) => {
         // agy creates its app data the first time anything runs it.
