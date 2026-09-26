@@ -169,6 +169,15 @@ const tokensOf = (events: EmittedChatEvent[]): string =>
         .map((e) => (e as { text: string }).text)
         .join('')
 
+const usageOf = (events: EmittedChatEvent[]) => {
+    const found = events.find(
+        (e): e is Extract<EmittedChatEvent, { type: 'usage' }> =>
+            e.type === 'usage'
+    )
+    assert.ok(found, 'a usage event')
+    return found
+}
+
 const errorOf = (events: EmittedChatEvent[]) =>
     (events.find((e) => e.type === 'error') as
         | {
@@ -184,9 +193,7 @@ test('a first turn streams text, records the conversation agy minted and bills p
     assert.equal(tokensOf(events), 'Hello from the stub (turn 1).\n')
     assert.deepEqual(seam.refs, [RESUMED])
     assert.equal(events.at(-1)?.type, 'done')
-    const usage = events.find((e) => e.type === 'usage') as {
-        usage: Record<string, unknown>
-    }
+    const usage = usageOf(events)
     // input_tokens 800 excludes the 500 cached; stored counting them, as
     // Gemini CLI's usage is.
     assert.equal(usage.usage.inputTokens, 1300)
@@ -224,9 +231,7 @@ test('a resumed turn names the conversation and bills only its own calls', async
     assert.equal(JSON.parse(stream.stdin!.trim()).message.content, 'hi')
     // Its result line reports the whole conversation (input 1700); the call
     // this process made was 900 + 500 cached.
-    const usage = events.find((e) => e.type === 'usage') as {
-        usage: Record<string, unknown>
-    }
+    const usage = usageOf(events)
     assert.equal(usage.usage.inputTokens, 1400)
     assert.equal(usage.usage.outputTokens, 41)
     assert.deepEqual(seam.refs, [], 'an unchanged ref is not rewritten')
@@ -260,9 +265,7 @@ test('tool steps become one call and one result per step', async () => {
     assert.equal(results[0].result.content, 'first\r\n')
     assert.equal(results[0].result.isError, false)
     assert.equal(tokensOf(events), 'All 3 tool calls finished.\n')
-    const usage = events.find((e) => e.type === 'usage') as {
-        usage: Record<string, unknown>
-    }
+    const usage = usageOf(events)
     assert.equal(usage.usage.inputTokens, 3000 + 1800)
     assert.equal(usage.usage.outputTokens, 115)
 })
@@ -367,9 +370,7 @@ test('a platform turn runs on the platform view with the bound key and bills the
     assert.equal(stream.env?.GOOGLE_API_KEY, '')
     assert.equal(stream.env?.AGY_GATEWAY_URL, '')
     assert.equal(stream.env?.AGY_CLI_DISABLE_AUTO_UPDATE, 'true')
-    const usage = events.find((e) => e.type === 'usage') as {
-        usage: Record<string, unknown>
-    }
+    const usage = usageOf(events)
     assert.equal(usage.usage.model, 'gemini-3.8-flash')
     assert.deepEqual(
         (seam.priced[0] as Record<string, unknown>).modelProviderManagedBrand,

@@ -2156,6 +2156,38 @@ test('AgentModelConfigService saves a pi platform model and resolves it for the 
     )
 })
 
+// agy's API-key mode runs only the slugs it lists and fails the turn on any
+// other, so an unknown platform model is refused when it is saved.
+test('AgentModelConfigService takes only the slugs agy offers as an Antigravity CLI platform model', async () => {
+    const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'antigravity-cli', model: null })
+    const service = makeService(db, null)
+    const view = await service.updateForAgent(
+        'user-1',
+        'agent-1',
+        {
+            modelConfigSource: 'platform',
+            modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.8-flash-high' }
+        },
+        false
+    )
+    assert.deepEqual(view.config, { framework: 'antigravity-cli', model: 'gemini-3.8-flash-high' })
+    assert.deepEqual(view.validation, { valid: true, messages: [] })
+    assert.ok(view.options.some((o) => o.value === 'gemini-3.1-pro-low'))
+    assert.equal(db.agent.model, 'gemini-3.8-flash-high')
+    await assert.rejects(
+        service.updateForAgent(
+            'user-1',
+            'agent-1',
+            {
+                modelConfigSource: 'platform',
+                modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.1-pro-preview' }
+            },
+            false
+        ),
+        /not one its Gemini API-key mode offers/
+    )
+})
+
 test('AgentModelConfigService runs a pi runtime-local turn on a model pi listed', async () => {
     const db = new FakeDb({
         ...baseAgent,

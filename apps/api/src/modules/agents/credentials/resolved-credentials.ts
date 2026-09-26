@@ -76,6 +76,10 @@ export type ResolvedAgentCredentials = {
     | { framework: 'codex'; value: ResolvedCodexCredentials }
     | { framework: 'gemini-cli'; value: ResolvedGeminiCliCredentials }
     | { framework: 'pi'; value: ResolvedPiCredentials }
+    | {
+          framework: 'antigravity-cli'
+          value: ResolvedAntigravityCliCredentials
+      }
     | { framework: 'openclaw'; value: ResolvedOpenclawCredentials }
     | { framework: 'hermes'; value: ResolvedHermesCredentials }
     | { framework: 'dify'; value: ResolvedExternalCredentials }
