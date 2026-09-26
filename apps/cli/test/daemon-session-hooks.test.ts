@@ -689,13 +689,13 @@ test('agy’s hook input maps to a start or an end by the event its hook names',
             '/h/brain/x/.system_generated/logs/transcript_full.jsonl',
         workspacePaths: ['/home/me/ws']
     }
-    const never = (): boolean => false
+    const lines = (n: number) => (): number => n
     assert.deepEqual(
         hookReportFromInput(
             'antigravity-cli',
             { ...base, initialNumSteps: 1, invocationNum: 0 },
             'PreInvocation',
-            never
+            lines(0)
         ),
         {
             framework: 'antigravity-cli',
@@ -710,20 +710,21 @@ test('agy’s hook input maps to a start or an end by the event its hook names',
             'antigravity-cli',
             { ...base, initialNumSteps: 7 },
             'PreInvocation',
-            never
+            lines(0)
         )?.source,
         'resume'
     )
-    // A start before any model call: a resumed conversation's log has steps.
+    // A fresh TUI conversation starts once its first prompt is logged; a
+    // resumed one's log already holds a whole turn.
     assert.equal(
-        hookReportFromInput('antigravity-cli', base, 'SessionStart', () => true)
-            ?.source,
-        'resume'
-    )
-    assert.equal(
-        hookReportFromInput('antigravity-cli', base, 'SessionStart', never)
+        hookReportFromInput('antigravity-cli', base, 'SessionStart', lines(1))
             ?.source,
         'startup'
+    )
+    assert.equal(
+        hookReportFromInput('antigravity-cli', base, 'SessionStart', lines(2))
+            ?.source,
+        'resume'
     )
     assert.deepEqual(
         hookReportFromInput(
@@ -764,7 +765,7 @@ test('the agy hook reports a conversation once and its end when agy exits', asyn
         const fakeMf = join(home, 'fake-mf')
         await writeFile(
             fakeMf,
-            `#!/bin/sh\nprintf '%s ' "$@" >> '${log}'\ncat >> '${log}'\nprintf '\\n' >> '${log}'\n`,
+            `#!/bin/sh\nprintf '%s ' "$@" "lines=$MF_AGY_LOG_LINES" >> '${log}'\ncat >> '${log}'\nprintf '\\n' >> '${log}'\n`,
             { mode: 0o755 }
         )
         const script = join(home, 'mf-session.sh')
@@ -785,12 +786,23 @@ process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
                 {
                     env: {
                         PATH: '/usr/bin:/bin',
+                        HOME: home,
                         TMPDIR: home,
                         MF_TERMINAL_ID: terminalId,
                         ANTIGRAVITY_CONVERSATION_ID: AGY_CONVERSATION
                     }
                 }
             ).toString()
+
+        // The conversation's log holds a whole turn when agy runs the hook.
+        const logs = join(
+            home,
+            '.gemini/antigravity-cli/brain',
+            AGY_CONVERSATION,
+            '.system_generated/logs'
+        )
+        await mkdir(logs, { recursive: true })
+        await writeFile(join(logs, 'transcript_full.jsonl'), '{}\n{}\n')
 
         // Outside a Manyfold terminal it only answers agy.
         assert.equal(runAgy(''), '{}{}')
@@ -803,22 +815,52 @@ process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
             lines = (await readFile(log, 'utf8').catch(() => ''))
                 .split('\n')
                 .filter(Boolean)
-            if (lines.some((line) => line.includes('SessionEnd'))) break
+            // The fake callback writes its arguments before its stdin.
+            if (lines.some((line) => line.includes('SessionEnd {"'))) break
             await new Promise((resolve) => setTimeout(resolve, 200))
         }
         assert.equal(lines.length, 2, lines.join('\n'))
         assert.match(
             lines[0],
-            /^daemon hooks report antigravity-cli SessionStart \{"conversationId":"6bce3054/
+            /^daemon hooks report antigravity-cli SessionStart lines=2 \{"conversationId":"6bce3054/
         )
-        assert.equal(
+        assert.match(
             lines[1],
-            `daemon hooks report antigravity-cli SessionEnd {"conversationId":"${AGY_CONVERSATION}"}`
+            new RegExp(
+                `^daemon hooks report antigravity-cli SessionEnd lines=\\d* \\{"conversationId":"${AGY_CONVERSATION}"\\}$`
+            )
         )
         // The waiter leaves nothing behind for the next agy in the terminal.
         const state = (await readdir(home)).find((name) =>
             name.startsWith('mf-agy-session-')
         )!
         assert.deepEqual(await readdir(join(home, state)), [])
+    })
+})
+
+test('an agy session start reads how far the conversation’s log already goes', async () => {
+    await withHome(async (home) => {
+        const log = join(home, 'transcript_full.jsonl')
+        const start = () =>
+            hookReportFromInput(
+                'antigravity-cli',
+                { conversationId: AGY_CONVERSATION, transcriptPath: log },
+                'SessionStart'
+            )?.source
+        assert.equal(start(), 'startup', 'no log yet')
+        await writeFile(log, '{"type":"USER_INPUT"}\n')
+        assert.equal(start(), 'startup', 'only the opening prompt')
+        await writeFile(
+            log,
+            '{"type":"USER_INPUT"}\n{"type":"PLANNER_RESPONSE"}\n'
+        )
+        assert.equal(start(), 'resume')
+        // The count the hook took while agy waited beats a later look.
+        process.env.MF_AGY_LOG_LINES = '1'
+        try {
+            assert.equal(start(), 'startup')
+        } finally {
+            delete process.env.MF_AGY_LOG_LINES
+        }
     })
 })

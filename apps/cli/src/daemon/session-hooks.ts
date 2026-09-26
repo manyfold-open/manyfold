@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { statSync } from 'node:fs'
+import { closeSync, openSync, readSync } from 'node:fs'
 import {
     chmod,
     mkdir,
@@ -165,9 +165,11 @@ export const buildSessionHookScript = (invocation: string[]): string =>
 // agy's version of the hook script. agy runs a hook through `sh -c` with the
 // conversation id in ANTIGRAVITY_CONVERSATION_ID and parses what it prints,
 // so the script answers `{}` first. It reports a conversation once per
-// terminal (a marker under TMPDIR), then leaves a waiter behind on the agy
-// process that ran it, which reports the end of the terminal's latest
-// conversation when agy exits: agy has no session-end event of its own.
+// terminal (a marker under TMPDIR), with the lines its log holds while agy
+// still waits on the hook (the report itself runs after agy has moved on),
+// then leaves a waiter behind on the agy process that ran it, which reports
+// the end of the terminal's latest conversation when agy exits: agy has no
+// session-end event of its own.
 // Measured on agy 1.2.11 [2026-09-26]: the hook's parent is that `sh`, its
 // grandparent agy; the waiter walks up three levels at most to find it.
 export const buildAgySessionHookScript = (invocation: string[]): string => {
@@ -191,6 +193,9 @@ export const buildAgySessionHookScript = (invocation: string[]): string => {
         '[ -e "$state/$term.$conv" ] && exit 0',
         ': > "$state/$term.$conv" 2>/dev/null || exit 0',
         'printf \'%s\' "$conv" > "$state/$term.current"',
+        'log="$HOME/.gemini/antigravity-cli/brain/$conv/.system_generated/logs/transcript_full.jsonl"',
+        'MF_AGY_LOG_LINES=$(head -c 1048576 "$log" 2>/dev/null | wc -l | tr -d \' \')',
+        'export MF_AGY_LOG_LINES',
         `( printf '%s' "$payload" | ${mf} daemon hooks report antigravity-cli "$1" >/dev/null 2>&1 & ) >/dev/null 2>&1`,
         'mf_comm() { cat "/proc/$1/comm" 2>/dev/null || ps -o comm= -p "$1" 2>/dev/null; }',
         'mf_ppid() { if [ -r "/proc/$1/stat" ]; then sed \'s/.*) . //\' "/proc/$1/stat" | cut -d\' \' -f1; else ps -o ppid= -p "$1" 2>/dev/null | tr -d \' \'; fi; }',
@@ -825,12 +830,15 @@ export const reconcileSessionHooksOnStart = async (
 
 // agy's hook input names neither the event (the hook's command line does)
 // nor how the session began: its first model call counts the steps already
-// there, and a start before any call finds the conversation's log empty or
-// absent unless it was resumed.
+// there, and its session start carries no count, so the conversation's log
+// stands in — a resumed one holds a whole turn, a fresh one at most the
+// prompt that opened it. Measured on agy 1.2.11 [2026-09-26]: a fresh TUI
+// conversation fires SessionStart only once its first prompt is logged, and
+// a resumed one fires none before its first model call.
 const agyHookReport = (
     record: Record<string, unknown>,
     eventArg: string | undefined,
-    logHasSteps: (path: string) => boolean
+    logLines: (path: string) => number
 ): TerminalSessionHookRequest | null => {
     const sessionRef =
         typeof record.conversationId === 'string'
@@ -845,17 +853,14 @@ const agyHookReport = (
               ? 'start'
               : null
     if (!event) return null
+    const steps =
+        typeof record.initialNumSteps === 'number'
+            ? record.initialNumSteps
+            : typeof record.transcriptPath === 'string'
+              ? logLines(record.transcriptPath)
+              : 0
     const source: TerminalHookSource =
-        event === 'end'
-            ? 'other'
-            : typeof record.initialNumSteps === 'number'
-              ? record.initialNumSteps <= 1
-                  ? 'startup'
-                  : 'resume'
-              : typeof record.transcriptPath === 'string' &&
-                  logHasSteps(record.transcriptPath)
-                ? 'resume'
-                : 'startup'
+        event === 'end' ? 'other' : steps <= 1 ? 'startup' : 'resume'
     const cwd = Array.isArray(record.workspacePaths)
         ? record.workspacePaths.find((p): p is string => typeof p === 'string')
         : undefined
@@ -868,11 +873,28 @@ const agyHookReport = (
     }
 }
 
-const fileHasBytes = (path: string): boolean => {
+// Lines in a log: what the hook counted while agy waited on it, else counted
+// up to two within its first MiB now.
+const logLinesAtHook = (path: string): number => {
+    const counted = Number.parseInt(process.env.MF_AGY_LOG_LINES ?? '', 10)
+    return Number.isFinite(counted) && counted >= 0
+        ? counted
+        : logLinesUpToTwo(path)
+}
+
+const logLinesUpToTwo = (path: string): number => {
+    let fd: number | null = null
     try {
-        return statSync(path).size > 0
+        fd = openSync(path, 'r')
+        const buf = Buffer.alloc(1 << 20)
+        const read = readSync(fd, buf, 0, buf.length, 0)
+        let lines = 0
+        for (let i = 0; i < read && lines < 2; i++) if (buf[i] === 0x0a) lines++
+        return lines
     } catch {
-        return false
+        return 0
+    } finally {
+        if (fd !== null) closeSync(fd)
     }
 }
 
@@ -882,12 +904,12 @@ export const hookReportFromInput = (
     framework: TerminalHookFramework,
     input: unknown,
     eventArg?: string,
-    logHasSteps: (path: string) => boolean = fileHasBytes
+    logLines: (path: string) => number = logLinesAtHook
 ): TerminalSessionHookRequest | null => {
     if (!input || typeof input !== 'object') return null
     const record = input as Record<string, unknown>
     if (framework === 'antigravity-cli')
-        return agyHookReport(record, eventArg, logHasSteps)
+        return agyHookReport(record, eventArg, logLines)
     const sessionRef =
         typeof record.session_id === 'string' ? record.session_id.trim() : ''
     if (!sessionRef) return null
