@@ -35,9 +35,13 @@ import {
     buildUpdateRows,
     filterRowsByKind,
     groupUpdateRows,
+    liveSelection,
     parseKindParam,
     planBatch,
+    selectionState,
+    toggleSelection,
     updateGroupDims,
+    type SelectionState,
     type UpdateGroupBy,
     type UpdateKind,
     type UpdateRow,
@@ -247,6 +251,27 @@ const RowAction: FC<{
     )
 }
 
+const SelectionCheckbox: FC<{
+    state: SelectionState
+    ariaLabel: string
+    disabled: boolean
+    onToggle: () => void
+}> = ({ state, ariaLabel, disabled, onToggle }): ReactNode => (
+    <input
+        type='checkbox'
+        aria-label={ariaLabel}
+        checked={state === 'all'}
+        disabled={disabled}
+        // Mixed has no attribute, only a DOM property. The ref stays inline so
+        // it re-applies the flag on every render, including the one after a
+        // click has cleared it.
+        ref={(el) => {
+            if (el) el.indeterminate = state === 'some'
+        }}
+        onChange={onToggle}
+    />
+)
+
 const UpdateCenter: FC = (): ReactNode => {
     const client = useApiClient()
     const { t } = useI18n()
@@ -314,16 +339,12 @@ const UpdateCenter: FC = (): ReactNode => {
 
     // A row that finished, or vanished because its update landed, must not stay
     // selected — the next batch would then plan work for an id nobody renders.
+    // Nor may one that can no longer be run from here (liveSelection).
     // A pick is dropped on the same event, plus when the refreshed catalog no
     // longer offers it: a release withdrawn mid-session would otherwise leave
     // the row pointing at a version the server will refuse.
     useEffect(() => {
-        setSelected((prev) => {
-            if (prev.size === 0) return prev
-            const live = new Set(allRows.filter((r) => r.materialization?.status !== 'installing').map((r) => r.id))
-            const next = new Set([...prev].filter((id) => live.has(id)))
-            return next.size === prev.size ? prev : next
-        })
+        setSelected((prev) => liveSelection(prev, allRows))
         setTargets((prev) => {
             const entries = Object.entries(prev)
             if (entries.length === 0) return prev
@@ -355,12 +376,20 @@ const UpdateCenter: FC = (): ReactNode => {
         void refresh()
     }, [batch, refresh])
 
-    const selectableRows = rows.filter((row) => row.blocker === null &&
-        row.materialization?.status !== 'installing' && !isTargetUpdating(runs, row.id))
+    const selectable = (row: UpdateRow): boolean =>
+        row.blocker === null &&
+        row.materialization?.status !== 'installing' &&
+        !isTargetUpdating(runs, row.id)
+    // Selected rows count toward a box even after they stop being selectable:
+    // a batch queues its rows, which makes them unselectable, but keeps them
+    // selected until it ends, and a box that ignored them would read empty
+    // over rows that all read checked.
+    const selectionScope = (scope: UpdateRow[]): string[] =>
+        scope
+            .filter((row) => selectable(row) || selected.has(row.id))
+            .map((row) => row.id)
+    const tableIds = selectionScope(rows)
     const selectedRows = allRows.filter((row) => selected.has(row.id))
-    const allSelectableSelected =
-        selectableRows.length > 0 &&
-        selectableRows.every((row) => selected.has(row.id))
 
     const toggleRow = (id: string): void =>
         setSelected((prev) => {
@@ -370,14 +399,8 @@ const UpdateCenter: FC = (): ReactNode => {
             return next
         })
 
-    const toggleAll = (): void =>
-        setSelected((prev) => {
-            const next = new Set(prev)
-            if (allSelectableSelected)
-                for (const row of selectableRows) next.delete(row.id)
-            else for (const row of selectableRows) next.add(row.id)
-            return next
-        })
+    const toggleIds = (ids: string[]): void =>
+        setSelected((prev) => toggleSelection(ids, prev))
 
     const targetOf = (row: UpdateRow): string | null =>
         targets[row.id] ?? row.latestVersion
@@ -516,17 +539,21 @@ const UpdateCenter: FC = (): ReactNode => {
                             <thead className='workbench-table-head'>
                                 <tr className='text-caption text-muted'>
                                     <th className='w-10 px-3 py-2'>
-                                        <input
-                                            type='checkbox'
-                                            aria-label={t(
+                                        <SelectionCheckbox
+                                            state={selectionState(
+                                                tableIds,
+                                                selected
+                                            )}
+                                            ariaLabel={t(
                                                 'web.updates.selectAll'
                                             )}
-                                            checked={allSelectableSelected}
                                             disabled={
                                                 running ||
-                                                selectableRows.length === 0
+                                                tableIds.length === 0
                                             }
-                                            onChange={toggleAll}
+                                            onToggle={() =>
+                                                toggleIds(tableIds)
+                                            }
                                         />
                                     </th>
                                     <th className='px-3 py-2 font-medium'>
@@ -544,7 +571,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                     <th className='px-3 py-2 font-medium'>
                                         {t('web.updates.colStatus')}
                                     </th>
-                                    <th className='px-3 py-2 text-right font-medium'>
+                                    <th className='px-3 py-2 text-end font-medium'>
                                         <span className='sr-only'>
                                             {t('web.updates.colAction')}
                                         </span>
@@ -609,7 +636,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                             <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
-                                                    className='ml-auto w-16'
+                                                    className='ms-auto w-16'
                                                 />
                                             </td>
                                         </tr>
@@ -620,13 +647,40 @@ const UpdateCenter: FC = (): ReactNode => {
                                     const grouped = groupBy !== 'none'
                                     const open =
                                         !grouped || expanded.has(group.key)
+                                    const groupIds = grouped
+                                        ? selectionScope(group.rows)
+                                        : []
                                     return (
                                         <tbody key={group.key}>
                                             {grouped && (
                                                 <tr className='border-divider/60 bg-surface-subtle border-t'>
+                                                    <td className='px-3 py-0 align-middle'>
+                                                        <SelectionCheckbox
+                                                            state={selectionState(
+                                                                groupIds,
+                                                                selected
+                                                            )}
+                                                            ariaLabel={t(
+                                                                'web.updates.selectGroup',
+                                                                {
+                                                                    name: group.label
+                                                                }
+                                                            )}
+                                                            disabled={
+                                                                running ||
+                                                                groupIds.length ===
+                                                                    0
+                                                            }
+                                                            onToggle={() =>
+                                                                toggleIds(
+                                                                    groupIds
+                                                                )
+                                                            }
+                                                        />
+                                                    </td>
                                                     <td
-                                                        colSpan={7}
-                                                        className='px-2 py-0'
+                                                        colSpan={6}
+                                                        className='px-1 py-0'
                                                     >
                                                         <GroupHeader
                                                             label={group.label}
@@ -767,7 +821,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                                         }
                                                                     />
                                                                 </td>
-                                                                <td className='px-3 py-2 text-right align-middle'>
+                                                                <td className='px-3 py-2 text-end align-middle'>
                                                                     <RowAction
                                                                         row={
                                                                             row

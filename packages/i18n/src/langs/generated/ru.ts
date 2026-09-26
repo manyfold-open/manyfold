@@ -4098,6 +4098,7 @@ const ru: Record<string, string> = {
     'web.updates.updateSelected': 'Обновить выбранные ({{count}})',
     'web.updates.updateOne': 'Обновить',
     'web.updates.selectAll': 'Выбрать все обновления, доступные для запуска отсюда',
+    'web.updates.selectGroup': 'Выбрать все обновления в группе {{name}}, доступные для запуска отсюда',
     'web.updates.selectRow': 'Выбрать {{name}}',
     'web.updates.colUpdate': 'Обновление',
     'web.updates.colTarget': 'Где',

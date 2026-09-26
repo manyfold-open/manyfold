@@ -9,6 +9,7 @@ import {
     type LucideIcon
 } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
+import { useI18n } from '@/lib/i18n'
 
 export type Health = 'error' | 'warn' | null
 
@@ -70,7 +71,7 @@ export function GroupByControl<T extends string>({
             </button>
             {open && (
                 <>
-                    <div className='popover-panel bg-surface-elevated shadow-elevated absolute top-full left-0 z-30 mt-1 hidden w-44 rounded-md p-1 lg:block'>
+                    <div className='popover-panel bg-surface-elevated shadow-elevated absolute top-full start-0 z-30 mt-1 hidden w-44 rounded-md p-1 lg:block'>
                         {options.map((option) => {
                             const Icon = option.icon
                             return (
@@ -78,7 +79,7 @@ export function GroupByControl<T extends string>({
                                     key={option.value}
                                     type='button'
                                     onClick={() => choose(option.value)}
-                                    className='text-ui hover:bg-soft flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left'
+                                    className='text-ui hover:bg-soft flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-start'
                                 >
                                     <Icon className='text-muted h-4 w-4' />
                                     <span className='flex-1'>{option.label}</span>
@@ -108,7 +109,7 @@ export function GroupByControl<T extends string>({
                                         key={option.value}
                                         type='button'
                                         onClick={() => choose(option.value)}
-                                        className='text-body active:bg-soft flex w-full items-center gap-3 rounded-md px-3 py-3 text-left'
+                                        className='text-body active:bg-soft flex w-full items-center gap-3 rounded-md px-3 py-3 text-start'
                                     >
                                         <Icon className='text-muted h-5 w-5' />
                                         <span className='flex-1'>
@@ -135,33 +136,43 @@ export const GroupHeader: FC<{
     health: Health
     logo?: AgentFramework
     onToggle: () => void
-}> = ({ label, count, open, health, logo, onToggle }): ReactNode => (
-    <button
-        type='button'
-        onClick={onToggle}
-        aria-expanded={open}
-        className='hover:bg-rail-hover flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left transition-colors'
-    >
-        {open ? (
-            <ChevronDownIcon className='text-subtle h-4 w-4 shrink-0' />
-        ) : (
-            <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
-        )}
-        {logo && <FrameworkLogo framework={logo} size={16} />}
-        <span className='text-ui text-muted min-w-0 flex-1 truncate font-medium'>
-            {label}
-        </span>
-        {!open && health && (
-            <span
-                className={[
-                    'h-2 w-2 shrink-0 rounded-full',
-                    healthDotClass(health)
-                ].join(' ')}
-            />
-        )}
-        <span className='text-caption text-subtle tabular-nums'>{count}</span>
-    </button>
-)
+}> = ({ label, count, open, health, logo, onToggle }): ReactNode => {
+    const { direction } = useI18n()
+    return (
+        <button
+            type='button'
+            onClick={onToggle}
+            aria-expanded={open}
+            className='hover:bg-rail-hover flex w-full items-center gap-2 rounded-sm px-2 py-2 text-start transition-colors'
+        >
+            {open ? (
+                <ChevronDownIcon className='text-subtle h-4 w-4 shrink-0' />
+            ) : (
+                <ChevronRightIcon
+                    className={[
+                        'text-subtle h-4 w-4 shrink-0',
+                        direction === 'rtl' ? 'rotate-180' : ''
+                    ].join(' ')}
+                />
+            )}
+            {logo && <FrameworkLogo framework={logo} size={16} />}
+            <span className='text-ui text-muted min-w-0 flex-1 truncate font-medium'>
+                {label}
+            </span>
+            {!open && health && (
+                <span
+                    className={[
+                        'h-2 w-2 shrink-0 rounded-full',
+                        healthDotClass(health)
+                    ].join(' ')}
+                />
+            )}
+            <span className='text-caption text-subtle tabular-nums'>
+                {count}
+            </span>
+        </button>
+    )
+}
 
 type ExpandedByDim<D extends string> = Record<D, Set<string>>
 
