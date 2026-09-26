@@ -21,6 +21,7 @@ order: 3
 | Codex | 代码库修改、代码审查和需要工作区上下文的开发任务。 |
 | Gemini CLI | 基于 Google Gemini 的编码和通用终端自动化。 |
 | Pi | 开源编程 CLI，可接多家模型厂商。支持 sandbox、Kubernetes 和自己的电脑，凭证可以是已保存的模型提供方或厂商 API key（Anthropic、OpenAI 或 Google Gemini），也可以是它在该环境里自己的登录——Claude、ChatGPT 或 Copilot 订阅。 |
+| Antigravity CLI | Google 的编程 CLI。支持 sandbox、Kubernetes 和自己的电脑，可以用它在该环境里登录的 Google 账号（包括 Google AI Pro 或 Ultra 套餐，还能使用 Claude 和 GPT-OSS 模型），也可以用已保存的 Gemini 模型提供方或 Gemini API key。 |
 | Hermes Agent | 连接器密集型工作流和后台任务。 |
 | OpenClaw | 需要服务、gateway 或定时任务的工具型 Agent 应用。 |
 

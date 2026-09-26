@@ -1,6 +1,6 @@
 ---
 title: "mf daemon"
-description: "Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi)"
+description: "Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli)"
 order: 17
 ---
 **用法:** `mf daemon [command]`
@@ -21,7 +21,7 @@ order: 17
 | [`mf daemon stop`](#mf-daemon-stop) | Stop the Manyfold daemon and remove its autostart unit |
 | [`mf daemon logs`](#mf-daemon-logs) | Tail the daemon log |
 | [`mf daemon doctor`](#mf-daemon-doctor) | Probe local frameworks and daemon terminal support |
-| [`mf daemon hooks`](#mf-daemon-hooks) | Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals) |
+| [`mf daemon hooks`](#mf-daemon-hooks) | Session hooks Manyfold installs for claude, codex, pi and agy (act only inside Manyfold terminals) |
 
 ## `mf daemon register`
 
@@ -113,7 +113,7 @@ Probe local frameworks and daemon terminal support
 
 ## `mf daemon hooks`
 
-Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals)
+Session hooks Manyfold installs for claude, codex, pi and agy (act only inside Manyfold terminals)
 
 **用法:** `mf daemon hooks [command]`
 
@@ -175,13 +175,14 @@ Show which frameworks have the session hooks installed
 
 Used by the installed hooks: forward the hook JSON on stdin to Manyfold (no-op outside a Manyfold terminal)
 
-**用法:** `mf daemon hooks report [options] <framework>`
+**用法:** `mf daemon hooks report [options] <framework> [event]`
 
 **Argument**
 
 | 参数 | 用途 |
 | --- | --- |
 | `<framework>` |  |
+| `[event]` |  |
 
 **Option**
 

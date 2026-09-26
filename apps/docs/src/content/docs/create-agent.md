@@ -21,6 +21,7 @@ Use the framework that matches the job:
 | Codex | Codebase changes, reviews, and workspace-aware development tasks. |
 | Gemini CLI | Coding and general terminal automation with Google Gemini. |
 | Pi | Open-source coding CLI for many model vendors. Runs on a sandbox, Kubernetes, or your own computer, on a saved provider or a vendor API key (Anthropic, OpenAI or Google Gemini), or on its own sign-in there — a Claude, ChatGPT or Copilot subscription. |
+| Antigravity CLI | Google's coding CLI. Runs on a sandbox, Kubernetes, or your own computer, on its own Google account sign-in there — including a Google AI Pro or Ultra plan, which also brings Claude and GPT-OSS models — or on a saved Gemini provider or Gemini API key. |
 | Hermes Agent | Connector-heavy workflows and background work. |
 | OpenClaw | Tool-rich agent applications that need services, gateways, or scheduled jobs. |
 
