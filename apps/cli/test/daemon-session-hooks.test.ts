@@ -838,6 +838,57 @@ process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
     })
 })
 
+// A waiter killed with its terminal leaves its markers; the next conversation
+// clears them for every terminal whose waiter is gone, and only those.
+test('an agy hook clears what a killed waiter left behind', async () => {
+    await withHome(async (home) => {
+        const state = join(home, `mf-agy-session-${process.getuid!()}`)
+        const seed = async (terminalId: string, waiter: number) => {
+            const watch = join(state, `${terminalId}.watch.4242`)
+            await mkdir(watch, { recursive: true })
+            await writeFile(join(watch, 'waiter'), String(waiter))
+            await writeFile(
+                join(state, `${terminalId}.current`),
+                AGY_CONVERSATION
+            )
+            await writeFile(
+                join(state, `${terminalId}.${AGY_CONVERSATION}`),
+                ''
+            )
+        }
+        await seed('trm_gone', 2147483646)
+        await seed('trm_live', process.pid)
+        const script = join(home, 'mf-session.sh')
+        await writeFile(script, buildAgySessionHookScript(['/bin/true']), {
+            mode: 0o755
+        })
+        execFileSync('sh', ['-c', `'${script}' PreInvocation`], {
+            input: JSON.stringify({
+                conversationId: AGY_CONVERSATION,
+                initialNumSteps: 1,
+                workspacePaths: ['/ws']
+            }),
+            env: {
+                PATH: '/usr/bin:/bin',
+                HOME: home,
+                TMPDIR: home,
+                MF_TERMINAL_ID: 'trm_new',
+                ANTIGRAVITY_CONVERSATION_ID: AGY_CONVERSATION
+            }
+        })
+        assert.deepEqual(
+            (await readdir(state)).sort(),
+            [
+                `trm_live.${AGY_CONVERSATION}`,
+                'trm_live.current',
+                'trm_live.watch.4242',
+                `trm_new.${AGY_CONVERSATION}`,
+                'trm_new.current'
+            ].sort()
+        )
+    })
+})
+
 test('an agy session start reads how far the conversation’s log already goes', async () => {
     await withHome(async (home) => {
         const log = join(home, 'transcript_full.jsonl')

@@ -169,9 +169,13 @@ export const buildSessionHookScript = (invocation: string[]): string =>
 // still waits on the hook (the report itself runs after agy has moved on),
 // then leaves a waiter behind on the agy process that ran it, which reports
 // the end of the terminal's latest conversation when agy exits: agy has no
-// session-end event of its own.
+// session-end event of its own. A terminal that ends with agy still in it
+// takes the waiter along, so a new conversation first clears what dead
+// waiters left.
 // Measured on agy 1.2.11 [2026-09-26]: the hook's parent is that `sh`, its
 // grandparent agy; the waiter walks up three levels at most to find it.
+// Measured on herdr 0.9.1 [2026-09-26]: closing a pane kills every process
+// in its session, the waiter too, even once agy has exited on its own.
 export const buildAgySessionHookScript = (invocation: string[]): string => {
     const mf = invocation.map(shellQuote).join(' ')
     return [
@@ -191,6 +195,12 @@ export const buildAgySessionHookScript = (invocation: string[]): string => {
         'state="${TMPDIR:-/tmp}/mf-agy-session-$(id -u)"',
         'mkdir -p "$state" 2>/dev/null && [ -O "$state" ] || exit 0',
         '[ -e "$state/$term.$conv" ] && exit 0',
+        'for w in "$state"/*.watch.*; do',
+        '    [ -f "$w/waiter" ] || continue',
+        '    kill -0 "$(cat "$w/waiter")" 2>/dev/null && continue',
+        '    t="${w##*/}"',
+        '    rm -rf "$state/${t%%.watch.*}."*',
+        'done',
         ': > "$state/$term.$conv" 2>/dev/null || exit 0',
         'printf \'%s\' "$conv" > "$state/$term.current"',
         'log="$HOME/.gemini/antigravity-cli/brain/$conv/.system_generated/logs/transcript_full.jsonl"',
@@ -215,6 +225,7 @@ export const buildAgySessionHookScript = (invocation: string[]): string => {
         '    rm -rf "$state/$term."*',
         `    [ -n "$last" ] && printf '{"conversationId":"%s"}' "$last" | ${mf} daemon hooks report antigravity-cli SessionEnd`,
         ') </dev/null >/dev/null 2>&1 &',
+        'printf \'%s\' "$!" > "$state/$term.watch.$agy/waiter"',
         'exit 0',
         ''
     ].join('\n')
