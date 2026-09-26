@@ -57,3 +57,14 @@ export class A2aError extends Error {
         return body
     }
 }
+
+export class A2aTransportError extends Error {
+    constructor(
+        readonly status: number,
+        detail?: string,
+        readonly retryAfter: string | null = null
+    ) {
+        super(`A2A server returned HTTP ${status}${detail ? `: ${detail}` : ''}`)
+        this.name = 'A2aTransportError'
+    }
+}

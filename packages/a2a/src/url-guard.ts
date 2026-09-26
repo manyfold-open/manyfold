@@ -4,7 +4,8 @@
 
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
-import { fetch } from 'undici'
+import type { LookupAddress } from 'node:dns'
+import { Agent, fetch } from 'undici'
 
 const ALLOW_PRIVATE_ENVS = [
     'MF_ALLOW_PRIVATE_EXTERNAL_PROVIDER_ENDPOINTS',
@@ -17,6 +18,49 @@ export interface UrlGuardOptions {
     allowPrivate?: boolean
     allowHttp?: boolean
 }
+
+const allowsPrivate = (opts: UrlGuardOptions): boolean =>
+    opts.allowPrivate === true ||
+    ALLOW_PRIVATE_ENVS.some((key) => process.env[key] === '1')
+
+const publicAddresses = async (host: string) => {
+    let addresses: LookupAddress[]
+    try {
+        addresses = await lookup(host, { all: true, verbatim: true })
+    } catch {
+        throw new Error(`A2A endpoint host ${host} could not be resolved`)
+    }
+    if (addresses.length === 0)
+        throw new Error(`A2A endpoint host ${host} could not be resolved`)
+    for (const item of addresses) assertPublicAddress(item.address, host)
+    return addresses
+}
+
+// URL checks cannot authorize a later DNS answer. Validate the addresses handed
+// directly to the socket, keeping the original Host header and TLS server name.
+const publicDispatcher = new Agent({
+    connect: {
+        lookup: (host, options, callback) => {
+            void publicAddresses(host).then(
+                (addresses) => {
+                    const candidates = options.family
+                        ? addresses.filter((item) => item.family === options.family)
+                        : addresses
+                    if (!candidates.length) {
+                        callback(new Error(`no address for ${host}`), '', 0)
+                        return
+                    }
+                    callback(
+                        null,
+                        options.all ? candidates : candidates[0].address,
+                        candidates[0].family
+                    )
+                },
+                (error: Error) => callback(error, '', 0)
+            )
+        }
+    }
+})
 
 export const assertSafeUrl = async (
     raw: string,
@@ -33,9 +77,7 @@ export const assertSafeUrl = async (
     if (url.username || url.password)
         throw new Error('A2A endpoint must not include credentials')
 
-    const allowPrivate =
-        opts.allowPrivate === true ||
-        ALLOW_PRIVATE_ENVS.some((key) => process.env[key] === '1')
+    const allowPrivate = allowsPrivate(opts)
 
     if (url.protocol === 'http:' && !allowPrivate && opts.allowHttp !== true)
         throw new Error(
@@ -53,15 +95,7 @@ export const assertSafeUrl = async (
         return url.toString()
     }
 
-    let resolved: Array<{ address: string }> = []
-    try {
-        resolved = await lookup(host, { all: true, verbatim: true })
-    } catch {
-        throw new Error(`A2A endpoint host ${host} could not be resolved`)
-    }
-    if (resolved.length === 0)
-        throw new Error(`A2A endpoint host ${host} could not be resolved`)
-    for (const item of resolved) assertPublicAddress(item.address, host)
+    await publicAddresses(host)
     return url.toString()
 }
 
@@ -70,8 +104,29 @@ export const guardedFetch = async (
     init: FetchInit,
     opts: UrlGuardOptions = {}
 ): ReturnType<typeof fetch> => {
-    const safeUrl = await assertSafeUrl(rawUrl, opts)
-    return fetch(safeUrl, { ...init, redirect: 'error' })
+    const signal = init.signal
+    signal?.throwIfAborted()
+    let abort: (() => void) | undefined
+    let safeUrl: string
+    try {
+        const validated = assertSafeUrl(rawUrl, opts)
+        safeUrl = signal
+            ? await Promise.race([
+                  validated,
+                  new Promise<never>((_resolve, reject) => {
+                      abort = () => reject(signal.reason)
+                      signal.addEventListener('abort', abort, { once: true })
+                  })
+              ])
+            : await validated
+    } finally {
+        if (abort) signal?.removeEventListener('abort', abort)
+    }
+    return fetch(safeUrl, {
+        ...init,
+        dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
+        redirect: 'error'
+    })
 }
 
 const normalizeHost = (host: string): string =>

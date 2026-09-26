@@ -1,6 +1,6 @@
 import { guardedFetch, type UrlGuardOptions } from './url-guard'
 import { parseSseStream } from './sse'
-import { A2aError, A2aErrorCode } from './errors'
+import { A2aError, A2aErrorCode, A2aTransportError } from './errors'
 import {
     A2aMethod,
     type A2aStreamEvent,
@@ -46,13 +46,42 @@ export const parseJsonRpcResult = <R>(raw: string): R => {
             'invalid JSON-RPC response from A2A server'
         )
     }
-    if (parsed.error) throw A2aError.fromJsonRpc(parsed.error)
+    if (!parsed || typeof parsed !== 'object')
+        throw new A2aError(A2aErrorCode.invalidAgentResponse, 'invalid JSON-RPC response from A2A server')
+    if (parsed.error) {
+        if (typeof parsed.error !== 'object' ||
+            typeof parsed.error.code !== 'number' ||
+            typeof parsed.error.message !== 'string')
+            throw new A2aError(A2aErrorCode.invalidAgentResponse, 'invalid JSON-RPC error from A2A server')
+        throw A2aError.fromJsonRpc(parsed.error)
+    }
     if (parsed.result === undefined)
         throw new A2aError(
             A2aErrorCode.internalError,
             'A2A response missing result'
         )
     return parsed.result
+}
+
+const transportError = (
+    status: number,
+    body: string,
+    retryAfter: string | null
+): A2aTransportError => {
+    let detail = body.trim()
+    try {
+        const data = JSON.parse(body)
+        detail = typeof data?.error === 'string'
+            ? data.error
+            : typeof data?.error?.message === 'string'
+              ? data.error.message
+              : typeof data?.message === 'string'
+                ? data.message
+                : ''
+    } catch {
+        // Plain-text proxy errors still carry useful diagnostics.
+    }
+    return new A2aTransportError(status, detail.slice(0, 200), retryAfter)
 }
 
 export class A2aClient {
@@ -95,11 +124,8 @@ export class A2aClient {
             this.guard
         )
         const text = await res.text()
-        if (!res.ok && !text)
-            throw new A2aError(
-                A2aErrorCode.internalError,
-                `A2A server returned HTTP ${res.status}`
-            )
+        if (!res.ok)
+            throw transportError(res.status, text, res.headers.get('retry-after'))
         return parseJsonRpcResult<R>(text)
     }
 
@@ -121,11 +147,7 @@ export class A2aClient {
         )
         if (!res.ok) {
             const text = await res.text().catch(() => '')
-            if (text) parseJsonRpcResult(text)
-            throw new A2aError(
-                A2aErrorCode.internalError,
-                `A2A stream returned HTTP ${res.status}`
-            )
+            throw transportError(res.status, text, res.headers.get('retry-after'))
         }
         if (!res.body)
             throw new A2aError(

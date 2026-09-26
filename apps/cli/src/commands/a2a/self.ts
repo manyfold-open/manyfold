@@ -53,7 +53,8 @@ const agentSelfRequest = async <T>(
     path: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     requiredScope: 'a2a:read' | 'a2a:edit' = 'a2a:read',
-    body?: unknown
+    body?: unknown,
+    signal?: AbortSignal
 ): Promise<T> => {
     const { ctx } = await buildClient(global)
     if (!ctx.token) throw new A2aSelfAuthError(undefined, requiredScope)
@@ -67,6 +68,7 @@ const agentSelfRequest = async <T>(
     const res = await createCliFetch()(url, {
         method,
         headers,
+        signal,
         body: body === undefined ? undefined : JSON.stringify(body)
     })
     // 401/403 → no usable identity (missing scope, or human without an agent
@@ -85,9 +87,17 @@ const agentSelfRequest = async <T>(
 // The peers this agent may call right now — resolved live from active grants +
 // target exposure. No bearer in the response; mint one per call below.
 export const fetchSelfPeers = (
-    global: GlobalAuthOpts
+    global: GlobalAuthOpts,
+    signal?: AbortSignal
 ): Promise<A2aSelfPeer[]> =>
-    agentSelfRequest<A2aSelfPeer[]>(global, '/agent-self/a2a/peers', 'GET')
+    agentSelfRequest<A2aSelfPeer[]>(
+        global,
+        '/agent-self/a2a/peers',
+        'GET',
+        'a2a:read',
+        undefined,
+        signal
+    )
 
 // This agent's own outbound A2A calls (it was the caller), newest first. Used
 // by `mf a2a status` and `mf a2a tasks list` so an async caller can see in-flight
@@ -111,12 +121,16 @@ export const fetchSelfTasks = (
 // A fresh short-lived bearer for one granted peer, minted right before the call.
 export const mintSelfPeerToken = (
     global: GlobalAuthOpts,
-    targetAgentId: string
+    targetAgentId: string,
+    signal?: AbortSignal
 ): Promise<A2aSelfPeerToken> =>
     agentSelfRequest<A2aSelfPeerToken>(
         global,
         `/agent-self/a2a/peers/${encodeURIComponent(targetAgentId)}/token`,
-        'POST'
+        'POST',
+        'a2a:read',
+        undefined,
+        signal
     )
 
 export const fetchSelfExposure = (
@@ -184,15 +198,16 @@ export interface ResolvedPeerCall {
 // the command can print it and exit without try/catch threading.
 export const resolvePeerForCall = async (
     global: GlobalAuthOpts,
-    ref: string
+    ref: string,
+    signal?: AbortSignal
 ): Promise<ResolvedPeerCall | { error: string }> => {
     try {
-        const match = findSelfPeer(await fetchSelfPeers(global), ref)
+        const match = findSelfPeer(await fetchSelfPeers(global, signal), ref)
         if (!match)
             return {
                 error: `no granted peer matching "${ref}" — run \`mf a2a status\` to list`
             }
-        const minted = await mintSelfPeerToken(global, match.agentId)
+        const minted = await mintSelfPeerToken(global, match.agentId, signal)
         return {
             name: match.name,
             rpcUrl: minted.rpcUrl,
