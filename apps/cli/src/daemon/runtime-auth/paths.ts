@@ -5,7 +5,7 @@ import {
     isRuntimeAuthOperationId,
     isRuntimeAuthProfileId,
     runtimeAuthRoot,
-    type ModelConfigFramework
+    type RuntimeAuthProfileFramework
 } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
 import {
@@ -94,27 +94,31 @@ export const operationPath = (
 // The framework dirs a profile view stands in for. The view IS the config
 // dir for claude/codex/pi and the HOME for gemini (which appends .gemini).
 export const viewConfigDirs = (
-    framework: ModelConfigFramework,
+    framework: RuntimeAuthProfileFramework,
     viewDir: string
 ): FrameworkConfigDirs => {
     const native = nativeDirsFor()
     const apiKeyFile = apiKeyPath(viewDir)
-    if (framework === 'claude-code')
-        return {
-            ...native,
-            claudeDir: viewDir,
-            claudeJson: join(viewDir, '.claude.json'),
-            envAuth: false,
-            apiKeyFile
-        }
-    if (framework === 'codex')
-        return { ...native, codexHome: viewDir, envAuth: false, apiKeyFile }
-    if (framework === 'pi') return { ...native, piDir: viewDir, envAuth: false }
-    return {
-        ...native,
-        geminiDir: join(viewDir, '.gemini'),
-        envAuth: false,
-        apiKeyFile
+    switch (framework) {
+        case 'claude-code':
+            return {
+                ...native,
+                claudeDir: viewDir,
+                claudeJson: join(viewDir, '.claude.json'),
+                envAuth: false,
+                apiKeyFile
+            }
+        case 'codex':
+            return { ...native, codexHome: viewDir, envAuth: false, apiKeyFile }
+        case 'pi':
+            return { ...native, piDir: viewDir, envAuth: false }
+        case 'gemini-cli':
+            return {
+                ...native,
+                geminiDir: join(viewDir, '.gemini'),
+                envAuth: false,
+                apiKeyFile
+            }
     }
 }
 

@@ -36,6 +36,7 @@ import {
     geminiAutoModelKey,
     geminiLocalModelCatalog,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     type ClaudeCredentialFacts,
     type CodexCredentialFacts,
     type CodexCustomProviderFact,
@@ -79,7 +80,10 @@ import {
 import { machineWorkspacesRoot, RUNNER_PROFILE } from '@manyfold/shared'
 import { resolveConfigDir, resolveProfile } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
-import type { ModelConfigFramework } from '@manyfold/shared'
+import type {
+    ModelConfigFramework,
+    RuntimeAuthProfileFramework
+} from '@manyfold/shared'
 import {
     RuntimeAuthManager,
     cliBinaryFor,
@@ -379,7 +383,7 @@ const resolveAuthContext = async (
     if (ref.mode === 'inherited') return null
     const manager = await runtimeAuthManagerFor(ref.runtimeId)
     const context = await manager.executionContext(
-        modelConfigFrameworkOf(ref),
+        profileFrameworkOf(ref),
         assertProfileId(ref.profileId),
         label,
         { waitMs: AUTH_CONTEXT_WAIT_MS }
@@ -1590,11 +1594,11 @@ const runtimeAuthManagerFor = async (
     )
 }
 
-const modelConfigFrameworkOf = (
+const profileFrameworkOf = (
     payload: Record<string, unknown>
-): ModelConfigFramework => {
+): RuntimeAuthProfileFramework => {
     const framework = String(payload.framework ?? '')
-    if (!isModelConfigFramework(framework))
+    if (!isRuntimeAuthProfileFramework(framework))
         throw new Error(`unsupported framework: ${framework}`)
     return framework
 }
@@ -1633,7 +1637,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(selection.runtimeId)
             const dirs = manager.dirsFor(
-                modelConfigFrameworkOf(selection),
+                profileFrameworkOf(selection),
                 assertProfileId(selection.profileId)
             )
             return {
@@ -1672,7 +1676,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.list(
-                modelConfigFrameworkOf(payload),
+                profileFrameworkOf(payload),
                 payload.probe !== false
             )
             return { ok: true, payload: { ...result } }
@@ -1686,7 +1690,7 @@ const handlers: Partial<
             const apiKey =
                 typeof payload.apiKey === 'string' ? payload.apiKey.trim() : ''
             const result = await manager.create(
-                modelConfigFrameworkOf(payload),
+                profileFrameworkOf(payload),
                 assertProfileId(payload.profileId),
                 payload.authMethod === 'api-key' ? 'api-key' : 'subscription',
                 apiKey || undefined
@@ -1700,7 +1704,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.inspect(
-                modelConfigFrameworkOf(payload),
+                profileFrameworkOf(payload),
                 assertProfileId(payload.profileId)
             )
             return { ok: true, payload: { ...result } }
@@ -1712,7 +1716,7 @@ const handlers: Partial<
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
             const result = await manager.logout(
-                modelConfigFrameworkOf(payload),
+                profileFrameworkOf(payload),
                 assertProfileId(payload.profileId),
                 assertOperationId(payload.operationId),
                 payload.mode === 'remove' ? 'remove' : 'sign-out'
@@ -2092,7 +2096,7 @@ const handlers: Partial<
             try {
                 const manager = await runtimeAuthManagerFor(authLogin.runtimeId)
                 login = await manager.prepareLogin(
-                    modelConfigFrameworkOf(authLogin),
+                    profileFrameworkOf(authLogin),
                     assertProfileId(authLogin.profileId),
                     assertOperationId(authLogin.operationId)
                 )

@@ -1,5 +1,8 @@
 import type { AgentFramework, AgentRuntime } from './constants'
-import type { ModelConfigFramework } from './framework-catalog'
+import {
+    isRuntimeAuthProfileFramework,
+    type RuntimeAuthProfileFramework
+} from './framework-catalog'
 import { isObjectId } from './object-id'
 import {
     runtimeAccountSupport,
@@ -85,12 +88,14 @@ export const isRuntimeAuthProfileId = (value: unknown): value is string =>
 export const isRuntimeAuthOperationId = (value: unknown): value is string =>
     typeof value === 'string' && isObjectId(value, 'runtimeAuthOperation')
 
-// Same support set as the ambient account probe: a coding CLI on a host we
-// can reach without an agent (daemon machine or sandbox).
+// A profile framework on a host the ambient account probe can reach without
+// an agent (daemon machine or sandbox).
 export const runtimeAuthSupported = (
     framework: string,
     kind: AgentRuntime
-): boolean => runtimeAccountSupport(framework, kind) === 'ok'
+): boolean =>
+    isRuntimeAuthProfileFramework(framework) &&
+    runtimeAccountSupport(framework, kind) === 'ok'
 
 export interface RuntimeAuthProfileView {
     id: string
@@ -231,19 +236,25 @@ export const AMBIENT_VENDOR_AUTH_ENV = [
 // stays stable per profile for exactly the Keychain reason. pi keeps every
 // credential in its agent dir's auth.json, so the view IS that dir.
 export const runtimeAuthProfileEnv = (
-    framework: ModelConfigFramework,
+    framework: RuntimeAuthProfileFramework,
     viewDir: string,
     authMethod: RuntimeAuthMethod = 'subscription'
 ): Record<string, string> => {
-    if (framework === 'claude-code') return { CLAUDE_CONFIG_DIR: viewDir }
-    if (framework === 'codex') return { CODEX_HOME: viewDir }
-    if (framework === 'pi') return { PI_CODING_AGENT_DIR: viewDir }
-    return {
-        GEMINI_CLI_HOME: viewDir,
-        GEMINI_FORCE_FILE_STORAGE: 'true',
-        ...(authMethod === 'subscription'
-            ? { GOOGLE_GENAI_USE_GCA: 'true' }
-            : {})
+    switch (framework) {
+        case 'claude-code':
+            return { CLAUDE_CONFIG_DIR: viewDir }
+        case 'codex':
+            return { CODEX_HOME: viewDir }
+        case 'pi':
+            return { PI_CODING_AGENT_DIR: viewDir }
+        case 'gemini-cli':
+            return {
+                GEMINI_CLI_HOME: viewDir,
+                GEMINI_FORCE_FILE_STORAGE: 'true',
+                ...(authMethod === 'subscription'
+                    ? { GOOGLE_GENAI_USE_GCA: 'true' }
+                    : {})
+            }
     }
 }
 
@@ -287,13 +298,13 @@ export interface UpdateAgentRuntimeAuthBody {
 // own config root and refuses ids that do not parse.
 
 export interface DaemonAuthProfileRef {
-    framework: ModelConfigFramework
+    framework: RuntimeAuthProfileFramework
     runtimeId: string
     profileId: string
 }
 
 export interface DaemonAuthListPayload {
-    framework: ModelConfigFramework
+    framework: RuntimeAuthProfileFramework
     runtimeId: string
     // false = enumerate the store without reading credentials or calling the
     // vendor (cheap; used for existence checks).
@@ -350,7 +361,7 @@ export interface DaemonAuthOperationPayload {
 // profile's context itself, strips every ambient vendor variable, and holds
 // the profile lock for the process's lifetime.
 export interface DaemonAuthContextRef {
-    framework: ModelConfigFramework
+    framework: RuntimeAuthProfileFramework
     runtimeId: string
     profileId: string
     bindingVersion: number

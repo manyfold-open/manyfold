@@ -3,7 +3,7 @@ import { lstat, readFile, rm, writeFile } from 'node:fs/promises'
 import {
     AMBIENT_VENDOR_AUTH_ENV,
     parseRuntimeLocalCredentialFacts,
-    type ModelConfigFramework,
+    type RuntimeAuthProfileFramework,
     type DaemonAuthCreateResponse,
     type DaemonAuthListResponse,
     type DaemonAuthLogoutResponse,
@@ -41,10 +41,10 @@ import {
 
 export interface RuntimeAuthManagerDeps {
     credentialFacts: (
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         dirs: FrameworkConfigDirs
     ) => Promise<unknown>
-    cliVersion: (framework: ModelConfigFramework) => Promise<string | null>
+    cliVersion: (framework: RuntimeAuthProfileFramework) => Promise<string | null>
     fetch: typeof fetch
     now: () => number
     platform: NodeJS.Platform
@@ -58,14 +58,14 @@ export interface PreparedLogin {
     finish: (exitCode: number | null) => Promise<DaemonAuthOperationRecord>
 }
 
-const CLI_BIN: Record<ModelConfigFramework, string> = {
+const CLI_BIN: Record<RuntimeAuthProfileFramework, string> = {
     'claude-code': 'claude',
     codex: 'codex',
     'gemini-cli': 'gemini',
     pi: 'pi'
 }
 
-export const cliBinaryFor = (framework: ModelConfigFramework): string =>
+export const cliBinaryFor = (framework: RuntimeAuthProfileFramework): string =>
     CLI_BIN[framework]
 
 // Every ambient vendor variable is dropped before a profile context is laid
@@ -100,7 +100,7 @@ export class RuntimeAuthManager {
     ) {}
 
     private async probe(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         dirs: FrameworkConfigDirs
     ): Promise<RuntimeAccountProbe> {
         const [account, facts, cliVersion] = await Promise.all([
@@ -122,13 +122,13 @@ export class RuntimeAuthManager {
     }
 
     async ambient(
-        framework: ModelConfigFramework
+        framework: RuntimeAuthProfileFramework
     ): Promise<RuntimeAccountProbe> {
         return this.probe(framework, nativeDirsFor())
     }
 
     private async report(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string,
         probe: boolean
     ): Promise<DaemonAuthProfileReport> {
@@ -161,7 +161,7 @@ export class RuntimeAuthManager {
     }
 
     async list(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         probe: boolean
     ): Promise<DaemonAuthListResponse> {
         const ids = await listProfileIds(this.scope)
@@ -178,7 +178,7 @@ export class RuntimeAuthManager {
     }
 
     async inspect(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string
     ): Promise<DaemonAuthProfileReport> {
         return this.report(framework, profileId, true)
@@ -187,7 +187,7 @@ export class RuntimeAuthManager {
     // An api-key profile is complete at creation: the key lands in the view
     // and counts as its sign-in, so the generation moves like a login did.
     async create(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string,
         authMethod: RuntimeAuthMethod,
         apiKey?: string
@@ -232,7 +232,7 @@ export class RuntimeAuthManager {
     }
 
     private async requireMetadata(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string
     ): Promise<ProfileMetadata> {
         const metadata = await readMetadata(this.scope, profileId)
@@ -245,7 +245,7 @@ export class RuntimeAuthManager {
     // The profile's stored key is laid over the stripped environment last, so
     // it is the one vendor variable an api-key profile's process can see.
     private async contextEnv(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         viewDir: string,
         authMethod: RuntimeAuthMethod
     ): Promise<Record<string, string>> {
@@ -262,7 +262,7 @@ export class RuntimeAuthManager {
     }
 
     private async credentialPresent(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         viewDir: string
     ): Promise<boolean> {
         const adapter = runtimeAuthAdapter(framework)
@@ -279,7 +279,7 @@ export class RuntimeAuthManager {
     // held until that shell exits, then the view is inspected to decide the
     // outcome. A cancelled or abandoned login leaves the profile as it was.
     async prepareLogin(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string,
         operationId: string
     ): Promise<PreparedLogin> {
@@ -350,7 +350,7 @@ export class RuntimeAuthManager {
     }
 
     async logout(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string,
         operationId: string,
         mode: 'sign-out' | 'remove'
@@ -433,7 +433,7 @@ export class RuntimeAuthManager {
     // dropped, plus the profile lock held for the process's lifetime. A view
     // that never completed a login is refused here, not run as ambient.
     async executionContext(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string,
         label: string,
         opts: { waitMs?: number } = {}
@@ -472,7 +472,7 @@ export class RuntimeAuthManager {
     }
 
     dirsFor(
-        framework: ModelConfigFramework,
+        framework: RuntimeAuthProfileFramework,
         profileId: string
     ): FrameworkConfigDirs {
         return viewConfigDirs(

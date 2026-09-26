@@ -332,19 +332,28 @@ const inspectPi = async (
     return { tokenSource: oauth ? 'file' : 'none', identity: null, usage: null }
 }
 
+const accountReportFor = (
+    framework: ModelConfigFramework,
+    deps: AccountInspectDeps
+): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
+    switch (framework) {
+        case 'claude-code':
+            return inspectClaude(deps)
+        case 'codex':
+            return inspectCodex(deps)
+        case 'gemini-cli':
+            return inspectGemini(deps)
+        case 'pi':
+            return inspectPi(deps)
+    }
+}
+
 export const inspectRuntimeAccount = async (
     framework: ModelConfigFramework,
     overrides: Partial<AccountInspectDeps> = {}
 ): Promise<RuntimeAccountReport> => {
     const deps = { ...defaultDeps(), ...overrides }
-    const report =
-        framework === 'claude-code'
-            ? await inspectClaude(deps)
-            : framework === 'codex'
-              ? await inspectCodex(deps)
-              : framework === 'pi'
-                ? await inspectPi(deps)
-                : await inspectGemini(deps)
+    const report = await accountReportFor(framework, deps)
     return {
         framework,
         checkedAt: new Date(deps.now()).toISOString(),

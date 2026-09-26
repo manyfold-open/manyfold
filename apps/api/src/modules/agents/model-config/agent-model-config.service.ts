@@ -8,6 +8,7 @@ import {
     DAEMON_FEATURE_PI_LOCAL,
     RUNTIME_AUTH_ERROR,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     isPiProvider,
     isRuntimeAuthProfileId,
     AgentModelConfig,
@@ -1024,7 +1025,7 @@ export class AgentModelConfigService {
         body: UpdateAgentRuntimeAuthBody
     ): Promise<AgentModelConfigView> {
         const agent = await this.requireAgent(userId, agentId, false)
-        if (!isModelConfigFramework(agent.framework))
+        if (!isRuntimeAuthProfileFramework(agent.framework))
             throw new ConflictException({
                 code: RUNTIME_AUTH_ERROR.contextUnsupported,
                 message: `${agent.framework} agents have no auth profiles`

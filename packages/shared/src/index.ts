@@ -719,11 +719,14 @@ export {
     frameworkModelKinds,
     isConfigurableFramework,
     isModelConfigFramework,
-    modelConfigFrameworks
+    isRuntimeAuthProfileFramework,
+    modelConfigFrameworks,
+    runtimeAuthProfileFrameworks
 } from './framework-catalog'
 export type {
     ConfigurableFramework,
     ModelConfigFramework,
+    RuntimeAuthProfileFramework,
     CreateFrameworkEnumBody,
     CreateFrameworkModelBody,
     FrameworkCatalogView,

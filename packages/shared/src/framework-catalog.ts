@@ -27,6 +27,25 @@ export const isModelConfigFramework = (
     typeof value === 'string' &&
     modelConfigFrameworks.includes(value as ModelConfigFramework)
 
+// The model-config frameworks a host can hold several sign-ins of, each in its
+// own credential context (runtime auth profiles). A CLI belongs here only when
+// a non-secret env var moves where it both reads and writes its credential, so
+// one profile's login can never overwrite another's or the machine's own.
+export const runtimeAuthProfileFrameworks = [
+    'claude-code',
+    'codex',
+    'gemini-cli',
+    'pi'
+] as const satisfies readonly ModelConfigFramework[]
+export type RuntimeAuthProfileFramework =
+    (typeof runtimeAuthProfileFrameworks)[number]
+
+export const isRuntimeAuthProfileFramework = (
+    value: unknown
+): value is RuntimeAuthProfileFramework =>
+    typeof value === 'string' &&
+    runtimeAuthProfileFrameworks.includes(value as RuntimeAuthProfileFramework)
+
 export const frameworkEnumKeys = [
     'effort',
     'speed',

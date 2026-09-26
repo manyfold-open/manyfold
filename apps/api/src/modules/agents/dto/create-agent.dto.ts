@@ -8,6 +8,7 @@ import {
     agentModelConfigSources,
     inputValidation,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     isRegisteredFramework,
     listFrameworks,
     supportsRuntime
@@ -511,11 +512,16 @@ const IsRuntimeAuthProfileShape =
                     if (value === undefined || value === null) return true
                     const o = args.object as CreateAgentDto
                     return (
-                        o.modelConfigSource === 'runtime-local' && !!o.sandboxId
+                        isRuntimeAuthProfileFramework(o.framework) &&
+                        o.modelConfigSource === 'runtime-local' &&
+                        !!o.sandboxId
                     )
                 },
-                defaultMessage(): string {
-                    return 'runtimeAuthProfileId requires modelConfigSource runtime-local and an existing sandboxId'
+                defaultMessage(args: ValidationArguments): string {
+                    const o = args.object as CreateAgentDto
+                    return isRuntimeAuthProfileFramework(o.framework)
+                        ? 'runtimeAuthProfileId requires modelConfigSource runtime-local and an existing sandboxId'
+                        : `${o.framework} agents have no auth profiles`
                 }
             }
         })
