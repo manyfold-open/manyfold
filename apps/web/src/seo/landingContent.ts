@@ -130,6 +130,7 @@ export const worksWithRows = (
             { name: 'Codex', framework: 'codex' },
             { name: 'Gemini CLI', framework: 'gemini-cli' },
             { name: 'Pi', framework: 'pi' },
+            { name: 'Antigravity CLI', framework: 'antigravity-cli' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
             ...editionFrameworks,

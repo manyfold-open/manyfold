@@ -136,3 +136,58 @@ test('agent create human output keeps the summary lines after streaming', async 
     assert.match(rendered, /agt_new/)
     assert.match(rendered, /sprite: sprite-1/)
 })
+
+test('agent create sends an Antigravity CLI agent its Gemini key and agy model', async (t) => {
+    for (const name of [
+        'GEMINI_API_KEY',
+        'GOOGLE_API_KEY',
+        'GOOGLE_GEMINI_BASE_URL'
+    ]) {
+        const prior = process.env[name]
+        delete process.env[name]
+        t.after(() => {
+            if (prior !== undefined) process.env[name] = prior
+        })
+    }
+    const bodies: unknown[] = []
+    const replay = ndjsonCreateFetch([])
+    const capturing = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return replay(input, init)
+    }) as typeof fetch
+    await runCreate(
+        [
+            'agent',
+            'create',
+            'demo',
+            '--framework',
+            'antigravity-cli',
+            '--google-api-key',
+            'gk-test',
+            '--agy-model',
+            'gemini-3.8-flash-high',
+            '--json'
+        ],
+        capturing
+    )
+    assert.deepEqual(bodies, [
+        {
+            name: 'demo',
+            framework: 'antigravity-cli',
+            antigravityCliCredentials: {
+                googleApiKey: 'gk-test',
+                model: 'gemini-3.8-flash-high'
+            }
+        }
+    ])
+})
+
+test('agent create refuses a framework it cannot build a body for', async () => {
+    await assert.rejects(
+        runCreate(
+            ['agent', 'create', 'demo', '--framework', 'hermes'],
+            ndjsonCreateFetch([])
+        ),
+        /unsupported framework: hermes/
+    )
+})

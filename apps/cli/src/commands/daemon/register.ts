@@ -245,7 +245,7 @@ export const registerDaemonRegister = (program: Command): void => {
         )
         .option(
             '--no-hooks',
-            'do not install the claude / codex / pi session hooks (they act only inside Manyfold terminals)'
+            'do not install the claude / codex / pi / agy session hooks (they act only inside Manyfold terminals)'
         )
         .action(async (options: DaemonRegisterOptions) => {
             const parent = program.parent

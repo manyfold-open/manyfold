@@ -1,5 +1,5 @@
 import type { AgentFramework, AgentModelConfigSource } from '@manyfold/shared'
-import { OFFICIAL_PROVIDER_BASE_URL } from '@manyfold/shared'
+import { AGY_MANAGED_HOST_ENV, OFFICIAL_PROVIDER_BASE_URL } from '@manyfold/shared'
 import type { ExecResult } from '@manyfold/sprites'
 import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
@@ -16,7 +16,13 @@ import type { PodExec } from '@/modules/k8s/pod-exec'
 // The frameworks a pod host installs on demand (ADR-0035). Service frameworks
 // (OpenClaw, Hermes, an edition's services) join once the host's daemon
 // supervises in-pod services; until then a pod host refuses them.
-const POD_HOST_FRAMEWORKS = ['claude-code', 'codex', 'gemini-cli', 'pi'] as const
+const POD_HOST_FRAMEWORKS = [
+    'claude-code',
+    'codex',
+    'gemini-cli',
+    'pi',
+    'antigravity-cli'
+] as const
 export type PodHostFramework = (typeof POD_HOST_FRAMEWORKS)[number]
 
 export const isPodHostFramework = (
@@ -118,6 +124,17 @@ export const setUpPodFramework = async (args: {
                 [piAgentDirSetupScript(), mkWorkspace].join('\n')
             )
             break
+        case 'antigravity-cli':
+            await runPodStep(
+                runner,
+                'antigravity-setup-dirs',
+                [
+                    'set -eu',
+                    mkWorkspace,
+                    'mkdir -p "$HOME/.gemini/antigravity-cli"'
+                ].join('\n')
+            )
+            break
         case 'codex': {
             const creds = args.credentials as ResolvedCodexCredentials | null
             // Runtime-local: the user signs in with their own ChatGPT plan on
@@ -151,6 +168,10 @@ export const setUpPodFramework = async (args: {
     if (framework === 'pi')
         await runPodStep(runner, 'pi-verify', 'pi --version', {
             env: { PI_OFFLINE: '1' }
+        })
+    if (framework === 'antigravity-cli')
+        await runPodStep(runner, 'antigravity-verify', 'agy --version', {
+            env: { ...AGY_MANAGED_HOST_ENV }
         })
     return { frameworkVersion }
 }

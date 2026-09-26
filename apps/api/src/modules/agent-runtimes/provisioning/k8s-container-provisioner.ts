@@ -49,6 +49,7 @@ import {
 import { PodExecFactory } from '@/modules/k8s/pod-exec'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
+import type { FrameworkReleaseArtifacts } from '@/modules/framework-versions/framework-version-registry'
 import { resolvePodHostPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import { teardownCreatedPodHost } from '@/modules/agents/orchestration/k8s-strict-teardown'
 import {
@@ -117,6 +118,7 @@ export interface ProvisionContainerInput {
     frameworkVersion?: FrameworkVersionSelection | null
     // The repository that version was admitted from, resolved with it.
     frameworkRepo?: string | null
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
 }
 
 export interface ProvisionContainerResult {
@@ -314,7 +316,8 @@ export class K8sContainerProvisioner {
                     credentials: input.credentials,
                     modelConfigSource: input.modelConfigSource ?? null,
                     requested: input.frameworkVersion ?? null,
-                    requestedRepo: input.frameworkRepo ?? null
+                    requestedRepo: input.frameworkRepo ?? null,
+                    requestedArtifacts: input.frameworkArtifacts ?? null
                 })
                 const frameworkVersion = installed.frameworkVersion
                 const credentials = withGenerated(
@@ -577,6 +580,7 @@ export class K8sContainerProvisioner {
         modelConfigSource?: AgentModelConfigSource | null
         frameworkVersion?: FrameworkVersionSelection | null
         frameworkRepo?: string | null
+        frameworkArtifacts?: FrameworkReleaseArtifacts | null
     }): Promise<AgentRuntimeRow> {
         const { host, framework, userId } = input
         assertPodHostFramework(framework)
@@ -631,7 +635,8 @@ export class K8sContainerProvisioner {
                 credentials: input.credentials,
                 modelConfigSource: input.modelConfigSource ?? null,
                 requested: input.frameworkVersion ?? null,
-                requestedRepo: input.frameworkRepo ?? null
+                requestedRepo: input.frameworkRepo ?? null,
+                requestedArtifacts: input.frameworkArtifacts ?? null
             })
             await this.persistRuntimeCredentials(
                 runtimeId,
@@ -859,10 +864,15 @@ export class K8sContainerProvisioner {
         modelConfigSource: AgentModelConfigSource | null
         requested: FrameworkVersionSelection | null
         requestedRepo?: string | null
+        requestedArtifacts?: FrameworkReleaseArtifacts | null
     }): Promise<FrameworkOnHost> {
         assertPodHostFramework(args.framework)
-        const { selection, repo } = args.requested
-            ? { selection: args.requested, repo: args.requestedRepo ?? null }
+        const { selection, repo, artifacts } = args.requested
+            ? {
+                  selection: args.requested,
+                  repo: args.requestedRepo ?? null,
+                  artifacts: args.requestedArtifacts ?? null
+              }
             : await this.frameworkVersions.resolveInstallVersion(args.framework)
         const pod = await resolvePodHostPod(this.k8s, {
             hostId: args.host.hostId,
@@ -884,7 +894,8 @@ export class K8sContainerProvisioner {
         const install = {
             frameworkVersion: selection.version,
             frameworkVersionSource: selection.source,
-            frameworkRepo: repo
+            frameworkRepo: repo,
+            frameworkArtifacts: artifacts
         }
         const recipe = podServiceRecipe(args.framework)
         if (!recipe) {

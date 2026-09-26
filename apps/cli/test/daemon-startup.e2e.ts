@@ -86,7 +86,15 @@ const address = http.address()
 assert.ok(address && typeof address === 'object')
 await mkdir(paths.daemonDir, { recursive: true })
 await mkdir(bin, { recursive: true })
-for (const name of ['claude', 'codex', 'gemini', 'pi', 'openclaw', 'hermes'])
+for (const name of [
+    'claude',
+    'codex',
+    'gemini',
+    'pi',
+    'agy',
+    'openclaw',
+    'hermes'
+])
     await writeFile(join(bin, name), '#!/bin/sh\nprintf "fixture 1.0\\n"\n', {
         mode: 0o755
     })

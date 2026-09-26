@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises'
 import {
     runtimeAuthProfileEnv,
-    type ModelConfigFramework,
+    type RuntimeAuthProfileFramework,
     type RuntimeAuthMethod,
     type RuntimeAuthRevokeResult
 } from '@manyfold/shared'
@@ -38,7 +38,7 @@ export interface LogoutOutcome {
 }
 
 export interface RuntimeAuthAdapter {
-    readonly framework: ModelConfigFramework
+    readonly framework: RuntimeAuthProfileFramework
     // The vendor variable the CLI reads an API key from; an api-key profile
     // injects its stored key under this name at execution time. Null for a
     // CLI whose own sign-in takes keys too (pi's /login), which has no
@@ -380,12 +380,16 @@ const piAdapter: RuntimeAuthAdapter = {
 }
 
 export const runtimeAuthAdapter = (
-    framework: ModelConfigFramework
-): RuntimeAuthAdapter =>
-    framework === 'claude-code'
-        ? claudeAdapter
-        : framework === 'codex'
-          ? codexAdapter
-          : framework === 'pi'
-            ? piAdapter
-            : geminiAdapter
+    framework: RuntimeAuthProfileFramework
+): RuntimeAuthAdapter => {
+    switch (framework) {
+        case 'claude-code':
+            return claudeAdapter
+        case 'codex':
+            return codexAdapter
+        case 'gemini-cli':
+            return geminiAdapter
+        case 'pi':
+            return piAdapter
+    }
+}

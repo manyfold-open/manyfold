@@ -4,10 +4,12 @@ import type {
     UpdateAgentRuntimeAuthBody
 } from '@manyfold/shared'
 import {
+    AGY_API_KEY_MODELS,
     PI_PROTOCOL_BY_PROVIDER,
-    DAEMON_FEATURE_PI_LOCAL,
+    runtimeLocalInspectFeature,
     RUNTIME_AUTH_ERROR,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     isPiProvider,
     isRuntimeAuthProfileId,
     AgentModelConfig,
@@ -25,6 +27,7 @@ import {
     DaemonModelInspectResponse,
     GeminiCliAgentModelConfig,
     PiAgentModelConfig,
+    AntigravityCliAgentModelConfig,
     InferenceProtocol,
     OFFICIAL_PROVIDER_BASE_URL,
     RefreshAgentModelConfigModelsResponse,
@@ -387,6 +390,8 @@ export class AgentModelConfigService {
             return config
         }
         if (agent.framework === 'pi') return this.mergePiConfig(agent, body)
+        if (agent.framework === 'antigravity-cli')
+            return this.mergeAntigravityConfig(agent, body)
         throw new BadRequestException(
             `model config is not supported for framework ${agent.framework}`
         )
@@ -412,6 +417,28 @@ export class AgentModelConfigService {
                 raw?.model ?? body.model ?? normalizeNullable(agent.model)
             )
         }
+    }
+
+    // agy's API-key mode takes only the slugs it lists (a model and a reasoning
+    // effort in one name) and fails the turn on any other, so an unknown one
+    // is refused here instead. No model leaves agy's own default in charge.
+    private mergeAntigravityConfig(
+        agent: Agent,
+        body: UpdateAgentModelConfigBody
+    ): AntigravityCliAgentModelConfig {
+        const raw = asRecord(body.modelConfig)
+        if (raw?.framework !== undefined && raw.framework !== 'antigravity-cli')
+            throw new BadRequestException(
+                `modelConfig.framework must be antigravity-cli for agent ${agent.id}`
+            )
+        const model = normalizeNullable(
+            raw?.model ?? body.model ?? normalizeNullable(agent.model)
+        )
+        if (model && !AGY_API_KEY_MODELS.some((m) => m.slug === model))
+            throw new BadRequestException(
+                `Antigravity CLI model "${model}" is not one its Gemini API-key mode offers. Pick one of: ${AGY_API_KEY_MODELS.map((m) => m.slug).join(', ')}`
+            )
+        return { framework: 'antigravity-cli', model }
     }
 
     private async mergeClaudeConfig(
@@ -1024,7 +1051,7 @@ export class AgentModelConfigService {
         body: UpdateAgentRuntimeAuthBody
     ): Promise<AgentModelConfigView> {
         const agent = await this.requireAgent(userId, agentId, false)
-        if (!isModelConfigFramework(agent.framework))
+        if (!isRuntimeAuthProfileFramework(agent.framework))
             throw new ConflictException({
                 code: RUNTIME_AUTH_ERROR.contextUnsupported,
                 message: `${agent.framework} agents have no auth profiles`
@@ -1147,7 +1174,13 @@ export class AgentModelConfigService {
                     label: model,
                     enabled: true
                 }))
-              : []
+              : agent.framework === 'antigravity-cli'
+                ? AGY_API_KEY_MODELS.map((model) => ({
+                      value: model.slug,
+                      label: model.slug,
+                      enabled: true
+                  }))
+                : []
         const codexFastModelKeys = isFrameworkModelConfigurable(agent.framework)
             ? new Set(
                   (
@@ -1262,8 +1295,10 @@ export class AgentModelConfigService {
             return { valid: false, messages, cta: 'refresh-runtime-local' }
         }
         // pi's platform model is any id its provider serves (mergePiConfig),
-        // so there is no list it has to be tested against first.
-        if (agent.framework === 'pi') return { valid: true, messages }
+        // and agy's one of its own slugs (mergeAntigravityConfig), so neither
+        // has a provider list it has to be tested against first.
+        if (agent.framework === 'pi' || agent.framework === 'antigravity-cli')
+            return { valid: true, messages }
         if (providerModels.status !== 'ready') {
             messages.push('Test provider before selecting a model.')
             return { valid: false, messages, cta: 'test-provider' }
@@ -1407,6 +1442,11 @@ export class AgentModelConfigService {
         }
         if (agent.framework === 'pi')
             return { framework: 'pi', model: normalizeNullable(agent.model) }
+        if (agent.framework === 'antigravity-cli')
+            return {
+                framework: 'antigravity-cli',
+                model: normalizeNullable(agent.model)
+            }
         return null
     }
 
@@ -1620,16 +1660,17 @@ export class AgentModelConfigService {
         authContext: DaemonAuthContextRef | null,
         timeoutMs = 15_000
     ): Promise<DaemonFrameworkModelCapability> {
-        // An older CLI reports nothing for pi, which would read as "not
-        // signed in" when the answer is "update".
+        // An older CLI reports nothing for pi or agy, which would read as
+        // "not signed in" when the answer is "update".
+        const required = runtimeLocalInspectFeature(agent.framework)
         if (
-            agent.framework === 'pi' &&
+            required &&
             !(await this.hostFeatures(daemonId))?.clientFeatures.includes(
-                DAEMON_FEATURE_PI_LOCAL
+                required
             )
         )
             throw new BadRequestException(
-                "Update the Manyfold CLI on this runtime to use pi's own sign-in"
+                `Update the Manyfold CLI on this runtime to use ${frameworkLabel(agent.framework)}'s own sign-in`
             )
         const payload = await this.daemonRegistry!.rpc({
             daemonId,
@@ -1765,6 +1806,7 @@ export class AgentModelConfigService {
             agent.framework !== 'codex' &&
             agent.framework !== 'gemini-cli' &&
             agent.framework !== 'pi' &&
+            agent.framework !== 'antigravity-cli' &&
             agent.framework !== 'hermes' &&
             agent.framework !== 'openclaw'
         )
@@ -1946,7 +1988,9 @@ const frameworkLabel = (framework: string): string =>
             ? 'Gemini CLI'
             : framework === 'pi'
               ? 'Pi'
-              : 'Runtime'
+              : framework === 'antigravity-cli'
+                ? 'Antigravity CLI'
+                : 'Runtime'
 
 const credentialStatusMessage = (
     framework: string,

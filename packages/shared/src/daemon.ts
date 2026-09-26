@@ -16,12 +16,18 @@ export type DaemonStartupMethod =
 
 export type DaemonCodingFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli' | 'pi'
+    'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'antigravity-cli'
 >
 
 export type DaemonDetectableFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'openclaw' | 'hermes'
+    | 'claude-code'
+    | 'codex'
+    | 'gemini-cli'
+    | 'pi'
+    | 'antigravity-cli'
+    | 'openclaw'
+    | 'hermes'
 >
 
 // Every framework a self-owned daemon can detect + run (capability fact:
@@ -33,6 +39,7 @@ export const DAEMON_DETECTABLE_FRAMEWORKS: DaemonDetectableFramework[] = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'openclaw',
     'hermes'
 ]
@@ -323,8 +330,12 @@ export interface DaemonOwnedTerminal {
 
 // The frameworks whose TUI a herdr pane can resume (ADR-0031): the ones with
 // a resume-by-id form the browser terminal supports and an agent kind in
-// herdr (herdr 0.9 has `claude`, `codex` and `pi`).
-export type DaemonHerdrFramework = 'claude-code' | 'codex' | 'pi'
+// herdr (herdr 0.9 has `claude`, `codex` and `pi`; 0.9.1 adds `agy`).
+export type DaemonHerdrFramework =
+    | 'claude-code'
+    | 'codex'
+    | 'pi'
+    | 'antigravity-cli'
 
 // terminal.herdr.open (ADR-0031): run a chat session's framework TUI in a
 // herdr pane on the daemon's machine. The API composes command and env
@@ -703,9 +714,13 @@ export const DAEMON_FEATURE_HERDR_TERMINAL = 'terminal.herdr.v1'
 // The daemon's herdr handoff (above) also starts pi. Advertised with it, by a
 // CLI that knows pi's herdr kind.
 export const DAEMON_FEATURE_HERDR_PI = 'terminal.herdr.pi.v1'
+// ... and Antigravity CLI: advertised by a CLI that knows agy's herdr kind,
+// while the herdr on the machine is one that has it.
+export const DAEMON_FEATURE_HERDR_AGY = 'terminal.herdr.agy.v1'
 
 // What a host with these features can hand to herdr: nothing without the
-// handoff, claude and codex with it, pi too when the CLI knows pi's kind.
+// handoff, claude and codex with it, pi and agy too when the CLI (and, for
+// agy, herdr) knows their kinds.
 export const herdrFrameworksFor = (
     clientFeatures: readonly string[]
 ): DaemonHerdrFramework[] =>
@@ -715,6 +730,9 @@ export const herdrFrameworksFor = (
               'codex',
               ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_PI)
                   ? (['pi'] as const)
+                  : []),
+              ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_AGY)
+                  ? (['antigravity-cli'] as const)
                   : [])
           ]
         : []
@@ -749,6 +767,20 @@ export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
 // ~/.pi/agent with its own auth.json). An older daemon reports nothing for
 // pi, which reads as "not signed in" — the API asks for a CLI update instead.
 export const DAEMON_FEATURE_PI_LOCAL = 'pi.runtime-local.v1'
+// The daemon knows Antigravity CLI (agy): `model.inspect` and
+// `account.inspect` report agy's credential facts, with agy's own verdict
+// from `agy models` and the models it lists. An older daemon reports nothing
+// for agy, which reads as "not signed in" — the API asks for a CLI update.
+export const DAEMON_FEATURE_ANTIGRAVITY_LOCAL =
+    'antigravity-cli.runtime-local.v1'
+// The feature a daemon has to declare before its inspection of a framework's
+// own sign-in is trusted; null = every daemon that inspects at all knows it.
+export const runtimeLocalInspectFeature = (framework: string): string | null =>
+    framework === 'pi'
+        ? DAEMON_FEATURE_PI_LOCAL
+        : framework === 'antigravity-cli'
+          ? DAEMON_FEATURE_ANTIGRAVITY_LOCAL
+          : null
 // The `service.*` RPCs: the daemon keeps a service framework's long-running
 // process up from a spec on the home volume (ADR-0035 §6), as a sprite's
 // Services API does. Only a pod host's daemon (startup method 'container')
@@ -781,5 +813,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
-    DAEMON_FEATURE_PI_LOCAL
+    DAEMON_FEATURE_PI_LOCAL,
+    DAEMON_FEATURE_ANTIGRAVITY_LOCAL
 ]

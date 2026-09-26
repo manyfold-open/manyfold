@@ -18,7 +18,8 @@ import type { AgentFramework } from '@manyfold/shared'
    pi has no per-action approval prompts, so it carries no such flag (it only
    asks whether to trust a workspace's own files, which the resume service
    answers the way the turns do); like claude its key rides each exec and
-   never touches the sandbox disk.
+   never touches the sandbox disk. So does agy's, on the platform view its
+   turns run on (antigravity-app-dir.ts).
 
    `needsModelCredentials` is the asymmetry between the claude/codex pair.
    Codex logs in on the sprite at bootstrap (`codex login --with-api-key`,
@@ -42,7 +43,11 @@ const RESUME_POLICY_BY_FRAMEWORK: Partial<
         fullAccessFlag: '--dangerously-bypass-approvals-and-sandbox',
         needsModelCredentials: false
     },
-    pi: { needsModelCredentials: true }
+    pi: { needsModelCredentials: true },
+    'antigravity-cli': {
+        fullAccessFlag: '--dangerously-skip-permissions',
+        needsModelCredentials: true
+    }
 }
 
 export const frameworkSupportsTerminalResume = (

@@ -62,6 +62,33 @@ test('only the exact dispatched credential route establishes a managed pricing s
     )
 })
 
+test('an Antigravity CLI credential is priced on the Gemini route it rides', () => {
+    const key = randomBytes(32).toString('hex')
+    const provider = {
+        id: 'fixture-provider',
+        source: 'managed',
+        managedBrand: 'antigravity',
+        builtInId: null,
+        inferenceProtocol: 'google_generate_content',
+        baseUrl: 'https://fixture.invalid/antigravity'
+    } as UserModelProviderRow
+    const scope = verifiedCodingPriceScope({
+        framework: 'antigravity-cli',
+        credentials: {
+            googleApiKey: key,
+            googleGeminiBaseUrl: 'https://fixture.invalid/antigravity',
+            inferenceProtocol: 'google_generate_content'
+        },
+        provider,
+        providerApiKey: key
+    })
+    assert.deepEqual(scope, {
+        modelProviderId: provider.id,
+        modelProviderBuiltInId: null,
+        modelProviderManagedBrand: 'antigravity'
+    })
+})
+
 test('a pi credential establishes the scope of the provider its key and vendor route to', () => {
     const key = randomBytes(32).toString('hex')
     const provider = {

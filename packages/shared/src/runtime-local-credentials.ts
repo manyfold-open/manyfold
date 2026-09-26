@@ -96,11 +96,31 @@ export interface PiCredentialFacts {
     envKeys: string[]
 }
 
+// agy keeps its Google sign-in in the OS keyring, or — on a Linux host with no
+// D-Bus session bus, which every platform sandbox is — in a token file under
+// ~/.gemini. Its API-key mode runs only when settings.json names the `gemini`
+// provider AND GEMINI_API_KEY is set; with the provider named and no key it
+// refuses to start.
+export interface AntigravityCliCredentialFacts {
+    framework: 'antigravity-cli'
+    tokenFilePresent: boolean
+    tokenFileParsed: boolean
+    tokenExpiresAt: number | null
+    hasRefreshToken: boolean
+    settingsApiKeyMode: boolean
+    envApiKey: boolean
+    // agy's own answer: `agy models` lists models for a working sign-in,
+    // keyring or file alike, and refuses with "Please sign in" without one.
+    // null when it was not asked or failed another way (offline, a timeout).
+    cliSignedIn: boolean | null
+}
+
 export type RuntimeLocalCredentialFacts =
     | ClaudeCredentialFacts
     | CodexCredentialFacts
     | GeminiCredentialFacts
     | PiCredentialFacts
+    | AntigravityCliCredentialFacts
 
 export interface RuntimeLocalCredentialEvaluation {
     status: RuntimeLocalCredentialStatus
@@ -268,6 +288,38 @@ const evaluatePi = (
     return evaluation('missing', 'no-credentials')
 }
 
+const evaluateAntigravity = (
+    facts: AntigravityCliCredentialFacts,
+    now: number,
+    context: RuntimeLocalCredentialContext
+): RuntimeLocalCredentialEvaluation => {
+    if (facts.settingsApiKeyMode)
+        return facts.envApiKey
+            ? evaluation('valid', 'api-key')
+            : evaluation('missing', 'no-credentials')
+    // agy's verdict outranks its files: a keyring sign-in leaves none, and a
+    // token file agy cannot use is no sign-in. Its app data dir proves
+    // nothing either way, as `agy models` creates it when it first runs.
+    if (facts.cliSignedIn === false)
+        return evaluation('missing', 'no-credentials')
+    if (facts.cliSignedIn === true) return evaluation('valid', 'login-record')
+    const oauth = oauthEvaluation(
+        facts.tokenExpiresAt,
+        facts.hasRefreshToken,
+        now
+    )
+    if (oauth) return oauth
+    if (facts.tokenFilePresent)
+        return facts.tokenFileParsed
+            ? evaluation('valid', 'login-record')
+            : evaluation('unknown', 'unreadable')
+    // Undecided, a user's own machine may still hold a keyring sign-in; a
+    // platform host has no keyring to hide one in.
+    return context.configPresenceIsEvidence === false
+        ? evaluation('missing', 'no-credentials')
+        : evaluation('unknown', 'unreadable')
+}
+
 // Missing facts cannot establish usable credentials. Parsed but unreadable
 // credentials retain their separate unknown status (for example Keychain).
 export const runtimeLocalCredentialStatus = (
@@ -281,6 +333,8 @@ export const runtimeLocalCredentialStatus = (
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
     if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
     if (facts.framework === 'pi') return evaluatePi(facts, now)
+    if (facts.framework === 'antigravity-cli')
+        return evaluateAntigravity(facts, now, context)
     return evaluation('missing', 'not-reported')
 }
 
@@ -393,6 +447,20 @@ export const parseRuntimeLocalCredentialFacts = (
             authEntries: parsePiAuthEntries(value.authEntries),
             modelsJsonKeyProviders: parseStrings(value.modelsJsonKeyProviders),
             envKeys: parseStrings(value.envKeys)
+        }
+    if (value.framework === 'antigravity-cli')
+        return {
+            framework: 'antigravity-cli',
+            tokenFilePresent: optionalBoolean(value.tokenFilePresent),
+            tokenFileParsed: optionalBoolean(value.tokenFileParsed),
+            tokenExpiresAt: optionalNumber(value.tokenExpiresAt),
+            hasRefreshToken: optionalBoolean(value.hasRefreshToken),
+            settingsApiKeyMode: optionalBoolean(value.settingsApiKeyMode),
+            envApiKey: optionalBoolean(value.envApiKey),
+            cliSignedIn:
+                typeof value.cliSignedIn === 'boolean'
+                    ? value.cliSignedIn
+                    : null
         }
     return null
 }

@@ -37,7 +37,9 @@ const CLAUDE_SIGN_IN_COMMAND = 'cat | claude auth login --claudeai'
 // browser and never typed back; gemini prompts from inside its own TUI,
 // which draws what you type. Neither was reproduced losing an echo, so
 // neither is wrapped. pi has no login subcommand either: its TUI's /login
-// picks the provider and runs that provider's flow.
+// picks the provider and runs that provider's flow. agy signs in the first
+// time its TUI starts without one ("Launch the CLI without arguments to sign
+// in", as `agy models` puts it) and, with no browser to open, prints the link.
 export const runtimeSignInCommandFor = (
     framework: AgentFramework
 ): string | null => {
@@ -45,6 +47,7 @@ export const runtimeSignInCommandFor = (
     if (framework === 'codex') return 'codex login --device-auth'
     if (framework === 'gemini-cli') return 'NO_BROWSER=true gemini'
     if (framework === 'pi') return 'pi'
+    if (framework === 'antigravity-cli') return 'agy'
     return null
 }
 
@@ -55,4 +58,6 @@ export const runtimeSignInHintKey = (framework: AgentFramework): string =>
           ? 'web.chat.runtimeSignIn.codexHint'
           : framework === 'pi'
             ? 'web.chat.runtimeSignIn.piHint'
-            : 'web.chat.runtimeSignIn.geminiHint'
+            : framework === 'antigravity-cli'
+              ? 'web.chat.runtimeSignIn.antigravityHint'
+              : 'web.chat.runtimeSignIn.geminiHint'

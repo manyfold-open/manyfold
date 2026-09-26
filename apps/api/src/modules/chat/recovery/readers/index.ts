@@ -6,6 +6,7 @@ import { GeminiCliSessionReader } from './gemini-reader'
 import { HermesSessionReader } from './hermes-reader'
 import { OpenclawSessionReader } from './openclaw-reader'
 import { PiSessionReader } from './pi-reader'
+import { AntigravityCliSessionReader } from './antigravity-cli-reader'
 import type { SessionReader } from './types'
 
 export type {
@@ -29,6 +30,7 @@ export class SessionReaderRegistry {
         codex: new CodexSessionReader(),
         'gemini-cli': new GeminiCliSessionReader(),
         pi: new PiSessionReader(),
+        'antigravity-cli': new AntigravityCliSessionReader(),
         openclaw: new OpenclawSessionReader(),
         hermes: new HermesSessionReader()
     }

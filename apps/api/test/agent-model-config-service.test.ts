@@ -5,7 +5,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentCredentials, agents } from '@manyfold/db'
+import { agentCredentials, agents, runtimeHosts } from '@manyfold/db'
 import { AgentModelConfigService } from '../src/modules/agents/model-config/agent-model-config.service'
 import { readJsonbMergePatch } from './jsonb-merge'
 
@@ -1975,6 +1975,8 @@ const makeService = (
 
 class FakeDb {
     credentialPayload: Record<string, unknown> = {}
+    // The runtime host row's client features, when a test needs one.
+    hostFeatures: string[] | null = null
     lastAgentPatch:
         | (Record<string, unknown> & { extras?: Record<string, unknown> })
         | null = null
@@ -2071,7 +2073,9 @@ class FakeQuery implements PromiseLike<unknown[]> {
                             keyVersion: 1
                         }
                     ]
-                  : []
+                  : this.table === runtimeHosts && this.db.hostFeatures
+                    ? [{ clientFeatures: this.db.hostFeatures }]
+                    : []
         return Promise.resolve(value).then(onfulfilled, onrejected)
     }
 }
@@ -2153,6 +2157,142 @@ test('AgentModelConfigService saves a pi platform model and resolves it for the 
             false
         ),
         /must be pi/
+    )
+})
+
+// agy's API-key mode runs only the slugs it lists and fails the turn on any
+// other, so an unknown platform model is refused when it is saved.
+test('AgentModelConfigService takes only the slugs agy offers as an Antigravity CLI platform model', async () => {
+    const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'antigravity-cli', model: null })
+    const service = makeService(db, null)
+    const view = await service.updateForAgent(
+        'user-1',
+        'agent-1',
+        {
+            modelConfigSource: 'platform',
+            modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.8-flash-high' }
+        },
+        false
+    )
+    assert.deepEqual(view.config, { framework: 'antigravity-cli', model: 'gemini-3.8-flash-high' })
+    assert.deepEqual(view.validation, { valid: true, messages: [] })
+    assert.ok(view.options.some((o) => o.value === 'gemini-3.1-pro-low'))
+    assert.equal(db.agent.model, 'gemini-3.8-flash-high')
+    await assert.rejects(
+        service.updateForAgent(
+            'user-1',
+            'agent-1',
+            {
+                modelConfigSource: 'platform',
+                modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.1-pro-preview' }
+            },
+            false
+        ),
+        /not one its Gemini API-key mode offers/
+    )
+})
+
+test('AgentModelConfigService asks a runner that does not know agy to update before it inspects agy', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'sprites',
+        framework: 'antigravity-cli',
+        model: null,
+        extras: { modelConfig: { source: 'runtime-local' } }
+    })
+    const rpcs: unknown[] = []
+    const service = makeService(
+        db,
+        [],
+        {
+            rpc: async (call?: unknown) => {
+                rpcs.push(call)
+                return {
+                    frameworks: [
+                        {
+                            framework: 'antigravity-cli',
+                            cliVersion: '1.2.11',
+                            ready: true,
+                            credentialReady: true,
+                            credentialFacts: {
+                                framework: 'antigravity-cli',
+                                tokenFilePresent: true,
+                                tokenFileParsed: true,
+                                tokenExpiresAt: null,
+                                hasRefreshToken: true,
+                                settingsApiKeyMode: false,
+                                envApiKey: false,
+                                cliSignedIn: true
+                            },
+                            configReadable: true,
+                            current: 'jetski-standalone-oauth-token',
+                            models: ['gemini-3.8-flash-high', 'claude-opus-4-6-thinking'],
+                            aliases: [],
+                            speeds: [],
+                            intelligence: [],
+                            lastCheckedAt: date.toISOString(),
+                            error: null
+                        }
+                    ]
+                }
+            }
+        } as never,
+        { resolveRunner: async () => ({ daemonId: 'dh_runner', exec: null }) }
+    )
+    await service.refreshProviderModels('user-1', 'agent-1', false, 'runtime-local')
+    const stale = db.agent.extras?.runtimeLocalModelConfig as Record<string, unknown>
+    assert.equal(stale.ready, false)
+    assert.match(String(stale.error), /Update the Manyfold CLI on this runtime to use Antigravity CLI's own sign-in/)
+    assert.equal(rpcs.length, 0)
+
+    db.hostFeatures = ['antigravity-cli.runtime-local.v1']
+    await service.refreshProviderModels('user-1', 'agent-1', false, 'runtime-local')
+    const fresh = db.agent.extras?.runtimeLocalModelConfig as Record<string, unknown>
+    assert.equal(fresh.ready, true)
+    assert.equal(fresh.credentialStatus, 'valid')
+    assert.deepEqual(fresh.models, ['gemini-3.8-flash-high', 'claude-opus-4-6-thinking'])
+    assert.equal(rpcs.length, 1)
+})
+
+test('AgentModelConfigService runs an agy runtime-local turn on a model `agy models` listed', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'antigravity-cli',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('codex', 'daemon-local'),
+                framework: 'antigravity-cli',
+                cliVersion: '1.2.11',
+                credentialFacts: parseRuntimeLocalCredentialFacts({
+                    framework: 'antigravity-cli',
+                    cliSignedIn: true
+                }),
+                models: ['gemini-3.8-flash-high', 'claude-opus-4-6-thinking'],
+                aliases: [],
+                speeds: [],
+                intelligence: []
+            }
+        }
+    })
+    const service = makeService(db, null)
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        modelConfig: { framework: 'antigravity-cli', model: 'claude-opus-4-6-thinking' },
+        saveAsDefault: true
+    })
+    assert.equal(turn.model, 'claude-opus-4-6-thinking')
+    assert.equal(turn.modelConfig, null)
+    assert.equal(db.agent.model, 'claude-opus-4-6-thinking')
+    await assert.rejects(
+        service.resolveTurnConfig({
+            callerUserId: 'user-1',
+            agentId: 'agent-1',
+            model: 'gemini-3.1-pro-preview'
+        }),
+        /not available in the local config/
     )
 })
 

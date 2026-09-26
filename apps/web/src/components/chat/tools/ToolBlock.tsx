@@ -225,9 +225,19 @@ const DiffBody: FC<{ cfg: ToolDisplayConfig; call: ChatToolCallBlock }> = ({
     // defers to the list whenever one is present.
     if (cfg.diff === 'edit-pair' && !Array.isArray(a.edits)) {
         const oldText = asStr(
-            a.old_string ?? a.old_str ?? a.oldText ?? a.before
+            a.old_string ??
+                a.old_str ??
+                a.oldText ??
+                a.before ??
+                a.TargetContent
         )
-        const newText = asStr(a.new_string ?? a.new_str ?? a.newText ?? a.after)
+        const newText = asStr(
+            a.new_string ??
+                a.new_str ??
+                a.newText ??
+                a.after ??
+                a.ReplacementContent
+        )
         return <ToolDiffViewer oldText={oldText} newText={newText} />
     }
     if (cfg.diff === 'multi-edit' || cfg.diff === 'edit-pair') {
@@ -260,7 +270,9 @@ const DiffBody: FC<{ cfg: ToolDisplayConfig; call: ChatToolCallBlock }> = ({
         )
     }
     if (cfg.diff === 'write-only') {
-        const content = asStr(a.content ?? a.text ?? a.file_text)
+        const content = asStr(
+            a.content ?? a.text ?? a.file_text ?? a.CodeContent
+        )
         return <ToolDiffViewer newText={content} />
     }
     if (cfg.diff === 'unified-patch') {

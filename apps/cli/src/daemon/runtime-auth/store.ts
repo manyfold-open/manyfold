@@ -1,10 +1,11 @@
 import { readdir, rm } from 'node:fs/promises'
-import type {
-    ModelConfigFramework,
-    DaemonAuthOperationRecord,
-    RuntimeAuthMethod,
-    RuntimeAuthOperationKind,
-    RuntimeAuthOperationStatus
+import {
+    isRuntimeAuthProfileFramework,
+    type RuntimeAuthProfileFramework,
+    type DaemonAuthOperationRecord,
+    type RuntimeAuthMethod,
+    type RuntimeAuthOperationKind,
+    type RuntimeAuthOperationStatus
 } from '@manyfold/shared'
 import { readJsonState, writeProtectedJson } from '@/json-state'
 import {
@@ -18,7 +19,7 @@ import {
 // opaque counter the API keys caches on.
 export interface ProfileMetadata {
     profileId: string
-    framework: ModelConfigFramework
+    framework: RuntimeAuthProfileFramework
     authMethod: RuntimeAuthMethod
     generation: number
     createdAt: string
@@ -36,9 +37,10 @@ export const readMetadata = async (
     const raw = await readJsonState(profilePaths(scope, profileId).metadataPath)
     if (!isRecord(raw)) return null
     if (raw.profileId !== profileId) return null
+    if (!isRuntimeAuthProfileFramework(raw.framework)) return null
     return {
         profileId,
-        framework: raw.framework as ModelConfigFramework,
+        framework: raw.framework,
         authMethod: raw.authMethod === 'api-key' ? 'api-key' : 'subscription',
         generation: typeof raw.generation === 'number' ? raw.generation : 0,
         createdAt:

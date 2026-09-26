@@ -40,6 +40,10 @@ import {
     PI_PLATFORM_VIEW_ENV,
     piPlatformDirect
 } from '@/modules/agents/credentials/pi-agent-dir'
+import {
+    AGY_PLATFORM_VIEW_ENV,
+    antigravityPlatformDirect
+} from '@/modules/agents/credentials/antigravity-app-dir'
 import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
 import { terminalResumeNeedsModelCredentials } from '@/modules/terminal/terminal-resume-command'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
@@ -53,7 +57,8 @@ const TITLE_MAX_LENGTH = 120
 const HERDR_FRAMEWORKS: readonly DaemonHerdrFramework[] = [
     'claude-code',
     'codex',
-    'pi'
+    'pi',
+    'antigravity-cli'
 ]
 
 const isHerdrFramework = (value: string): value is DaemonHerdrFramework =>
@@ -138,7 +143,7 @@ export class TerminalHerdrService {
             throw new NotFoundException('session not found')
         if (!isHerdrFramework(agent.framework))
             throw unavailable(
-                'herdr can only resume Claude Code, Codex and Pi conversations'
+                'herdr can only resume Claude Code, Codex, Pi and Antigravity CLI conversations'
             )
         // The host's CLI must know the framework's herdr kind too.
         if (
@@ -188,7 +193,8 @@ export class TerminalHerdrService {
                 runtimeLocalAgent ||
                 sandbox?.terminalModelCredentials === true,
             injectModelCredentials:
-                agent.runtime === 'sprites' && !runtimeLocalAgent
+                agent.runtime === 'sprites' && !runtimeLocalAgent,
+            model: agent.model
         })
         if (resolution.outcome === 'turn-in-flight')
             throw new ConflictException({
@@ -211,6 +217,25 @@ export class TerminalHerdrService {
                 resume = piPlatformDirect(
                     resume,
                     await this.daemon.preparePiView(host.id, resume.env)
+                )
+            } catch (err) {
+                throw herdrLaunchError(err)
+            }
+        }
+        // agy the same way: herdr's `agy` kind runs agy by name, pointed at
+        // the view by the flag its prepare step prints.
+        if (
+            agent.framework === 'antigravity-cli' &&
+            resume.env[AGY_PLATFORM_VIEW_ENV] !== undefined
+        ) {
+            try {
+                resume = antigravityPlatformDirect(
+                    resume,
+                    await this.daemon.prepareAntigravityView(
+                        host.id,
+                        resume.env,
+                        agent.workspacePath ?? agent.mountPath ?? null
+                    )
                 )
             } catch (err) {
                 throw herdrLaunchError(err)

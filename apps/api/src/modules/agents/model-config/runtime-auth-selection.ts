@@ -3,6 +3,7 @@ import {
     INHERITED_AUTH,
     RUNTIME_AUTH_ERROR,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     type AgentModelConfigSource,
     type DaemonAuthContextRef,
     type RuntimeAuthSelection
@@ -67,7 +68,7 @@ export const authContextRefFor = (
 ): DaemonAuthContextRef | null => {
     const selection = runtimeAuthSelectionFor(agent)
     if (selection.mode !== 'profile') return null
-    if (!isModelConfigFramework(agent.framework) || !agent.runtimeId)
+    if (!isRuntimeAuthProfileFramework(agent.framework) || !agent.runtimeId)
         return null
     return {
         framework: agent.framework,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     herdrFrameworksFor
@@ -22,5 +23,13 @@ test('the herdr frameworks follow the handoff and the pi kind', () => {
             DAEMON_FEATURE_HERDR_PI
         ]),
         ['claude-code', 'codex', 'pi']
+    )
+    assert.deepEqual(
+        herdrFrameworksFor([
+            DAEMON_FEATURE_HERDR_TERMINAL,
+            DAEMON_FEATURE_HERDR_PI,
+            DAEMON_FEATURE_HERDR_AGY
+        ]),
+        ['claude-code', 'codex', 'pi', 'antigravity-cli']
     )
 })

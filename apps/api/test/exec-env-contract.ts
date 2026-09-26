@@ -251,6 +251,47 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     },
 
     {
+        framework: 'antigravity-cli',
+        runtime: 'sprites',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "The Gemini key rides every exec as GEMINI_API_KEY (the endpoint as GOOGLE_GEMINI_BASE_URL), and agy runs on the runtime's platform view of ~/.gemini/antigravity-cli (MF_AGY_VIEW, reached with --app_data_dir), whose settings.json is the one file that turns agy's API-key mode on — nothing a credential decides is written to the sprite's own app data."
+    },
+
+    {
+        framework: 'antigravity-cli',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: 'As on a sprite, the key rides every exec, so a credential rotated after the framework was installed takes effect on the next turn.'
+    },
+    {
+        framework: 'antigravity-cli',
+        runtime: 'daemon',
+        transport: 'daemon-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "The gate is the credential row itself: a daemon agent without one runs on agy's own sign-in on that machine (nothing is injected); one with a row gets the key per exec and runs on the platform view, so the machine's own settings.json stays in sign-in mode for the user's own agy."
+    },
+
+    {
         framework: 'gemini-cli',
         runtime: 'sprites',
         transport: 'runner-exec',

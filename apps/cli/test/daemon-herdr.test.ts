@@ -19,6 +19,7 @@ import {
     detectHerdr,
     focusHerdrTerminal,
     herdrAgentName,
+    herdrKnowsAgy,
     herdrSocketPath,
     herdrTerminal,
     HerdrError,
@@ -506,6 +507,44 @@ test("a pi conversation starts as herdr's pi agent with the resume args", async 
         (err: unknown) =>
             err instanceof HerdrError && err.code === 'herdr_launch_failed'
     )
+})
+
+// agy starts as herdr's own `agy` kind (herdr 0.9.1+), its args passed along
+// as is: the API has already put the platform view's flag among them.
+test("an agy conversation starts as herdr's agy agent with the resume args", async () => {
+    const terminalId = createObjectId('terminalSession')
+    await open({
+        terminalId,
+        framework: 'antigravity-cli',
+        command: [
+            'agy',
+            '--app_data_dir=../.manyfold/antigravity-cli/art_1/app',
+            '--conversation',
+            '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+        ]
+    })
+    assert.deepEqual(fake.calls_('agent.start')[0].params, {
+        name: herdrAgentName(terminalId),
+        kind: 'agy',
+        pane_id: 'w1:p1',
+        args: [
+            '--app_data_dir=../.manyfold/antigravity-cli/art_1/app',
+            '--conversation',
+            '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+        ],
+        timeout_ms: 60_000
+    })
+})
+
+test('only a herdr from 0.9.1 on knows agy', () => {
+    const at = (version: string | null) =>
+        herdrKnowsAgy(version === null ? null : { path: '/bin/herdr', version })
+    assert.equal(at('0.9.1'), true)
+    assert.equal(at('0.10.0'), true)
+    assert.equal(at('1.0.0-rc.1'), true)
+    assert.equal(at('0.9.0'), false)
+    assert.equal(at(null), false)
+    assert.equal(herdrKnowsAgy(null), false)
 })
 
 test('a command that does not run the framework CLI is refused before herdr is touched', async () => {

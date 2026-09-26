@@ -23,6 +23,16 @@ test('a well-formed report parses and drops what the API does not accept', () =>
     assert.deepEqual(parsed, VALID)
 })
 
+test('an agy conversation reports under its own framework', () => {
+    const agy = {
+        ...VALID,
+        framework: 'antigravity-cli',
+        source: 'resume',
+        sessionRef: '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+    }
+    assert.deepEqual(parseTerminalSessionHookRequest(agy), agy)
+})
+
 test('shape violations are 400s with a stable code', () => {
     for (const bad of [
         { ...VALID, framework: 'gemini-cli' },

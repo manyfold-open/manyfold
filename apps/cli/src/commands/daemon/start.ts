@@ -5,6 +5,7 @@ import type { HeartbeatRequest } from '@manyfold/shared'
 import {
     apiPaths,
     DAEMON_CLIENT_FEATURES,
+    DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_MANUAL_UPDATE,
@@ -60,6 +61,7 @@ import {
     adoptHerdrPanes,
     configureHerdr,
     currentHerdr,
+    herdrKnowsAgy,
     detectHerdr,
     herdrSocketPath,
     listHerdrTerminals
@@ -240,7 +242,10 @@ const runClaimedForeground = async (
                 ? [
                       ...baseClientFeatures,
                       DAEMON_FEATURE_HERDR_TERMINAL,
-                      DAEMON_FEATURE_HERDR_PI
+                      DAEMON_FEATURE_HERDR_PI,
+                      ...(herdrKnowsAgy(currentHerdr())
+                          ? [DAEMON_FEATURE_HERDR_AGY]
+                          : [])
                   ]
                 : baseClientFeatures
         // What the last update on this install did, reported once.

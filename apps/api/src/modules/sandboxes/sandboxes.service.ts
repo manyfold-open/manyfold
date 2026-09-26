@@ -9,6 +9,7 @@ import {
     isVersionedFramework,
     resolveFrameworkRepo,
     supportsRuntime,
+    DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     herdrFrameworksFor,
@@ -786,7 +787,8 @@ export class SandboxesService {
             hostId,
             frameworkVersion: version?.selection.version ?? null,
             frameworkVersionSource: version?.selection.source ?? 'none',
-            frameworkRepo: version?.repo ?? null
+            frameworkRepo: version?.repo ?? null,
+            frameworkArtifacts: version?.artifacts ?? null
         })
         if (prepared.generatedCredentials && this.crypto) {
             // The gateway tokens the bootstrap minted are the only way to reach
@@ -1373,7 +1375,8 @@ export const parseHerdrVersionLine = (output: string): string | null => {
 // What a runner brought up now — on the current CLI — starts in herdr.
 const NEW_RUNNER_HERDR = herdrFrameworksFor([
     DAEMON_FEATURE_HERDR_TERMINAL,
-    DAEMON_FEATURE_HERDR_PI
+    DAEMON_FEATURE_HERDR_PI,
+    DAEMON_FEATURE_HERDR_AGY
 ])
 
 const toSandboxSummary = (

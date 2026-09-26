@@ -301,6 +301,11 @@ export class UpdateAgentCredentialsDto {
 
     @IsOptional()
     @ValidateNested()
+    @Type(() => UpdateGeminiCliCredentialsDto)
+    antigravityCliCredentials?: UpdateGeminiCliCredentialsDto
+
+    @IsOptional()
+    @ValidateNested()
     @Type(() => UpdateOpenclawCredentialsDto)
     openclawCredentials?: UpdateOpenclawCredentialsDto
 

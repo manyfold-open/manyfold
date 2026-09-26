@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
     ModelConfigFramework,
@@ -16,6 +17,7 @@ import {
     readTextIfPresent,
     type FrameworkConfigDirs
 } from './inspect-fs'
+import { AGY_TOKEN_FILES } from './antigravity-inspect'
 
 // account.inspect: who is signed in to a coding CLI on this machine, and what
 // that account has used. The vendor usage call runs HERE, with the token the
@@ -332,19 +334,45 @@ const inspectPi = async (
     return { tokenSource: oauth ? 'file' : 'none', identity: null, usage: null }
 }
 
+// Where agy keeps a sign-in says nothing about whose it is, and a keyring one
+// cannot be seen at all (the facts carry agy's own verdict for that), so only
+// a token file on disk is reported.
+const inspectAntigravity = async (
+    deps: AccountInspectDeps
+): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
+    for (const name of AGY_TOKEN_FILES)
+        if (
+            ((await stat(join(deps.dirs.geminiDir, name)).catch(() => null))
+                ?.size ?? 0) > 0
+        )
+            return { tokenSource: 'file', identity: null, usage: null }
+    return { tokenSource: 'none', identity: null, usage: null }
+}
+
+const accountReportFor = (
+    framework: ModelConfigFramework,
+    deps: AccountInspectDeps
+): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
+    switch (framework) {
+        case 'claude-code':
+            return inspectClaude(deps)
+        case 'codex':
+            return inspectCodex(deps)
+        case 'gemini-cli':
+            return inspectGemini(deps)
+        case 'pi':
+            return inspectPi(deps)
+        case 'antigravity-cli':
+            return inspectAntigravity(deps)
+    }
+}
+
 export const inspectRuntimeAccount = async (
     framework: ModelConfigFramework,
     overrides: Partial<AccountInspectDeps> = {}
 ): Promise<RuntimeAccountReport> => {
     const deps = { ...defaultDeps(), ...overrides }
-    const report =
-        framework === 'claude-code'
-            ? await inspectClaude(deps)
-            : framework === 'codex'
-              ? await inspectCodex(deps)
-              : framework === 'pi'
-                ? await inspectPi(deps)
-                : await inspectGemini(deps)
+    const report = await accountReportFor(framework, deps)
     return {
         framework,
         checkedAt: new Date(deps.now()).toISOString(),

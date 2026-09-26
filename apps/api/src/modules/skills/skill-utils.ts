@@ -10,6 +10,7 @@ export const SKILL_FRAMEWORKS = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'hermes'
 ] as const
 
@@ -32,10 +33,12 @@ export const skillStateDirName = (
         case 'codex':
         case 'gemini-cli':
         case 'pi':
-            // Codex, Gemini CLI and pi all discover skills from the cross-tool
-            // `.agents/skills` convention (`$HOME/.agents/skills`), not their
-            // own `~/.codex` / `~/.gemini` / `~/.pi` dirs — materialize into
-            // `.agents` so installed skills actually load.
+        case 'antigravity-cli':
+            // Codex, Gemini CLI, pi and Antigravity CLI all discover skills
+            // from the cross-tool `.agents/skills` convention
+            // (`$HOME/.agents/skills`), not their own `~/.codex` / `~/.gemini`
+            // / `~/.pi` dirs — materialize into `.agents` so installed skills
+            // actually load.
             return 'agents'
         case 'hermes':
             return 'hermes'
@@ -208,7 +211,8 @@ export const STORE_ACTIVATION_FRAMEWORKS = [
     'claude-code',
     'codex',
     'gemini-cli',
-    'pi'
+    'pi',
+    'antigravity-cli'
 ] as const
 
 export type StoreActivationFramework =
@@ -262,8 +266,9 @@ export const skillActivationSubdir = (
     framework: StoreActivationFramework
 ): string => (framework === 'claude-code' ? '.claude/skills' : '.agents/skills')
 
-// claude-code, gemini-cli & pi follow symlinks into the store (pi: measured on
-// macOS dev [2026-09-10] with a symlinked `.agents/skills` entry); codex
+// claude-code, gemini-cli, pi & antigravity-cli follow symlinks into the store
+// (pi: measured on macOS dev [2026-09-10] with a symlinked `.agents/skills`
+// entry; agy on 1.2.11 [2026-09-26] with a symlinked skill dir); codex
 // ignores a symlinked skills dir (openai/codex#11314), so it gets real-dir
 // copies.
 export const skillActivationMode = (

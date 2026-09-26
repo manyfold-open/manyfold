@@ -22,7 +22,11 @@ import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     allFrameworkVersionDescriptors,
-    frameworkVersionDescriptor
+    frameworkVersionDescriptor,
+    releaseArtifactsFrom,
+    type FrameworkReleaseArtifacts,
+    type FrameworkReleaseBinary,
+    type FrameworkVersionDescriptor
 } from '@/modules/framework-versions/framework-version-registry'
 import {
     resolveFrameworkInstallVersion,
@@ -60,6 +64,8 @@ interface StoredEntry {
     // the source became configurable, which read as the default repo
     repo?: string | null
     fetchedAt: string | null
+    // per version, the Linux asset digests of a release-binary framework
+    artifacts?: Record<string, FrameworkReleaseArtifacts>
 }
 
 type StoredCatalog = Partial<Record<VersionedFramework, StoredEntry>>
@@ -69,6 +75,7 @@ interface FetchedVersions {
     latest: string | null
     versions: string[]
     prereleases: string[]
+    artifacts?: Record<string, FrameworkReleaseArtifacts>
 }
 
 // Pre-policy view: the DTO plus the prerelease list, which is withheld or merged
@@ -299,11 +306,41 @@ export class FrameworkVersionsService implements OnModuleInit {
                 settings:
                     await this.adminSettings.getCachedFrameworkDefaultVersions(),
                 latestForFresh: (fw) => this.latestForFresh(fw),
-                catalogForFresh: (fw) => this.catalogForFresh(fw)
+                catalogForFresh: (fw) => this.catalogForFresh(fw),
+                releaseArtifacts: (fw, version) =>
+                    this.releaseArtifacts(fw, version)
             },
             framework,
             requested
         )
+    }
+
+    // The digests a release-binary install checks its download against. The
+    // stored catalog carries them for every version it offers; a version it
+    // does not (an admin pin fetched before the release was listed) is read
+    // from that one release. Throws rather than let an install go unchecked.
+    async releaseArtifacts(
+        framework: VersionedFramework,
+        version: string
+    ): Promise<FrameworkReleaseArtifacts> {
+        const descriptor = frameworkVersionDescriptor(framework)
+        if (!descriptor.binary || descriptor.source.kind !== 'github')
+            throw new Error(`${framework} does not install release binaries`)
+        const repo = (await this.repoFor(framework)) ?? descriptor.source.repo
+        const stored = (await this.read())[framework]
+        if ((stored?.repo ?? repo) === repo) {
+            const known = stored?.artifacts?.[version]
+            if (known) return known
+        }
+        const release = await this.githubJson<{ assets?: unknown }>(
+            `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(version)}`
+        )
+        const artifacts = releaseArtifactsFrom(release.assets, descriptor.binary)
+        if (!artifacts)
+            throw new Error(
+                `${framework} ${version} has no complete set of Linux release assets in ${repo}`
+            )
+        return artifacts
     }
 
     // Refresh a single framework's entry. `refresh()` fans out to every
@@ -314,10 +351,7 @@ export class FrameworkVersionsService implements OnModuleInit {
     ): Promise<FrameworkVersionCatalogEntry> {
         const descriptor = frameworkVersionDescriptor(framework)
         const repo = await this.repoFor(framework)
-        const fetched =
-            descriptor.source.kind === 'npm'
-                ? await this.fetchNpm(descriptor.source.package)
-                : await this.fetchGithub(repo ?? descriptor.source.repo)
+        const fetched = await this.fetchUpstream(descriptor, repo)
         if (fetched) {
             const stored = await this.read()
             stored[framework] = {
@@ -326,7 +360,8 @@ export class FrameworkVersionsService implements OnModuleInit {
                 prereleases: fetched.prereleases,
                 source: descriptor.source.kind,
                 repo,
-                fetchedAt: new Date().toISOString()
+                fetchedAt: new Date().toISOString(),
+                ...(fetched.artifacts ? { artifacts: fetched.artifacts } : {})
             }
             await this.write(stored)
             this.cache = null
@@ -340,10 +375,7 @@ export class FrameworkVersionsService implements OnModuleInit {
         for (const d of allFrameworkVersionDescriptors()) {
             try {
                 const repo = await this.repoFor(d.framework)
-                const fetched =
-                    d.source.kind === 'npm'
-                        ? await this.fetchNpm(d.source.package)
-                        : await this.fetchGithub(repo ?? d.source.repo)
+                const fetched = await this.fetchUpstream(d, repo)
                 if (fetched)
                     stored[d.framework] = {
                         latest: fetched.latest,
@@ -351,7 +383,10 @@ export class FrameworkVersionsService implements OnModuleInit {
                         prereleases: fetched.prereleases,
                         source: d.source.kind,
                         repo,
-                        fetchedAt: now
+                        fetchedAt: now,
+                        ...(fetched.artifacts
+                            ? { artifacts: fetched.artifacts }
+                            : {})
                     }
             } catch (err) {
                 this.log.warn(
@@ -388,6 +423,18 @@ export class FrameworkVersionsService implements OnModuleInit {
             .sort(newestFirst)
             .slice(0, MAX_PRERELEASE_VERSIONS)
         return { latest: versions[0] ?? null, versions, prereleases }
+    }
+
+    private fetchUpstream(
+        descriptor: FrameworkVersionDescriptor,
+        repo: string | null
+    ): Promise<FetchedVersions | null> {
+        if (descriptor.source.kind === 'npm')
+            return this.fetchNpm(descriptor.source.package)
+        const effective = repo ?? descriptor.source.repo
+        return descriptor.binary
+            ? this.fetchGithubReleases(effective, descriptor.binary)
+            : this.fetchGithub(effective)
     }
 
     private async fetchNpm(pkg: string): Promise<FetchedVersions | null> {
@@ -431,6 +478,55 @@ export class FrameworkVersionsService implements OnModuleInit {
     // tag wins. hermes may have no semver tags, in which case it stays empty
     // (display shows whatever the on-sprite probe reports, e.g. a git sha).
     private async fetchGithub(repo: string): Promise<FetchedVersions | null> {
+        const body = await this.githubJson<Array<{ name?: string }>>(
+            `https://api.github.com/repos/${repo}/tags?per_page=100`
+        )
+        if (!Array.isArray(body)) throw new GitHubRequestError()
+        return this.partitionVersions(
+            body
+                .map((tag) => tag.name)
+                .filter((name): name is string => typeof name === 'string')
+        )
+    }
+
+    // A release-binary framework's catalog is its published releases, not its
+    // tags: a version is offered only when its Linux assets and their digests
+    // are all there, since that is what an install downloads and checks.
+    // Drafts are never offered; a release GitHub flags as a prerelease is
+    // offered only when its tag says so too, where the opt-in can see it.
+    private async fetchGithubReleases(
+        repo: string,
+        binary: FrameworkReleaseBinary
+    ): Promise<FetchedVersions | null> {
+        const body = await this.githubJson<
+            Array<{
+                tag_name?: unknown
+                draft?: unknown
+                prerelease?: unknown
+                assets?: unknown
+            }>
+        >(`https://api.github.com/repos/${repo}/releases?per_page=100`)
+        if (!Array.isArray(body)) throw new GitHubRequestError()
+        const artifacts: Record<string, FrameworkReleaseArtifacts> = {}
+        for (const release of body) {
+            const tag = release.tag_name
+            if (typeof tag !== 'string' || release.draft === true) continue
+            if (release.prerelease === true && !isPrereleaseVersion(tag))
+                continue
+            const digests = releaseArtifactsFrom(release.assets, binary)
+            if (digests) artifacts[tag] = digests
+        }
+        const fetched = this.partitionVersions(Object.keys(artifacts))
+        const kept = new Set([...fetched.versions, ...fetched.prereleases])
+        return {
+            ...fetched,
+            artifacts: Object.fromEntries(
+                Object.entries(artifacts).filter(([tag]) => kept.has(tag))
+            )
+        }
+    }
+
+    private async githubJson<T>(url: string): Promise<T> {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
         try {
@@ -440,17 +536,9 @@ export class FrameworkVersionsService implements OnModuleInit {
             }
             const token = this.config.get<string>('GITHUB_TOKEN')?.trim()
             if (token) headers.authorization = `Bearer ${token}`
-            const res = await fetch(
-                `https://api.github.com/repos/${repo}/tags?per_page=100`,
-                { headers, signal: controller.signal }
-            )
+            const res = await fetch(url, { headers, signal: controller.signal })
             if (!res.ok) throw await githubResponseError(res)
-            const body = (await res.json()) as Array<{ name?: string }>
-            return this.partitionVersions(
-                body
-                    .map((tag) => tag.name)
-                    .filter((name): name is string => typeof name === 'string')
-            )
+            return (await res.json()) as T
         } catch (error) {
             throw error instanceof GitHubRequestError ? error : new GitHubRequestError()
         } finally {

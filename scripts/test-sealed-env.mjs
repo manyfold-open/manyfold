@@ -49,6 +49,7 @@ export const AGENT_CLIS = [
     'codex',
     'gemini',
     'pi',
+    'agy',
     'openclaw',
     'hermes'
 ]

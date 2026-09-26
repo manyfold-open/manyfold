@@ -48,6 +48,11 @@ const GROUND_TRUTH: Record<CoreFramework, Expected> = {
         runtimes: ['sprites', 'k8s', 'daemon'],
         configSubdir: '.pi'
     },
+    'antigravity-cli': {
+        kind: 'coding',
+        runtimes: ['sprites', 'k8s', 'daemon'],
+        configSubdir: '.gemini/antigravity-cli'
+    },
     openclaw: {
         kind: 'service',
         runtimes: ['sprites', 'k8s', 'daemon'],

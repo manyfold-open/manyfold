@@ -1,4 +1,5 @@
 import {
+    AGY_MANAGED_HOST_ENV,
     BUILTIN_BLOCKED_FRAMEWORK_VERSIONS,
     buildManagedPathScript,
     type CoreVersionedFramework,
@@ -22,6 +23,51 @@ export type FrameworkVersionSource =
     // its candidates, so read the effective repo from
     // FrameworkVersionsService.repoFor() rather than from here.
     | { kind: 'github'; repo: string }
+
+// `uname -m` of the Linux hosts the platform installs on (sprites, pod hosts).
+const RELEASE_ARCHES = ['x86_64', 'aarch64'] as const
+type ReleaseArch = (typeof RELEASE_ARCHES)[number]
+
+// A framework shipped as a prebuilt binary on its GitHub releases ('binary'
+// upgrade mode): the Linux tarball per architecture, and the one file inside
+// it that becomes `binName`.
+export interface FrameworkReleaseBinary {
+    assets: Record<ReleaseArch, string>
+    member: string
+    // Env every platform-driven run of the binary carries (its self-updater
+    // off, so the version on a host stays the one the platform installed).
+    env?: Readonly<Record<string, string>>
+}
+
+// The sha256 GitHub publishes for each Linux asset of one release. Resolved on
+// the control plane and written into the install shell, so a host never has
+// to reach the GitHub API itself.
+export type FrameworkReleaseArtifacts = Record<ReleaseArch, string>
+
+// A release is installable only when every Linux asset is present with the
+// digest GitHub computed on upload; one that lacks any is not offered at all.
+export const releaseArtifactsFrom = (
+    assets: unknown,
+    binary: FrameworkReleaseBinary
+): FrameworkReleaseArtifacts | null => {
+    if (!Array.isArray(assets)) return null
+    const digestOf = (name: string): string | null => {
+        const asset = assets.find(
+            (a) =>
+                a &&
+                typeof a === 'object' &&
+                (a as { name?: unknown }).name === name
+        ) as { digest?: unknown } | undefined
+        const match =
+            typeof asset?.digest === 'string'
+                ? /^sha256:([0-9a-f]{64})$/.exec(asset.digest)
+                : null
+        return match ? match[1] : null
+    }
+    const x86_64 = digestOf(binary.assets.x86_64)
+    const aarch64 = digestOf(binary.assets.aarch64)
+    return x86_64 && aarch64 ? { x86_64, aarch64 } : null
+}
 
 // The descriptor's default and the admin picker's first option have to be the
 // same repository, or an unconfigured platform would fetch one repo while the
@@ -63,6 +109,9 @@ export interface FrameworkVersionDescriptor {
     // (`ln -sf "$(npm config get prefix)/bin/openclaw"`, openclaw-sprite.ts):
     // displacing that entry would break the symlink the service execs.
     unshadowNodeBinDir?: boolean
+    // Set for a 'binary' framework (github source only): installs come from
+    // its release assets instead of npm or a clone.
+    binary?: FrameworkReleaseBinary
     // shell run under `bash -lc` that prints the installed version to stdout.
     // ~/.local/bin is prepended because npm-global bins are not on the default
     // non-interactive PATH (see openclaw-sprite.ts symlink note).
@@ -106,6 +155,25 @@ const CORE_DESCRIPTORS = {
         // PI_OFFLINE keeps the probe from reaching pi.dev for an update check.
         probeShell:
             'export PATH="$HOME/.local/bin:$PATH"; PI_OFFLINE=1 pi --version'
+    },
+    // agy prints its bare version (`1.2.11`) on stdout. Release assets
+    // measured on 1.2.11 [2026-09-26]: one tarball per platform holding a
+    // single `antigravity` binary, each asset carrying a GitHub sha256.
+    'antigravity-cli': {
+        framework: 'antigravity-cli',
+        runtimeKind: 'coding',
+        source: githubSource('antigravity-cli'),
+        binName: 'agy',
+        binary: {
+            assets: {
+                x86_64: 'agy_cli_linux_x64.tar.gz',
+                aarch64: 'agy_cli_linux_arm64.tar.gz'
+            },
+            member: 'antigravity',
+            env: AGY_MANAGED_HOST_ENV
+        },
+        probeShell:
+            'export PATH="$HOME/.local/bin:$PATH"; AGY_CLI_DISABLE_AUTO_UPDATE=true agy --version'
     },
     openclaw: {
         framework: 'openclaw',
@@ -217,6 +285,121 @@ export const buildNpmLatestInstallShell = (
         descriptor,
         safeNpmVersionSpec(BUILTIN_BLOCKED_FRAMEWORK_VERSIONS[descriptor.framework])
     )
+
+const envAssignments = (
+    env: Readonly<Record<string, string>> | undefined
+): string[] =>
+    Object.entries(env ?? {}).map(([name, value]) => {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !/^[A-Za-z0-9._-]*$/.test(value))
+            throw new Error(`unsafe binary env ${name}`)
+        return `${name}=${value}`
+    })
+
+const envPrefix = (env: Readonly<Record<string, string>> | undefined): string =>
+    envAssignments(env)
+        .map((assignment) => `${assignment} `)
+        .join('')
+
+// What PATH resolves to. A binary's env belongs to running it at all, not
+// only to the version check: agy starts its self-updater from any command,
+// and a managed host keeps the version the platform installed, a terminal
+// user's `agy` included. So a binary with env gets a launcher beside it that
+// exports that env and execs it, with the binary's path quoted in.
+const launcherLines = (
+    env: Readonly<Record<string, string>> | undefined
+): string[] => {
+    const assignments = envAssignments(env)
+    if (assignments.length === 0) return ['entry="$candidate"']
+    return [
+        'entry="$staging/launch"',
+        `printf '#!/bin/sh\\n' > "$entry"`,
+        ...assignments.map(
+            (assignment) => `printf 'export %s\\n' '${assignment}' >> "$entry"`
+        ),
+        `printf 'exec %s "$@"\\n' "'$(printf '%s' "$candidate" | sed "s/'/'\\\\\\\\''/g")'" >> "$entry"`,
+        'chmod 0755 "$entry"'
+    ]
+}
+
+// Shell (for `bash -lc`) that installs a 'binary' framework at an exact
+// release: the Linux tarball for this host's architecture, checked against the
+// sha256 its GitHub release publishes, then the same validate-then-swap commit
+// the npm shell uses — the staged binary must run and report the target
+// version before `~/.local/bin/<bin>` changes, and the swap is one atomic
+// rename, so every failure leaves the previous CLI runnable. The URL is built
+// here from the repository and version, never taken from anywhere else.
+export const buildBinaryInstallShell = (
+    descriptor: FrameworkVersionDescriptor,
+    version: string,
+    artifacts: FrameworkReleaseArtifacts
+): string => {
+    const { binary, source } = descriptor
+    if (!binary || source.kind !== 'github')
+        throw new Error(
+            `buildBinaryInstallShell: ${descriptor.framework} is not a release-binary framework`
+        )
+    if (!isSemverVersionTag(version))
+        throw new Error(`buildBinaryInstallShell: invalid version "${version}"`)
+    for (const arch of RELEASE_ARCHES)
+        if (!/^[0-9a-f]{64}$/.test(artifacts[arch] ?? ''))
+            throw new Error(
+                `buildBinaryInstallShell: no sha256 for the ${arch} asset of ${descriptor.framework} ${version}`
+            )
+    const bin = descriptor.binName
+    const tag = version.trim()
+    const expected = stripV(tag)
+    const base = `https://github.com/${source.repo}/releases/download/${tag}`
+    return [
+        'set -eu',
+        'case "$(uname -s)" in',
+        '  Linux) ;;',
+        `  *) echo "${bin}: release binaries install on Linux hosts only" >&2; exit 1 ;;`,
+        'esac',
+        'case "$(uname -m)" in',
+        `  x86_64|amd64) asset='${binary.assets.x86_64}'; sha='${artifacts.x86_64}' ;;`,
+        `  aarch64|arm64) asset='${binary.assets.aarch64}'; sha='${artifacts.aarch64}' ;;`,
+        `  *) echo "${bin}: no release asset for $(uname -m)" >&2; exit 1 ;;`,
+        'esac',
+        'mkdir -p "$HOME/.local/bin"',
+        'export PATH="$HOME/.local/bin:$PATH"',
+        `root="$HOME/.local/lib/manyfold/${bin}"`,
+        'mkdir -p "$root"',
+        'staging="$(mktemp -d "$root/install.XXXXXX")"',
+        `trap 'rm -rf "$staging" "$staging.link"' EXIT`,
+        `curl -fsSL --proto '=https' --retry 3 -o "$staging/$asset" "${base}/$asset"`,
+        `printf '%s  %s\\n' "$sha" "$staging/$asset" | sha256sum -c - >/dev/null || { echo "${bin} ${expected}: $asset does not match its published sha256" >&2; exit 1; }`,
+        `tar -xzf "$staging/$asset" -C "$staging" '${binary.member}'`,
+        'rm -f "$staging/$asset"',
+        `mv "$staging/${binary.member}" "$staging/${bin}"`,
+        `chmod 0755 "$staging/${bin}"`,
+        `candidate="$staging/${bin}"`,
+        `out="$(${envPrefix(binary.env)}"$candidate" --version 2>&1)" || { echo "candidate ${bin} failed to run: $out" >&2; exit 1; }`,
+        `got="$(printf '%s\\n' "$out" | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n1)"`,
+        `[ "$got" = "${expected}" ] || { echo "staged ${bin} reports \${got:-no version}, expected ${expected}" >&2; exit 1; }`,
+        ...launcherLines(binary.env),
+        `ln -s "$entry" "$staging.link"`,
+        `mv -Tf "$staging.link" "$HOME/.local/bin/${bin}"`,
+        'trap - EXIT',
+        'hash -r',
+        `for d in "$root"/install.*; do [ "$d" = "$staging" ] || rm -rf "$d"; done`,
+        buildManagedPathScript()
+    ].join('\n')
+}
+
+// The exact-version install shell for any framework that installs in place.
+// A 'binary' framework needs its release's digests; an npm one ignores them.
+export const buildVersionInstallShell = (
+    descriptor: FrameworkVersionDescriptor,
+    version: string,
+    artifacts: FrameworkReleaseArtifacts | null
+): string => {
+    if (!descriptor.binary) return buildNpmUpgradeShell(descriptor, version)
+    if (!artifacts)
+        throw new Error(
+            `no release digests resolved for ${descriptor.framework} ${version}`
+        )
+    return buildBinaryInstallShell(descriptor, version, artifacts)
+}
 
 // node's own toolchain. Displacing any of these would break every later npm
 // call on the sprite, so a descriptor that ever named one is a bug, not a

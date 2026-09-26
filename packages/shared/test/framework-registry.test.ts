@@ -135,6 +135,7 @@ test('a registered framework lists after every core one', () => {
         'codex',
         'gemini-cli',
         'pi',
+        'antigravity-cli',
         'openclaw',
         'hermes',
         'fixture-gateway'

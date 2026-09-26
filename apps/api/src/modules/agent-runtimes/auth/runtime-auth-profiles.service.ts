@@ -12,7 +12,7 @@ import {
 import { and, eq, ne } from 'drizzle-orm'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
-    DAEMON_FEATURE_PI_LOCAL,
+    runtimeLocalInspectFeature,
     DAEMON_FEATURE_AUTH_CONTEXT,
     runtimeAuthRoot,
     runtimeAuthProfileEnv,
@@ -24,7 +24,7 @@ import {
     runnerHostName,
     runtimeAuthSupported,
     runtimeLocalCredentialStatus,
-    type ModelConfigFramework,
+    type RuntimeAuthProfileFramework,
     type DaemonAuthCreateResponse,
     type DaemonAuthListResponse,
     type DaemonAuthLogoutResponse,
@@ -114,7 +114,7 @@ const MAX_IDENTITY_CHARS = 200
 
 // pi signs in to whichever vendors its /login offers, so its profiles name
 // the CLI rather than one vendor.
-const VENDOR_FOR: Record<ModelConfigFramework, string> = {
+const VENDOR_FOR: Record<RuntimeAuthProfileFramework, string> = {
     'claude-code': 'anthropic',
     codex: 'openai',
     'gemini-cli': 'google',
@@ -268,10 +268,8 @@ export class RuntimeAuthProfilesService {
         }
         if (!host.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES))
             return { host, availability: 'daemon-upgrade-required' }
-        if (
-            runtime.framework === 'pi' &&
-            !host.clientFeatures.includes(DAEMON_FEATURE_PI_LOCAL)
-        )
+        const required = runtimeLocalInspectFeature(runtime.framework)
+        if (required && !host.clientFeatures.includes(required))
             return { host, availability: 'daemon-upgrade-required' }
         return { host, availability: 'ok' }
     }
@@ -643,7 +641,7 @@ export class RuntimeAuthProfilesService {
                 patch.credentialStatus = status
                 patch.checkedAt = new Date(probe.checkedAt)
                 patch.lastErrorCode = null
-                patch.vendor = VENDOR_FOR[probe.framework]
+                patch.vendor = VENDOR_FOR[row.framework]
                 if (probe.identity) {
                     patch.email = clip(probe.identity.email)
                     patch.displayName = clip(probe.identity.name)
@@ -938,7 +936,7 @@ export class RuntimeAuthProfilesService {
                 RUNTIME_AUTH_ERROR.daemonUpgradeRequired,
                 'update the mf CLI on this runtime to store API keys'
             )
-        const framework = runtime.framework as ModelConfigFramework
+        const framework = runtime.framework as RuntimeAuthProfileFramework
         const existingCount = (
             await this.db
                 .select({ id: runtimeAuthProfiles.id })
@@ -1119,7 +1117,7 @@ export class RuntimeAuthProfilesService {
             host,
             runtime,
             authLogin: {
-                framework: runtime.framework as ModelConfigFramework,
+                framework: runtime.framework as RuntimeAuthProfileFramework,
                 runtimeId: runtime.id,
                 profileId: row.id,
                 operationId: operation.id

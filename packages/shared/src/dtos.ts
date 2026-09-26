@@ -1043,6 +1043,8 @@ export interface UpdateAgentCredentialsBody {
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
     piCredentials?: PiCredentialsInput
+    // Antigravity CLI's API-key mode is Gemini-only: Gemini CLI's shape.
+    antigravityCliCredentials?: GeminiCliCredentialsInput
     openclawCredentials?: UpdateOpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     saveCredentialAs?: SaveCredentialAs
@@ -1238,6 +1240,8 @@ export interface CreateAgentBody {
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
     piCredentials?: PiCredentialsInput
+    // Antigravity CLI's API-key mode is Gemini-only: Gemini CLI's shape.
+    antigravityCliCredentials?: GeminiCliCredentialsInput
     openclawCredentials?: OpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     difyBinding?: DifyBindingInput
@@ -1362,6 +1366,7 @@ export const SKILL_FRAMEWORKS = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'hermes'
 ] as const
 export type SkillFramework = (typeof SKILL_FRAMEWORKS)[number]

@@ -12,6 +12,9 @@ import type { AgentFramework } from './constants'
                             session; `--session <id>` is deliberately NOT used
                             because a bare id that matches a session in another
                             project triggers a y/N prompt with no TTY check
+     agy --conversation <id> "Resume a previous conversation by ID" — the id
+                            agy minted; one it does not know opens a new
+                            conversation rather than failing
 
    gemini-cli is absent on purpose: its --resume takes a session INDEX or the
    literal "latest", not the UUID stored in framework_session_ref, so there is
@@ -27,7 +30,8 @@ const RESUME_ARGV_BY_FRAMEWORK: Partial<
 > = {
     'claude-code': (ref) => ['claude', '--resume', ref],
     codex: (ref) => ['codex', 'resume', ref],
-    pi: (ref) => ['pi', '--session-id', ref]
+    pi: (ref) => ['pi', '--session-id', ref],
+    'antigravity-cli': (ref) => ['agy', '--conversation', ref]
 }
 
 export const frameworkResumeArgv = (

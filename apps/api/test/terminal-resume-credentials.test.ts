@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
 import { PI_PLATFORM_VIEW_SCRIPT } from '@/modules/agents/credentials/pi-agent-dir'
+import { AGY_PLATFORM_VIEW_SCRIPT } from '@/modules/agents/credentials/antigravity-app-dir'
 
 // A sandbox that opted in hands the TUI the credentials a turn would inject:
 // claude's token and endpoint, or pi's key under the env var its vendor reads
@@ -22,9 +23,10 @@ const dbReturning = (rows: unknown[][]): never => {
 }
 
 const resolveWith = (
-    framework: 'pi' | 'claude-code',
+    framework: 'pi' | 'claude-code' | 'antigravity-cli',
     payload: Record<string, unknown> | null,
-    workspacePath?: string
+    workspacePath?: string,
+    model?: string | null
 ): ReturnType<TerminalResumeService['resolve']> =>
     new TerminalResumeService(
         dbReturning([
@@ -39,7 +41,8 @@ const resolveWith = (
         chatSessionId: 'cs_1',
         modelCredentialsAllowed: true,
         injectModelCredentials: true,
-        workspacePath
+        workspacePath,
+        model
     })
 
 test('a pi TUI resumes its session on the platform view, with the vendor key under its own env var', async () => {
@@ -112,4 +115,76 @@ test('claude still gets its token, endpoint and persistence flag', async () => {
         resolved.resume?.env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE,
         '1'
     )
+})
+
+const AGY_REF = '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+
+test('an agy TUI resumes its conversation on the platform view, with the key and the agent’s model', async () => {
+    const service = new TerminalResumeService(
+        dbReturning([
+            [{ ref: AGY_REF, inflightMessageId: null }],
+            [{ payloadCiphertext: 'c', keyVersion: 1 }]
+        ]),
+        {
+            decrypt: () =>
+                JSON.stringify({
+                    googleApiKey: 'gk-marker-marker',
+                    googleGeminiBaseUrl: 'https://gw.example/antigravity',
+                    model: 'gemini-3.1-pro-low'
+                })
+        } as never
+    )
+    const resolved = await service.resolve({
+        agentId: 'agt_1',
+        runtimeId: 'rt_1',
+        framework: 'antigravity-cli',
+        chatSessionId: 'cs_1',
+        modelCredentialsAllowed: true,
+        injectModelCredentials: true,
+        model: 'gemini-3.8-flash-high'
+    })
+    assert.equal(resolved.outcome, 'applied')
+    assert.equal(resolved.ref, AGY_REF)
+    assert.deepEqual(resolved.resume?.command, [
+        'bash',
+        '-c',
+        AGY_PLATFORM_VIEW_SCRIPT,
+        'agy',
+        '--conversation',
+        AGY_REF,
+        '--dangerously-skip-permissions',
+        '--model',
+        'gemini-3.8-flash-high'
+    ])
+    const env = resolved.resume?.env ?? {}
+    assert.equal(env.GEMINI_API_KEY, 'gk-marker-marker')
+    assert.equal(env.GOOGLE_GEMINI_BASE_URL, 'https://gw.example/antigravity')
+    assert.equal(env.MF_AGY_VIEW, 'rt_1')
+    assert.equal(env.AGY_CLI_DISABLE_AUTO_UPDATE, 'true')
+    assert.equal(env.GOOGLE_API_KEY, '')
+})
+
+test('an agy TUI without a key leaves a plain shell, and on its own sign-in runs agy as is', async () => {
+    const keyless = await resolveWith('antigravity-cli', { model: 'x' })
+    assert.equal(keyless.outcome, 'unavailable')
+    const own = await new TerminalResumeService(
+        dbReturning([[{ ref: AGY_REF, inflightMessageId: null }]]),
+        { decrypt: () => 'null' } as never
+    ).resolve({
+        agentId: 'agt_1',
+        runtimeId: 'rt_1',
+        framework: 'antigravity-cli',
+        chatSessionId: 'cs_1',
+        modelCredentialsAllowed: true,
+        injectModelCredentials: false
+    })
+    assert.deepEqual(own.resume, {
+        command: [
+            'agy',
+            '--conversation',
+            AGY_REF,
+            '--dangerously-skip-permissions'
+        ],
+        env: {}
+    })
 })

@@ -53,7 +53,7 @@ storage commands and agent list/get reject older ambiguous responses explicitly.
 ## Create a sprites.dev coding agent
 
 `mf agent create` currently provisions a new agent on sprites.dev. It supports
-Claude Code, Codex, Gemini CLI, and Pi:
+Claude Code, Codex, Gemini CLI, Pi, and Antigravity CLI:
 
 ```sh
 mf agent create review-bot \
@@ -65,6 +65,8 @@ Provider keys can come from the framework's environment variable. Avoid
 putting a literal key in shell history. Run `mf agent create --help` for each
 framework's base URL and model options. Pi takes `--pi-api-key` together with
 `--pi-provider anthropic|openai|google`, the vendor the key belongs to.
+Antigravity CLI takes a Gemini key with `--google-api-key` and one of its own
+model names, such as `gemini-3.1-pro-low`, with `--agy-model`.
 
 This command does not create daemon, Kubernetes, cloud-computer, external,
 Hermes, or OpenClaw agents. Use the web **New agent** flow for the full

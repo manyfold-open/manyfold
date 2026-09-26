@@ -112,7 +112,8 @@ export interface ProviderBinding {
     providerId: string
     // The model the agent will be given, where it is ours to name. Gemini CLI
     // leaves it out: its default is the CLI's own router on Google's endpoint
-    // and a model the API picks on a gateway.
+    // and a model the API picks on a gateway. So does Antigravity CLI, whose
+    // models are its own slugs, not the ids a provider was tested with.
     model?: string
 }
 
@@ -128,7 +129,8 @@ export const providerBindingFor = (
     const protocol = bindingProtocolFor(framework, row)
     const options = testedModelsFor(framework, row)
     if (protocol === null || options.length === 0) return null
-    if (framework === 'gemini-cli') return { providerId: row.id }
+    if (framework === 'gemini-cli' || framework === 'antigravity-cli')
+        return { providerId: row.id }
     const model =
         framework === 'claude-code'
             ? buildClaudeCodeDefaultModelConfig(options).model
@@ -285,6 +287,11 @@ export const joinBindingFor = (
     if (framework === 'gemini-cli')
         return {
             credentials: { geminiCliCredentials: { providerId } },
+            modelConfig: { modelConfigSource: 'platform' }
+        }
+    if (framework === 'antigravity-cli')
+        return {
+            credentials: { antigravityCliCredentials: { providerId } },
             modelConfig: { modelConfigSource: 'platform' }
         }
     // pi's vendor rides along: beside a provider speaking several of pi's

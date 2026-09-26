@@ -12,7 +12,8 @@ import {
     frameworkRepoCandidates,
     frameworkUpgradeMode,
     isPrereleaseVersion,
-    isVersionedFramework
+    isVersionedFramework,
+    upgradesInPlace
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -43,7 +44,7 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import {
-    buildNpmUpgradeShell,
+    buildVersionInstallShell,
     frameworkVersionDescriptor
 } from '@/modules/framework-versions/framework-version-registry'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
@@ -120,10 +121,9 @@ export class FrameworkUpgradeService {
                 `${agent.framework} has no upgradeable framework version`
             )
         const descriptor = frameworkVersionDescriptor(agent.framework)
-        // Only npm-sourced frameworks (claude/codex/gemini/openclaw) upgrade in
-        // place. github-sourced ones need a heavy re-clone / re-installer,
-        // streamed by upgradeStreaming.
-        if (descriptor.source.kind !== 'npm')
+        // npm and release-binary frameworks upgrade in place. A rebuild one
+        // needs a heavy re-clone / re-installer, streamed by upgradeStreaming.
+        if (!upgradesInPlace(frameworkUpgradeMode(agent.framework)))
             throw new BadRequestException(
                 `${agent.framework} upgrade is not supported yet`
             )
@@ -160,7 +160,16 @@ export class FrameworkUpgradeService {
             this.db,
             upgradeLockTarget(agent, runtime, agent.framework),
             async () => {
-                const shell = buildNpmUpgradeShell(descriptor, targetVersion)
+                const shell = buildVersionInstallShell(
+                    descriptor,
+                    targetVersion,
+                    descriptor.binary
+                        ? await this.versions.releaseArtifacts(
+                              agent.framework,
+                              targetVersion
+                          )
+                        : null
+                )
                 this.log.log(
                     `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
                 )
