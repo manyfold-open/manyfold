@@ -4095,6 +4095,7 @@ const hi: Record<string, string> = {
     'web.updates.updateSelected': 'चयनित अपडेट करें ({{count}})',
     'web.updates.updateOne': 'अपडेट करें',
     'web.updates.selectAll': 'यहाँ से चलाए जा सकने वाले सभी अपडेट चुनें',
+    'web.updates.selectGroup': '{{name}} समूह में यहाँ से चलाए जा सकने वाले सभी अपडेट चुनें',
     'web.updates.selectRow': '{{name}} चुनें',
     'web.updates.colUpdate': 'अपडेट',
     'web.updates.colTarget': 'कहाँ',

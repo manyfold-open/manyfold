@@ -1745,7 +1745,14 @@
     }
 
     .workbench-table {
-        @apply w-full text-left;
+        @apply w-full text-start;
+    }
+
+    /* A th centres itself when its row inherits the initial `start`, so it
+       needs an alignment of its own. :where() keeps this below any utility,
+       leaving a column's own class (text-end, text-right) in charge. */
+    :where(.workbench-table) th {
+        text-align: start;
     }
 
     .workbench-table-head {

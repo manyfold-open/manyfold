@@ -7,7 +7,15 @@ import {
     explainChatFailureCause,
     type ChatFailureCauseVia
 } from '../src/modules/chat/chat-failure-cause'
-import { classifyManagedChannelFailureSignal } from '../src/modules/chat/managed-channel-failure-signal'
+import {
+    classifyCodexTerminalFailureSignal,
+    classifyManagedChannelFailureSignal
+} from '../src/modules/chat/managed-channel-failure-signal'
+import {
+    CODEX_POOL_EMPTY_LOOKALIKES,
+    CODEX_POOL_EMPTY_TERMINAL,
+    CODEX_POOL_EMPTY_VARIANTS
+} from './managed-pool-empty-sample'
 
 // #786. Every positive message-fallback fixture below is a shape the adapters,
 // the sprites client or a provider actually produce — they are the whole
@@ -189,11 +197,34 @@ test('the breaker producer requires the owned structured 503 envelope', () => {
 
     for (const message of [
         'API Error: 503 {"error":{"message":"No available Antigravity accounts: no available accounts"}}',
-        'unexpected status 503 Service Unavailable: {"error":{"message":"No available accounts: no available accounts"}}'
+        'API Error: 503 {"error":{"message":"Service temporarily unavailable","type":"api_error"},"type":"error"}'
     ])
         assert.equal(
             classifyManagedChannelFailureSignal({ status: 503, message }),
             'account_pool_empty'
+        )
+
+    // The gateway's neighbouring refusals share the words and are none of
+    // them the pool: its concurrency wait, an upstream 5xx behind it, and the
+    // literal under a status that is not the 503.
+    for (const [status, message] of [
+        [
+            503,
+            'API Error: 503 {"error":{"message":"Service temporarily unavailable, please retry later","type":"api_error"},"type":"error"}'
+        ],
+        [
+            502,
+            'API Error: 502 {"error":{"message":"Upstream service temporarily unavailable","type":"upstream_error"},"type":"error"}'
+        ],
+        [
+            429,
+            'API Error: 429 {"error":{"message":"Service temporarily unavailable","type":"api_error"},"type":"error"}'
+        ]
+    ] as const)
+        assert.equal(
+            classifyManagedChannelFailureSignal({ status, message }),
+            null,
+            message
         )
 
     for (const message of [
@@ -216,6 +247,33 @@ test('the breaker producer requires the owned structured 503 envelope', () => {
         }),
         null
     )
+})
+
+// codex unwraps the envelope before it prints, so the same refusal reaches us as
+// plain text that the envelope reader above can never match — which is how an
+// emptied pool under codex went unnoticed. It gets its own grammar instead.
+test('codex reports an empty pool in its own printer grammar', () => {
+    assert.equal(
+        classifyManagedChannelFailureSignal({
+            status: 503,
+            message: CODEX_POOL_EMPTY_TERMINAL
+        }),
+        null
+    )
+
+    for (const [name, terminal] of [
+        ['the captured production terminal', CODEX_POOL_EMPTY_TERMINAL],
+        ...CODEX_POOL_EMPTY_VARIANTS
+    ])
+        assert.equal(
+            classifyCodexTerminalFailureSignal(terminal),
+            'account_pool_empty',
+            name
+        )
+
+    for (const [name, terminal] of CODEX_POOL_EMPTY_LOOKALIKES)
+        assert.equal(classifyCodexTerminalFailureSignal(terminal), null, name)
+    assert.equal(classifyCodexTerminalFailureSignal(null), null)
 })
 
 // The company an exhaustion keeps during an outage. Every line below is a

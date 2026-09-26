@@ -4087,6 +4087,7 @@ const ko: Record<string, string> = {
     "web.updates.updateSelected": "선택 항목 업데이트({{count}})",
     "web.updates.updateOne": "업데이트",
     "web.updates.selectAll": "여기에서 실행할 수 있는 모든 업데이트 선택",
+    "web.updates.selectGroup": "{{name}} 그룹에서 여기서 실행할 수 있는 모든 업데이트 선택",
     "web.updates.selectRow": "{{name}} 선택",
     "web.updates.colUpdate": "업데이트",
     "web.updates.colTarget": "위치",

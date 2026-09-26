@@ -213,3 +213,88 @@ export const MANAGED_POOL_EMPTY_LOOKALIKES: readonly (readonly [
         'why does my agent say {"code": 503, "message": "No available Gemini accounts: no available accounts"}?'
     ]
 ]
+
+// What a managed codex turn ends in when the pool is empty, as production
+// printed it with codex-cli 0.148.0: five retry lines, the refusal, then the
+// turn.failed that carries it as the verdict. Only the opaque values are
+// fixtures here (thread id, url host, cf-ray, request id); every other byte is
+// the printer's. codex unwraps the gateway's JSON envelope into the message
+// before printing, so no line holds an envelope, and stderr stays empty.
+// Reproduce by pointing `codex exec --skip-git-repo-check --json -` at a local
+// /responses that answers 503 with
+// `{"error":{"message":"Service temporarily unavailable","type":"api_error"}}`
+// and `cf-ray` / `x-request-id` headers.
+const CODEX_SUFFIX =
+    ', url: https://gateway.example.test/responses, cf-ray: cf-ray-fixture-AMS, request id: request-id-fixture'
+
+export const CODEX_POOL_EMPTY_TERMINAL = `unexpected status 503 Service Unavailable: Service temporarily unavailable${CODEX_SUFFIX}`
+
+export const CODEX_EXEC_JSON_POOL_EMPTY = [
+    { type: 'thread.started', thread_id: 'thread-id-fixture' },
+    { type: 'turn.started' },
+    ...Array.from({ length: 5 }, (_, i) => ({
+        type: 'error',
+        message: `Reconnecting... ${i + 1}/5 (${CODEX_POOL_EMPTY_TERMINAL})`
+    })),
+    { type: 'error', message: CODEX_POOL_EMPTY_TERMINAL },
+    { type: 'turn.failed', error: { message: CODEX_POOL_EMPTY_TERMINAL } }
+]
+    .map((event) => `${JSON.stringify(event)}\n`)
+    .join('')
+
+// The same refusal in the printer's other two shapes: the gateway's other
+// wording for an empty pool, and a gateway with no cf-ray or request id to
+// report. Both captured the same way.
+export const CODEX_POOL_EMPTY_VARIANTS: readonly (readonly [string, string])[] =
+    [
+        [
+            'the gateway wording the other routes use',
+            `unexpected status 503 Service Unavailable: No available accounts${CODEX_SUFFIX}`
+        ],
+        [
+            'no cf-ray or request id',
+            'unexpected status 503 Service Unavailable: Service temporarily unavailable, url: https://gateway.example.test/responses'
+        ]
+    ]
+
+// Terminals that sit next to the real one and must not read as it. The first
+// three are the printer's own output for the gateway's neighbouring refusals
+// (captured as above): its concurrency wait, an upstream 5xx behind it, and a
+// generic 503. The rest are built around the real terminal.
+export const CODEX_POOL_EMPTY_LOOKALIKES: readonly (readonly [
+    string,
+    string
+])[] = [
+    [
+        'the concurrency wait, which extends the literal',
+        `unexpected status 503 Service Unavailable: Service temporarily unavailable, please retry later${CODEX_SUFFIX}`
+    ],
+    [
+        'an upstream 5xx behind the gateway',
+        `unexpected status 502 Bad Gateway: Upstream service temporarily unavailable${CODEX_SUFFIX}`
+    ],
+    [
+        'a generic 503',
+        `unexpected status 503 Service Unavailable: Service Unavailable${CODEX_SUFFIX}`
+    ],
+    [
+        'the literal under a status that is not 503',
+        `unexpected status 500 Internal Server Error: Service temporarily unavailable${CODEX_SUFFIX}`
+    ],
+    [
+        'the proxy-page capitalisation',
+        `unexpected status 503 Service Unavailable: Service Temporarily Unavailable${CODEX_SUFFIX}`
+    ],
+    [
+        'the literal with more prose after it',
+        `unexpected status 503 Service Unavailable: Service temporarily unavailable. Try again later${CODEX_SUFFIX}`
+    ],
+    [
+        'a retry line, which is a diagnostic and not the verdict',
+        `Reconnecting... 1/5 (${CODEX_POOL_EMPTY_TERMINAL})`
+    ],
+    [
+        'model prose quoting the terminal',
+        `The gateway said ${CODEX_POOL_EMPTY_TERMINAL}`
+    ]
+]
