@@ -234,6 +234,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             createdAt: now,
             updatedAt: now
         })
+        this.changed({ id, userId, agentId: agent.id }, 'created')
         return this.get(userId, id)
     }
 
@@ -304,6 +305,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 updatedAt: now
             })
             .where(eq(automations.id, id))
+        this.changed({ id, userId, agentId: agent.id }, 'updated')
         return this.get(userId, id)
     }
 
@@ -324,7 +326,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     // forgets the deletedAt filter then finds nothing due.
     private async tombstone(id: string): Promise<void> {
         const now = new Date()
-        await this.db
+        const changed = await this.db
             .update(automations)
             .set({
                 deletedAt: now,
@@ -333,6 +335,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 updatedAt: now
             })
             .where(and(eq(automations.id, id), isNull(automations.deletedAt)))
+            .returning()
+        for (const row of changed) this.changed(row, 'deleted')
     }
 
     private async tick(): Promise<void> {
@@ -439,6 +443,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             })
             .returning()
 
+        this.changed(row.automation, 'run')
         try {
             if (row.agent.status !== 'running')
                 throw new BadRequestException(`agent is ${row.agent.status}`)
@@ -527,6 +532,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             .where(
                 and(eq(automations.id, row.id), isNull(automations.deletedAt))
             )
+        this.changed(row, 'run')
     }
 
     private async deferAutomationAfterQuotaSkip(
@@ -570,6 +576,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             this.log.warn(
                 `scheduled automation ${row.id} parked: run quota reached for user ${row.userId}`
             )
+        if (changed.length > 0) this.changed(row, 'updated')
     }
 
     private async reconcileQuotaParked(now: Date): Promise<void> {
@@ -603,10 +610,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 // inserted on this recovery path, even after headroom returns.
                 if (nextRunAt)
                     await this.runtimeAccess.reserveAutomationRun(row.userId)
-                await this.db
+                const changed = await this.db
                     .update(automations)
                     .set({ nextRunAt, quotaRetryAt: null, updatedAt: now })
                     .where(quotaScheduleRevision(row, quotaRevision))
+                    .returning({ id: automations.id })
+                if (changed.length > 0) this.changed(row, 'updated')
             } catch (error) {
                 if (
                     error instanceof ForbiddenException &&
@@ -689,6 +698,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 )
                 .returning()
             if (!flipped) continue
+            this.changed(automation, 'run')
             await this.maybeDeliverRun(flipped, automation)
         }
     }
@@ -743,6 +753,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             .update(automationRuns)
             .set({ deliveryStatus })
             .where(eq(automationRuns.id, run.id))
+        this.changed(automation, 'run')
     }
 
     private async deliverRunOutcome(
@@ -909,6 +920,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 updatedAt: now
             })
             .returning()
+        this.changed(row, 'created')
         return row
     }
 
@@ -916,7 +928,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         automationId: string,
         spec: ManagedAutomationSpec
     ): Promise<void> {
-        await this.db
+        const changed = await this.db
             .update(automations)
             .set({
                 title: spec.title,
@@ -934,6 +946,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                     isNull(automations.deletedAt)
                 )
             )
+            .returning()
+        for (const row of changed) this.changed(row, 'updated')
     }
 
     // Managed removal follows the same retention lifecycle as user deletion
@@ -1257,7 +1271,9 @@ const deliveryTargetsEqual = (
     if (a === null || b === null) return a === b
     if (a.kind === 'scope' || b.kind === 'scope')
         return (
-            a.kind === 'scope' && b.kind === 'scope' && a.scopeKey === b.scopeKey
+            a.kind === 'scope' &&
+            b.kind === 'scope' &&
+            a.scopeKey === b.scopeKey
         )
     return a.kind === b.kind && a.id === b.id
 }

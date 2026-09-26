@@ -290,7 +290,10 @@ export class LibrarySkillsService {
                 content
             })
             .onConflictDoUpdate({
-                target: [librarySkillFiles.librarySkillId, librarySkillFiles.path],
+                target: [
+                    librarySkillFiles.librarySkillId,
+                    librarySkillFiles.path
+                ],
                 set: { content, updatedAt: new Date() }
             })
         const row = await this.bumpContentHash(existing.id)
@@ -352,7 +355,11 @@ export class LibrarySkillsService {
         } catch (error) {
             // DB/driver errors may contain the origin URL in bound parameters.
             // Keep deliberate validation/conflict responses, sanitize failures.
-            if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof PayloadTooLargeException)
+            if (
+                error instanceof BadRequestException ||
+                error instanceof ConflictException ||
+                error instanceof PayloadTooLargeException
+            )
                 throw error
             throw new GitHubRequestError('upstream', 'import')
         }
@@ -431,6 +438,12 @@ export class LibrarySkillsService {
                     })
                     .where(eq(userSkills.id, install.id))
                 await this.materializer.materializeAgent(install.agentId)
+                this.changes?.emit(userId, {
+                    resource: 'skill',
+                    resourceId: install.id,
+                    agentId: install.agentId,
+                    reason: 'updated'
+                })
                 results.push({ agentId: install.agentId, status: 'pushed' })
             } catch (err) {
                 results.push({
@@ -485,13 +498,12 @@ export class LibrarySkillsService {
         })
         const prefix = path === '.' ? '' : `${path}/`
         const scoped = tree.entries.filter(
-            (entry) =>
-                entry.path.startsWith(prefix) || entry.path === path
+            (entry) => entry.path.startsWith(prefix) || entry.path === path
         )
         const relative = scoped.map((entry) => ({
             path:
                 entry.path === path
-                    ? entry.path.split('/').pop() as string
+                    ? (entry.path.split('/').pop() as string)
                     : entry.path.slice(prefix.length),
             repoPath: entry.path,
             size: entry.size
@@ -768,11 +780,7 @@ export class LibrarySkillsService {
             .limit(1)
         if (!skill) throw new NotFoundException(`library skill ${id}`)
         const files = await this.filesFor(id)
-        const contentHash = computeContentHash(
-            skill.name,
-            skill.content,
-            files
-        )
+        const contentHash = computeContentHash(skill.name, skill.content, files)
         const [row] = await this.db
             .update(librarySkills)
             .set({ contentHash, updatedAt: new Date() })
@@ -782,8 +790,15 @@ export class LibrarySkillsService {
         return row
     }
 
-    private changed(row: LibrarySkillRow, reason: 'created' | 'updated' | 'deleted' = 'updated'): void {
-        this.changes?.emit(row.userId, { resource: 'skill-library', resourceId: row.id, reason })
+    private changed(
+        row: LibrarySkillRow,
+        reason: 'created' | 'updated' | 'deleted' = 'updated'
+    ): void {
+        this.changes?.emit(row.userId, {
+            resource: 'skill-library',
+            resourceId: row.id,
+            reason
+        })
     }
 
     private async detail(row: LibrarySkillRow): Promise<LibrarySkillDetail> {
@@ -854,10 +869,7 @@ export class LibrarySkillsService {
             .select()
             .from(librarySkills)
             .where(
-                and(
-                    eq(librarySkills.id, id),
-                    eq(librarySkills.userId, userId)
-                )
+                and(eq(librarySkills.id, id), eq(librarySkills.userId, userId))
             )
             .limit(1)
         if (!row) throw new NotFoundException(`library skill ${id}`)
@@ -1178,9 +1190,7 @@ export const parseSkillArchive = (
 const shouldIgnoreArchiveContainer = (path: string): boolean =>
     path
         .split('/')
-        .some(
-            (segment) => segment === '__MACOSX' || segment.startsWith('.')
-        )
+        .some((segment) => segment === '__MACOSX' || segment.startsWith('.'))
 
 const GITHUB_URL_RE =
     /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/(tree|blob)\/([^/]+)(?:\/(.*?))?)?\/?$/

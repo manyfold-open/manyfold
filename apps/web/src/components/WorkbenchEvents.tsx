@@ -35,8 +35,12 @@ export const WorkbenchEvents = (): null => {
                     onError: onDown,
                     onClose: onDown
                 }),
-            onReconnected: () =>
-                dispatchWorkbenchEvents((h) => h.onReconnected?.()),
+            onReconnected: () => {
+                // Events emitted while the stream was down are not replayed;
+                // every resource view must converge immediately after retry.
+                publishResourceChanged({ resource: '*' })
+                dispatchWorkbenchEvents((h) => h.onReconnected?.())
+            },
             isVisible: () => document.visibilityState === 'visible'
         })
         stream.start()

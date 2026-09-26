@@ -10,7 +10,6 @@ import {
     isModelConfigFramework,
     isPiProvider,
     isRuntimeAuthProfileId,
-
     AgentModelConfig,
     AgentModelConfigOption,
     AgentModelConfigSource,
@@ -67,7 +66,6 @@ import {
 import {
     ConflictException,
     ForbiddenException,
-
     BadRequestException,
     Inject,
     Injectable,
@@ -78,7 +76,6 @@ import { and, eq } from 'drizzle-orm'
 import {
     runtimeAuthProfiles,
     runtimeHosts,
-
     agentCredentials,
     agentRuntimes,
     agents,
@@ -249,6 +246,12 @@ export class AgentModelConfigService {
             })
             .where(eq(agents.id, agent.id))
             .returning()
+        this.changes?.emit(agent.userId, {
+            resource: 'model-config',
+            resourceId: agent.id,
+            agentId: agent.id,
+            reason: 'updated'
+        })
         const updatedWithDefaults = result.ok
             ? await this.persistClaudeDefaultsIfReady(updated, {
                   provider: detail.provider,
@@ -759,7 +762,10 @@ export class AgentModelConfigService {
             .where(eq(agents.id, agent.id))
             .returning()
         this.changes?.emit(agent.userId, {
-            resource: 'model-config', resourceId: agent.id, agentId: agent.id, reason: 'updated'
+            resource: 'model-config',
+            resourceId: agent.id,
+            agentId: agent.id,
+            reason: 'updated'
         })
         return updated
     }
@@ -802,7 +808,10 @@ export class AgentModelConfigService {
             .where(eq(agents.id, agent.id))
             .returning()
         this.changes?.emit(agent.userId, {
-            resource: 'model-config', resourceId: agent.id, agentId: agent.id, reason: 'updated'
+            resource: 'model-config',
+            resourceId: agent.id,
+            agentId: agent.id,
+            reason: 'updated'
         })
         return updated
     }
@@ -1020,7 +1029,8 @@ export class AgentModelConfigService {
                 code: RUNTIME_AUTH_ERROR.contextUnsupported,
                 message: `${agent.framework} agents have no auth profiles`
             })
-        const source = body.modelConfigSource ?? this.configSourceFromAgent(agent)
+        const source =
+            body.modelConfigSource ?? this.configSourceFromAgent(agent)
         if (body.profileId && source !== 'runtime-local')
             throw new BadRequestException({
                 code: RUNTIME_AUTH_ERROR.targetMismatch,
@@ -1097,6 +1107,12 @@ export class AgentModelConfigService {
                     'the binding changed since it was read; reload and choose again',
                 bindingVersion: agent.runtimeAuthBindingVersion
             })
+        this.changes?.emit(updated.userId, {
+            resource: 'model-config',
+            resourceId: updated.id,
+            agentId: updated.id,
+            reason: 'updated'
+        })
         return this.buildView(updated)
     }
 
@@ -1643,7 +1659,12 @@ export class AgentModelConfigService {
         if (!this.execDrivers || !this.daemonRegistry)
             throw new BadRequestException('daemon runner unavailable')
         const runner = await this.execDrivers.resolveRunner(agent)
-        return this.modelInspectViaDaemon(runner.daemonId, agent, authContextRefFor(agent), 30_000)
+        return this.modelInspectViaDaemon(
+            runner.daemonId,
+            agent,
+            authContextRefFor(agent),
+            30_000
+        )
     }
 
     private async persistRuntimeLocalModelCapability(
@@ -1713,6 +1734,12 @@ export class AgentModelConfigService {
             })
             .where(eq(agents.id, agent.id))
             .returning()
+        this.changes?.emit(agent.userId, {
+            resource: 'model-config',
+            resourceId: agent.id,
+            agentId: agent.id,
+            reason: 'updated'
+        })
         return {
             ok: runtimeLocal.ready,
             message: runtimeLocal.error,
@@ -1852,8 +1879,6 @@ export class AgentModelConfigService {
             throw new NotFoundException(`agent ${agentId} not found`)
         return agent
     }
-
-
 }
 
 const isFrameworkModelConfigurable = (

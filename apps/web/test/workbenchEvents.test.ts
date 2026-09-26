@@ -4,6 +4,10 @@ import {
     dispatchWorkbenchEvents,
     subscribeWorkbenchEvents
 } from '../src/lib/workbenchEvents'
+import {
+    publishResourceChanged,
+    subscribeResourceChanges
+} from '../src/lib/resourceChanges'
 
 test('shared stream observers receive updates and reconnects and stop on layout disposal', () => {
     const calls: string[] = []
@@ -28,4 +32,14 @@ test('shared stream observers receive updates and reconnects and stop on layout 
     settings()
     dispatchWorkbenchEvents((h) => h.onReconnected?.())
     assert.deepEqual(calls, ['shell', 'settings', 'settings', 'host-1'])
+})
+
+test('resource views receive a wildcard invalidation when the shared stream reconnects', () => {
+    const received: unknown[] = []
+    const unsubscribe = subscribeResourceChanges((event) =>
+        received.push(event)
+    )
+    publishResourceChanged({ resource: '*' })
+    unsubscribe()
+    assert.deepEqual(received, [{ resource: '*' }])
 })
