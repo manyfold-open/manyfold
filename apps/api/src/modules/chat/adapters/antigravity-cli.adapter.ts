@@ -47,6 +47,20 @@ const AGY_ERROR_LINE = /^AGY_ERROR: (\{.*\})\s*$/m
 // A run with no sign-in on the host and no API-key mode: exit 1 at once.
 const AGY_SIGN_IN_REQUIRED = /authentication required/i
 
+// A step's states while it runs; any other ends it. Measured on agy 1.2.11
+// [2026-09-26]: a tool whose command failed to start ended ERROR with its
+// error in tool_info, and no DONE after it.
+const AGY_RUNNING_STATES = new Set([
+    'ACTIVE',
+    'PENDING',
+    'QUEUED',
+    'WAITING',
+    'RUNNING',
+    'GENERATING'
+])
+const stepEnded = (state: string | null): boolean =>
+    state !== null && !AGY_RUNNING_STATES.has(state)
+
 const STDERR_HEAD_CHARS = 512
 const STDERR_TAIL_CHARS = 4000
 const STDERR_ELISION = '\n… [stderr elided] …\n'
@@ -328,6 +342,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
         let streamedText = false
         const openTools = new Set<number>()
         const closedTools = new Set<number>()
+        const billedSteps = new Set<number>()
         let usage: AgyUsageTotals = {
             inputTokens: 0,
             outputTokens: 0,
@@ -387,7 +402,8 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                 conversationId =
                     stringValue(step.conversation_id) ?? conversationId
                 const type = stringValue(step.step_type)
-                const done = step.state === 'DONE'
+                const state = stringValue(step.state)
+                const done = state === 'DONE'
                 if (type === 'user_input') {
                     if (done) promptRecorded = true
                     return
@@ -398,7 +414,16 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                         streamedText = true
                         yield { type: 'token', text: delta }
                     }
-                    if (done) usage = addAgyUsage(usage, step.usage)
+                    // A model call reports its usage once, on the step's
+                    // last update, however the step ended.
+                    if (
+                        stepIndex !== null &&
+                        isRecord(step.usage) &&
+                        !billedSteps.has(stepIndex)
+                    ) {
+                        billedSteps.add(stepIndex)
+                        usage = addAgyUsage(usage, step.usage)
+                    }
                     return
                 }
                 if (type === 'tool' && stepIndex !== null) {
@@ -418,11 +443,13 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                             args: info?.parameters ?? null
                         }
                     }
-                    if (done && !closedTools.has(stepIndex)) {
+                    if (stepEnded(state) && !closedTools.has(stepIndex)) {
                         closedTools.add(stepIndex)
                         const failure = isRecord(info?.error)
                             ? info.error
-                            : null
+                            : done
+                              ? null
+                              : { state }
                         yield {
                             type: 'tool_result',
                             toolCallId,

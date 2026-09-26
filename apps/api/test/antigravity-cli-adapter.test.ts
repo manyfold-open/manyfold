@@ -450,3 +450,26 @@ test('a failed turn counts its log too, but a lost conversation or stream does n
     )
     assert.deepEqual(lost.cursors, [])
 })
+
+// Measured through a real daemon [2026-09-26]: a command that could not start
+// ends its tool step ERROR, with no DONE after it.
+test('a tool step that ends in error still gets its result, marked as the error', async () => {
+    const seam = buildSeam({ fixture: 'turn-tool-error' })
+    const events = await drain(seam.adapter.sendMessage(ctx(), message))
+    const [result] = events.filter((e) => e.type === 'tool_result') as Array<{
+        toolCallId: string
+        result: { isError: boolean; details: unknown }
+    }>
+    assert.ok(result, 'a tool result')
+    assert.equal(result.toolCallId, 'agy-8')
+    assert.equal(result.result.isError, true)
+    assert.deepEqual(result.result.details, {
+        type: 'TOOL_ERROR',
+        message: '/tmp/ws: no such directory'
+    })
+    assert.equal(tokensOf(events), 'All 1 tool calls finished.\n')
+    const usage = usageOf(events)
+    assert.equal(usage.usage.inputTokens, 2500)
+    assert.equal(usage.usage.cacheReadTokens, 1000)
+    assert.equal(usage.usage.outputTokens, 61)
+})

@@ -30,6 +30,7 @@ with one `{"event":"user","message":{"content":"…"}}` line on stdin, then EOF.
 | `turn-sigterm.*` | SIGTERM while the model streams | 1 |
 | `turn-sigkill.*` | SIGKILL while the model streams | 137 |
 | `turn-signed-out.*` | no key and no sign-in on the host | 1 |
+| `turn-tool-error.*` | a resumed turn whose `run_command` could not start (its cwd did not exist): the tool step ends `ERROR`; captured through a Manyfold daemon (compiled `mf`) in the same kind of container | 0 |
 
 `transcripts/` holds the conversation logs agy wrote for some of those runs,
 copied from `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`:
