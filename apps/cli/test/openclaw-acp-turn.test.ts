@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer } from 'node:http'
 
 // The openclaw half of turn.start over ACP (ADR-0027, O6). Driven against a
 // FAKE `openclaw` on PATH that plays both roles the runner invokes: the ACP
@@ -26,7 +27,7 @@ process.env.MF_PROFILE = 'openclawacptest'
 const FAKE_OPENCLAW = `#!/usr/bin/env node
 const fs = require('node:fs')
 const readline = require('node:readline')
-const rec = (obj) => { if (process.env.OC_RECORD) fs.appendFileSync(process.env.OC_RECORD, JSON.stringify(obj) + '\\n') }
+const rec = (obj) => { if (process.env.OC_RECORD) fs.appendFileSync(process.env.OC_RECORD, JSON.stringify({ ...obj, at: Date.now() }) + '\\n') }
 const argv = process.argv.slice(2)
 if (argv[0] === 'gateway' && argv[1] === 'call') {
     const method = argv[2]
@@ -316,4 +317,128 @@ test('a child that dies mid-prompt fails the turn with its stderr cause', async 
     assert.match(String(ack.error ?? ''), /provider auth failed|exited/)
     const final = readFinal('oc-crash-1')
     assert.equal(final?.ok, false)
+})
+
+// --- waiting for the gateway ------------------------------------------------
+//
+// A sprite this turn thawed starts its gateway service alongside the runner,
+// so the turn can land before the gateway binds; neither the patch nor the
+// bridge retries a refused connect. Prove-red: drop the wait from drive() and
+// the first case dials before the port answers, the second dials at all.
+
+const freePort = async (): Promise<number> => {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as { port: number }
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    return port
+}
+
+const gatewayHome = (name: string, port: number): string => {
+    const dir = join(home, `oc-${name}`)
+    mkdirSync(join(dir, '.openclaw'), { recursive: true })
+    writeFileSync(
+        join(dir, '.openclaw', 'openclaw.json'),
+        JSON.stringify({ gateway: { mode: 'local', port } })
+    )
+    return dir
+}
+
+test('a gateway still binding is waited for before the patch or the bridge dials it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('binding', port)
+    process.env.OC_RECORD = recordPath('binding')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    // A booting gateway's first answer is a 503; any answer means it listens.
+    const server = createServer((_req, res) => {
+        res.writeHead(503)
+        res.end()
+    })
+    let upAt = 0
+    const bind = setTimeout(
+        () => server.listen(port, '127.0.0.1', () => (upAt = Date.now())),
+        800
+    )
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({
+                permissionMode: 'default',
+                patch: { execAsk: 'on-miss' }
+            }),
+            cwd: home,
+            ctx: makeCtx('oc-binding-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, true, ack.error)
+        const records = readRecord('binding')
+        assert.equal(records[0]?.gatewayCall, 'sessions.patch')
+        assert.ok(upAt > 0, 'the turn finished before the gateway bound')
+        assert.ok((records[0].at as number) >= upAt)
+    } finally {
+        clearTimeout(bind)
+        server.close()
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+test('a gateway that never answers fails the turn naming its port, and nothing dials it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('silent', port)
+    process.env.OC_RECORD = recordPath('silent')
+    process.env.OC_MODE = 'happy'
+    const started = Date.now()
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({
+                handshakeTimeoutMs: 1_200,
+                permissionMode: 'default',
+                patch: { execAsk: 'on-miss' }
+            }),
+            cwd: home,
+            ctx: makeCtx('oc-silent-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, false)
+        assert.equal(
+            ack.error,
+            `openclaw gateway did not answer on port ${port} within 1200ms`
+        )
+        assert.ok(Date.now() - started >= 1_200)
+        assert.deepEqual(readRecord('silent'), [])
+        assert.equal(readFinal('oc-silent-1')?.ok, false)
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+test('a cancel while waiting for the gateway ends the turn without dialling it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('wait-cancel', port)
+    process.env.OC_RECORD = recordPath('wait-cancel')
+    process.env.OC_MODE = 'happy'
+    const h = makeCtx('oc-wait-cancel-1')
+    const started = Date.now()
+    try {
+        const done = runOpenclawAcpTurn({
+            payload: payloadFor({ handshakeTimeoutMs: 10_000 }),
+            cwd: home,
+            ctx: h.ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        setTimeout(() => h.cancel(), 300)
+        const ack = await done
+        assert.equal(ack.ok, false)
+        assert.equal(ack.error, 'cancelled')
+        assert.ok(Date.now() - started < 5_000)
+        assert.deepEqual(readRecord('wait-cancel'), [])
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
 })

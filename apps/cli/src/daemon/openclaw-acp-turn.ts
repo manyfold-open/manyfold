@@ -15,6 +15,7 @@ import {
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
 import { permissionResponders, type TurnAck } from './acp-turn'
+import { waitForOpenclawGateway } from './openclaw-gateway'
 
 // The openclaw half of turn.start over ACP (ADR-0027). The daemon spawns
 // `openclaw acp` against the HOST's own resident gateway — discovered, never
@@ -427,6 +428,23 @@ export const runOpenclawAcpTurn = (args: {
     }
 
     const drive = async (): Promise<void> => {
+        // Both the patch and the bridge dial the gateway, which may still be
+        // binding on a host this turn woke.
+        const silentPort = await waitForOpenclawGateway({
+            timeoutMs: handshakeTimeoutMs,
+            stop: () => cancelled
+        })
+        if (cancelled || silentPort !== null) {
+            complete(
+                { stopReason: null, sessionId: null },
+                false,
+                cancelled
+                    ? 'cancelled'
+                    : `openclaw gateway did not answer on port ${silentPort} within ${handshakeTimeoutMs}ms`
+            )
+            args.releaseChild()
+            return
+        }
         // Pre-patch the session in-box for the ask mode / model pick BEFORE the
         // bridge starts: the ACP options cannot set execAsk or the model, so a
         // gateway RPC on the deterministic key must. A patch failure is not

@@ -58,6 +58,21 @@ const probeGateway = async (port: number, timeoutMs = 1500): Promise<boolean> =>
     }
 }
 
+// undefined when there is no readable openclaw config at all.
+const readOpenclawConfig = async (): Promise<unknown> => {
+    let raw: string
+    try {
+        raw = await readFile(openclawConfigPath(), 'utf8')
+    } catch {
+        return undefined
+    }
+    try {
+        return JSON.parse(raw)
+    } catch {
+        return undefined
+    }
+}
+
 // Discover the resident gateway for the heartbeat. Returns undefined when there
 // is no readable openclaw config at all (so the DetectedFramework simply omits
 // the gateway field); returns a record with a null port when the config exists
@@ -65,20 +80,43 @@ const probeGateway = async (port: number, timeoutMs = 1500): Promise<boolean> =>
 export const discoverOpenclawGateway = async (): Promise<
     DetectedOpenclawGateway | undefined
 > => {
-    let raw: string
-    try {
-        raw = await readFile(openclawConfigPath(), 'utf8')
-    } catch {
-        return undefined
-    }
-    let config: unknown
-    try {
-        config = JSON.parse(raw)
-    } catch {
-        return undefined
-    }
+    const config = await readOpenclawConfig()
+    if (config === undefined) return undefined
     const port = readLocalGatewayPort(config)
     const checkedAt = new Date().toISOString()
     if (port === null) return { port: null, reachable: null, checkedAt }
     return { port, reachable: await probeGateway(port), checkedAt }
+}
+
+const GATEWAY_WAIT_INTERVAL_MS = 500
+
+// Wait for the resident gateway to answer before a turn dials it: neither the
+// bridge nor `gateway call` retries a refused connect. Measured on macOS dev
+// with openclaw 2026.9.5 [2026-09-26]: against a port nothing listens on yet,
+// `openclaw acp` exits 1 within 3s (`ACP bridge failed: connect
+// ECONNREFUSED`) and `sessions.patch` fails in 1s; a cold `openclaw gateway`
+// answers after ~5s. Seen on prod sprites [2026-09-26]: the gateway service a
+// thawed sprite starts alongside its runner answered 3-6s after the runner's
+// first probe, so a turn that did not wait would fail, or could run with its
+// model pick dropped. Resolves the port that stayed silent for `timeoutMs`,
+// or null once it answers, once `stop()` is true, or when there is nothing
+// local to wait for (no readable config, a remote gateway the url-less bridge
+// follows on its own).
+export const waitForOpenclawGateway = async (opts: {
+    timeoutMs: number
+    stop: () => boolean
+}): Promise<number | null> => {
+    const config = await readOpenclawConfig()
+    const port = config === undefined ? null : readLocalGatewayPort(config)
+    if (port === null) return null
+    const deadline = Date.now() + opts.timeoutMs
+    for (;;) {
+        if (opts.stop()) return null
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) return port
+        if (await probeGateway(port, Math.min(1500, remaining))) return null
+        await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(GATEWAY_WAIT_INTERVAL_MS, remaining))
+        )
+    }
 }

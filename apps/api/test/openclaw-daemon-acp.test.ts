@@ -362,6 +362,39 @@ test('a cloud computer\'s gateway is the platform\'s service: no detection gate'
     assert.equal(rig.calls[0].daemonId, 'dh_pod')
 })
 
+// Seen on prod sprites [2026-09-26]: a runner's first probe ran before the
+// gateway service its sprite thawed alongside had bound, and the turn was
+// refused 1.8s before that gateway reported ready. The daemon waits for the
+// gateway instead.
+test('a sprite runner\'s gateway is the platform\'s service: an unreachable probe does not refuse', async () => {
+    const rig = buildRig({
+        lines: [noteLine('ok')],
+        result: { ok: finalWithUsage('end_turn') },
+        detectedFrameworks: [
+            {
+                framework: 'openclaw',
+                version: 'OpenClaw 2026.9.5',
+                path: '/home/sprite/.local/bin/openclaw',
+                gateway: {
+                    port: 18789,
+                    reachable: false,
+                    checkedAt: new Date(Date.now() - 2_000).toISOString()
+                }
+            }
+        ],
+        agent: { runtime: 'sprites' }
+    })
+    const events = await drain(
+        rig.adapter.sendMessage(
+            ctx({ runtimeKind: 'sprites', runnerDaemonId: 'dh_sprite' }),
+            USER_MSG
+        )
+    )
+    assert.equal(errorOf(events), undefined)
+    assert.equal(rig.calls[0].method, 'turn.start')
+    assert.equal(rig.calls[0].daemonId, 'dh_sprite')
+})
+
 test('a daemon host whose openclaw has no gateway configured is refused', async () => {
     const rig = buildRig({
         lines: [],
