@@ -11,15 +11,15 @@ Keep the Web page and CLI on the same deployment and account.
    `mf --profile <profile> profile show --json`. The profile command reports
    saved configuration, not per-command overrides. Without any override or
    saved URL, the CLI default is `https://api.manyfold.ai/api`.
-3. For the known hosted deployments, use these exact pairs (ignoring only
+3. For the hosted production deployment, use this exact pair (ignoring only
    a trailing slash):
 
 | API base URL | Web origin |
 | --- | --- |
 | `https://api.manyfold.ai/api` | `https://manyfold.ai` |
-| `https://api-staging.manyfold.ai/api` | `https://app-staging.manyfold.ai` |
 
-For local or self-hosted deployments, use the Web URL supplied by the user,
+For other deployments, including staging, local, and self-hosted instances,
+use the Web URL supplied by the user,
 the deployment's startup output, or verified browser context. If it is still
 unknown, ask for that URL while continuing authorized CLI work. Do not infer
 it by removing `/api`, replacing a hostname, or incrementing a port.

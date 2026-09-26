@@ -33,7 +33,7 @@ export const subscribeResourceChanges = (listener: Listener): (() => void) => {
 export const createResourceRefresh = (
     refresh: () => Promise<unknown>,
     delayMs = 100
-): { request: () => void; dispose: () => void } => {
+): { request: (immediate?: boolean) => void; dispose: () => void } => {
     let disposed = false
     let running = false
     let pending = false
@@ -54,9 +54,14 @@ export const createResourceRefresh = (
         }
     }
     return {
-        request: () => {
+        request: (immediate = false) => {
             if (disposed) return
             pending = true
+            if (immediate && !running) {
+                clearTimeout(timer)
+                void run()
+                return
+            }
             if (!running && timer === undefined)
                 timer = setTimeout(() => void run(), delayMs)
         },

@@ -1,3 +1,4 @@
+/* global window, document, innerWidth */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'

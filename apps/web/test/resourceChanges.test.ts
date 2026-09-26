@@ -8,6 +8,27 @@ import {
     subscribeResourceChanges
 } from '../src/lib/resourceChanges'
 
+test('the initial resource read starts immediately while subsequent events coalesce', async () => {
+    let calls = 0
+    let release!: () => void
+    const first = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const queue = createResourceRefresh(async () => {
+        calls++
+        if (calls === 1) await first
+    }, 10)
+    queue.request(true)
+    assert.equal(calls, 1)
+    queue.request()
+    queue.request(true)
+    assert.equal(calls, 1)
+    release()
+    await wait(30)
+    assert.equal(calls, 2)
+    queue.dispose()
+})
+
 test('invalidations received during an in-flight read trigger one final read', async () => {
     let calls = 0
     let release!: () => void

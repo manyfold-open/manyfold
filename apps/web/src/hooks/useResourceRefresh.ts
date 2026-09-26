@@ -32,7 +32,7 @@ export const useResourceRefresh = (
                 return
             visibleRefresh()
         })
-        if (initial) queue.request()
+        if (initial) queue.request(true)
         // NOTIFY is best-effort. Reconnect/focus plus a slow refresh converge
         // even if a notification was lost while the SSE transport stayed up.
         const timer = window.setInterval(visibleRefresh, 60_000)
