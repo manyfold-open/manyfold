@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createClient } from '../src/client'
 import { parseServiceLogStream } from '../src/services'
-import type { ServiceObject } from '../src/types'
+import type { ServiceObject, ServiceStatus } from '../src/types'
 
 interface RecordedCall {
     method: string
@@ -146,6 +146,70 @@ test('stopService passes timeoutSec query param and surfaces post-call state', a
         const post = mock.calls.find((c) => c.method === 'POST')
         assert.ok(post)
         assert.equal(post.path, '/sprites/sp/services/svc/stop?timeout=5s')
+    } finally {
+        await mock.close()
+    }
+})
+
+// A sprite-like mock: `/restart` is the 404 sprites.dev answers, and the
+// service's state follows the stop and start calls.
+const restartMock = (opts: { refuseStop?: boolean } = {}) => {
+    let status: ServiceStatus = 'running'
+    return startMock((method, path) => {
+        if (method === 'POST' && path.includes('/stop')) {
+            if (!opts.refuseStop) status = 'stopped'
+            return { status: 200, body: '' }
+        }
+        if (method === 'POST' && path.includes('/start')) {
+            status = 'running'
+            return { status: 200, body: '' }
+        }
+        if (method === 'GET' && path === '/sprites/sp/services/svc')
+            return {
+                status: 200,
+                body: JSON.stringify(
+                    sampleService('svc', { state: { name: 'svc', status } })
+                )
+            }
+        return { status: 404, body: '' }
+    })
+}
+
+test('restartService is a stop then a start, never the missing /restart route', async () => {
+    const mock = await restartMock()
+    try {
+        const client = createClient({
+            token: 't',
+            baseUrl: `http://127.0.0.1:${mock.port}`
+        })
+        const result = await client.restartService('sp', 'svc', { durationSec: 3 })
+        assert.equal(result.state.status, 'running')
+        assert.deepEqual(
+            mock.calls.map((c) => `${c.method} ${c.path}`),
+            [
+                'POST /sprites/sp/services/svc/stop?timeout=10s',
+                'GET /sprites/sp/services/svc',
+                'POST /sprites/sp/services/svc/start?duration=3s',
+                'GET /sprites/sp/services/svc'
+            ]
+        )
+    } finally {
+        await mock.close()
+    }
+})
+
+test('restartService rejects a refused stop instead of starting over the old process', async () => {
+    const mock = await restartMock({ refuseStop: true })
+    try {
+        const client = createClient({
+            token: 't',
+            baseUrl: `http://127.0.0.1:${mock.port}`
+        })
+        await assert.rejects(
+            () => client.restartService('sp', 'svc'),
+            /refused to stop svc on sp/
+        )
+        assert.ok(!mock.calls.some((c) => c.path.includes('/start')))
     } finally {
         await mock.close()
     }

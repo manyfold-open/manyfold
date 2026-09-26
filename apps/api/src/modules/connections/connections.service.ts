@@ -12,6 +12,7 @@ import {
     createObjectId
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     BadGatewayException,
     BadRequestException,
@@ -19,6 +20,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
@@ -115,7 +117,8 @@ export class ConnectionsService {
         // Resolved lazily to fan out MCP re-materialization on Composio
         // connect/revoke without a static ConnectionsModule→AgentRuntimesModule
         // import (which would close a module cycle).
-        private readonly moduleRef: ModuleRef
+        private readonly moduleRef: ModuleRef,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async list(userId: string): Promise<UserConnectionSummary[]> {
@@ -145,6 +148,7 @@ export class ConnectionsService {
             .limit(1)
         if (!row) throw new NotFoundException('connection not found')
         await this.db.delete(userConnections).where(eq(userConnections.id, id))
+        this.changes?.emit(userId, { resource: 'connection', resourceId: id, reason: 'deleted' })
         if (row.provider === 'composio')
             await this.refreshBoundAgents(userId, id)
     }
@@ -179,6 +183,7 @@ export class ConnectionsService {
             )
             .returning()
         if (!row) throw new NotFoundException('connection not found')
+        this.changes?.emit(userId, { resource: 'connection', resourceId: id, reason: 'updated' })
         return toConnectionSummary(row)
     }
 
@@ -521,6 +526,7 @@ export class ConnectionsService {
                 .set({ ...values, updatedAt: new Date() })
                 .where(eq(userConnections.id, existing.id))
                 .returning()
+            this.changes?.emit(userId, { resource: 'connection', resourceId: row.id, reason: 'updated' })
             return row
         }
         const [row] = await this.db
@@ -533,6 +539,7 @@ export class ConnectionsService {
                 ...values
             })
             .returning()
+        this.changes?.emit(userId, { resource: 'connection', resourceId: row.id, reason: 'created' })
         return row
     }
 

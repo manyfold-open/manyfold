@@ -11,6 +11,7 @@ import {
     createObjectId
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     BadRequestException,
     ConflictException,
@@ -18,6 +19,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     PayloadTooLargeException
 } from '@nestjs/common'
 import { and, asc, count, countDistinct, eq } from 'drizzle-orm'
@@ -91,7 +93,8 @@ export class LibrarySkillsService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly discovery: SkillDiscoveryService,
         private readonly materializer: SkillMaterializerService,
-        private readonly shares: LibrarySkillSharesService
+        private readonly shares: LibrarySkillSharesService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async list(userId: string): Promise<LibrarySkillSummary[]> {
@@ -194,6 +197,7 @@ export class LibrarySkillsService {
                 })
                 .where(eq(librarySkills.id, existing.id))
                 .returning()
+            this.changed(row)
             return this.detail(row)
         } catch (err) {
             throw translateNameConflict(err, name)
@@ -229,6 +233,8 @@ export class LibrarySkillsService {
         await this.db
             .delete(librarySkills)
             .where(eq(librarySkills.id, existing.id))
+        this.changed(existing, 'deleted')
+        this.changes?.emit(userId, { resource: 'skill', reason: 'deleted' })
         const agentIds = [
             ...new Set(
                 installs
@@ -284,7 +290,10 @@ export class LibrarySkillsService {
                 content
             })
             .onConflictDoUpdate({
-                target: [librarySkillFiles.librarySkillId, librarySkillFiles.path],
+                target: [
+                    librarySkillFiles.librarySkillId,
+                    librarySkillFiles.path
+                ],
                 set: { content, updatedAt: new Date() }
             })
         const row = await this.bumpContentHash(existing.id)
@@ -346,7 +355,11 @@ export class LibrarySkillsService {
         } catch (error) {
             // DB/driver errors may contain the origin URL in bound parameters.
             // Keep deliberate validation/conflict responses, sanitize failures.
-            if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof PayloadTooLargeException)
+            if (
+                error instanceof BadRequestException ||
+                error instanceof ConflictException ||
+                error instanceof PayloadTooLargeException
+            )
                 throw error
             throw new GitHubRequestError('upstream', 'import')
         }
@@ -425,6 +438,12 @@ export class LibrarySkillsService {
                     })
                     .where(eq(userSkills.id, install.id))
                 await this.materializer.materializeAgent(install.agentId)
+                this.changes?.emit(userId, {
+                    resource: 'skill',
+                    resourceId: install.id,
+                    agentId: install.agentId,
+                    reason: 'updated'
+                })
                 results.push({ agentId: install.agentId, status: 'pushed' })
             } catch (err) {
                 results.push({
@@ -479,13 +498,12 @@ export class LibrarySkillsService {
         })
         const prefix = path === '.' ? '' : `${path}/`
         const scoped = tree.entries.filter(
-            (entry) =>
-                entry.path.startsWith(prefix) || entry.path === path
+            (entry) => entry.path.startsWith(prefix) || entry.path === path
         )
         const relative = scoped.map((entry) => ({
             path:
                 entry.path === path
-                    ? entry.path.split('/').pop() as string
+                    ? (entry.path.split('/').pop() as string)
                     : entry.path.slice(prefix.length),
             repoPath: entry.path,
             size: entry.size
@@ -663,7 +681,7 @@ export class LibrarySkillsService {
             bundle.files
         )
         try {
-            return await this.db.transaction(async (tx) => {
+            const result = await this.db.transaction(async (tx) => {
                 const [row] = await tx
                     .insert(librarySkills)
                     .values({
@@ -687,6 +705,8 @@ export class LibrarySkillsService {
                     )
                 return row
             })
+            this.changed(result, 'created')
+            return result
         } catch (err) {
             throw translateNameConflict(err, bundle.name)
         }
@@ -702,7 +722,7 @@ export class LibrarySkillsService {
             bundle.content,
             bundle.files
         )
-        return this.db.transaction(async (tx) => {
+        const result = await this.db.transaction(async (tx) => {
             const [row] = await tx
                 .update(librarySkills)
                 .set({
@@ -728,6 +748,8 @@ export class LibrarySkillsService {
                 )
             return row
         })
+        this.changed(result)
+        return result
     }
 
     private async nextFreeName(userId: string, base: string): Promise<string> {
@@ -758,17 +780,25 @@ export class LibrarySkillsService {
             .limit(1)
         if (!skill) throw new NotFoundException(`library skill ${id}`)
         const files = await this.filesFor(id)
-        const contentHash = computeContentHash(
-            skill.name,
-            skill.content,
-            files
-        )
+        const contentHash = computeContentHash(skill.name, skill.content, files)
         const [row] = await this.db
             .update(librarySkills)
             .set({ contentHash, updatedAt: new Date() })
             .where(eq(librarySkills.id, id))
             .returning()
+        this.changed(row)
         return row
+    }
+
+    private changed(
+        row: LibrarySkillRow,
+        reason: 'created' | 'updated' | 'deleted' = 'updated'
+    ): void {
+        this.changes?.emit(row.userId, {
+            resource: 'skill-library',
+            resourceId: row.id,
+            reason
+        })
     }
 
     private async detail(row: LibrarySkillRow): Promise<LibrarySkillDetail> {
@@ -839,10 +869,7 @@ export class LibrarySkillsService {
             .select()
             .from(librarySkills)
             .where(
-                and(
-                    eq(librarySkills.id, id),
-                    eq(librarySkills.userId, userId)
-                )
+                and(eq(librarySkills.id, id), eq(librarySkills.userId, userId))
             )
             .limit(1)
         if (!row) throw new NotFoundException(`library skill ${id}`)
@@ -1163,9 +1190,7 @@ export const parseSkillArchive = (
 const shouldIgnoreArchiveContainer = (path: string): boolean =>
     path
         .split('/')
-        .some(
-            (segment) => segment === '__MACOSX' || segment.startsWith('.')
-        )
+        .some((segment) => segment === '__MACOSX' || segment.startsWith('.'))
 
 const GITHUB_URL_RE =
     /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/(tree|blob)\/([^/]+)(?:\/(.*?))?)?\/?$/

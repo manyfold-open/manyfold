@@ -68,12 +68,14 @@ const guardOf = (opts: CommonOpts) => ({
 const resolveEndpoint = async (
     url: string,
     bearer: string | undefined,
-    guard: { allowPrivate: boolean }
+    guard: { allowPrivate: boolean },
+    signal?: AbortSignal
 ): Promise<{ endpointUrl: string; card?: AgentCard }> => {
     if (looksLikeRpcEndpoint(url)) return { endpointUrl: url }
     const card = await fetchAgentCard(url, {
         bearer,
         supportedMajor: 0,
+        signal,
         ...guard
     })
     return { endpointUrl: resolveInterfaceUrl(card, url), card }
@@ -95,7 +97,8 @@ interface ResolvedTarget {
 const resolveTarget = async (
     program: Command,
     target: string,
-    opts: CommonOpts
+    opts: CommonOpts,
+    signal?: AbortSignal
 ): Promise<ResolvedTarget | { error: string }> => {
     if (isHttpUrl(target)) {
         const bearer = resolveBearer(opts.bearer)
@@ -103,7 +106,8 @@ const resolveTarget = async (
             const { endpointUrl } = await resolveEndpoint(
                 target,
                 bearer,
-                guardOf(opts)
+                guardOf(opts),
+                signal
             )
             return { endpointUrl, bearer, label: target }
         } catch (err) {
@@ -112,7 +116,8 @@ const resolveTarget = async (
     }
     const resolved = await resolvePeerForCall(
         program.opts<GlobalAuthOpts>(),
-        target
+        target,
+        signal
     )
     if ('error' in resolved) return resolved
     return {
@@ -240,37 +245,41 @@ const runSend = async (
         fail(opts, '--stream and --async cannot be combined')
         return
     }
-    const resolved = await resolveTarget(program, target, opts)
-    if ('error' in resolved) {
-        fail(opts, resolved.error)
-        return
-    }
-    const client = new A2aClient({
-        endpointUrl: resolved.endpointUrl,
-        bearer: resolved.bearer,
-        ...guardOf(opts)
-    })
-    const message = buildA2aMessage(prompt, opts)
-
-    if (opts.stream) {
-        const controller = new AbortController()
-        process.once('SIGINT', () => controller.abort())
-        await renderStream(
-            client.sendStreamingMessage(
-                {
-                    message,
-                    configuration: { acceptedOutputModes: ['text/plain'] }
-                },
-                controller.signal
-            ),
-            opts.json === true
-        )
-        return
-    }
-
     const seconds = resolveTimeoutSeconds(opts.timeout)
     const deadline = createDeadline(seconds)
     try {
+        const resolved = await resolveTarget(
+            program,
+            target,
+            opts,
+            deadline.signal
+        )
+        if (deadline.timedOut()) throw new Error('A2A deadline exceeded')
+        if ('error' in resolved) {
+            fail(opts, resolved.error)
+            return
+        }
+        const client = new A2aClient({
+            endpointUrl: resolved.endpointUrl,
+            bearer: resolved.bearer,
+            ...guardOf(opts)
+        })
+        const message = buildA2aMessage(prompt, opts)
+        if (opts.stream) {
+            await renderStream(
+                client.sendStreamingMessage(
+                    {
+                        message,
+                        configuration: { acceptedOutputModes: ['text/plain'] }
+                    },
+                    deadline.signal
+                ),
+                opts.json === true
+            )
+            if (deadline.timedOut())
+                throw new Error('A2A stream deadline exceeded')
+            return
+        }
         const result = await client.sendMessage(
             {
                 message,

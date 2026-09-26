@@ -486,15 +486,19 @@ test('an upstream that answered with nothing is separated from one we sent nothi
 })
 
 test('typed provider HTTP codes classify without reading their response body', () => {
-    for (const code of ['dify_http_401', 'langflow_http_401'])
+    for (const code of ['dify_http_401', 'langflow_http_401', 'a2a_http_401'])
         assert.equal(cause(code, 'upstream wording changed'), 'auth_invalid')
-    for (const code of ['dify_http_400', 'langflow_http_400'])
+    for (const code of ['dify_http_400', 'langflow_http_400', 'a2a_http_400'])
         assert.equal(cause(code, 'upstream wording changed'), 'invalid_request')
 
     assert.equal(cause('dify_http_403', 'invalid api key'), null)
     assert.equal(cause('langflow_http_403', 'insufficient balance'), null)
     assert.equal(cause('dify_http_502', '502 Bad Gateway'), null)
     assert.equal(cause('langflow_http_502', 'invalid api key'), null)
+    assert.equal(cause('a2a_http_402', 'upstream wording changed'), 'balance_exhausted')
+    assert.equal(cause('a2a_http_429', 'upstream wording changed'), 'rate_limited')
+    assert.equal(cause('a2a_http_403', 'invalid api key'), null)
+    assert.equal(cause('a2a_http_502', 'insufficient balance'), null)
 })
 
 test('a specific stable code cannot be overridden by an unrelated message anchor', () => {

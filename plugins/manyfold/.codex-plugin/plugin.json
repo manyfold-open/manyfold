@@ -1,0 +1,25 @@
+{
+    "name": "manyfold",
+    "version": "0.1.0+codex.20260923204859",
+    "description": "Manage Manyfold resources with mf and review live changes in the web workbench.",
+    "author": {
+        "name": "Manyfold",
+        "url": "https://manyfold.ai"
+    },
+    "homepage": "https://manyfold.ai",
+    "repository": "https://github.com/manyfold-open/manyfold",
+    "license": "Apache-2.0",
+    "skills": "./skills/",
+    "interface": {
+        "displayName": "Manyfold",
+        "shortDescription": "Manage resources with live updates",
+        "longDescription": "Use the mf CLI to manage agents, automations, channels, skills, connections, files, and backups and review changes in the live web workbench.",
+        "developerName": "Manyfold",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://manyfold.ai",
+        "defaultPrompt": [
+            "Manage my Manyfold automations and show the results."
+        ]
+    }
+}

@@ -48,6 +48,8 @@ import {
     TreeMenuItem
 } from '@/components/files/treeMenu'
 import { downloadFile } from '@/components/chat/utils/downloadFile'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
+import { ApiError } from '@manyfold/sdk'
 import MarkdownText from '@/components/chat/MarkdownText'
 import CodePreview from '@/components/chat/preview/CodePreview'
 import CsvPreview from '@/components/chat/preview/CsvPreview'
@@ -213,11 +215,13 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
     const loadedDirsRef = useRef<Set<string>>(new Set())
     const loadingDirsRef = useRef<Set<string>>(new Set())
     const loadGenerationRef = useRef(0)
+    const initialDirectoryLoadRef = useRef<Promise<void> | null>(null)
     const directoryLoadControllersRef = useRef<Set<AbortController>>(new Set())
     const handledPreviewRequestRef = useRef<number | null>(null)
     const uploadInputRef = useRef<HTMLInputElement | null>(null)
     const uploadTargetRef = useRef<UploadTarget | null>(null)
     const [localRefreshVersion, setLocalRefreshVersion] = useState(0)
+    const [previewRefreshVersion, setPreviewRefreshVersion] = useState(0)
     const [actionError, setActionError] = useState<string | null>(null)
     const [searchExpanded, setSearchExpanded] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
@@ -482,7 +486,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
         const controller = new AbortController()
         setLoading(true)
         setError(null)
-        loadDirectoryEntries(
+        initialDirectoryLoadRef.current = loadDirectoryEntries(
             client.files,
             agent.id,
             rootPath,
@@ -532,6 +536,33 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
         resetDirectoryTracking,
         filesActive
     ])
+
+    const refreshResourceFiles = useCallback(async (signal: AbortSignal): Promise<void> => {
+        if (!available || !filesActive || !rootsReady) return
+        const generation = loadGenerationRef.current
+        // A write can arrive before the initial directory read settles.
+        // Read again afterwards so that older response cannot hide the write.
+        await initialDirectoryLoadRef.current
+        if (signal.aborted || generation !== loadGenerationRef.current) return
+        const directories = [...new Set(['', ...loadedDirsRef.current])]
+        const results = await Promise.allSettled(directories.map((directory) =>
+            loadDirectoryEntries(client.files, agent.id, joinPath(rootPath, directory), rootId, directory, signal)
+        ))
+        if (signal.aborted || generation !== loadGenerationRef.current) return
+        const failure = results.find((result) => result.status === 'rejected' &&
+            !(result.reason instanceof ApiError && result.reason.status === 404))
+        if (failure?.status === 'rejected') throw failure.reason
+        if (results.length) {
+            setPaths(results.flatMap((result) => result.status === 'fulfilled' ? result.value : []))
+            const remaining = new Set(directories.filter((_, index) => results[index].status === 'fulfilled'))
+            loadedDirsRef.current = remaining
+            setLoadedDirs(remaining)
+        }
+        setPreviewRefreshVersion((value) => value + 1)
+    }, [agent.id, available, client.files, filesActive, rootId, rootPath, rootsReady])
+    useResourceRefresh('file', undefined, refreshResourceFiles, {
+        agentId: agent.id, enabled: available && filesActive && rootsReady, initial: false
+    })
 
     const handleExpandedDirectoryChange = useCallback(
         (relDirInput: string, expanded: boolean): void => {
@@ -715,6 +746,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
                         activeRelPath={activePreviewPath}
                         agentId={agent.id}
                         filesApi={client.files}
+                        refreshVersion={previewRefreshVersion}
                         onCloseTab={closePreviewTab}
                         onSelectTab={selectPreviewTab}
                         treeVisible={visible}
@@ -1355,6 +1387,7 @@ const WorkspaceStackResizeHandle: FC<WorkspaceResizeHandleProps> = ({
 )
 
 interface WorkspaceFilePreviewProps {
+    refreshVersion: number
     activeRelPath: string
     agentId: string
     filesApi: FilesClient
@@ -1369,6 +1402,7 @@ interface WorkspaceFilePreviewProps {
 }
 
 const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
+    refreshVersion,
     activeRelPath,
     agentId,
     filesApi,
@@ -1398,6 +1432,8 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
         [activeRelPath, rootLabel]
     )
 
+    useEffect(() => { setRawView(false) }, [absPath, agentId, rootId])
+
     useEffect(() => {
         let cancelled = false
         let imageUrl: string | null = null
@@ -1405,7 +1441,6 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
         setLoading(true)
         setError(null)
         setStat(null)
-        setRawView(false)
         setContent({ kind: 'empty' })
         ;(async () => {
             try {
@@ -1538,7 +1573,7 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
             controller.abort()
             if (imageUrl) URL.revokeObjectURL(imageUrl)
         }
-    }, [absPath, activeRelPath, agentId, filesApi, rootId])
+    }, [absPath, activeRelPath, agentId, filesApi, rootId, refreshVersion])
 
     // The open-file tabs live in the shared pane header (portaled into the
     // SidePane header slot), not on their own row — one less bar above the

@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ApiError } from '@manyfold/sdk'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type {
     AutomationDetail as AutomationDetailDto,
@@ -34,6 +35,7 @@ import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { StatusTag } from '@/components/Tag'
 import { Ghost, SheenText } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { buildQuotaConflictRequest } from '@/lib/quotaConflict'
 import { useAppShellContext } from '@/components/AppShell'
@@ -86,8 +88,9 @@ const AutomationDetail: FC = (): ReactNode => {
     const [scopesLoading, setScopesLoading] = useState(false)
     const [runsExpanded, setRunsExpanded] = useState(false)
     const dirtyRef = useRef(false)
+    const loadGeneration = useRef(0)
 
-    const applyDeliveryState = (next: AutomationDetailDto): void => {
+    const applyDeliveryState = useCallback((next: AutomationDetailDto): void => {
         setDeliveryChannelId(next.deliveryChannelId ?? '')
         const target = next.deliveryTarget
         if (target?.kind === 'scope') {
@@ -99,13 +102,14 @@ const AutomationDetail: FC = (): ReactNode => {
             setDeliveryKind(target?.kind ?? 'chat')
             setDeliveryId(target?.id ?? '')
         }
-    }
+    }, [])
 
-    const refresh = async (): Promise<void> => {
+    const refresh = useCallback(async (): Promise<void> => {
         if (!id) return
-        setLoading(true)
+        const generation = ++loadGeneration.current
         try {
             const next = await client.automations.get(id)
+            if (generation !== loadGeneration.current) return
             setDetail(next)
             if (!dirtyRef.current) {
                 setTitle(next.title)
@@ -121,15 +125,24 @@ const AutomationDetail: FC = (): ReactNode => {
             }
             setError(null)
         } catch (err) {
+            if (generation !== loadGeneration.current) return
+            if (err instanceof ApiError && err.status === 404) setDetail(null)
             setError(apiErrorMessage(err))
         } finally {
-            setLoading(false)
+            if (generation === loadGeneration.current) setLoading(false)
         }
-    }
+    }, [client, id, applyDeliveryState])
 
     useEffect(() => {
-        void refresh()
+        dirtyRef.current = false
+        setDetail(null)
+        setLoading(true)
+        return () => {
+            loadGeneration.current++
+        }
     }, [client, id])
+
+    useResourceRefresh('automation', id, refresh)
 
     useEffect(() => {
         client.channels
@@ -168,7 +181,7 @@ const AutomationDetail: FC = (): ReactNode => {
             void refresh()
         }, 3000)
         return () => window.clearInterval(interval)
-    }, [detail])
+    }, [detail, refresh])
 
     const runnableAgents = useMemo(
         () => agents.filter((agent) => !schedulesMirrored(agent.framework)),
@@ -593,6 +606,7 @@ const AutomationDetail: FC = (): ReactNode => {
             )}
 
             <input
+                aria-label={t('web.automations.fieldTitle')}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 className='text-h1 text-fg focus-visible:shadow-focus rounded-xs -mx-1.5 -my-0.5 w-full bg-transparent px-1.5 py-0.5 transition-shadow focus:outline-none'
@@ -664,6 +678,7 @@ const AutomationDetail: FC = (): ReactNode => {
                 <main className='min-w-0'>
                     <div className='workbench-panel px-5 py-5'>
                         <textarea
+                            aria-label={t('web.automations.fieldPrompt')}
                             value={prompt}
                             onChange={(event) => setPrompt(event.target.value)}
                             className='text-body text-fg focus-visible:shadow-focus rounded-xs -mx-1.5 min-h-[22rem] w-full resize-none bg-transparent px-1.5 leading-7 transition-shadow focus:outline-none'

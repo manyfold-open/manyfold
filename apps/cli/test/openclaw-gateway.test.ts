@@ -33,7 +33,7 @@ const listen = (): Promise<{ server: Server; port: number }> =>
         })
     })
 
-const { discoverOpenclawGateway } = await import(
+const { discoverOpenclawGateway, waitForOpenclawGateway } = await import(
     '../src/daemon/openclaw-gateway'
 )
 
@@ -127,4 +127,28 @@ test('a config with no gateway port → port null', async () => {
         assert.equal(gateway?.port, null)
         assert.equal(gateway?.reachable, null)
     })
+})
+
+// A turn waits only for a LOCAL gateway it can probe; with no config, or a
+// remote gateway the url-less bridge follows on its own, there is nothing to
+// wait for and the turn must not stall.
+test('nothing local to wait for (no config, a remote gateway) resolves at once', async () => {
+    const bare = join(scratch, 'wait-no-config')
+    mkdirSync(bare, { recursive: true })
+    const remote = join(scratch, 'wait-remote')
+    writeConfig(remote, {
+        gateway: { mode: 'remote', remote: { url: 'wss://gw.example.com' } }
+    })
+    const started = Date.now()
+    for (const home of [bare, remote])
+        await withHome(home, async () => {
+            assert.equal(
+                await waitForOpenclawGateway({
+                    timeoutMs: 5_000,
+                    stop: () => false
+                }),
+                null
+            )
+        })
+    assert.ok(Date.now() - started < 1_000)
 })

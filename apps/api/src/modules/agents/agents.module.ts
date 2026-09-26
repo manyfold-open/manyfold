@@ -33,8 +33,7 @@ import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
 import { AgentReconcileSweepService } from '@/modules/agents/reconcile/agent-reconcile-sweep.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
-import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
-import { SpriteStatusBus } from '@/modules/agents/sprite-status/sprite-status-bus'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { SpriteStatusController } from '@/modules/agents/sprite-status/sprite-status.controller'
@@ -71,6 +70,7 @@ import {
 
 @Module({
     imports: [
+        ResourceEventsModule,
         AuthModule,
         RunnerModule,
         SpritesAccountsModule,
@@ -137,8 +137,6 @@ import {
         AgentCredentialsService,
         ExecDriverFactory,
         AgentModelConfigService,
-        SpriteStatusBus,
-        SpriteStatusBroadcaster,
         SpriteStatusSyncService,
         ServiceLeaseService,
         SpritesSessionRegistry,
@@ -157,7 +155,7 @@ import {
         K8sContainerProvisioner,
         PodRunnerProvisioner,
         RuntimeAgentAttachService,
-        SpriteStatusBroadcaster,
+        ResourceEventsModule,
         SpriteStatusSyncService,
         SpritesSessionRegistry
     ]

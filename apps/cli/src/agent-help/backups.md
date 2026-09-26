@@ -9,13 +9,15 @@ before running `restore` (and before `delete`, which is irreversible).
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions. Operating your
 > **own** agent (the default) needs no permission.
 
 - `backups:read` — list backups and their metadata; check restore status
 - `backups:edit` — create a backup, delete a backup, or restore an agent
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -47,10 +49,7 @@ mf backups delete <backup-id> --yes
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - "refusing to delete … without --yes" / "restoring overwrites …" →
   the command needs `--yes`; confirm with the user first, then re-run
   with `-y`

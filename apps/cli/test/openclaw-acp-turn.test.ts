@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer } from 'node:http'
 
 // The openclaw half of turn.start over ACP (ADR-0027, O6). Driven against a
 // FAKE `openclaw` on PATH that plays both roles the runner invokes: the ACP
 // bridge (`openclaw acp`) and the in-box gateway RPC (`openclaw gateway call`).
 // What matters: session/new carries the deterministic _meta.sessionKey and
-// there is NO session/resume; the ask mode pre-patches execAsk before the
-// bridge and relays the card; the usage is read back from the gateway
+// there is NO session/resume; the ask mode holds the session in openclaw's
+// `guarded` permission mode for the turn and relays the card; the usage is read back from the gateway
 // transcript and lands on the final; every frame is durable.
 //
 // daemonPaths resolves from homedir() at import time, so HOME is redirected
@@ -26,14 +27,20 @@ process.env.MF_PROFILE = 'openclawacptest'
 const FAKE_OPENCLAW = `#!/usr/bin/env node
 const fs = require('node:fs')
 const readline = require('node:readline')
-const rec = (obj) => { if (process.env.OC_RECORD) fs.appendFileSync(process.env.OC_RECORD, JSON.stringify(obj) + '\\n') }
+const rec = (obj) => { if (process.env.OC_RECORD) fs.appendFileSync(process.env.OC_RECORD, JSON.stringify({ ...obj, at: Date.now() }) + '\\n') }
 const argv = process.argv.slice(2)
 if (argv[0] === 'gateway' && argv[1] === 'call') {
     const method = argv[2]
     const pi = argv.indexOf('--params')
     const params = pi >= 0 ? JSON.parse(argv[pi + 1]) : {}
     rec({ gatewayCall: method, params })
-    if (method === 'sessions.patch') { process.stdout.write(JSON.stringify({ ok: true, entry: { execAsk: params.execAsk, modelOverride: params.model } })); process.exit(0) }
+    if (method === 'sessions.patch') {
+        const answer = () => {
+            if (process.env.OC_PATCH_FAIL) { process.stdout.write(JSON.stringify({ ok: false, error: { type: 'gateway_request_error', code: 'INVALID_REQUEST', message: process.env.OC_PATCH_FAIL } })); process.exit(1) }
+            process.stdout.write(JSON.stringify({ ok: true, entry: { permissionMode: params.permissionMode, modelOverride: params.model } })); process.exit(0)
+        }
+        return setTimeout(answer, Number(process.env.OC_PATCH_DELAY || 0))
+    }
     if (method === 'sessions.get') {
         process.stdout.write(JSON.stringify({ messages: [
             { role: 'user', content: [{ type: 'text', text: 'Sender (untrusted metadata):\\n' + (process.env.OC_PROMPT || '') }], timestamp: 1 },
@@ -197,8 +204,14 @@ test('a daemon ACP turn pins the gateway key, never resumes, and reads usage bac
     assert.ok(buffered.length > 0)
 })
 
-test('dontAsk sends no gateway patch; default pre-patches execAsk before the bridge', async () => {
-    // dontAsk (default): no sessions.patch at all.
+const patchCalls = (
+    records: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> =>
+    records
+        .filter((r) => r.gatewayCall === 'sessions.patch')
+        .map((r) => r.params as Record<string, unknown>)
+
+test('dontAsk sends no gateway patch, and a model pick alone patches only the model', async () => {
     const recQuiet = recordPath('dontask')
     process.env.OC_RECORD = recQuiet
     process.env.OC_PROMPT = 'say hello'
@@ -210,43 +223,140 @@ test('dontAsk sends no gateway patch; default pre-patches execAsk before the bri
         registerChild: () => {},
         releaseChild: () => {}
     })
-    delete process.env.OC_RECORD
     assert.equal(ackQuiet.ok, true)
-    assert.ok(
-        !readRecord('dontask').some((r) => r.gatewayCall === 'sessions.patch')
-    )
+    assert.deepEqual(patchCalls(readRecord('dontask')), [])
 
-    // default: sessions.patch {execAsk, model} runs, and it precedes the bridge.
-    const recPatch = recordPath('patch')
-    process.env.OC_RECORD = recPatch
-    process.env.OC_MODE = 'happy'
-    const ack = await runOpenclawAcpTurn({
-        payload: payloadFor({
-            permissionMode: 'default',
-            patch: { execAsk: 'on-miss', model: 'primary/stub-b' }
-        }),
+    process.env.OC_RECORD = recordPath('dontask-model')
+    const ackModel = await runOpenclawAcpTurn({
+        payload: payloadFor({ patch: { model: 'primary/stub-b' } }),
         cwd: home,
-        ctx: makeCtx('oc-patch-1').ctx as never,
+        ctx: makeCtx('oc-dontask-model-1').ctx as never,
         registerChild: () => {},
         releaseChild: () => {}
     })
     delete process.env.OC_RECORD
-    assert.equal(ack.ok, true)
-    const records = readRecord('patch')
-    const patch = records.find((r) => r.gatewayCall === 'sessions.patch')
-    assert.ok(patch, 'expected a sessions.patch')
-    assert.equal(
-        (patch!.params as { execAsk?: string }).execAsk,
-        'on-miss'
+    assert.equal(ackModel.ok, true)
+    assert.deepEqual(patchCalls(readRecord('dontask-model')), [
+        { key: 'agent:main:mf-cts_1', model: 'primary/stub-b' }
+    ])
+})
+
+// openclaw >= 2026.8.1 refuses the session's `execAsk`; the ask mode is its
+// `guarded` permission mode, which is stored on the session. Measured against
+// openclaw 2026.9.5 [2026-09-26]: the mode outlives the turn and keeps asking,
+// and `permissionMode: null` clears it.
+test('the ask mode holds the session guarded for the turn and clears it before the final', async () => {
+    process.env.OC_RECORD = recordPath('guarded')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    const ack = await runOpenclawAcpTurn({
+        payload: payloadFor({
+            permissionMode: 'default',
+            patch: { model: 'primary/stub-b' }
+        }),
+        cwd: home,
+        ctx: makeCtx('oc-guarded-1').ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    const finalAt = Date.now()
+    delete process.env.OC_RECORD
+    assert.equal(ack.ok, true, ack.error)
+    const records = readRecord('guarded')
+    assert.deepEqual(patchCalls(records), [
+        {
+            key: 'agent:main:mf-cts_1',
+            permissionMode: 'guarded',
+            model: 'primary/stub-b'
+        },
+        { key: 'agent:main:mf-cts_1', permissionMode: null }
+    ])
+    const setIdx = records.findIndex((r) => r.gatewayCall === 'sessions.patch')
+    const promptIdx = records.findIndex(
+        (r) => (r.recv as { method?: string } | undefined)?.method === 'session/prompt'
     )
-    assert.equal(
-        (patch!.params as { model?: string }).model,
-        'primary/stub-b'
+    const clear = records.filter((r) => r.gatewayCall === 'sessions.patch').at(-1)!
+    assert.ok(setIdx < promptIdx && promptIdx < records.indexOf(clear))
+    assert.ok((clear.at as number) <= finalAt)
+})
+
+test('the ask mode is cleared even when the turn fails mid-prompt', async () => {
+    process.env.OC_RECORD = recordPath('guarded-crash')
+    process.env.OC_MODE = 'crash'
+    process.env.OC_PROMPT = 'say hello'
+    const ack = await runOpenclawAcpTurn({
+        payload: payloadFor({ permissionMode: 'default' }),
+        cwd: home,
+        ctx: makeCtx('oc-guarded-crash-1').ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    delete process.env.OC_RECORD
+    assert.equal(ack.ok, false)
+    assert.deepEqual(
+        patchCalls(readRecord('guarded-crash')).map((p) => p.permissionMode),
+        ['guarded', null]
     )
-    // The patch happened before the first ACP frame reached the bridge.
-    const patchIdx = records.findIndex((r) => r.gatewayCall === 'sessions.patch')
-    const firstAcpIdx = records.findIndex((r) => 'recv' in r)
-    assert.ok(patchIdx !== -1 && patchIdx < firstAcpIdx)
+})
+
+// Seen on openclaw 2026.9.5 [2026-09-26]: `execAsk` was refused and the whole
+// patch dropped silently, so ask-mode turns ran with no approvals and without
+// the model the user picked.
+test('a refused patch fails the turn with the gateway\'s message and never starts the bridge', async () => {
+    process.env.OC_RECORD = recordPath('patch-refused')
+    process.env.OC_PATCH_FAIL =
+        "invalid sessions.patch params: at root: unexpected property 'permissionMode'"
+    process.env.OC_MODE = 'happy'
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({ permissionMode: 'default' }),
+            cwd: home,
+            ctx: makeCtx('oc-patch-refused-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, false)
+        assert.equal(
+            ack.error,
+            "openclaw sessions.patch failed: invalid sessions.patch params: at root: unexpected property 'permissionMode'"
+        )
+        const records = readRecord('patch-refused')
+        assert.ok(!records.some((r) => 'recv' in r))
+        // Nothing was set, so there is nothing to clear.
+        assert.equal(patchCalls(records).length, 1)
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OC_PATCH_FAIL
+    }
+})
+
+test('a cancel during the patch clears the mode and never starts the bridge', async () => {
+    process.env.OC_RECORD = recordPath('patch-cancel')
+    process.env.OC_PATCH_DELAY = '400'
+    process.env.OC_MODE = 'happy'
+    const h = makeCtx('oc-patch-cancel-1')
+    try {
+        const done = runOpenclawAcpTurn({
+            payload: payloadFor({ permissionMode: 'default' }),
+            cwd: home,
+            ctx: h.ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        setTimeout(() => h.cancel(), 150)
+        const ack = await done
+        assert.equal(ack.ok, false)
+        assert.equal(ack.error, 'cancelled')
+        const records = readRecord('patch-cancel')
+        assert.deepEqual(
+            patchCalls(records).map((p) => p.permissionMode),
+            ['guarded', null]
+        )
+        assert.ok(!records.some((r) => 'recv' in r))
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OC_PATCH_DELAY
+    }
 })
 
 test('an ask-mode turn takes the user answer via the responder', async () => {
@@ -316,4 +426,124 @@ test('a child that dies mid-prompt fails the turn with its stderr cause', async 
     assert.match(String(ack.error ?? ''), /provider auth failed|exited/)
     const final = readFinal('oc-crash-1')
     assert.equal(final?.ok, false)
+})
+
+// --- waiting for the gateway ------------------------------------------------
+//
+// A sprite this turn thawed starts its gateway service alongside the runner,
+// so the turn can land before the gateway binds; neither the patch nor the
+// bridge retries a refused connect. Prove-red: drop the wait from drive() and
+// the first case dials before the port answers, the second dials at all.
+
+const freePort = async (): Promise<number> => {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as { port: number }
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    return port
+}
+
+const gatewayHome = (name: string, port: number): string => {
+    const dir = join(home, `oc-${name}`)
+    mkdirSync(join(dir, '.openclaw'), { recursive: true })
+    writeFileSync(
+        join(dir, '.openclaw', 'openclaw.json'),
+        JSON.stringify({ gateway: { mode: 'local', port } })
+    )
+    return dir
+}
+
+test('a gateway still binding is waited for before the patch or the bridge dials it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('binding', port)
+    process.env.OC_RECORD = recordPath('binding')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    // A booting gateway's first answer is a 503; any answer means it listens.
+    const server = createServer((_req, res) => {
+        res.writeHead(503)
+        res.end()
+    })
+    let upAt = 0
+    const bind = setTimeout(
+        () => server.listen(port, '127.0.0.1', () => (upAt = Date.now())),
+        800
+    )
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({ permissionMode: 'default' }),
+            cwd: home,
+            ctx: makeCtx('oc-binding-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, true, ack.error)
+        const records = readRecord('binding')
+        assert.equal(records[0]?.gatewayCall, 'sessions.patch')
+        assert.ok(upAt > 0, 'the turn finished before the gateway bound')
+        assert.ok((records[0].at as number) >= upAt)
+    } finally {
+        clearTimeout(bind)
+        server.close()
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+test('a gateway that never answers fails the turn naming its port, and nothing dials it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('silent', port)
+    process.env.OC_RECORD = recordPath('silent')
+    process.env.OC_MODE = 'happy'
+    const started = Date.now()
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({
+                handshakeTimeoutMs: 1_200,
+                permissionMode: 'default'
+            }),
+            cwd: home,
+            ctx: makeCtx('oc-silent-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, false)
+        assert.equal(
+            ack.error,
+            `openclaw gateway did not answer on port ${port} within 1200ms`
+        )
+        assert.ok(Date.now() - started >= 1_200)
+        assert.deepEqual(readRecord('silent'), [])
+        assert.equal(readFinal('oc-silent-1')?.ok, false)
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+test('a cancel while waiting for the gateway ends the turn without dialling it', async () => {
+    const port = await freePort()
+    process.env.OPENCLAW_HOME = gatewayHome('wait-cancel', port)
+    process.env.OC_RECORD = recordPath('wait-cancel')
+    process.env.OC_MODE = 'happy'
+    const h = makeCtx('oc-wait-cancel-1')
+    const started = Date.now()
+    try {
+        const done = runOpenclawAcpTurn({
+            payload: payloadFor({ handshakeTimeoutMs: 10_000 }),
+            cwd: home,
+            ctx: h.ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        setTimeout(() => h.cancel(), 300)
+        const ack = await done
+        assert.equal(ack.ok, false)
+        assert.equal(ack.error, 'cancelled')
+        assert.ok(Date.now() - started < 5_000)
+        assert.deepEqual(readRecord('wait-cancel'), [])
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
 })

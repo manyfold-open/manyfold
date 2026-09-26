@@ -2,7 +2,9 @@ import test, { afterEach, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
     chmodSync,
+    closeSync,
     mkdtempSync,
+    openSync,
     readFileSync,
     rmSync,
     writeFileSync
@@ -673,6 +675,62 @@ test('an update herdr refuses reports its exit and words, and the version stays'
         assert.equal(result.toVersion, '0.9.1')
         assert.match(result.error ?? '', /exited 3: no network/)
     } finally {
+        bin.restore()
+    }
+})
+
+// A herdr whose exec fails makes spawn throw instead of emitting 'error'.
+// Seen on prod [2026-09-26]: a 0-byte ~/.local/bin/herdr in two sandboxes
+// killed every runner start with
+// `cli Error: ENOEXEC: unknown error, posix_spawn '/home/sprite/.local/bin/herdr'`.
+// Bun (the shipped daemon) and Node on macOS throw ENOEXEC for a 0-byte file,
+// but Node on Linux hands it to /bin/sh through execvp and it runs. Keeping it
+// open for writing makes the exec fail with ETXTBSY there, which spawn throws
+// for too, so every platform takes the throwing path.
+const unrunnableBinary = (): { dir: string; restore: () => void } => {
+    const dir = mkdtempSync(join('/tmp', 'mfh-bin-'))
+    writeFileSync(join(dir, 'herdr'), '')
+    chmodSync(join(dir, 'herdr'), 0o755)
+    const held = openSync(join(dir, 'herdr'), 'r+')
+    const previousPath = process.env.PATH
+    process.env.PATH = `${dir}:${previousPath ?? ''}`
+    return {
+        dir,
+        restore: () => {
+            process.env.PATH = previousPath
+            closeSync(held)
+            rmSync(dir, { recursive: true, force: true })
+        }
+    }
+}
+
+test('a herdr that cannot be executed is found without a version, and an update through it says why', async () => {
+    const bin = unrunnableBinary()
+    try {
+        const found = await detectHerdr()
+        assert.deepEqual(found, { path: join(bin.dir, 'herdr'), version: null })
+        const result = await updateHerdr()
+        assert.equal(result.ok, false)
+        assert.match(result.error ?? '', /could not run: .*(ENOEXEC|ETXTBSY)/)
+    } finally {
+        bin.restore()
+    }
+})
+
+test('a server start through a herdr that cannot be executed still waits on the socket', async () => {
+    const bin = unrunnableBinary()
+    const late = new FakeHerdr()
+    try {
+        await detectHerdr()
+        const opening = open({
+            socketPath: late.socketPath,
+            autoStartServer: true
+        })
+        await new Promise((resolve) => setTimeout(resolve, 450))
+        await late.start()
+        assert.equal((await opening).paneId, 'w1:p1')
+    } finally {
+        await late.stop()
         bin.restore()
     }
 })

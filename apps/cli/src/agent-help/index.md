@@ -1,18 +1,41 @@
 # Manyfold CLI (`mf`) — agent guide
 
-You are an agent running in a Manyfold-managed runtime. The `mf` CLI acts
-on the Manyfold platform on the user's behalf. These env vars are set:
+Operate Manyfold resources on the user's behalf through the `mf` CLI.
+This guide works inside a Manyfold-managed runtime and in an external
+coding agent. Identity and browser availability are separate capabilities.
 
-- `MF_API_URL` — Manyfold API base (already includes the `/api` prefix)
-- `MF_AGENT_ID` — your agent id
-- `MF_DEPLOY_ENV` — Manyfold deployment environment (`staging` |
-  `production` | `local`); may be absent on older runtimes
+## Establish identity and target
 
-## Quickstart: you are already authenticated
+Check `mf version` and `mf whoami --json`. Honor the user's selected profile
+and API URL throughout the task; `mf profile show --json` reports saved
+configuration without exposing credentials. A profile name or CLI release
+channel alone does not determine the deployment.
 
-The runtime injects your agent identity token (`MF_API_TOKEN`) and `mf`
-reads it automatically — you do not log in for identity. If a command
-fails because your identity lacks a scope:
+- **Managed runtime** (`kind: "agent-runtime"`): the platform injects
+  `MF_API_TOKEN`, `MF_AGENT_ID`, and `MF_API_URL`. Use that identity and
+  endpoint. Do not run `mf login` or switch to a personal profile to bypass
+  its permissions. `MF_DEPLOY_ENV` may also identify the deployment.
+- **External user session** (`human-session` or `human-api-token`): use the
+  selected CLI profile. If authentication is missing, run
+  `mf --profile <profile> login` and let the user finish the browser flow.
+  Select a target from `mf agent list --json` and pass `--agent-id` when a
+  command needs it; `MF_AGENT_ID` need not exist. Login currently grants
+  `api.full`; a profile isolates configuration, not permissions.
+- If a managed runtime's identity is missing or rejected, report the runtime
+  authentication problem. Do not replace it with a user login. Use the
+  command's structured error to distinguish missing authentication from a
+  missing scope; status 401 alone does not establish which one failed.
+
+When `mf` is absent outside Manyfold, use the official installer at
+https://manyfold.ai/cli/install.sh. Resource management only needs the CLI;
+`mf setup` also registers this computer as an execution host and is appropriate
+only when requested. Read `mf help auth --agent` for login and scope details.
+
+## Managed agent scope
+
+An authenticated managed agent operates on its own resources by default.
+For account-wide actions, add `--account`; the API checks the required grants
+and same-account ownership. If a command reports a missing grant:
 
 ```sh
 mf auth ensure --scopes channels:read,channels:edit
@@ -25,14 +48,7 @@ chat. The command exits after printing the URL; once the user approves,
 just retry — the platform reads the added scope live. Details:
 `mf help auth --agent`.
 
-## Scope: your agent vs the whole account
-
-By default every command is scoped to **your own agent** (`$MF_AGENT_ID`) and
-needs **no permission** — list, read and manage your own automations, files,
-channels, skills, backups, chat, terminal and runtime freely.
-
-To reach the **whole account** — another agent's resources, or account-level
-resources (all agents, model providers, account usage) — add `--account`:
+Examples for a managed identity reaching beyond its own agent:
 
 ```sh
 mf automations list --account                       # across ALL your agents
@@ -40,9 +56,10 @@ mf automations list --account --agent-id agt_other  # a specific other agent
 mf agent list --account                             # every agent on the account
 ```
 
-`--account` requires a user-granted scope (e.g. `automations:read`). If your
-identity lacks it, the command prints a **consent URL** — post it to the user
-to approve, then retry. Targeting another agent **without** `--account` → `403`.
+Targeting another agent without `--account` is rejected. These managed-agent
+grant rules do not mean every external user command needs `--account`.
+For an external API token with insufficient scopes, use an appropriately
+authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 
 ## Topics
 
@@ -57,20 +74,18 @@ parseable. Exit codes are stable in every mode: 2 network failure, 3 auth
 (401/403), 4 not found, 5 invalid usage or arguments (400/422), 1 anything
 else. `mf <command> --help` shows human-readable flags.
 
-## Failure recovery
+## Execution and recovery
 
-- "not authenticated" → the runtime should already hold `MF_API_TOKEN`;
-  if it is genuinely missing, tell the user (`mf help auth --agent`)
-- `401` / missing scope → only `--account` (account-wide) actions need a
-  scope; your own-agent actions are free. Request just that scope (existing
-  ones are KEPT): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → you targeted a different agent without `--account`; act on
-  `$MF_AGENT_ID`, or add `--account` for account-wide access (needs a grant)
-- unknown flag or command → `mf <command> --help`
-
-## Available grant scopes
-
-{{GRANTABLE_SCOPES}}
+- Read the relevant topic and current command help before an unfamiliar
+  operation. Do not assume every Web operation has a CLI equivalent.
+- Refresh the targeted resource before editing. Distinguish request
+  acceptance from completion and inspect the exact returned run/job ID.
+- After a timeout, inspect whether a create or run request took effect before
+  retrying it. A failed run is not permission to submit another one.
+- An ownership rejection requires checking identity and target, not
+  repeatedly requesting scopes. Unknown flags require current command help.
+- Follow existing user authorization; creating a schedule, running it now,
+  and sending its result to an external channel are distinct actions.
 
 ## Safety (always applies)
 

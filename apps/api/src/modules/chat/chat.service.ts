@@ -239,7 +239,7 @@ export type ChatTurnOutcome =
     | { state: 'missing' }
     | { state: 'running' }
     | { state: 'done'; text: string }
-    | { state: 'error'; errorMessage: string; cancelled: boolean }
+    | { state: 'error'; errorMessage: string; cancelled: boolean; errorCode?: string }
 
 export interface TurnShutdownResult {
     drainOutcome: 'idle' | 'drained' | 'timeout'
@@ -1497,6 +1497,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         return {
             state: 'error',
             errorMessage: payload.error?.message ?? 'unknown error',
+            errorCode: code,
             cancelled: code === 'cancelled' || code === CANCELLED_BY_USER_CODE
         }
     }

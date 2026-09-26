@@ -30,6 +30,7 @@ import EmptyState from '@/components/EmptyState'
 import { GhostRailRows } from '@/components/Loading'
 import { useI18n } from '@/lib/i18n'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import {
     GroupByControl,
     type GroupByOption,
@@ -216,9 +217,7 @@ const ChannelsList: FC = (): ReactNode => {
         }
     }, [client])
 
-    useEffect(() => {
-        void refresh()
-    }, [refresh])
+    useResourceRefresh('channel', undefined, refresh)
 
     // The create page and the detail page both mutate what the rail reads,
     // and this component stays mounted across both, so refetch on the edge

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { assertSafeUrl } from '../src/url-guard'
+import type { LookupAllOptions } from 'node:dns'
+import dns from 'node:dns/promises'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
+import { assertSafeUrl, guardedFetch } from '../src/url-guard'
 
 test('blocks loopback, link-local metadata, and private ranges', async () => {
     await assert.rejects(() =>
@@ -52,4 +56,44 @@ test('rejects non-http(s), embedded credentials, and bare http', async () => {
     await assert.rejects(() => assertSafeUrl('ftp://example.com'))
     await assert.rejects(() => assertSafeUrl('https://user:pass@8.8.8.8/rpc'))
     await assert.rejects(() => assertSafeUrl('http://8.8.8.8/rpc'))
+})
+
+test('a second DNS answer cannot rebind a checked public host to loopback', async (t) => {
+    let requests = 0
+    const server = createServer((_req, res) => { requests++; res.end('private') })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    const hostname = 'a2a-rebind.example'
+    let resolutions = 0
+    const originalLookup = dns.lookup
+    t.mock.method(dns, 'lookup', async (host: string, options: LookupAllOptions) => {
+        if (host !== hostname) return originalLookup(host, options)
+        resolutions++
+        return [{ address: resolutions === 1 ? '8.8.8.8' : '127.0.0.1', family: 4 }]
+    })
+    try {
+        await assert.rejects(guardedFetch(`http://${hostname}:${address.port}/rpc`, {
+            signal: AbortSignal.timeout(2000)
+        }, { allowHttp: true }), (err: unknown) => {
+            const cause = (err as { cause?: Error }).cause
+            return /private or reserved/.test(cause?.message ?? '')
+        })
+        assert.equal(resolutions, 2)
+        assert.equal(requests, 0)
+    } finally {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+})
+
+test('the request deadline also bounds DNS validation', async (t) => {
+    let resolve!: (value: Array<{ address: string; family: number }>) => void
+    t.mock.method(dns, 'lookup', () => new Promise((done) => { resolve = done }))
+    const controller = new AbortController()
+    const pending = guardedFetch('https://waiting.example/rpc', { signal: controller.signal })
+    controller.abort(new Error('deadline'))
+    await assert.rejects(pending, /deadline/)
+    resolve([{ address: '8.8.8.8', family: 4 }])
 })

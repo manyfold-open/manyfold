@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
@@ -11,6 +12,7 @@ import { DaemonModule } from '@/modules/daemon/daemon.module'
 
 @Module({
     imports: [
+        ResourceEventsModule,
         AuthModule,
         SpritesAccountsModule,
         AgentRuntimesModule,

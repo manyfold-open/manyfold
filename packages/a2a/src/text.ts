@@ -31,6 +31,18 @@ export class A2aTextAccumulator {
                 textOf(event.parts)
             )
         }
+        if (
+            (event.kind === 'task' || event.kind === 'status-update') &&
+            (event.status.state === 'input-required' ||
+                event.status.state === 'auth-required') &&
+            event.status.message
+        ) {
+            const message = event.status.message
+            this.entries.set(
+                JSON.stringify(['message', message.messageId]),
+                textOf(message.parts)
+            )
+        }
         return this.text()
     }
 

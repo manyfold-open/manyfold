@@ -75,6 +75,17 @@ test('artifactText joins artifact text', () => {
     assert.equal(artifactText(task), 'hello')
 })
 
+test('task output retains a required-input prompt alongside its artifacts', () => {
+    assert.equal(artifactText({
+        kind: 'task', id: 't', contextId: 'c',
+        status: { state: 'input-required', message: {
+            kind: 'message', messageId: 'm', role: 'agent',
+            parts: [{ kind: 'text', text: 'Confirm the draft?' }]
+        } },
+        artifacts: [{ artifactId: 'a', parts: [{ kind: 'text', text: 'Draft' }] }]
+    }), 'Draft\nConfirm the draft?')
+})
+
 test('buildA2aMessage builds a user message carrying context/task/skill', () => {
     const message = buildA2aMessage('hi', {
         contextId: 'c1',

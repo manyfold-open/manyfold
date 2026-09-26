@@ -1,6 +1,6 @@
 import type { ChannelSummary } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
@@ -9,6 +9,7 @@ import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import { StatusTag, statusTone } from '@/components/Tag'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { ChannelProviderIcon, channelLabel } from '@/lib/channelMeta'
 import { apiErrorMessage } from '@/lib/errorMessage'
 
@@ -26,25 +27,20 @@ export const AgentChannels: FC<Props> = ({ agent }): ReactNode => {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
-    useEffect(() => {
-        let active = true
-        setLoading(true)
-        setError(null)
-        void client.channels
-            .list()
-            .then((list) => {
-                if (active) setChannels(list)
-            })
-            .catch((err) => {
-                if (active) setError(apiErrorMessage(err))
-            })
-            .finally(() => {
-                if (active) setLoading(false)
-            })
-        return () => {
-            active = false
+    const refresh = useCallback(async (signal: AbortSignal): Promise<void> => {
+        try {
+            const list = await client.channels.list()
+            if (signal.aborted) return
+            setChannels(list)
+            setError(null)
+        } catch (err) {
+            if (!signal.aborted) setError(apiErrorMessage(err))
+        } finally {
+            if (!signal.aborted) setLoading(false)
         }
     }, [client])
+
+    useResourceRefresh('channel', undefined, refresh, { agentId: agent.id })
 
     const agentChannels = useMemo(
         () => channels.filter((channel) => channel.agentId === agent.id),

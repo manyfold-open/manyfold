@@ -1,0 +1,10 @@
+{
+    "name": "manyfold",
+    "version": "0.1.0+codex.20260923204859",
+    "description": "Manage Manyfold resources with mf and review live changes in the web workbench.",
+    "author": { "name": "Manyfold", "url": "https://manyfold.ai" },
+    "homepage": "https://manyfold.ai",
+    "repository": "https://github.com/manyfold-open/manyfold",
+    "license": "Apache-2.0",
+    "skills": "./skills/"
+}

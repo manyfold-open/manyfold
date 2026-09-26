@@ -69,6 +69,7 @@ import {
 } from '@/modules/chat/chat-adapter'
 import { SkillsService } from '@/modules/skills/skills.service'
 import { DRIZZLE } from '@/db/tokens'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import { resolveFrameworkInstallVersion } from '@/modules/framework-versions/resolve-install-version'
@@ -339,7 +340,8 @@ export class AgentOrchestratorService {
         // Appended last + @Optional: frameworks a module registers
         // (ADR-0034); absent means only the core frameworks.
         @Optional()
-        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -559,6 +561,7 @@ export class AgentOrchestratorService {
         else if (runtime === agentRuntime.EXTERNAL)
             result = await this.createExternal(ctx, emitter)
         else result = await this.createSprites(ctx, emitter)
+        this.changes?.emit(ctx.userId, { resource: 'agent', resourceId: result.id, agentId: result.id, reason: 'created' })
         await this.stampCreatedVia(result.id, ctx.userId)
         // Activation conversion for the owner's very first agent (fail-soft,
         // once-per-user via the conversions unique index). Admin on-behalf
@@ -832,42 +835,37 @@ export class AgentOrchestratorService {
                     message: 'primary agent; delete the runtime instead',
                     code: 'PRIMARY_AGENT_DELETE_RUNTIME'
                 })
-            return this.k8sOrchestrator.deleteNonPrimary(row, callerUserId)
-        }
-
-        if (row.runtime === 'daemon') {
+            await this.k8sOrchestrator.deleteNonPrimary(row, callerUserId)
+        } else if (row.runtime === 'daemon') {
             if (!runtime)
                 throw new InternalServerErrorException(
                     `daemon agent ${row.id} has no runtime`
                 )
-            return this.deleteDaemonAgent(row, runtime, callerUserId)
-        }
-
-        if (row.runtime === 'sprites') {
+            await this.deleteDaemonAgent(row, runtime, callerUserId)
+        } else if (row.runtime === 'sprites') {
             if (!runtime)
                 throw new InternalServerErrorException(
                     `sprites agent ${row.id} has no runtime`
                 )
             if (!isPrimary)
-                return this.deleteSpritesSecondary(row, runtime, callerUserId)
-            return this.deleteSpritesPrimaryWithPromote(
+                await this.deleteSpritesSecondary(row, runtime, callerUserId)
+            else await this.deleteSpritesPrimaryWithPromote(
                 row,
                 runtime,
                 callerUserId
             )
-        }
-
-        if (row.runtime === 'external') {
+        } else if (row.runtime === 'external') {
             if (!runtime)
                 throw new InternalServerErrorException(
                     `external agent ${row.id} has no runtime`
                 )
-            return this.deleteExternal(row, runtime, callerUserId)
-        }
-
-        throw new InternalServerErrorException(
+            await this.deleteExternal(row, runtime, callerUserId)
+        } else throw new InternalServerErrorException(
             `unknown agent runtime kind: ${row.runtime}`
         )
+        this.changes?.emit(row.userId, { resource: 'agent', resourceId: row.id, agentId: row.id, reason: 'deleted' })
+        this.changes?.emit(row.userId, { resource: 'channel', reason: 'updated' })
+        this.changes?.emit(row.userId, { resource: 'skill-library', reason: 'updated' })
     }
 
     private async deleteExternal(

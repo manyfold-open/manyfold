@@ -1,9 +1,10 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { createConnection, type Socket } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
+import type { Readable } from 'node:stream'
 import type {
     DaemonHerdrFramework,
     DaemonHerdrOpenResult,
@@ -113,17 +114,42 @@ const runHerdr = (
     binary: string,
     args: string[],
     timeoutMs: number
-): Promise<{ exitCode: number | null; stdout: string; stderr: string }> =>
+): Promise<{
+    exitCode: number | null
+    stdout: string
+    stderr: string
+    // Why herdr never ran at all, so a caller can tell that from a timeout.
+    spawnError?: string
+}> =>
     new Promise((resolve) => {
-        const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+        let child: ChildProcessByStdio<null, Readable, Readable>
+        try {
+            child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+        } catch (err) {
+            // A failed exec throws here instead of emitting 'error' (ENOEXEC
+            // for a 0-byte file under Bun, which the shipped daemon is), and
+            // took the daemon start that probes herdr down with it.
+            resolve({
+                exitCode: null,
+                stdout: '',
+                stderr: '',
+                spawnError: (err as Error).message
+            })
+            return
+        }
         let stdout = ''
         let stderr = ''
         let settled = false
-        const finish = (exitCode: number | null): void => {
+        const finish = (exitCode: number | null, spawnError?: string): void => {
             if (settled) return
             settled = true
             clearTimeout(timer)
-            resolve({ exitCode, stdout, stderr })
+            resolve({
+                exitCode,
+                stdout,
+                stderr,
+                ...(spawnError ? { spawnError } : {})
+            })
         }
         const timer = setTimeout(() => {
             try {
@@ -139,7 +165,7 @@ const runHerdr = (
         child.stderr.on('data', (chunk: string) => {
             stderr += chunk
         })
-        child.on('error', () => finish(null))
+        child.on('error', (err) => finish(null, err.message))
         child.on('close', (code) => finish(code))
     })
 
@@ -207,10 +233,11 @@ export const updateHerdr = async (): Promise<DaemonHerdrUpdateResult> => {
         ...(ok
             ? {}
             : {
-                  error:
-                      result.exitCode === null
-                          ? 'herdr update timed out'
-                          : `herdr update exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(0, 200)}`
+                  error: result.spawnError
+                      ? `herdr could not run: ${result.spawnError}`
+                      : result.exitCode === null
+                        ? 'herdr update timed out'
+                        : `herdr update exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(0, 200)}`
               })
     }
 }
@@ -222,15 +249,18 @@ const startHerdrServer = async (
     socketPath: string,
     binary: string
 ): Promise<void> => {
-    const child = spawn(binary, ['server'], {
-        detached: true,
-        stdio: 'ignore',
-        env: { ...process.env, HERDR_SOCKET_PATH: socketPath }
-    })
     // A binary that vanished since detection surfaces as the wait below
-    // running out, not as an unhandled 'error' event taking the daemon down.
-    child.on('error', () => {})
-    child.unref()
+    // running out, not as an unhandled 'error' event taking the daemon down;
+    // one the kernel refuses to exec throws from spawn itself instead.
+    try {
+        const child = spawn(binary, ['server'], {
+            detached: true,
+            stdio: 'ignore',
+            env: { ...process.env, HERDR_SOCKET_PATH: socketPath }
+        })
+        child.on('error', () => {})
+        child.unref()
+    } catch {}
     const deadline = Date.now() + SERVER_START_WAIT_MS
     while (Date.now() < deadline) {
         try {

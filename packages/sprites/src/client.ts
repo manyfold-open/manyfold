@@ -72,6 +72,11 @@ export interface SpritesClient {
         serviceName: string,
         opts?: ServiceStopOptions
     ): Promise<ServiceObject>
+    /**
+     * A stop, then a start: sprites.dev has no restart route. Rejects when the
+     * stop is refused (a live dependent), since the start after it would
+     * leave the old process running under a call that claims a restart.
+     */
     restartService(
         spriteName: string,
         serviceName: string,
@@ -292,19 +297,23 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
                 servicePath(spriteName, serviceName)
             )
         },
+        // Seen on prod and staging sprites [2026-09-26]: `POST .../restart`
+        // answers 404, so an in-place framework upgrade installed the new
+        // binary and then failed with the old gateway still running.
         restartService: async (spriteName, serviceName, mutOpts) => {
-            const duration = mutOpts?.durationSec ?? 0
+            const path = servicePath(spriteName, serviceName)
+            await request('POST', withTimeout(`${path}/stop`, 10))
+            const stopped = await request<ServiceObject>('GET', path)
+            if (stopped?.state?.status === 'running')
+                throw new SpritesError(
+                    'conflict',
+                    `sprites.dev refused to stop ${serviceName} on ${spriteName} for a restart`
+                )
             await request(
                 'POST',
-                withDuration(
-                    `${servicePath(spriteName, serviceName)}/restart`,
-                    duration
-                )
+                withDuration(`${path}/start`, mutOpts?.durationSec ?? 0)
             )
-            return request<ServiceObject>(
-                'GET',
-                servicePath(spriteName, serviceName)
-            )
+            return request<ServiceObject>('GET', path)
         },
         killExecSession: async (spriteName, sessionId, killOpts) => {
             const signal = killOpts?.signal ?? 'SIGTERM'

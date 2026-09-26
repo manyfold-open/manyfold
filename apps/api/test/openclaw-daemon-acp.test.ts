@@ -227,7 +227,9 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         ])
 })
 
-test('the ask mode and a model pick ride the payload as a sessions.patch', async () => {
+// The ask mode rides as the permission mode alone: mapping it onto openclaw's
+// session permission mode, and restoring it after the turn, is the daemon's.
+test('a model pick rides the payload as a sessions.patch; the ask mode as the permission mode', async () => {
         const rig = buildRig({
             lines: [noteLine('ok')],
             result: { ok: finalWithUsage('end_turn') }
@@ -238,11 +240,22 @@ test('the ask mode and a model pick ride the payload as a sessions.patch', async
                 USER_MSG
             )
         )
-        const patch = rig.calls[0].payload.patch as
-            | { execAsk?: string; model?: string }
-            | undefined
-        assert.equal(patch?.execAsk, 'on-miss')
-        assert.equal(patch?.model, 'primary/claude-x')
+        assert.deepEqual(rig.calls[0].payload.patch, { model: 'primary/claude-x' })
+        assert.equal(rig.calls[0].payload.permissionMode, 'default')
+})
+
+test('an ask-mode turn with no model pick sends no patch', async () => {
+        const rig = buildRig({
+            lines: [noteLine('ok')],
+            result: { ok: finalWithUsage('end_turn') }
+        })
+        await drain(
+            rig.adapter.sendMessage(
+                ctx({ openclawPermissionMode: 'default' }),
+                USER_MSG
+            )
+        )
+        assert.equal('patch' in rig.calls[0].payload, false)
         assert.equal(rig.calls[0].payload.permissionMode, 'default')
 })
 
@@ -360,6 +373,39 @@ test('a cloud computer\'s gateway is the platform\'s service: no detection gate'
     )
     assert.equal(errorOf(events), undefined)
     assert.equal(rig.calls[0].daemonId, 'dh_pod')
+})
+
+// Seen on prod sprites [2026-09-26]: a runner's first probe ran before the
+// gateway service its sprite thawed alongside had bound, and the turn was
+// refused 1.8s before that gateway reported ready. The daemon waits for the
+// gateway instead.
+test('a sprite runner\'s gateway is the platform\'s service: an unreachable probe does not refuse', async () => {
+    const rig = buildRig({
+        lines: [noteLine('ok')],
+        result: { ok: finalWithUsage('end_turn') },
+        detectedFrameworks: [
+            {
+                framework: 'openclaw',
+                version: 'OpenClaw 2026.9.5',
+                path: '/home/sprite/.local/bin/openclaw',
+                gateway: {
+                    port: 18789,
+                    reachable: false,
+                    checkedAt: new Date(Date.now() - 2_000).toISOString()
+                }
+            }
+        ],
+        agent: { runtime: 'sprites' }
+    })
+    const events = await drain(
+        rig.adapter.sendMessage(
+            ctx({ runtimeKind: 'sprites', runnerDaemonId: 'dh_sprite' }),
+            USER_MSG
+        )
+    )
+    assert.equal(errorOf(events), undefined)
+    assert.equal(rig.calls[0].method, 'turn.start')
+    assert.equal(rig.calls[0].daemonId, 'dh_sprite')
 })
 
 test('a daemon host whose openclaw has no gateway configured is refused', async () => {

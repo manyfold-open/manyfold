@@ -21,13 +21,15 @@ import {
     isObjectId
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import {
     BadRequestException,
     ConflictException,
     Inject,
     Injectable,
     Logger,
-    NotFoundException
+    NotFoundException,
+    Optional
 } from '@nestjs/common'
 import {
     and,
@@ -163,7 +165,8 @@ export class SkillsService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly discovery: SkillDiscoveryService,
         private readonly materializer: SkillMaterializerService,
-        private readonly adminSettings: AdminSettingsService
+        private readonly adminSettings: AdminSettingsService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     // Creation is fail-soft. install() persists the intent before materializing;
@@ -702,6 +705,7 @@ export class SkillsService {
                 })
                 .where(eq(userSkills.id, existing.id))
                 .returning()
+            this.skillChanged(input.userId, target.agent.id, row.id)
             const outcomes = await this.materializeWithCap(target.agent.id)
             return installedSummary(
                 this.applyOutcome(row, outcomes),
@@ -730,6 +734,7 @@ export class SkillsService {
                 installedVersion: skill.version
             })
             .returning()
+        this.skillChanged(input.userId, target.agent.id, row.id)
         const outcomes = await this.materializeWithCap(target.agent.id)
         return installedSummary(
             this.applyOutcome(row, outcomes),
@@ -804,6 +809,7 @@ export class SkillsService {
                 })
                 .where(eq(userSkills.id, existing.id))
                 .returning()
+            this.skillChanged(input.userId, target.agent.id, row.id)
             const outcomes = await this.materializeWithCap(target.agent.id)
             return librarySummary(
                 this.applyOutcome(row, outcomes),
@@ -831,6 +837,7 @@ export class SkillsService {
                 installedVersion: version
             })
             .returning()
+        this.skillChanged(input.userId, target.agent.id, row.id)
         const outcomes = await this.materializeWithCap(target.agent.id)
         return librarySummary(
             this.applyOutcome(row, outcomes),
@@ -903,6 +910,7 @@ export class SkillsService {
             })
             .where(eq(userSkills.id, input.userSkillId))
             .returning()
+        this.skillChanged(input.userId, existing.agentId, row.id)
         const outcomes = await this.materializeWithCap(existing.agentId)
         const fresh = this.applyOutcome(row, outcomes)
         if (fresh.skillId === null) {
@@ -925,7 +933,13 @@ export class SkillsService {
         if (!existing.agentId)
             throw new NotFoundException(`skill ${userSkillId}`)
         await this.db.delete(userSkills).where(eq(userSkills.id, userSkillId))
+        this.skillChanged(userId, existing.agentId, userSkillId, 'deleted')
         await this.materializer.materializeAgent(existing.agentId)
+    }
+
+    private skillChanged(userId: string, agentId: string, resourceId: string, reason: 'updated' | 'deleted' = 'updated'): void {
+        this.changes?.emit(userId, { resource: 'skill', resourceId, agentId, reason })
+        this.changes?.emit(userId, { resource: 'skill-library', reason: 'updated' })
     }
 
     async createRepo(

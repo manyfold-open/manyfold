@@ -9,13 +9,15 @@ Read-only — this lists connections, it does not create or remove them.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only** when listing a **user account's** connections. An agent
 > reading its **own** linked connections (the default under a runtime token)
 > needs no permission.
 
 - `connections:read` — list a user account's connections.
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -42,11 +44,6 @@ mf connections --json
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` (user/account listing) → missing `connections:read`; request just that
-  scope (existing ones are kept): `mf auth ensure --scopes connections:read`,
-  then retry
-- as an agent, listing your **own** connections needs no scope — a `401`/`403`
-  means you are using a user token or targeting the account endpoint; run
-  `mf whoami` to check your identity
+{{AUTH_RECOVERY}}
 - empty list → nothing is linked yet; link accounts from the web app
   (Settings → Connections), then re-run
