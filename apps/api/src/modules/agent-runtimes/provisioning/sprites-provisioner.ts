@@ -43,13 +43,17 @@ import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
+import { AntigravityCliBootstrap } from '@/modules/agents/bootstrap/antigravity-cli'
 import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import {
     BootstrapError,
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import { installFrameworkVersion } from '@/modules/agents/bootstrap/framework-version-install'
-import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
+import {
+    frameworkVersionDescriptor,
+    type FrameworkReleaseArtifacts
+} from '@/modules/framework-versions/framework-version-registry'
 import type {
     SpriteServiceBootstrap,
     SpriteServiceBootstrapResult
@@ -105,6 +109,7 @@ export interface SpritesProvisionInput {
     // Repository a git-installed framework clones from, resolved with
     // `frameworkVersion` so the two cannot name different repos.
     frameworkRepo?: string | null
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
 }
 
 // A runtime on a sandbox the user already owns, with no agent yet: the
@@ -122,6 +127,7 @@ export interface SpritesPrepareInput {
     frameworkVersion?: string | null
     frameworkVersionSource?: FrameworkInstallSource
     frameworkRepo?: string | null
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
 }
 
 export interface SpritesPrepareOutput {
@@ -154,6 +160,7 @@ export class SpritesProvisioner {
         private readonly codexBootstrap: CodexBootstrap,
         private readonly geminiBootstrap: GeminiCliBootstrap,
         private readonly piBootstrap: PiBootstrap,
+        private readonly antigravityBootstrap: AntigravityCliBootstrap,
         private readonly serviceBootstraps: SpriteServiceBootstraps,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly config: ConfigService,
@@ -675,7 +682,8 @@ export class SpritesProvisioner {
                 modelConfigSource: input.modelConfigSource ?? null,
                 frameworkVersion: input.frameworkVersion ?? null,
                 frameworkVersionSource: input.frameworkVersionSource ?? 'none',
-                frameworkRepo: input.frameworkRepo ?? null
+                frameworkRepo: input.frameworkRepo ?? null,
+                frameworkArtifacts: input.frameworkArtifacts ?? null
             }
             let homeDir: string | undefined
             let endpointUrl: string | null | undefined
@@ -690,7 +698,9 @@ export class SpritesProvisioner {
                         ? this.geminiBootstrap
                         : framework === 'pi'
                           ? this.piBootstrap
-                          : null
+                          : framework === 'antigravity-cli'
+                            ? this.antigravityBootstrap
+                            : null
             if (codingBootstrap) {
                 // Coding CLIs are npm-installed to the resolved version inside the
                 // bootstrap; claude-code is a big package, so surface it as its own
@@ -877,7 +887,8 @@ export class SpritesProvisioner {
                 execTimeoutMs: 60_000,
                 frameworkVersion: input.frameworkVersion ?? null,
                 frameworkVersionSource: input.frameworkVersionSource ?? 'none',
-                frameworkRepo: input.frameworkRepo ?? null
+                frameworkRepo: input.frameworkRepo ?? null,
+                frameworkArtifacts: input.frameworkArtifacts ?? null
             }
             let homeDir: string | undefined
             let endpointUrl: string | null | undefined

@@ -371,18 +371,13 @@ export class AgentCredentialsService {
             await this.serviceRestart.restart(agent.id, agent.userId, false)
             return
         }
-        if (
-            resolved.framework !== 'codex' &&
-            resolved.framework !== 'claude-code' &&
-            resolved.framework !== 'gemini-cli' &&
-            resolved.framework !== 'pi'
-        )
+        if (frameworkCapability(resolved.framework).kind !== 'coding')
             throw new InternalServerErrorException(
                 `framework ${resolved.framework} should not run on sprites`
             )
-        // Claude Code, Gemini CLI and pi keep nothing a credential decides on
-        // the sprite: the key rides each exec, and pi's endpoint is written
-        // into its platform view at every start (pi-agent-dir.ts).
+        // Every coding CLI but codex keeps nothing a credential decides on
+        // the sprite: the key rides each exec, and pi's endpoint and agy's
+        // API-key mode live in their platform views, rebuilt at every start.
         if (resolved.framework !== 'codex') return
         if (!agent.spriteName || !agent.accountId || !agent.hostId)
             throw new InternalServerErrorException(
@@ -634,7 +629,10 @@ const providerDetail = (resolved: ResolvedAgentCredentials): ProviderDetail => {
             extras: {}
         }
     }
-    if (resolved.framework === 'gemini-cli') {
+    if (
+        resolved.framework === 'gemini-cli' ||
+        resolved.framework === 'antigravity-cli'
+    ) {
         const v = resolved.value as ResolvedGeminiCliCredentials
         return {
             provider: 'google',
@@ -703,7 +701,10 @@ const normalizeDefaultModel = (
 const defaultModelFromResolved = (
     resolved: ResolvedAgentCredentials
 ): string | null | undefined => {
-    if (resolved.framework === 'gemini-cli')
+    if (
+        resolved.framework === 'gemini-cli' ||
+        resolved.framework === 'antigravity-cli'
+    )
         return normalizeDefaultModel(resolved.value.model)
     if (resolved.framework === 'pi')
         return normalizeDefaultModel(resolved.value.model)
@@ -724,6 +725,8 @@ const frameworkBodyKey = (framework: AgentFramework): string => {
             return 'geminiCliCredentials'
         case 'pi':
             return 'piCredentials'
+        case 'antigravity-cli':
+            return 'antigravityCliCredentials'
         case 'openclaw':
             return 'openclawCredentials'
         case 'hermes':
@@ -762,6 +765,11 @@ const providerSwitchHint = (
     if (framework === 'gemini-cli' && body.geminiCliCredentials?.providerId)
         return 'providerId'
     if (framework === 'pi' && body.piCredentials?.providerId)
+        return 'providerId'
+    if (
+        framework === 'antigravity-cli' &&
+        body.antigravityCliCredentials?.providerId
+    )
         return 'providerId'
     if (framework === 'openclaw' && body.openclawCredentials?.providerId)
         return 'providerId'

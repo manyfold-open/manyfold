@@ -62,6 +62,7 @@ const FRAMEWORK_CAPABILITIES: Record<CoreFramework, CapabilityId[]> = {
     codex: ['code', 'fastIteration'],
     'gemini-cli': ['code', 'multimodal'],
     pi: ['code', 'terminal', 'lightweight'],
+    'antigravity-cli': ['code', 'multimodal', 'multiAgent'],
     hermes: ['assistant', 'research', 'lightweight'],
     openclaw: ['personalAssistant', 'channels', 'calendarEmail'],
     dify: ['visualBuilder', 'connectApp'],

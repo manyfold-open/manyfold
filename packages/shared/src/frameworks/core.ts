@@ -11,6 +11,7 @@ export const coreFrameworks = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'openclaw',
     'hermes',
     'dify',
@@ -118,6 +119,33 @@ export const coreFrameworkDefinitions = {
         configHome: { rootId: 'pi-home', label: 'Pi config', subdir: '.pi' },
         chat: FULL_CHAT,
         version: { upgradeMode: 'npm' },
+        defaultRuntime: 'sprites'
+    },
+    // agy (Antigravity CLI) is a closed-source Go binary on GitHub releases,
+    // not an npm package. Its app data lives under ~/.gemini, beside Gemini
+    // CLI's own files. Thinking is recorded in its transcript but never
+    // streamed, and its MCP config is not managed here yet.
+    'antigravity-cli': {
+        id: 'antigravity-cli',
+        displayName: 'Antigravity CLI',
+        kind: 'coding',
+        runtimes: ['sprites', 'k8s', 'daemon'],
+        configHome: {
+            rootId: 'antigravity-home',
+            label: 'Antigravity config',
+            subdir: '.gemini/antigravity-cli'
+        },
+        chat: { ...FULL_CHAT, thinking: false },
+        version: {
+            upgradeMode: 'binary',
+            repoCandidates: [
+                {
+                    repo: 'google-antigravity/antigravity-cli',
+                    label: 'Google (upstream)'
+                }
+            ]
+        },
+        reservedEnvPrefixes: ['AGY_', 'ANTIGRAVITY_', 'JETSKI_'],
         defaultRuntime: 'sprites'
     },
     openclaw: {

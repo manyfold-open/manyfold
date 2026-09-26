@@ -8,6 +8,7 @@ import {
     agentModelConfigSources,
     inputValidation,
     isModelConfigFramework,
+    isRuntimeAuthProfileFramework,
     isRegisteredFramework,
     listFrameworks,
     supportsRuntime
@@ -485,13 +486,14 @@ const IsRuntimeLocalSourceShape =
                         o.codexCredentials ||
                         o.geminiCliCredentials ||
                         o.piCredentials ||
+                        o.antigravityCliCredentials ||
                         o.saveCredentialAs
                     )
                 },
                 defaultMessage(args: ValidationArguments): string {
                     const o = args.object as CreateAgentDto
                     return o.framework && !isModelConfigFramework(o.framework)
-                        ? 'modelConfigSource runtime-local is only available for claude-code, codex, gemini-cli and pi'
+                        ? 'modelConfigSource runtime-local is only available for claude-code, codex, gemini-cli, pi and antigravity-cli'
                         : 'modelConfigSource runtime-local cannot be combined with credentials or saveCredentialAs'
                 }
             }
@@ -511,11 +513,16 @@ const IsRuntimeAuthProfileShape =
                     if (value === undefined || value === null) return true
                     const o = args.object as CreateAgentDto
                     return (
-                        o.modelConfigSource === 'runtime-local' && !!o.sandboxId
+                        isRuntimeAuthProfileFramework(o.framework) &&
+                        o.modelConfigSource === 'runtime-local' &&
+                        !!o.sandboxId
                     )
                 },
-                defaultMessage(): string {
-                    return 'runtimeAuthProfileId requires modelConfigSource runtime-local and an existing sandboxId'
+                defaultMessage(args: ValidationArguments): string {
+                    const o = args.object as CreateAgentDto
+                    return isRuntimeAuthProfileFramework(o.framework)
+                        ? 'runtimeAuthProfileId requires modelConfigSource runtime-local and an existing sandboxId'
+                        : `${o.framework} agents have no auth profiles`
                 }
             }
         })
@@ -621,6 +628,11 @@ export class CreateAgentDto {
     @ValidateIf((o: CreateAgentDto) => o.framework === 'pi')
     @Type(() => PiCredentialsDto)
     piCredentials?: PiCredentialsDto
+
+    @ValidateNested()
+    @ValidateIf((o: CreateAgentDto) => o.framework === 'antigravity-cli')
+    @Type(() => GeminiCliCredentialsDto)
+    antigravityCliCredentials?: GeminiCliCredentialsDto
 
     @ValidateNested()
     @ValidateIf((o: CreateAgentDto) => o.framework === 'openclaw')

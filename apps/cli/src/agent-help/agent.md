@@ -35,11 +35,12 @@ mf agent credentials reveal <agent-id>
 mf agent credentials update <agent-id> --body '<json-or-@file>'
 ```
 
-- `create` frameworks: `claude-code` (default) | `codex` | `gemini-cli` | `pi`.
-  Each requires its provider key via flag or env:
+- `create` frameworks: `claude-code` (default) | `codex` | `gemini-cli` | `pi`
+  | `antigravity-cli`. Each requires its provider key via flag or env:
   `--anthropic-auth-token` / `ANTHROPIC_AUTH_TOKEN`,
   `--openai-api-key` / `OPENAI_API_KEY`,
-  `--google-api-key` / `GEMINI_API_KEY`,
+  `--google-api-key` / `GEMINI_API_KEY` (gemini-cli and antigravity-cli; pick
+  an agy model with `--agy-model`),
   `--pi-api-key` / `PI_API_KEY` together with `--pi-provider`
   (`anthropic` | `openai` | `google`).
 - `update` needs at least one of `--name`, `--model`, `--clear-model`.

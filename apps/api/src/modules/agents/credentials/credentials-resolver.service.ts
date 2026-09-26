@@ -46,6 +46,7 @@ import type {
     ResolvedAgentCredentials,
     ResolvedClaudeCodeCredentials,
     ResolvedCodexCredentials,
+    ResolvedAntigravityCliCredentials,
     ResolvedGeminiCliCredentials,
     ResolvedHermesCredentials,
     ResolvedOpenclawCredentials,
@@ -115,6 +116,7 @@ const requestedProviderId = (
     body.codexCredentials?.providerId ??
     body.geminiCliCredentials?.providerId ??
     body.piCredentials?.providerId ??
+    body.antigravityCliCredentials?.providerId ??
     body.openclawCredentials?.providerId ??
     body.hermesCredentials?.primaryProviderId ??
     null
@@ -170,10 +172,26 @@ export class CredentialsResolverService {
             }
         }
         if (dto.framework === 'gemini-cli') {
-            const value = await this.resolveGeminiCli(ownerUserId, dto)
+            const value = await this.resolveGeminiCli(
+                ownerUserId,
+                dto.geminiCliCredentials,
+                'geminiCliCredentials'
+            )
             return {
                 framework: 'gemini-cli',
                 providerId: dto.geminiCliCredentials?.providerId ?? null,
+                value
+            }
+        }
+        if (dto.framework === 'antigravity-cli') {
+            const value = await this.resolveGeminiCli(
+                ownerUserId,
+                dto.antigravityCliCredentials,
+                'antigravityCliCredentials'
+            )
+            return {
+                framework: 'antigravity-cli',
+                providerId: dto.antigravityCliCredentials?.providerId ?? null,
                 value
             }
         }
@@ -314,12 +332,14 @@ export class CredentialsResolverService {
         }
     }
 
+    // Gemini CLI and Antigravity CLI (whose API-key mode is Gemini-only) share
+    // one credential shape, carried under each framework's own body key.
     private async resolveGeminiCli(
         ownerUserId: string,
-        dto: CreateAgentDto
+        c: GeminiCliCredentialsInput | undefined,
+        field: 'geminiCliCredentials' | 'antigravityCliCredentials'
     ): Promise<ResolvedGeminiCliCredentials> {
-        const c = dto.geminiCliCredentials
-        if (!c) throw new BadRequestException('geminiCliCredentials required')
+        if (!c) throw new BadRequestException(`${field} required`)
         if (c.providerId) {
             const resolved = await this.fetchProvider(ownerUserId, c.providerId)
             if (resolved.builtInId) {
@@ -740,6 +760,18 @@ export class CredentialsResolverService {
                     existing.value as ResolvedGeminiCliCredentials
                 )
             }
+        if (framework === 'antigravity-cli')
+            return {
+                framework: 'antigravity-cli',
+                providerId:
+                    body.antigravityCliCredentials?.providerId ??
+                    existing.providerId,
+                value: await this.updateGeminiCli(
+                    ownerUserId,
+                    body.antigravityCliCredentials ?? {},
+                    existing.value as ResolvedAntigravityCliCredentials
+                )
+            }
         if (framework === 'pi')
             return {
                 framework: 'pi',
@@ -1092,6 +1124,11 @@ export class CredentialsResolverService {
             baseUrl = input.resolved.value.openaiBaseUrl ?? null
         } else if (input.resolved.framework === 'gemini-cli') {
             if (input.dto.geminiCliCredentials?.providerId) return null
+            provider = 'google'
+            apiKey = input.resolved.value.googleApiKey
+            baseUrl = input.resolved.value.googleGeminiBaseUrl ?? null
+        } else if (input.resolved.framework === 'antigravity-cli') {
+            if (input.dto.antigravityCliCredentials?.providerId) return null
             provider = 'google'
             apiKey = input.resolved.value.googleApiKey
             baseUrl = input.resolved.value.googleGeminiBaseUrl ?? null

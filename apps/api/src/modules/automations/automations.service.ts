@@ -96,7 +96,8 @@ const modelOverrideFrameworks: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
     'gemini-cli',
-    'pi'
+    'pi',
+    'antigravity-cli'
 ])
 
 @Injectable()

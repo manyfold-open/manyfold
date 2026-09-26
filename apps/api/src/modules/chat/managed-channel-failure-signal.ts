@@ -193,6 +193,26 @@ export const classifyManagedChannelFailureSignal = (signal: {
     return null
 }
 
+// agy prints a failed model call as one `AGY_ERROR: {…}` line on stderr whose
+// short_error ends in the Gemini SDK's own rendering of the refusal:
+// `Error <code>, Message: <message>, Status: <STATUS>, Details: […]`, with the
+// body's error.message already unwrapped. Only that shape is read, and the
+// message is compared whole.
+// Measured on agy 1.2.11 [2026-09-26] against a local endpoint answering
+// the gateway's exact 503 body.
+const AGY_API_ERROR_RE =
+    /Error (\d{3}), Message: (.*), Status: [A-Z_]+, Details: /
+
+export const classifyAntigravityFailureSignal = (
+    shortError: string | null
+): ManagedChannelFailureSignal | null => {
+    const match = shortError ? AGY_API_ERROR_RE.exec(shortError) : null
+    if (!match || match[1] !== '503') return null
+    return MANAGED_POOL_EMPTY_MESSAGES.has(match[2])
+        ? 'account_pool_empty'
+        : null
+}
+
 // codex prints an HTTP refusal as `unexpected status <code> <reason>: <body>`,
 // then `, url: …`, `, cf-ray: …`, `, request id: …`, `, auth error: …` and
 // `, auth error code: …` for whichever it has, and it unwraps a JSON envelope's

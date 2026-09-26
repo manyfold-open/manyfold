@@ -35,8 +35,8 @@ mf model-config refresh-models $MF_AGENT_ID --json
 `update` requires at least one of `--source` / `--model` /
 `--clear-model` / `--config` / `--clear-config`. `--config` takes a
 framework-shaped JSON object (claude-code: `model`, `effort`,
-`modelMap`; codex: `model`, `speed`, `intelligence`; gemini-cli:
-`model`). Pick `--model` values from the `options` array in `get`
+`modelMap`; codex: `model`, `speed`, `intelligence`; gemini-cli and
+antigravity-cli: `model`). Pick `--model` values from the `options` array in `get`
 output — only entries with `enabled: true` are valid.
 
 ## Output

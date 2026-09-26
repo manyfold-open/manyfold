@@ -15,10 +15,14 @@ export const isConfigurableFramework = (
 
 // The coding CLIs whose model settings an agent keeps and whose credentials it
 // takes either from a platform provider or from the CLI's own sign-in on its
-// runtime (AgentModelConfigSource): the model-config view, runtime-local, and
-// runtime auth profiles. A superset of the catalog frameworks — pi has no
-// admin catalog; its platform models are the ones its provider serves.
-export const modelConfigFrameworks = [...configurableFrameworks, 'pi'] as const
+// runtime (AgentModelConfigSource): the model-config view and runtime-local.
+// A superset of the catalog frameworks — pi and Antigravity CLI have no admin
+// catalog; their platform models are the ones their provider serves.
+export const modelConfigFrameworks = [
+    ...configurableFrameworks,
+    'pi',
+    'antigravity-cli'
+] as const
 export type ModelConfigFramework = (typeof modelConfigFrameworks)[number]
 
 export const isModelConfigFramework = (
@@ -26,6 +30,25 @@ export const isModelConfigFramework = (
 ): value is ModelConfigFramework =>
     typeof value === 'string' &&
     modelConfigFrameworks.includes(value as ModelConfigFramework)
+
+// The model-config frameworks a host can hold several sign-ins of, each in its
+// own credential context (runtime auth profiles). A CLI belongs here only when
+// a non-secret env var moves where it both reads and writes its credential, so
+// one profile's login can never overwrite another's or the machine's own.
+export const runtimeAuthProfileFrameworks = [
+    'claude-code',
+    'codex',
+    'gemini-cli',
+    'pi'
+] as const satisfies readonly ModelConfigFramework[]
+export type RuntimeAuthProfileFramework =
+    (typeof runtimeAuthProfileFrameworks)[number]
+
+export const isRuntimeAuthProfileFramework = (
+    value: unknown
+): value is RuntimeAuthProfileFramework =>
+    typeof value === 'string' &&
+    runtimeAuthProfileFrameworks.includes(value as RuntimeAuthProfileFramework)
 
 export const frameworkEnumKeys = [
     'effort',

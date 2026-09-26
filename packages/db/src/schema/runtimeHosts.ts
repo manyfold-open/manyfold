@@ -39,6 +39,7 @@ export interface DetectedFramework {
         | 'codex'
         | 'gemini-cli'
         | 'pi'
+        | 'antigravity-cli'
         | 'openclaw'
         | 'hermes'
     version: string | null

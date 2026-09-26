@@ -49,7 +49,7 @@ test('the pod host image is generic and keeps its own files out of the home volu
     assert.equal(build.file, 'docker/host/Dockerfile')
     assert.doesNotMatch(
         dockerfile,
-        /@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|pi-coding-agent|openclaw@|hermes-agent/
+        /@anthropic-ai\/claude-code|@openai\/codex|@google\/gemini-cli|pi-coding-agent|openclaw@|hermes-agent|antigravity-cli|agy_cli_/
     )
     assert.match(dockerfile, /MISE_DATA_DIR=\/opt\/mise/)
     assert.match(dockerfile, /MISE_GLOBAL_CONFIG_FILE=\/opt\/mise\//)

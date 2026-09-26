@@ -87,7 +87,7 @@ export const frameworkSupportsProtocol = (
 ): boolean => {
     if (framework === 'claude-code') return protocol === 'anthropic_messages'
     if (framework === 'codex') return protocol === 'openai_responses'
-    if (framework === 'gemini-cli')
+    if (framework === 'gemini-cli' || framework === 'antigravity-cli')
         return protocol === 'google_generate_content'
     if (framework === 'pi') return isPiProtocol(protocol)
     if (framework === 'openclaw' || framework === 'hermes') {

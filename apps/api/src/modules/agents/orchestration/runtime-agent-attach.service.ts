@@ -3,6 +3,7 @@ import {
     AgentFramework,
     AgentSummary,
     createObjectId,
+    frameworkKind,
     isExternal,
     isRegisteredFramework,
     normalizeAgentName
@@ -168,11 +169,7 @@ export class RuntimeAgentAttachService {
             throw new ConflictException(
                 `framework ${runtime.framework} does not support add-agent`
             )
-        const isCodingFramework =
-            runtime.framework === 'claude-code' ||
-            runtime.framework === 'codex' ||
-            runtime.framework === 'gemini-cli' ||
-            runtime.framework === 'pi'
+        const isCodingFramework = frameworkKind(runtime.framework) === 'coding'
         const isCodingAgentRuntime =
             runtime.kind === 'sprites' ||
             (runtime.kind === 'k8s' && isCodingFramework) ||

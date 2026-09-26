@@ -55,6 +55,22 @@ test('pi resumes like claude: blocked without the opt-in, open with it', () => {
     )
 })
 
+// So does agy: its platform key rides each exec, on a view of its settings.
+test('agy resumes like pi: blocked without the opt-in, open with it', () => {
+    assert.deepEqual(
+        terminalResumeAvailability({ ...base, framework: 'antigravity-cli' }),
+        { available: false, blocked: 'needs-credential-toggle' }
+    )
+    assert.deepEqual(
+        terminalResumeAvailability({
+            ...base,
+            framework: 'antigravity-cli',
+            sandboxModelCredentials: true
+        }),
+        { available: true, blocked: null }
+    )
+})
+
 // A runtime-local agent runs on the CLI's own on-disk sign-in — the same
 // credential the TUI will pick up — so it needs that sign-in, never the
 // sandbox opt-in.

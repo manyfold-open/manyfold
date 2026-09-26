@@ -208,6 +208,7 @@ const buildHarness = (opts: {
         { run: async () => ({ homeDir: undefined }) } as never,
         bootstrap as never,
         { run: async () => ({ homeDir: undefined }) } as never,
+        { run: async () => ({ homeDir: undefined }) } as never,
         new SpriteServiceBootstraps(
             { run: async () => ({ homeDir: undefined }) } as never,
             { run: async () => ({ homeDir: undefined }) } as never

@@ -16,6 +16,7 @@ import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adap
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
+import { AntigravityCliAdapter } from '../src/modules/chat/adapters/antigravity-cli.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import type {
@@ -456,6 +457,13 @@ export const buildAdapter = (
             ) as unknown as AdapterUnderTest
         case 'pi':
             return new PiAdapter(
+                drivers as never,
+                chatRepo as never,
+                pricing as never,
+                adminSettings as never
+            ) as unknown as AdapterUnderTest
+        case 'antigravity-cli':
+            return new AntigravityCliAdapter(
                 drivers as never,
                 chatRepo as never,
                 pricing as never,

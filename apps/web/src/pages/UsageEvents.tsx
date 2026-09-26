@@ -43,6 +43,7 @@ const FRAMEWORKS: AgentFramework[] = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'openclaw',
     'hermes'
 ]

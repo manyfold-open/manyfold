@@ -17,8 +17,9 @@ import {
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
     buildNpmLatestInstallShell,
-    buildNpmUpgradeShell,
-    frameworkVersionDescriptor
+    buildVersionInstallShell,
+    frameworkVersionDescriptor,
+    type FrameworkReleaseArtifacts
 } from '@/modules/framework-versions/framework-version-registry'
 
 const INSTALL_TIMEOUT_MS = 180_000
@@ -44,6 +45,9 @@ export interface HostScriptRunner {
 export interface FrameworkInstallRequest {
     frameworkVersion?: string | null
     frameworkVersionSource?: FrameworkInstallSource
+    // A release-binary framework's digests for `frameworkVersion`, resolved in
+    // the same catalog read (ResolvedInstallVersion.artifacts).
+    frameworkArtifacts?: FrameworkReleaseArtifacts | null
     execTimeoutMs?: number
 }
 
@@ -63,8 +67,9 @@ export const spriteScriptRunner = (
 })
 
 /**
- * Bring an npm-installed coding-agent CLI to `ctx.frameworkVersion` on a fresh
- * sprite, and report the version that ended up on PATH.
+ * Bring an npm-installed or release-binary coding-agent CLI to
+ * `ctx.frameworkVersion` on a fresh sprite, and report the version that ended
+ * up on PATH.
  */
 export const installFrameworkVersion = (
     ctx: BootstrapContext,
@@ -74,8 +79,9 @@ export const installFrameworkVersion = (
     installFrameworkVersionOn(spriteScriptRunner(ctx, exec), ctx, framework)
 
 /**
- * Bring an npm-installed coding-agent CLI to `request.frameworkVersion` on a
- * host, and report the version that ended up on PATH.
+ * Bring an npm-installed or release-binary coding-agent CLI to
+ * `request.frameworkVersion` on a host, and report the version that ended up
+ * on PATH.
  *
  * A host's image may already carry a binary at `~/.local/bin/<bin>` that is
  * behind npm (claude-code releases most days), and a pod host carries none at
@@ -109,6 +115,13 @@ export const installFrameworkVersionOn = async (
         // No resolvable target. A present binary is good enough; a missing one
         // means this host has no CLI at all, so fall back to the dist-tag.
         if (installed) return installed
+        // A release binary has no dist-tag to float to: the digest its
+        // install checks against belongs to one release.
+        if (descriptor.binary)
+            throw new BootstrapError(
+                `${framework}-install-version`,
+                `no ${framework} release resolved to install; refresh its version catalog`
+            )
         const result = await runInstall(
             runner,
             request,
@@ -124,14 +137,19 @@ export const installFrameworkVersionOn = async (
 
     if (!shouldInstallFrameworkVersion(installed, target)) return installed
 
-    // buildNpmUpgradeShell only accepts a bare `x.y.z`, and an npm `latest`
+    // The install shells only accept a bare `x.y.z`, and an npm `latest`
     // dist-tag is not guaranteed to be one — `openclaw` ships its patch counter
     // as `2026.7.1-2`, and the coding CLIs publish preview tags. A target we
-    // cannot build a shell for is the same class of problem as an install that
-    // fails, so it takes the same policy instead of escaping as a raw Error.
+    // cannot build a shell for (or a release binary whose digests were not
+    // resolved) is the same class of problem as an install that fails, so it
+    // takes the same policy instead of escaping as a raw Error.
     let shell: string
     try {
-        shell = buildNpmUpgradeShell(descriptor, target)
+        shell = buildVersionInstallShell(
+            descriptor,
+            target,
+            request.frameworkArtifacts ?? null
+        )
     } catch (err) {
         return failOrDegrade(runner, framework, {
             asked,

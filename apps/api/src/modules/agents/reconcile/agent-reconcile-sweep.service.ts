@@ -14,6 +14,7 @@ import {
     type AgentRuntimeRow,
     type Database
 } from '@manyfold/db'
+import { frameworkKind, listFrameworks } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { AgentReconcileService } from './agent-reconcile.service'
@@ -37,12 +38,10 @@ const SWEEP_LEASE_TTL_MS = 45_000
 // exceeds the cap; the clip is logged so it can't silently starve.
 const SWEEP_TOUCH_LIMIT = 25
 
-const CODING_FRAMEWORKS: AgentRuntimeRow['framework'][] = [
-    'claude-code',
-    'codex',
-    'gemini-cli',
-    'pi'
-]
+// Read per sweep, not at load: an edition registers its frameworks after
+// this module is imported.
+const codingFrameworks = (): AgentRuntimeRow['framework'][] =>
+    listFrameworks().filter((framework) => frameworkKind(framework) === 'coding')
 
 @Injectable()
 export class AgentReconcileSweepService
@@ -190,7 +189,7 @@ export class AgentReconcileSweepService
                                     eq(agentRuntimes.status, 'ready'),
                                     inArray(
                                         agentRuntimes.framework,
-                                        CODING_FRAMEWORKS
+                                        codingFrameworks()
                                     )
                                 )
                             )
@@ -211,7 +210,7 @@ export class AgentReconcileSweepService
                 and(
                     ne(agentRuntimes.kind, 'external'),
                     ne(agentRuntimes.status, 'stopped'),
-                    notInArray(agentRuntimes.framework, CODING_FRAMEWORKS),
+                    notInArray(agentRuntimes.framework, codingFrameworks()),
                     or(
                         ne(agentRuntimes.kind, 'sprites'),
                         exists(

@@ -33,6 +33,7 @@ import {
 } from '@/modules/auth/api-token.service'
 
 import { piPlatformViewPrepare } from '@/modules/agents/credentials/pi-agent-dir'
+import { antigravityPlatformViewPrepare } from '@/modules/agents/credentials/antigravity-app-dir'
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
 import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
@@ -292,7 +293,46 @@ export class DaemonTerminal {
         daemonId: string,
         resumeEnv: Record<string, string>
     ): Promise<string> {
-        const prepare = piPlatformViewPrepare(resumeEnv)
+        const { exitCode, last, stderr } = await this.runViewPrepare(
+            daemonId,
+            piPlatformViewPrepare(resumeEnv)
+        )
+        if (exitCode !== 0 || !last.startsWith('/'))
+            throw new BadGatewayException({
+                code: HERDR_LAUNCH_FAILED_CODE,
+                message: `pi's platform view could not be built (exit ${exitCode}): ${stderr.trim().slice(0, 200)}`
+            })
+        return last
+    }
+
+    // The agy twin: build the view (antigravityPlatformViewPrepare) and
+    // return the flag that points herdr's agy at it. It runs in the folder
+    // herdr starts agy in, which the view's settings then trust.
+    async prepareAntigravityView(
+        daemonId: string,
+        resumeEnv: Record<string, string>,
+        cwd: string | null
+    ): Promise<string> {
+        const { exitCode, last, stderr } = await this.runViewPrepare(
+            daemonId,
+            antigravityPlatformViewPrepare(resumeEnv),
+            cwd
+        )
+        if (exitCode !== 0 || !last.startsWith('--app_data_dir='))
+            throw new BadGatewayException({
+                code: HERDR_LAUNCH_FAILED_CODE,
+                message: `agy's platform view could not be built (exit ${exitCode}): ${stderr.trim().slice(0, 200)}`
+            })
+        return last
+    }
+
+    // Run a view script's prepare-only mode on the daemon; its last stdout
+    // line is what it reports.
+    private async runViewPrepare(
+        daemonId: string,
+        prepare: { cmd: string[]; env: Record<string, string> },
+        cwd: string | null = null
+    ): Promise<{ exitCode: number; last: string; stderr: string }> {
         let stdout = ''
         let stderr = ''
         const stream = this.registry.streamRpc({
@@ -301,6 +341,7 @@ export class DaemonTerminal {
             payload: {
                 cmd: prepare.cmd,
                 env: prepare.env,
+                ...(cwd ? { cwd } : {}),
                 timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
             },
             timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS + 5_000,
@@ -313,13 +354,8 @@ export class DaemonTerminal {
         const exitCode = Number(
             (result as { exitCode?: number } | undefined)?.exitCode ?? 0
         )
-        const viewPath = stdout.trim().split('\n').pop()?.trim() ?? ''
-        if (exitCode !== 0 || !viewPath.startsWith('/'))
-            throw new BadGatewayException({
-                code: HERDR_LAUNCH_FAILED_CODE,
-                message: `pi's platform view could not be built (exit ${exitCode}): ${stderr.trim().slice(0, 200)}`
-            })
-        return viewPath
+        const last = stdout.trim().split('\n').pop()?.trim() ?? ''
+        return { exitCode, last, stderr }
     }
 
     // Raise the session's pane in herdr again (ADR-0031).

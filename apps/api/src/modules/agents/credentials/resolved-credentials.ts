@@ -26,6 +26,10 @@ export type ResolvedGeminiCliCredentials = Required<
         inferenceProtocol?: InferenceProtocol
     }
 
+// Antigravity CLI's API-key mode is Gemini-only, so its platform credential
+// is Gemini CLI's shape: one Gemini API key and an optional endpoint.
+export type ResolvedAntigravityCliCredentials = ResolvedGeminiCliCredentials
+
 // One vendor key for the pi provider the bound model provider's protocol maps
 // to (piProviderForProtocol). A `baseUrl` that is not the vendor's official
 // endpoint becomes the models.json override in the platform view each exec
@@ -72,6 +76,10 @@ export type ResolvedAgentCredentials = {
     | { framework: 'codex'; value: ResolvedCodexCredentials }
     | { framework: 'gemini-cli'; value: ResolvedGeminiCliCredentials }
     | { framework: 'pi'; value: ResolvedPiCredentials }
+    | {
+          framework: 'antigravity-cli'
+          value: ResolvedAntigravityCliCredentials
+      }
     | { framework: 'openclaw'; value: ResolvedOpenclawCredentials }
     | { framework: 'hermes'; value: ResolvedHermesCredentials }
     | { framework: 'dify'; value: ResolvedExternalCredentials }

@@ -166,6 +166,7 @@ const makeHarness = () => {
         frameworkStub('codex') as never,
         frameworkStub('gemini-cli') as never,
         frameworkStub('pi') as never,
+        frameworkStub('antigravity-cli') as never,
         new OpenclawAgentAdapter(resolver),
         new HermesAgentAdapter(resolver),
         frameworkStub('dify') as never,

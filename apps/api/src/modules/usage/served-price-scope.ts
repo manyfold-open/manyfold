@@ -88,7 +88,10 @@ export const verifiedCodingPriceScope = (input: {
         baseUrl = credentials.openaiBaseUrl
         protocol = 'openai_responses'
         defaultUrl = OFFICIAL_PROVIDER_BASE_URL.openai
-    } else if (input.framework === 'gemini-cli') {
+    } else if (
+        input.framework === 'gemini-cli' ||
+        input.framework === 'antigravity-cli'
+    ) {
         key = credentials.googleApiKey
         baseUrl = credentials.googleGeminiBaseUrl
         protocol = 'google_generate_content'

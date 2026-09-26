@@ -22,6 +22,19 @@ test('the supported frameworks build their own interactive resume argv', () => {
         'sess-1',
         '--dangerously-bypass-approvals-and-sandbox'
     ])
+    assert.deepEqual(
+        terminalResumeCommand(
+            'antigravity-cli',
+            '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+        ),
+        [
+            'agy',
+            '--conversation',
+            '6bce3054-1614-4b63-b9b5-9590cdfc8458',
+            '--dangerously-skip-permissions'
+        ]
+    )
+    assert.equal(terminalResumeNeedsModelCredentials('antigravity-cli'), true)
 })
 
 // gemini's --resume takes a session index or "latest", not the UUID stored in

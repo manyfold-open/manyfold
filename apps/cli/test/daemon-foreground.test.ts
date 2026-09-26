@@ -47,6 +47,7 @@ const fixture = async (shellBody?: string) => {
         'codex',
         'gemini',
         'pi',
+        'agy',
         'openclaw',
         'hermes'
     ]) {

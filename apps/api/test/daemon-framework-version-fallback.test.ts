@@ -19,6 +19,7 @@ const emptyProvisioner = (): SpritesProvisioner =>
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
         new SpriteServiceBootstraps({} as never, {} as never),
         {} as never,
         {} as never,

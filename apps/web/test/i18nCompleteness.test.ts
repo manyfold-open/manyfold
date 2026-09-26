@@ -136,6 +136,7 @@ const protectedLiterals = [
     'Codex',
     'Dify',
     'Gemini CLI',
+    'Antigravity CLI',
     'Hermes Agent',
     'Hermes',
     'Langflow',
@@ -698,6 +699,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'components/marketing/MarketingNav.tsx': ['Manyfold'],
     'lib/a2aTaskState.ts': ['error', 'idle', 'info', 'success', 'warning'],
     'lib/agentCreate/frameworkOptions.ts': [
+        'Antigravity CLI',
         'Claude Code',
         'Codex',
         'Dify',
@@ -733,6 +735,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     // The account picker's visibility union (hidden / ready / …), not copy.
     'lib/runtimeAuth.ts': ['hidden'],
     'lib/runtimeSignIn.ts': [
+        'agy',
         'claude auth login --claudeai',
         'codex login --device-auth',
         'NO_BROWSER=true gemini',

@@ -277,6 +277,13 @@ export interface PiAgentModelConfig {
     model?: string | null
 }
 
+// An agy model slug (`gemini-3.1-pro-low`: model and reasoning effort in one
+// name); null runs agy's own default.
+export interface AntigravityCliAgentModelConfig {
+    framework: 'antigravity-cli'
+    model?: string | null
+}
+
 // Gemini CLI routing alias: with no explicit model the CLI defaults to its
 // Auto router, so `auto` is the platform default for new agents and must
 // never be passed through as a concrete --model / GEMINI_MODEL value.
@@ -303,6 +310,7 @@ export type AgentModelConfig =
     | CodexAgentModelConfig
     | GeminiCliAgentModelConfig
     | PiAgentModelConfig
+    | AntigravityCliAgentModelConfig
 
 // Runtime-local turns must keep `modelConfig` null — the adapters read a set
 // modelConfig as "inject platform credentials" — so the CLI flags that carry

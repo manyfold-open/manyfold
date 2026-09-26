@@ -676,6 +676,9 @@ const Composer: FC<Props> = ({
         hasFrameworkModelConfig && modelConfigView?.framework === 'gemini-cli'
     const isPiModelConfig =
         hasFrameworkModelConfig && modelConfigView?.framework === 'pi'
+    const isAntigravityModelConfig =
+        hasFrameworkModelConfig &&
+        modelConfigView?.framework === 'antigravity-cli'
     const modelDisplayParts: ComposerLabelParts | null =
         hasFrameworkModelConfig
             ? modelConfigSource === 'runtime-local'
@@ -696,7 +699,9 @@ const Composer: FC<Props> = ({
                           modelDefaultLabel,
                           t
                       )
-                    : isGeminiModelConfig || isPiModelConfig
+                    : isGeminiModelConfig ||
+                        isPiModelConfig ||
+                        isAntigravityModelConfig
                       ? formatModelListComposerLabel(
                             modelConfigDraft,
                             modelDefaultLabel
@@ -1046,7 +1051,8 @@ const Composer: FC<Props> = ({
                                                     : isClaudeModelConfig
                                                       ? 'chat-composer-model-claude'
                                                       : isGeminiModelConfig ||
-                                                          isPiModelConfig
+                                                          isPiModelConfig ||
+                                                          isAntigravityModelConfig
                                                         ? 'chat-composer-model-claude'
                                                         : ''
                                             ].join(' ')}
@@ -1881,6 +1887,17 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                     onRequestClose={onRequestClose}
                 />
             )}
+            {!runtimeLocal && view.framework === 'antigravity-cli' && (
+                <ModelListConfigMenu
+                    view={view}
+                    draft={
+                        draft?.framework === 'antigravity-cli' ? draft : null
+                    }
+                    pick={(model) => ({ framework: 'antigravity-cli', model })}
+                    onChange={onChange}
+                    onRequestClose={onRequestClose}
+                />
+            )}
         </>
     )
 }
@@ -2607,11 +2624,14 @@ const CodexModelConfigMenu: FC<{
 }
 
 // One pick from the view's model list — Gemini CLI's catalog-backed options,
-// or the models pi's provider serves. `pick` turns the chosen id into the
-// framework's draft.
+// the models pi's provider serves, or those of agy's API-key mode. `pick`
+// turns the chosen id into the framework's draft.
 const ModelListConfigMenu: FC<{
     view: AgentModelConfigView
-    draft: Extract<AgentModelConfig, { framework: 'gemini-cli' | 'pi' }> | null
+    draft: Extract<
+        AgentModelConfig,
+        { framework: 'gemini-cli' | 'pi' | 'antigravity-cli' }
+    > | null
     pick: (model: string) => AgentModelConfig
     onChange?: (config: AgentModelConfig) => void
     onRequestClose?: () => void
@@ -2877,7 +2897,9 @@ const formatModelListComposerLabel = (
     fallback: string
 ): ComposerLabelParts => {
     if (
-        (draft?.framework !== 'gemini-cli' && draft?.framework !== 'pi') ||
+        (draft?.framework !== 'gemini-cli' &&
+            draft?.framework !== 'pi' &&
+            draft?.framework !== 'antigravity-cli') ||
         !draft.model
     )
         return { name: formatModelLabel(fallback), detail: null }

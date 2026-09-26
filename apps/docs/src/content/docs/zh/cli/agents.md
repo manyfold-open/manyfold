@@ -45,7 +45,7 @@ Sandbox 报告另有已知路径归属，处理嵌套目录和路径别名，但
 ## 创建 sprites.dev coding Agent
 
 `mf agent create` 当前只会在 sprites.dev 上创建新 Agent，支持 Claude Code、
-Codex、Gemini CLI 和 Pi：
+Codex、Gemini CLI、Pi 和 Antigravity CLI：
 
 ```sh
 mf agent create review-bot \
@@ -57,6 +57,8 @@ Provider key 可以来自 framework 对应的环境变量。避免把 literal ke
 history。每个 framework 的 base URL 和 model option 请查看
 `mf agent create --help`。Pi 需要同时传 `--pi-api-key` 和
 `--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
+Antigravity CLI 用 `--google-api-key` 传 Gemini key，用 `--agy-model` 选择它自己的
+模型名，例如 `gemini-3.1-pro-low`。
 
 这个命令不会创建 daemon、Kubernetes、cloud-computer、external、Hermes 或
 OpenClaw Agent。完整 framework/runtime matrix 请使用网页

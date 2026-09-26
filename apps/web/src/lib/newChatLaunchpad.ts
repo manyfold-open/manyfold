@@ -43,6 +43,11 @@ export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
         actionIds: ['github', 'skills', 'channel'],
         recommended: 'github'
     },
+    // Antigravity CLI's MCP config is not managed here yet; skills are.
+    'antigravity-cli': {
+        actionIds: ['github', 'skills', 'channel'],
+        recommended: 'github'
+    },
     hermes: {
         actionIds: ['skills', 'channel', 'automation'],
         recommended: 'skills'

@@ -8,6 +8,7 @@ import type { FC } from 'react'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
 import {
+    AntigravityColor,
     ClaudeCodeColor,
     CodexColor,
     DifyColor,
@@ -80,6 +81,20 @@ const frameworkMeta = {
         supportsModelOverride: true,
         modelPresets: [],
         defaultProvider: 'anthropic'
+    },
+    'antigravity-cli': {
+        labelKey: 'web.frameworks.antigravityCli',
+        Icon: AntigravityColor,
+        mono: false,
+        iconSrc: null,
+        iconSrcDark: null,
+        supportsModelOverride: true,
+        modelPresets: [
+            'gemini-3.1-pro-low',
+            'gemini-3.1-pro-high',
+            'gemini-3.8-flash-medium'
+        ],
+        defaultProvider: 'google'
     },
     openclaw: {
         labelKey: 'web.frameworks.openclaw',

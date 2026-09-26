@@ -154,6 +154,10 @@ test('every framework with an exec surface is registered in the chat adapter reg
         }) as never,
         buildAdapter(seam, { framework: 'pi', runtime: 'sprites' }) as never,
         buildAdapter(seam, {
+            framework: 'antigravity-cli',
+            runtime: 'sprites'
+        }) as never,
+        buildAdapter(seam, {
             framework: 'hermes',
             runtime: 'sprites'
         }) as never,

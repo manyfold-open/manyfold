@@ -137,6 +137,7 @@ const buildHarness = () => {
                 calls.piSetups.push(ctx)
             }
         } as never,
+        { run: async () => ({ homeDir: undefined }) } as never,
         new SpriteServiceBootstraps(
             {
                 framework: 'hermes',

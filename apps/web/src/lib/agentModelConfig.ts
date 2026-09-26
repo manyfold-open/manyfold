@@ -240,6 +240,14 @@ export const draftFromModelConfigView = (
                     ? (view.config.model ?? null)
                     : null
         }
+    if (view.framework === 'antigravity-cli')
+        return {
+            framework: 'antigravity-cli',
+            model:
+                view.config?.framework === 'antigravity-cli'
+                    ? (view.config.model ?? null)
+                    : null
+        }
     return null
 }
 
@@ -322,7 +330,8 @@ export const modelConfigViewForProviderModels = (
                   ? resolveClaudeCodeModelOptions(models, modelMap)
                   : view.framework === 'codex'
                     ? resolveCodexModelOptions(models)
-                    : view.framework === 'gemini-cli'
+                    : view.framework === 'gemini-cli' ||
+                        view.framework === 'antigravity-cli'
                       ? view.options
                       : view.framework === 'pi'
                         ? models.map((model) => ({
@@ -529,6 +538,8 @@ export const patchRuntimeLocalDraft = (
                       : null
         }
     if (framework === 'pi') return { framework: 'pi', model }
+    if (framework === 'antigravity-cli')
+        return { framework: 'antigravity-cli', model }
     return { framework: 'gemini-cli', model }
 }
 
@@ -555,6 +566,23 @@ export const validateModelConfigDraft = (
     // pi runs any id its provider serves (the API checks nothing against a
     // list either), so there is nothing to have tested first.
     if (view.framework === 'pi') return { valid: true, message: null }
+    // agy runs only the models of its own API-key mode (the view's options),
+    // whatever its provider was tested with; none picked is agy's default.
+    if (view.framework === 'antigravity-cli') {
+        const model =
+            draft?.framework === 'antigravity-cli' ? draft.model : null
+        if (
+            !model ||
+            view.options.some((item) => item.value === model && item.enabled)
+        )
+            return { valid: true, message: null }
+        return {
+            valid: false,
+            message: message(
+                'web.composer.validation.chooseSupportedAntigravityModel'
+            )
+        }
+    }
     if (view.providerModelsStatus !== 'ready')
         return {
             valid: false,
@@ -680,7 +708,11 @@ export const modelConfigDisplayLabel = (
             parts.push(formatCodexIntelligenceLabel(draft.intelligence, t))
         return parts.join(' · ')
     }
-    if (draft.framework === 'gemini-cli' || draft.framework === 'pi') {
+    if (
+        draft.framework === 'gemini-cli' ||
+        draft.framework === 'pi' ||
+        draft.framework === 'antigravity-cli'
+    ) {
         return draft.model ?? fallback
     }
     return fallback

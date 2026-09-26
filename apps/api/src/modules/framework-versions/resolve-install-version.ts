@@ -8,6 +8,7 @@ import {
     blockedVersionRangesFor,
     frameworkPrereleaseAllowed,
     frameworkRepoCandidates,
+    frameworkUpgradeMode,
     isVersionedFramework,
     resolveFrameworkRepo,
     selectFrameworkInstallVersion
@@ -16,10 +17,14 @@ import {
     BadRequestException,
     ServiceUnavailableException
 } from '@nestjs/common'
+import type { FrameworkReleaseArtifacts } from '@/modules/framework-versions/framework-version-registry'
 
 export interface ResolvedInstallVersion {
     selection: FrameworkVersionSelection
     repo: string | null
+    // A release-binary framework's digests for `selection.version`; null for
+    // every other install.
+    artifacts: FrameworkReleaseArtifacts | null
 }
 
 // The version a fresh install of `framework` gets: the caller's request, else
@@ -37,6 +42,10 @@ export const resolveFrameworkInstallVersion = async (
         catalogForFresh: (
             framework: VersionedFramework
         ) => Promise<FrameworkVersionCatalogEntry>
+        releaseArtifacts: (
+            framework: VersionedFramework,
+            version: string
+        ) => Promise<FrameworkReleaseArtifacts>
     },
     framework: AgentFramework,
     requested?: string | null
@@ -64,7 +73,8 @@ export const resolveFrameworkInstallVersion = async (
         throw new BadRequestException(
             `${framework} version ${selection.version} is a pre-release; enable pre-release versions for ${framework} first`
         )
-    if (!isVersionedFramework(framework)) return { selection, repo }
+    if (!isVersionedFramework(framework))
+        return { selection, repo, artifacts: null }
     if (repo) {
         let catalog: FrameworkVersionCatalogEntry
         try {
@@ -108,7 +118,20 @@ export const resolveFrameworkInstallVersion = async (
                 `${selection.source === 'admin' ? 'admin pin' : 'version'} "${selection.version}" is not in the ${admittedRepo} catalog; ${selection.source === 'admin' ? 'change or clear the admin pin' : 'choose a version from this repository'}`
             )
         }
-        return { selection, repo: admittedRepo }
+        if (frameworkUpgradeMode(framework) !== 'binary')
+            return { selection, repo: admittedRepo, artifacts: null }
+        let artifacts: FrameworkReleaseArtifacts
+        try {
+            artifacts = await deps.releaseArtifacts(
+                framework,
+                selection.version
+            )
+        } catch (err) {
+            throw new ServiceUnavailableException(
+                `${framework} ${selection.version} release digests are unavailable: ${(err as Error).message}`
+            )
+        }
+        return { selection, repo: admittedRepo, artifacts }
     }
     if (selection.source === 'none')
         selection = selectFrameworkInstallVersion({
@@ -116,5 +139,5 @@ export const resolveFrameworkInstallVersion = async (
             blocked,
             allowPrerelease
         })
-    return { selection, repo }
+    return { selection, repo, artifacts: null }
 }

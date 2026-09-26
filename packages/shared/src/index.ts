@@ -595,6 +595,19 @@ export {
 } from './pi'
 export type { PiProvider, PiQualifiedModel } from './pi'
 export {
+    AGY_API_KEY_MODELS,
+    AGY_APP_DIR,
+    AGY_BIN,
+    AGY_DEFAULT_API_KEY_MODEL,
+    AGY_MANAGED_HOST_ENV,
+    AGY_PLATFORM_OUTRANKING_ENV,
+    AGY_TITLE_MODEL,
+    antigravityUpstreamModel,
+    isAntigravityConversationId,
+    parseAntigravityModelList
+} from './antigravity-cli'
+export type { AntigravityApiKeyModel } from './antigravity-cli'
+export {
     mcpConfigFromExtras,
     mcpDeliveryFromExtras,
     validateMcpJson
@@ -656,6 +669,7 @@ export {
     parseRuntimeLocalCredentialFacts
 } from './runtime-local-credentials'
 export type {
+    AntigravityCliCredentialFacts,
     ClaudeCredentialFacts,
     CodexCredentialFacts,
     CodexCustomProviderFact,
@@ -708,6 +722,7 @@ export type {
     CodexSupportedModel,
     GeminiCliAgentModelConfig,
     PiAgentModelConfig,
+    AntigravityCliAgentModelConfig,
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
     RuntimeLocalTuning,
@@ -719,11 +734,14 @@ export {
     frameworkModelKinds,
     isConfigurableFramework,
     isModelConfigFramework,
-    modelConfigFrameworks
+    isRuntimeAuthProfileFramework,
+    modelConfigFrameworks,
+    runtimeAuthProfileFrameworks
 } from './framework-catalog'
 export type {
     ConfigurableFramework,
     ModelConfigFramework,
+    RuntimeAuthProfileFramework,
     CreateFrameworkEnumBody,
     CreateFrameworkModelBody,
     FrameworkCatalogView,
@@ -747,7 +765,8 @@ export {
     safeNpmVersionSpec,
     selectFrameworkInstallVersion,
     shouldInstallFrameworkVersion,
-    listVersionedFrameworks
+    listVersionedFrameworks,
+    upgradesInPlace
 } from './framework-versions'
 export type {
     FrameworkBlockedVersionRange,
@@ -962,10 +981,13 @@ export {
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_PI_LOCAL,
+    DAEMON_FEATURE_ANTIGRAVITY_LOCAL,
+    runtimeLocalInspectFeature,
     DAEMON_FEATURE_SERVICES,
     DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_HERDR_PI,
+    DAEMON_FEATURE_HERDR_AGY,
     herdrFrameworksFor,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS

@@ -16,13 +16,15 @@ import type {
    codex needs no credential opt-in: it logs in on the sandbox at bootstrap
    and its auth lives on disk where a login shell reads it. pi reads its key
    from the vendor env var the turn injects, so like claude it needs the
-   opt-in before a login shell can authenticate. */
+   opt-in before a login shell can authenticate; so does agy, whose platform
+   key rides each exec on a view of its own settings. */
 const RESUME_SUPPORT: Partial<
     Record<AgentFramework, { needsModelCredentials: boolean }>
 > = {
     'claude-code': { needsModelCredentials: true },
     codex: { needsModelCredentials: false },
-    pi: { needsModelCredentials: true }
+    pi: { needsModelCredentials: true },
+    'antigravity-cli': { needsModelCredentials: true }
 }
 
 export const supportsTerminalResume = (framework: AgentFramework): boolean =>

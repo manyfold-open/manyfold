@@ -11,7 +11,7 @@ order: 4
 | --- | --- |
 | Anthropic | Claude Code |
 | OpenAI | Codex |
-| Google Gemini | Gemini CLI |
+| Google Gemini | Gemini CLI、Antigravity CLI |
 | Anthropic、OpenAI、Google Gemini | Pi |
 | OpenRouter | 模型路由和兼容模型访问 |
 
@@ -19,7 +19,7 @@ order: 4
 
 ## 使用自己的订阅
 
-Claude Code、Codex 和 Gemini CLI 的 Agent 可以直接使用 CLI 自身的登录会话运行 —— 例如 Claude Pro/Max、ChatGPT 订阅或 Google 账号 —— 而不需要 API key。
+Claude Code、Codex、Gemini CLI 和 Antigravity CLI 的 Agent 可以直接使用 CLI 自身的登录会话运行 —— 例如 Claude Pro/Max、ChatGPT 订阅、Gemini Code Assist Standard / Enterprise license，或在 Antigravity CLI 上登录的 Google 账号 —— 而不需要 API key。Gemini CLI 不接受个人 Google 账号（免费版、Google AI Pro 或 Ultra）；Antigravity CLI 接受，并且可以用它运行你的 Google 套餐所含的 Claude 和 GPT-OSS 模型。
 
 1. 创建 Agent 时，在模型提供方区域选择**使用自己的订阅**。
 2. 创建完成后，在聊天页打开该 Agent 的终端，并在终端里完成 CLI 的登录。

@@ -150,6 +150,7 @@ test('a complete extension is served to the core dispatch points', () => {
         adapter('codex'),
         adapter('gemini-cli'),
         adapter('pi'),
+        adapter('antigravity-cli'),
         adapter('openclaw'),
         adapter('hermes'),
         adapter('dify'),

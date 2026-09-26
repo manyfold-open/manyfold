@@ -111,6 +111,8 @@ test('per-framework sign-in commands cover exactly the coding CLIs', () => {
     )
     // pi has no login subcommand: its TUI's /login runs the provider's flow.
     assert.equal(runtimeSignInCommandFor('pi'), 'pi')
+    // agy signs in the first time its TUI starts without a sign-in.
+    assert.equal(runtimeSignInCommandFor('antigravity-cli'), 'agy')
     assert.equal(runtimeSignInCommandFor('hermes'), null)
 })
 

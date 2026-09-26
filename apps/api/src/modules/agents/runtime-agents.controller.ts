@@ -131,6 +131,7 @@ const SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS: ReadonlySet<AgentFramework> =
         'codex',
         'gemini-cli',
         'pi',
+        'antigravity-cli',
         'openclaw',
         'hermes'
     ])

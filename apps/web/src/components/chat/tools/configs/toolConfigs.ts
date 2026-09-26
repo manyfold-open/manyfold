@@ -59,15 +59,23 @@ const asObject = (v: unknown): Record<string, unknown> =>
 const truncate = (s: string, n: number): string =>
     s.length > n ? `${s.slice(0, n - 1)}…` : s
 
+// agy names its arguments in PascalCase (CommandLine, AbsolutePath,
+// TargetFile, Url), which the getters read after everyone else's.
 const getCommand = (args: unknown): string => {
     const o = asObject(args)
-    return asString(o.command ?? o.cmd ?? o.shell ?? o.input)
+    return asString(o.command ?? o.cmd ?? o.shell ?? o.input ?? o.CommandLine)
 }
 
 const getFile = (args: unknown): string => {
     const o = asObject(args)
     return asString(
-        o.file_path ?? o.path ?? o.filePath ?? o.notebook_path ?? ''
+        o.file_path ??
+            o.path ??
+            o.filePath ??
+            o.notebook_path ??
+            o.AbsolutePath ??
+            o.TargetFile ??
+            ''
     )
 }
 
@@ -83,7 +91,7 @@ const getGlob = (args: unknown): string => {
 
 const getUrl = (args: unknown): string => {
     const o = asObject(args)
-    return asString(o.url ?? o.uri)
+    return asString(o.url ?? o.uri ?? o.Url)
 }
 
 const config = (c: ToolDisplayConfig): ToolDisplayConfig => c
@@ -328,7 +336,18 @@ const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     bash: BASH,
     grep: GREP,
     find: GLOB,
-    ls: GLOB
+    ls: GLOB,
+
+    // agy (Antigravity CLI). A live turn streams a subset of the arguments
+    // (the command, the file); a conversation read back from agy's log has
+    // them all, so an edit or a write also shows its content there.
+    run_command: BASH,
+    view_file: READ,
+    write_to_file: WRITE,
+    replace_file_content: EDIT,
+    read_url_content: WEB_FETCH,
+    search_web: WEB_SEARCH,
+    invoke_subagent: TASK
 }
 
 const FALLBACK: ToolDisplayConfig = {

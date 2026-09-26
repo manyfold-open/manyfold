@@ -126,7 +126,7 @@ test('every type sits in exactly one of two groups, by where it runs', () => {
         [...listFrameworks()].sort()
     )
     // An edition's framework follows the coding CLIs.
-    assert.equal(groups[0].entries[4].framework, FIXTURE_FRAMEWORK)
+    assert.equal(groups[0].entries[5].framework, FIXTURE_FRAMEWORK)
     // The group boundary IS the step ② fork: everything in the first group
     // asks about a machine, everything in the second about a service.
     for (const group of groups)

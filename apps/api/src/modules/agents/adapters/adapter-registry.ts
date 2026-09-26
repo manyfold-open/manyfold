@@ -5,6 +5,7 @@ import { ClaudeCodeAgentAdapter } from './claude-code-agent.adapter'
 import { CodexAgentAdapter } from './codex-agent.adapter'
 import { GeminiCliAgentAdapter } from './gemini-cli-agent.adapter'
 import { PiAgentAdapter } from './pi-agent.adapter'
+import { AntigravityCliAgentAdapter } from './antigravity-cli-agent.adapter'
 import { OpenclawAgentAdapter } from './openclaw-agent.adapter'
 import { HermesAgentAdapter } from './hermes-agent.adapter'
 import {
@@ -23,6 +24,7 @@ export class AgentAdapterRegistry {
         codex: CodexAgentAdapter,
         geminiCli: GeminiCliAgentAdapter,
         pi: PiAgentAdapter,
+        antigravityCli: AntigravityCliAgentAdapter,
         openclaw: OpenclawAgentAdapter,
         hermes: HermesAgentAdapter,
         dify: DifyAgentAdapter,
@@ -36,6 +38,7 @@ export class AgentAdapterRegistry {
             codex,
             geminiCli,
             pi,
+            antigravityCli,
             openclaw,
             hermes,
             dify,
