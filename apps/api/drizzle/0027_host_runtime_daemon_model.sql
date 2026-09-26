@@ -111,6 +111,8 @@ ALTER TABLE "runtime_hosts" ADD COLUMN "power_changed_at" timestamp with time zo
 --> statement-breakpoint
 ALTER TABLE "runtime_hosts" ADD COLUMN "keep_awake" boolean DEFAULT false NOT NULL;
 --> statement-breakpoint
+ALTER TABLE "runtime_hosts" ADD COLUMN "keep_awake_lease" jsonb;
+--> statement-breakpoint
 ALTER TABLE "daemon_tokens" RENAME COLUMN "daemon_id" TO "host_id";
 --> statement-breakpoint
 ALTER TABLE "chat_messages" RENAME COLUMN "daemon_id" TO "host_id";

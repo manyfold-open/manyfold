@@ -80,6 +80,17 @@ export interface K8sProviderRef {
 
 export type RuntimeHostProviderRef = SpritesProviderRef | K8sProviderRef
 
+// Bookkeeping for the host's keep-awake lease (the provider-side activity
+// task that holds the machine running): what the platform last asked for and
+// last verified, so any API instance can pick the loop up after a restart.
+export interface KeepAwakeLease {
+    generation: number
+    taskName: string | null
+    desiredStateAt: string | null
+    lastVerifiedAt: string | null
+    lastError: string | null
+}
+
 export const runtimeHosts = pgTable(
     'runtime_hosts',
     {
@@ -126,6 +137,7 @@ export const runtimeHosts = pgTable(
         // hosted-only: keep the machine running. The single keep-alive
         // switch; service processes are the daemon's service manifest's job.
         keepAwake: boolean('keep_awake').notNull().default(false),
+        keepAwakeLease: jsonb('keep_awake_lease').$type<KeepAwakeLease>(),
         // Whose identity the machine's persisted shell profile defaults to
         // (bare interactive shells only — per-agent auth is injected per-exec).
         primaryAgentId: text('primary_agent_id'),

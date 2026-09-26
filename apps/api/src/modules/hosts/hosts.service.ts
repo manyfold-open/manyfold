@@ -3,8 +3,10 @@ import { and, eq, sql } from 'drizzle-orm'
 import {
     runtimeHosts,
     type Database,
+    type NewRuntimeHostRow,
     type RuntimeHostKind,
     type RuntimeHostPowerState,
+    type RuntimeHostProviderRef,
     type RuntimeHostRow,
     type RuntimeHostStatus
 } from '@manyfold/db'
@@ -82,6 +84,29 @@ export class HostsService {
             .where(eq(runtimeHosts.id, id))
             .returning()
         return row ?? null
+    }
+
+    async patch(
+        id: string,
+        values: Partial<Omit<NewRuntimeHostRow, 'id' | 'userId' | 'kind'>>,
+        db: Pick<Database, 'update'> = this.db
+    ): Promise<RuntimeHostRow | null> {
+        const [row] = await db
+            .update(runtimeHosts)
+            .set({ ...values, updatedAt: new Date() })
+            .where(eq(runtimeHosts.id, id))
+            .returning()
+        return row ?? null
+    }
+
+    // The adapter's own identity for the machine; only the adapter for the
+    // host's provider kind reads or writes it.
+    async setProviderRef(
+        id: string,
+        ref: RuntimeHostProviderRef,
+        db: Pick<Database, 'update'> = this.db
+    ): Promise<RuntimeHostRow | null> {
+        return this.patch(id, { providerRef: ref }, db)
     }
 
     // Every provider mutation runs under the generation this returns; a
