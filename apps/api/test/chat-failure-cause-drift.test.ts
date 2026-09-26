@@ -87,6 +87,10 @@ const DYNAMIC_CODE_SOURCES = new Map<string, string>([
         'upstream A2A task state as a code; an open set that stays unmapped'
     ],
     [
+        'a2a_http_${err.status}',
+        'typed per-status family: 400/401/402/429 are mapped; other statuses remain deliberately unclassified'
+    ],
+    [
         'dify_http_${res.status}',
         'typed per-status family: 400/401/402/429 are mapped; other statuses remain deliberately unclassified'
     ],

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Command, CommanderError } from 'commander'
 import { ApiError } from '@manyfold/sdk'
+import { A2aTransportError } from '@manyfold/a2a'
 import {
     fail,
     normalizeCliError,
@@ -37,6 +38,16 @@ const apiError = (
     if (options.name) error.name = options.name
     return error
 }
+
+test('A2A HTTP errors retain their status, reason and authentication exit code', () => {
+    for (const status of [401, 403, 429]) {
+        const failure = normalizeCliError(new A2aTransportError(status, 'request refused'))
+        assert.equal(failure.error.code, `a2a_http_${status}`)
+        assert.equal(failure.error.status, status)
+        assert.equal(failure.error.message, `A2A server returned HTTP ${status}: request refused`)
+        assert.equal(failure.exitCode, status === 429 ? 1 : 3)
+    }
+})
 
 test('ApiError normalization preserves safe fields and stable exit codes', () => {
     const cases: Array<{

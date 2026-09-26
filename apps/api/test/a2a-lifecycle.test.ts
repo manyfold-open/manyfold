@@ -5,6 +5,7 @@ import type { A2aTask } from '@manyfold/db'
 import type { ChatStreamEvent } from '@manyfold/shared'
 import { A2aService, type A2aAuthContext } from '../src/modules/a2a/a2a.service'
 import type { BroadcastSubscriber } from '../src/modules/chat/sse-broadcaster'
+import type { ChatTurnOutcome } from '../src/modules/chat/chat.service'
 
 const deferred = () => {
     let resolve!: () => void
@@ -37,6 +38,7 @@ const harness = () => {
     let sessions = 0
     let turns = 0
     let cancels = 0
+    let durableOutcome: ChatTurnOutcome = { state: 'running' }
     let subscriber: BroadcastSubscriber | undefined
     let unsubscribed = 0
     const subscribed = deferred()
@@ -90,6 +92,7 @@ const harness = () => {
         }
     }
     const chat = {
+        getTurnOutcome: async () => durableOutcome,
         createSession: async () => ({ id: `session-${++sessions}` }),
         announceSessionCreated: () => {},
         sendMessage: async (...args: unknown[]) => {
@@ -153,6 +156,7 @@ const harness = () => {
             observer({ type: 'token', text: 'answer' })
             observer({ type: 'done' })
         },
+        recover: (outcome: typeof durableOutcome) => { durableOutcome = outcome },
         stream: (event: object) => subscriber?.send(event as ChatStreamEvent),
         row: () => [...rows.values()][0]
     }
@@ -173,6 +177,42 @@ test('retrying the first message reuses the task and session without a second tu
     await h.service.sendMessage(ctx, params(), (event) => events.push(event))
     assert.equal(events.at(-1)?.kind, 'status-update')
     assert.equal(h.counts().turns, 1)
+})
+
+test('a blocking send settles from a recovered Chat result without its original observer', { timeout: 5000 }, async (t) => {
+    const h = harness()
+    t.after(() => h.finish())
+    const sending = h.service.sendMessage(ctx, params())
+    await h.entered.promise
+    h.dispatch.resolve()
+    await h.attached.promise
+    h.recover({ state: 'done', text: 'recovered answer' })
+    const task = await sending
+    assert.equal(task.status.state, 'completed')
+    assert.deepEqual(task.artifacts?.[0]?.parts, [{ kind: 'text', text: 'recovered answer' }])
+    assert.equal(h.counts().turns, 1)
+})
+
+test('resubscribe completes when a different Chat owner persisted the result', { timeout: 5000 }, async (t) => {
+    const h = harness()
+    const attachment = new AbortController()
+    t.after(() => {
+        attachment.abort()
+        h.finish()
+    })
+    const sending = h.service.sendMessage(ctx, params())
+    await h.entered.promise
+    h.dispatch.resolve()
+    await h.attached.promise
+    const events: A2aStreamEvent[] = []
+    const following = h.service.resubscribe(ctx, h.row().id, event => events.push(event), attachment.signal)
+    await h.subscribed.promise
+    h.recover({ state: 'done', text: 'answer from another owner' })
+    h.stream({ type: 'done', messageId: 'assistant', finalMessageId: 'assistant' })
+    await following
+    assert.equal((await sending).status.state, 'completed')
+    assert.equal(events.at(-1)?.kind, 'status-update')
+    assert.deepEqual(h.row().artifactJson, { artifactId: 'artifact-1', parts: [{ kind: 'text', text: 'answer from another owner' }] })
 })
 
 test('cancel before the assistant ID is attached aborts after startup and returns canceled', async () => {

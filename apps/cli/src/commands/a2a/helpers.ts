@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
+    A2aTextAccumulator,
     selectInterface,
     type AgentCard,
     type Message,
@@ -35,7 +36,7 @@ export const partsToText = (parts: Part[]): string =>
         .join('')
 
 export const artifactText = (task: Task): string =>
-    (task.artifacts ?? []).map((artifact) => partsToText(artifact.parts)).join('\n')
+    new A2aTextAccumulator().apply(task)
 
 export const buildA2aMessage = (
     prompt: string | undefined,
@@ -111,7 +112,7 @@ export interface Deadline {
     dispose: () => void
 }
 
-// A client-side deadline for blocking A2A calls: aborts on SIGINT or after
+// A client-side deadline for A2A calls: aborts on SIGINT or after
 // `seconds` (0 disables). The hosted server enforces its own per-turn cap;
 // this is the backstop so the CLI can't hang forever if a peer wedges or the
 // server stops responding.

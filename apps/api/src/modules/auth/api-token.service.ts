@@ -570,10 +570,12 @@ export class ApiTokenService {
         const [grant] = await this.db
             .select({ id: a2aAgentGrants.id })
             .from(a2aAgentGrants)
+            .innerJoin(users, eq(users.id, a2aAgentGrants.userId))
             .where(
                 and(
                     eq(a2aAgentGrants.callerAgentId, callerAgentId),
                     eq(a2aAgentGrants.targetAgentId, targetAgentId),
+                    isNull(users.deactivatedAt),
                     isNull(a2aAgentGrants.revokedAt),
                     or(
                         isNull(a2aAgentGrants.expiresAt),

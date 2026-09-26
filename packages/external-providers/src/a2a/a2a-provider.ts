@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
     A2aClient,
     A2aError,
+    A2aTransportError,
     A2aTextAccumulator,
     fetchAgentCard,
     resolveAgentCardUrl,
@@ -177,7 +178,12 @@ class A2aProvider implements ExternalProvider {
                 }
                 if (event.kind === 'task') {
                     if (isFailure(event.status.state)) {
-                        yield errorEvent(event.status.state, undefined)
+                        yield errorEvent(
+                            event.status.state,
+                            event.status.message
+                                ? partsToText(event.status.message.parts)
+                                : undefined
+                        )
                         return
                     }
                 } else if (event.kind === 'status-update' && event.final) {
@@ -199,6 +205,17 @@ class A2aProvider implements ExternalProvider {
             yield { type: 'done' }
         } catch (err) {
             if (signal.aborted) return
+            if (err instanceof A2aTransportError) {
+                yield {
+                    type: 'error',
+                    error: {
+                        code: `a2a_http_${err.status}`,
+                        message: err.message,
+                        retryable: err.status === 429 || err.status >= 500
+                    }
+                }
+                return
+            }
             if (err instanceof A2aError) {
                 yield {
                     type: 'error',
@@ -267,15 +284,9 @@ class A2aProvider implements ExternalProvider {
         // completed / input-required / auth-required: the task stopped
         // producing, so deliver what it produced. The live path treats the same
         // non-failure final states as `done`.
-        const artifacts = (task.artifacts ?? [])
-            .map((artifact) => partsToText(artifact.parts))
-            .filter((text) => text.length > 0)
         const text =
-            artifacts.length > 0
-                ? artifacts.join('\n')
-                : task.status.message
-                  ? partsToText(task.status.message.parts)
-                  : ''
+            new A2aTextAccumulator().apply(task) ||
+            (task.status.message ? partsToText(task.status.message.parts) : '')
         return { status: 'completed', text }
     }
 
@@ -308,14 +319,14 @@ const taskIdOfEvent = (event: A2aStreamEvent): string | null =>
           : null
 
 const isFailure = (state: string): boolean =>
-    state === 'failed' || state === 'rejected'
+    state === 'failed' || state === 'rejected' || state === 'canceled'
 
 const errorEvent = (state: string, detail?: string): EmittedEvent => ({
     type: 'error',
     error: {
-        code: `a2a_${state}`,
+        code: state === 'canceled' ? 'a2a_upstream_cancelled' : `a2a_${state}`,
         message: detail ?? `remote A2A task ${state}`,
-        retryable: false
+        retryable: state === 'canceled'
     }
 })
 

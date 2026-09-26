@@ -48,3 +48,19 @@ test('replacement is scoped by task and artifact, including task snapshots', () 
         'updated\nsecond\nother task'
     )
 })
+
+for (const state of ['input-required', 'auth-required'] as const) {
+    test(`${state} preserves the status message alongside existing artifacts`, () => {
+        const output = new A2aTextAccumulator()
+        output.apply(chunk('partial result'))
+        const status = { state, message: {
+            kind: 'message' as const, role: 'agent' as const, messageId: 'question',
+            parts: [{ kind: 'text' as const, text: 'More information needed' }]
+        } }
+        const update = { kind: 'status-update' as const, taskId: 't', contextId: 'c', status, final: true }
+        assert.equal(output.apply(update), 'partial result\nMore information needed')
+        assert.equal(output.apply(update), 'partial result\nMore information needed')
+        assert.equal(new A2aTextAccumulator().apply({ kind: 'task', id: 't', contextId: 'c', status }),
+            'More information needed')
+    })
+}

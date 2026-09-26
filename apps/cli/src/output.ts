@@ -1,6 +1,7 @@
 import { CommanderError, type Command } from 'commander'
 import kleur from 'kleur'
 import { ApiError } from '@manyfold/sdk'
+import { A2aTransportError } from '@manyfold/a2a'
 import { resolveConfigPath, resolveProfile } from '@/config'
 
 // Single source of truth for `--json`. Register the flag with jsonOption(cmd),
@@ -197,6 +198,17 @@ export const normalizeCliError = (
                 status: error.status,
                 message: apiErrorMessage(error),
                 ...errorExtra({ hint: apiErrorHint(error), ...extra })
+            },
+            exitCode: exitCodeForStatus(error.status)
+        }
+    }
+    if (error instanceof A2aTransportError) {
+        return {
+            error: {
+                code: `a2a_http_${error.status}`,
+                status: error.status,
+                message: error.message,
+                ...errorExtra(extra)
             },
             exitCode: exitCodeForStatus(error.status)
         }

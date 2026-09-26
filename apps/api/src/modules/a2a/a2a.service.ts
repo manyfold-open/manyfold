@@ -36,7 +36,7 @@ import {
     type TaskState,
     type TextPart
 } from '@manyfold/a2a'
-import { agents, auditLogs, type A2aTask, type Database } from '@manyfold/db'
+import { agents, auditLogs, jsonbMerge, type A2aTask, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
@@ -168,6 +168,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         }
         for (const row of rows) {
             try {
+                if (!isActive(await this.reconcileTask(row))) continue
                 // Conditional: skip if the turn terminalized between the select
                 // and now (don't overwrite a real result with 'orphaned').
                 const swept = await this.tasks.updateIfActive(row.id, {
@@ -278,7 +279,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         }
         await db
             .update(agents)
-            .set({ extras: { ...extras, a2aExposure: next }, updatedAt: new Date() })
+            .set({ extras: jsonbMerge(agents.extras, { a2aExposure: next }), updatedAt: new Date() })
             .where(eq(agents.id, agentId))
         return next
     }
@@ -722,8 +723,22 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             }, timeoutMs)
         })
 
-        const outcome = await Promise.race([done, timeoutGuard])
-        if (timer) clearTimeout(timer)
+        const reconciliation = new AbortController()
+        const outcome = await Promise.race([
+            done,
+            timeoutGuard,
+            this.waitForTaskTerminal(task, reconciliation.signal).then((row) => ({
+                row
+            }))
+        ]).finally(() => {
+            reconciliation.abort()
+            if (timer) clearTimeout(timer)
+        })
+        if ('row' in outcome) {
+            if (usage) await this.tasks.update(task.id, { usageJson: usage })
+            this.emitSnapshot(outcome.row, emit)
+            return this.toWireTask(outcome.row)
+        }
         if (timedOut) {
             this.log.warn(
                 `a2a task ${task.id} timed out after ${timeoutMs}ms (${mode} cap); canceling target turn`
@@ -769,6 +784,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         })
 
         if (!terminalized) {
+            if (usage) await this.tasks.update(task.id, { usageJson: usage })
             const current = await this.tasks.findById(
                 task.id,
                 this.scopeOfTask(task)
@@ -861,13 +877,86 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         })
     }
 
+    // A recovered Chat turn has no original A2A observer. Reconcile from its
+    // durable result before reads or orphan handling; cancellation still wins CAS.
+    private async reconcileTask(row: A2aTask): Promise<A2aTask> {
+        if (!isActive(row) || !row.assistantMessageId) return row
+        const outcome = await this.chat.getTurnOutcome(row.assistantMessageId)
+        if (outcome.state === 'running' || outcome.state === 'missing') return row
+        const completedAt = new Date()
+        const state =
+            outcome.state === 'done'
+                ? 'completed'
+                : outcome.cancelled ? 'canceled' : 'failed'
+        const errorJson =
+            outcome.state === 'error'
+                ? {
+                      message: outcome.errorMessage,
+                      code: outcome.errorCode ??
+                          (outcome.cancelled ? 'cancelled_by_user' : 'chat_turn_failed')
+                  }
+                : null
+        const patch = {
+            state,
+            artifactJson:
+                outcome.state === 'done'
+                    ? textArtifact(outcome.text) as unknown as Record<string, unknown>
+                    : null,
+            errorJson,
+            completedAt
+        } as const
+        const changed = await this.tasks.updateIfActive(row.id, patch)
+        if (changed)
+            await this.writeAudit(
+                state === 'completed'
+                    ? auditAction.A2A_TASK_COMPLETED
+                    : state === 'canceled'
+                      ? auditAction.A2A_TASK_CANCELED
+                      : auditAction.A2A_TASK_FAILED,
+                row.id,
+                row.userId,
+                {
+                    taskId: row.id,
+                    targetAgentId: row.targetAgentId,
+                    callerAgentId: row.callerAgentId,
+                    state,
+                    errorCode: errorJson?.code ?? null,
+                    via: 'durable_chat_result'
+                }
+            )
+        return (await this.tasks.findById(row.id, this.scopeOfTask(row))) ?? row
+    }
+
+    private async waitForTaskTerminal(
+        task: A2aTask,
+        signal: AbortSignal
+    ): Promise<A2aTask> {
+        for (;;) {
+            await delay(1000, undefined, { signal })
+            try {
+                const current = await this.tasks.findById(
+                    task.id,
+                    this.scopeOfTask(task)
+                )
+                if (!current) continue
+                const reconciled = await this.reconcileTask(current)
+                if (!isActive(reconciled)) return reconciled
+            } catch (err) {
+                // A temporary read failure must not end a still-running turn.
+                this.log.warn(
+                    `a2a reconciliation failed for ${task.id}: ${(err as Error).message}`
+                )
+            }
+        }
+    }
+
     // ---- tasks/get ----
 
     async getTask(ctx: A2aAuthContext, taskId: string): Promise<Task> {
         const row = await this.tasks.findById(taskId, this.scopeOf(ctx))
         if (!row)
             throw new A2aError(A2aErrorCode.taskNotFound, 'task not found')
-        return this.toWireTask(row)
+        return this.toWireTask(await this.reconcileTask(row))
     }
 
     // ---- tasks/cancel ----
@@ -958,6 +1047,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         if (!current)
             throw new A2aError(A2aErrorCode.taskNotFound, 'task not found')
         if (signal?.aborted) return
+        current = await this.reconcileTask(current)
         this.emitSnapshot(current, emit)
         if (!isActive(current)) return
 
@@ -1019,7 +1109,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                     this.scopeOf(ctx)
                 )
                 if (!fresh) throw new A2aError(A2aErrorCode.taskNotFound)
-                current = fresh
+                current = await this.reconcileTask(fresh)
                 if (!isActive(current)) {
                     unsubscribe?.()
                     attachment.abort()
@@ -1048,13 +1138,17 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
     ): Promise<{ tasks: Task[]; nextCursor: string | null }> {
         const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
         const cursor = opts.cursor ? this.decodeCursor(opts.cursor) : undefined
-        const rows = await this.tasks.list(this.scopeOf(ctx), {
+        const read = () => this.tasks.list(this.scopeOf(ctx), {
             limit: limit + 1,
             beforeCreatedAt: cursor?.createdAt,
             beforeId: cursor?.id,
             state: opts.state,
             contextId: opts.contextId
         })
+        let rows = await read()
+        const reconciled = await Promise.all(rows.map((row) => this.reconcileTask(row)))
+        rows = reconciled.some((row, index) => row.state !== rows[index].state)
+            ? await read() : reconciled
         const page = rows.slice(0, limit)
         const last = page[page.length - 1]
         const nextCursor =
@@ -1079,7 +1173,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
     ): Promise<A2aTaskTracePage> {
         const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
         const cursor = opts.cursor ? this.decodeCursor(opts.cursor) : undefined
-        const rows = await this.tasks.listForOwner(userId, agentId, {
+        const read = () => this.tasks.listForOwner(userId, agentId, {
             limit: limit + 1,
             beforeCreatedAt: cursor?.createdAt,
             beforeId: cursor?.id,
@@ -1087,6 +1181,10 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             direction: opts.direction,
             targetAgentId: opts.peer
         })
+        let rows = await read()
+        const reconciled = await Promise.all(rows.map((row) => this.reconcileTask(row)))
+        rows = reconciled.some((row, index) => row.state !== rows[index].state)
+            ? await read() : reconciled
         const page = rows.slice(0, limit)
 
         const ids = new Set<string>()
