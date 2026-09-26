@@ -15,6 +15,7 @@ import {
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
 import { permissionResponders, type TurnAck } from './acp-turn'
+import { waitForOpenclawGateway } from './openclaw-gateway'
 
 // The openclaw half of turn.start over ACP (ADR-0027). The daemon spawns
 // `openclaw acp` against the HOST's own resident gateway — discovered, never
@@ -59,14 +60,30 @@ interface AcpTimeouts {
     maxDurationMs: number
 }
 
+type GatewayCallResult =
+    | { ok: true; result: Record<string, unknown> }
+    | { ok: false; error: string }
+
+const parseJsonObject = (text: string): Record<string, unknown> | null => {
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start === -1 || end <= start) return null
+    try {
+        return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
+    } catch {
+        return null
+    }
+}
+
 // One in-box `openclaw gateway call <method>` — url-less, so it authenticates
-// from the same config the bridge uses. Resolves the parsed result object, or
-// null on any failure (a usage read-back must never fail a turn).
+// from the same config the bridge uses. Never rejects: a failure carries the
+// gateway's own message when it printed one (`--json` prints
+// `{ok:false,error:{message}}` and exits non-zero).
 const gatewayCall = (
     method: string,
     params: Record<string, unknown>,
     env: NodeJS.ProcessEnv
-): Promise<Record<string, unknown> | null> =>
+): Promise<GatewayCallResult> =>
     new Promise((resolve) => {
         const child = spawn(
             'openclaw',
@@ -83,8 +100,9 @@ const gatewayCall = (
             { env, stdio: ['ignore', 'pipe', 'pipe'] }
         )
         let out = ''
+        let err = ''
         let settled = false
-        const finish = (value: Record<string, unknown> | null): void => {
+        const finish = (value: GatewayCallResult): void => {
             if (settled) return
             settled = true
             resolve(value)
@@ -93,22 +111,34 @@ const gatewayCall = (
             try {
                 child.kill('SIGKILL')
             } catch {}
-            finish(null)
+            finish({
+                ok: false,
+                error: `timed out after ${GATEWAY_CALL_TIMEOUT_MS}ms`
+            })
         }, GATEWAY_CALL_TIMEOUT_MS + 2_000)
         timer.unref?.()
         child.stdout.on('data', (b: Buffer) => (out += b.toString('utf8')))
-        child.on('error', () => finish(null))
+        child.stderr.on('data', (b: Buffer) => (err += b.toString('utf8')))
+        child.on('error', (e) => finish({ ok: false, error: e.message }))
         child.on('close', (code) => {
             clearTimeout(timer)
-            if (code !== 0) return finish(null)
-            const start = out.indexOf('{')
-            const end = out.lastIndexOf('}')
-            if (start === -1 || end <= start) return finish(null)
-            try {
-                finish(JSON.parse(out.slice(start, end + 1)) as Record<string, unknown>)
-            } catch {
-                finish(null)
-            }
+            const parsed = parseJsonObject(out) ?? parseJsonObject(err)
+            if (code === 0)
+                return finish(
+                    parsed
+                        ? { ok: true, result: parsed }
+                        : { ok: false, error: 'printed no JSON result' }
+                )
+            const message = (parsed?.error as { message?: unknown } | undefined)
+                ?.message
+            finish({
+                ok: false,
+                error:
+                    typeof message === 'string'
+                        ? message
+                        : err.trim().split('\n').pop() ||
+                          `exited with code ${code ?? 'unknown'}`
+            })
         })
     })
 
@@ -399,13 +429,13 @@ export const runOpenclawAcpTurn = (args: {
         const read = async (
             limit: number
         ): Promise<ReturnType<typeof decodeOpenclawTurnUsage>> => {
-            const result = await gatewayCall(
+            const call = await gatewayCall(
                 'sessions.get',
                 { key: payload.sessionKey, limit },
                 env
             )
-            if (!result) return { status: 'invalid' }
-            return decodeOpenclawTurnUsage(result, payload.prompt, { limit })
+            if (!call.ok) return { status: 'invalid' }
+            return decodeOpenclawTurnUsage(call.result, payload.prompt, { limit })
         }
         let decoded = await read(USAGE_WINDOW)
         if (decoded.status === 'no_user_message' && decoded.windowFull)
@@ -426,17 +456,79 @@ export const runOpenclawAcpTurn = (args: {
         )
     }
 
+    const guarded = payload.permissionMode === 'default'
+    let modeHeld = false
+    let modeReleased: Promise<void> | null = null
+    // Once per turn, awaited before the final so the next turn's patch
+    // cannot land ahead of this clear.
+    const releaseSessionMode = (): Promise<void> => {
+        if (!modeHeld) return Promise.resolve()
+        modeReleased ??= gatewayCall(
+            'sessions.patch',
+            { key: payload.sessionKey, permissionMode: null },
+            env
+        ).then((call) => {
+            if (!call.ok)
+                safePublish(
+                    'stderr',
+                    `[manyfold] clearing the openclaw permission mode failed: ${call.error}\n`
+                )
+        })
+        return modeReleased
+    }
+
     const drive = async (): Promise<void> => {
-        // Pre-patch the session in-box for the ask mode / model pick BEFORE the
-        // bridge starts: the ACP options cannot set execAsk or the model, so a
-        // gateway RPC on the deterministic key must. A patch failure is not
-        // fatal — the turn still runs, it just runs unpatched (no approval /
-        // default model), which is strictly the pre-existing behaviour.
-        if (payload.patch && (payload.patch.execAsk || payload.patch.model)) {
-            const params: Record<string, unknown> = { key: payload.sessionKey }
-            if (payload.patch.execAsk) params.execAsk = payload.patch.execAsk
-            if (payload.patch.model) params.model = payload.patch.model
-            await gatewayCall('sessions.patch', params, env).catch(() => null)
+        // Both the patch and the bridge dial the gateway, which may still be
+        // binding on a host this turn woke.
+        const silentPort = await waitForOpenclawGateway({
+            timeoutMs: handshakeTimeoutMs,
+            stop: () => cancelled
+        })
+        if (cancelled || silentPort !== null) {
+            complete(
+                { stopReason: null, sessionId: null },
+                false,
+                cancelled
+                    ? 'cancelled'
+                    : `openclaw gateway did not answer on port ${silentPort} within ${handshakeTimeoutMs}ms`
+            )
+            args.releaseChild()
+            return
+        }
+        // The ask mode and the model pick are gateway session fields, not ACP
+        // options, so an in-box patch on the deterministic key sets them before
+        // the bridge starts. openclaw >= 2026.8.1 refuses the session's
+        // `execAsk`; the ask mode is its `guarded` permission mode, the one
+        // that puts a human behind exec. That mode outlives the turn, so it is
+        // cleared again before the final, which keeps dontAsk turns free of
+        // gateway calls. A patch that fails fails the turn: running without the
+        // approvals or the model the user picked is no fallback.
+        const params: Record<string, unknown> = {
+            ...(guarded ? { permissionMode: 'guarded' } : {}),
+            ...(payload.patch?.model ? { model: payload.patch.model } : {})
+        }
+        if (Object.keys(params).length > 0) {
+            const patched = await gatewayCall(
+                'sessions.patch',
+                { key: payload.sessionKey, ...params },
+                env
+            )
+            if (!patched.ok) {
+                complete(
+                    { stopReason: null, sessionId: null },
+                    false,
+                    `openclaw sessions.patch failed: ${patched.error}`
+                )
+                args.releaseChild()
+                return
+            }
+            modeHeld = guarded
+        }
+        if (cancelled) {
+            await releaseSessionMode()
+            complete({ stopReason: null, sessionId: null }, false, 'cancelled')
+            args.releaseChild()
+            return
         }
 
         child = spawn(ACP_CMD[0], ACP_CMD.slice(1), {
@@ -552,12 +644,14 @@ export const runOpenclawAcpTurn = (args: {
                 },
                 promptTimeouts
             )
+            const released = releaseSessionMode()
             // The ACP stream carries no usage; read it back from the gateway
             // transcript. Best-effort — never fails the turn.
             const usageRead: {
                 usage?: OpenclawTurnUsage
                 usageStatus: string
             } = await readUsageBack().catch(() => ({ usageStatus: 'error' }))
+            await released
             const final: DaemonTurnFinalPayload = {
                 stopReason:
                     result && typeof result.stopReason === 'string'
@@ -570,6 +664,7 @@ export const runOpenclawAcpTurn = (args: {
             }
             complete(final, true)
         } catch (err) {
+            await releaseSessionMode()
             complete(
                 { stopReason: null, sessionId: null },
                 false,

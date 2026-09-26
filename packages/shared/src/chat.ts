@@ -233,8 +233,9 @@ export const isHermesPermissionMode = (
 // approvals — there is no separate edit-approval axis to name. dontAsk is the
 // default and is exactly today's behaviour: the gateway ships tools.exec.ask
 // off, so a turn that sends no mode sets nothing and never prompts (channels,
-// A2A, OpenAI-compat, automations keep it byte-for-byte). `default` turns the
-// session's exec approval on (an in-box sessions.patch of execAsk), so the
+// A2A, OpenAI-compat, automations keep it byte-for-byte). `default` holds the
+// session in openclaw's `guarded` permission mode for the turn (a human
+// reviews exec misses, file tools stay under the session root), so the
 // gateway relays session/request_permission as interactive cards.
 export const openclawPermissionModes = ['default', 'dontAsk'] as const
 export type OpenclawPermissionMode = (typeof openclawPermissionModes)[number]
