@@ -4,6 +4,7 @@ import { HttpException } from '@nestjs/common'
 import {
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
     CHAT_SESSION_TURN_IN_FLIGHT_CODE,
+    DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_PTY_COMMAND,
@@ -60,6 +61,10 @@ const harness = (
         acquire?: string
         open?: () => Promise<Record<string, unknown>>
         preparePiView?: (
+            daemonId: string,
+            env: Record<string, string>
+        ) => Promise<string>
+        prepareAntigravityView?: (
             daemonId: string,
             env: Record<string, string>
         ) => Promise<string>
@@ -159,6 +164,15 @@ const harness = (
                 return overrides.preparePiView
                     ? overrides.preparePiView(daemonId, env)
                     : '/home/sprite/.manyfold/pi/rt-1/agent'
+            },
+            prepareAntigravityView: async (
+                daemonId: string,
+                env: Record<string, string>
+            ) => {
+                prepares.push([daemonId, env])
+                return overrides.prepareAntigravityView
+                    ? overrides.prepareAntigravityView(daemonId, env)
+                    : '--app_data_dir=../.manyfold/antigravity-cli/rt-1/app'
             }
         } as never,
         ...(overrides.runner
@@ -622,4 +636,90 @@ test('a sandbox pi on the platform key gets its view built by the runner before 
         (err: unknown) => codeOf(err) === HERDR_LAUNCH_FAILED_CODE
     )
     assert.equal(failed.created.length, 0)
+})
+
+// agy joins herdr (its `agy` agent kind) where the CLI knows it and the herdr
+// there has it; on a sandbox a platform agy is pointed at the platform view
+// the runner builds first, by the flag the view's prepare step prints.
+const AGY_FEATURES = [
+    DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_HERDR_TERMINAL,
+    DAEMON_FEATURE_HERDR_PI,
+    DAEMON_FEATURE_HERDR_AGY
+]
+const AGY_REF = '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+
+test('a sandbox agy on the platform key starts in herdr as agy, on the view the runner built', async () => {
+    const h = harness({
+        agent: {
+            ...SPRITES_AGENT,
+            framework: 'antigravity-cli',
+            model: 'gemini-3.1-pro-low'
+        },
+        sandbox: SANDBOX,
+        runner: {
+            host: { ...RUNNER, clientFeatures: AGY_FEATURES },
+            availability: 'ok'
+        },
+        resolve: {
+            resume: {
+                command: [
+                    'bash',
+                    '-c',
+                    'view script',
+                    'agy',
+                    '--conversation',
+                    AGY_REF,
+                    '--dangerously-skip-permissions',
+                    '--model',
+                    'gemini-3.1-pro-low'
+                ],
+                env: {
+                    MF_AGY_VIEW: 'rt-1',
+                    GEMINI_API_KEY: 'gk-bound',
+                    GOOGLE_API_KEY: ''
+                }
+            },
+            outcome: 'applied',
+            ref: AGY_REF
+        }
+    })
+    await h.service.open('u1', 'agt-1', 'cs-1', {})
+    assert.equal(h.resolves[0].model, 'gemini-3.1-pro-low')
+    assert.equal(h.prepares.length, 1)
+    assert.equal(h.prepares[0][0], 'dh-runner')
+    assert.equal(h.prepares[0][1].MF_AGY_VIEW, 'rt-1')
+    const resume = h.opens[0].resume as {
+        command: string[]
+        env: Record<string, string>
+    }
+    assert.equal(h.opens[0].framework, 'antigravity-cli')
+    assert.deepEqual(resume.command, [
+        'agy',
+        '--app_data_dir=../.manyfold/antigravity-cli/rt-1/app',
+        '--conversation',
+        AGY_REF,
+        '--dangerously-skip-permissions',
+        '--model',
+        'gemini-3.1-pro-low'
+    ])
+    assert.deepEqual(resume.env, {
+        GEMINI_API_KEY: 'gk-bound',
+        GOOGLE_API_KEY: ''
+    })
+
+    // A herdr that does not know agy leaves the handoff to the browser.
+    const older = harness({
+        agent: { framework: 'antigravity-cli' },
+        host: {
+            clientFeatures: AGY_FEATURES.filter(
+                (f) => f !== DAEMON_FEATURE_HERDR_AGY
+            )
+        }
+    })
+    await assert.rejects(
+        older.service.open('u1', 'agt-1', 'cs-1', {}),
+        (err: unknown) => codeOf(err) === HERDR_UNAVAILABLE_CODE
+    )
+    assert.equal(older.created.length, 0)
 })

@@ -130,3 +130,18 @@ export const antigravityPlatformViewPrepare = (
         [AGY_PLATFORM_VIEW_PREPARE_ENV]: '1'
     }
 })
+
+// herdr's agy on the view: the flag the prepare step printed ahead of the
+// resume's own arguments, under the resume's env without the view marker.
+export const antigravityPlatformDirect = (
+    resume: { command: string[]; env: Record<string, string> },
+    appDataDirFlag: string
+): { command: string[]; env: Record<string, string> } => {
+    const env: Record<string, string> = { ...resume.env }
+    delete env[AGY_PLATFORM_VIEW_ENV]
+    // antigravityPlatformExec's argv: bash -c <script> agy <agy args…>
+    return {
+        command: ['agy', appDataDirFlag, ...resume.command.slice(4)],
+        env
+    }
+}

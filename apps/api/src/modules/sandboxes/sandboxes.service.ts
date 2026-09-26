@@ -9,6 +9,7 @@ import {
     isVersionedFramework,
     resolveFrameworkRepo,
     supportsRuntime,
+    DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     herdrFrameworksFor,
@@ -1374,7 +1375,8 @@ export const parseHerdrVersionLine = (output: string): string | null => {
 // What a runner brought up now — on the current CLI — starts in herdr.
 const NEW_RUNNER_HERDR = herdrFrameworksFor([
     DAEMON_FEATURE_HERDR_TERMINAL,
-    DAEMON_FEATURE_HERDR_PI
+    DAEMON_FEATURE_HERDR_PI,
+    DAEMON_FEATURE_HERDR_AGY
 ])
 
 const toSandboxSummary = (

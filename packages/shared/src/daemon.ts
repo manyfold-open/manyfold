@@ -330,8 +330,12 @@ export interface DaemonOwnedTerminal {
 
 // The frameworks whose TUI a herdr pane can resume (ADR-0031): the ones with
 // a resume-by-id form the browser terminal supports and an agent kind in
-// herdr (herdr 0.9 has `claude`, `codex` and `pi`).
-export type DaemonHerdrFramework = 'claude-code' | 'codex' | 'pi'
+// herdr (herdr 0.9 has `claude`, `codex` and `pi`; 0.9.1 adds `agy`).
+export type DaemonHerdrFramework =
+    | 'claude-code'
+    | 'codex'
+    | 'pi'
+    | 'antigravity-cli'
 
 // terminal.herdr.open (ADR-0031): run a chat session's framework TUI in a
 // herdr pane on the daemon's machine. The API composes command and env
@@ -710,9 +714,13 @@ export const DAEMON_FEATURE_HERDR_TERMINAL = 'terminal.herdr.v1'
 // The daemon's herdr handoff (above) also starts pi. Advertised with it, by a
 // CLI that knows pi's herdr kind.
 export const DAEMON_FEATURE_HERDR_PI = 'terminal.herdr.pi.v1'
+// ... and Antigravity CLI: advertised by a CLI that knows agy's herdr kind,
+// while the herdr on the machine is one that has it.
+export const DAEMON_FEATURE_HERDR_AGY = 'terminal.herdr.agy.v1'
 
 // What a host with these features can hand to herdr: nothing without the
-// handoff, claude and codex with it, pi too when the CLI knows pi's kind.
+// handoff, claude and codex with it, pi and agy too when the CLI (and, for
+// agy, herdr) knows their kinds.
 export const herdrFrameworksFor = (
     clientFeatures: readonly string[]
 ): DaemonHerdrFramework[] =>
@@ -722,6 +730,9 @@ export const herdrFrameworksFor = (
               'codex',
               ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_PI)
                   ? (['pi'] as const)
+                  : []),
+              ...(clientFeatures.includes(DAEMON_FEATURE_HERDR_AGY)
+                  ? (['antigravity-cli'] as const)
                   : [])
           ]
         : []

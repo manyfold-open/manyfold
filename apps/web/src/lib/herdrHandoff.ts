@@ -38,12 +38,14 @@ export interface HerdrHandoffAvailability {
 }
 
 // herdr starts the TUI as one of its own agent kinds, which exist for Claude
-// Code, Codex and Pi. A framework only the browser terminal can resume keeps
-// that control; one neither can resume shows this one disabled, as before.
+// Code, Codex, Pi and Antigravity CLI. A framework only the browser terminal
+// can resume keeps that control; one neither can resume shows this one
+// disabled, as before.
 const HERDR_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
-    'pi'
+    'pi',
+    'antigravity-cli'
 ])
 
 export const herdrHandoffAvailability = (args: {

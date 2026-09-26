@@ -58,7 +58,8 @@ const RECONNECT_MAX_MS = 30_000
 export const HERDR_KIND_BY_FRAMEWORK: Record<DaemonHerdrFramework, string> = {
     'claude-code': 'claude',
     codex: 'codex',
-    pi: 'pi'
+    pi: 'pi',
+    'antigravity-cli': 'agy'
 }
 
 export const isHerdrFramework = (
@@ -193,6 +194,21 @@ export const detectHerdr = async (): Promise<HerdrDetection | null> => {
 }
 
 export const currentHerdr = (): HerdrDetection | null => lastDetection
+
+// herdr started Antigravity CLI as an agent kind of its own (`agy`) in
+// 0.9.1; an older herdr refuses the kind, so agy is offered only past it.
+const HERDR_AGY_SINCE = [0, 9, 1]
+export const herdrKnowsAgy = (detection: HerdrDetection | null): boolean => {
+    const parts = /^(\d+)\.(\d+)\.(\d+)/
+        .exec(detection?.version ?? '')
+        ?.slice(1)
+        .map(Number)
+    if (!parts) return false
+    for (let i = 0; i < 3; i++)
+        if (parts[i] !== HERDR_AGY_SINCE[i])
+            return parts[i] > HERDR_AGY_SINCE[i]
+    return true
+}
 
 const probeHerdr = async (): Promise<HerdrDetection | null> => {
     if (process.platform === 'win32') return null
