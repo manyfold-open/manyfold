@@ -193,6 +193,10 @@ import {
     recoverTurnFromPiSession,
     type PiTurnVerdict
 } from '@/modules/chat/recovery/turn-pi-session-recovery'
+import {
+    recoverTurnFromAntigravityTranscript,
+    type AntigravityTurnVerdict
+} from '@/modules/chat/recovery/turn-antigravity-transcript-recovery'
 import { messageToPromptText } from '@/modules/chat/adapters/message-content'
 import type { RecoveryFs } from '@/modules/chat/recovery/recovery-fs'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
@@ -3401,7 +3405,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 agentCtx.framework === 'claude-code' ||
                 ((agentCtx.framework === 'codex' ||
                     agentCtx.framework === 'gemini-cli' ||
-                    agentCtx.framework === 'pi') &&
+                    agentCtx.framework === 'pi' ||
+                    agentCtx.framework === 'antigravity-cli') &&
                     !!session.frameworkSessionRef)
             if (!adoptable || !this.execDrivers) {
                 // A daemon-carried turn may still be executing inside its
@@ -3612,7 +3617,23 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                               checkExecAlive,
                               fence
                           })
-                        : adopted()
+                        : agentCtx.framework === 'antigravity-cli'
+                          ? this.adoptedAntigravityLiveStream({
+                                fs: fsHandle.fs,
+                                frameworkSessionRef: expectedSessionRef,
+                                promptText,
+                                baseline: deliveredBaseline,
+                                messageCreatedAt: message.createdAt,
+                                settledLines: session.runtimeSyncCursor ?? null,
+                                sessionId: session.id,
+                                agentId: session.agentId,
+                                messageId: row.messageId,
+                                adoptCount: row.adoptCount,
+                                abortSignal: abortController.signal,
+                                checkExecAlive,
+                                fence
+                            })
+                          : adopted()
             try {
                 adoptOutcome = await this.runAdapterFromIterable(
                     adoptedStream,
@@ -4309,7 +4330,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // everywhere else. A settled turn records the file's line count as the
     // session's runtime-sync cursor, as the adapter does, so the next sync
     // does not read this turn back as TUI output.
-    private async *adoptedPiLiveStream(args: {
+    private adoptedPiLiveStream(args: {
         fs: RecoveryFs
         frameworkSessionRef: string
         workspacePath: string | null
@@ -4318,6 +4339,79 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         model: string | null
         messageCreatedAt: Date
         settledLines: number | null
+        sessionId: string
+        agentId: string
+        messageId: string
+        adoptCount: number
+        abortSignal: AbortSignal
+        checkExecAlive?: () => Promise<boolean>
+        fence: TurnExecutionFence
+    }): AsyncIterable<EmittedChatEvent> {
+        return this.adoptedTranscriptLiveStream({
+            ...args,
+            label: 'pi',
+            resultErrorCode: 'pi_result_error',
+            recover: ({ sinceLine, previousLineCount }) =>
+                recoverTurnFromPiSession({
+                    fs: args.fs,
+                    frameworkSessionRef: args.frameworkSessionRef,
+                    workspacePath: args.workspacePath,
+                    promptText: args.promptText,
+                    model: args.model,
+                    messageCreatedAt: args.messageCreatedAt,
+                    settledLines: args.settledLines,
+                    sinceLine,
+                    previousLineCount
+                })
+        })
+    }
+
+    // The agy twin: its conversation log gets a record per finished step,
+    // tool results under the ids the live stream gave them. The log holds no
+    // token counts, so an adopted agy turn ends without usage.
+    private adoptedAntigravityLiveStream(args: {
+        fs: RecoveryFs
+        frameworkSessionRef: string
+        promptText: string
+        baseline: DeliveredBaseline
+        messageCreatedAt: Date
+        settledLines: number | null
+        sessionId: string
+        agentId: string
+        messageId: string
+        adoptCount: number
+        abortSignal: AbortSignal
+        checkExecAlive?: () => Promise<boolean>
+        fence: TurnExecutionFence
+    }): AsyncIterable<EmittedChatEvent> {
+        return this.adoptedTranscriptLiveStream({
+            ...args,
+            label: 'antigravity',
+            resultErrorCode: 'antigravity_result_error',
+            recover: ({ sinceLine }) =>
+                recoverTurnFromAntigravityTranscript({
+                    fs: args.fs,
+                    frameworkSessionRef: args.frameworkSessionRef,
+                    promptText: args.promptText,
+                    messageCreatedAt: args.messageCreatedAt,
+                    settledLines: args.settledLines,
+                    sinceLine
+                })
+        })
+    }
+
+    // The poll loop the pi and agy adoptions share: recover what the log
+    // holds past the cursor, emit what the dead relay had not delivered, and
+    // settle on the log's own verdict, or give up on a deadline, an
+    // unreadable log or a stall the exec's liveness does not explain.
+    private async *adoptedTranscriptLiveStream(args: {
+        label: string
+        resultErrorCode: string
+        recover: (cursor: {
+            sinceLine: number
+            previousLineCount: number | null
+        }) => Promise<PiTurnVerdict | AntigravityTurnVerdict>
+        baseline: DeliveredBaseline
         sessionId: string
         agentId: string
         messageId: string
@@ -4342,29 +4436,21 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 yield cancelledByUserEvent()
                 return
             }
-            const verdict: PiTurnVerdict = await recoverTurnFromPiSession({
-                fs: args.fs,
-                frameworkSessionRef: args.frameworkSessionRef,
-                workspacePath: args.workspacePath,
-                promptText: args.promptText,
-                model: args.model,
-                messageCreatedAt: args.messageCreatedAt,
-                settledLines: args.settledLines,
-                sinceLine,
-                previousLineCount
-            }).catch(
-                (err): PiTurnVerdict => ({
-                    outcome: 'failed',
-                    detail: err instanceof Error ? err.message : String(err)
-                })
-            )
+            const verdict: PiTurnVerdict | AntigravityTurnVerdict = await args
+                .recover({ sinceLine, previousLineCount })
+                .catch(
+                    (err): PiTurnVerdict => ({
+                        outcome: 'failed',
+                        detail: err instanceof Error ? err.message : String(err)
+                    })
+                )
             polls += 1
             if (verdict.outcome !== 'failed') {
                 for (const ev of verdict.events) {
                     const res = interceptor.intercept(ev)
                     if (res.mismatch) {
                         this.logger.warn(
-                            `pi adopt session diverged messageId=${args.messageId}: ${res.mismatch}`
+                            `${args.label} adopt session diverged messageId=${args.messageId}: ${res.mismatch}`
                         )
                         this.telemetry.event('chat.turn.adopt_result_lost', {
                             sessionId: args.sessionId,
@@ -4382,7 +4468,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 previousLineCount = verdict.lastSourceSeq
             }
             this.logger.log(
-                `adopt poll (pi) messageId=${args.messageId} #${polls} outcome=${verdict.outcome} ` +
+                `adopt poll (${args.label}) messageId=${args.messageId} #${polls} outcome=${verdict.outcome} ` +
                     `detail=${'detail' in verdict ? verdict.detail : ''} lastSourceSeq=${
                         'lastSourceSeq' in verdict ? verdict.lastSourceSeq : ''
                     } stall=${stall} failed=${failedStreak}`
@@ -4397,11 +4483,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     adoptCount: args.adoptCount,
                     polls
                 })
-                const usageRes = interceptor.intercept({
-                    type: 'usage',
-                    usage: verdict.usage
-                })
-                for (const out of usageRes.events) yield out
+                if (verdict.usage) {
+                    const usageRes = interceptor.intercept({
+                        type: 'usage',
+                        usage: verdict.usage
+                    })
+                    for (const out of usageRes.events) yield out
+                }
                 yield { type: 'done', finalMessageId: args.messageId }
                 return
             }
@@ -4423,7 +4511,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     ? {
                           type: 'error',
                           error: {
-                              code: 'pi_result_error',
+                              code: args.resultErrorCode,
                               message: verdict.errorMessage,
                               retryable: false
                           }
