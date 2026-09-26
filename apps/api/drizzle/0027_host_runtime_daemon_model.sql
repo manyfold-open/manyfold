@@ -134,7 +134,7 @@ UPDATE "runtime_hosts" SET
 WHERE "kind" IN ('sandbox','pod');
 --> statement-breakpoint
 CREATE TEMP TABLE "_adr36_runner_map" AS
-SELECT DISTINCT ON (parent_id) runner_id, parent_id FROM (
+SELECT runner_id, parent_id, seen FROM (
     SELECT r."id" AS runner_id, s."id" AS parent_id, COALESCE(r."rpc_last_seen_at", r."last_seen_at", r."created_at") AS seen
     FROM "runtime_hosts" r
     JOIN "runtime_hosts" s ON s."user_id" = r."user_id" AND s."kind" = 'sandbox' AND r."name" = 'sprite-runner:' || s."sprite_name"
@@ -144,11 +144,14 @@ SELECT DISTINCT ON (parent_id) runner_id, parent_id FROM (
     FROM "runtime_hosts" r
     JOIN "runtime_hosts" p ON p."user_id" = r."user_id" AND p."kind" = 'pod' AND r."name" = 'pod-runner:' || p."id"
     WHERE r."kind" = 'daemon' AND r."managed" = true
-) m ORDER BY parent_id, seen DESC NULLS LAST;
+) m;
+--> statement-breakpoint
+CREATE TEMP TABLE "_adr36_runner_pick" AS
+SELECT DISTINCT ON (parent_id) runner_id, parent_id FROM "_adr36_runner_map" ORDER BY parent_id, seen DESC NULLS LAST;
 --> statement-breakpoint
 INSERT INTO "host_daemons" ("host_id","user_id","daemon_uuid","token_id","hostname","os","arch","cli_version","herdr_version","startup_method","client_features","terminal_pty","detected_frameworks","registered_at","last_seen_at","last_ip","rpc_instance_id","rpc_connection_token","rpc_inbox","rpc_connected_at","rpc_last_seen_at","created_at","updated_at")
 SELECT h."id", h."user_id", h."daemon_uuid",
-    (SELECT t."id" FROM "daemon_tokens" t WHERE t."daemon_id" = h."id" AND t."revoked_at" IS NULL ORDER BY t."created_at" DESC LIMIT 1),
+    (SELECT t."id" FROM "daemon_tokens" t WHERE t."host_id" = h."id" AND t."revoked_at" IS NULL ORDER BY t."created_at" DESC LIMIT 1),
     h."hostname", h."os", h."arch", h."cli_version", h."herdr_version", h."startup_method", h."client_features", h."terminal_pty", h."detected_frameworks",
     h."created_at", h."last_seen_at", h."last_ip", h."rpc_instance_id", h."rpc_connection_token", h."rpc_inbox", h."rpc_connected_at", h."rpc_last_seen_at", h."created_at", h."updated_at"
 FROM "runtime_hosts" h
@@ -156,10 +159,10 @@ WHERE h."kind" = 'daemon' AND h."managed" = false AND h."daemon_uuid" IS NOT NUL
 --> statement-breakpoint
 INSERT INTO "host_daemons" ("host_id","user_id","daemon_uuid","token_id","hostname","os","arch","cli_version","herdr_version","startup_method","client_features","terminal_pty","detected_frameworks","registered_at","last_seen_at","last_ip","rpc_instance_id","rpc_connection_token","rpc_inbox","rpc_connected_at","rpc_last_seen_at","created_at","updated_at")
 SELECT m.parent_id, r."user_id", r."daemon_uuid",
-    (SELECT t."id" FROM "daemon_tokens" t WHERE t."daemon_id" = r."id" AND t."revoked_at" IS NULL ORDER BY t."created_at" DESC LIMIT 1),
+    (SELECT t."id" FROM "daemon_tokens" t WHERE t."host_id" = r."id" AND t."revoked_at" IS NULL ORDER BY t."created_at" DESC LIMIT 1),
     r."hostname", r."os", r."arch", r."cli_version", r."herdr_version", r."startup_method", r."client_features", r."terminal_pty", r."detected_frameworks",
     r."created_at", r."last_seen_at", r."last_ip", r."rpc_instance_id", r."rpc_connection_token", r."rpc_inbox", r."rpc_connected_at", r."rpc_last_seen_at", r."created_at", r."updated_at"
-FROM "_adr36_runner_map" m
+FROM "_adr36_runner_pick" m
 JOIN "runtime_hosts" r ON r."id" = m.runner_id
 WHERE r."daemon_uuid" IS NOT NULL;
 --> statement-breakpoint
@@ -216,6 +219,8 @@ UPDATE "runtime_hosts" SET
         WHEN "kind" = 'sandbox' THEN CASE WHEN "sprite_id" IS NULL THEN 'provisioning' ELSE 'ready' END
         ELSE COALESCE("pod_status", 'ready')
     END;
+--> statement-breakpoint
+DROP TABLE "_adr36_runner_pick";
 --> statement-breakpoint
 DROP TABLE "_adr36_runner_map";
 --> statement-breakpoint
