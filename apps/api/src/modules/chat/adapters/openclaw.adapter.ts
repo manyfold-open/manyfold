@@ -347,19 +347,18 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             return
         }
         const sessionKey = openclawGatewaySessionKey(ctx.sessionId)
+        // The daemon maps the mode onto openclaw's own session permission
+        // mode. A per-message model pick routes as primary/<model>.
         const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
-        const patch: { execAsk?: string; model?: string } = {}
-        // 'default' turns exec approval on; the enum is the probe-verified
-        // posture. A per-message model pick routes as primary/<model>.
-        if (permissionMode === 'default') patch.execAsk = 'on-miss'
-        if (ctx.modelOverride) patch.model = openclawModelRef(ctx.modelOverride)
         const budgets = await this.streamBudgets()
         const payload: DaemonOpenclawAcpTurnPayload = {
             framework: 'openclaw',
             transport: 'acp',
             prompt: messageToPromptText(userMessage),
             sessionKey,
-            ...(patch.execAsk || patch.model ? { patch } : {}),
+            ...(ctx.modelOverride
+                ? { patch: { model: openclawModelRef(ctx.modelOverride) } }
+                : {}),
             permissionMode,
             ...(permissionMode === 'default'
                 ? { permissionTimeoutMs: OPENCLAW_PERMISSION_TIMEOUT_MS }

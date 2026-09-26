@@ -541,13 +541,15 @@ export interface DaemonOpenclawAcpTurnPayload {
     dir?: string
     sessionKey: string
     // `openclaw gateway call sessions.patch {key, ...}` before the bridge:
-    // execAsk turns exec approval on for the ask mode, model applies a
-    // per-message pick (`primary/<model>`). Absent = nothing patched.
-    patch?: { execAsk?: string; model?: string }
+    // model applies a per-message pick (`primary/<model>`). Absent = nothing
+    // patched.
+    patch?: { model?: string }
     // openclaw permission mode (see openclawPermissionModes in chat.ts).
-    // dontAsk/absent = the gateway's shipped tools.exec.ask stays off and asks
-    // are auto-approved; default = session/request_permission is forwarded as
-    // permission_request frames for the user to answer via turn.permission.
+    // dontAsk/absent = the session keeps the gateway's configured exec policy
+    // and asks are auto-approved; default = the daemon holds the session in
+    // openclaw's `guarded` permission mode for the turn, and forwards
+    // session/request_permission as permission_request frames for the user to
+    // answer via turn.permission.
     permissionMode?: 'default' | 'dontAsk'
     permissionTimeoutMs?: number
     handshakeTimeoutMs?: number

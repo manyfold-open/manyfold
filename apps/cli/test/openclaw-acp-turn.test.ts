@@ -9,8 +9,8 @@ import { createServer } from 'node:http'
 // FAKE `openclaw` on PATH that plays both roles the runner invokes: the ACP
 // bridge (`openclaw acp`) and the in-box gateway RPC (`openclaw gateway call`).
 // What matters: session/new carries the deterministic _meta.sessionKey and
-// there is NO session/resume; the ask mode pre-patches execAsk before the
-// bridge and relays the card; the usage is read back from the gateway
+// there is NO session/resume; the ask mode holds the session in openclaw's
+// `guarded` permission mode for the turn and relays the card; the usage is read back from the gateway
 // transcript and lands on the final; every frame is durable.
 //
 // daemonPaths resolves from homedir() at import time, so HOME is redirected
@@ -34,7 +34,13 @@ if (argv[0] === 'gateway' && argv[1] === 'call') {
     const pi = argv.indexOf('--params')
     const params = pi >= 0 ? JSON.parse(argv[pi + 1]) : {}
     rec({ gatewayCall: method, params })
-    if (method === 'sessions.patch') { process.stdout.write(JSON.stringify({ ok: true, entry: { execAsk: params.execAsk, modelOverride: params.model } })); process.exit(0) }
+    if (method === 'sessions.patch') {
+        const answer = () => {
+            if (process.env.OC_PATCH_FAIL) { process.stdout.write(JSON.stringify({ ok: false, error: { type: 'gateway_request_error', code: 'INVALID_REQUEST', message: process.env.OC_PATCH_FAIL } })); process.exit(1) }
+            process.stdout.write(JSON.stringify({ ok: true, entry: { permissionMode: params.permissionMode, modelOverride: params.model } })); process.exit(0)
+        }
+        return setTimeout(answer, Number(process.env.OC_PATCH_DELAY || 0))
+    }
     if (method === 'sessions.get') {
         process.stdout.write(JSON.stringify({ messages: [
             { role: 'user', content: [{ type: 'text', text: 'Sender (untrusted metadata):\\n' + (process.env.OC_PROMPT || '') }], timestamp: 1 },
@@ -198,8 +204,14 @@ test('a daemon ACP turn pins the gateway key, never resumes, and reads usage bac
     assert.ok(buffered.length > 0)
 })
 
-test('dontAsk sends no gateway patch; default pre-patches execAsk before the bridge', async () => {
-    // dontAsk (default): no sessions.patch at all.
+const patchCalls = (
+    records: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> =>
+    records
+        .filter((r) => r.gatewayCall === 'sessions.patch')
+        .map((r) => r.params as Record<string, unknown>)
+
+test('dontAsk sends no gateway patch, and a model pick alone patches only the model', async () => {
     const recQuiet = recordPath('dontask')
     process.env.OC_RECORD = recQuiet
     process.env.OC_PROMPT = 'say hello'
@@ -211,43 +223,140 @@ test('dontAsk sends no gateway patch; default pre-patches execAsk before the bri
         registerChild: () => {},
         releaseChild: () => {}
     })
-    delete process.env.OC_RECORD
     assert.equal(ackQuiet.ok, true)
-    assert.ok(
-        !readRecord('dontask').some((r) => r.gatewayCall === 'sessions.patch')
-    )
+    assert.deepEqual(patchCalls(readRecord('dontask')), [])
 
-    // default: sessions.patch {execAsk, model} runs, and it precedes the bridge.
-    const recPatch = recordPath('patch')
-    process.env.OC_RECORD = recPatch
-    process.env.OC_MODE = 'happy'
-    const ack = await runOpenclawAcpTurn({
-        payload: payloadFor({
-            permissionMode: 'default',
-            patch: { execAsk: 'on-miss', model: 'primary/stub-b' }
-        }),
+    process.env.OC_RECORD = recordPath('dontask-model')
+    const ackModel = await runOpenclawAcpTurn({
+        payload: payloadFor({ patch: { model: 'primary/stub-b' } }),
         cwd: home,
-        ctx: makeCtx('oc-patch-1').ctx as never,
+        ctx: makeCtx('oc-dontask-model-1').ctx as never,
         registerChild: () => {},
         releaseChild: () => {}
     })
     delete process.env.OC_RECORD
-    assert.equal(ack.ok, true)
-    const records = readRecord('patch')
-    const patch = records.find((r) => r.gatewayCall === 'sessions.patch')
-    assert.ok(patch, 'expected a sessions.patch')
-    assert.equal(
-        (patch!.params as { execAsk?: string }).execAsk,
-        'on-miss'
+    assert.equal(ackModel.ok, true)
+    assert.deepEqual(patchCalls(readRecord('dontask-model')), [
+        { key: 'agent:main:mf-cts_1', model: 'primary/stub-b' }
+    ])
+})
+
+// openclaw >= 2026.8.1 refuses the session's `execAsk`; the ask mode is its
+// `guarded` permission mode, which is stored on the session. Measured against
+// openclaw 2026.9.5 [2026-09-26]: the mode outlives the turn and keeps asking,
+// and `permissionMode: null` clears it.
+test('the ask mode holds the session guarded for the turn and clears it before the final', async () => {
+    process.env.OC_RECORD = recordPath('guarded')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    const ack = await runOpenclawAcpTurn({
+        payload: payloadFor({
+            permissionMode: 'default',
+            patch: { model: 'primary/stub-b' }
+        }),
+        cwd: home,
+        ctx: makeCtx('oc-guarded-1').ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    const finalAt = Date.now()
+    delete process.env.OC_RECORD
+    assert.equal(ack.ok, true, ack.error)
+    const records = readRecord('guarded')
+    assert.deepEqual(patchCalls(records), [
+        {
+            key: 'agent:main:mf-cts_1',
+            permissionMode: 'guarded',
+            model: 'primary/stub-b'
+        },
+        { key: 'agent:main:mf-cts_1', permissionMode: null }
+    ])
+    const setIdx = records.findIndex((r) => r.gatewayCall === 'sessions.patch')
+    const promptIdx = records.findIndex(
+        (r) => (r.recv as { method?: string } | undefined)?.method === 'session/prompt'
     )
-    assert.equal(
-        (patch!.params as { model?: string }).model,
-        'primary/stub-b'
+    const clear = records.filter((r) => r.gatewayCall === 'sessions.patch').at(-1)!
+    assert.ok(setIdx < promptIdx && promptIdx < records.indexOf(clear))
+    assert.ok((clear.at as number) <= finalAt)
+})
+
+test('the ask mode is cleared even when the turn fails mid-prompt', async () => {
+    process.env.OC_RECORD = recordPath('guarded-crash')
+    process.env.OC_MODE = 'crash'
+    process.env.OC_PROMPT = 'say hello'
+    const ack = await runOpenclawAcpTurn({
+        payload: payloadFor({ permissionMode: 'default' }),
+        cwd: home,
+        ctx: makeCtx('oc-guarded-crash-1').ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    delete process.env.OC_RECORD
+    assert.equal(ack.ok, false)
+    assert.deepEqual(
+        patchCalls(readRecord('guarded-crash')).map((p) => p.permissionMode),
+        ['guarded', null]
     )
-    // The patch happened before the first ACP frame reached the bridge.
-    const patchIdx = records.findIndex((r) => r.gatewayCall === 'sessions.patch')
-    const firstAcpIdx = records.findIndex((r) => 'recv' in r)
-    assert.ok(patchIdx !== -1 && patchIdx < firstAcpIdx)
+})
+
+// Seen on openclaw 2026.9.5 [2026-09-26]: `execAsk` was refused and the whole
+// patch dropped silently, so ask-mode turns ran with no approvals and without
+// the model the user picked.
+test('a refused patch fails the turn with the gateway\'s message and never starts the bridge', async () => {
+    process.env.OC_RECORD = recordPath('patch-refused')
+    process.env.OC_PATCH_FAIL =
+        "invalid sessions.patch params: at root: unexpected property 'permissionMode'"
+    process.env.OC_MODE = 'happy'
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({ permissionMode: 'default' }),
+            cwd: home,
+            ctx: makeCtx('oc-patch-refused-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, false)
+        assert.equal(
+            ack.error,
+            "openclaw sessions.patch failed: invalid sessions.patch params: at root: unexpected property 'permissionMode'"
+        )
+        const records = readRecord('patch-refused')
+        assert.ok(!records.some((r) => 'recv' in r))
+        // Nothing was set, so there is nothing to clear.
+        assert.equal(patchCalls(records).length, 1)
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OC_PATCH_FAIL
+    }
+})
+
+test('a cancel during the patch clears the mode and never starts the bridge', async () => {
+    process.env.OC_RECORD = recordPath('patch-cancel')
+    process.env.OC_PATCH_DELAY = '400'
+    process.env.OC_MODE = 'happy'
+    const h = makeCtx('oc-patch-cancel-1')
+    try {
+        const done = runOpenclawAcpTurn({
+            payload: payloadFor({ permissionMode: 'default' }),
+            cwd: home,
+            ctx: h.ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        setTimeout(() => h.cancel(), 150)
+        const ack = await done
+        assert.equal(ack.ok, false)
+        assert.equal(ack.error, 'cancelled')
+        const records = readRecord('patch-cancel')
+        assert.deepEqual(
+            patchCalls(records).map((p) => p.permissionMode),
+            ['guarded', null]
+        )
+        assert.ok(!records.some((r) => 'recv' in r))
+    } finally {
+        delete process.env.OC_RECORD
+        delete process.env.OC_PATCH_DELAY
+    }
 })
 
 test('an ask-mode turn takes the user answer via the responder', async () => {
@@ -362,10 +471,7 @@ test('a gateway still binding is waited for before the patch or the bridge dials
     )
     try {
         const ack = await runOpenclawAcpTurn({
-            payload: payloadFor({
-                permissionMode: 'default',
-                patch: { execAsk: 'on-miss' }
-            }),
+            payload: payloadFor({ permissionMode: 'default' }),
             cwd: home,
             ctx: makeCtx('oc-binding-1').ctx as never,
             registerChild: () => {},
@@ -394,8 +500,7 @@ test('a gateway that never answers fails the turn naming its port, and nothing d
         const ack = await runOpenclawAcpTurn({
             payload: payloadFor({
                 handshakeTimeoutMs: 1_200,
-                permissionMode: 'default',
-                patch: { execAsk: 'on-miss' }
+                permissionMode: 'default'
             }),
             cwd: home,
             ctx: makeCtx('oc-silent-1').ctx as never,

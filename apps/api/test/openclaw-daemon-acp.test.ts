@@ -227,7 +227,9 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         ])
 })
 
-test('the ask mode and a model pick ride the payload as a sessions.patch', async () => {
+// The ask mode rides as the permission mode alone: mapping it onto openclaw's
+// session permission mode, and restoring it after the turn, is the daemon's.
+test('a model pick rides the payload as a sessions.patch; the ask mode as the permission mode', async () => {
         const rig = buildRig({
             lines: [noteLine('ok')],
             result: { ok: finalWithUsage('end_turn') }
@@ -238,11 +240,22 @@ test('the ask mode and a model pick ride the payload as a sessions.patch', async
                 USER_MSG
             )
         )
-        const patch = rig.calls[0].payload.patch as
-            | { execAsk?: string; model?: string }
-            | undefined
-        assert.equal(patch?.execAsk, 'on-miss')
-        assert.equal(patch?.model, 'primary/claude-x')
+        assert.deepEqual(rig.calls[0].payload.patch, { model: 'primary/claude-x' })
+        assert.equal(rig.calls[0].payload.permissionMode, 'default')
+})
+
+test('an ask-mode turn with no model pick sends no patch', async () => {
+        const rig = buildRig({
+            lines: [noteLine('ok')],
+            result: { ok: finalWithUsage('end_turn') }
+        })
+        await drain(
+            rig.adapter.sendMessage(
+                ctx({ openclawPermissionMode: 'default' }),
+                USER_MSG
+            )
+        )
+        assert.equal('patch' in rig.calls[0].payload, false)
         assert.equal(rig.calls[0].payload.permissionMode, 'default')
 })
 
