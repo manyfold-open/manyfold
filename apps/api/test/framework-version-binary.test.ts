@@ -264,7 +264,10 @@ test(
             )
             // The fixture exits 9 unless its updater is off: whoever runs it
             // by name gets the env without asking for it.
-            assert.match(execFileSync(link, { env: {} }).toString(), /1\.2\.11/)
+            assert.match(
+                execFileSync(link, ['--version'], { env: {} }).toString(),
+                /1\.2\.11/
+            )
             assert.match(
                 readFileSync(join(lab.root, 'curl.log'), 'utf8'),
                 new RegExp(

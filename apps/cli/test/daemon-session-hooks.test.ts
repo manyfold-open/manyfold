@@ -756,6 +756,9 @@ test('agy’s hook input maps to a start or an end by the event its hook names',
 // The hook for real: a stand-in `agy` (node under that name, so the process
 // is called agy as the real one is) runs it the way agy 1.2.11 does, through
 // `sh -c`, and the Manyfold callback is a script that logs what it was given.
+// Measured on Node 24.20 / Linux [2026-09-26]: node names its main thread
+// `MainThread`, which is what /proc/<pid>/comm then reads, so the stand-in
+// takes its name back through process.title.
 test('the agy hook reports a conversation once and its end when agy exits', async () => {
     await withHome(async (home) => {
         const bin = join(home, 'bin')
@@ -777,7 +780,8 @@ test('the agy hook reports a conversation once and its end when agy exits', asyn
                 join(bin, 'agy'),
                 [
                     '-e',
-                    `const { execFileSync } = require('node:child_process')
+                    `process.title = 'agy'
+const { execFileSync } = require('node:child_process')
 const hook = (event) => execFileSync('sh', ['-c', ${JSON.stringify(`'${script}' "$0"`)}, event], {
     input: JSON.stringify({ conversationId: '${AGY_CONVERSATION}', initialNumSteps: 1, workspacePaths: ['/ws'] })
 }).toString()
@@ -809,14 +813,18 @@ process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
         assert.equal(await readFile(log, 'utf8').catch(() => ''), '')
 
         assert.equal(runAgy('trm_1'), '{}{}')
+        const end = new RegExp(
+            `^daemon hooks report antigravity-cli SessionEnd lines=\\d* \\{"conversationId":"${AGY_CONVERSATION}"\\}$`
+        )
         const deadline = Date.now() + 8000
         let lines: string[] = []
         while (Date.now() < deadline) {
             lines = (await readFile(log, 'utf8').catch(() => ''))
                 .split('\n')
                 .filter(Boolean)
-            // The fake callback writes its arguments before its stdin.
-            if (lines.some((line) => line.includes('SessionEnd {"'))) break
+            // The fake callback writes its arguments before its stdin, so
+            // only the whole line says the end is in.
+            if (lines.some((line) => end.test(line))) break
             await new Promise((resolve) => setTimeout(resolve, 200))
         }
         assert.equal(lines.length, 2, lines.join('\n'))
@@ -824,12 +832,7 @@ process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
             lines[0],
             /^daemon hooks report antigravity-cli SessionStart lines=2 \{"conversationId":"6bce3054/
         )
-        assert.match(
-            lines[1],
-            new RegExp(
-                `^daemon hooks report antigravity-cli SessionEnd lines=\\d* \\{"conversationId":"${AGY_CONVERSATION}"\\}$`
-            )
-        )
+        assert.match(lines[1], end)
         // The waiter leaves nothing behind for the next agy in the terminal.
         const state = (await readdir(home)).find((name) =>
             name.startsWith('mf-agy-session-')
