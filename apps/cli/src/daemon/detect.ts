@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { join, delimiter, dirname } from 'node:path'
 import type { DetectedFramework } from '@manyfold/shared'
@@ -42,7 +42,15 @@ const ensureDirOnPath = (dir: string): void => {
 
 const versionOf = (binPath: string): Promise<string | null> =>
     new Promise((resolve) => {
-        const child = spawn(binPath, ['--version'], { stdio: 'pipe' })
+        let child: ChildProcessWithoutNullStreams
+        try {
+            child = spawn(binPath, ['--version'], { stdio: 'pipe' })
+        } catch {
+            // A file the kernel refuses to exec (ENOEXEC for a 0-byte one)
+            // throws here instead of emitting 'error', under Node and Bun alike.
+            resolve(null)
+            return
+        }
         const chunks: Buffer[] = []
         let settled = false
         const finish = (val: string | null): void => {

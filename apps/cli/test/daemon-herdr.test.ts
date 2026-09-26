@@ -677,6 +677,56 @@ test('an update herdr refuses reports its exit and words, and the version stays'
     }
 })
 
+// A herdr the kernel refuses to exec throws from spawn itself instead of
+// emitting 'error', under Node and Bun alike. Seen on prod [2026-09-26]: a
+// 0-byte ~/.local/bin/herdr in two sandboxes killed every runner start with
+// `cli Error: ENOEXEC: unknown error, posix_spawn '/home/sprite/.local/bin/herdr'`.
+const unrunnableBinary = (): { dir: string; restore: () => void } => {
+    const dir = mkdtempSync(join('/tmp', 'mfh-bin-'))
+    writeFileSync(join(dir, 'herdr'), '')
+    chmodSync(join(dir, 'herdr'), 0o755)
+    const previousPath = process.env.PATH
+    process.env.PATH = `${dir}:${previousPath ?? ''}`
+    return {
+        dir,
+        restore: () => {
+            process.env.PATH = previousPath
+            rmSync(dir, { recursive: true, force: true })
+        }
+    }
+}
+
+test('a herdr that cannot be executed is found without a version, and an update through it says why', async () => {
+    const bin = unrunnableBinary()
+    try {
+        const found = await detectHerdr()
+        assert.deepEqual(found, { path: join(bin.dir, 'herdr'), version: null })
+        const result = await updateHerdr()
+        assert.equal(result.ok, false)
+        assert.match(result.error ?? '', /could not run: .*ENOEXEC/)
+    } finally {
+        bin.restore()
+    }
+})
+
+test('a server start through a herdr that cannot be executed still waits on the socket', async () => {
+    const bin = unrunnableBinary()
+    const late = new FakeHerdr()
+    try {
+        await detectHerdr()
+        const opening = open({
+            socketPath: late.socketPath,
+            autoStartServer: true
+        })
+        await new Promise((resolve) => setTimeout(resolve, 450))
+        await late.start()
+        assert.equal((await opening).paneId, 'w1:p1')
+    } finally {
+        await late.stop()
+        bin.restore()
+    }
+})
+
 test('a handoff told to start the server waits for herdr to come up on the socket', async () => {
     const bin = fakeBinary('0.9.1')
     const late = new FakeHerdr()

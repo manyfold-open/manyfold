@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import type {
     ChildProcess,
+    ChildProcessByStdio,
     ChildProcessWithoutNullStreams
 } from 'node:child_process'
 import {
@@ -25,6 +26,7 @@ import {
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { resolve, sep, join, dirname, basename } from 'node:path'
+import type { Readable } from 'node:stream'
 import {
     claudeCodeModelAliases,
     claudeLocalModelCatalog,
@@ -407,9 +409,17 @@ const uniqueStrings = (
 
 const commandVersion = (cmd: string): Promise<string | null> =>
     new Promise((resolveVersion) => {
-        const child = spawn(cmd, ['--version'], {
-            stdio: ['ignore', 'pipe', 'pipe']
-        })
+        let child: ChildProcessByStdio<null, Readable, Readable>
+        try {
+            child = spawn(cmd, ['--version'], {
+                stdio: ['ignore', 'pipe', 'pipe']
+            })
+        } catch {
+            // A file the kernel refuses to exec (ENOEXEC for a 0-byte one)
+            // throws here instead of emitting 'error', under Node and Bun alike.
+            resolveVersion(null)
+            return
+        }
         let output = ''
         child.stdout.setEncoding('utf8')
         child.stderr.setEncoding('utf8')
