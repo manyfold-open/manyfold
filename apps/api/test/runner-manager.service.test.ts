@@ -1,4 +1,14 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import {
+    chmodSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { DAEMON_MIN_CLI_VERSION } from '@manyfold/shared'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
@@ -329,6 +339,7 @@ test('a cold sprite is inspected, installed, registered, started, then awaited',
 
     assert.equal(res.handle?.daemonId, 'dh_runner')
     assert.equal(res.handle?.started, true)
+    await new Promise((resolve) => setTimeout(resolve, 5))
     const order = h.calls.map((c) =>
         c.cmd.includes('install.sh')
             ? 'install'
@@ -338,9 +349,20 @@ test('a cold sprite is inspected, installed, registered, started, then awaited',
                 ? 'register'
                 : c.cmd.includes('daemon start')
                   ? 'start'
-                  : 'other'
+                  : c.cmd.includes('-X DELETE')
+                    ? 'release'
+                    : c.cmd.includes('/v1/tasks')
+                      ? 'hold'
+                      : 'other'
     )
-    assert.deepEqual(order, ['inspect', 'install', 'register', 'start'])
+    assert.deepEqual(order, [
+        'inspect',
+        'install',
+        'register',
+        'hold',
+        'start',
+        'release'
+    ])
 })
 
 // herdr rides along with the runner (ADR-0031): the same inspect says whether
@@ -359,7 +381,9 @@ test('a sandbox without herdr gets it installed after the CLI; one with it does 
                       ? 'register'
                       : c.cmd.includes('daemon start')
                         ? 'start'
-                        : 'other'
+                        : c.cmd.includes('/v1/tasks')
+                          ? 'lease'
+                          : 'other'
         )
     const without = buildHarness({
         installed: false,
@@ -369,16 +393,55 @@ test('a sandbox without herdr gets it installed after the CLI; one with it does 
     })
     const res = await without.service.ensureRunner(args(without.exec as never))
     assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.deepEqual(kinds(without), [
-        'inspect',
-        'install',
-        'herdr',
-        'register',
-        'start'
-    ])
-    const withIt = buildHarness({ installed: false, registered: false, herdr: true })
+    assert.deepEqual(
+        kinds(without).filter((k) => k !== 'lease'),
+        ['inspect', 'install', 'herdr', 'register', 'start']
+    )
+    const withIt = buildHarness({
+        installed: false,
+        registered: false,
+        herdr: true
+    })
     await withIt.service.ensureRunner(args(withIt.exec as never))
-    assert.deepEqual(kinds(withIt), ['inspect', 'install', 'register', 'start'])
+    assert.deepEqual(
+        kinds(withIt).filter((k) => k !== 'lease'),
+        ['inspect', 'install', 'register', 'start']
+    )
+})
+
+// The inspect's herdr line, run for real against a sandbox-shaped home: an
+// empty herdr is reported missing, so the bring-up reinstalls it. Seen on prod
+// [2026-09-26]: a 0-byte ~/.local/bin/herdr passed `test -x`, and the daemon
+// probing it died on ENOEXEC at every start.
+test('the inspect counts an empty herdr as missing and a real one as present', async () => {
+    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
+    let script = ''
+    const exec = (a: { cmd: string[]; stdin?: string; timeoutMs: number }) => {
+        if (!script && a.cmd.join(' ').includes('test -x'))
+            script = a.cmd.at(-1)!
+        return h.exec(a)
+    }
+    await h.service.prepareRunner(args(exec as never))
+    const home = mkdtempSync(join(tmpdir(), 'mfr-home-'))
+    const herdr = join(home, '.local', 'bin', 'herdr')
+    mkdirSync(join(home, '.local', 'bin'), { recursive: true })
+    const probe = (): string =>
+        /herdr=(\d)/.exec(
+            execFileSync('bash', ['-c', script], {
+                env: { HOME: home, PATH: '/usr/bin:/bin' },
+                encoding: 'utf8'
+            })
+        )?.[1] ?? '?'
+    try {
+        assert.equal(probe(), '0', 'no herdr')
+        writeFileSync(herdr, '')
+        chmodSync(herdr, 0o755)
+        assert.equal(probe(), '0', 'an empty herdr')
+        writeFileSync(herdr, '#!/bin/sh\n')
+        assert.equal(probe(), '1', 'a real one')
+    } finally {
+        rmSync(home, { recursive: true, force: true })
+    }
 })
 
 // The create path has the VM awake already and does not want to wait the
@@ -472,6 +535,53 @@ test('a runner that never reconnects degrades to null instead of throwing', asyn
     // would fail a turn that has a perfectly good execution path left.
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_unavailable')
+})
+
+// The wait after a start is the one stretch of a bring-up with no exec in
+// flight, and a sprite suspends seconds after the last one: the start is
+// bracketed by the bring-up's own awake lease, dropped once the wait is over
+// either way. Seen on prod [2026-09-26]: the VM went warm three seconds after
+// `runner start` and the daemon only dialled in when a later exec woke it.
+const leaseAround = (cmds: string[]): string => {
+    const hold = cmds.findIndex((c) => c.includes('-X POST /v1/tasks'))
+    const start = cmds.findIndex((c) => c.includes('daemon start'))
+    const release = cmds.findIndex((c) => c.includes('-X DELETE'))
+    assert.ok(
+        hold >= 0 && hold < start,
+        'the lease is requested before the start'
+    )
+    assert.ok(release > start, 'and dropped after it')
+    const name = /\/v1\/tasks\/(mfturn-start-[0-9a-f-]+)/.exec(
+        cmds[release]
+    )?.[1]
+    assert.ok(
+        name && cmds[hold].includes(name),
+        'the release drops that same lease'
+    )
+    return name
+}
+
+test('a bring-up holds the sprite awake across the wait and lets go whether or not the runner connects', async () => {
+    const names: string[] = []
+    for (const onlineAfterStart of [true, false]) {
+        const h = buildHarness({
+            installed: true,
+            registered: true,
+            hostIdUpfront: 'dh_runner',
+            onlineAfterStart
+        })
+        const res = await h.service.ensureRunner(
+            args(h.exec as never, { waitOnlineMs: 50 })
+        )
+        assert.equal(res.handle !== null, onlineAfterStart)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        names.push(leaseAround(h.calls.map((c) => c.cmd)))
+    }
+    assert.notEqual(
+        names[0],
+        names[1],
+        'each bring-up holds a lease of its own'
+    )
 })
 
 test('a failing exec degrades to null', async () => {
@@ -1213,6 +1323,22 @@ const NEW_BUILD = `${DAEMON_MIN_CLI_VERSION}-dev.test`
 const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
     JSON.stringify({ configured: true, localPid: pid, local })
 
+const restartStep = (cmd: string): string =>
+    cmd.includes('daemon status')
+        ? 'status'
+        : cmd.includes('daemon start')
+          ? 'start'
+          : cmd.includes('-X DELETE')
+            ? 'release'
+            : cmd.includes('/v1/tasks')
+              ? 'hold'
+              : 'other'
+const startOf = (calls: string[]): string => {
+    const start = calls.find((c) => c.includes('daemon start'))
+    assert.ok(start, 'a start exec ran')
+    return start
+}
+
 const restartHarness = (opts: {
     clientFeatures?: string[]
     hostRow?: boolean
@@ -1366,8 +1492,14 @@ test('restart: an idle runner on the old build is stopped and started, and count
         versionAfterStart: NEW_BUILD
     })
     assert.equal(await h.restart(), 'restarted')
-    assert.equal(h.calls.length, 2)
-    const start = h.calls[1]
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.deepEqual(h.calls.map(restartStep), [
+        'status',
+        'hold',
+        'start',
+        'release'
+    ])
+    const start = startOf(h.calls)
     assert.match(start, /MF_PROFILE=spriterunner/)
     assert.ok(
         start.indexOf('daemon stop') < start.indexOf('daemon start'),
@@ -1391,7 +1523,7 @@ test('restart: adoptable execs do not make the runner busy, and a capable daemon
         clientFeatures: ['exec.files.v1']
     })
     assert.equal(await h.restart(), 'restarted')
-    assert.match(h.calls[1], /daemon stop --keep-execs/)
+    assert.match(startOf(h.calls), /daemon stop --keep-execs/)
 })
 
 test('restart: an exec that would die with the daemon still keeps the old build, and a daemon without the capability is stopped plainly', async () => {
@@ -1410,8 +1542,8 @@ test('restart: an exec that would die with the daemon still keeps the old build,
         versionAfterStart: NEW_BUILD
     })
     assert.equal(await plain.restart(), 'restarted')
-    assert.match(plain.calls[1], /daemon stop >\/dev\/null/)
-    assert.doesNotMatch(plain.calls[1], /--keep-execs/)
+    assert.match(startOf(plain.calls), /daemon stop >\/dev\/null/)
+    assert.doesNotMatch(startOf(plain.calls), /--keep-execs/)
 })
 
 test('restart: the row still on the old build after the wait is a timeout, with the runner log read for the report', async () => {
@@ -1607,7 +1739,8 @@ test('wake: no process (a cold VM keeps the config) is started and proven by a f
     const res = await h.wake()
     assert.equal(res.outcome, 'restarted')
     assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.ok(h.calls.some((c) => c.includes('daemon start')))
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    leaseAround(h.calls)
 })
 
 test('wake: a silent idle process is restarted; a silent busy one is left alone', async () => {

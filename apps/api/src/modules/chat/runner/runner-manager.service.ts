@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
@@ -559,13 +560,14 @@ export class RunnerManagerService {
             }
             // 'unknown' falls through on purpose: a daemon too old to answer
             // its own control socket is the one a restart helps most.
-            await this.start(args)
-            const reported = await this.waitForCliVersion({
-                userId: args.userId,
-                spriteName: args.spriteName,
-                version: args.installedVersion,
-                waitMs: args.waitMs
-            })
+            const reported = await this.startHeldAwake(args, () =>
+                this.waitForCliVersion({
+                    userId: args.userId,
+                    spriteName: args.spriteName,
+                    version: args.installedVersion,
+                    waitMs: args.waitMs
+                })
+            )
             if (!reported) {
                 const tail = await this.logRunnerTail(args)
                 this.logger.warn(
@@ -670,13 +672,14 @@ export class RunnerManagerService {
                     return { handle: null, outcome: 'busy' }
                 }
             }
-            await this.start(args)
-            const started = await this.waitForLease({
-                userId: args.userId,
-                hostName,
-                since,
-                waitMs: args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
-            })
+            const started = await this.startHeldAwake(args, () =>
+                this.waitForLease({
+                    userId: args.userId,
+                    hostName,
+                    since,
+                    waitMs: args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
+                })
+            )
             if (!started) {
                 const tail = await this.logRunnerTail(args)
                 this.logger.warn(
@@ -1020,8 +1023,9 @@ export class RunnerManagerService {
                     : { handle: null }
             const prepared = await this.installAndRegister(args, state)
             if (prepared !== 'ok') return { handle: null }
-            await this.start(args)
-            let online = await this.waitOnline(args)
+            let online = await this.startHeldAwake(args, () =>
+                this.waitOnline(args)
+            )
             if (!online) {
                 this.logger.warn(
                     `runner did not come online agentId=${args.agentId} sprite=${args.spriteName}`
@@ -1035,8 +1039,9 @@ export class RunnerManagerService {
                         `runner credential rejected, re-registering sprite=${args.spriteName}`
                     )
                     if (!(await this.register(args)).ok) return { handle: null }
-                    await this.start(args)
-                    online = await this.waitOnline(args)
+                    online = await this.startHeldAwake(args, () =>
+                        this.waitOnline(args)
+                    )
                 }
                 if (!online) return { handle: null }
             }
@@ -1081,7 +1086,12 @@ export class RunnerManagerService {
             // keeps whatever CLI it was first given, forever — there is no
             // upgrade path for a binary the platform installed inside a sprite.
             `echo version=$("$HOME/.local/bin/mf" --version 2>/dev/null | tr -d '[:space:]')`,
-            `{ command -v herdr >/dev/null 2>&1 || test -x "$HOME/.local/bin/herdr"; } && echo herdr=1 || echo herdr=0`
+            // Only a non-empty herdr counts, so the install replaces an empty
+            // one. Checked, never run: this is the turn's first exec, and a
+            // herdr that hangs must not read as a dead exec endpoint.
+            // Seen on prod [2026-09-26]: a 0-byte ~/.local/bin/herdr passed
+            // `test -x`, and the daemon probing it died on ENOEXEC every start.
+            `h=$(command -v herdr 2>/dev/null || echo "$HOME/.local/bin/herdr"); test -x "$h" && test -s "$h" && echo herdr=1 || echo herdr=0`
         ].join('; ')
         let res
         try {
@@ -1370,6 +1380,33 @@ export class RunnerManagerService {
         this.logger.log(
             `runner start sprite=${args.spriteName} exit=${res.exitCode} procs=${res.stdout.trim().slice(-4)}`
         )
+    }
+
+    // Start, then wait for the runner to dial in, with the sprite held awake
+    // for the whole wait. Once the start exec returns nothing is running in the
+    // VM, it suspends within seconds, and the daemon freezes before its first
+    // connect: every wait on a start has to hold the sprite itself.
+    // Seen on prod [2026-09-26]: `runner start` at 06:56:23, the sprite warm at
+    // :26, `runner did not come online` at 06:58:24, and the daemon's hello in
+    // that same second, because the log-tail exec had woken the VM.
+    // Measured on prod [2026-09-26]: a fresh daemon needs ~6s running to
+    // connect, and its first start after a CLI upgrade ~60s.
+    // The lease name is per call, so another instance's bring-up on the same
+    // sprite cannot be released from under it.
+    private async startHeldAwake<T>(
+        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName' | 'userId'>,
+        waitFor: () => Promise<T>
+    ): Promise<T> {
+        const hold = this.keepSpriteAwake({
+            exec: args.exec,
+            turnId: `start-${randomUUID()}`
+        })
+        try {
+            await this.start(args)
+            return await waitFor()
+        } finally {
+            void hold.release()
+        }
     }
 
     // The runner's own log is the only place that says WHY it never connected
