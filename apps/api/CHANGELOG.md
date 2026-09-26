@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 7.8.0
+
+### Minor Changes
+
+- [#550](https://github.com/manyfold-open/manyfold/pull/550) [`9e7e87d`](https://github.com/manyfold-open/manyfold/commit/9e7e87dbe867ae61cb311f6828cfa8e4633cb814) Thanks [@yingca1](https://github.com/yingca1)! - Managed model channels now recognise an empty account pool when the gateway reports it as `503 Service temporarily unavailable`, including the plain-text form codex prints. The channel breaker opens on the first such turn, so later turns end at once with the channel-unavailable message instead of each running the CLI's full retry chain against the empty pool.
+
 ## 7.7.0
 
 ### Minor Changes
