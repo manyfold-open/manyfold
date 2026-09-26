@@ -4084,7 +4084,7 @@ const ja: Record<string, string> = {
     'web.updates.subtitle': 'マシン、エージェント、スキルで利用可能なすべてのアップデート。',
     'web.updates.refresh': '再読み込み',
     'web.updates.reviewCta': 'アップデートセンターで確認',
-    'web.updates.updateSelected': '選択项目を更新（{{count}}）',
+    'web.updates.updateSelected': '選択項目を更新（{{count}}）',
     'web.updates.updateOne': '更新',
     'web.updates.selectAll': 'ここから実行できるアップデートをすべて選択',
     'web.updates.selectGroup': '{{name}} グループ内の、ここから実行できるアップデートをすべて選択',

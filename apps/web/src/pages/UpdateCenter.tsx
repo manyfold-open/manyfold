@@ -35,6 +35,7 @@ import {
     buildUpdateRows,
     filterRowsByKind,
     groupUpdateRows,
+    liveSelection,
     parseKindParam,
     planBatch,
     selectionState,
@@ -338,16 +339,12 @@ const UpdateCenter: FC = (): ReactNode => {
 
     // A row that finished, or vanished because its update landed, must not stay
     // selected — the next batch would then plan work for an id nobody renders.
+    // Nor may one that can no longer be run from here (liveSelection).
     // A pick is dropped on the same event, plus when the refreshed catalog no
     // longer offers it: a release withdrawn mid-session would otherwise leave
     // the row pointing at a version the server will refuse.
     useEffect(() => {
-        setSelected((prev) => {
-            if (prev.size === 0) return prev
-            const live = new Set(allRows.filter((r) => r.materialization?.status !== 'installing').map((r) => r.id))
-            const next = new Set([...prev].filter((id) => live.has(id)))
-            return next.size === prev.size ? prev : next
-        })
+        setSelected((prev) => liveSelection(prev, allRows))
         setTargets((prev) => {
             const entries = Object.entries(prev)
             if (entries.length === 0) return prev
@@ -574,7 +571,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                     <th className='px-3 py-2 font-medium'>
                                         {t('web.updates.colStatus')}
                                     </th>
-                                    <th className='px-3 py-2 text-right font-medium'>
+                                    <th className='px-3 py-2 text-end font-medium'>
                                         <span className='sr-only'>
                                             {t('web.updates.colAction')}
                                         </span>
@@ -639,7 +636,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                             <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
-                                                    className='ml-auto w-16'
+                                                    className='ms-auto w-16'
                                                 />
                                             </td>
                                         </tr>
@@ -824,7 +821,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                                         }
                                                                     />
                                                                 </td>
-                                                                <td className='px-3 py-2 text-right align-middle'>
+                                                                <td className='px-3 py-2 text-end align-middle'>
                                                                     <RowAction
                                                                         row={
                                                                             row

@@ -641,6 +641,29 @@ export const toggleSelection = (
     return next
 }
 
+// Only a row that can still be run from here stays selected after the rows are
+// rebuilt. One that stopped being runnable, like a machine that went offline,
+// would otherwise stay checked behind a disabled box that cannot clear it, and
+// count towards a batch that skips it. The same set comes back when nothing
+// drops, so the state update is a no-op.
+export const liveSelection = (
+    selected: Set<string>,
+    rows: UpdateRow[]
+): Set<string> => {
+    if (selected.size === 0) return selected
+    const live = new Set(
+        rows
+            .filter(
+                (row) =>
+                    row.blocker === null &&
+                    row.materialization?.status !== 'installing'
+            )
+            .map((row) => row.id)
+    )
+    const next = new Set([...selected].filter((id) => live.has(id)))
+    return next.size === selected.size ? selected : next
+}
+
 export type BatchStep =
     // One call covers many agents, so selecting the same skill on twelve agents
     // is twelve rows but one request.

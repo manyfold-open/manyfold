@@ -21,6 +21,7 @@ import {
     filterRowsByKind,
     groupUpdateRows,
     kindParamOf,
+    liveSelection,
     parseKindParam,
     planBatch,
     selectionState,
@@ -694,6 +695,66 @@ test('clicking a fully selected group clears it and leaves other groups selected
     // The input is React state: mutating it would skip the re-render that
     // re-applies the box's indeterminate flag.
     assert.deepEqual([...selected].sort(), ['a', 'b', 'x'])
+})
+
+test('a selected row drops out once it can no longer be run from here', () => {
+    const offline = makeHost({ name: 'Gone offline' })
+    const byHand = makeHost({ name: 'Now by hand' })
+    const kept = makeHost({ name: 'Still here' })
+    const selected = new Set(
+        build({ daemonHosts: [offline, byHand, kept] }).map((row) => row.id)
+    )
+    // Otherwise it stays checked behind a disabled box nothing can clear, and
+    // counts towards a batch that skips it.
+    const after = build({
+        daemonHosts: [
+            { ...offline, online: false },
+            { ...byHand, canRemoteUpgrade: false },
+            kept
+        ]
+    })
+    assert.deepEqual(
+        [...liveSelection(selected, after)],
+        [`cli:daemon:${kept.id}`]
+    )
+})
+
+test('a selected row drops out when its update lands or it starts installing', () => {
+    const landed = makeSkill()
+    const installing = makeSkill()
+    const failed = makeSkill()
+    const selected = new Set(
+        build({
+            skillGroups: [
+                skillGroup('agt_1', 'Alpha', [landed, installing, failed])
+            ]
+        }).map((row) => row.id)
+    )
+    const after = build({
+        skillGroups: [
+            skillGroup('agt_1', 'Alpha', [
+                { ...landed, installedRevision: landed.latestRevision },
+                { ...installing, materializeStatus: 'installing' },
+                // A failed install stays selectable: running it again retries.
+                {
+                    ...failed,
+                    materializeStatus: 'failed',
+                    materializeError: 'boom'
+                }
+            ])
+        ]
+    })
+    assert.deepEqual(
+        [...liveSelection(selected, after)],
+        [`skill:agt_1:${failed.skillId}`]
+    )
+})
+
+test('a selection with nothing to drop comes back as the same set', () => {
+    const rows = build({ daemonHosts: [makeHost()] })
+    const selected = new Set(rows.map((row) => row.id))
+    // Identity is what lets React skip the render.
+    assert.equal(liveSelection(selected, rows), selected)
 })
 
 test('every kind survives a round trip through the url parameter', () => {
