@@ -233,7 +233,8 @@ export class TerminalHerdrService {
                     resume,
                     await this.daemon.prepareAntigravityView(
                         host.id,
-                        resume.env
+                        resume.env,
+                        agent.workspacePath ?? agent.mountPath ?? null
                     )
                 )
             } catch (err) {

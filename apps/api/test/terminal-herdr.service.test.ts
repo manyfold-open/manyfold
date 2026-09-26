@@ -66,7 +66,8 @@ const harness = (
         ) => Promise<string>
         prepareAntigravityView?: (
             daemonId: string,
-            env: Record<string, string>
+            env: Record<string, string>,
+            cwd: string | null
         ) => Promise<string>
         // The sprites arm: the sandbox row and what resolving its runner
         // gives; absent, the service was built without those services.
@@ -83,7 +84,8 @@ const harness = (
     const finished: Array<[string, string]> = []
     const opens: Array<Record<string, unknown>> = []
     const focuses: Array<[string, string]> = []
-    const prepares: Array<[string, Record<string, string>]> = []
+    const prepares: Array<[string, Record<string, string>, (string | null)?]> =
+        []
     const agent = { ...AGENT, ...overrides.agent }
     const host = overrides.host === null ? null : { ...HOST, ...overrides.host }
     const session =
@@ -167,11 +169,12 @@ const harness = (
             },
             prepareAntigravityView: async (
                 daemonId: string,
-                env: Record<string, string>
+                env: Record<string, string>,
+                cwd: string | null
             ) => {
-                prepares.push([daemonId, env])
+                prepares.push([daemonId, env, cwd])
                 return overrides.prepareAntigravityView
-                    ? overrides.prepareAntigravityView(daemonId, env)
+                    ? overrides.prepareAntigravityView(daemonId, env, cwd)
                     : '--app_data_dir=../.manyfold/antigravity-cli/rt-1/app'
             }
         } as never,
@@ -689,6 +692,8 @@ test('a sandbox agy on the platform key starts in herdr as agy, on the view the 
     assert.equal(h.prepares.length, 1)
     assert.equal(h.prepares[0][0], 'dh-runner')
     assert.equal(h.prepares[0][1].MF_AGY_VIEW, 'rt-1')
+    // In the folder herdr starts agy in, which the view then trusts.
+    assert.equal(h.prepares[0][2], '/home/me/ws')
     const resume = h.opens[0].resume as {
         command: string[]
         env: Record<string, string>

@@ -306,14 +306,17 @@ export class DaemonTerminal {
     }
 
     // The agy twin: build the view (antigravityPlatformViewPrepare) and
-    // return the flag that points herdr's agy at it.
+    // return the flag that points herdr's agy at it. It runs in the folder
+    // herdr starts agy in, which the view's settings then trust.
     async prepareAntigravityView(
         daemonId: string,
-        resumeEnv: Record<string, string>
+        resumeEnv: Record<string, string>,
+        cwd: string | null
     ): Promise<string> {
         const { exitCode, last, stderr } = await this.runViewPrepare(
             daemonId,
-            antigravityPlatformViewPrepare(resumeEnv)
+            antigravityPlatformViewPrepare(resumeEnv),
+            cwd
         )
         if (exitCode !== 0 || !last.startsWith('--app_data_dir='))
             throw new BadGatewayException({
@@ -327,7 +330,8 @@ export class DaemonTerminal {
     // line is what it reports.
     private async runViewPrepare(
         daemonId: string,
-        prepare: { cmd: string[]; env: Record<string, string> }
+        prepare: { cmd: string[]; env: Record<string, string> },
+        cwd: string | null = null
     ): Promise<{ exitCode: number; last: string; stderr: string }> {
         let stdout = ''
         let stderr = ''
@@ -337,6 +341,7 @@ export class DaemonTerminal {
             payload: {
                 cmd: prepare.cmd,
                 env: prepare.env,
+                ...(cwd ? { cwd } : {}),
                 timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
             },
             timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS + 5_000,

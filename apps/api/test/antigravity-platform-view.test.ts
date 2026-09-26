@@ -9,7 +9,9 @@ import {
     mkdtempSync,
     readFileSync,
     readlinkSync,
+    realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -36,7 +38,9 @@ const lab = () => {
     const root = mkdtempSync(join(tmpdir(), 'mf-agy-view-'))
     const home = join(root, 'home')
     const bin = join(root, 'bin')
+    const workspace = join(root, 'workspace')
     const native = join(home, '.gemini', 'antigravity-cli')
+    mkdirSync(workspace, { recursive: true })
     mkdirSync(join(native, 'brain', 'conv-1'), { recursive: true })
     mkdirSync(join(native, 'conversations'), { recursive: true })
     mkdirSync(bin, { recursive: true })
@@ -45,7 +49,7 @@ const lab = () => {
     writeFileSync(join(native, 'keybindings.json'), '{}')
     writeFileSync(join(bin, 'agy'), FAKE_AGY)
     chmodSync(join(bin, 'agy'), 0o755)
-    return { root, home, bin, native }
+    return { root, home, bin, workspace, native }
 }
 
 const run = (
@@ -54,9 +58,18 @@ const run = (
     agyArgs: string[] = ['--output-format', 'stream-json']
 ) =>
     spawnSync('bash', ['-c', AGY_PLATFORM_VIEW_SCRIPT, 'agy', ...agyArgs], {
+        cwd: l.workspace,
         env: { HOME: l.home, PATH: `${l.bin}:/usr/bin:/bin`, ...env },
         input: 'the prompt',
         encoding: 'utf8'
+    })
+
+// API-key mode, and the folder agy runs in as trusted (bash reports the
+// physical path, as agy then sees it).
+const viewSettings = (dir: string) =>
+    JSON.stringify({
+        modelProvider: 'gemini',
+        trustedWorkspaces: [realpathSync(dir)]
     })
 
 const viewOf = (l: ReturnType<typeof lab>, id = 'art_1') =>
@@ -79,14 +92,14 @@ test('agy runs on the view, pointed at it relative to its ~/.gemini', () => {
     }
 })
 
-test('the view owns only the settings that turn API-key mode on', () => {
+test('the view owns only its settings: API-key mode and the folder agy runs in', () => {
     const l = lab()
     try {
         run(l, { MF_AGY_VIEW: 'art_1' })
         const view = viewOf(l)
         assert.equal(
             readFileSync(join(view, 'settings.json'), 'utf8'),
-            '{"modelProvider":"gemini"}'
+            viewSettings(l.workspace)
         )
         assert.equal(
             lstatSync(join(view, 'settings.json')).isSymbolicLink(),
@@ -129,7 +142,7 @@ test('a rebuild drops what agy wrote into the view and repairs a broken link', (
         assert.equal(readlinkSync(join(view, 'brain')), join(l.native, 'brain'))
         assert.equal(
             readFileSync(join(view, 'settings.json'), 'utf8'),
-            '{"modelProvider":"gemini"}'
+            viewSettings(l.workspace)
         )
     } finally {
         rmSync(l.root, { recursive: true, force: true })
@@ -152,6 +165,86 @@ test('the machine’s Google sign-in never enters the view', () => {
         assert.equal(
             readFileSync(join(l.native, 'antigravity-oauth-token'), 'utf8'),
             'machine'
+        )
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
+test('a trusted folder is written as JSON, and one that is not plain text is left to agy', () => {
+    const l = lab()
+    try {
+        const odd = join(l.root, 'it\'s "odd" \\ here')
+        mkdirSync(odd)
+        const quoted = spawnSync(
+            'bash',
+            ['-c', AGY_PLATFORM_VIEW_SCRIPT, 'agy'],
+            {
+                cwd: odd,
+                env: {
+                    HOME: l.home,
+                    PATH: `${l.bin}:/usr/bin:/bin`,
+                    MF_AGY_VIEW: 'art_1'
+                },
+                input: '',
+                encoding: 'utf8'
+            }
+        )
+        assert.equal(quoted.status, 0, quoted.stderr)
+        const settings = JSON.parse(
+            readFileSync(join(viewOf(l), 'settings.json'), 'utf8')
+        ) as { modelProvider: string; trustedWorkspaces: string[] }
+        assert.equal(settings.modelProvider, 'gemini')
+        assert.deepEqual(settings.trustedWorkspaces, [realpathSync(odd)])
+
+        const control = join(l.root, 'line\nbreak')
+        mkdirSync(control)
+        const plain = spawnSync(
+            'bash',
+            ['-c', AGY_PLATFORM_VIEW_SCRIPT, 'agy'],
+            {
+                cwd: control,
+                env: {
+                    HOME: l.home,
+                    PATH: `${l.bin}:/usr/bin:/bin`,
+                    MF_AGY_VIEW: 'art_1'
+                },
+                input: '',
+                encoding: 'utf8'
+            }
+        )
+        assert.equal(plain.status, 0, plain.stderr)
+        assert.equal(
+            readFileSync(join(viewOf(l), 'settings.json'), 'utf8'),
+            '{"modelProvider":"gemini"}'
+        )
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
+test('settings that turned into a link are a file of the view’s own again', () => {
+    const l = lab()
+    try {
+        run(l, { MF_AGY_VIEW: 'art_1' })
+        const view = viewOf(l)
+        writeFileSync(
+            join(l.native, 'settings.json'),
+            viewSettings(l.workspace)
+        )
+        rmSync(join(view, 'settings.json'))
+        symlinkSync(
+            join(l.native, 'settings.json'),
+            join(view, 'settings.json')
+        )
+        run(l, { MF_AGY_VIEW: 'art_1' })
+        assert.equal(
+            lstatSync(join(view, 'settings.json')).isSymbolicLink(),
+            false
+        )
+        assert.equal(
+            readFileSync(join(view, 'settings.json'), 'utf8'),
+            viewSettings(l.workspace)
         )
     } finally {
         rmSync(l.root, { recursive: true, force: true })
@@ -187,6 +280,7 @@ test('prepare-only builds the view and prints the flag, without running agy', ()
     try {
         const prepare = antigravityPlatformViewPrepare({ MF_AGY_VIEW: 'art_1' })
         const result = spawnSync(prepare.cmd[0], prepare.cmd.slice(1), {
+            cwd: l.workspace,
             env: {
                 HOME: l.home,
                 PATH: `${l.bin}:/usr/bin:/bin`,
@@ -202,7 +296,7 @@ test('prepare-only builds the view and prints the flag, without running agy', ()
         assert.equal(existsSync(join(l.home, 'agy-saw.txt')), false)
         assert.equal(
             readFileSync(join(viewOf(l), 'settings.json'), 'utf8'),
-            '{"modelProvider":"gemini"}'
+            viewSettings(l.workspace)
         )
     } finally {
         rmSync(l.root, { recursive: true, force: true })

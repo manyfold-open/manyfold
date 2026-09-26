@@ -35,6 +35,13 @@ const AGY_PLATFORM_VIEW_PREPARE_ENV = 'MF_AGY_VIEW_PREPARE'
    by agy either way. The rebuild is serialized per runtime by a mkdir lock
    beside the view, taken over after about five seconds.
 
+   agy's TUI asks before it works in a folder, --dangerously-skip-permissions
+   or not, and records the answer in settings.json, which the view rewrites
+   at every start (measured on agy 1.2.11 [2026-09-26]). So the view's
+   settings name the folder agy runs in as trusted, as a user would answer
+   for their agent's workspace; a path that is not plain printable text is
+   left to the prompt.
+
    `bash -c <script> agy <args…>`: $0 is agy, "$@" its arguments, and `exec`
    keeps the process, its signals, stdin and exit code exactly what running
    agy directly gave. */
@@ -82,8 +89,13 @@ for link in "$view"/* "$view"/.[!.]* "$view"/..?*; do
     [ -L "$link" ] && { [ -e "$native/$name" ] || [ -L "$native/$name" ]; } && continue
     rm -rf "$link"
 done
-if [ "$(cat "$view/settings.json" 2>/dev/null)" != '{"modelProvider":"gemini"}' ]; then
-    printf '{"modelProvider":"gemini"}' > "$own/settings.json.$$" &&
+want='{"modelProvider":"gemini"}'
+case "$PWD" in
+    *[![:print:]]*) ;;
+    /*) want='{"modelProvider":"gemini","trustedWorkspaces":["'"$(printf '%s' "$PWD" | sed 's/[\\\\"]/\\\\&/g')"'"]}' ;;
+esac
+if [ -L "$view/settings.json" ] || [ "$(cat "$view/settings.json" 2>/dev/null)" != "$want" ]; then
+    printf '%s' "$want" > "$own/settings.json.$$" &&
         mv -f "$own/settings.json.$$" "$view/settings.json" || fail
 fi
 rmdir "$own/rebuild.lock" 2>/dev/null
@@ -125,7 +137,8 @@ export const antigravityPlatformExec = (args: {
 // herdr starts agy itself — its `agy` agent kind runs the binary by name — so
 // the view cannot wrap it as it wraps a turn or a browser TUI. The same script
 // builds the view first and, asked to prepare only, prints the flag that
-// points agy at it; herdr's agy then gets that flag and the resume's env.
+// points agy at it; herdr's agy then gets that flag and the resume's env. It
+// runs in the folder herdr starts agy in, the one the view's settings trust.
 export const antigravityPlatformViewPrepare = (
     env: Record<string, string>
 ): { cmd: string[]; env: Record<string, string> } => ({
