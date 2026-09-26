@@ -29,7 +29,7 @@ import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
 import { forkTranscriptPrompt } from './fork-transcript-prompt'
 import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
+import { classifyCodexTerminalFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
 import { classifyCodexProviderFailure } from '@/modules/chat/codex-provider-failure'
 import {
@@ -553,15 +553,11 @@ export class CodexAdapter implements ApiChatAdapter {
                 terminalError ||
                 codexStreamError ||
                 ''
-            const status = /(?:^|\s)unexpected status 503(?:\s|$)/.test(
-                failureDetail
-            )
-                ? 503
-                : null
-            const managedChannelFailure = classifyManagedChannelFailureSignal({
-                status,
-                message: failureDetail
-            })
+            // The gateway's refusal is codex's verdict, so it is read off the
+            // turn.failed line alone: stderr is empty for it, and the retry
+            // lines before it are diagnostics.
+            const managedChannelFailure =
+                classifyCodexTerminalFailureSignal(terminalError)
             // Even an unclassified turn.failed owns the provider verdict;
             // stale retry diagnostics must not override a permanent terminal.
             const providerFailure =
@@ -572,9 +568,8 @@ export class CodexAdapter implements ApiChatAdapter {
                               codexStreamError ?? ''
                           ) ?? classifyCodexProviderFailure(execResult.stderr))
                     : null
-            const terminalDetail = managedChannelFailure
-                ? failureDetail
-                : (providerFailure?.message ?? terminalError ?? failureDetail)
+            const terminalDetail =
+                providerFailure?.message ?? terminalError ?? failureDetail
             if (
                 ctx.frameworkSessionRef &&
                 isCodexResumeLoadFailure(terminalDetail)

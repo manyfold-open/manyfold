@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { runAdapterWire } from './adapter-wire-harness'
+import { CODEX_POOL_EMPTY_TERMINAL } from './managed-pool-empty-sample'
 import { normalizeChatErrorPayload } from '../src/modules/chat/chat-failure-cause'
 import { buildTelemetryCaptureOptions } from '../src/sentry-grouping'
 
@@ -188,20 +189,40 @@ test('a permanent terminal owns the verdict even when stderr ends with an older 
     }
 })
 
-test('the existing managed-pool signal keeps precedence over a transient provider diagnostic', async () => {
+test('the managed-pool signal keeps precedence over a transient provider diagnostic', async () => {
     const { events } = await runAdapterWire(
         'codex',
-        line({ type: 'turn.failed', error: { message: overload } }),
-        {
-            exitCode: 1,
-            stderr: 'unexpected status 503 {"error":{"code":503,"message":"No available Gemini accounts: no available accounts"}}'
-        }
+        line({ type: 'error', message: overload }) +
+            line({
+                type: 'turn.failed',
+                error: { message: CODEX_POOL_EMPTY_TERMINAL }
+            }),
+        { exitCode: 1, stderr: overload }
     )
     const event = events.find((event) => event.type === 'error')
     assert.ok(event?.type === 'error')
     assert.equal(event.managedChannelFailure, 'account_pool_empty')
     assert.equal(event.error.code, 'codex_exec_failed')
     assert.equal(event.error.retryable, false)
+})
+
+// The other way round, the pool refusal is the diagnostic: a later attempt in
+// the retry ladder reached the provider and failed there, so the pool was not
+// empty when codex gave its verdict.
+test('a pool refusal in the retry ladder does not outrank the terminal verdict', async () => {
+    const { events } = await runAdapterWire(
+        'codex',
+        line({
+            type: 'error',
+            message: `Reconnecting... 1/5 (${CODEX_POOL_EMPTY_TERMINAL})`
+        }) + line({ type: 'turn.failed', error: { message: overload } }),
+        { exitCode: 1 }
+    )
+    const event = events.find((event) => event.type === 'error')
+    assert.ok(event?.type === 'error')
+    assert.equal(event.managedChannelFailure, undefined)
+    assert.equal(event.error.code, 'codex_provider_overloaded')
+    assert.equal(event.error.retryable, true)
 })
 
 test('Codex overload text in a successful turn does not create a failure or replay', async () => {
