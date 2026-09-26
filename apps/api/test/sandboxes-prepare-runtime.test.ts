@@ -163,7 +163,8 @@ test('a coding CLI gets its runtime at the resolved version; no runner is starte
             hostId: 'sbx_1',
             frameworkVersion: '2.1.300',
             frameworkVersionSource: 'latest',
-            frameworkRepo: null
+            frameworkRepo: null,
+            frameworkArtifacts: null
         }
     ])
     assert.equal(h.calls.inserted.length, 0)
