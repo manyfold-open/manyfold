@@ -415,8 +415,8 @@ const commandVersion = (cmd: string): Promise<string | null> =>
                 stdio: ['ignore', 'pipe', 'pipe']
             })
         } catch {
-            // A file the kernel refuses to exec (ENOEXEC for a 0-byte one)
-            // throws here instead of emitting 'error', under Node and Bun alike.
+            // A failed exec throws here instead of emitting 'error' (ENOEXEC
+            // for a 0-byte file under Bun, which the shipped daemon is).
             resolveVersion(null)
             return
         }

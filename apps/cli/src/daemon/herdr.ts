@@ -126,9 +126,9 @@ const runHerdr = (
         try {
             child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
         } catch (err) {
-            // A file the kernel refuses to exec (ENOEXEC for a 0-byte one)
-            // throws here instead of emitting 'error', under Node and Bun
-            // alike, and took the daemon start that probes herdr down with it.
+            // A failed exec throws here instead of emitting 'error' (ENOEXEC
+            // for a 0-byte file under Bun, which the shipped daemon is), and
+            // took the daemon start that probes herdr down with it.
             resolve({
                 exitCode: null,
                 stdout: '',
