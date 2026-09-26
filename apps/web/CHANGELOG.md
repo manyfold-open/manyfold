@@ -1,5 +1,19 @@
 # @manyfold/web
 
+## 2.9.0
+
+### Minor Changes
+
+- [#505](https://github.com/manyfold-open/manyfold/pull/505) [`2bf2163`](https://github.com/manyfold-open/manyfold/commit/2bf2163383203952839872211b977d2e7a8cbf66) Thanks [@yingca1](https://github.com/yingca1)! - Add a shared Claude Code/Codex plugin for mf-powered platform operations,
+  skill-maintained workbench route rules, and live resource updates in
+  the workbench across API instances. Unify the standalone and plugin
+  manyfold-cli-usage skill, with identity-aware guidance and complete
+  reference bundles while retaining its default-install identity.
+
+    Refresh channels, installed and library skills, connections, agents and model
+    configuration, API-managed files, and backups through account-scoped events.
+    Preserve open form drafts and file navigation while catching up after reconnects.
+
 ## 2.8.0
 
 ### Minor Changes

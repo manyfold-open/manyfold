@@ -1,5 +1,31 @@
 # @manyfold/cli
 
+## 4.8.0
+
+### Minor Changes
+
+- [#556](https://github.com/manyfold-open/manyfold/pull/556) [`8cc4d50`](https://github.com/manyfold-open/manyfold/commit/8cc4d508dd09a88a50aee3783122603f43e9971c) Thanks [@yingca1](https://github.com/yingca1)! - The ask permission mode works again for OpenClaw turns on openclaw 2026.8.1 and later. Those releases reject the session's `execAsk` field, and the daemon used to drop that failure silently, so ask-mode turns ran with no command approvals and also lost the model picked for the message. For each ask-mode turn, the daemon now puts the OpenClaw session into openclaw's `guarded` permission mode: commands outside the allowlist need your approval, and file tools stay inside the session root. It clears that mode before the turn ends, so the next turn without ask mode runs as before. If the gateway rejects the session update (openclaw before 2026.8.1 does not know `permissionMode`), the turn now fails with the gateway's message instead of running without approvals or with a different model.
+
+- [#556](https://github.com/manyfold-open/manyfold/pull/556) [`8cc4d50`](https://github.com/manyfold-open/manyfold/commit/8cc4d508dd09a88a50aee3783122603f43e9971c) Thanks [@yingca1](https://github.com/yingca1)! - The daemon now waits for the local OpenClaw gateway to answer before it starts an OpenClaw turn. `openclaw acp` and `openclaw gateway call` do not retry a refused connection, so a turn that arrived while the gateway was still booting failed within seconds, or ran without its model choice. The wait uses the turn's handshake budget (30 seconds by default). If the gateway still has not answered, the turn fails with `openclaw gateway did not answer on port <port> within <n>ms`, and nothing dials the gateway.
+
+- [#555](https://github.com/manyfold-open/manyfold/pull/555) [`f026526`](https://github.com/manyfold-open/manyfold/commit/f0265269119d2c209d501ebb13a37ee8d4112e63) Thanks [@yingca1](https://github.com/yingca1)! - A turn on a sandbox whose runner has to be started no longer fails with "Chat runner unavailable" because the sandbox went to sleep while the runner was connecting. The sandbox is now kept awake from the moment its runner starts until the runner connects, whether a turn started it, a sign-in on the runtime page woke it, or an mf CLI upgrade restarted it. The first start after a CLI upgrade can take about a minute.
+
+    A daemon no longer exits at startup when a herdr or coding CLI binary it finds cannot be executed, such as an empty file left behind by an interrupted install; that binary is reported without a version instead. A sandbox with an empty herdr gets herdr reinstalled the next time its runner starts, and a herdr update that cannot run herdr at all now says so instead of reporting a timeout.
+
+### Patch Changes
+
+- [#553](https://github.com/manyfold-open/manyfold/pull/553) [`c22ee13`](https://github.com/manyfold-open/manyfold/commit/c22ee132083522c0836b766ad0131c66d1ae2f4d) Thanks [@yingca1](https://github.com/yingca1)! - Harden A2A calls: invalidate peer tickets when their owner is deactivated, recover task results after a server restart, block DNS rebinding, and preserve concurrent agent configuration updates. Apply CLI send deadlines to discovery and streaming, report remote cancellation consistently, retain input and authentication prompts, and preserve HTTP error status and reasons.
+
+- [#505](https://github.com/manyfold-open/manyfold/pull/505) [`2bf2163`](https://github.com/manyfold-open/manyfold/commit/2bf2163383203952839872211b977d2e7a8cbf66) Thanks [@yingca1](https://github.com/yingca1)! - Add a shared Claude Code/Codex plugin for mf-powered platform operations,
+  skill-maintained workbench route rules, and live resource updates in
+  the workbench across API instances. Unify the standalone and plugin
+  manyfold-cli-usage skill, with identity-aware guidance and complete
+  reference bundles while retaining its default-install identity.
+
+    Refresh channels, installed and library skills, connections, agents and model
+    configuration, API-managed files, and backups through account-scoped events.
+    Preserve open form drafts and file navigation while catching up after reconnects.
+
 ## 4.7.0
 
 ### Minor Changes

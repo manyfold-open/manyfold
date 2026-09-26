@@ -1,5 +1,31 @@
 # @manyfold/api
 
+## 7.9.0
+
+### Minor Changes
+
+- [#505](https://github.com/manyfold-open/manyfold/pull/505) [`2bf2163`](https://github.com/manyfold-open/manyfold/commit/2bf2163383203952839872211b977d2e7a8cbf66) Thanks [@yingca1](https://github.com/yingca1)! - Add a shared Claude Code/Codex plugin for mf-powered platform operations,
+  skill-maintained workbench route rules, and live resource updates in
+  the workbench across API instances. Unify the standalone and plugin
+  manyfold-cli-usage skill, with identity-aware guidance and complete
+  reference bundles while retaining its default-install identity.
+
+    Refresh channels, installed and library skills, connections, agents and model
+    configuration, API-managed files, and backups through account-scoped events.
+    Preserve open form drafts and file navigation while catching up after reconnects.
+
+- [#555](https://github.com/manyfold-open/manyfold/pull/555) [`f026526`](https://github.com/manyfold-open/manyfold/commit/f0265269119d2c209d501ebb13a37ee8d4112e63) Thanks [@yingca1](https://github.com/yingca1)! - A turn on a sandbox whose runner has to be started no longer fails with "Chat runner unavailable" because the sandbox went to sleep while the runner was connecting. The sandbox is now kept awake from the moment its runner starts until the runner connects, whether a turn started it, a sign-in on the runtime page woke it, or an mf CLI upgrade restarted it. The first start after a CLI upgrade can take about a minute.
+
+    A daemon no longer exits at startup when a herdr or coding CLI binary it finds cannot be executed, such as an empty file left behind by an interrupted install; that binary is reported without a version instead. A sandbox with an empty herdr gets herdr reinstalled the next time its runner starts, and a herdr update that cannot run herdr at all now says so instead of reporting a timeout.
+
+- [#556](https://github.com/manyfold-open/manyfold/pull/556) [`8cc4d50`](https://github.com/manyfold-open/manyfold/commit/8cc4d508dd09a88a50aee3783122603f43e9971c) Thanks [@yingca1](https://github.com/yingca1)! - Upgrading OpenClaw's version on a sprite now restarts its gateway onto the new version. sprites.dev has no service restart endpoint: the upgrade installed the new binary, then failed with a 404 and left the gateway running the old version. It now stops the service and starts it again, and it reports an error instead of claiming a restart if sprites.dev refuses to stop the service.
+
+- [#556](https://github.com/manyfold-open/manyfold/pull/556) [`8cc4d50`](https://github.com/manyfold-open/manyfold/commit/8cc4d508dd09a88a50aee3783122603f43e9971c) Thanks [@yingca1](https://github.com/yingca1)! - OpenClaw turns on sprites are no longer refused with `openclaw_daemon_gateway_unavailable` when the sprite has just woken up. A sprite's gateway is a service the platform runs, like a cloud computer's, so only a BYOD daemon's heartbeat probe can refuse a turn now. A sprite runner takes that probe as it connects, a few seconds before the gateway it woke with starts answering, so the probe said the gateway was down when it was only booting.
+
+### Patch Changes
+
+- [#553](https://github.com/manyfold-open/manyfold/pull/553) [`c22ee13`](https://github.com/manyfold-open/manyfold/commit/c22ee132083522c0836b766ad0131c66d1ae2f4d) Thanks [@yingca1](https://github.com/yingca1)! - Harden A2A calls: invalidate peer tickets when their owner is deactivated, recover task results after a server restart, block DNS rebinding, and preserve concurrent agent configuration updates. Apply CLI send deadlines to discovery and streaming, report remote cancellation consistently, retain input and authentication prompts, and preserve HTTP error status and reasons.
+
 ## 7.8.0
 
 ### Minor Changes
