@@ -286,19 +286,40 @@ export const buildNpmLatestInstallShell = (
         safeNpmVersionSpec(BUILTIN_BLOCKED_FRAMEWORK_VERSIONS[descriptor.framework])
     )
 
-const envPrefix = (
+const envAssignments = (
     env: Readonly<Record<string, string>> | undefined
-): string =>
-    Object.entries(env ?? {})
-        .map(([name, value]) => {
-            if (
-                !/^[A-Z][A-Z0-9_]*$/.test(name) ||
-                !/^[A-Za-z0-9._-]*$/.test(value)
-            )
-                throw new Error(`unsafe binary env ${name}`)
-            return `${name}=${value} `
-        })
+): string[] =>
+    Object.entries(env ?? {}).map(([name, value]) => {
+        if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !/^[A-Za-z0-9._-]*$/.test(value))
+            throw new Error(`unsafe binary env ${name}`)
+        return `${name}=${value}`
+    })
+
+const envPrefix = (env: Readonly<Record<string, string>> | undefined): string =>
+    envAssignments(env)
+        .map((assignment) => `${assignment} `)
         .join('')
+
+// What PATH resolves to. A binary's env belongs to running it at all, not
+// only to the version check: agy starts its self-updater from any command,
+// and a managed host keeps the version the platform installed, a terminal
+// user's `agy` included. So a binary with env gets a launcher beside it that
+// exports that env and execs it, with the binary's path quoted in.
+const launcherLines = (
+    env: Readonly<Record<string, string>> | undefined
+): string[] => {
+    const assignments = envAssignments(env)
+    if (assignments.length === 0) return ['entry="$candidate"']
+    return [
+        'entry="$staging/launch"',
+        `printf '#!/bin/sh\\n' > "$entry"`,
+        ...assignments.map(
+            (assignment) => `printf 'export %s\\n' '${assignment}' >> "$entry"`
+        ),
+        `printf 'exec %s "$@"\\n' "'$(printf '%s' "$candidate" | sed "s/'/'\\\\\\\\''/g")'" >> "$entry"`,
+        'chmod 0755 "$entry"'
+    ]
+}
 
 // Shell (for `bash -lc`) that installs a 'binary' framework at an exact
 // release: the Linux tarball for this host's architecture, checked against the
@@ -355,7 +376,8 @@ export const buildBinaryInstallShell = (
         `out="$(${envPrefix(binary.env)}"$candidate" --version 2>&1)" || { echo "candidate ${bin} failed to run: $out" >&2; exit 1; }`,
         `got="$(printf '%s\\n' "$out" | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n1)"`,
         `[ "$got" = "${expected}" ] || { echo "staged ${bin} reports \${got:-no version}, expected ${expected}" >&2; exit 1; }`,
-        `ln -s "$candidate" "$staging.link"`,
+        ...launcherLines(binary.env),
+        `ln -s "$entry" "$staging.link"`,
         `mv -Tf "$staging.link" "$HOME/.local/bin/${bin}"`,
         'trap - EXIT',
         'hash -r',

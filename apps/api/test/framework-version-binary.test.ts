@@ -207,9 +207,9 @@ const linuxOnly =
         ? false
         : 'needs GNU coreutils (mv -T, sha256sum) as on a Linux host'
 
-const installLab = (candidateVersion: string) => {
+const installLab = (candidateVersion: string, homeName = 'home') => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'binary-install-')))
-    const home = join(root, 'home')
+    const home = join(root, homeName)
     const fake = join(root, 'fakebin')
     const pack = join(root, 'pack')
     mkdirSync(home, { recursive: true })
@@ -217,7 +217,7 @@ const installLab = (candidateVersion: string) => {
     mkdirSync(pack, { recursive: true })
     writeFileSync(
         join(pack, 'fixture-cli'),
-        `#!/bin/sh\n[ "$FIXCLI_NO_UPDATE" = true ] || { echo "updater on" >&2; exit 9; }\necho "fixture-cli ${candidateVersion}"\n`
+        `#!/bin/sh\n[ "$FIXCLI_NO_UPDATE" = true ] || { echo "updater on" >&2; exit 9; }\n[ "$1" = --version ] || { printf '%s|' "$@"; exit 7; }\necho "fixture-cli ${candidateVersion}"\n`
     )
     chmodSync(join(pack, 'fixture-cli'), 0o755)
     const tarball = join(root, 'asset.tar.gz')
@@ -245,7 +245,7 @@ const installLab = (candidateVersion: string) => {
 }
 
 test(
-    'an install lands the validated binary behind the PATH symlink',
+    'an install lands the validated binary behind the PATH symlink, its env set by a launcher',
     { skip: linuxOnly },
     () => {
         const lab = installLab('1.2.11')
@@ -260,20 +260,43 @@ test(
             const link = join(lab.home, '.local/bin/fixcli')
             assert.match(
                 readlinkSync(link),
-                /\/\.local\/lib\/manyfold\/fixcli\/install\.[^/]+\/fixcli$/
+                /\/\.local\/lib\/manyfold\/fixcli\/install\.[^/]+\/launch$/
             )
-            assert.match(
-                execFileSync(link, {
-                    env: { FIXCLI_NO_UPDATE: 'true' }
-                }).toString(),
-                /1\.2\.11/
-            )
+            // The fixture exits 9 unless its updater is off: whoever runs it
+            // by name gets the env without asking for it.
+            assert.match(execFileSync(link, { env: {} }).toString(), /1\.2\.11/)
             assert.match(
                 readFileSync(join(lab.root, 'curl.log'), 'utf8'),
                 new RegExp(
                     `https://github.com/${BIN_REPO}/releases/download/1\\.2\\.11/fixture_cli_linux_`
                 )
             )
+        } finally {
+            rmSync(lab.root, { recursive: true, force: true })
+        }
+    }
+)
+
+test(
+    'the launcher passes arguments and the exit code through, whatever the home path holds',
+    { skip: linuxOnly },
+    () => {
+        const lab = installLab('1.2.11', "it's a home")
+        try {
+            const result = lab.run(
+                buildBinaryInstallShell(descriptor, '1.2.11', {
+                    x86_64: lab.digest,
+                    aarch64: lab.digest
+                })
+            )
+            assert.equal(result.status, 0, result.stderr)
+            const run = spawnSync(
+                join(lab.home, '.local/bin/fixcli'),
+                ['a b', "c'd"],
+                { env: {}, encoding: 'utf8' }
+            )
+            assert.equal(run.status, 7)
+            assert.equal(run.stdout, "a b|c'd|")
         } finally {
             rmSync(lab.root, { recursive: true, force: true })
         }
