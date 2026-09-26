@@ -142,6 +142,7 @@ test('SpritesProvisioner threads the sandbox host sprite name through createSpri
             } as never,
             { run: async () => ({ homeDir: undefined }) } as never,
             {} as never,
+            {} as never,
             new SpriteServiceBootstraps(
                 { run: async () => ({ homeDir: undefined }) } as never,
                 { run: async () => ({ homeDir: undefined }) } as never
@@ -283,6 +284,7 @@ test('SpritesProvisioner preserves a revoked sandbox host when runtime create-fa
             } as never,
             { run: async () => ({ homeDir: undefined }) } as never,
             {} as never,
+            {} as never,
             new SpriteServiceBootstraps(
                 { run: async () => ({ homeDir: undefined }) } as never,
                 { run: async () => ({ homeDir: undefined }) } as never
@@ -358,6 +360,7 @@ const wakeProvisioner = (lease: {
             getById: async () => account,
             decryptToken: () => 'sprites-token'
         } as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,

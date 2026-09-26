@@ -17,6 +17,7 @@ import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
 import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
+import { AntigravityCliBootstrap } from '@/modules/agents/bootstrap/antigravity-cli'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
@@ -60,6 +61,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         ClaudeCodeBootstrap,
         CodexBootstrap,
         PiBootstrap,
+        AntigravityCliBootstrap,
         GeminiCliBootstrap,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,

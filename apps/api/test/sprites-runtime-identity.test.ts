@@ -234,6 +234,7 @@ const provisionerWith = (opts: {
         {} as never, // codexBootstrap
         {} as never, // geminiBootstrap
         {} as never, // piBootstrap
+        {} as never, // antigravityBootstrap
         {} as never, // serviceBootstraps
         {} as never, // runtimeAccess
         {

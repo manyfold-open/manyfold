@@ -43,6 +43,7 @@ import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
+import { AntigravityCliBootstrap } from '@/modules/agents/bootstrap/antigravity-cli'
 import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import {
     BootstrapError,
@@ -159,6 +160,7 @@ export class SpritesProvisioner {
         private readonly codexBootstrap: CodexBootstrap,
         private readonly geminiBootstrap: GeminiCliBootstrap,
         private readonly piBootstrap: PiBootstrap,
+        private readonly antigravityBootstrap: AntigravityCliBootstrap,
         private readonly serviceBootstraps: SpriteServiceBootstraps,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly config: ConfigService,
@@ -696,7 +698,9 @@ export class SpritesProvisioner {
                         ? this.geminiBootstrap
                         : framework === 'pi'
                           ? this.piBootstrap
-                          : null
+                          : framework === 'antigravity-cli'
+                            ? this.antigravityBootstrap
+                            : null
             if (codingBootstrap) {
                 // Coding CLIs are npm-installed to the resolved version inside the
                 // bootstrap; claude-code is a big package, so surface it as its own

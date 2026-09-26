@@ -58,7 +58,12 @@ export interface BootstrapResult {
 }
 
 export interface FrameworkBootstrap {
-    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi'
+    framework:
+        | 'claude-code'
+        | 'codex'
+        | 'gemini-cli'
+        | 'pi'
+        | 'antigravity-cli'
     run(ctx: BootstrapContext, credentials: unknown): Promise<BootstrapResult>
 }
 
