@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import {
     chmod,
     mkdir,
@@ -19,6 +20,7 @@ import type {
 } from '@manyfold/shared'
 import {
     apiPaths,
+    isAntigravityConversationId,
     RUNNER_PROFILE,
     TERMINAL_HOOK_FRAMEWORKS,
     TERMINAL_HOOK_SOURCES
@@ -53,8 +55,10 @@ export interface SessionHookTarget {
     // `settings`: a script the CLI's settings file names per event (claude,
     // codex). `extension`: a file the CLI loads on its own from a directory
     // (pi's agent-dir extensions), so there is no settings file to merge and
-    // `settingsPath` is the file itself.
-    kind: 'settings' | 'extension'
+    // `settingsPath` is the file itself. `named-hooks`: a script agy's
+    // hooks.json names under a block of its own — every top-level key there
+    // is a named block of events — so the merge touches only that key.
+    kind: 'settings' | 'extension' | 'named-hooks'
     scriptPath: string
     settingsPath: string
     // Seconds the CLI gives the hook. Codex caps SessionEnd at three, and
@@ -102,8 +106,22 @@ export const sessionHookTargets = (
         scriptPath: join(piExtensionsDir(home), PI_EXTENSION_NAME),
         settingsPath: join(piExtensionsDir(home), PI_EXTENSION_NAME),
         timeoutSeconds: 0
+    },
+    {
+        framework: 'antigravity-cli',
+        kind: 'named-hooks',
+        scriptPath: join(home, '.gemini', 'config', 'hooks', SCRIPT_NAME),
+        settingsPath: join(home, '.gemini', 'config', 'hooks.json'),
+        timeoutSeconds: 0
     }
 ]
+
+// The block agy's hooks.json carries for Manyfold, and the events it names.
+// agy 1.2.11 has no session-end event, and its session-start one is not in
+// its documentation, so the first model call of a conversation starts it
+// too; the script reports each conversation once.
+export const AGY_HOOK_BLOCK = 'manyfold-session'
+export const AGY_HOOK_EVENTS = ['SessionStart', 'PreInvocation'] as const
 
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
@@ -143,6 +161,59 @@ export const buildSessionHookScript = (invocation: string[]): string =>
         'exit 0',
         ''
     ].join('\n')
+
+// agy's version of the hook script. agy runs a hook through `sh -c` with the
+// conversation id in ANTIGRAVITY_CONVERSATION_ID and parses what it prints,
+// so the script answers `{}` first. It reports a conversation once per
+// terminal (a marker under TMPDIR), then leaves a waiter behind on the agy
+// process that ran it, which reports the end of the terminal's latest
+// conversation when agy exits: agy has no session-end event of its own.
+// Measured on agy 1.2.11 [2026-09-26]: the hook's parent is that `sh`, its
+// grandparent agy; the waiter walks up three levels at most to find it.
+export const buildAgySessionHookScript = (invocation: string[]): string => {
+    const mf = invocation.map(shellQuote).join(' ')
+    return [
+        '#!/bin/sh',
+        `# mf-session-hook version=${MF_SESSION_HOOK_VERSION}`,
+        '# Installed by `mf daemon hooks install`; `mf daemon hooks uninstall` removes it.',
+        '# Reports the agy conversation running in this terminal to Manyfold. It acts only',
+        '# inside a terminal Manyfold opened (MF_TERMINAL_ID is set), once per conversation,',
+        '# answers agy with an empty object and never waits on the report.',
+        "printf '{}'",
+        'payload=$(cat 2>/dev/null)',
+        'term="${MF_TERMINAL_ID:-}"',
+        'conv="${ANTIGRAVITY_CONVERSATION_ID:-}"',
+        'case "$term" in \'\'|*[!A-Za-z0-9_-]*) exit 0 ;; esac',
+        'case "$conv" in \'\'|*[!0-9a-f-]*) exit 0 ;; esac',
+        '[ -n "$payload" ] || exit 0',
+        'state="${TMPDIR:-/tmp}/mf-agy-session-$(id -u)"',
+        'mkdir -p "$state" 2>/dev/null && [ -O "$state" ] || exit 0',
+        '[ -e "$state/$term.$conv" ] && exit 0',
+        ': > "$state/$term.$conv" 2>/dev/null || exit 0',
+        'printf \'%s\' "$conv" > "$state/$term.current"',
+        `( printf '%s' "$payload" | ${mf} daemon hooks report antigravity-cli "$1" >/dev/null 2>&1 & ) >/dev/null 2>&1`,
+        'mf_comm() { cat "/proc/$1/comm" 2>/dev/null || ps -o comm= -p "$1" 2>/dev/null; }',
+        'mf_ppid() { if [ -r "/proc/$1/stat" ]; then sed \'s/.*) . //\' "/proc/$1/stat" | cut -d\' \' -f1; else ps -o ppid= -p "$1" 2>/dev/null | tr -d \' \'; fi; }',
+        'p=$PPID',
+        'agy=""',
+        'for _ in 1 2 3; do',
+        '    case "$(mf_comm "$p")" in *agy|*antigravity) agy=$p; break ;; esac',
+        '    p=$(mf_ppid "$p")',
+        '    [ "${p:-0}" -gt 1 ] 2>/dev/null || break',
+        'done',
+        '[ -n "$agy" ] || exit 0',
+        'mkdir "$state/$term.watch.$agy" 2>/dev/null || exit 0',
+        '(',
+        "    trap '' HUP INT TERM",
+        '    while kill -0 "$agy" 2>/dev/null; do sleep 2; done',
+        '    last=$(cat "$state/$term.current" 2>/dev/null)',
+        '    rm -rf "$state/$term."*',
+        `    [ -n "$last" ] && printf '{"conversationId":"%s"}' "$last" | ${mf} daemon hooks report antigravity-cli SessionEnd`,
+        ') </dev/null >/dev/null 2>&1 &',
+        'exit 0',
+        ''
+    ].join('\n')
+}
 
 // pi's version of the hook: an extension pi loads from its agent dir in every
 // mode, TUI included (headless chat turns pass --no-extensions, so only a
@@ -243,7 +314,9 @@ export const sessionHookInvocation = (script: string): string[] | null => {
             return null
         }
     }
-    const line = /\| (.+?) daemon hooks report "\$1"/.exec(script)?.[1]
+    const line = /\| (.+?) daemon hooks report (?:antigravity-cli )?"\$1"/.exec(
+        script
+    )?.[1]
     if (!line) return null
     const args: string[] = []
     let i = 0
@@ -357,6 +430,76 @@ export const mergeSessionHookSettings = (
     return { next: `${JSON.stringify(root, null, 2)}\n`, changed }
 }
 
+// agy's hooks.json: `{ <block name>: { <Event>: [ { type, command } ] } }`.
+// Only the Manyfold block is written or removed; the user's blocks and any
+// other tool's (herdr keeps one there) are left as they are, and an
+// unparseable file is reported, never clobbered.
+export const mergeAgyNamedHooks = (
+    text: string | null,
+    target: SessionHookTarget,
+    mode: 'install' | 'uninstall'
+): SessionHookSettingsMerge => {
+    let root: Record<string, unknown> = {}
+    if (text && text.trim()) {
+        try {
+            const parsed: unknown = JSON.parse(text)
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                return {
+                    next: null,
+                    changed: false,
+                    error: 'not a JSON object'
+                }
+            root = parsed as Record<string, unknown>
+        } catch {
+            return { next: null, changed: false, error: 'not valid JSON' }
+        }
+    }
+    const before = JSON.stringify(root)
+    if (mode === 'install')
+        root[AGY_HOOK_BLOCK] = Object.fromEntries(
+            AGY_HOOK_EVENTS.map((event) => [
+                event,
+                [
+                    {
+                        type: 'command',
+                        command: `${shellQuote(target.scriptPath)} ${event}`
+                    }
+                ]
+            ])
+        )
+    else delete root[AGY_HOOK_BLOCK]
+    const changed = JSON.stringify(root) !== before
+    return { next: `${JSON.stringify(root, null, 2)}\n`, changed }
+}
+
+const agyNamedHooksInstalled = (
+    text: string | null,
+    target: SessionHookTarget
+): boolean => {
+    if (!text) return false
+    try {
+        const block = (JSON.parse(text) as Record<string, unknown> | null)?.[
+            AGY_HOOK_BLOCK
+        ] as Record<string, unknown> | undefined
+        return AGY_HOOK_EVENTS.every((event) => {
+            const hooks = block?.[event]
+            return (
+                Array.isArray(hooks) &&
+                hooks.some(
+                    (hook) =>
+                        typeof (hook as { command?: unknown })?.command ===
+                            'string' &&
+                        (hook as { command: string }).command.includes(
+                            target.scriptPath
+                        )
+                )
+            )
+        })
+    } catch {
+        return false
+    }
+}
+
 export const settingsHaveSessionHooks = (
     text: string | null,
     target: SessionHookTarget
@@ -442,10 +585,15 @@ export const sessionHooksStatus = async (opts?: {
         const settingsInstalled =
             target.kind === 'extension'
                 ? version !== null
-                : settingsHaveSessionHooks(
-                      await readText(target.settingsPath),
-                      target
-                  )
+                : target.kind === 'named-hooks'
+                  ? agyNamedHooksInstalled(
+                        await readText(target.settingsPath),
+                        target
+                    )
+                  : settingsHaveSessionHooks(
+                        await readText(target.settingsPath),
+                        target
+                    )
         const installed = version !== null && settingsInstalled
         let note: string | null = null
         if (installed && target.configTomlPath) {
@@ -519,6 +667,7 @@ export const installSessionHooks = async (opts: {
     const invocation = opts.invocation ?? resolveMfInvocation()
     const script = buildSessionHookScript(invocation)
     const extension = buildPiSessionHookExtension(invocation)
+    const agyScript = buildAgySessionHookScript(invocation)
     const changes: SessionHookChange[] = []
     for (const target of sessionHookTargets(opts.home)) {
         if (!wanted.has(target.framework)) continue
@@ -549,11 +698,10 @@ export const installSessionHooks = async (opts: {
             continue
         }
         const existingSettings = await readText(target.settingsPath)
-        const merge = mergeSessionHookSettings(
-            existingSettings,
-            target,
-            'install'
-        )
+        const merge =
+            target.kind === 'named-hooks'
+                ? mergeAgyNamedHooks(existingSettings, target, 'install')
+                : mergeSessionHookSettings(existingSettings, target, 'install')
         if (merge.error || merge.next === null) {
             changes.push({
                 framework: target.framework,
@@ -562,8 +710,10 @@ export const installSessionHooks = async (opts: {
             })
             continue
         }
-        const scriptChanged = existingScript !== script
-        if (scriptChanged) await writeInPlace(target.scriptPath, script, 0o755)
+        const wantedScript = target.kind === 'named-hooks' ? agyScript : script
+        const scriptChanged = existingScript !== wantedScript
+        if (scriptChanged)
+            await writeInPlace(target.scriptPath, wantedScript, 0o755)
         if (merge.changed)
             await writeInPlace(target.settingsPath, merge.next, 0o644)
         changes.push({
@@ -597,11 +747,14 @@ export const uninstallSessionHooks = async (opts?: {
             continue
         }
         const existingSettings = await readText(target.settingsPath)
-        const merge = mergeSessionHookSettings(
-            existingSettings,
-            target,
-            'uninstall'
-        )
+        const merge =
+            target.kind === 'named-hooks'
+                ? mergeAgyNamedHooks(existingSettings, target, 'uninstall')
+                : mergeSessionHookSettings(
+                      existingSettings,
+                      target,
+                      'uninstall'
+                  )
         if (merge.error) {
             changes.push({
                 framework: target.framework,
@@ -670,14 +823,71 @@ export const reconcileSessionHooksOnStart = async (
     }
 }
 
+// agy's hook input names neither the event (the hook's command line does)
+// nor how the session began: its first model call counts the steps already
+// there, and a start before any call finds the conversation's log empty or
+// absent unless it was resumed.
+const agyHookReport = (
+    record: Record<string, unknown>,
+    eventArg: string | undefined,
+    logHasSteps: (path: string) => boolean
+): TerminalSessionHookRequest | null => {
+    const sessionRef =
+        typeof record.conversationId === 'string'
+            ? record.conversationId.trim()
+            : ''
+    if (!isAntigravityConversationId(sessionRef)) return null
+    const event =
+        eventArg === 'SessionEnd'
+            ? 'end'
+            : eventArg &&
+                (AGY_HOOK_EVENTS as readonly string[]).includes(eventArg)
+              ? 'start'
+              : null
+    if (!event) return null
+    const source: TerminalHookSource =
+        event === 'end'
+            ? 'other'
+            : typeof record.initialNumSteps === 'number'
+              ? record.initialNumSteps <= 1
+                  ? 'startup'
+                  : 'resume'
+              : typeof record.transcriptPath === 'string' &&
+                  logHasSteps(record.transcriptPath)
+                ? 'resume'
+                : 'startup'
+    const cwd = Array.isArray(record.workspacePaths)
+        ? record.workspacePaths.find((p): p is string => typeof p === 'string')
+        : undefined
+    return {
+        framework: 'antigravity-cli',
+        event,
+        source,
+        sessionRef,
+        ...(cwd ? { cwd } : {})
+    }
+}
+
+const fileHasBytes = (path: string): boolean => {
+    try {
+        return statSync(path).size > 0
+    } catch {
+        return false
+    }
+}
+
 // What the CLI put on the hook's stdin, mapped to the report the API takes.
 // Null when it is not a session event at all.
 export const hookReportFromInput = (
     framework: TerminalHookFramework,
-    input: unknown
+    input: unknown,
+    eventArg?: string,
+    logHasSteps: (path: string) => boolean = fileHasBytes
 ): TerminalSessionHookRequest | null => {
     if (!input || typeof input !== 'object') return null
     const record = input as Record<string, unknown>
+    if (framework === 'antigravity-cli')
+        return agyHookReport(record, eventArg, logHasSteps)
     const sessionRef =
         typeof record.session_id === 'string' ? record.session_id.trim() : ''
     if (!sessionRef) return null

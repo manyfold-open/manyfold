@@ -1,15 +1,28 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+    mkdtemp,
+    mkdir,
+    readdir,
+    readFile,
+    rm,
+    stat,
+    symlink,
+    writeFile
+} from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
+    AGY_HOOK_BLOCK,
+    buildAgySessionHookScript,
     buildPiSessionHookExtension,
     buildSessionHookScript,
     codexHooksDisabledInConfig,
     hookReportFromInput,
     installSessionHooks,
+    mergeAgyNamedHooks,
     mergeSessionHookSettings,
     MF_SESSION_HOOK_VERSION,
     resolveMfInvocation,
@@ -249,7 +262,8 @@ test('install writes the script and settings for detected frameworks only, and u
             [
                 ['claude-code', true, true],
                 ['codex', false, false],
-                ['pi', false, false]
+                ['pi', false, false],
+                ['antigravity-cli', false, false]
             ]
         )
 
@@ -295,7 +309,8 @@ test('install writes the script and settings for detected frameworks only, and u
         assert.deepEqual(removed, [
             { framework: 'claude-code', action: 'removed' },
             { framework: 'codex', action: 'removed' },
-            { framework: 'pi', action: 'absent' }
+            { framework: 'pi', action: 'absent' },
+            { framework: 'antigravity-cli', action: 'absent' }
         ])
         assert.equal(
             await readFile(claude.scriptPath, 'utf8'),
@@ -319,7 +334,7 @@ test('install writes the script and settings for detected frameworks only, and u
         )
         assert.deepEqual(
             (await uninstallSessionHooks({ home })).map((c) => c.action),
-            ['absent', 'absent', 'absent']
+            ['absent', 'absent', 'absent', 'absent']
         )
     })
 })
@@ -580,5 +595,230 @@ test('the pi extension reports sessions only inside a Manyfold terminal', async 
             'start:resume:sess-1:/work',
             'start:startup:sess-1:/work'
         ])
+    })
+})
+
+const AGY_CONVERSATION = '6bce3054-1614-4b63-b9b5-9590cdfc8458'
+
+test('the agy hook is a block of its own in hooks.json; other blocks stay', async () => {
+    await withHome(async (home) => {
+        const agy = sessionHookTargets(home).find(
+            (t) => t.framework === 'antigravity-cli'
+        )!
+        assert.equal(agy.kind, 'named-hooks')
+        assert.equal(
+            agy.settingsPath,
+            join(home, '.gemini', 'config', 'hooks.json')
+        )
+        await mkdir(join(home, '.gemini', 'config'), { recursive: true })
+        // herdr keeps a block of its own there.
+        const herdr = {
+            herdr: { Stop: [{ type: 'command', command: 'herdr notify' }] }
+        }
+        await writeFile(agy.settingsPath, JSON.stringify(herdr))
+        const changes = await installSessionHooks({
+            detected: [
+                {
+                    framework: 'antigravity-cli',
+                    version: '1.2.11',
+                    path: '/bin/agy'
+                }
+            ],
+            home,
+            invocation: ['/opt/mf']
+        })
+        assert.deepEqual(changes, [
+            { framework: 'antigravity-cli', action: 'installed' }
+        ])
+        const written = JSON.parse(await readFile(agy.settingsPath, 'utf8'))
+        assert.deepEqual(written.herdr, herdr.herdr)
+        assert.deepEqual(Object.keys(written[AGY_HOOK_BLOCK]), [
+            'SessionStart',
+            'PreInvocation'
+        ])
+        assert.equal(
+            written[AGY_HOOK_BLOCK].PreInvocation[0].command,
+            `'${agy.scriptPath}' PreInvocation`
+        )
+        const script = await readFile(agy.scriptPath, 'utf8')
+        assert.equal(scriptVersion(script), MF_SESSION_HOOK_VERSION)
+        assert.deepEqual(sessionHookInvocation(script), ['/opt/mf'])
+        const status = await sessionHooksStatus({ home, consent: 'enabled' })
+        const agyStatus = status.frameworks.find(
+            (f) => f.framework === 'antigravity-cli'
+        )!
+        assert.deepEqual([agyStatus.installed, agyStatus.current], [true, true])
+        assert.equal(
+            mergeAgyNamedHooks(
+                await readFile(agy.settingsPath, 'utf8'),
+                agy,
+                'install'
+            ).changed,
+            false
+        )
+
+        const removed = await uninstallSessionHooks({ home })
+        assert.deepEqual(
+            removed.find((c) => c.framework === 'antigravity-cli'),
+            { framework: 'antigravity-cli', action: 'removed' }
+        )
+        assert.deepEqual(
+            JSON.parse(await readFile(agy.settingsPath, 'utf8')),
+            herdr
+        )
+        await assert.rejects(stat(agy.scriptPath))
+
+        await writeFile(agy.settingsPath, '{ not json')
+        const refused = await installSessionHooks({
+            detected: 'all',
+            home,
+            invocation: ['/opt/mf']
+        })
+        assert.match(
+            refused.find((c) => c.framework === 'antigravity-cli')?.error ?? '',
+            /not valid JSON/
+        )
+        assert.equal(await readFile(agy.settingsPath, 'utf8'), '{ not json')
+    })
+})
+
+test('agy’s hook input maps to a start or an end by the event its hook names', () => {
+    const base = {
+        conversationId: AGY_CONVERSATION,
+        transcriptPath:
+            '/h/brain/x/.system_generated/logs/transcript_full.jsonl',
+        workspacePaths: ['/home/me/ws']
+    }
+    const never = (): boolean => false
+    assert.deepEqual(
+        hookReportFromInput(
+            'antigravity-cli',
+            { ...base, initialNumSteps: 1, invocationNum: 0 },
+            'PreInvocation',
+            never
+        ),
+        {
+            framework: 'antigravity-cli',
+            event: 'start',
+            source: 'startup',
+            sessionRef: AGY_CONVERSATION,
+            cwd: '/home/me/ws'
+        }
+    )
+    assert.equal(
+        hookReportFromInput(
+            'antigravity-cli',
+            { ...base, initialNumSteps: 7 },
+            'PreInvocation',
+            never
+        )?.source,
+        'resume'
+    )
+    // A start before any model call: a resumed conversation's log has steps.
+    assert.equal(
+        hookReportFromInput('antigravity-cli', base, 'SessionStart', () => true)
+            ?.source,
+        'resume'
+    )
+    assert.equal(
+        hookReportFromInput('antigravity-cli', base, 'SessionStart', never)
+            ?.source,
+        'startup'
+    )
+    assert.deepEqual(
+        hookReportFromInput(
+            'antigravity-cli',
+            { conversationId: AGY_CONVERSATION },
+            'SessionEnd'
+        ),
+        {
+            framework: 'antigravity-cli',
+            event: 'end',
+            source: 'other',
+            sessionRef: AGY_CONVERSATION
+        }
+    )
+    assert.equal(
+        hookReportFromInput('antigravity-cli', base, 'PostToolUse'),
+        null
+    )
+    assert.equal(
+        hookReportFromInput(
+            'antigravity-cli',
+            { conversationId: 'latest' },
+            'SessionStart'
+        ),
+        null
+    )
+})
+
+// The hook for real: a stand-in `agy` (node under that name, so the process
+// is called agy as the real one is) runs it the way agy 1.2.11 does, through
+// `sh -c`, and the Manyfold callback is a script that logs what it was given.
+test('the agy hook reports a conversation once and its end when agy exits', async () => {
+    await withHome(async (home) => {
+        const bin = join(home, 'bin')
+        await mkdir(bin, { recursive: true })
+        await symlink(process.execPath, join(bin, 'agy'))
+        const log = join(home, 'mf.log')
+        const fakeMf = join(home, 'fake-mf')
+        await writeFile(
+            fakeMf,
+            `#!/bin/sh\nprintf '%s ' "$@" >> '${log}'\ncat >> '${log}'\nprintf '\\n' >> '${log}'\n`,
+            { mode: 0o755 }
+        )
+        const script = join(home, 'mf-session.sh')
+        await writeFile(script, buildAgySessionHookScript([fakeMf]), {
+            mode: 0o755
+        })
+        const runAgy = (terminalId: string): string =>
+            execFileSync(
+                join(bin, 'agy'),
+                [
+                    '-e',
+                    `const { execFileSync } = require('node:child_process')
+const hook = (event) => execFileSync('sh', ['-c', ${JSON.stringify(`'${script}' "$0"`)}, event], {
+    input: JSON.stringify({ conversationId: '${AGY_CONVERSATION}', initialNumSteps: 1, workspacePaths: ['/ws'] })
+}).toString()
+process.stdout.write(hook('SessionStart') + hook('PreInvocation'))`
+                ],
+                {
+                    env: {
+                        PATH: '/usr/bin:/bin',
+                        TMPDIR: home,
+                        MF_TERMINAL_ID: terminalId,
+                        ANTIGRAVITY_CONVERSATION_ID: AGY_CONVERSATION
+                    }
+                }
+            ).toString()
+
+        // Outside a Manyfold terminal it only answers agy.
+        assert.equal(runAgy(''), '{}{}')
+        assert.equal(await readFile(log, 'utf8').catch(() => ''), '')
+
+        assert.equal(runAgy('trm_1'), '{}{}')
+        const deadline = Date.now() + 8000
+        let lines: string[] = []
+        while (Date.now() < deadline) {
+            lines = (await readFile(log, 'utf8').catch(() => ''))
+                .split('\n')
+                .filter(Boolean)
+            if (lines.some((line) => line.includes('SessionEnd'))) break
+            await new Promise((resolve) => setTimeout(resolve, 200))
+        }
+        assert.equal(lines.length, 2, lines.join('\n'))
+        assert.match(
+            lines[0],
+            /^daemon hooks report antigravity-cli SessionStart \{"conversationId":"6bce3054/
+        )
+        assert.equal(
+            lines[1],
+            `daemon hooks report antigravity-cli SessionEnd {"conversationId":"${AGY_CONVERSATION}"}`
+        )
+        // The waiter leaves nothing behind for the next agy in the terminal.
+        const state = (await readdir(home)).find((name) =>
+            name.startsWith('mf-agy-session-')
+        )!
+        assert.deepEqual(await readdir(join(home, state)), [])
     })
 })

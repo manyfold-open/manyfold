@@ -37,7 +37,7 @@ const printChanges = (changes: SessionHookChange[]): void => {
     if (changes.length === 0) {
         console.log(
             kleur.yellow(
-                'nothing to do: no supported framework (claude / codex / pi) detected on PATH'
+                'nothing to do: no supported framework (claude / codex / pi / agy) detected on PATH'
             )
         )
         return
@@ -84,7 +84,7 @@ export const registerDaemonHooks = (program: Command): void => {
     const hooks = program
         .command('hooks')
         .description(
-            'Session hooks Manyfold installs for claude, codex and pi (act only inside Manyfold terminals)'
+            'Session hooks Manyfold installs for claude, codex, pi and agy (act only inside Manyfold terminals)'
         )
 
     jsonOption(
@@ -139,20 +139,23 @@ export const registerDaemonHooks = (program: Command): void => {
         emit(opts, status, () => printSessionHooksStatus(status))
     })
 
+    // agy's hook input names no event, so its hook passes the event name.
     jsonOption(
         hooks
-            .command('report <framework>')
+            .command('report <framework> [event]')
             .description(
                 'Used by the installed hooks: forward the hook JSON on stdin to Manyfold (no-op outside a Manyfold terminal)'
             )
     ).action(
         async (
             frameworkArg: string,
+            eventArg: string | undefined,
             opts: { json?: boolean },
             command: Command
         ) => {
             const result = await reportFromStdin(
                 frameworkArg,
+                eventArg,
                 rootOptions(command)
             )
             emit(opts, result, () => {})
@@ -162,6 +165,7 @@ export const registerDaemonHooks = (program: Command): void => {
 
 const reportFromStdin = async (
     frameworkArg: string,
+    eventArg: string | undefined,
     root: { apiUrl?: string; token?: string }
 ): Promise<Record<string, unknown>> => {
     if (!(TERMINAL_HOOK_FRAMEWORKS as readonly string[]).includes(frameworkArg))
@@ -177,7 +181,7 @@ const reportFromStdin = async (
     } catch {
         return { sent: false, reason: 'invalid-input' }
     }
-    const body = hookReportFromInput(framework, input)
+    const body = hookReportFromInput(framework, input, eventArg)
     if (!body) return { sent: false, reason: 'not-a-session-event' }
     const stored = await loadConfig().catch(
         () => ({}) as { apiUrl?: string; token?: string }
