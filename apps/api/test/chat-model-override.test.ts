@@ -19,6 +19,11 @@ import type {
     ExecDriver,
     ExecStreamRequest
 } from '../src/modules/chat/adapters/exec-driver'
+import {
+    CODEX_EXEC_JSON_POOL_EMPTY,
+    CODEX_POOL_EMPTY_LOOKALIKES,
+    CODEX_POOL_EMPTY_TERMINAL
+} from './managed-pool-empty-sample'
 
 const EXEC_TIMEOUTS = resolveChatExecTimeoutMs(DEFAULT_CHAT_EXEC_TIMEOUTS)
 
@@ -2298,16 +2303,16 @@ test('Codex adapter surfaces the stdout turn.failed reason when codex exits non-
     assert.equal(errorEvent.managedChannelFailure, undefined)
 })
 
-test('Codex adapter marks only an owned structured 503 pool exhaustion', async () => {
-    const detail =
-        'unexpected status 503 Service Unavailable: {"error":{"message":"No available accounts: no available accounts"}}'
-    const stdout = `${JSON.stringify({ type: 'turn.failed', error: { message: detail } })}\n`
+const codexTerminalErrorEvent = async (
+    stdout: string,
+    stderr = ''
+): Promise<Extract<EmittedChatEvent, { type: 'error' }>> => {
     const handle = makeDriverFactory(
         { openaiApiKey: 'token' },
         'sprites',
         stdout,
         {},
-        { exitCode: 1, stderr: '' }
+        { exitCode: 1, stderr }
     )
     const adapter = new CodexAdapter(
         handle.drivers as never,
@@ -2317,7 +2322,6 @@ test('Codex adapter marks only an owned structured 503 pool exhaustion', async (
         } as never,
         {} as never
     )
-
     const events = await collect(
         adapter.sendMessage({ ...baseCtx, framework: 'codex' }, userMessage)
     )
@@ -2325,9 +2329,48 @@ test('Codex adapter marks only an owned structured 503 pool exhaustion', async (
         (event): event is Extract<EmittedChatEvent, { type: 'error' }> =>
             event.type === 'error'
     )
+    assert.ok(errorEvent, 'expected an error event')
+    return errorEvent
+}
 
-    assert.ok(errorEvent)
+test('Codex adapter marks the pool exhaustion codex reports on turn.failed', async () => {
+    const errorEvent = await codexTerminalErrorEvent(CODEX_EXEC_JSON_POOL_EMPTY)
+
     assert.equal(errorEvent.managedChannelFailure, 'account_pool_empty')
+    assert.equal(errorEvent.error.code, 'codex_exec_failed')
+    assert.equal(
+        errorEvent.error.message,
+        `codex exited 1: ${CODEX_POOL_EMPTY_TERMINAL}`
+    )
+
+    // stderr is empty for this refusal, but a startup warning there must not
+    // hide the verdict or replace the line that proved it.
+    const noisy = await codexTerminalErrorEvent(
+        CODEX_EXEC_JSON_POOL_EMPTY,
+        'MCP startup warning: optional server is unavailable'
+    )
+    assert.equal(noisy.managedChannelFailure, 'account_pool_empty')
+    assert.equal(
+        noisy.error.message,
+        `codex exited 1: ${CODEX_POOL_EMPTY_TERMINAL}`
+    )
+})
+
+test('Codex adapter takes the pool verdict from turn.failed alone', async () => {
+    for (const [name, terminal] of CODEX_POOL_EMPTY_LOOKALIKES) {
+        const errorEvent = await codexTerminalErrorEvent(
+            `${JSON.stringify({ type: 'turn.failed', error: { message: terminal } })}\n`
+        )
+        assert.equal(errorEvent.managedChannelFailure, undefined, name)
+    }
+
+    // The retry lines and the refusal line before the terminal are
+    // diagnostics: a turn that never reached its verdict proves nothing.
+    const withoutVerdict = CODEX_EXEC_JSON_POOL_EMPTY.split('\n')
+        .filter((line) => !line.includes('"turn.failed"'))
+        .join('\n')
+    const errorEvent = await codexTerminalErrorEvent(withoutVerdict)
+    assert.equal(errorEvent.managedChannelFailure, undefined)
 })
 
 test('Codex adapter self-heals when the resume rollout failure is reported on stdout', async () => {

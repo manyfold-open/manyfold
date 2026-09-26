@@ -6,7 +6,13 @@ const MANAGED_POOL_EMPTY_MESSAGES: ReadonlySet<string> = new Set([
     'No available Antigravity accounts',
     'No available Antigravity accounts: no available accounts',
     'No available Gemini accounts',
-    'No available Gemini accounts: no available accounts'
+    'No available Gemini accounts: no available accounts',
+    // The same refusal as the gateway's shared no-account classifier words it,
+    // which is what /responses answers with. Its one other sender is the guard
+    // for a gateway started without its dependencies, and that refuses every
+    // request until an operator acts too: either way nobody on the channel is
+    // served.
+    'Service temporarily unavailable'
 ])
 
 const structuredErrorFromMessage = (
@@ -185,6 +191,41 @@ export const classifyManagedChannelFailureSignal = (signal: {
     )
         return 'account_pool_empty'
     return null
+}
+
+// codex prints an HTTP refusal as `unexpected status <code> <reason>: <body>`,
+// then `, url: …`, `, cf-ray: …`, `, request id: …`, `, auth error: …` and
+// `, auth error code: …` for whichever it has, and it unwraps a JSON envelope's
+// error.message into <body> before printing (UnexpectedResponseError in
+// codex-rs/protocol/src/error.rs). The literal therefore arrives as bare text,
+// with no envelope for the reader above to find.
+// Seen on production [2026-09-25]: every codex turn on an emptied managed pool
+// ended in exactly that line, and the breaker never opened.
+//
+// Only the start of the typed terminal is read and <body> is compared whole, so
+// codex's `Reconnecting... 1/5 (…)` retry lines, a longer refusal that merely
+// begins with a pool literal, and prose quoting any of them never mark.
+const CODEX_POOL_EMPTY_STATUS = 'unexpected status 503 Service Unavailable: '
+const CODEX_STATUS_SUFFIXES = [
+    ', url: ',
+    ', cf-ray: ',
+    ', request id: ',
+    ', auth error: ',
+    ', auth error code: '
+]
+
+export const classifyCodexTerminalFailureSignal = (
+    terminal: string | null
+): ManagedChannelFailureSignal | null => {
+    if (!terminal?.startsWith(CODEX_POOL_EMPTY_STATUS)) return null
+    const rest = terminal.slice(CODEX_POOL_EMPTY_STATUS.length)
+    const end = CODEX_STATUS_SUFFIXES.reduce((cut, suffix) => {
+        const at = rest.indexOf(suffix)
+        return at >= 0 && at < cut ? at : cut
+    }, rest.length)
+    return MANAGED_POOL_EMPTY_MESSAGES.has(rest.slice(0, end))
+        ? 'account_pool_empty'
+        : null
 }
 
 export const classifyGeminiCliInspectedFailureSignal = (signal: {
