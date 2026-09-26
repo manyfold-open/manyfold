@@ -1,15 +1,29 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
     NotFoundException,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { SkillDiscoveryService } from '../src/modules/skills/skill-discovery.service'
+import { parseSkillMarkdown, SkillDiscoveryService } from '../src/modules/skills/skill-discovery.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
 import { GitHubRequestError } from '../src/common/github-request-error'
 
 const now = new Date('2026-04-25T12:00:00.000Z')
+
+test('the shared plugin bundle remains discoverable as the default standalone skill', () => {
+    const markdown = readFileSync(resolve(
+        __dirname,
+        '../../../plugins/manyfold/skills/manyfold-cli-usage/SKILL.md'
+    ), 'utf8')
+    const parsed = parseSkillMarkdown(markdown)
+    assert.equal(parsed.name, 'manyfold-cli-usage')
+    assert.ok(parsed.version)
+    assert.ok(parsed.description?.includes('managed runtimes'))
+    assert.match(parsed.body, /references\/web-routes\.md/)
+})
 
 const skillRow = {
     id: 'github:anthropics/skills@main:skills/pdf',

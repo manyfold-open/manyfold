@@ -1,0 +1,10 @@
+{
+    "name": "manyfold",
+    "interface": { "displayName": "Manyfold" },
+    "plugins": [{
+        "name": "manyfold",
+        "source": { "source": "local", "path": "./plugins/manyfold" },
+        "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+        "category": "Productivity"
+    }]
+}

@@ -8,13 +8,15 @@ summaries, and a cross-agent ranking. Everything here is read-only.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) usage (e.g. `top-agents`,
 > or any subcommand with `--account`). Your **own** agent's usage (the
 > default) needs no permission.
 
 - `usage:read` — account-wide usage (`--account`); own-agent usage is free.
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -56,12 +58,7 @@ contains no secrets. Errors print to stderr as `cli Error: …` and exit 1.
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → missing `usage:read`; request just that scope (existing ones
-  are kept): `mf auth ensure --scopes usage:read`, then retry
-- `403` on `top-agents` → identity is agent-bound; query one agent via
-  `mf usage summary --agent-id <agent-id>` instead
-- `403` elsewhere → the request targets a different agent than your
-  identity; drop or correct `--agent-id` so it targets `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - `400 unknown framework: <name>` → use a framework value listed above
 - empty results → widen or drop `--from`/`--to`; an unparseable ISO
   date is silently ignored (treated as no bound), not rejected

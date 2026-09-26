@@ -9,6 +9,8 @@ and the framework agents hosted on a runtime (`agents add|list|remove`).
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions. Operating your
 > **own** agent's runtime (the default) needs no permission.
 
@@ -17,7 +19,7 @@ and the framework agents hosted on a runtime (`agents add|list|remove`).
 - `agents:read` — `agents list`
 - `agents:edit` — `agents add`, `agents remove`
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -49,11 +51,8 @@ mf runtime agents remove <agent-id> --yes          # agent id, NOT runtime id
 
 ## Failure recovery
 
-- "not authenticated" → run the login flow: `mf help auth --agent`
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`
+- "not authenticated" → `mf help auth --agent`
+{{AUTH_RECOVERY}}
 - `404` "agent runtime … not found" → wrong id (or not your runtime);
   re-check with `mf runtime list`
 - `agents remove` refuses without `--yes` → re-run with `-y` after

@@ -21,8 +21,8 @@ any other guide.
 
 ## Scope grants
 
-- You are already authenticated by the injected runtime identity; you do
-  not log in for identity. To gain a missing capability, run
+- An authenticated managed runtime uses its injected identity. Do not
+  replace it with a personal login. To gain a missing account capability, run
   `mf auth ensure --scopes <the missing scope>` and post the
   consent URL to the user.
 - Approval is additive: existing permissions are KEPT and the new scopes
@@ -30,9 +30,13 @@ any other guide.
   of everything you already use.
 - Request the minimum scopes the task needs; the user can revoke them in
   the web UI.
+- External coding agents use the user's selected CLI profile and normal
+  login flow. A profile does not restrict permissions, and an agent grant
+  does not elevate a personal API token.
 
 ## Error meanings
 
-- `401` — missing scope (request just that scope; existing ones are kept)
-- `403` — agent ownership mismatch (the action targets a different agent
-  than your identity)
+- `401` can mean missing, expired, or rejected authentication, or a missing
+  scope. Choose recovery from the structured error and verified identity.
+- `403` can indicate an ownership or access-policy rejection. Check the
+  requested resource and account scope before requesting any grant.

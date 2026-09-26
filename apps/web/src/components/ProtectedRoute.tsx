@@ -2,6 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { SignedIn, SignedOut, useAppAuth } from '@/lib/auth'
 import BootScreen from '@/components/BootScreen'
+import { WorkbenchEvents } from '@/components/WorkbenchEvents'
 import { loginUrl, nextPath } from '@/lib/loginRedirect'
 
 interface Props {
@@ -20,7 +21,7 @@ const ProtectedRoute: FC<Props> = ({ children }): ReactNode => {
     if (!isLoaded) return <BootScreen />
     return (
         <>
-            <SignedIn>{children}</SignedIn>
+            <SignedIn><WorkbenchEvents />{children}</SignedIn>
             <SignedOut>
                 <Navigate to={loginUrl(nextPath(location))} replace />
             </SignedOut>

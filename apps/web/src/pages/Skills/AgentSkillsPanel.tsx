@@ -4,13 +4,14 @@ import {
     MANYFOLD_CLI_USAGE_SKILL_ID
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Ghost, Spinner } from '@/components/Loading'
 import { NoticeRow } from '@/components/RuntimeDetailPanel'
 import { StatusTag, Tag } from '@/components/Tag'
 import { VersionTag } from '@/components/VersionTag'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
 import { shortRevision, skillUpdateId } from '@/lib/updateCenter'
@@ -45,25 +46,24 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
     // carries its own pending state).
     const gate = useLoadingGate(loading && !group)
 
-    const refresh = async (): Promise<void> => {
+    const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
         setLoading(true)
         try {
             const groups = await client.skills.installed(agentId, {
                 includeRuntime: true
             })
+            if (signal?.aborted) return
             setGroup(groups[0] ?? null)
             updateRunStore.reconcile({ skillGroups: groups })
             setError(null)
         } catch (err) {
-            setError(apiErrorMessage(err))
+            if (!signal?.aborted) setError(apiErrorMessage(err))
         } finally {
-            setLoading(false)
+            if (!signal?.aborted) setLoading(false)
         }
-    }
-
-    useEffect(() => {
-        void refresh()
     }, [client, agentId])
+
+    useResourceRefresh('skill', undefined, refresh, { agentId })
 
     const pendingSkills = group?.skills.some((skill) => skill.materializeStatus === 'installing' || queued(skill)) ?? false
     useEffect(() => {

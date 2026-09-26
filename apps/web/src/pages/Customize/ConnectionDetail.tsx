@@ -19,6 +19,7 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import ProductDialog from '@/components/ProductDialog'
 import AgentPicker from '@/pages/Automations/AgentPicker'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
@@ -729,9 +730,7 @@ const ConnectionDetail: FC = (): ReactNode => {
         }
     }, [client])
 
-    useEffect(() => {
-        void refresh()
-    }, [refresh])
+    useResourceRefresh('connection', id, refresh)
 
     const connection = connections.find((c) => c.id === id) ?? null
 

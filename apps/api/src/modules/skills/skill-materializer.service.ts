@@ -5,7 +5,8 @@ import {
 } from '@manyfold/shared'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
     agents,
@@ -229,7 +230,8 @@ export class SkillMaterializerService {
         private readonly accounts: SpritesAccountsService,
         private readonly k8s: KubernetesService,
         private readonly podExecFactory: PodExecFactory,
-        private readonly daemonRegistry: DaemonRegistryService
+        private readonly daemonRegistry: DaemonRegistryService,
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     async materializeReadyRuntimes(
@@ -443,8 +445,8 @@ export class SkillMaterializerService {
     private async writeSkillStatuses(
         outcomes: SkillOutcome[]
     ): Promise<void> {
-        for (const outcome of outcomes)
-            await this.db
+        for (const outcome of outcomes) {
+            const rows = await this.db
                 .update(userSkills)
                 .set(
                     outcome.status === 'installed'
@@ -460,13 +462,17 @@ export class SkillMaterializerService {
                           }
                 )
                 .where(eq(userSkills.id, outcome.userSkillId))
+                .returning()
+            for (const row of rows)
+                this.changes?.emit(row.userId, { resource: 'skill', resourceId: row.id, agentId: row.agentId ?? undefined, reason: 'updated' })
+        }
     }
 
     private async markDesiredFailed(
         agentId: string,
         reason: string
     ): Promise<void> {
-        await this.db
+        const rows = await this.db
             .update(userSkills)
             .set({ materializeStatus: 'failed', materializeError: reason })
             .where(
@@ -475,6 +481,9 @@ export class SkillMaterializerService {
                     eq(userSkills.enabled, true)
                 )
             )
+            .returning()
+        for (const row of rows)
+            this.changes?.emit(row.userId, { resource: 'skill', resourceId: row.id, agentId, reason: 'updated' })
     }
 
     async materializeK8sRuntimeAgents(

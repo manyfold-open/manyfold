@@ -1,4 +1,5 @@
 import type {
+    ResourceChangedEvent,
     SpriteStatusEvent,
     SpriteStatusUpdate
 } from '@manyfold/shared'
@@ -197,6 +198,45 @@ test('emit only reaches subscribers of the same user', () => {
     emitter.emit('u-1', update('agent-1'))
 
     assert.equal(events.length, 0)
+})
+
+test('resource changes fan out once across instances and remain account-scoped', () => {
+    const net = makeNetwork()
+    const emitter = makeNode(net)
+    const receiver = makeNode(net)
+    const local: SpriteStatusEvent[] = []
+    const remote: SpriteStatusEvent[] = []
+    const other: SpriteStatusEvent[] = []
+    emitter.subscribe('u-1', { send: (event) => local.push(event), close: () => {} })
+    receiver.subscribe('u-1', { send: (event) => remote.push(event), close: () => {} })
+    receiver.subscribe('u-2', { send: (event) => other.push(event), close: () => {} })
+    const events = (['automation', 'channel', 'skill', 'skill-library', 'connection', 'agent', 'model-config', 'file', 'backup'] as const).map((resource): ResourceChangedEvent => ({
+        type: 'resource-changed' as const,
+        resource,
+        ...(resource === 'file' ? {} : { resourceId: 'resource-1' }),
+        ...(['connection', 'skill-library'].includes(resource) ? {} : { agentId: 'agent-1' }),
+        reason: 'updated' as const,
+        at: new Date().toISOString()
+    }))
+    for (const event of events) emitter.emitResourceChanged('u-1', event)
+    assert.deepEqual(local, events)
+    assert.deepEqual(remote, events)
+    assert.deepEqual(other, [])
+})
+
+test('a failed resource notification does not fail a committed mutation', () => {
+    const broadcaster = new SpriteStatusBroadcaster({
+        onEvent: () => {},
+        publish: () => { throw new Error('bus unavailable') }
+    } as never)
+    assert.doesNotThrow(() => broadcaster.emitResourceChanged('u-1', {
+        type: 'resource-changed',
+        resource: 'automation',
+        resourceId: 'automation-1',
+        agentId: 'agent-1',
+        reason: 'created',
+        at: new Date().toISOString()
+    }))
 })
 
 test('adminOnly quota warning skips non-admin subscribers on every instance', () => {

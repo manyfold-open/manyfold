@@ -10,13 +10,15 @@ another root with `--root <rootId>` after checking `mf files roots`.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions. Operating your
 > **own** agent (the default) needs no permission.
 
 - `files:read` — needed for `roots`, `list`, `stat`, `read`, `download`
 - `files:edit` — needed for `write`, `upload`, `mkdir`, `mv`, `rm`
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -59,10 +61,7 @@ the limit is refused with `413`.
 - "not authenticated" → `mf help auth --agent`
 - "agent id is required" → pass `--agent-id`, set `$MF_AGENT_ID`, or lead with
   the agent id positionally
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` (agent mismatch) → the action targets a different agent than your
-  identity; act on `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - `403` `root "<id>" is read-only` → pick a writable root; `mf files
 roots` marks read-only roots with `(ro)`
 - `403` "cannot move the mount root" → `mv` the contents, not the root

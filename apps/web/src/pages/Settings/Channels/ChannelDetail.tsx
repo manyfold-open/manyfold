@@ -6,7 +6,7 @@ import type {
     LarkChannelConfig
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import Breadcrumb from '@/components/Breadcrumb'
@@ -32,6 +32,7 @@ import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { StatusTag } from '@/components/Tag'
 import EmptyState from '@/components/EmptyState'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { ChannelProviderIcon, channelDocsHref } from '@/lib/channelMeta'
 import { formatDateTime, formatTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -55,21 +56,23 @@ const ChannelDetail: FC = (): ReactNode => {
     const [menuOpen, setMenuOpen] = useState(false)
     const menuRef = useRef<HTMLDivElement>(null)
 
-    const refresh = async (): Promise<void> => {
+    const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
         if (!id) return
         try {
-            setChannel(await client.channels.get(id))
+            const next = await client.channels.get(id)
+            if (signal?.aborted) return
+            setChannel(next)
             setError(null)
         } catch (err) {
+            if (signal?.aborted) return
+            setChannel(null)
             setError(apiErrorMessage(err))
         } finally {
-            setLoading(false)
+            if (!signal?.aborted) setLoading(false)
         }
-    }
-
-    useEffect(() => {
-        void refresh()
     }, [client, id])
+
+    useResourceRefresh('channel', id, refresh)
 
     useEffect(() => {
         if (!menuOpen) return

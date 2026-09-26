@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { AuthModule } from '@/modules/auth/auth.module'
@@ -16,7 +17,7 @@ import { SkillsController } from './skills.controller'
 import { SkillsService } from './skills.service'
 
 @Module({
-    imports: [AuthModule, SpritesAccountsModule, DaemonModule, AdminSettingsModule],
+    imports: [AuthModule, SpritesAccountsModule, DaemonModule, AdminSettingsModule, ResourceEventsModule],
     controllers: [
         SkillsController,
         LibrarySkillsController,

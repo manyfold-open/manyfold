@@ -110,6 +110,7 @@ import type {
     SandboxQuotaUsersPage,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
+    ResourceChangedEvent,
     SpriteStatusUpdate,
     ChatMessage,
     ChatMessagesPage,
@@ -363,6 +364,7 @@ export interface SpriteStatusStreamHandlers {
     onHostUpdate?: (update: SpriteHostStatusUpdate) => void
     onQuotaWarning?: (event: QuotaWarningEvent) => void
     onSessionsChanged?: (event: ChatSessionsChangedEvent) => void
+    onResourceChanged?: (event: ResourceChangedEvent) => void
     onError?: (error: Error) => void
     onOpen?: () => void
     onClose?: () => void
@@ -1820,6 +1822,8 @@ const dispatchSpriteStatusFrame = (
         consumeQuotaWarning(parsed)
     } else if (parsed.type === 'chat-sessions-changed') {
         handlers.onSessionsChanged?.(parsed)
+    } else if (parsed.type === 'resource-changed') {
+        handlers.onResourceChanged?.(parsed)
     }
 }
 

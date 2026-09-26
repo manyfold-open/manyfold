@@ -52,13 +52,14 @@ import {
     UsageIcon
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
-import { createReconnectingStream } from '@/lib/spriteStatusStream'
+import { subscribeWorkbenchEvents } from '@/lib/workbenchEvents'
 import { publishSessionsChanged } from '@/lib/sessionOwnershipEvents'
 import {
     createSessionInvalidationQueue,
     type SessionInvalidationQueue
 } from '@/lib/sessionInvalidation'
 import { useShellPolling } from '@/hooks/useShellPolling'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { subscribeAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
 import { daysAgoIso, fmtCost, hoursAgoIso } from '@/lib/usageFormat'
 import { useAppAuth } from '@/lib/auth'
@@ -2747,82 +2748,65 @@ const AppShell: FC = (): ReactNode => {
     useShellPolling(refreshSandboxes, sandboxesRefreshIntervalMs)
 
     useEffect(() => {
-        const stream = createReconnectingStream({
-            connect: ({ onOpen, onDown }) => {
-                console.log('[sprite-status] opening SSE')
-                return client.agents.streamSpriteStatus({
-                    onOpen: () => {
-                        console.log('[sprite-status] SSE opened')
-                        onOpen()
-                    },
-                    onSnapshot: (snapshot) => {
-                        console.log(
-                            '[sprite-status] snapshot',
-                            snapshot.length,
-                            'agents',
-                            snapshot
-                        )
-                        setAgents((previous) =>
-                            applyAgentStatusSnapshots(previous, snapshot)
-                        )
-                    },
-                    onUpdate: (update) => {
-                        console.log('[sprite-status] update', update)
-                        setAgents((previous) =>
-                            applyAgentStatusSnapshots(previous, [update])
-                        )
-                        if (update.spriteStatus !== 'running') {
-                            setReleasingAgentIds((prev) => {
-                                if (!prev.has(update.agentId)) return prev
-                                const next = new Set(prev)
-                                next.delete(update.agentId)
-                                return next
-                            })
-                        }
-                    },
-                    onHostUpdate: (update) => {
-                        setSandboxes((prev) =>
-                            prev.map((s) =>
-                                s.id === update.hostId
-                                    ? {
-                                          ...s,
-                                          spriteStatus: update.spriteStatus
-                                      }
-                                    : s
-                            )
-                        )
-                    },
-                    onQuotaWarning: (event) => {
-                        console.log('[sprite-status] quota-warning', event)
-                        try {
-                            const key = `quota-dismissed:${event.code}:${event.at.slice(0, 10)}`
-                            if (window.localStorage.getItem(key)) return
-                        } catch {
-                            /* ignore */
-                        }
-                        setQuotaWarnings((prev) => {
-                            const filtered = prev.filter(
-                                (w) => w.code !== event.code
-                            )
-                            return [...filtered, event]
-                        })
-                        void refreshRuntimeAccess()
-                    },
-                    onSessionsChanged: (event) => {
-                        sessionInvalidationRef.current?.invalidate(
-                            event.agentId
-                        )
-                        publishSessionsChanged(event)
-                    },
-                    onError: (err) => {
-                        console.error('[sprite-status] SSE error', err)
-                        onDown()
-                    },
-                    onClose: () => {
-                        console.log('[sprite-status] SSE closed')
-                        onDown()
-                    }
+        return subscribeWorkbenchEvents({
+            onSnapshot: (snapshot) => {
+                console.log(
+                    '[sprite-status] snapshot',
+                    snapshot.length,
+                    'agents',
+                    snapshot
+                )
+                setAgents((previous) =>
+                    applyAgentStatusSnapshots(previous, snapshot)
+                )
+            },
+            onUpdate: (update) => {
+                console.log('[sprite-status] update', update)
+                setAgents((previous) =>
+                    applyAgentStatusSnapshots(previous, [update])
+                )
+                if (update.spriteStatus !== 'running') {
+                    setReleasingAgentIds((prev) => {
+                        if (!prev.has(update.agentId)) return prev
+                        const next = new Set(prev)
+                        next.delete(update.agentId)
+                        return next
+                    })
+                }
+            },
+            onHostUpdate: (update) => {
+                setSandboxes((prev) =>
+                    prev.map((s) =>
+                        s.id === update.hostId
+                            ? {
+                                  ...s,
+                                  spriteStatus: update.spriteStatus
+                              }
+                            : s
+                    )
+                )
+            },
+            onQuotaWarning: (event) => {
+                console.log('[sprite-status] quota-warning', event)
+                try {
+                    const key = `quota-dismissed:${event.code}:${event.at.slice(0, 10)}`
+                    if (window.localStorage.getItem(key)) return
+                } catch {
+                    /* ignore */
+                }
+                setQuotaWarnings((prev) => {
+                    const filtered = prev.filter(
+                        (w) => w.code !== event.code
+                    )
+                    return [...filtered, event]
                 })
+                void refreshRuntimeAccess()
+            },
+            onSessionsChanged: (event) => {
+                sessionInvalidationRef.current?.invalidate(
+                    event.agentId
+                )
+                publishSessionsChanged(event)
             },
             onReconnected: () => {
                 void refreshAgents({ clearOnError: false, showLoading: false })
@@ -2831,29 +2815,19 @@ const AppShell: FC = (): ReactNode => {
                 // every list the sidebar is actually showing.
                 for (const agentId of cachedSessionAgentIdsRef.current)
                     sessionInvalidationRef.current?.invalidate(agentId)
-            },
-            isVisible: () => document.visibilityState === 'visible'
+            }
         })
-        stream.start()
-        const handleOnline = (): void => stream.notifyOnline()
-        const handleVisibilityChange = (): void => {
-            if (document.visibilityState === 'visible') stream.notifyVisible()
-        }
-        window.addEventListener('online', handleOnline)
-        document.addEventListener('visibilitychange', handleVisibilityChange)
-        return () => {
-            window.removeEventListener('online', handleOnline)
-            document.removeEventListener(
-                'visibilitychange',
-                handleVisibilityChange
-            )
-            stream.dispose()
-        }
-    }, [client, refreshAgents, refreshSandboxes, refreshRuntimeAccess])
+    }, [refreshAgents, refreshSandboxes, refreshRuntimeAccess])
 
     useEffect(() => {
         void refreshAutomationCount()
     }, [location.pathname, refreshAutomationCount])
+
+    useResourceRefresh('automation', undefined, refreshAutomationCount, { initial: false })
+    const refreshResourceAgents = useCallback(async (): Promise<void> => {
+        await refreshAgents({ clearOnError: false, showLoading: false })
+    }, [refreshAgents])
+    useResourceRefresh('agent', undefined, refreshResourceAgents, { initial: false })
 
     useEffect(() => {
         if (terminalTabs.length === 0) {

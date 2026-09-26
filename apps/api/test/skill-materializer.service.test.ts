@@ -870,7 +870,7 @@ const fakeDbWithAgents = (
 })
 
 const fakeDbWithLock = (events: string[] = []): unknown => ({
-    update: () => ({ set: () => ({ where: async () => [] }) }),
+    update: () => ({ set: () => ({ where: () => ({ returning: async () => [] }) }) }),
     // declaredSkillsDir host lookup — no ADR-0014 declared dir by default, so
     // the daemon store falls back to the homeDir-derived path.
     select: () => ({

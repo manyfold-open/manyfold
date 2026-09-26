@@ -7,6 +7,8 @@ on an iCalendar RRULE schedule. Recent run history is included in `get`.
 
 ## Scope
 
+{{CALLER_CONTEXT}}
+
 - **Your own agent** (the default — `--agent-id $MF_AGENT_ID`): **no permission
   needed**. List/get/create/update/run/delete your own automations freely.
 - **The whole account** (`--account`): acts across ALL your agents and needs a
@@ -54,11 +56,7 @@ mf automations delete <automation-id> --yes
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → only `--account` actions need a scope (your own agent is free);
-  request it (existing ones kept): `mf auth ensure --scopes <missing scope>`,
-  then retry
-- `403` → you targeted another agent without `--account`; act on your own
-  agent, or add `--account` (needs a grant)
+{{AUTH_RECOVERY}}
 - `400` "invalid rrule: …" → fix RRULE syntax (iCalendar, single line)
 - `400` "invalid timezone" → use an IANA timezone name
 - `400` "schedule has no future occurrence" → rrule + dtstart never fire

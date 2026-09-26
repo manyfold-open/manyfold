@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
@@ -17,6 +18,7 @@ import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 
 @Module({
     imports: [
+        ResourceEventsModule,
         AuthModule,
         SpritesAccountsModule,
         AgentRuntimesModule,

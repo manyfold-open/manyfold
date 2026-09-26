@@ -1,12 +1,13 @@
 import type { UserConnectionSummary } from '@manyfold/shared'
 import type { FC } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
 import { EffectTimingTag } from '@/pages/AgentSettings/SectionHeader'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { connectionProviderLabel } from '../Customize/connectionMeta'
 
@@ -32,20 +33,15 @@ export const AgentConnections: FC<Props> = ({ agent, onAgentUpdated }) => {
     const cloudflareId = extras.cloudflareConnectionId ?? ''
     const composioId = extras.composioConnectionId ?? ''
 
-    useEffect(() => {
-        let active = true
-        void client.connections
-            .list()
-            .then((list) => {
-                if (active) setConns(list)
-            })
-            .catch((err) => {
-                if (active) setError(apiErrorMessage(err))
-            })
-        return () => {
-            active = false
+    const refresh = useCallback(async (signal: AbortSignal): Promise<void> => {
+        try {
+            const list = await client.connections.list()
+            if (!signal.aborted) setConns(list)
+        } catch (err) {
+            if (!signal.aborted) setError(apiErrorMessage(err))
         }
     }, [client])
+    useResourceRefresh('connection', undefined, refresh)
 
     const github = useMemo(
         () => conns.filter((c) => c.provider === 'github'),

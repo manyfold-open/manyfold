@@ -137,11 +137,12 @@ stderr as `cli Error: …` and exit 1; tokens are never included.
 
 - `no granted peer matching "…"` → run `mf a2a status` to see exact names;
   ask the user to grant the peer if missing.
-- `no usable A2A token` / `a2a:read` missing → run
+- `no usable A2A token` / `a2a:read` missing from a managed identity → run
   `mf auth ensure --scopes a2a:read`, post the consent URL to the user
   (existing permissions are kept), retry after they approve.
-- `a2a:edit` missing while changing exposure/callers → run
+- `a2a:edit` missing from a managed identity while changing exposure/callers → run
   `mf auth ensure --scopes a2a:edit` and retry after approval.
+{{AUTH_RECOVERY}}
 - `needs an agent context` (user token) → add `--agent-id <id>` for an agent
   you own, e.g. `mf --agent-id <id> a2a status`.
 - `too many concurrent A2A delegations` → you have hit the in-flight cap;
