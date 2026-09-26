@@ -1,8 +1,14 @@
 import type { AgentFramework } from './constants'
+import type {
+    RuntimeAvailability,
+    RuntimeHostKind,
+    RuntimeHostStatus
+} from './host-model'
 import type { RuntimeLocalCredentialFacts } from './runtime-local-credentials'
 import type { OpenclawTurnUsage } from './acp'
 
-export type DaemonHostStatus = 'active' | 'offline' | 'revoked'
+// The host's lifecycle (ADR-0036); presence is the separate `online` flag.
+export type DaemonHostStatus = RuntimeHostStatus
 
 export type DaemonStartupMethod =
     | 'launchd-user'
@@ -81,12 +87,10 @@ export interface RegisterDaemonRequest {
     herdrVersion?: string | null
 }
 
+// `daemonId` is the host the daemon registered onto (ADR-0036): the routing
+// key for RPC and the scope of the daemon's local stores.
 export interface RegisterDaemonResponse {
     daemonId: string
-    runtimes: Array<{
-        runtimeId: string
-        framework: DetectedFramework['framework']
-    }>
     wsUrl: string
 }
 
@@ -135,6 +139,9 @@ export interface AdminDaemonHostSummary extends DaemonHostSummary {
 export interface DaemonHostSummary {
     id: string
     name: string
+    kind: RuntimeHostKind
+    // False until a daemon has registered onto this host at least once.
+    registered: boolean
     daemonUuid: string
     hostname: string | null
     os: string | null
@@ -168,17 +175,22 @@ export interface DaemonHostSummary {
     lastSeenAt: string | null
     createdAt: string
     agentCount: number
+    // The framework runtimes installed on this host.
     runtimes: Array<{
         runtimeId: string
         framework: DetectedFramework['framework']
         name: string
+        status: 'installing' | 'ready' | 'failed'
+        availability: RuntimeAvailability
     }>
 }
 
 export interface DaemonTokenSummary {
     id: string
     name: string
-    daemonId: string | null
+    // The host this token registers onto; null until a user token's first
+    // register creates its local host.
+    hostId: string | null
     lastUsedAt: string | null
     expiresAt: string | null
     revokedAt: string | null
@@ -401,7 +413,6 @@ export type DaemonWsFrame =
           type: 'welcome'
           daemonId: string
           serverTime: string
-          runtimeIds: string[]
           serverFeatures?: string[]
       }
     | { type: 'ping' }

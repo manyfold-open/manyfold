@@ -166,8 +166,6 @@ export type {
     ConnectA2aStartBody,
     ConnectA2aStartResponse,
     AuthWhoamiResponse,
-    SdkSpritesAccountSummary,
-    UpdateSpritesAccountBody,
     NotificationProvider,
     NotificationEventKey,
     SdkNotificationWebhookSummary,
@@ -202,9 +200,6 @@ export type {
     SandboxQuotaTimeseriesRange,
     SandboxQuotaTimeseriesResponse,
     SpriteStatus,
-    SpriteStatusUpdate,
-    SpriteHostStatusUpdate,
-    SpriteStatusEvent,
     ResourceChangedEvent,
     ChatSessionListChangeReason,
     ChatSessionChangeDetail,
@@ -236,10 +231,6 @@ export type {
     FileRootSdk,
     FileRootCapabilitiesSdk,
     FsRootsResponse,
-    K8sClusterHealthStatus,
-    K8sClusterSummary,
-    UpsertK8sClusterBody,
-    K8sClusterProbeResult,
     SdkUserSummary,
     Plan,
     PlanId,
@@ -1260,3 +1251,36 @@ export {
     createBrowserTelemetry,
     reportBrowserWebVital
 } from './browser-telemetry'
+export {
+    DAEMON_PRESENCE_WINDOW_MS,
+    agentAvailability,
+    daemonOnline,
+    isRuntimeUsable,
+    placementOf,
+    runtimeAvailability,
+    runtimeProviderKindLabel,
+    runtimeProviderKinds
+} from './host-model'
+export type {
+    AvailabilityAgent,
+    AvailabilityHost,
+    AvailabilityRuntime,
+    DaemonPresenceRow,
+    PlacementHost,
+    RuntimeAvailability,
+    RuntimeHostKind,
+    RuntimeHostPowerState,
+    RuntimeHostStatus,
+    RuntimeProviderKind
+} from './host-model'
+export type {
+    RuntimeProviderSummary,
+    CreateRuntimeProviderBody,
+    UpdateRuntimeProviderBody,
+    RuntimeProviderProbeResult,
+    RuntimeProviderStatus,
+    RuntimeProviderHealthStatus,
+    AgentHostStatusUpdate,
+    HostPowerStatusUpdate,
+    HostStatusEvent
+} from './dtos'

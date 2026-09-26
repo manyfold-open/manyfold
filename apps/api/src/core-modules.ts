@@ -19,6 +19,7 @@ import { SandboxesModule } from '@/modules/sandboxes/sandboxes.module'
 import { PodHostsModule } from '@/modules/pod-hosts/pod-hosts.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { ClustersModule } from '@/modules/clusters/clusters.module'
@@ -63,6 +64,7 @@ export const CORE_MODULES = [
     FrameworkExtensionsModule,
     DbModule,
     SecretsModule,
+    HostsModule,
     K8sModule,
     HealthModule,
     AuthModule,

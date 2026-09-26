@@ -27,20 +27,22 @@ export const runtimeKindLabel = (kind: AgentRuntime): string => {
     }
 }
 
+// The agent's own lifecycle (ADR-0036). Whether it can run right now is
+// derived — see agentAvailability in ./host-model — never stored.
 export const agentStatus = {
     PENDING: 'pending',
-    RUNNING: 'running',
-    STOPPED: 'stopped',
+    READY: 'ready',
     FAILED: 'failed'
 } as const
 
 export type AgentStatus = (typeof agentStatus)[keyof typeof agentStatus]
 
+// Install state only (ADR-0036); availability is derived from it, the
+// host's lifecycle and the host daemon's presence.
 export const agentRuntimeStatus = {
-    PENDING: 'pending',
+    INSTALLING: 'installing',
     READY: 'ready',
-    FAILED: 'failed',
-    STOPPED: 'stopped'
+    FAILED: 'failed'
 } as const
 
 export type AgentRuntimeStatus =
