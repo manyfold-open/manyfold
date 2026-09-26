@@ -3677,7 +3677,7 @@ const en = {
             subscription: {
                 claude: 'Can use Claude Pro / Max',
                 codex: 'Can use ChatGPT Plus / Pro',
-                gemini: 'Can use a Google subscription',
+                gemini: 'Can use a Gemini Code Assist license',
                 pi: 'Can use Claude Pro / Max, ChatGPT Plus / Pro or Copilot'
             },
             machine: {

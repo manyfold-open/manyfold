@@ -3511,7 +3511,7 @@ const zh: Translations = {
             subscription: {
                 claude: '可用 Claude Pro / Max',
                 codex: '可用 ChatGPT Plus / Pro',
-                gemini: '可用 Google 订阅',
+                gemini: '可用 Gemini Code Assist 授权',
                 pi: '可用 Claude Pro / Max、ChatGPT Plus / Pro 或 Copilot'
             },
             machine: {

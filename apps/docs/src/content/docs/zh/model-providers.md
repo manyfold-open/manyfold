@@ -19,7 +19,7 @@ order: 4
 
 ## 使用自己的订阅
 
-Claude Code、Codex 和 Gemini CLI 的 Agent 可以直接使用 CLI 自身的登录会话运行 —— 例如 Claude Pro/Max、ChatGPT 订阅或 Google 账号 —— 而不需要 API key。
+Claude Code、Codex 和 Gemini CLI 的 Agent 可以直接使用 CLI 自身的登录会话运行 —— 例如 Claude Pro/Max、ChatGPT 订阅或 Gemini Code Assist Standard / Enterprise license —— 而不需要 API key。Gemini CLI 不接受个人 Google 账号（免费版、Google AI Pro 或 Ultra）。
 
 1. 创建 Agent 时，在模型提供方区域选择**使用自己的订阅**。
 2. 创建完成后，在聊天页打开该 Agent 的终端，并在终端里完成 CLI 的登录。

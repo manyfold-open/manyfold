@@ -257,7 +257,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.identity.a2a': 'اربط أي وكيل يدعم بروتوكول A2A',
     'web.agentNewV4.subscription.claude': 'يدعم Claude Pro / Max',
     'web.agentNewV4.subscription.codex': 'يدعم ChatGPT Plus / Pro',
-    'web.agentNewV4.subscription.gemini': 'يدعم اشتراك Google',
+    'web.agentNewV4.subscription.gemini': 'يدعم ترخيص Gemini Code Assist',
     'web.agentNewV4.subscription.pi': 'يدعم Claude Pro / Max أو ChatGPT Plus / Pro أو Copilot',
     'web.agentNewV4.machine.yours': 'أجهزتك',
     'web.agentNewV4.machine.newOne': 'جهاز جديد',

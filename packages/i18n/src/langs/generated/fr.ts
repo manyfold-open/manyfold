@@ -2063,7 +2063,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.identity.a2a': 'Raccorder n\'importe quel agent parlant A2A',
     'web.agentNewV4.subscription.claude': 'Accepte Claude Pro / Max',
     'web.agentNewV4.subscription.codex': 'Accepte ChatGPT Plus / Pro',
-    'web.agentNewV4.subscription.gemini': 'Accepte un abonnement Google',
+    'web.agentNewV4.subscription.gemini': 'Accepte une licence Gemini Code Assist',
     'web.agentNewV4.subscription.pi': 'Accepte Claude Pro / Max, ChatGPT Plus / Pro ou Copilot',
     'web.agentNewV4.machine.yours': 'Vos machines',
     'web.agentNewV4.machine.newOne': 'Une nouvelle',

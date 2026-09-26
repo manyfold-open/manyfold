@@ -2055,7 +2055,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.identity.a2a': 'A2A に対応したエージェントを接続します',
     'web.agentNewV4.subscription.claude': 'Claude Pro / Max を利用可能',
     'web.agentNewV4.subscription.codex': 'ChatGPT Plus / Pro を利用可能',
-    'web.agentNewV4.subscription.gemini': 'Google のサブスクリプションを利用可能',
+    'web.agentNewV4.subscription.gemini': 'Gemini Code Assist ライセンスを利用可能',
     'web.agentNewV4.subscription.pi': 'Claude Pro / Max、ChatGPT Plus / Pro、Copilot を利用可能',
     'web.agentNewV4.machine.yours': 'あなたのマシン',
     'web.agentNewV4.machine.newOne': '新しく用意する',

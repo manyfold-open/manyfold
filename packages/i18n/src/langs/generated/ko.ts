@@ -2054,7 +2054,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.identity.a2a": "A2A 를 지원하는 에이전트를 연결합니다",
     "web.agentNewV4.subscription.claude": "Claude Pro / Max 사용 가능",
     "web.agentNewV4.subscription.codex": "ChatGPT Plus / Pro 사용 가능",
-    "web.agentNewV4.subscription.gemini": "Google 구독 사용 가능",
+    "web.agentNewV4.subscription.gemini": "Gemini Code Assist 라이선스 사용 가능",
     "web.agentNewV4.subscription.pi": "Claude Pro / Max, ChatGPT Plus / Pro 또는 Copilot 사용 가능",
     "web.agentNewV4.machine.yours": "보유한 기기",
     "web.agentNewV4.machine.newOne": "새로 마련하기",

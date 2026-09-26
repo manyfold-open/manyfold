@@ -2061,7 +2061,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.identity.a2a': 'A2A बोलने वाले किसी भी एजेंट को जोड़िए',
     'web.agentNewV4.subscription.claude': 'Claude Pro / Max चल सकता है',
     'web.agentNewV4.subscription.codex': 'ChatGPT Plus / Pro चल सकता है',
-    'web.agentNewV4.subscription.gemini': 'Google सदस्यता चल सकती है',
+    'web.agentNewV4.subscription.gemini': 'Gemini Code Assist लाइसेंस चल सकता है',
     'web.agentNewV4.subscription.pi': 'Claude Pro / Max, ChatGPT Plus / Pro या Copilot चल सकता है',
     'web.agentNewV4.machine.yours': 'आपकी मशीनें',
     'web.agentNewV4.machine.newOne': 'नई मशीन',

@@ -2064,7 +2064,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.identity.a2a': 'Подключить любого агента, говорящего по A2A',
     'web.agentNewV4.subscription.claude': 'Поддерживает Claude Pro / Max',
     'web.agentNewV4.subscription.codex': 'Поддерживает ChatGPT Plus / Pro',
-    'web.agentNewV4.subscription.gemini': 'Поддерживает подписку Google',
+    'web.agentNewV4.subscription.gemini': 'Поддерживает лицензию Gemini Code Assist',
     'web.agentNewV4.subscription.pi': 'Поддерживает Claude Pro / Max, ChatGPT Plus / Pro или Copilot',
     'web.agentNewV4.machine.yours': 'Ваши машины',
     'web.agentNewV4.machine.newOne': 'Новая',

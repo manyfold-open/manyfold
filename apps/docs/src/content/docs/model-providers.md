@@ -19,7 +19,7 @@ Your workspace may also have managed model access. If it does, the creation flow
 
 ## Use your own subscription
 
-Claude Code, Codex, and Gemini CLI agents can run on the CLI's own sign-in — for example a Claude Pro/Max plan, a ChatGPT plan, or a Google account — instead of an API key.
+Claude Code, Codex, and Gemini CLI agents can run on the CLI's own sign-in — for example a Claude Pro/Max plan, a ChatGPT plan, or a Gemini Code Assist Standard or Enterprise license — instead of an API key. Gemini CLI does not accept personal Google accounts (free, Google AI Pro or Ultra).
 
 1. When creating the agent, choose **Use your own subscription** in the model provider section.
 2. After the agent is created, open its terminal from the chat page and complete the CLI's sign-in there.
