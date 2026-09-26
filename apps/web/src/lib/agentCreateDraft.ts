@@ -92,6 +92,9 @@ export const buildCreateAgentBody = (
         base.codexCredentials = buildCodexPayload(draft.picker)
     } else if (draft.framework === 'gemini-cli') {
         base.geminiCliCredentials = buildGeminiPayload(draft.picker)
+    } else if (draft.framework === 'antigravity-cli') {
+        // agy's API-key mode takes the same Gemini key and endpoint.
+        base.antigravityCliCredentials = buildGeminiPayload(draft.picker)
     } else if (draft.framework === 'pi') {
         base.piCredentials = buildPiPayload(
             draft.picker,
@@ -167,6 +170,8 @@ export const buildAgentCredentialsBody = (draft: {
         body.codexCredentials = buildCodexPayload(draft.picker)
     else if (draft.framework === 'gemini-cli')
         body.geminiCliCredentials = buildGeminiPayload(draft.picker)
+    else if (draft.framework === 'antigravity-cli')
+        body.antigravityCliCredentials = buildGeminiPayload(draft.picker)
     else if (draft.framework === 'pi')
         body.piCredentials = buildPiPayload(
             draft.picker,
@@ -257,7 +262,7 @@ export const modelProviderForFramework = (
 ): AgentCredentialModelProvider =>
     framework === 'codex'
         ? 'openai'
-        : framework === 'gemini-cli'
+        : framework === 'gemini-cli' || framework === 'antigravity-cli'
           ? 'google'
           : 'anthropic'
 

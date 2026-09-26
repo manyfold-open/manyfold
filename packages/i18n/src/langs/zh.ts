@@ -3001,6 +3001,7 @@ const zh: Translations = {
                 chooseSupportedCodexModel: '选择受支持的 Codex 模型',
                 chooseFastCapableModel: '选择支持快速模式的模型',
                 chooseSupportedGeminiModel: '选择受支持的 Gemini 模型',
+                chooseSupportedAntigravityModel: '选择 Antigravity CLI 在 API key 模式下提供的模型',
                 runtimeLocalNotReady: '该运行环境的本地配置尚未就绪'
             },
             configure: '配置',
@@ -3859,6 +3860,7 @@ const zh: Translations = {
                 geminiCli:
                     'Google Gemini CLI，用于在托管工作区中编程和执行通用终端自动化。',
                 pi: '开源编程 Agent CLI，可运行在 Anthropic、OpenAI 或 Google 模型上，内置会话、skills 和 AGENTS.md 支持。',
+                antigravityCli: 'Google 的编程 Agent CLI（agy）：用 Google 账号可运行 Gemini、Claude 和 GPT-OSS 模型，用 API key 可运行 Gemini 模型。',
                 hermes: '面向连接器、自动化和后台工作流的持久服务 Agent，需要长期运行环境。',
                 openclaw:
                     '面向需要服务、网关或定时任务的丰富工具型 Agent 应用的框架运行时。',
@@ -4749,6 +4751,7 @@ const zh: Translations = {
                 frameworkCodex: 'Codex',
                 frameworkGeminiCli: 'Gemini CLI',
                 frameworkPi: 'Pi',
+                frameworkAntigravityCli: 'Antigravity CLI',
                 frameworkOpenclaw: 'OpenClaw',
                 frameworkHermes: 'Hermes',
                 frameworkDify: 'Dify',
@@ -4807,6 +4810,14 @@ const zh: Translations = {
                 piModelLabel: '默认模型（可选）',
                 piModelHint:
                     '按 provider 的命名填写模型 id，例如 claude-sonnet-4-6；留空则使用 pi 为上方所选厂商预设的默认模型。',
+                antigravityApiKeyLabel: 'Gemini API key',
+                antigravityApiKeyHint:
+                    'Google AI Studio 的 key，Antigravity CLI 用它运行 Gemini 模型。',
+                antigravityBaseUrlLabel: 'Gemini base URL（可选）',
+                antigravityBaseUrlHint:
+                    '覆盖 GOOGLE_GEMINI_BASE_URL；留空则使用 Google 官方端点。',
+                antigravityModelLabel: '模型',
+                antigravityModelDefault: 'Antigravity CLI 默认',
                 hermesPrimaryModelSection: '主模型',
                 hermesPrimaryProviderLabel: '模型厂商',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

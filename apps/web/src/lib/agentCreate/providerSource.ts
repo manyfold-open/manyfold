@@ -226,7 +226,8 @@ export const protocolModelCounts = (
 
 export const hostApiKeyEnvFor = (framework: AgentFramework): string => {
     if (framework === 'codex') return 'OPENAI_API_KEY'
-    if (framework === 'gemini-cli') return 'GEMINI_API_KEY'
+    if (framework === 'gemini-cli' || framework === 'antigravity-cli')
+        return 'GEMINI_API_KEY'
     return 'ANTHROPIC_API_KEY'
 }
 

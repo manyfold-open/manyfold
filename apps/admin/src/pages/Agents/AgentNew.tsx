@@ -53,6 +53,13 @@ import {
     type OpenclawFieldsValue
 } from './components/OpenclawFields.helpers'
 import { PiFields } from './components/PiFields'
+import { AntigravityCliFields } from './components/AntigravityCliFields'
+import {
+    antigravityCliInitial,
+    antigravityCliIsValid,
+    antigravityCliToPayload,
+    type AntigravityCliFieldsValue
+} from './components/AntigravityCliFields.helpers'
 import {
     piInitial,
     piIsValid,
@@ -73,6 +80,7 @@ type Framework = Extract<
     | 'codex'
     | 'gemini-cli'
     | 'pi'
+    | 'antigravity-cli'
     | 'openclaw'
     | 'hermes'
     | 'dify'
@@ -96,7 +104,8 @@ const isCodingFramework = (framework: Framework): boolean =>
     framework === 'claude-code' ||
     framework === 'codex' ||
     framework === 'gemini-cli' ||
-    framework === 'pi'
+    framework === 'pi' ||
+    framework === 'antigravity-cli'
 
 const resolveSteps = (
     framework: Framework,
@@ -137,6 +146,10 @@ const frameworkOptions: Array<{ value: Framework; labelKey: string }> = [
     { value: 'codex', labelKey: 'admin.agents.new.frameworkCodex' },
     { value: 'gemini-cli', labelKey: 'admin.agents.new.frameworkGeminiCli' },
     { value: 'pi', labelKey: 'admin.agents.new.frameworkPi' },
+    {
+        value: 'antigravity-cli',
+        labelKey: 'admin.agents.new.frameworkAntigravityCli'
+    },
     { value: 'openclaw', labelKey: 'admin.agents.new.frameworkOpenclaw' },
     { value: 'hermes', labelKey: 'admin.agents.new.frameworkHermes' },
     { value: 'dify', labelKey: 'admin.agents.new.frameworkDify' },
@@ -170,6 +183,8 @@ const AgentNew: FC = (): ReactNode => {
     const [geminiCli, setGeminiCli] =
         useState<GeminiCliFieldsValue>(geminiCliInitial)
     const [pi, setPi] = useState<PiFieldsValue>(piInitial)
+    const [antigravityCli, setAntigravityCli] =
+        useState<AntigravityCliFieldsValue>(antigravityCliInitial)
     const [openclaw, setOpenclaw] =
         useState<OpenclawFieldsValue>(openclawInitial)
     const [hermes, setHermes] = useState<HermesFieldsValue>(hermesInitial)
@@ -273,11 +288,13 @@ const AgentNew: FC = (): ReactNode => {
                 ? geminiCliIsValid(geminiCli)
                 : framework === 'pi'
                   ? piIsValid(pi)
-                  : framework === 'openclaw'
-                    ? openclawIsValid(openclaw)
-                    : framework === 'hermes'
-                      ? hermesIsValid(hermes)
-                      : externalIsValid
+                  : framework === 'antigravity-cli'
+                    ? antigravityCliIsValid(antigravityCli)
+                    : framework === 'openclaw'
+                      ? openclawIsValid(openclaw)
+                      : framework === 'hermes'
+                        ? hermesIsValid(hermes)
+                        : externalIsValid
     const nameValidation = validateAgentName(name)
     const normalizedName = nameValidation.valid
         ? nameValidation.value
@@ -351,6 +368,19 @@ const AgentNew: FC = (): ReactNode => {
                 ...ownerField,
                 ...sandboxField,
                 piCredentials: piToPayload(pi)
+            }
+        }
+        if (framework === 'antigravity-cli') {
+            return {
+                name: normalizedName,
+                framework,
+                ...runtimeField,
+                ...clusterField,
+                ...accountField,
+                ...ownerField,
+                ...sandboxField,
+                antigravityCliCredentials:
+                    antigravityCliToPayload(antigravityCli)
             }
         }
         if (framework === 'openclaw') {
@@ -800,6 +830,12 @@ const AgentNew: FC = (): ReactNode => {
                             )}
                             {framework === 'pi' && (
                                 <PiFields value={pi} onChange={setPi} />
+                            )}
+                            {framework === 'antigravity-cli' && (
+                                <AntigravityCliFields
+                                    value={antigravityCli}
+                                    onChange={setAntigravityCli}
+                                />
                             )}
                             {framework === 'openclaw' && (
                                 <OpenclawFields

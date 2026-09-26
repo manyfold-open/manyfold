@@ -3143,6 +3143,7 @@ const en = {
                 chooseSupportedCodexModel: 'Choose a supported Codex model',
                 chooseFastCapableModel: 'Choose a fast-capable model',
                 chooseSupportedGeminiModel: 'Choose a supported Gemini model',
+                chooseSupportedAntigravityModel: 'Choose a model Antigravity CLI offers on an API key',
                 runtimeLocalNotReady:
                     'The local config on this runtime is not ready'
             },
@@ -4046,6 +4047,7 @@ const en = {
                 geminiCli:
                     'Google Gemini CLI for coding and general terminal automation inside a managed workspace.',
                 pi: 'Open-source coding agent CLI that runs on Anthropic, OpenAI, or Google models — sessions, skills, and AGENTS.md included.',
+                antigravityCli: 'Google\'s coding agent CLI (agy): Gemini, Claude and GPT-OSS models on a Google account, or Gemini models on an API key.',
                 hermes: 'Persistent service agent for connectors, automations, and background workflows that need a long-running runtime.',
                 openclaw:
                     'Framework runtime for tool-rich agent applications that need services, gateways, or scheduled jobs.',
@@ -4978,6 +4980,7 @@ const en = {
                 frameworkCodex: 'Codex',
                 frameworkGeminiCli: 'Gemini CLI',
                 frameworkPi: 'Pi',
+                frameworkAntigravityCli: 'Antigravity CLI',
                 frameworkOpenclaw: 'OpenClaw',
                 frameworkHermes: 'Hermes',
                 frameworkDify: 'Dify',
@@ -5041,6 +5044,14 @@ const en = {
                 piModelLabel: 'Default model (optional)',
                 piModelHint:
                     'The model id as the provider names it, e.g. claude-sonnet-4-6. Blank uses pi\u2019s default for the provider selected above.',
+                antigravityApiKeyLabel: 'Gemini API key',
+                antigravityApiKeyHint:
+                    'A Google AI Studio key; Antigravity CLI runs its Gemini models on it.',
+                antigravityBaseUrlLabel: 'Gemini base URL (optional)',
+                antigravityBaseUrlHint:
+                    'Overrides GOOGLE_GEMINI_BASE_URL. Blank uses Google\u2019s own endpoint.',
+                antigravityModelLabel: 'Model',
+                antigravityModelDefault: 'Antigravity CLI default',
                 hermesPrimaryModelSection: 'Primary model',
                 hermesPrimaryProviderLabel: 'Provider',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

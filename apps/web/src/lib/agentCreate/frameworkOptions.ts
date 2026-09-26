@@ -129,6 +129,11 @@ const CORE_FRAMEWORK_OPTIONS: FrameworkOptionEntry[] = [
         descriptionKey: 'web.agentNew.frameworkDescriptions.pi'
     },
     {
+        value: 'antigravity-cli',
+        label: 'Antigravity CLI',
+        descriptionKey: 'web.agentNew.frameworkDescriptions.antigravityCli'
+    },
+    {
         value: 'hermes',
         label: 'Hermes Agent',
         descriptionKey: 'web.agentNew.frameworkDescriptions.hermes'

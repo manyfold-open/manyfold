@@ -107,12 +107,13 @@ const successMessageFor = (
 ): string => {
     if (localManaged) return t('web.credentials.successUpdated')
     if (framework === 'codex') return t('web.credentials.successUpdatedCodex')
-    // pi reads the key from the env each turn injects, so like claude the
-    // next message picks it up with no restart.
+    // pi and agy read the key from the env each turn injects, so like claude
+    // the next message picks it up with no restart.
     if (
         framework === 'claude-code' ||
         framework === 'gemini-cli' ||
-        framework === 'pi'
+        framework === 'pi' ||
+        framework === 'antigravity-cli'
     )
         return t('web.credentials.successUpdatedClaude')
     return t('web.credentials.successUpdatedDefault')
@@ -141,6 +142,8 @@ const applyModel = (
     if (framework === 'gemini-cli' && body.geminiCliCredentials)
         body.geminiCliCredentials.model = m
     if (framework === 'pi' && body.piCredentials) body.piCredentials.model = m
+    if (framework === 'antigravity-cli' && body.antigravityCliCredentials)
+        body.antigravityCliCredentials.model = m
     if (framework === 'openclaw' && body.openclawCredentials)
         body.openclawCredentials.primaryModelName = m
     if (framework === 'hermes' && body.hermesCredentials)
@@ -186,6 +189,16 @@ const buildBody = (
                 framework,
                 {
                     geminiCliCredentials: { providerId: picker.providerId }
+                },
+                model
+            )
+        if (framework === 'antigravity-cli')
+            return applyModel(
+                framework,
+                {
+                    antigravityCliCredentials: {
+                        providerId: picker.providerId
+                    }
                 },
                 model
             )
@@ -247,6 +260,18 @@ const buildBody = (
             framework,
             {
                 geminiCliCredentials: {
+                    googleApiKey: picker.apiKey,
+                    googleGeminiBaseUrl: baseUrlOpt
+                },
+                saveCredentialAs
+            },
+            model
+        )
+    if (framework === 'antigravity-cli')
+        return applyModel(
+            framework,
+            {
+                antigravityCliCredentials: {
                     googleApiKey: picker.apiKey,
                     googleGeminiBaseUrl: baseUrlOpt
                 },
