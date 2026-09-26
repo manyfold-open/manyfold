@@ -106,7 +106,7 @@ mf daemon stop                # stop the daemon (and the execs it owns), remove 
 mf daemon stop --keep-execs   # stop the daemon but leave running execs for the next one to adopt
 mf daemon doctor              # diagnose registration / framework detection issues
 mf doctor                     # check every profile's daemon, sign-in and API, with a fix for each problem
-mf daemon hooks status        # claude / codex / pi session hooks (see below)
+mf daemon hooks status        # claude / codex / pi / agy session hooks (see below)
 ```
 
 The daemon log lives at
@@ -131,9 +131,9 @@ After updating the CLI with `mf update`, run `mf daemon stop` then `mf daemon st
 
 ### Session hooks
 
-When you open a conversation's terminal from the web (the TUI resume), Manyfold needs to know which conversation the `claude`, `codex` or `pi` process in that terminal is on: whether it renamed the session, cleared it, or started a new one. The CLIs' own session events carry that, so `mf daemon register` asks once whether to install the hooks (or `-y` says yes, `--no-hooks` says no). For Claude Code and Codex they are one script plus one entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, marked as Manyfold's, next to any hooks you already have; for Pi they are one extension file, `~/.pi/agent/extensions/mf-session.ts`, which Pi loads on its own.
+When you open a conversation's terminal from the web (the TUI resume), Manyfold needs to know which conversation the `claude`, `codex`, `pi` or `agy` process in that terminal is on: whether it renamed the session, cleared it, or started a new one. The CLIs' own session events carry that, so `mf daemon register` asks once whether to install the hooks (or `-y` says yes, `--no-hooks` says no). For Claude Code and Codex they are one script plus one entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, marked as Manyfold's, next to any hooks you already have; for Pi they are one extension file, `~/.pi/agent/extensions/mf-session.ts`, which Pi loads on its own; for Antigravity CLI they are one script plus a `manyfold-session` block in `~/.gemini/config/hooks.json`, next to any other blocks there. `agy` has no session-end event, so its hook leaves a small background watcher on the `agy` process that reports the conversation when `agy` exits.
 
-The hooks act only inside a terminal Manyfold opened (the shell carries `MF_TERMINAL_ID`) and never print anything, so your own shells and the model's context are untouched. Codex runs a newly installed hook only after you approve it once with `/hooks` in its TUI.
+The hooks act only inside a terminal Manyfold opened (the shell carries `MF_TERMINAL_ID`) and never print anything (agy's answers with an empty `{}`, which changes nothing), so your own shells and the model's context are untouched. Codex runs a newly installed hook only after you approve it once with `/hooks` in its TUI.
 
 ```sh
 mf daemon hooks install       # install for the frameworks on this machine, keep current on daemon start

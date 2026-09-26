@@ -38,7 +38,7 @@ Register this machine as a Manyfold local daemon
 | `--workspace-root <path>` | workspace base dir this daemon manages (default: the shared ~/.manyfold/workspaces) |
 | `--skills-dir <path>` | skill store dir this daemon manages (default: the shared ~/.manyfold/skills) |
 | `-y, --yes` | skip confirmation: start the daemon and install the session hooks after registering |
-| `--no-hooks` | do not install the claude / codex / pi session hooks (they act only inside Manyfold terminals) |
+| `--no-hooks` | do not install the claude / codex / pi / agy session hooks (they act only inside Manyfold terminals) |
 | `-h, --help` | display help for command |
 
 ## `mf daemon start`
