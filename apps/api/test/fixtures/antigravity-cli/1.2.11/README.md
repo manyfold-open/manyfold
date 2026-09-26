@@ -30,3 +30,13 @@ with one `{"event":"user","message":{"content":"…"}}` line on stdin, then EOF.
 | `turn-sigterm.*` | SIGTERM while the model streams | 1 |
 | `turn-sigkill.*` | SIGKILL while the model streams | 137 |
 | `turn-signed-out.*` | no key and no sign-in on the host | 1 |
+
+`transcripts/` holds the conversation logs agy wrote for some of those runs,
+copied from `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`:
+
+| File | Conversation |
+|---|---|
+| `multitool.transcript_full.jsonl` | `turn-multitool`, the full log (tool arguments as values) |
+| `multitool.transcript.jsonl` | the same, the compact log (tool arguments JSON-encoded) |
+| `resumed.transcript_full.jsonl` | four turns, each resumed in a new process; agy notes each restart as a system message |
+| `killed-then-resumed.transcript_full.jsonl` | a turn killed with SIGKILL before the model answered, then the next turn |

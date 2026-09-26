@@ -30,6 +30,10 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 import { classifyAntigravityFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
+import {
+    antigravityTranscriptLineCountScript,
+    parseAntigravityTranscriptLineCount
+} from '@/modules/chat/recovery/readers/antigravity-cli-reader'
 import { redactSecrets } from './claude-stream-consumer'
 import { forkTranscriptPrompt } from './fork-transcript-prompt'
 import { messageToPromptText } from './message-content'
@@ -344,7 +348,9 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             const parsed = safeParse(line)
             if (!parsed) return
             const event = stringValue(parsed.event)
-            const step = isRecord(parsed.step_update) ? parsed.step_update : null
+            const step = isRecord(parsed.step_update)
+                ? parsed.step_update
+                : null
             const stepIndex =
                 step && typeof step.step_index === 'number'
                     ? step.step_index
@@ -396,7 +402,9 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                     return
                 }
                 if (type === 'tool' && stepIndex !== null) {
-                    const info = isRecord(step.tool_info) ? step.tool_info : null
+                    const info = isRecord(step.tool_info)
+                        ? step.tool_info
+                        : null
                     const toolCallId = `agy-${stepIndex}`
                     if (!openTools.has(stepIndex)) {
                         openTools.add(stepIndex)
@@ -412,7 +420,9 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                     }
                     if (done && !closedTools.has(stepIndex)) {
                         closedTools.add(stepIndex)
-                        const failure = isRecord(info?.error) ? info.error : null
+                        const failure = isRecord(info?.error)
+                            ? info.error
+                            : null
                         yield {
                             type: 'tool_result',
                             toolCallId,
@@ -597,6 +607,10 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             return
         }
 
+        // agy has exited, so its log is settled; taken before `done` releases
+        // the session's turn slot.
+        await this.recordTranscriptCursor(ctx, persistedRef)
+
         const stderr = redactSecrets(
             drainedStderr() || execResult?.stderr || ''
         ).trim()
@@ -638,6 +652,52 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
         }
 
         yield { type: 'done', finalMessageId: ctx.messageId }
+    }
+
+    // Every step agy logged this turn already reached the cloud through the
+    // stream, and the runtime-session sync must not read the log back as
+    // something a terminal added; the line count it holds when agy exits is
+    // where that sync starts (see pi.adapter). A turn whose stream was lost
+    // does not count, as agy may still be writing. Costs one exec.
+    private async recordTranscriptCursor(
+        ctx: ApiChatAdapterContext,
+        ref: string | null
+    ): Promise<void> {
+        if (!ref || !isAntigravityConversationId(ref)) return
+        let cursor: number | null = null
+        try {
+            const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
+            try {
+                cursor = parseAntigravityTranscriptLineCount(
+                    await handle.fs.exec(
+                        antigravityTranscriptLineCountScript(ref)
+                    )
+                )
+            } finally {
+                await handle.awakeHold?.release()
+            }
+        } catch (err) {
+            this.logger.warn(
+                `antigravity transcript line count failed agent=${ctx.agentId} session=${ctx.sessionId}: ${(err as Error).message}`
+            )
+        }
+        // Left where it was rather than cleared: a stale cursor re-offers this
+        // one turn to the sync, a cleared one sends the whole conversation
+        // through its content diff.
+        if (cursor === null) {
+            this.logger.warn(
+                `antigravity transcript cursor unavailable agent=${ctx.agentId} session=${ctx.sessionId} ref=${ref}; runtime-sync cursor left unchanged`
+            )
+            return
+        }
+        await this.chatRepo
+            .setRuntimeSyncCursor(ctx.sessionId, cursor, ctx.turnFence)
+            .catch((err: Error) => {
+                if (err instanceof TurnFenceLostError) throw err
+                this.logger.warn(
+                    `antigravity transcript cursor persist failed session=${ctx.sessionId}: ${err.message}`
+                )
+            })
     }
 
     // The one ref-clear agy earns: it said the requested conversation does
@@ -722,7 +782,8 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             error: {
                 code: 'antigravity_exec_failed',
                 message: `agy exited ${exitCode ?? 'without a status'}${stderr ? `: ${stderr.slice(0, 512)}` : ''}`,
-                retryable: exitCode === 0 || exitCode === 124 || exitCode === null
+                retryable:
+                    exitCode === 0 || exitCode === 124 || exitCode === null
             }
         }
     }

@@ -914,7 +914,8 @@ const AgentChat: FC = (): ReactNode => {
             if (
                 currentAgent.framework !== 'claude-code' &&
                 currentAgent.framework !== 'codex' &&
-                currentAgent.framework !== 'pi'
+                currentAgent.framework !== 'pi' &&
+                currentAgent.framework !== 'antigravity-cli'
             )
                 return
             if (currentAgent.runtime === 'external') return

@@ -45,6 +45,8 @@ const buildSeam = (opts: {
     const streams: CapturedStream[] = []
     const refs: Array<string | null> = []
     const cleared: string[] = []
+    const cursors: number[] = []
+    const countScripts: string[] = []
     let aborted = 0
     const runtime = opts.runtime ?? 'sprites'
     const drivers = {
@@ -94,6 +96,15 @@ const buildSeam = (opts: {
                 modelProviderManagedBrand: 'antigravity'
             }),
             authContext: null
+        }),
+        recoveryFsForAgent: async () => ({
+            agent: { workspacePath: WORKSPACE },
+            fs: {
+                exec: async (script: string) => {
+                    countScripts.push(script)
+                    return '8\n'
+                }
+            }
         })
     }
     const chatRepo = {
@@ -109,6 +120,9 @@ const buildSeam = (opts: {
         ) => {
             cleared.push(ref)
             return true
+        },
+        setRuntimeSyncCursor: async (_sessionId: string, cursor: number) => {
+            cursors.push(cursor)
         }
     }
     const priced: unknown[] = []
@@ -123,7 +137,16 @@ const buildSeam = (opts: {
         chatRepo as never,
         pricing as never
     )
-    return { adapter, streams, refs, cleared, priced, aborted: () => aborted }
+    return {
+        adapter,
+        streams,
+        refs,
+        cleared,
+        priced,
+        cursors,
+        countScripts,
+        aborted: () => aborted
+    }
 }
 
 const ctx = (
@@ -403,4 +426,27 @@ test('the user’s own machine keeps its own update policy', async () => {
     )
     assert.equal(seam.streams[0].env?.AGY_CLI_DISABLE_AUTO_UPDATE, undefined)
     assert.equal(seam.streams[0].env?.MF_TERMINAL_ID, '')
+})
+
+test('a finished turn leaves the sync cursor at the end of the log agy wrote', async () => {
+    const seam = buildSeam({ fixture: 'turn-multitool' })
+    await drain(seam.adapter.sendMessage(ctx(), message))
+    assert.deepEqual(seam.cursors, [8])
+    assert.equal(seam.countScripts.length, 1)
+    assert.match(
+        seam.countScripts[0],
+        /brain\/'4a0dbd6a-267c-442d-a678-f6f33270fa3c'\/\.system_generated\/logs\/transcript_full\.jsonl/
+    )
+})
+
+test('a failed turn counts its log too, but a lost conversation or stream does not', async () => {
+    const refused = buildSeam({ fixture: 'turn-provider-401', exitCode: 3 })
+    await drain(refused.adapter.sendMessage(ctx(), message))
+    assert.deepEqual(refused.cursors, [8])
+
+    const lost = buildSeam({ fixture: 'resume-unknown-conversation' })
+    await drain(
+        lost.adapter.sendMessage(ctx({ frameworkSessionRef: UNKNOWN }), message)
+    )
+    assert.deepEqual(lost.cursors, [])
 })
