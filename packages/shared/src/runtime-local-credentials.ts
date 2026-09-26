@@ -96,11 +96,30 @@ export interface PiCredentialFacts {
     envKeys: string[]
 }
 
+// agy keeps its Google sign-in in the OS keyring, or — on a Linux host with no
+// D-Bus session bus, which every platform sandbox is — in a token file under
+// ~/.gemini. Its API-key mode runs only when settings.json names the `gemini`
+// provider AND GEMINI_API_KEY is set; with the provider named and no key it
+// refuses to start.
+export interface AntigravityCliCredentialFacts {
+    framework: 'antigravity-cli'
+    tokenFilePresent: boolean
+    tokenFileParsed: boolean
+    tokenExpiresAt: number | null
+    hasRefreshToken: boolean
+    settingsApiKeyMode: boolean
+    envApiKey: boolean
+    // agy's app data dir exists. On a user's own macOS machine the sign-in
+    // then lives in the Keychain, which the daemon never reads.
+    appDataPresent: boolean
+}
+
 export type RuntimeLocalCredentialFacts =
     | ClaudeCredentialFacts
     | CodexCredentialFacts
     | GeminiCredentialFacts
     | PiCredentialFacts
+    | AntigravityCliCredentialFacts
 
 export interface RuntimeLocalCredentialEvaluation {
     status: RuntimeLocalCredentialStatus
@@ -268,6 +287,32 @@ const evaluatePi = (
     return evaluation('missing', 'no-credentials')
 }
 
+const evaluateAntigravity = (
+    facts: AntigravityCliCredentialFacts,
+    now: number,
+    context: RuntimeLocalCredentialContext
+): RuntimeLocalCredentialEvaluation => {
+    if (facts.settingsApiKeyMode)
+        return facts.envApiKey
+            ? evaluation('valid', 'api-key')
+            : evaluation('missing', 'no-credentials')
+    const oauth = oauthEvaluation(
+        facts.tokenExpiresAt,
+        facts.hasRefreshToken,
+        now
+    )
+    if (oauth) return oauth
+    if (facts.tokenFilePresent)
+        return facts.tokenFileParsed
+            ? evaluation('valid', 'login-record')
+            : evaluation('unknown', 'unreadable')
+    // A platform host has no keyring to hide a session in, and the platform's
+    // own bootstrap creates the app data dir there (see evaluateClaude).
+    if (facts.appDataPresent && context.configPresenceIsEvidence !== false)
+        return evaluation('unknown', 'unreadable')
+    return evaluation('missing', 'no-credentials')
+}
+
 // Missing facts cannot establish usable credentials. Parsed but unreadable
 // credentials retain their separate unknown status (for example Keychain).
 export const runtimeLocalCredentialStatus = (
@@ -281,6 +326,8 @@ export const runtimeLocalCredentialStatus = (
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
     if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
     if (facts.framework === 'pi') return evaluatePi(facts, now)
+    if (facts.framework === 'antigravity-cli')
+        return evaluateAntigravity(facts, now, context)
     return evaluation('missing', 'not-reported')
 }
 
@@ -393,6 +440,17 @@ export const parseRuntimeLocalCredentialFacts = (
             authEntries: parsePiAuthEntries(value.authEntries),
             modelsJsonKeyProviders: parseStrings(value.modelsJsonKeyProviders),
             envKeys: parseStrings(value.envKeys)
+        }
+    if (value.framework === 'antigravity-cli')
+        return {
+            framework: 'antigravity-cli',
+            tokenFilePresent: optionalBoolean(value.tokenFilePresent),
+            tokenFileParsed: optionalBoolean(value.tokenFileParsed),
+            tokenExpiresAt: optionalNumber(value.tokenExpiresAt),
+            hasRefreshToken: optionalBoolean(value.hasRefreshToken),
+            settingsApiKeyMode: optionalBoolean(value.settingsApiKeyMode),
+            envApiKey: optionalBoolean(value.envApiKey),
+            appDataPresent: optionalBoolean(value.appDataPresent)
         }
     return null
 }

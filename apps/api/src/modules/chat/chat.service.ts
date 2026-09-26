@@ -2078,13 +2078,16 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 }
             }
 
-            // History is only consumed by adapters that replay it (codex builds
-            // a fork transcript when it has no runtime session to resume;
-            // openclaw/hermes/external-api send truncated context). claude-code
-            // and gemini-cli resume via frameworkSessionRef and never read it,
-            // so skip the full-session load on their hot path.
+            // History is only consumed by adapters that replay it (codex, pi
+            // and antigravity-cli build a fork transcript when they have no
+            // runtime session to resume; openclaw/hermes/external-api send
+            // truncated context). claude-code and gemini-cli resume via
+            // frameworkSessionRef and never read it, so skip the full-session
+            // load on their hot path.
             const needsHistory =
-                framework === 'codex' || framework === 'pi'
+                framework === 'codex' ||
+                framework === 'pi' ||
+                framework === 'antigravity-cli'
                     ? !turnSession.frameworkSessionRef
                     : framework !== 'claude-code' && framework !== 'gemini-cli'
             const historyRows = needsHistory
@@ -6903,6 +6906,9 @@ const MESSAGE_MODEL_OVERRIDE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     // Passed as `--model <provider>/<id>` on the exec; pi persists it in the
     // session file, so the next turn's default follows the pick.
     'pi',
+    // Passed as `--model <slug>` on the exec; agy keeps no per-conversation
+    // model, so every turn names its own.
+    'antigravity-cli',
     // Applied via ACP session/set_model — the session persists its model in
     // hermes's state.db, so this is the only lever that moves a live session.
     'hermes',

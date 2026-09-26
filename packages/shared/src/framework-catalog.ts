@@ -15,10 +15,14 @@ export const isConfigurableFramework = (
 
 // The coding CLIs whose model settings an agent keeps and whose credentials it
 // takes either from a platform provider or from the CLI's own sign-in on its
-// runtime (AgentModelConfigSource): the model-config view, runtime-local, and
-// runtime auth profiles. A superset of the catalog frameworks — pi has no
-// admin catalog; its platform models are the ones its provider serves.
-export const modelConfigFrameworks = [...configurableFrameworks, 'pi'] as const
+// runtime (AgentModelConfigSource): the model-config view and runtime-local.
+// A superset of the catalog frameworks — pi and Antigravity CLI have no admin
+// catalog; their platform models are the ones their provider serves.
+export const modelConfigFrameworks = [
+    ...configurableFrameworks,
+    'pi',
+    'antigravity-cli'
+] as const
 export type ModelConfigFramework = (typeof modelConfigFrameworks)[number]
 
 export const isModelConfigFramework = (

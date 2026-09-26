@@ -123,6 +123,7 @@ const FRAMEWORK_SUPPORTS_MODEL: Record<CoreFramework, boolean> = {
     codex: false,
     'gemini-cli': true,
     pi: true,
+    'antigravity-cli': true,
     openclaw: true,
     hermes: true,
     dify: false,

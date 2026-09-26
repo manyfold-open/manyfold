@@ -128,6 +128,7 @@ const en = {
             codex: 'Codex',
             geminiCli: 'Gemini CLI',
             pi: 'Pi',
+            antigravityCli: 'Antigravity CLI',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
             dify: 'Dify',
@@ -3668,6 +3669,7 @@ const en = {
                 codex: 'OpenAI\'s coding CLI',
                 geminiCli: 'Google\'s coding CLI',
                 pi: 'Open-source coding CLI for many model vendors',
+                antigravityCli: 'Google\'s agentic coding CLI',
                 openclaw: 'Long-running chat service, connects IM channels',
                 hermes: 'Long-running assistant service, calendar and mail',
                 dify: 'Connect one of your Dify apps',
@@ -3678,7 +3680,8 @@ const en = {
                 claude: 'Can use Claude Pro / Max',
                 codex: 'Can use ChatGPT Plus / Pro',
                 gemini: 'Can use a Gemini Code Assist license',
-                pi: 'Can use Claude Pro / Max, ChatGPT Plus / Pro or Copilot'
+                pi: 'Can use Claude Pro / Max, ChatGPT Plus / Pro or Copilot',
+                antigravityCli: 'Can use a Google account or Google AI Pro / Ultra'
             },
             machine: {
                 yours: 'Your machines',

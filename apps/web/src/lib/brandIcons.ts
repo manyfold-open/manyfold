@@ -8,6 +8,7 @@
  * plain SVG. Mono marks render `fill="currentColor"`.
  */
 import AnthropicMono from '@lobehub/icons/es/Anthropic/components/Mono'
+import AntigravityColor from '@lobehub/icons/es/Antigravity/components/Color'
 import ClaudeCodeColor from '@lobehub/icons/es/ClaudeCode/components/Color'
 import ClineMono from '@lobehub/icons/es/Cline/components/Mono'
 import CodexColor from '@lobehub/icons/es/Codex/components/Color'
@@ -30,6 +31,7 @@ export type { IconType } from '@lobehub/icons/es/types'
 
 export {
     AnthropicMono,
+    AntigravityColor,
     ClaudeCodeColor,
     ClineMono,
     CodexColor,

@@ -51,6 +51,16 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // settings, never by retrying.
     pi_model_provider_mismatch: 'invalid_request',
     pi_credentials_missing: 'invalid_request',
+    antigravity_resume_unsupported: 'unsupported_capability',
+    // No provider bound to a platform agent, or no workspace to run in: both
+    // are fixed in the agent's settings, never by retrying.
+    antigravity_credentials_missing: 'invalid_request',
+    antigravity_workspace_missing: 'invalid_request',
+    // agy answered the stored --conversation with a new one; the ref is
+    // cleared and the retry carries the chat as a transcript.
+    antigravity_resume_lost: 'stale_resume_ref',
+    // Neither a sign-in nor API-key mode on the runtime.
+    antigravity_sign_in_required: 'auth_invalid',
     hermes_resume_unsupported: 'unsupported_capability',
     // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
     // the daemon host, not a retry here.

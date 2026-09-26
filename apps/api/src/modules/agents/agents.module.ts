@@ -26,6 +26,7 @@ import { ClaudeCodeAgentAdapter } from '@/modules/agents/adapters/claude-code-ag
 import { CodexAgentAdapter } from '@/modules/agents/adapters/codex-agent.adapter'
 import { GeminiCliAgentAdapter } from '@/modules/agents/adapters/gemini-cli-agent.adapter'
 import { PiAgentAdapter } from '@/modules/agents/adapters/pi-agent.adapter'
+import { AntigravityCliAgentAdapter } from '@/modules/agents/adapters/antigravity-cli-agent.adapter'
 import { OpenclawAgentAdapter } from '@/modules/agents/adapters/openclaw-agent.adapter'
 import { HermesAgentAdapter } from '@/modules/agents/adapters/hermes-agent.adapter'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
@@ -123,6 +124,7 @@ import {
         CodexAgentAdapter,
         GeminiCliAgentAdapter,
         PiAgentAdapter,
+        AntigravityCliAgentAdapter,
         OpenclawAgentAdapter,
         HermesAgentAdapter,
         DifyAgentAdapter,

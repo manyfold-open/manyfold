@@ -1,4 +1,5 @@
 import {
+    AGY_MANAGED_HOST_ENV,
     BUILTIN_BLOCKED_FRAMEWORK_VERSIONS,
     buildManagedPathScript,
     type CoreVersionedFramework,
@@ -154,6 +155,25 @@ const CORE_DESCRIPTORS = {
         // PI_OFFLINE keeps the probe from reaching pi.dev for an update check.
         probeShell:
             'export PATH="$HOME/.local/bin:$PATH"; PI_OFFLINE=1 pi --version'
+    },
+    // agy prints its bare version (`1.2.11`) on stdout. Release assets
+    // measured on 1.2.11 [2026-09-26]: one tarball per platform holding a
+    // single `antigravity` binary, each asset carrying a GitHub sha256.
+    'antigravity-cli': {
+        framework: 'antigravity-cli',
+        runtimeKind: 'coding',
+        source: githubSource('antigravity-cli'),
+        binName: 'agy',
+        binary: {
+            assets: {
+                x86_64: 'agy_cli_linux_x64.tar.gz',
+                aarch64: 'agy_cli_linux_arm64.tar.gz'
+            },
+            member: 'antigravity',
+            env: AGY_MANAGED_HOST_ENV
+        },
+        probeShell:
+            'export PATH="$HOME/.local/bin:$PATH"; AGY_CLI_DISABLE_AUTO_UPDATE=true agy --version'
     },
     openclaw: {
         framework: 'openclaw',

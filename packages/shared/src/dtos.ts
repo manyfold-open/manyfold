@@ -1362,6 +1362,7 @@ export const SKILL_FRAMEWORKS = [
     'codex',
     'gemini-cli',
     'pi',
+    'antigravity-cli',
     'hermes'
 ] as const
 export type SkillFramework = (typeof SKILL_FRAMEWORKS)[number]

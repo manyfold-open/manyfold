@@ -24,6 +24,7 @@ import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '@/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '@/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '@/modules/chat/adapters/pi.adapter'
+import { AntigravityCliAdapter } from '@/modules/chat/adapters/antigravity-cli.adapter'
 import { HermesAdapter } from '@/modules/chat/adapters/hermes.adapter'
 import {
     A2aChatAdapter,
@@ -98,6 +99,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         CodexAdapter,
         GeminiCliAdapter,
         PiAdapter,
+        AntigravityCliAdapter,
         HermesAdapter,
         DifyChatAdapter,
         LangflowChatAdapter,

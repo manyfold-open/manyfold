@@ -127,6 +127,7 @@ const zh: Translations = {
             codex: 'Codex',
             geminiCli: 'Gemini CLI',
             pi: 'Pi',
+            antigravityCli: 'Antigravity CLI',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
             dify: 'Dify',
@@ -3502,6 +3503,7 @@ const zh: Translations = {
                 codex: 'OpenAI 的编码 CLI',
                 geminiCli: 'Google 的编码 CLI',
                 pi: '开源的编码 CLI，可接多家模型厂商',
+                antigravityCli: 'Google 的智能体编码 CLI',
                 openclaw: '常驻对话服务，接 IM 渠道',
                 hermes: '常驻助理服务，日程与邮件',
                 dify: '接入你的 Dify 应用',
@@ -3512,7 +3514,8 @@ const zh: Translations = {
                 claude: '可用 Claude Pro / Max',
                 codex: '可用 ChatGPT Plus / Pro',
                 gemini: '可用 Gemini Code Assist 授权',
-                pi: '可用 Claude Pro / Max、ChatGPT Plus / Pro 或 Copilot'
+                pi: '可用 Claude Pro / Max、ChatGPT Plus / Pro 或 Copilot',
+                antigravityCli: '可用 Google 账号或 Google AI Pro / Ultra'
             },
             machine: {
                 yours: '你的机器',

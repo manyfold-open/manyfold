@@ -1,4 +1,4 @@
-import { createObjectId } from '@manyfold/shared'
+import { createObjectId, frameworkKind } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, ne, sql } from 'drizzle-orm'
@@ -38,10 +38,7 @@ const reconcileClaimName = (runtimeId: string): string =>
     `agent-reconcile:${runtimeId}`
 
 const isCodingFramework = (runtime: AgentRuntimeRow): boolean =>
-    runtime.framework === 'claude-code' ||
-    runtime.framework === 'codex' ||
-    runtime.framework === 'gemini-cli' ||
-    runtime.framework === 'pi'
+    frameworkKind(runtime.framework) === 'coding'
 
 const isPerAgentCodingRuntime = (runtime: AgentRuntimeRow): boolean =>
     runtime.kind === 'sprites' ||

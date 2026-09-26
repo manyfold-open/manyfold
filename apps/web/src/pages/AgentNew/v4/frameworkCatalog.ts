@@ -25,8 +25,8 @@ import {
 // attribute does not — so ability claims stay out of both the headings and the
 // row lines, which say what the thing *is* (whose CLI, what shape of service).
 //
-// It also does not group by billing. A subscription is something the four
-// coding CLIs *can* use, not something they must — Claude Code runs just as
+// It also does not group by billing. A subscription is something a coding CLI
+// *can* use, not something it must — Claude Code runs just as
 // well on managed billing — so that is a row attribute, worded "can use".
 //
 // Names and logos are NOT redefined here: `lib/frameworkMeta` already owns
@@ -71,6 +71,11 @@ const ON_MACHINE_ENTRIES: FrameworkEntry[] = [
         framework: 'pi',
         identityKey: 'web.agentNewV4.identity.pi',
         subscriptionKey: 'web.agentNewV4.subscription.pi'
+    },
+    {
+        framework: 'antigravity-cli',
+        identityKey: 'web.agentNewV4.identity.antigravityCli',
+        subscriptionKey: 'web.agentNewV4.subscription.antigravityCli'
     },
     {
         framework: 'openclaw',

@@ -643,7 +643,7 @@ export class RuntimeAuthProfilesService {
                 patch.credentialStatus = status
                 patch.checkedAt = new Date(probe.checkedAt)
                 patch.lastErrorCode = null
-                patch.vendor = VENDOR_FOR[probe.framework]
+                patch.vendor = VENDOR_FOR[row.framework]
                 if (probe.identity) {
                     patch.email = clip(probe.identity.email)
                     patch.displayName = clip(probe.identity.name)

@@ -13,6 +13,7 @@ import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
+import { AntigravityCliAdapter } from '../src/modules/chat/adapters/antigravity-cli.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import {
     A2aChatAdapter,
@@ -53,6 +54,7 @@ const buildRegistry = (): ChatAdapterRegistry =>
         new CodexAdapter(dep, dep, dep),
         new GeminiCliAdapter(dep, dep, dep),
         new PiAdapter(dep, dep, dep),
+        new AntigravityCliAdapter(dep, dep, dep),
         new HermesAdapter(dep, dep, dep, dep, dep),
         new DifyChatAdapter(dep, dep, dep),
         new LangflowChatAdapter(dep, dep, dep),

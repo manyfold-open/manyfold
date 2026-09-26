@@ -26,7 +26,8 @@ const INSTRUCTION_FILE: Partial<Record<AgentFramework, string>> = {
     'claude-code': 'CLAUDE.md',
     codex: 'AGENTS.md',
     'gemini-cli': 'GEMINI.md',
-    pi: 'AGENTS.md'
+    pi: 'AGENTS.md',
+    'antigravity-cli': 'AGENTS.md'
 }
 
 // The context doc only applies to coding frameworks on a workspace-root cwd.
@@ -77,11 +78,14 @@ export const buildPlatformContextDoc = (input: {
 
 // Claude Code + Gemini CLI natively @import; Codex and pi have no import
 // syntax, so they get a directive to read the file (the agent opens it on
-// instruction).
+// instruction). Antigravity CLI inlines only the `@[label](path)` form — a
+// bare `@file` there is just a mention (measured on agy 1.2.11 [2026-09-26]).
 const referenceBody = (framework: AgentFramework): string =>
     framework === 'codex' || framework === 'pi'
         ? `Read \`${CONTEXT_FILE}\` (in this directory) for your Manyfold platform context — the connections linked to this agent and how to use them — before starting.`
-        : `@${CONTEXT_FILE}`
+        : framework === 'antigravity-cli'
+          ? `@[Manyfold platform context](${CONTEXT_FILE})`
+          : `@${CONTEXT_FILE}`
 
 export const buildReferenceBlock = (framework: AgentFramework): string =>
     [

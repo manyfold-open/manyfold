@@ -6,6 +6,7 @@ import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '@/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '@/modules/chat/adapters/gemini-cli.adapter'
 import { PiAdapter } from '@/modules/chat/adapters/pi.adapter'
+import { AntigravityCliAdapter } from '@/modules/chat/adapters/antigravity-cli.adapter'
 import { HermesAdapter } from '@/modules/chat/adapters/hermes.adapter'
 import {
     A2aChatAdapter,
@@ -24,6 +25,7 @@ export class ChatAdapterRegistry {
         private readonly codex: CodexAdapter,
         private readonly geminiCli: GeminiCliAdapter,
         private readonly pi: PiAdapter,
+        private readonly antigravityCli: AntigravityCliAdapter,
         private readonly hermes: HermesAdapter,
         private readonly dify: DifyChatAdapter,
         private readonly langflow: LangflowChatAdapter,
@@ -36,6 +38,7 @@ export class ChatAdapterRegistry {
         this.register(this.codex)
         this.register(this.geminiCli)
         this.register(this.pi)
+        this.register(this.antigravityCli)
         this.register(this.hermes)
         this.register(this.dify)
         this.register(this.langflow)

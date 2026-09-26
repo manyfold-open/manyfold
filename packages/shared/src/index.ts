@@ -595,6 +595,19 @@ export {
 } from './pi'
 export type { PiProvider, PiQualifiedModel } from './pi'
 export {
+    AGY_API_KEY_MODELS,
+    AGY_APP_DIR,
+    AGY_BIN,
+    AGY_DEFAULT_API_KEY_MODEL,
+    AGY_MANAGED_HOST_ENV,
+    AGY_PLATFORM_OUTRANKING_ENV,
+    AGY_TITLE_MODEL,
+    antigravityUpstreamModel,
+    isAntigravityConversationId,
+    parseAntigravityModelList
+} from './antigravity-cli'
+export type { AntigravityApiKeyModel } from './antigravity-cli'
+export {
     mcpConfigFromExtras,
     mcpDeliveryFromExtras,
     validateMcpJson
@@ -656,6 +669,7 @@ export {
     parseRuntimeLocalCredentialFacts
 } from './runtime-local-credentials'
 export type {
+    AntigravityCliCredentialFacts,
     ClaudeCredentialFacts,
     CodexCredentialFacts,
     CodexCustomProviderFact,
@@ -708,6 +722,7 @@ export type {
     CodexSupportedModel,
     GeminiCliAgentModelConfig,
     PiAgentModelConfig,
+    AntigravityCliAgentModelConfig,
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
     RuntimeLocalTuning,

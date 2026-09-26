@@ -93,6 +93,13 @@ export const BUILTIN_BLOCKED_FRAMEWORK_VERSIONS: Partial<
             max: '0.84.3',
             reason: 'pi before 0.84.0 emits the pre-0.84 `--mode json` message_update shape the chat adapter cannot parse, and 0.84.0-0.84.3 can corrupt a session file whose last line lacks a newline (fixed in 0.84.4). Use 0.84.4 or newer.'
         }
+    ],
+    'antigravity-cli': [
+        {
+            min: '0.0.0',
+            max: '1.2.9',
+            reason: 'agy before 1.2.10 exits 0 without an AGY_ERROR line when a headless turn fails after it has streamed part of a response, so a failed turn would read as a finished one. Use 1.2.10 or newer.'
+        }
     ]
 }
 
