@@ -11,7 +11,7 @@ export const registerDaemon = (program: Command): void => {
     const daemon = program
         .command('daemon')
         .description(
-            'Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi)'
+            'Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli)'
         )
     registerDaemonRegister(daemon)
     registerDaemonStart(daemon)

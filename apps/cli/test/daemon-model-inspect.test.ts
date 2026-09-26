@@ -9,7 +9,8 @@ import type {
     CodexCredentialFacts,
     DaemonFrameworkModelCapability,
     GeminiCredentialFacts,
-    PiCredentialFacts
+    PiCredentialFacts,
+    AntigravityCliCredentialFacts
 } from '@manyfold/shared'
 import { rpcHandler } from '../src/daemon/rpc'
 import type { RpcContext } from '../src/daemon/ws-client'
@@ -53,7 +54,8 @@ const STUB_VERSIONS: Record<string, string> = {
     claude: '9.9.9 (Claude Code)',
     codex: 'codex-cli 9.9.9',
     gemini: '9.9.9',
-    pi: '9.9.9'
+    pi: '9.9.9',
+    agy: '9.9.9'
 }
 
 const plantCliStubs = async (root: string): Promise<string> => {
@@ -429,3 +431,120 @@ test('pi inspect without any sign-in is not ready and says how to get one', asyn
 async function readFileText(path: string): Promise<string> {
     return readFile(path, 'utf8')
 }
+
+// An agy stub for `agy models` as 1.2.11 answers it: the model table on
+// stdout, or the sign-in refusal on stderr. It records whether it was asked
+// with its self-updater off.
+const plantAgyLister = async (
+    home: string,
+    answer: 'signed-in' | 'signed-out'
+): Promise<void> => {
+    await writeFile(
+        joinPath(home, 'stub-bin', 'agy'),
+        `#!/bin/sh
+if [ "$1" = "models" ]; then
+    printf '%s' "\${AGY_CLI_DISABLE_AUTO_UPDATE:-unset}" > "$HOME/agy-updater"
+    echo 'Fetching available models...' >&2
+    if [ '${answer}' = 'signed-out' ]; then
+        echo 'Error: Please sign in to view available models. Launch the CLI without arguments to sign in.' >&2
+        exit 1
+    fi
+    printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
+    exit 0
+fi
+printf '%s\n' '1.2.11'
+`,
+        { mode: 0o755 }
+    )
+}
+
+test('agy inspect takes agy’s own word for a keyring sign-in and lists its models', async () => {
+    await withHome(async (home) => {
+        await plantAgyLister(home, 'signed-in')
+        const capability = await inspect('antigravity-cli')
+        const facts =
+            capability.credentialFacts as AntigravityCliCredentialFacts
+        assert.equal(facts.cliSignedIn, true)
+        assert.equal(facts.tokenFilePresent, false)
+        assert.deepEqual(capability.models, [
+            'gemini-3.8-flash-high',
+            'claude-opus-4-6-thinking'
+        ])
+        assert.equal(capability.cliVersion, '1.2.11')
+        assert.equal(capability.ready, true)
+        assert.equal(capability.error, null)
+        assert.equal(capability.current, 'keyring sign-in')
+        assert.equal(await readFileText(join(home, 'agy-updater')), 'true')
+    })
+})
+
+test('agy inspect reads a token file for its expiry, never its values', async () => {
+    await withHome(async (home) => {
+        await mkdir(join(home, '.gemini'), { recursive: true })
+        await writeFile(
+            join(home, '.gemini', 'jetski-standalone-oauth-token'),
+            JSON.stringify({
+                access_token: 'ya29.redacted-access',
+                token_type: 'Bearer',
+                refresh_token: '1//redacted-refresh',
+                expiry: '2026-09-26T12:00:00.5+08:00'
+            })
+        )
+        await plantAgyLister(home, 'signed-in')
+        const capability = await inspect('antigravity-cli')
+        const facts =
+            capability.credentialFacts as AntigravityCliCredentialFacts
+        assert.equal(facts.tokenFilePresent, true)
+        assert.equal(facts.tokenFileParsed, true)
+        assert.equal(facts.tokenExpiresAt, Date.parse('2026-09-26T04:00:00.5Z'))
+        assert.equal(facts.hasRefreshToken, true)
+        assert.equal(capability.current, 'jetski-standalone-oauth-token')
+        assert.equal(JSON.stringify(capability).includes('redacted'), false)
+    })
+})
+
+test('agy inspect without a sign-in is not ready and says so, whatever files exist', async () => {
+    await withHome(async (home) => {
+        // agy creates its app data the first time anything runs it.
+        await mkdir(join(home, '.gemini', 'antigravity-cli'), {
+            recursive: true
+        })
+        await writeFile(
+            join(home, '.gemini', 'antigravity-cli', 'installation_id'),
+            'b7d5c3e0'
+        )
+        await plantAgyLister(home, 'signed-out')
+        const capability = await inspect('antigravity-cli')
+        const facts =
+            capability.credentialFacts as AntigravityCliCredentialFacts
+        assert.equal(facts.cliSignedIn, false)
+        assert.deepEqual(capability.models, [])
+        assert.equal(capability.ready, false)
+        assert.equal(capability.credentialReady, false)
+        assert.match(capability.error ?? '', /sign in with Google/)
+    })
+})
+
+test('agy inspect in API-key mode needs the key in the daemon environment', async () => {
+    await withHome(async (home) => {
+        await mkdir(join(home, '.gemini', 'antigravity-cli'), {
+            recursive: true
+        })
+        await writeFile(
+            join(home, '.gemini', 'antigravity-cli', 'settings.json'),
+            JSON.stringify({ modelProvider: 'gemini' })
+        )
+        await plantAgyLister(home, 'signed-in')
+        const keyless = await inspect('antigravity-cli')
+        assert.equal(keyless.ready, false)
+        assert.match(keyless.error ?? '', /GEMINI_API_KEY/)
+        process.env.GEMINI_API_KEY = 'gk-secret-value'
+        const keyed = await inspect('antigravity-cli')
+        const facts = keyed.credentialFacts as AntigravityCliCredentialFacts
+        assert.equal(facts.settingsApiKeyMode, true)
+        assert.equal(facts.envApiKey, true)
+        assert.equal(facts.cliSignedIn, null)
+        assert.equal(keyed.ready, true)
+        assert.equal(JSON.stringify(keyed).includes('gk-secret'), false)
+    })
+})

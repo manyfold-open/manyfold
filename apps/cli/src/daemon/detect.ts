@@ -13,6 +13,7 @@ export const BINARY_FOR_FRAMEWORK: Record<
     codex: 'codex',
     'gemini-cli': 'gemini',
     pi: 'pi',
+    'antigravity-cli': 'agy',
     openclaw: 'openclaw',
     hermes: 'hermes'
 }

@@ -49,6 +49,7 @@ const daemonMountPathFor = (
         case 'codex':
         case 'gemini-cli':
         case 'pi':
+        case 'antigravity-cli':
             // Hosts running an older CLI registered `~/.nca/workspaces`;
             // trust what the daemon reported over the current default.
             return host.workspaceBaseDir ?? `${base}/.manyfold/workspaces`

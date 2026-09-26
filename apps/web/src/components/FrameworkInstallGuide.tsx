@@ -7,8 +7,8 @@ import { useI18n } from '@/lib/i18n'
 
 // Per-framework install/upgrade guidance for self-owned (daemon) hosts — we
 // never install CLIs on a user's own machine, so we show the command + official
-// docs and let the daemon detect it on PATH. Most are npm; hermes ships its own
-// install script + `hermes update`.
+// docs and let the daemon detect it on PATH. Most are npm; hermes and agy ship
+// their own install script + `<bin> update`.
 const FRAMEWORK_INSTALL_GUIDE: Partial<
     Record<
         VersionedFramework,
@@ -38,6 +38,12 @@ const FRAMEWORK_INSTALL_GUIDE: Partial<
         install: 'npm install -g @earendil-works/pi-coding-agent',
         upgrade: 'npm install -g @earendil-works/pi-coding-agent@latest',
         docs: 'https://pi.dev'
+    },
+    'antigravity-cli': {
+        bin: 'agy',
+        install: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+        upgrade: 'agy update',
+        docs: 'https://antigravity.google/docs/cli/install/'
     },
     openclaw: {
         bin: 'openclaw',

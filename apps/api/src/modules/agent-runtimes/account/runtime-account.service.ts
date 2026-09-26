@@ -1,10 +1,10 @@
 import {
     DAEMON_FEATURE_ACCOUNT_INSPECT,
-    DAEMON_FEATURE_PI_LOCAL,
     parseRuntimeAccountProbe,
     runtimeAccountSupport,
     runtimeAccountUsage,
-    runtimeLocalCredentialStatus
+    runtimeLocalCredentialStatus,
+    runtimeLocalInspectFeature
 } from '@manyfold/shared'
 import type {
     ModelConfigFramework,
@@ -32,14 +32,18 @@ import {
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 
-// An older CLI answers account.inspect for pi with nothing, which would read
-// as "not signed in"; it is asked to update instead.
+// An older CLI answers account.inspect for pi or agy with nothing, which
+// would read as "not signed in"; it is asked to update instead.
 const inspectsAccount = (
     features: readonly string[],
     framework: ModelConfigFramework
-): boolean =>
-    features.includes(DAEMON_FEATURE_ACCOUNT_INSPECT) &&
-    (framework !== 'pi' || features.includes(DAEMON_FEATURE_PI_LOCAL))
+): boolean => {
+    const required = runtimeLocalInspectFeature(framework)
+    return (
+        features.includes(DAEMON_FEATURE_ACCOUNT_INSPECT) &&
+        (required === null || features.includes(required))
+    )
+}
 
 // One runtime page open = one vendor usage call, and Anthropic's endpoint has
 // a tight budget, so identical requests inside this window share a result and

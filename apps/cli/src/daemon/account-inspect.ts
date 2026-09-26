@@ -17,6 +17,7 @@ import {
     readTextIfPresent,
     type FrameworkConfigDirs
 } from './inspect-fs'
+import { AGY_TOKEN_FILES } from './antigravity-inspect'
 
 // account.inspect: who is signed in to a coding CLI on this machine, and what
 // that account has used. The vendor usage call runs HERE, with the token the
@@ -333,32 +334,19 @@ const inspectPi = async (
     return { tokenSource: oauth ? 'file' : 'none', identity: null, usage: null }
 }
 
-// agy keeps its Google sign-in in the OS keyring, which the daemon never
-// reads, or — on a Linux host with no D-Bus session — in a token file under
-// ~/.gemini, named per release line (1.2.x first, then 1.1). Neither says
-// whose account it is without reading the token itself.
-const AGY_TOKEN_FILES = [
-    'jetski-standalone-oauth-token',
-    'antigravity-cli/antigravity-oauth-token'
-]
-
+// Where agy keeps a sign-in says nothing about whose it is, and a keyring one
+// cannot be seen at all (the facts carry agy's own verdict for that), so only
+// a token file on disk is reported.
 const inspectAntigravity = async (
     deps: AccountInspectDeps
 ): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
-    const nonEmpty = async (path: string): Promise<boolean> =>
-        ((await stat(path).catch(() => null))?.size ?? 0) > 0
     for (const name of AGY_TOKEN_FILES)
-        if (await nonEmpty(join(deps.dirs.geminiDir, name)))
+        if (
+            ((await stat(join(deps.dirs.geminiDir, name)).catch(() => null))
+                ?.size ?? 0) > 0
+        )
             return { tokenSource: 'file', identity: null, usage: null }
-    const appData = await nonEmpty(
-        join(deps.dirs.geminiDir, 'antigravity-cli', 'installation_id')
-    )
-    return {
-        tokenSource:
-            deps.platform === 'darwin' && appData ? 'keychain-unread' : 'none',
-        identity: null,
-        usage: null
-    }
+    return { tokenSource: 'none', identity: null, usage: null }
 }
 
 const accountReportFor = (

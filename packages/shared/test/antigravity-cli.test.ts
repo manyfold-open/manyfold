@@ -103,7 +103,7 @@ const facts = (
     hasRefreshToken: false,
     settingsApiKeyMode: false,
     envApiKey: false,
-    appDataPresent: false,
+    cliSignedIn: null,
     ...over
 })
 
@@ -149,14 +149,38 @@ test('a file-backed sign-in is judged by its expiry, else by being there', () =>
     )
 })
 
-test('only a machine that can hide a sign-in in a keyring earns the doubt', () => {
+test('agy’s own verdict outranks what its files suggest', () => {
     const now = Date.now()
+    // A keychain sign-in leaves no file behind.
     assert.deepEqual(
-        runtimeLocalCredentialStatus(facts({ appDataPresent: true }), now),
-        { status: 'unknown', reason: 'unreadable' }
+        runtimeLocalCredentialStatus(facts({ cliSignedIn: true }), now, {
+            configPresenceIsEvidence: false
+        }),
+        { status: 'valid', reason: 'login-record' }
     )
+    // A token file agy refuses to use is no sign-in.
     assert.deepEqual(
-        runtimeLocalCredentialStatus(facts({ appDataPresent: true }), now, {
+        runtimeLocalCredentialStatus(
+            facts({
+                cliSignedIn: false,
+                tokenFilePresent: true,
+                tokenFileParsed: true,
+                tokenExpiresAt: now + 60_000
+            }),
+            now
+        ),
+        { status: 'missing', reason: 'no-credentials' }
+    )
+})
+
+test('undecided, only a machine that can hide a sign-in in a keyring earns the doubt', () => {
+    const now = Date.now()
+    assert.deepEqual(runtimeLocalCredentialStatus(facts(), now), {
+        status: 'unknown',
+        reason: 'unreadable'
+    })
+    assert.deepEqual(
+        runtimeLocalCredentialStatus(facts(), now, {
             configPresenceIsEvidence: false
         }),
         { status: 'missing', reason: 'no-credentials' }
@@ -170,8 +194,18 @@ test('credential facts are re-validated field by field', () => {
             tokenFilePresent: true,
             tokenFileParsed: 'yes',
             tokenExpiresAt: 'soon',
-            envApiKey: true
+            envApiKey: true,
+            cliSignedIn: 'yes'
         }),
         facts({ tokenFilePresent: true, envApiKey: true })
+    )
+    assert.equal(
+        (
+            parseRuntimeLocalCredentialFacts({
+                framework: 'antigravity-cli',
+                cliSignedIn: false
+            }) as AntigravityCliCredentialFacts
+        ).cliSignedIn,
+        false
     )
 })

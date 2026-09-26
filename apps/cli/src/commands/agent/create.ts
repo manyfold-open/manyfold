@@ -5,7 +5,7 @@ import { buildClient } from '@/client'
 import { emit } from '@/output'
 
 interface CreateOptions {
-    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi'
+    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'antigravity-cli'
     anthropicAuthToken?: string
     anthropicBaseUrl?: string
     openaiApiKey?: string
@@ -17,6 +17,7 @@ interface CreateOptions {
     piProvider?: string
     piBaseUrl?: string
     piModel?: string
+    agyModel?: string
     accountId?: string
     json?: boolean
 }
@@ -26,7 +27,7 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         .description('Create a new agent on sprites.dev')
         .option(
             '--framework <framework>',
-            'claude-code | codex | gemini-cli | pi',
+            'claude-code | codex | gemini-cli | pi | antigravity-cli',
             'claude-code'
         )
         .option(
@@ -47,11 +48,11 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         )
         .option(
             '--google-api-key <key>',
-            'Gemini API key (gemini-cli only; or env GEMINI_API_KEY / GOOGLE_API_KEY)'
+            'Gemini API key (gemini-cli and antigravity-cli; or env GEMINI_API_KEY / GOOGLE_API_KEY)'
         )
         .option(
             '--google-gemini-base-url <url>',
-            'Gemini base URL override (gemini-cli only; or env GOOGLE_GEMINI_BASE_URL)'
+            'Gemini base URL override (gemini-cli and antigravity-cli; or env GOOGLE_GEMINI_BASE_URL)'
         )
         .option(
             '--gemini-model <model>',
@@ -72,6 +73,10 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         .option(
             '--pi-model <model>',
             'pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only)'
+        )
+        .option(
+            '--agy-model <model>',
+            'Antigravity CLI model as `agy models` names it, e.g. gemini-3.1-pro-low (antigravity-cli only)'
         )
         .option(
             '--account-id <id>',
@@ -149,6 +154,28 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
             }
         }
     }
+    if (framework === 'antigravity-cli') {
+        const key =
+            opts.googleApiKey ??
+            process.env.GEMINI_API_KEY ??
+            process.env.GOOGLE_API_KEY
+        if (!key)
+            throw new Error(
+                'Antigravity CLI requires --google-api-key, GEMINI_API_KEY, or GOOGLE_API_KEY'
+            )
+        return {
+            name,
+            framework: 'antigravity-cli',
+            accountId: opts.accountId,
+            antigravityCliCredentials: {
+                googleApiKey: key,
+                googleGeminiBaseUrl:
+                    opts.googleGeminiBaseUrl ??
+                    process.env.GOOGLE_GEMINI_BASE_URL,
+                model: opts.agyModel
+            }
+        }
+    }
     if (framework === 'pi') {
         const provider = opts.piProvider
         if (!isPiProvider(provider))
@@ -169,6 +196,8 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
             }
         }
     }
+    if (framework !== 'codex')
+        throw new Error(`unsupported framework: ${String(framework)}`)
     const key = opts.openaiApiKey ?? process.env.OPENAI_API_KEY
     if (!key)
         throw new Error('Codex requires --openai-api-key or OPENAI_API_KEY')

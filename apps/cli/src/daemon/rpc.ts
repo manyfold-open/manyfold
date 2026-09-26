@@ -128,6 +128,7 @@ import {
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
 import { inspectPiModels } from './pi-inspect'
+import { inspectAntigravityModels } from './antigravity-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
 import { commitConfigFile } from './config-commit'
 import type { ServiceSupervisor } from './services'
@@ -886,6 +887,14 @@ const inspectModelCapability = async (
                     env: dirs.envAuth
                         ? process.env
                         : stripAmbientAuthEnv(process.env)
+                })
+        ],
+        [
+            'antigravity-cli',
+            () =>
+                inspectAntigravityModels(dirs, {
+                    commandVersion,
+                    env: process.env
                 })
         ]
     ]

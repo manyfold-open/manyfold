@@ -6,7 +6,7 @@ import type {
 import {
     AGY_API_KEY_MODELS,
     PI_PROTOCOL_BY_PROVIDER,
-    DAEMON_FEATURE_PI_LOCAL,
+    runtimeLocalInspectFeature,
     RUNTIME_AUTH_ERROR,
     isModelConfigFramework,
     isRuntimeAuthProfileFramework,
@@ -1660,16 +1660,17 @@ export class AgentModelConfigService {
         authContext: DaemonAuthContextRef | null,
         timeoutMs = 15_000
     ): Promise<DaemonFrameworkModelCapability> {
-        // An older CLI reports nothing for pi, which would read as "not
-        // signed in" when the answer is "update".
+        // An older CLI reports nothing for pi or agy, which would read as
+        // "not signed in" when the answer is "update".
+        const required = runtimeLocalInspectFeature(agent.framework)
         if (
-            agent.framework === 'pi' &&
+            required &&
             !(await this.hostFeatures(daemonId))?.clientFeatures.includes(
-                DAEMON_FEATURE_PI_LOCAL
+                required
             )
         )
             throw new BadRequestException(
-                "Update the Manyfold CLI on this runtime to use pi's own sign-in"
+                `Update the Manyfold CLI on this runtime to use ${frameworkLabel(agent.framework)}'s own sign-in`
             )
         const payload = await this.daemonRegistry!.rpc({
             daemonId,

@@ -482,3 +482,45 @@ test('mergeSandboxProbe pairs the account line with its framework facts', () => 
     })
     assert.equal(mergeSandboxProbe('nothing here'), null)
 })
+
+test('daemon: agy is read only from a daemon that knows it, and judged on agy’s own word', async () => {
+    const agyRow = runtimeRow({ name: 'agy', framework: 'antigravity-cli' })
+    const old = harness({ row: agyRow, host: hostRow() })
+    assert.equal(
+        (await old.service.getView('user-1', 'art_1', { wake: false })).status,
+        'daemon-upgrade-required'
+    )
+    assert.deepEqual(old.calls, [])
+
+    const h = harness({
+        row: agyRow,
+        host: hostRow({
+            clientFeatures: [
+                'account.inspect',
+                'antigravity-cli.runtime-local.v1'
+            ]
+        })
+    })
+    h.setRpc(async () =>
+        probeFor({
+            framework: 'antigravity-cli',
+            credentialFacts: {
+                framework: 'antigravity-cli',
+                tokenFilePresent: false,
+                tokenFileParsed: false,
+                tokenExpiresAt: null,
+                hasRefreshToken: false,
+                settingsApiKeyMode: false,
+                envApiKey: false,
+                cliSignedIn: true
+            },
+            tokenSource: 'none',
+            identity: null,
+            usage: null
+        })
+    )
+    const view = await h.service.getView('user-1', 'art_1', { wake: false })
+    assert.equal(view.status, 'ok')
+    assert.equal(view.credentialStatus, 'valid')
+    assert.equal(view.credentialReason, 'login-record')
+})

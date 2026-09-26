@@ -12,7 +12,7 @@ import {
 import { and, eq, ne } from 'drizzle-orm'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
-    DAEMON_FEATURE_PI_LOCAL,
+    runtimeLocalInspectFeature,
     DAEMON_FEATURE_AUTH_CONTEXT,
     runtimeAuthRoot,
     runtimeAuthProfileEnv,
@@ -268,10 +268,8 @@ export class RuntimeAuthProfilesService {
         }
         if (!host.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES))
             return { host, availability: 'daemon-upgrade-required' }
-        if (
-            runtime.framework === 'pi' &&
-            !host.clientFeatures.includes(DAEMON_FEATURE_PI_LOCAL)
-        )
+        const required = runtimeLocalInspectFeature(runtime.framework)
+        if (required && !host.clientFeatures.includes(required))
             return { host, availability: 'daemon-upgrade-required' }
         return { host, availability: 'ok' }
     }

@@ -109,9 +109,10 @@ export interface AntigravityCliCredentialFacts {
     hasRefreshToken: boolean
     settingsApiKeyMode: boolean
     envApiKey: boolean
-    // agy's app data dir exists. On a user's own macOS machine the sign-in
-    // then lives in the Keychain, which the daemon never reads.
-    appDataPresent: boolean
+    // agy's own answer: `agy models` lists models for a working sign-in,
+    // keyring or file alike, and refuses with "Please sign in" without one.
+    // null when it was not asked or failed another way (offline, a timeout).
+    cliSignedIn: boolean | null
 }
 
 export type RuntimeLocalCredentialFacts =
@@ -296,6 +297,12 @@ const evaluateAntigravity = (
         return facts.envApiKey
             ? evaluation('valid', 'api-key')
             : evaluation('missing', 'no-credentials')
+    // agy's verdict outranks its files: a keyring sign-in leaves none, and a
+    // token file agy cannot use is no sign-in. Its app data dir proves
+    // nothing either way, as `agy models` creates it when it first runs.
+    if (facts.cliSignedIn === false)
+        return evaluation('missing', 'no-credentials')
+    if (facts.cliSignedIn === true) return evaluation('valid', 'login-record')
     const oauth = oauthEvaluation(
         facts.tokenExpiresAt,
         facts.hasRefreshToken,
@@ -306,11 +313,11 @@ const evaluateAntigravity = (
         return facts.tokenFileParsed
             ? evaluation('valid', 'login-record')
             : evaluation('unknown', 'unreadable')
-    // A platform host has no keyring to hide a session in, and the platform's
-    // own bootstrap creates the app data dir there (see evaluateClaude).
-    if (facts.appDataPresent && context.configPresenceIsEvidence !== false)
-        return evaluation('unknown', 'unreadable')
-    return evaluation('missing', 'no-credentials')
+    // Undecided, a user's own machine may still hold a keyring sign-in; a
+    // platform host has no keyring to hide one in.
+    return context.configPresenceIsEvidence === false
+        ? evaluation('missing', 'no-credentials')
+        : evaluation('unknown', 'unreadable')
 }
 
 // Missing facts cannot establish usable credentials. Parsed but unreadable
@@ -450,7 +457,10 @@ export const parseRuntimeLocalCredentialFacts = (
             hasRefreshToken: optionalBoolean(value.hasRefreshToken),
             settingsApiKeyMode: optionalBoolean(value.settingsApiKeyMode),
             envApiKey: optionalBoolean(value.envApiKey),
-            appDataPresent: optionalBoolean(value.appDataPresent)
+            cliSignedIn:
+                typeof value.cliSignedIn === 'boolean'
+                    ? value.cliSignedIn
+                    : null
         }
     return null
 }
