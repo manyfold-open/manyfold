@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 8.2.0
+
+### Minor Changes
+
+- [#579](https://github.com/manyfold-open/manyfold/pull/579) [`85898dd`](https://github.com/manyfold-open/manyfold/commit/85898ddeb468d6cec8c30fd741511cd6941448c9) Thanks [@yingca1](https://github.com/yingca1)! - Show subscription quota windows for Codex, Claude Code, and Antigravity accounts in runtime account cards and the composer model-source panel.
+
 ## 8.1.2
 
 ### Patch Changes
