@@ -93,3 +93,47 @@ test('a bare pod runtime gets its first credentials row from the update', async 
     assert.ok(row, 'the first credentials row is created')
     assert.equal((row.values as { runtimeId: string }).runtimeId, 'art_1')
 })
+
+test('a bare hosted agent exposes an empty provider view before its first binding', async () => {
+    const { db } = fakeDb()
+    const agent = {
+        id: 'agt_1',
+        userId: 'usr_1',
+        framework: 'antigravity-cli',
+        runtime: 'k8s',
+        runtimeId: 'art_1',
+        hostId: 'pdh_1',
+        model: 'gemini-3.8-flash-medium',
+        modelProviderId: null,
+        extras: {},
+        updatedAt: new Date()
+    }
+    const service = new AgentCredentialsService(
+        db as never,
+        {} as never,
+        {
+            findForCaller: async () => agent,
+            contextForCaller: async () =>
+                contextOf({
+                    agent: agent as never,
+                    runtime: runtimeRow({
+                        id: 'art_1',
+                        userId: 'usr_1',
+                        hostId: 'pdh_1',
+                        framework: 'antigravity-cli'
+                    }),
+                    host: k8sHostRow({ id: 'pdh_1', userId: 'usr_1' })
+                })
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never
+    )
+    const view = await service.getView('usr_1', 'agt_1', false)
+    assert.equal(view.framework, 'antigravity-cli')
+    assert.equal(view.provider, null)
+    assert.equal(view.savedProvider, null)
+    assert.equal(view.apiKeyMasked, null)
+    assert.equal(view.unsupported, undefined)
+})
