@@ -235,6 +235,8 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                             errored = true
                             break outer
                         }
+                        if (ev.type === 'error')
+                            await this.settleResultError(ctx, consumer.errorLast)
                         yield ev.type === 'raw_source' &&
                         runnerSeq !== undefined
                             ? { ...ev, runnerSeq }
@@ -268,6 +270,8 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                         errored = true
                         break
                     }
+                    if (ev.type === 'error')
+                        await this.settleResultError(ctx, consumer.errorLast)
                     yield ev
                 }
             }
@@ -282,38 +286,6 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             execResult = await handle.result
         } catch (err) {
             if (!transportError) transportError = err as Error
-        }
-
-        if (consumer.errorLast) {
-            const stderrTail = (execResult?.stderr ?? '').slice(-1024).trim()
-            this.logger.warn(
-                `claude is_error agent=${ctx.agentId} session=${ctx.sessionId} ` +
-                    `subtype=${consumer.errorLast.subtype ?? 'unknown'} ` +
-                    `result=${redactSecrets(consumer.errorLast.result ?? 'null').slice(0, 1024)} ` +
-                    `exit=${execResult?.exitCode ?? 'unknown'} ` +
-                    `stderr=${redactSecrets(stderrTail) || '<empty>'}`
-            )
-        }
-
-        if (
-            consumer.errorLast &&
-            isResumeLoadFailure(consumer.errorLast, !!ctx.frameworkSessionRef)
-        ) {
-            await this.chatRepo
-                .updateFrameworkSessionRef(ctx.sessionId, null, ctx.turnFence)
-                .then(() =>
-                    this.logger.warn(
-                        `claude resume load-failure agent=${ctx.agentId} ` +
-                            `session=${ctx.sessionId} ref=${ctx.frameworkSessionRef} ` +
-                            `subtype=${consumer.errorLast?.subtype ?? 'unknown'} — cleared ` +
-                            `frameworkSessionRef so the next turn starts a fresh session`
-                    )
-                )
-                .catch((err: Error) =>
-                    this.logger.warn(
-                        `claude resume load-failure ref-clear failed session=${ctx.sessionId}: ${err.message}`
-                    )
-                )
         }
 
         if (transportError && !errored) {
@@ -645,6 +617,40 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             yield { type: 'usage', usage: pendingUsage }
 
         if (!errored) yield { type: 'done', finalMessageId: ctx.messageId }
+    }
+
+    // Runs before the result error is yielded: ChatService persists it, which
+    // releases the turn fence, and stops reading, so nothing after that yield
+    // ever executes.
+    private async settleResultError(
+        ctx: ApiChatAdapterContext,
+        parsed: StreamJsonLine | null
+    ): Promise<void> {
+        if (!parsed) return
+        const errors = (parsed as Record<string, unknown>).errors
+        this.logger.warn(
+            `claude is_error agent=${ctx.agentId} session=${ctx.sessionId} ` +
+                `subtype=${parsed.subtype ?? 'unknown'} ` +
+                `result=${redactSecrets(parsed.result ?? 'null').slice(0, 1024)} ` +
+                `errors=${Array.isArray(errors) ? redactSecrets(errors.join(' | ')).slice(0, 1024) : '<none>'}`
+        )
+        if (!isResumeLoadFailure(parsed, !!ctx.frameworkSessionRef)) return
+        await this.chatRepo
+            .updateFrameworkSessionRef(ctx.sessionId, null, ctx.turnFence)
+            .then(() =>
+                this.logger.warn(
+                    `claude resume load-failure agent=${ctx.agentId} ` +
+                        `session=${ctx.sessionId} ref=${ctx.frameworkSessionRef} ` +
+                        `subtype=${parsed.subtype ?? 'unknown'} — cleared ` +
+                        `frameworkSessionRef so the next turn starts a fresh session`
+                )
+            )
+            .catch((err: Error) => {
+                if (err instanceof TurnFenceLostError) throw err
+                this.logger.warn(
+                    `claude resume load-failure ref-clear failed session=${ctx.sessionId}: ${err.message}`
+                )
+            })
     }
 
     private async effortForRuntime(
