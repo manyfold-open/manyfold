@@ -2,6 +2,10 @@
 // platform runs it. Measured on agy 1.2.11 (Linux arm64 container and macOS,
 // 2026-09-26) unless a line says otherwise.
 
+import type { AgentModelConfigOption } from './model-config'
+import type { UserModelProviderSummary } from './dtos'
+import { providerModelIdsForProtocol } from './model-config'
+
 export const AGY_BIN = 'agy'
 
 // App data under the user's home: settings.json, the per-conversation
@@ -69,6 +73,37 @@ export const AGY_API_KEY_MODELS: readonly AntigravityApiKeyModel[] = [
 
 export const AGY_DEFAULT_API_KEY_MODEL = 'gemini-3.1-pro-low'
 export const AGY_TITLE_MODEL = 'gemini-3.1-flash-lite-preview'
+
+export const antigravityProviderModelIds = (
+    provider: Pick<UserModelProviderSummary, 'lastTestModels' | 'enabledModels'>
+): string[] | null => {
+    const models = provider.lastTestModels?.google_generate_content
+    if (!models) return null
+    return providerModelIdsForProtocol(
+        { google_generate_content: models },
+        provider.enabledModels,
+        'google_generate_content'
+    ) ?? []
+}
+
+// agy sends the upstream ID itself; a provider's namespaced ID is not an alias.
+export const resolveAntigravityModelOptions = (
+    providerModels: readonly string[] | null
+): AgentModelConfigOption[] =>
+    AGY_API_KEY_MODELS.map(({ slug, upstream }) => {
+        const enabled = providerModels?.includes(upstream) === true
+        return {
+            value: slug,
+            label: slug,
+            providerModel: upstream,
+            enabled,
+            reason: enabled
+                ? null
+                : providerModels === null
+                  ? 'Test provider to verify Antigravity CLI upstream models.'
+                  : `Provider does not offer enabled upstream model "${upstream}" required by "${slug}". Refresh its models or choose a compatible provider.`
+        }
+    })
 
 // The Gemini API id a platform turn is billed under: what the gateway saw.
 export const antigravityUpstreamModel = (slug: string | null): string =>

@@ -5697,22 +5697,25 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // is admitted across the fleet as the probe that decides recovery; the
         // rest terminalize here.
         //
-        // Keyed off `source` as well as the brand so a BYO row can never be
-        // gated by managed capacity, whatever its columns say.
+        // Local turns keep the saved provider but do not use its channel.
+        // Match adapter precedence: modelConfig selects platform credentials,
+        // otherwise even an empty runtimeLocalTuning selects native sign-in.
         const admission =
-            (await this.managedChannelBreaker?.admitTurn(
-                {
-                    brand:
-                        agentCtx.modelProviderSource === 'managed'
-                            ? agentCtx.managedBrand
-                            : null,
-                    protocol: agentCtx.inferenceProtocol,
-                    model: modelOverride ?? agentCtx.model,
-                    framework: agentCtx.framework,
-                    runtimeKind: agentCtx.runtime
-                },
-                assistantMessageId
-            )) ?? null
+            !modelConfig && runtimeLocalTuning
+                ? null
+                : ((await this.managedChannelBreaker?.admitTurn(
+                      {
+                          brand:
+                              agentCtx.modelProviderSource === 'managed'
+                                  ? agentCtx.managedBrand
+                                  : null,
+                          protocol: agentCtx.inferenceProtocol,
+                          model: modelOverride ?? agentCtx.model,
+                          framework: agentCtx.framework,
+                          runtimeKind: agentCtx.runtime
+                      },
+                      assistantMessageId
+                  )) ?? null)
         const fastFail = admission?.decision === 'fail_fast' ? admission : null
         // Same shape, one layer down (#730): when this sprite's exec endpoint is
         // known to be refusing sockets, the runner inspect and the direct sprite

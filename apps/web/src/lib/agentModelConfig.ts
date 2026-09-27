@@ -1,4 +1,5 @@
 import {
+    AGY_DEFAULT_API_KEY_MODEL,
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
@@ -38,6 +39,7 @@ import {
     providerModelIdsForProtocol,
     providerProtocolForTarget,
     resolveClaudeCodeModelOptions,
+    resolveAntigravityModelOptions,
     resolveClaudeCodeProviderModel,
     resolveCodexModelOptions,
     resolveGeminiProviderModel,
@@ -324,22 +326,25 @@ export const modelConfigViewForProviderModels = (
             providerModels === null ? 'needs_refresh' : 'ready',
         providerModels: models,
         options:
-            providerModels === null
-                ? []
-                : view.framework === 'claude-code'
-                  ? resolveClaudeCodeModelOptions(models, modelMap)
-                  : view.framework === 'codex'
-                    ? resolveCodexModelOptions(models)
-                    : view.framework === 'gemini-cli' ||
-                        view.framework === 'antigravity-cli'
-                      ? view.options
-                      : view.framework === 'pi'
-                        ? models.map((model) => ({
-                              value: model,
-                              label: model,
-                              enabled: true
-                          }))
-                        : []
+            view.framework === 'antigravity-cli'
+                ? resolveAntigravityModelOptions(
+                      providerModels === null ? null : models
+                  )
+                : providerModels === null
+                  ? []
+                  : view.framework === 'claude-code'
+                    ? resolveClaudeCodeModelOptions(models, modelMap)
+                    : view.framework === 'codex'
+                      ? resolveCodexModelOptions(models)
+                      : view.framework === 'gemini-cli'
+                        ? view.options
+                        : view.framework === 'pi'
+                          ? models.map((model) => ({
+                                value: model,
+                                label: model,
+                                enabled: true
+                            }))
+                          : []
     }
 }
 
@@ -566,14 +571,19 @@ export const validateModelConfigDraft = (
     // pi runs any id its provider serves (the API checks nothing against a
     // list either), so there is nothing to have tested first.
     if (view.framework === 'pi') return { valid: true, message: null }
-    // agy runs only the models of its own API-key mode (the view's options),
-    // whatever its provider was tested with; none picked is agy's default.
+    if (view.providerModelsStatus !== 'ready')
+        return {
+            valid: false,
+            message: message('web.composer.validation.testProvider')
+        }
     if (view.framework === 'antigravity-cli') {
         const model =
-            draft?.framework === 'antigravity-cli' ? draft.model : null
+            (draft?.framework === 'antigravity-cli' ? draft.model : null) ??
+            AGY_DEFAULT_API_KEY_MODEL
         if (
-            !model ||
-            view.options.some((item) => item.value === model && item.enabled)
+            resolveAntigravityModelOptions(view.providerModels).some(
+                (item) => item.value === model && item.enabled
+            )
         )
             return { valid: true, message: null }
         return {
@@ -583,11 +593,6 @@ export const validateModelConfigDraft = (
             )
         }
     }
-    if (view.providerModelsStatus !== 'ready')
-        return {
-            valid: false,
-            message: message('web.composer.validation.testProvider')
-        }
     if (view.framework === 'claude-code') {
         if (!draft || draft.framework !== 'claude-code')
             return {

@@ -12,6 +12,8 @@ import {
     SessionImportPendingError
 } from '../src/modules/chat/chat.service'
 import type { TurnBudgets } from '../src/modules/chat/turn-budgets'
+import type { AgentModelConfigService } from '../src/modules/agents/model-config/agent-model-config.service'
+import { openManagedChannelGuard, type ManagedChannelGuardPort } from '../src/common/ports/managed-models.ports'
 
 // A turn's slot — its place in activeTurnCount() — is the only thing that
 // says how much work this instance is carrying. Shutdown drain waits on it,
@@ -29,6 +31,108 @@ const agentRow = {
     runtimeId: 'runtime-1',
     model: null
 }
+
+for (const savedSource of ['platform', 'runtime-local'] as const)
+    for (const turnSource of ['platform', 'runtime-local'] as const)
+        for (const providerSource of ['managed', 'user'] as const)
+            test(`managed admission uses ${turnSource} turn over ${savedSource} default with ${providerSource} provider`, async () => {
+                let admissions = 0
+                let settlements = 0
+                const contexts: ApiChatAdapterContext[] = []
+                const h = makeHarness({
+                    agent: {
+                        framework: 'antigravity-cli',
+                        modelProviderId: 'provider-1',
+                        extras: { modelConfig: { source: savedSource } },
+                        // The fake provider lookup returns this same row.
+                        source: providerSource,
+                        managedBrand: 'antigravity',
+                        inferenceProtocol: 'google_generate_content'
+                    },
+                    modelConfigs: {
+                        resolveTurnConfig: async ({ modelConfigSource }) => {
+                            assert.equal(modelConfigSource, turnSource)
+                            return turnSource === 'platform'
+                                ? {
+                                      model: null,
+                                      modelConfig: {
+                                          framework: 'antigravity-cli',
+                                          model: null
+                                      },
+                                      runtimeLocalTuning: {}
+                                  }
+                                : {
+                                      model: null,
+                                      modelConfig: null,
+                                      runtimeLocalTuning: {}
+                                  }
+                        }
+                    },
+                    managedChannelBreaker: {
+                        ...openManagedChannelGuard,
+                        admitTurn: async (facts, turnId) => {
+                            if (!facts.brand) return null
+                            admissions += 1
+                            return {
+                                scope: 'antigravity',
+                                brand: facts.brand,
+                                decision: 'fail_fast',
+                                state: 'open',
+                                retryAt: null,
+                                turnId
+                            }
+                        },
+                        recordSuccess: async () => {
+                            settlements += 1
+                        },
+                        recordPoolExhaustion: async () => {
+                            settlements += 1
+                        },
+                        recordInconclusive: async () => {
+                            settlements += 1
+                        }
+                    },
+                    onAdapter: (ctx) => {
+                        contexts.push(ctx)
+                    }
+                })
+                const blocked =
+                    turnSource === 'platform' && providerSource === 'managed'
+                try {
+                    await h.service.sendMessage(
+                        'user-1',
+                        'agent-1',
+                        'session-a',
+                        'hi',
+                        [],
+                        undefined,
+                        turnSource
+                    )
+                    if (!blocked) {
+                        assert.ok(
+                            await until(() => contexts.length === 1),
+                            'the adapter must start'
+                        )
+                        assert.equal(
+                            contexts[0].modelConfig === null,
+                            turnSource === 'runtime-local'
+                        )
+                        h.release('a', 'done')
+                    }
+                    assert.ok(
+                        await until(() => h.service.activeTurnCount() === 0)
+                    )
+                    assert.equal(contexts.length, blocked ? 0 : 1)
+                    assert.equal(admissions, blocked ? 1 : 0)
+                    assert.equal(
+                        settlements,
+                        0,
+                        'local/BYO turns must not recover an unused managed channel'
+                    )
+                } finally {
+                    h.releaseAll('done')
+                }
+            })
 
 const BOUND_MS = 4_000
 const IDLE_MS = 150
@@ -935,8 +1039,13 @@ const makeHarness = (
         throwOnConcurrencyEvent?: boolean
         throwOnGaugeEvent?: boolean
         corruptUserMessageRow?: boolean
+        agent?: Record<string, unknown>
+        modelConfigs?: Pick<AgentModelConfigService, 'resolveTurnConfig'>
+        managedChannelBreaker?: ManagedChannelGuardPort
+        onAdapter?: (ctx: ApiChatAdapterContext) => void
     } = {}
 ): Harness => {
+    const agent = { ...agentRow, ...opts.agent }
     const telemetry: TelemetryEvent[] = []
     const inflightBySession = new Map<string, string>()
     const controls = new Map<string, TurnControl>()
@@ -987,9 +1096,9 @@ const makeHarness = (
         select: () => ({
             from: () => ({
                 leftJoin: () => ({
-                    where: () => ({ limit: async () => [agentRow] })
+                    where: () => ({ limit: async () => [agent] })
                 }),
-                where: () => ({ limit: async () => [agentRow] })
+                where: () => ({ limit: async () => [agent] })
             })
         }),
         update: () => ({
@@ -1111,6 +1220,7 @@ const makeHarness = (
     const turnStream = async function* (
         ctx: ApiChatAdapterContext
     ): AsyncIterable<EmittedChatEvent> {
+        opts.onAdapter?.(ctx)
         const control = controlFor(ctx.sessionId)
         yield { type: 'token', text: 'hi' }
         control.startedResolve()
@@ -1189,7 +1299,7 @@ const makeHarness = (
         { registerHandler: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined,
+        opts.modelConfigs as AgentModelConfigService | undefined,
         undefined,
         undefined,
         readyChatRunner(undefined),
@@ -1199,7 +1309,10 @@ const makeHarness = (
             ownerId: 'owner-1',
             enabled: false,
             stopClaiming: async () => undefined
-        } as never
+        } as never,
+        undefined,
+        undefined,
+        opts.managedChannelBreaker
     )
 
     const internals = service as unknown as Harness['internals'] & {

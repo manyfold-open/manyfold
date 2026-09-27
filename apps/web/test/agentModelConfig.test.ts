@@ -6,6 +6,7 @@ import type {
 } from '@manyfold/shared'
 import {
     buildClaudeCodeDefaultModelConfig,
+    antigravityProviderModelIds,
     buildCodexDefaultModelConfig,
     claudeCliModel,
     claudeCodeDefaultEffortForModel,
@@ -25,6 +26,7 @@ import {
     formatClaudeEffortLabel,
     frameworkUsesModelConfig,
     mergeCachedRuntimeLocalModelConfigView,
+    modelConfigViewForProviderModels,
     modelConfigDisplayLabel,
     patchRuntimeLocalDraft,
     runtimeLocalModelOptions,
@@ -37,6 +39,117 @@ import {
     withClaudeModel,
     writeCachedModelConfigView
 } from '../src/lib/agentModelConfig'
+
+for (const scenario of [
+    {
+        name: 'bare ID',
+        models: ['gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-high',
+        valid: true
+    },
+    {
+        name: 'namespaced ID after switching provider',
+        models: ['google/gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'unknown directory',
+        models: null,
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'empty enabled directory',
+        models: [],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'default available',
+        models: ['gemini-3.1-pro-preview'],
+        model: null,
+        valid: true
+    },
+    {
+        name: 'default unavailable',
+        models: ['gemini-3.8-flash'],
+        model: null,
+        valid: false
+    }
+])
+    test(`Antigravity draft and provider picker agree: ${scenario.name}`, () => {
+        const draft = {
+            framework: 'antigravity-cli' as const,
+            model: scenario.model
+        }
+        const view = modelConfigViewForProviderModels(
+            {
+                ...codexView,
+                framework: 'antigravity-cli',
+                config: draft,
+                options: [
+                    {
+                        value: 'gemini-3.8-flash-high',
+                        label: 'old provider model',
+                        enabled: true
+                    }
+                ]
+            },
+            scenario.models,
+            draft
+        )
+        assert.equal(
+            validateModelConfigDraft(view, draft, testT).valid,
+            scenario.valid
+        )
+        assert.equal(
+            view.options.find(
+                (o) => o.value === (scenario.model ?? 'gemini-3.1-pro-low')
+            )?.enabled,
+            scenario.valid
+        )
+        if (!scenario.valid)
+            assert.ok(view.options.every((o) => o.enabled || o.reason))
+        assert.equal(
+            validateModelConfigDraft(
+                { ...view, source: 'runtime-local' },
+                {
+                    framework: 'antigravity-cli',
+                    model: 'claude-opus-4-6-thinking'
+                },
+                testT
+            ).valid,
+            true
+        )
+    })
+
+test('Antigravity provider selection uses only enabled Gemini protocol IDs', () => {
+    assert.equal(
+        antigravityProviderModelIds({
+            lastTestModels: { openai_chat_completions: ['gemini-3.8-flash'] },
+            enabledModels: null
+        }),
+        null
+    )
+    assert.deepEqual(
+        antigravityProviderModelIds({
+            lastTestModels: {
+                google_generate_content: [],
+                openai_chat_completions: ['gemini-3.8-flash']
+            },
+            enabledModels: null
+        }),
+        []
+    )
+    assert.deepEqual(
+        antigravityProviderModelIds({
+            lastTestModels: { google_generate_content: ['gemini-3.8-flash'] },
+            enabledModels: { google_generate_content: [] }
+        }),
+        []
+    )
+})
 
 const testT = (key: string): string =>
     ({
