@@ -6,7 +6,6 @@ import { chromium, type Page } from 'playwright'
 import { build } from 'vite'
 import type { SdkAgent } from '@manyfold/sdk'
 import type { AgentStorageUsageResponse } from '@manyfold/shared'
-import { resolveAntigravityModelOptions } from '@manyfold/shared'
 
 const root = resolve(import.meta.dirname, '../../..')
 const origin = 'http://settings.test'
@@ -236,7 +235,6 @@ const fixture = async (agents: Record<string, SdkAgent>) => {
 
 test('Antigravity provider dialog selects and saves the visible model for NetMind and Managed providers', async () => {
     const f = await fixture({ a: agent('a', 'sprites') })
-    f.page.setDefaultTimeout(5000)
     const providers = [
         {
             id: 'netmind',
@@ -283,7 +281,12 @@ test('Antigravity provider dialog selects and saves the visible model for NetMin
         provider: 'google',
         config: { framework: 'antigravity-cli', model: selectedModel },
         providerModels: savedProvider.models,
-        options: resolveAntigravityModelOptions(savedProvider.models),
+        options: savedProvider.models.map((model) => ({
+            value: model,
+            label: model,
+            providerModel: model,
+            enabled: true
+        })),
         validation: { valid: false, messages: ['Old model is unavailable'] }
     })
     await f.page.route('**/api/me/model-providers', (route) =>
