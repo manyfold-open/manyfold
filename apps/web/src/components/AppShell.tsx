@@ -72,7 +72,6 @@ import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import ConcurrencyIndicator from '@/components/ConcurrencyIndicator'
 import { extraShellOverlays, extraSidebarMeters } from '@/shell-extra'
-import { countActiveSandboxes } from '@/lib/concurrencySlots'
 import AgentSidebarControls from '@/components/AgentSidebarControls'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
 import { useSidebarResize } from '@/lib/useSidebarResize'
@@ -3124,10 +3123,6 @@ const AppShell: FC = (): ReactNode => {
         const channelsLabel = t('web.agents.detail.channels.title')
         const automationsLabel = t('web.shell.automations')
         const readOnlyLabel = t('web.shell.readOnly')
-        const concurrencyLimit = runtimeAccess?.plan.maxConcurrentActive ?? null
-        const concurrencyFull =
-            concurrencyLimit != null &&
-            countActiveSandboxes(agents, sandboxes) >= concurrencyLimit
 
         return (
             <div
@@ -3658,11 +3653,6 @@ const AppShell: FC = (): ReactNode => {
                                         const agentSessionsError =
                                             sessionErrorByAgent[agent.id] ??
                                             null
-                                        const occupiesSlot =
-                                            agent.runtime === 'sprites' &&
-                                            agent.powerState === 'running'
-                                        const isReleasing =
-                                            releasingAgentIds.has(agent.id)
                                         const agentTitle = `${agent.name} · ${frameworkDisplayLabel(
                                             agent.framework
                                         )} · ${agentStatusDotLabel(agent)}${showReadOnlyBadge ? ` · ${readOnlyLabel}` : ''}`
@@ -3806,11 +3796,6 @@ const AppShell: FC = (): ReactNode => {
                                                                             agent.id
                                                                                 ? 'border-rail-hover'
                                                                                 : 'border-rail group-hover/row:border-rail-hover'
-                                                                        }
-                                                                        tone={
-                                                                            occupiesSlot
-                                                                                ? `${concurrencyFull ? 'bg-warning' : 'bg-success'}${isReleasing ? ' animate-pulse' : ''}`
-                                                                                : undefined
                                                                         }
                                                                     />
                                                                     <div className='text-ui text-subtle min-w-0 flex-1 truncate font-medium'>

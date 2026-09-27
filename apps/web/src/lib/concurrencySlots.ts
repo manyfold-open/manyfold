@@ -74,10 +74,3 @@ export const groupActiveSandboxes = (
     }
     return slots
 }
-
-const NO_RELEASING: ReadonlySet<string> = new Set()
-
-export const countActiveSandboxes = (
-    agents: SdkAgent[],
-    sandboxes: SandboxSummary[]
-): number => groupActiveSandboxes(agents, sandboxes, NO_RELEASING).length

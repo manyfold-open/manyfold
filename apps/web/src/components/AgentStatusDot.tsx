@@ -7,7 +7,6 @@ import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
 interface Props {
     agent: SdkAgent
     size?: 'sm' | 'md'
-    tone?: string
     // Border-colour classes for a 2px ring in the surface behind the dot,
     // which is what keeps its edge off an icon it sits on. Outside the dot's
     // own size, so the colour reads the same with or without it.
@@ -23,13 +22,12 @@ const SIZE_CLASS: Record<NonNullable<Props['size']>, string> = {
 const AgentStatusDot: FC<Props> = ({
     agent,
     size = 'sm',
-    tone,
     ring,
     tooltip = true
 }): ReactNode => {
     const streaming = useIsAgentStreaming(agent.id)
     const dim = SIZE_CLASS[size]
-    const color = tone ?? agentStatusDotClass(agent)
+    const color = agentStatusDotClass(agent)
     const baseLabel = agentStatusDotLabel(agent)
     const label = streaming ? `${baseLabel} · streaming` : baseLabel
     return (
@@ -73,5 +71,3 @@ export const AgentIconStatus: FC<
         </span>
     </span>
 )
-
-export default AgentStatusDot
