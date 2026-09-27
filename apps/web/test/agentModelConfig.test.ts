@@ -72,10 +72,17 @@ for (const scenario of [
         valid: true
     },
     {
-        name: 'default unavailable',
+        name: 'default falls back to available model',
         models: ['gemini-3.8-flash'],
         model: null,
-        valid: false
+        defaultModel: 'gemini-3.8-flash-high',
+        valid: true
+    },
+    {
+        name: 'provider namespaced model',
+        models: ['google/gemini-3.8-flash'],
+        model: 'google/gemini-3.8-flash',
+        valid: true
     }
 ])
     test(`Antigravity draft and provider picker agree: ${scenario.name}`, () => {
@@ -105,8 +112,8 @@ for (const scenario of [
         )
         assert.equal(
             view.options.find(
-                (o) => o.value === (scenario.model ?? 'gemini-3.1-pro-low')
-            )?.enabled,
+                (o) => o.value === (scenario.model ?? scenario.defaultModel ?? 'gemini-3.1-pro-low')
+            )?.enabled === true,
             scenario.valid
         )
         if (!scenario.valid)

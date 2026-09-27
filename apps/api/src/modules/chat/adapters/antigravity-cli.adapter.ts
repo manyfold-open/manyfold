@@ -204,7 +204,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             '--dangerously-skip-permissions',
             '--disable-slash-commands'
         ]
-        if (model) agyArgs.push('--model', model)
+        if (model && !platformCreds) agyArgs.push('--model', model)
         if (requestedRef) agyArgs.push('--conversation', requestedRef)
 
         // A headless turn is never a terminal session: the session hooks,
@@ -216,6 +216,10 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
                   runtimeId: agent.runtimeId ?? agent.id,
                   apiKey: platformCreds.googleApiKey,
                   baseUrl: platformCreds.googleGeminiBaseUrl,
+                  model,
+                  providerModel: ctx.modelConfig?.framework === 'antigravity-cli'
+                      ? ctx.modelConfig.providerModel
+                      : undefined,
                   managedHost
               })
             : {
@@ -272,7 +276,9 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             persistedRef: storedRef,
             // A platform turn is billed under the Gemini API id the gateway
             // served; the machine's own sign-in is priced as the same model.
-            usageModel: antigravityUpstreamModel(model)
+            usageModel: ctx.modelConfig?.framework === 'antigravity-cli'
+                ? ctx.modelConfig.providerModel ?? antigravityUpstreamModel(model)
+                : antigravityUpstreamModel(model)
         })
     }
 

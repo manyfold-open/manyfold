@@ -1,8 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
-import { AGY_API_KEY_MODELS, isPiProvider } from '@manyfold/shared'
-import type { AgentFramework } from '@manyfold/shared'
+import { isPiProvider } from '@manyfold/shared'
+import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
+import type { AgentFramework, AntigravityCliAgentModelConfig } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
@@ -58,7 +59,8 @@ export class TerminalResumeService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly crypto: CryptoService
+        private readonly crypto: CryptoService,
+        @Optional() private readonly modelConfigs?: AgentModelConfigService
     ) {}
 
     /* Resolve a chat session into the argv that drops the terminal straight
@@ -71,6 +73,7 @@ export class TerminalResumeService {
        shell, and the outcome says which kind of plain shell it is. */
     async resolve(args: {
         agentId: string
+        userId?: string
         runtimeId: string
         framework: AgentFramework
         chatSessionId: string
@@ -164,7 +167,8 @@ export class TerminalResumeService {
                 ? await this.antigravityPlatformResume(
                       args.runtimeId,
                       command,
-                      args.model ?? null
+                      args.model ?? null,
+                      { agentId: args.agentId, userId: args.userId }
                   )
                 : {
                       command,
@@ -241,7 +245,8 @@ export class TerminalResumeService {
     private async antigravityPlatformResume(
         runtimeId: string,
         command: string[],
-        agentModel: string | null
+        agentModel: string | null,
+        selection: { agentId: string; userId?: string }
     ): Promise<ResolvedTerminalResume | null> {
         const creds = (await this.storedCredentials(runtimeId)) as {
             googleApiKey?: string
@@ -249,13 +254,29 @@ export class TerminalResumeService {
             model?: string | null
         } | null
         if (!creds?.googleApiKey) return null
-        const model = agentModel?.trim() || creds.model?.trim() || null
-        const known = AGY_API_KEY_MODELS.some((m) => m.slug === model)
+        let config: AntigravityCliAgentModelConfig | null = null
+        if (selection.userId && this.modelConfigs) {
+            try {
+                const turn = await this.modelConfigs.resolveTurnConfig({
+                    callerUserId: selection.userId,
+                    agentId: selection.agentId,
+                    modelConfigSource: 'platform'
+                })
+                if (turn.modelConfig?.framework === 'antigravity-cli')
+                    config = turn.modelConfig
+            } catch {
+                this.log.warn(
+                    `terminal.resume.skipped agent=${selection.agentId} reason=model-config-unavailable`
+                )
+                return null
+            }
+        }
+        const model =
+            config?.model ?? (agentModel?.trim() || creds.model?.trim() || null)
         const platform = antigravityPlatformExec({
-            agyArgs: [
-                ...command.slice(1),
-                ...(model && known ? ['--model', model] : [])
-            ],
+            agyArgs: command.slice(1),
+            model,
+            providerModel: config?.providerModel,
             runtimeId,
             apiKey: creds.googleApiKey,
             baseUrl: creds.googleGeminiBaseUrl ?? null,

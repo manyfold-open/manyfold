@@ -412,6 +412,43 @@ test('a platform agent with no provider bound is refused before any exec', async
     assert.equal(seam.streams.length, 0)
 })
 
+for (const model of ['google/gemini-3.8-flash', 'gemini-3.6-flash-medium'])
+    test(`platform dispatch registers and bills exact provider model ${model}`, async () => {
+        const seam = buildSeam({
+            fixture: 'resume-turn-1',
+            source: 'platform',
+            creds: {
+                googleApiKey: 'gk-marker',
+                googleGeminiBaseUrl: 'https://gateway.example',
+                model: null
+            }
+        })
+        const events = await drain(
+            seam.adapter.sendMessage(
+                ctx({
+                    modelConfig: {
+                        framework: 'antigravity-cli',
+                        model,
+                        providerModel: model
+                    }
+                }),
+                message
+            )
+        )
+        assert.equal(errorOf(events), null)
+        assert.deepEqual(seam.streams[0].cmd.slice(-2), [
+            '--model',
+            'manyfold-provider-model'
+        ])
+        assert.equal(
+            JSON.parse(seam.streams[0].env!.MF_AGY_CUSTOM_MODELS_JSON)[
+                'manyfold-provider-model'
+            ].modelName,
+            model
+        )
+        assert.equal(usageOf(events).usage.model, model)
+    })
+
 test('a runtime-local override ignores the saved platform key and endpoint', async () => {
     const seam = buildSeam({
         fixture: 'resume-turn-1',

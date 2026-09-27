@@ -4,10 +4,10 @@ import type {
     UpdateAgentRuntimeAuthBody
 } from '@manyfold/shared'
 import {
-    AGY_API_KEY_MODELS,
     AGY_DEFAULT_API_KEY_MODEL,
     antigravityProviderModelIds,
     resolveAntigravityModelOptions,
+    defaultAntigravityModel,
     PI_PROTOCOL_BY_PROVIDER,
     runtimeLocalInspectFeature,
     RUNTIME_AUTH_ERROR,
@@ -441,48 +441,61 @@ export class AgentModelConfigService {
             throw new BadRequestException(
                 `modelConfig.framework must be antigravity-cli for agent ${agent.id}`
             )
-        const model = normalizeNullable(
-            raw?.model ?? body.model ?? normalizeNullable(agent.model)
-        )
-        if (model && !AGY_API_KEY_MODELS.some((m) => m.slug === model))
-            throw new BadRequestException(
-                `Antigravity CLI model "${model}" is not one its Gemini API-key mode offers. Pick one of: ${AGY_API_KEY_MODELS.map((m) => m.slug).join(', ')}`
-            )
+        const providerModels =
+            await this.providerModelsForPlatformValidation(agent)
+        const requested = raw?.model !== undefined
+            ? raw.model
+            : body.model !== undefined
+              ? body.model
+              : agent.model
+        const model =
+            normalizeNullable(requested) ?? defaultAntigravityModel(providerModels.models)
         const config: AntigravityCliAgentModelConfig = {
             framework: 'antigravity-cli',
             // Dispatch exactly the default we validate, even if credentials
             // still contain a model from an earlier provider binding.
-            model: model ?? AGY_DEFAULT_API_KEY_MODEL
+            model
         }
         const validation = this.validateAntigravityConfig(
             config,
-            await this.providerModelsForPlatformValidation(agent)
+            providerModels
         )
         if (!validation.valid)
             throw new BadRequestException(validation.messages.join(' '))
-        return config
+        return {
+            ...config,
+            providerModel:
+                resolveAntigravityModelOptions(providerModels.models).find(
+                    (option) => option.value === model
+                )?.providerModel ?? null
+        }
     }
 
     private validateAntigravityConfig(
         config: AgentModelConfig | null,
         providerModels: ProviderModelsState
     ): AgentModelConfigView['validation'] {
+        if (providerModels.status !== 'ready')
+            return {
+                valid: false,
+                messages: [
+                    'Test provider to verify Antigravity CLI upstream models.'
+                ],
+                cta: 'test-provider'
+            }
         const selected =
             (config?.framework === 'antigravity-cli' ? config.model : null) ??
+            defaultAntigravityModel(providerModels.models) ??
             AGY_DEFAULT_API_KEY_MODEL
-        const option = resolveAntigravityModelOptions(
-            providerModels.status === 'ready' ? providerModels.models : null
-        ).find((item) => item.value === selected)
+        const option = resolveAntigravityModelOptions(providerModels.models)
+            .find((item) => item.value === selected)
         if (option?.enabled) return { valid: true, messages: [] }
         return {
             valid: false,
             messages: [
                 option?.reason ??
-                    `Antigravity CLI model "${selected}" is not supported in API-key mode. Choose a compatible model in Model settings.`
-            ],
-            ...(providerModels.status !== 'ready'
-                ? { cta: 'test-provider' as const }
-                : {})
+                    `Antigravity CLI model "${selected}" is not in the enabled provider model list. Refresh the provider or choose an available model.`
+            ]
         }
     }
 

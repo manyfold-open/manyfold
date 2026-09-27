@@ -86,11 +86,10 @@ export const antigravityProviderModelIds = (
     ) ?? []
 }
 
-// agy sends the upstream ID itself; a provider's namespaced ID is not an alias.
 export const resolveAntigravityModelOptions = (
     providerModels: readonly string[] | null
-): AgentModelConfigOption[] =>
-    AGY_API_KEY_MODELS.map(({ slug, upstream }) => {
+): AgentModelConfigOption[] => {
+    const native = AGY_API_KEY_MODELS.map(({ slug, upstream }) => {
         const enabled = providerModels?.includes(upstream) === true
         return {
             value: slug,
@@ -104,10 +103,39 @@ export const resolveAntigravityModelOptions = (
                   : `Provider does not offer enabled upstream model "${upstream}" required by "${slug}". Refresh its models or choose a compatible provider.`
         }
     })
+    if (providerModels === null) return native
+    const direct = [...new Set(providerModels)].map((model) => ({
+        value: model,
+        label: model,
+        providerModel: model,
+        enabled: true,
+        reason: null
+    }))
+    // A provider's exact ID wins over a built-in slug with the same name.
+    return [
+        ...native.filter(
+            (option) => option.enabled && !providerModels.includes(option.value)
+        ),
+        ...direct
+    ]
+}
+
+export const defaultAntigravityModel = (
+    providerModels: readonly string[]
+): string | null => {
+    const options = resolveAntigravityModelOptions(providerModels)
+    return (
+        options.find((option) => option.value === AGY_DEFAULT_API_KEY_MODEL)
+            ?.value ??
+        options[0]?.value ??
+        null
+    )
+}
 
 // The Gemini API id a platform turn is billed under: what the gateway saw.
 export const antigravityUpstreamModel = (slug: string | null): string =>
     AGY_API_KEY_MODELS.find((m) => m.slug === slug)?.upstream ??
+    slug ??
     AGY_API_KEY_MODELS.find((m) => m.slug === AGY_DEFAULT_API_KEY_MODEL)!
         .upstream
 

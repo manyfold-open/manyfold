@@ -1,11 +1,15 @@
 import {
+    AGY_API_KEY_MODELS,
     AGY_MANAGED_HOST_ENV,
     AGY_PLATFORM_OUTRANKING_ENV,
     OFFICIAL_PROVIDER_BASE_URL
 } from '@manyfold/shared'
+import { createHash } from 'node:crypto'
 
 export const AGY_PLATFORM_VIEW_ENV = 'MF_AGY_VIEW'
 const AGY_PLATFORM_VIEW_PREPARE_ENV = 'MF_AGY_VIEW_PREPARE'
+const AGY_CUSTOM_MODELS_ENV = 'MF_AGY_CUSTOM_MODELS_JSON'
+const AGY_PROVIDER_MODEL_SLUG = 'manyfold-provider-model'
 
 /* An agy process running on a platform credential reads its settings from a
    view of the machine's app data dir, never from the dir itself.
@@ -89,10 +93,12 @@ for link in "$view"/* "$view"/.[!.]* "$view"/..?*; do
     [ -L "$link" ] && { [ -e "$native/$name" ] || [ -L "$native/$name" ]; } && continue
     rm -rf "$link"
 done
-want='{"modelProvider":"gemini"}'
+custom=''
+[ -z "\${MF_AGY_CUSTOM_MODELS_JSON:-}" ] || custom=',"customModelsConfig":{"customModels":'"$MF_AGY_CUSTOM_MODELS_JSON"'}'
+want='{"modelProvider":"gemini"'"$custom"'}'
 case "$PWD" in
     *[![:print:]]*) ;;
-    /*) want='{"modelProvider":"gemini","trustedWorkspaces":["'"$(printf '%s' "$PWD" | sed 's/[\\\\"]/\\\\&/g')"'"]}' ;;
+    /*) want='{"modelProvider":"gemini"'"$custom"',"trustedWorkspaces":["'"$(printf '%s' "$PWD" | sed 's/[\\\\"]/\\\\&/g')"'"]}' ;;
 esac
 if [ -L "$view/settings.json" ] || [ "$(cat "$view/settings.json" 2>/dev/null)" != "$want" ]; then
     printf '%s' "$want" > "$own/settings.json.$$" &&
@@ -101,7 +107,7 @@ fi
 rmdir "$own/rebuild.lock" 2>/dev/null
 # relative to agy's ~/.gemini (an absolute one is refused)
 arg="--app_data_dir=../.manyfold/antigravity-cli/$MF_AGY_VIEW/app"
-unset MF_AGY_VIEW
+unset MF_AGY_VIEW MF_AGY_CUSTOM_MODELS_JSON
 [ -z "\${MF_AGY_VIEW_PREPARE:-}" ] || { printf '%s\\n' "$arg"; exit 0; }
 exec agy "$arg" "$@"
 `
@@ -119,17 +125,50 @@ export const antigravityPlatformExec = (args: {
     apiKey: string
     baseUrl?: string | null
     managedHost: boolean
+    model?: string | null
+    providerModel?: string | null
 }): { cmd: string[]; env: Record<string, string> } => {
+    const builtin = AGY_API_KEY_MODELS.find((item) => item.slug === args.model)
+    const providerModel = args.providerModel ?? builtin?.upstream ?? args.model
+    const customModel =
+        providerModel && (!builtin || builtin.upstream !== providerModel)
+            ? providerModel
+            : null
+    // Measured on agy 1.2.12 (macOS) [2026-09-27]: this native registration
+    // sends modelName unchanged through Gemini SSE, tool calls and resumes.
+    const customModels = customModel
+        ? JSON.stringify({
+              [AGY_PROVIDER_MODEL_SLUG]: { modelName: customModel }
+          })
+        : ''
+    // Two agents on the same runtime may launch different custom models at
+    // once. Their settings must not replace each other's model registration.
+    const viewId = customModel
+        ? `${args.runtimeId}_${createHash('sha256').update(customModel).digest('hex').slice(0, 16)}`
+        : args.runtimeId
     const env: Record<string, string> = {
         ...(args.managedHost ? AGY_MANAGED_HOST_ENV : {}),
-        [AGY_PLATFORM_VIEW_ENV]: args.runtimeId
+        [AGY_PLATFORM_VIEW_ENV]: viewId,
+        [AGY_CUSTOM_MODELS_ENV]: customModels
     }
     for (const outranking of AGY_PLATFORM_OUTRANKING_ENV) env[outranking] = ''
     env.GEMINI_API_KEY = args.apiKey
     env.GOOGLE_GEMINI_BASE_URL =
         args.baseUrl?.trim() || OFFICIAL_PROVIDER_BASE_URL.google
     return {
-        cmd: ['bash', '-c', AGY_PLATFORM_VIEW_SCRIPT, 'agy', ...args.agyArgs],
+        cmd: [
+            'bash',
+            '-c',
+            AGY_PLATFORM_VIEW_SCRIPT,
+            'agy',
+            ...args.agyArgs,
+            ...(args.model
+                ? [
+                      '--model',
+                      customModel ? AGY_PROVIDER_MODEL_SLUG : args.model
+                  ]
+                : [])
+        ],
         env
     }
 }
@@ -145,6 +184,7 @@ export const antigravityPlatformViewPrepare = (
     cmd: ['bash', '-c', AGY_PLATFORM_VIEW_SCRIPT, 'agy'],
     env: {
         [AGY_PLATFORM_VIEW_ENV]: env[AGY_PLATFORM_VIEW_ENV] ?? '',
+        [AGY_CUSTOM_MODELS_ENV]: env[AGY_CUSTOM_MODELS_ENV] ?? '',
         [AGY_PLATFORM_VIEW_PREPARE_ENV]: '1'
     }
 })
@@ -157,6 +197,7 @@ export const antigravityPlatformDirect = (
 ): { command: string[]; env: Record<string, string> } => {
     const env: Record<string, string> = { ...resume.env }
     delete env[AGY_PLATFORM_VIEW_ENV]
+    delete env[AGY_CUSTOM_MODELS_ENV]
     // antigravityPlatformExec's argv: bash -c <script> agy <agy args…>
     return {
         command: ['agy', appDataDirFlag, ...resume.command.slice(4)],

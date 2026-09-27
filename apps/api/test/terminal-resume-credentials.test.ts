@@ -188,3 +188,24 @@ test('an agy TUI without a key leaves a plain shell, and on its own sign-in runs
         env: {}
     })
 })
+
+test('an agy TUI resolves the same custom provider route as a chat turn', async () => {
+    const service = new TerminalResumeService(
+        dbReturning([
+            [{ ref: AGY_REF, inflightMessageId: null }],
+            [{ payloadCiphertext: 'c', keyVersion: 1 }]
+        ]),
+        { decrypt: () => JSON.stringify({ googleApiKey: 'fixture-key' }) } as never,
+        { resolveTurnConfig: async (input: unknown) => {
+            assert.deepEqual(input, { callerUserId: 'user-1', agentId: 'agt_1', modelConfigSource: 'platform' })
+            return { modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.6-flash-medium', providerModel: 'gemini-3.6-flash-medium' } }
+        } } as never
+    )
+    const resolved = await service.resolve({
+        agentId: 'agt_1', userId: 'user-1', runtimeId: 'rt_1', framework: 'antigravity-cli',
+        chatSessionId: 'cs_1', modelCredentialsAllowed: true, injectModelCredentials: true
+    })
+    assert.equal(resolved.outcome, 'applied')
+    assert.deepEqual(resolved.resume?.command.slice(-2), ['--model', 'manyfold-provider-model'])
+    assert.equal(JSON.parse(resolved.resume!.env.MF_AGY_CUSTOM_MODELS_JSON)['manyfold-provider-model'].modelName, 'gemini-3.6-flash-medium')
+})
