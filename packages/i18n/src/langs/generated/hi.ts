@@ -141,6 +141,7 @@ const hi: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'स्थापित · अद्यतन उपलब्ध है',
     'web.agents.detail.contextDoc.working': 'कार्यरत…',
     'web.agents.detail.copyAgentId': 'कॉपी एजेंट ID',
+    'web.agents.detail.copyWorkspacePath': 'कार्यस्थान पथ की प्रतिलिपि बनाएँ',
     'web.agents.detail.created': 'बनाया था',
     'web.agents.detail.dashboard.controlUi': 'नियंत्रण UI',
     'web.agents.detail.dashboard.controlUiDescription': 'इस एजेंट के लिए OpenClaw नियंत्रण UI को उजागर करें। संक्षेप में टॉगल करने से गेटवे पुनः आरंभ होता है।',

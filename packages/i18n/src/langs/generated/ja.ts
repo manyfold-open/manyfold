@@ -141,6 +141,7 @@ const ja: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'インストール済み、アップデートが利用可能',
     'web.agents.detail.contextDoc.working': '作業中…',
     'web.agents.detail.copyAgentId': 'エージェント ID をコピー',
+    'web.agents.detail.copyWorkspacePath': 'ワークスペースのパスをコピーする',
     'web.agents.detail.created': '作成されました',
     'web.agents.detail.dashboard.controlUi': 'コントロール UI',
     'web.agents.detail.dashboard.controlUiDescription': 'このエージェントの OpenClaw コントロール UI を公開します。切り替えると、ゲートウェイが一時的に再起動されます。',

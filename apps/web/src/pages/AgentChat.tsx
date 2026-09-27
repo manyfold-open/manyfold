@@ -3319,10 +3319,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                                 </span>
                             </Link>
                         </ShortcutTooltip>
-                        <AgentPlaceLine
-                            agent={agent}
-                            className='hidden sm:flex'
-                        />
+                        <AgentPlaceLine agent={agent} />
                     </div>
                 </div>
             </div>

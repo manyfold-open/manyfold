@@ -261,6 +261,7 @@ const zh: Translations = {
                     working: '处理中…'
                 },
                 copyAgentId: '复制 Agent ID',
+                copyWorkspacePath: '复制工作区路径',
                 created: '创建时间',
                 dashboard: {
                     controlUi: '控制 UI',

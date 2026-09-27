@@ -141,6 +141,7 @@ const ru: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'Установлено · доступно обновление',
     'web.agents.detail.contextDoc.working': 'Обновление…',
     'web.agents.detail.copyAgentId': 'Скопировать идентификатор агента',
+    'web.agents.detail.copyWorkspacePath': 'Копировать путь к рабочей области',
     'web.agents.detail.created': 'Создан',
     'web.agents.detail.dashboard.controlUi': 'Интерфейс управления',
     'web.agents.detail.dashboard.controlUiDescription': 'Предоставьте пользовательский интерфейс управления OpenClaw для этого агента. Кратковременное переключение перезапускает шлюз.',

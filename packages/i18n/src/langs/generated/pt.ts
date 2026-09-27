@@ -141,6 +141,7 @@ const pt: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'Instalado · atualização disponível',
     'web.agents.detail.contextDoc.working': 'Trabalhando…',
     'web.agents.detail.copyAgentId': 'Copiar ID do agente',
+    'web.agents.detail.copyWorkspacePath': 'Copiar caminho do workspace',
     'web.agents.detail.created': 'Criado',
     'web.agents.detail.dashboard.controlUi': 'UI de controle',
     'web.agents.detail.dashboard.controlUiDescription': 'Exponha a UI de controle OpenClaw para este agente. A alternância reinicia brevemente o gateway.',

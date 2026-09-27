@@ -141,6 +141,7 @@ const de: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'Installiert · Update verfügbar',
     'web.agents.detail.contextDoc.working': 'Arbeiten…',
     'web.agents.detail.copyAgentId': 'Agenten-ID kopieren',
+    'web.agents.detail.copyWorkspacePath': 'Arbeitsbereichspfad kopieren',
     'web.agents.detail.created': 'Erstellt',
     'web.agents.detail.dashboard.controlUi': 'Steueroberfläche',
     'web.agents.detail.dashboard.controlUiDescription': 'Machen Sie die OpenClaw-Steueroberfläche für diesen Agenten verfügbar. Durch kurzes Umschalten wird das Gateway neu gestartet.',

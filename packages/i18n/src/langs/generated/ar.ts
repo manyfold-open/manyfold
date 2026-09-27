@@ -554,6 +554,7 @@ const ar: Record<string, string> = {
     'web.agents.detail.contextDoc.updateAvailable': 'مثبت · يتوفر تحديث',
     'web.agents.detail.contextDoc.working': 'جارٍ العمل…',
     'web.agents.detail.copyAgentId': 'نسخ معرف الوكيل',
+    'web.agents.detail.copyWorkspacePath': 'نسخ مسار مساحة العمل',
     'web.agents.detail.created': 'تم الإنشاء',
     'web.agents.detail.dashboard.controlUi': 'واجهة التحكم',
     'web.agents.detail.dashboard.controlUiDescription': 'عرض واجهة تحكم OpenClaw لهذا الوكيل. يؤدي التبديل إلى إعادة تشغيل البوابة لفترة وجيزة.',

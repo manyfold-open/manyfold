@@ -141,6 +141,7 @@ const ko: Record<string, string> = {
     "web.agents.detail.contextDoc.updateAvailable": "설치됨 · 업데이트 가능",
     "web.agents.detail.contextDoc.working": "작업 중…",
     "web.agents.detail.copyAgentId": "에이전트 ID 복사",
+    "web.agents.detail.copyWorkspacePath": "작업공간 경로 복사",
     "web.agents.detail.created": "생성됨",
     "web.agents.detail.dashboard.controlUi": "컨트롤 UI",
     "web.agents.detail.dashboard.controlUiDescription": "이 에이전트에 대한 OpenClaw 제어 UI를 노출합니다. 전환하면 게이트웨이가 잠시 다시 시작됩니다.",

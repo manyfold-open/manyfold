@@ -3,26 +3,24 @@ import type { FC, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import HostKindIcon from '@/components/HostKindIcon'
 import { FolderIcon } from '@/components/icons'
+import PathPopover from '@/components/PathPopover'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { hostKey, placementLabel } from '@/lib/hostStatus'
+import { useI18n } from '@/lib/i18n'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import { workspaceDirNameOf, workspacePathOf } from '@/lib/workspacePath'
 
-// A path has no spaces to wrap at, so a deep one ran off the tooltip or was
-// cut short; a zero-width space after each separator lets it wrap at folders.
-const wrappablePath = (path: string): string =>
-    path.replace(/[\\/]/g, '$&\u200b')
-
 // Where an agent runs and what it works in, one type size below its name: the
-// machine opens its own settings, the folder shows its basename and the full
-// path on hover. The chat header and the agent's overview both draw it, so
-// the two read the same. An agent with no machine has neither.
+// machine opens its own settings, the folder shows its basename and opens the
+// full path on hover or on a tap. The chat header and the agent's overview both
+// draw it, so the two read the same. An agent with no machine has neither.
 const AgentPlaceLine: FC<{
     agent: SdkAgent
     // A fact about the machine, set after its name ("kept awake").
     note?: string
     className?: string
 }> = ({ agent, note, className }): ReactNode => {
+    const { t } = useI18n()
     const navigate = useNavigate()
     if (agent.hostId === null) return null
     const hostPath = `/settings/runtimes?host=${hostKey(agent.hostId)}`
@@ -79,22 +77,18 @@ const AgentPlaceLine: FC<{
             {dirName ? (
                 <>
                     {separator}
-                    <ShortcutTooltip
-                        label={wrappablePath(workspacePathOf(agent))}
-                        multiline
-                        placement='bottom-start'
-                        className='min-w-0 shrink'
+                    <PathPopover
+                        path={workspacePathOf(agent)}
+                        label={t('web.agents.detail.workspace')}
+                        copyLabel={t('web.agents.detail.copyWorkspacePath')}
+                        className='hover:bg-soft aria-expanded:bg-soft -mx-1 inline-flex min-w-0 items-center gap-1 rounded-sm px-1 transition-colors'
                     >
-                        <span className='inline-flex min-w-0 items-center gap-1'>
-                            <FolderIcon
-                                aria-hidden='true'
-                                className='h-3 w-3 shrink-0'
-                            />
-                            <span className='truncate font-mono'>
-                                {dirName}
-                            </span>
-                        </span>
-                    </ShortcutTooltip>
+                        <FolderIcon
+                            aria-hidden='true'
+                            className='h-3 w-3 shrink-0'
+                        />
+                        <span className='truncate font-mono'>{dirName}</span>
+                    </PathPopover>
                 </>
             ) : null}
         </div>

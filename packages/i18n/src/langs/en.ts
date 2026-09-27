@@ -264,6 +264,7 @@ const en = {
                     working: 'Working…'
                 },
                 copyAgentId: 'Copy agent ID',
+                copyWorkspacePath: 'Copy workspace path',
                 created: 'Created',
                 dashboard: {
                     controlUi: 'Control UI',
