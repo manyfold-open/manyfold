@@ -28,15 +28,19 @@ import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { DRIZZLE } from '@/db/tokens'
-import { DaemonHostService } from './daemon-host.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import { DaemonHostService, type DaemonSummaryRuntime } from './daemon-host.service'
 import { CliUpgradeDto } from './dto/cli-upgrade.dto'
 
+// The self-owned computers of every user (ADR-0036: `local` hosts). Hosted
+// hosts are listed under the sandboxes and cloud computers admin pages.
 @Controller('admin/daemon')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminDaemonController {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly hosts: DaemonHostService
+        private readonly hosts: DaemonHostService,
+        private readonly hostDaemons: HostDaemonsService
     ) {}
 
     @Get('hosts')
@@ -44,80 +48,79 @@ export class AdminDaemonController {
         const hostRows = await this.db
             .select()
             .from(runtimeHosts)
-            .where(eq(runtimeHosts.kind, 'daemon'))
+            .where(eq(runtimeHosts.kind, 'local'))
         if (hostRows.length === 0) return []
         const hostIds = hostRows.map((h) => h.id)
         const userIds = [...new Set(hostRows.map((h) => h.userId))]
-        const [runtimeRows, userRows, tokenCountRows, agentCountRows] =
+        const [daemons, runtimeRows, userRows, tokenCountRows, agentCountRows] =
             await Promise.all([
+                this.hostDaemons.findByHostIds(hostIds),
                 this.db
                     .select({
                         id: agentRuntimes.id,
-                        daemonId: agentRuntimes.daemonId,
+                        hostId: agentRuntimes.hostId,
                         framework: agentRuntimes.framework,
-                        name: agentRuntimes.name
+                        name: agentRuntimes.name,
+                        status: agentRuntimes.status
                     })
                     .from(agentRuntimes)
-                    .where(inArray(agentRuntimes.daemonId, hostIds)),
+                    .where(inArray(agentRuntimes.hostId, hostIds)),
                 this.db
                     .select({ id: users.id, email: users.email })
                     .from(users)
                     .where(inArray(users.id, userIds)),
                 this.db
                     .select({
-                        daemonId: daemonTokens.daemonId,
+                        hostId: daemonTokens.hostId,
                         count: count()
                     })
                     .from(daemonTokens)
-                    .where(inArray(daemonTokens.daemonId, hostIds))
-                    .groupBy(daemonTokens.daemonId),
+                    .where(inArray(daemonTokens.hostId, hostIds))
+                    .groupBy(daemonTokens.hostId),
                 this.db
-                    .select({ daemonId: agents.daemonId, count: count() })
+                    .select({ hostId: agentRuntimes.hostId, count: count() })
                     .from(agents)
-                    .where(inArray(agents.daemonId, hostIds))
-                    .groupBy(agents.daemonId)
+                    .innerJoin(
+                        agentRuntimes,
+                        eq(agentRuntimes.id, agents.runtimeId)
+                    )
+                    .where(inArray(agentRuntimes.hostId, hostIds))
+                    .groupBy(agentRuntimes.hostId)
             ])
-        const runtimesByDaemon = new Map<
-            string,
-            Array<{
-                runtimeId: string
-                framework: DetectedFramework['framework']
-                name: string
-            }>
-        >()
+        const runtimesByHost = new Map<string, DaemonSummaryRuntime[]>()
         for (const r of runtimeRows) {
-            if (!r.daemonId) continue
-            const list = runtimesByDaemon.get(r.daemonId) ?? []
+            if (!r.hostId) continue
+            const list = runtimesByHost.get(r.hostId) ?? []
             list.push({
                 runtimeId: r.id,
                 framework: r.framework as DetectedFramework['framework'],
-                name: r.name
+                name: r.name,
+                status: r.status
             })
-            runtimesByDaemon.set(r.daemonId, list)
+            runtimesByHost.set(r.hostId, list)
         }
         const emailByUser = new Map<string, string | null>(
             userRows.map((u) => [u.id, u.email])
         )
-        const tokenCountByDaemon = new Map<string, number>()
+        const tokenCountByHost = new Map<string, number>()
         for (const row of tokenCountRows)
-            if (row.daemonId)
-                tokenCountByDaemon.set(row.daemonId, Number(row.count))
-        const agentCountByDaemon = new Map<string, number>()
+            if (row.hostId) tokenCountByHost.set(row.hostId, Number(row.count))
+        const agentCountByHost = new Map<string, number>()
         for (const row of agentCountRows)
-            if (row.daemonId)
-                agentCountByDaemon.set(row.daemonId, Number(row.count))
+            if (row.hostId) agentCountByHost.set(row.hostId, Number(row.count))
         const result: AdminDaemonHostSummary[] = []
         for (const host of hostRows) {
             const summary = await this.hosts.toSummary(
                 host,
-                runtimesByDaemon.get(host.id) ?? [],
-                agentCountByDaemon.get(host.id) ?? 0
+                daemons.get(host.id) ?? null,
+                runtimesByHost.get(host.id) ?? [],
+                agentCountByHost.get(host.id) ?? 0
             )
             result.push({
                 ...summary,
                 userId: host.userId,
                 userEmail: emailByUser.get(host.userId) ?? null,
-                tokenCount: tokenCountByDaemon.get(host.id) ?? 0
+                tokenCount: tokenCountByHost.get(host.id) ?? 0
             })
         }
         return result
@@ -129,7 +132,7 @@ export class AdminDaemonController {
         @CurrentUser() user: AuthPrincipal,
         @Param('id') id: string
     ): Promise<void> {
-        await this.hosts.deleteRevoked({ id, actorId: user.userId })
+        await this.hosts.deleteRetired({ id, actorId: user.userId })
     }
 
     @Post('hosts/:id/upgrade')

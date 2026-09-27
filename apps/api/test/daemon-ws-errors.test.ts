@@ -26,16 +26,21 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
                 return {
                     tokenId: 'fixture',
                     userId: 'owner',
-                    daemonId: 'daemon'
+                    hostId: 'daemon'
                 }
             }
         } as never,
         {
             findById: async () => ({
                 id: 'daemon',
-                cliVersion: CLI_AT_FLOOR,
                 userId: 'owner',
-                status: 'active'
+                kind: 'local',
+                status: 'ready'
+            }),
+            findDaemon: async () => ({
+                hostId: 'daemon',
+                cliVersion: CLI_AT_FLOOR,
+                hostname: null
             }),
             touchLastSeen: async () => {}
         } as never,

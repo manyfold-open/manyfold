@@ -1,11 +1,6 @@
 import {
-    AgentRuntimeSummary,
-    CreateAgentBody,
     K8S_HOME_BASE,
     SPRITE_HOME_BASE,
-    UserExternalAgentProviderSummary,
-    UserModelProvider,
-    UserModelProviderSummary,
     externalSteps,
     brandFor,
     credentialsManagedByRuntime,
@@ -24,7 +19,12 @@ import type {
     AgentFramework,
     AgentRuntime,
     DaemonHostSummary
-} from '@manyfold/shared'
+,
+    AgentRuntimeSummary,
+    CreateAgentBody,
+    UserExternalAgentProviderSummary,
+    UserModelProvider,
+    UserModelProviderSummary} from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -118,6 +118,7 @@ import {
 } from '@/lib/dashboardView'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { sandboxTargetStatus } from '@/lib/agentCreate/runtimeTargetStatus'
+import { hostKey } from '@/lib/hostStatus'
 import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
 import {
     computeSpriteTargets,
@@ -792,8 +793,9 @@ const AgentNew: FC = (): ReactNode => {
     const { refreshAgents, agents: allAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
-    const initialDaemonId = params.get('daemonId') ?? ''
-    const initialSandboxId = params.get('sandboxId') ?? ''
+    // One machine is one host (ADR-0036): the link names it whether it is a
+    // self-owned computer or a sandbox, and the effects below work out which.
+    const initialHostId = params.get('hostId') ?? ''
     const initialFramework = params.get('framework') ?? ''
     const initialVersion = params.get('version') ?? ''
 
@@ -1039,10 +1041,12 @@ const AgentNew: FC = (): ReactNode => {
     const daemonPreselectedRef = useRef(false)
     useEffect(() => {
         if (daemonPreselectedRef.current) return
-        if (!initialDaemonId) return
+        if (!initialHostId) return
         if (initialRuntimeId) return
         if (runtimes.length === 0) return
-        const onDaemon = runtimes.filter((r) => r.daemonId === initialDaemonId)
+        const onDaemon = runtimes.filter(
+            (r) => r.kind === 'daemon' && r.hostId === initialHostId
+        )
         if (onDaemon.length === 0) {
             daemonPreselectedRef.current = true
             return
@@ -1057,7 +1061,7 @@ const AgentNew: FC = (): ReactNode => {
         )
             setFramework(pick.framework)
         daemonPreselectedRef.current = true
-    }, [initialDaemonId, initialRuntimeId, runtimes, framework])
+    }, [initialHostId, initialRuntimeId, runtimes, framework])
 
     const reusable = useMemo(
         () =>
@@ -1098,12 +1102,32 @@ const AgentNew: FC = (): ReactNode => {
     // over the link (local stack [2026-09-11], two sandboxes on the account).
     const [sandboxPreselect, setSandboxPreselect] = useState<
         'pending' | 'claimed' | 'given-up'
-    >(initialSandboxId ? 'pending' : 'given-up')
+    >(initialHostId ? 'pending' : 'given-up')
     useEffect(() => {
         if (sandboxPreselect !== 'pending') return
-        if (!initialSandboxId) return
+        if (!initialHostId) return
+        // A self-owned computer is the daemon effect's to claim.
+        if (
+            runtimes.some(
+                (r) => r.kind === 'daemon' && r.hostId === initialHostId
+            )
+        ) {
+            setSandboxPreselect('given-up')
+            return
+        }
+        const reuse = reusable.find(
+            (r) => r.kind === 'sprites' && r.hostId === initialHostId
+        )
+        if (reuse) {
+            setSandboxPreselect('claimed')
+            setRuntimeMode('existing')
+            setPickedRuntimeId(reuse.id)
+            setAttachSandboxHostId('')
+            setRevealTargetKey(`runtime:${reuse.id}`)
+            return
+        }
         const target = spriteAttachTargets.find(
-            (t) => t.hostId === initialSandboxId
+            (t) => t.hostId === initialHostId
         )
         if (!target) {
             // Only the sandbox list can hold the linked host; the runtimes
@@ -1117,10 +1141,17 @@ const AgentNew: FC = (): ReactNode => {
         setAttachSandboxHostId(target.hostId)
         setUserPickedSandboxId(target.hostId)
         setPickedRuntimeId('')
-        // ?sandboxId= can name a host several pages down; selecting it without
+        // ?hostId= can name a host several pages down; selecting it without
         // paging to it would leave the picker showing someone else.
-        setRevealTargetKey(`sandbox:${target.hostId}`)
-    }, [initialSandboxId, sandboxPreselect, spriteAttachTargets, sandboxes])
+        setRevealTargetKey(hostKey(target.hostId))
+    }, [
+        initialHostId,
+        sandboxPreselect,
+        spriteAttachTargets,
+        reusable,
+        runtimes,
+        sandboxes
+    ])
 
     const pickedRuntime = useMemo(
         () => reusable.find((r) => r.id === pickedRuntimeId) ?? null,
@@ -1397,7 +1428,7 @@ const AgentNew: FC = (): ReactNode => {
             setUserPickedSandboxId(created.id)
             setPickedRuntimeId('')
             setRuntimeKindFilter('all')
-            setRevealTargetKey(`sandbox:${created.id}`)
+            setRevealTargetKey(hostKey(created.id))
         } catch (err) {
             setError(apiErrorMessage(err))
         } finally {
@@ -1419,9 +1450,9 @@ const AgentNew: FC = (): ReactNode => {
             rows.find(
                 (r) =>
                     r.kind === 'daemon' &&
-                    r.daemonId === host.id &&
+                    r.hostId === host.id &&
                     r.framework === framework
-            ) ?? rows.find((r) => r.kind === 'daemon' && r.daemonId === host.id)
+            ) ?? rows.find((r) => r.kind === 'daemon' && r.hostId === host.id)
         if (!connected) return
         setRuntimeMode('existing')
         setPickedRuntimeId(connected.id)
@@ -1672,19 +1703,18 @@ const AgentNew: FC = (): ReactNode => {
         const sandbox = sandboxes.find((s) => s.id === hostId) ?? null
         const onHostRuntimes = runtimes.filter((r) => r.hostId === hostId)
         // The agents on this host: through their runtime, or — for one whose
-        // runtime row is not in this list — the sprite they share with it.
+        // runtime row is not in this list — the host they share with it.
         const runtimeIds = new Set(onHostRuntimes.map((r) => r.id))
-        const spriteName = sandbox?.spriteName ?? null
         const onHost = allAgents.filter(
             (agent) =>
                 (agent.runtimeId !== null && runtimeIds.has(agent.runtimeId)) ||
-                (spriteName !== null && agent.spriteName === spriteName)
+                agent.hostId === hostId
         )
         // The service framework already on the sandbox's one public port, if
         // any: the other two cannot be installed beside it.
         const occupant = serviceSlotOccupant(
             onHostRuntimes
-                .filter((r) => r.status !== 'failed' && r.status !== 'stopped')
+                .filter((r) => r.status !== 'failed')
                 .map((r) => r.framework)
         )
         return sandboxFrameworks().map((fw) => {
@@ -1877,8 +1907,7 @@ const AgentNew: FC = (): ReactNode => {
                 (r) =>
                     r.hostId === pickedSandbox.id &&
                     r.framework === framework &&
-                    r.status !== 'failed' &&
-                    r.status !== 'stopped'
+                    r.status !== 'failed'
             )
         )
             return
@@ -2006,10 +2035,7 @@ const AgentNew: FC = (): ReactNode => {
         setError(null)
         try {
             const onHost = runtimes.filter(
-                (r) =>
-                    r.hostId === hostId &&
-                    r.status !== 'failed' &&
-                    r.status !== 'stopped'
+                (r) => r.hostId === hostId && r.status !== 'failed'
             )
             for (const r of onHost) await client.agentRuntimes.delete(r.id)
             const remaining = await client.sandboxes.list()
@@ -2079,7 +2105,7 @@ const AgentNew: FC = (): ReactNode => {
     ): OverflowMenuEntry[] => {
         const items: OverflowMenuEntry[] = [renameRuntimeItem(runtime)]
         if (runtime.kind === 'sprites' && runtime.hostId) {
-            const name = sandboxNameFor(runtime.hostId, runtime.spriteName)
+            const name = sandboxNameFor(runtime.hostId, runtime.hostName)
             items.push(
                 renameSandboxItem(runtime.hostId, name),
                 deleteSandboxItem(runtime.hostId, name, key)
@@ -2105,7 +2131,7 @@ const AgentNew: FC = (): ReactNode => {
         target: SpriteAttachTarget,
         key: string
     ): OverflowMenuEntry[] => {
-        const name = target.name ?? target.spriteName ?? target.hostId
+        const name = target.name ?? target.hostId
         return [
             renameSandboxItem(target.hostId, name),
             deleteSandboxItem(target.hostId, name, key)
@@ -2123,9 +2149,10 @@ const AgentNew: FC = (): ReactNode => {
                 label: t('web.agentNew.statusWakeRefused'),
                 tone: 'offline'
             }
+        const sandbox = sandboxes.find((s) => s.id === hostId) ?? null
         const status = sandboxTargetStatus({
-            spriteStatus:
-                sandboxes.find((s) => s.id === hostId)?.spriteStatus ?? null,
+            hostStatus: sandbox?.status ?? null,
+            powerState: sandbox?.powerState ?? null,
             picked,
             prewarming: runnerPrewarming,
             availability: picked
@@ -2142,7 +2169,15 @@ const AgentNew: FC = (): ReactNode => {
                 label: t('web.agentNew.statusRunnerOnline'),
                 tone: 'success'
             }
-        return { label: status.label, tone: status.tone }
+        return {
+            label: status.label,
+            tone:
+                status.tone === 'info'
+                    ? 'progress'
+                    : status.tone === 'error'
+                      ? 'offline'
+                      : status.tone
+        }
     }
 
     const populationLabel = (entry: RuntimeTargetPopulation): string =>
@@ -2189,7 +2224,7 @@ const AgentNew: FC = (): ReactNode => {
             group: 'existing' as const,
             // A cloud computer is the machine; its runtimes are frameworks on
             // it (ADR-0035).
-            name: r.kind === 'k8s' ? (r.podHostName ?? r.name) : r.name,
+            name: r.kind === 'k8s' ? (r.hostName ?? r.name) : r.name,
             status:
                 r.kind === 'daemon' && !r.daemonOnline
                     ? {
@@ -2227,15 +2262,15 @@ const AgentNew: FC = (): ReactNode => {
         // too, so it is the same kind of row. Nothing runs on it for this
         // framework, hence zero.
         ...spriteAttachTargets.map((target) => ({
-            key: `sandbox:${target.hostId}`,
+            key: hostKey(target.hostId),
             kind: 'sprites' as const,
             group: 'existing' as const,
-            name: target.name ?? target.spriteName ?? target.hostId,
+            name: target.name ?? target.hostId,
             status: sandboxCardStatus(target.hostId, false),
             population: populationByHost.get(target.hostId) ?? [],
             hostId: target.hostId,
             frameworks: hostFrameworkEntries(target.hostId),
-            menu: sandboxTargetMenu(target, `sandbox:${target.hostId}`),
+            menu: sandboxTargetMenu(target, hostKey(target.hostId)),
             selected:
                 runtimeMode === 'sandbox' &&
                 attachSandboxHostId === target.hostId,
@@ -2296,8 +2331,8 @@ const AgentNew: FC = (): ReactNode => {
     // offer and nothing is chosen, the first available target is chosen — after
     // any deep link has had its say, so it never overrides one.
     useEffect(() => {
-        if (initialDaemonId && !daemonPreselectedRef.current) return
-        if (initialSandboxId && sandboxPreselect === 'pending') return
+        if (initialHostId && !daemonPreselectedRef.current) return
+        if (initialHostId && sandboxPreselect === 'pending') return
         // A deep-linked runtime arrives with the runtimes list, after the
         // sandbox hosts; until its target is in the list nothing is selected,
         // and picking "the first host" here would overwrite the link.
@@ -2320,7 +2355,7 @@ const AgentNew: FC = (): ReactNode => {
         } finally {
             autoPickingRef.current = false
         }
-    }, [initialDaemonId, initialSandboxId, sandboxPreselect, runtimeTargets])
+    }, [initialHostId, sandboxPreselect, runtimeTargets])
 
     // A target selected for the user (the sandbox they just created) has to be
     // on the visible page, or "selected" is a claim they cannot see. Runs only
@@ -2411,20 +2446,30 @@ const AgentNew: FC = (): ReactNode => {
         setPrimaryModelName(value)
     }
 
+    // A self-owned computer's paths live on its host row, not the runtime.
+    const daemonHostOf = (
+        runtime: AgentRuntimeSummary
+    ): DaemonHostSummary | null =>
+        runtime.kind === 'daemon'
+            ? (create.daemonHosts.find((h) => h.id === runtime.hostId) ?? null)
+            : null
     const existingWorkspaceValue =
         pickedRuntime?.framework === 'openclaw'
-            ? openclawWorkspaceFor(pickedRuntime, normalizedName)
+            ? openclawWorkspaceFor(
+                  pickedRuntime,
+                  normalizedName,
+                  daemonHostOf(pickedRuntime)?.homeDir ?? null
+              )
             : undefined
     const effectiveExistingWorkspace = workspaceForRequest
     const defaultCodingWorkspaceValue = (
         runtime: AgentRuntimeSummary
     ): string => {
         if (runtime.kind === 'daemon') {
+            const host = daemonHostOf(runtime)
             const base =
-                runtime.workspaceBaseDir ??
-                (runtime.homeDir
-                    ? `${runtime.homeDir}/.manyfold/workspaces`
-                    : null)
+                host?.workspaceBaseDir ??
+                (host?.homeDir ? `${host.homeDir}/.manyfold/workspaces` : null)
             return base
                 ? `${base.replace(/\/+$/, '')}/{agent-id}`
                 : '~/.manyfold/workspaces/{agent-id}'
@@ -2472,7 +2517,11 @@ const AgentNew: FC = (): ReactNode => {
         runtime: AgentRuntimeSummary
     ): string => {
         if (runtime.framework === 'openclaw')
-            return openclawWorkspaceFor(runtime, normalizedName)
+            return openclawWorkspaceFor(
+                runtime,
+                normalizedName,
+                daemonHostOf(runtime)?.homeDir ?? null
+            )
         return (
             presentedWorkspacePath(runtime.framework, runtime.kind) ??
             defaultCodingWorkspaceValue(runtime)

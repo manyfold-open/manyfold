@@ -25,7 +25,7 @@ import type { DaemonRegistryService } from '../src/modules/daemon/daemon-registr
 // and Postgres caps a statement at 65535 parameters, which that shape was
 // heading for. The lookup now asks for the daemon's unfinished turns (bounded by
 // real usage, and covered by the partial index on
-// (daemon_id, daemon_exec_ref) WHERE daemon_exec_ref IS NOT NULL) and
+// (host_id, daemon_exec_ref) WHERE daemon_exec_ref IS NOT NULL) and
 // intersects locally.
 //
 // Real Postgres because the whole point is the SQL shape.
@@ -59,14 +59,13 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'daemon'
+        status: 'ready'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'pgtest-agent',
         framework: 'claude-code',
-        runtime: 'daemon',
         runtimeId,
         internalId: `internal-${agentId}`
     })
@@ -117,7 +116,7 @@ const insertMessage = async (
         sessionId: h.sessionId,
         role: 'assistant',
         contentBlocksJson: [],
-        ...(daemonId ? { daemonId, daemonExecRef: id } : {})
+        ...(daemonId ? { hostId: daemonId, daemonExecRef: id } : {})
     })
     if (opts.terminal)
         await h.db.insert(chatStreamEvents).values({

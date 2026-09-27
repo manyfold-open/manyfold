@@ -1,23 +1,16 @@
+import type { RuntimeAvailability } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
+import { t } from '@manyfold/i18n'
+import type { TagTone } from '@/components/Tag'
+import { availabilityLabel, availabilityTone } from '@/lib/hostStatus'
 
-const K8S_RUNNING = new Set(['Running'])
-const K8S_WARM = new Set([
-    'Pending',
-    'NotReady',
-    'ContainerCreating',
-    'PodInitializing'
-])
-const K8S_FAILED = new Set([
-    'CrashLoopBackOff',
-    'ImagePullBackOff',
-    'ErrImagePull',
-    'CreateContainerConfigError',
-    'CreateContainerError',
-    'InvalidImageName',
-    'Failed',
-    'Unknown'
-])
-const K8S_COLD = new Set(['Succeeded'])
+// The agent's own lifecycle comes first (a pending or failed agent has no
+// machine story yet); a ready agent reads as its derived availability
+// (ADR-0036), which already folds in the host's power and daemon presence.
+export type AgentStatusFacts = Pick<
+    SdkAgent,
+    'status' | 'availability' | 'powerState'
+>
 
 const RED = 'bg-[#fb7185]'
 const AMBER = 'bg-[#f59e0b]'
@@ -25,34 +18,36 @@ const GREEN = 'bg-[#22c55e]'
 const BLUE = 'bg-[#60a5fa]'
 const SLATE = 'bg-[#94a3b8]'
 
-export const agentStatusDotClass = (
-    status: SdkAgent['status'],
-    spriteStatus: SdkAgent['spriteStatus'],
-    k8sPodPhase: SdkAgent['k8sPodPhase'],
-    runtime?: SdkAgent['runtime']
-): string => {
-    if (status === 'failed') return RED
-    if (status === 'pending') return AMBER
-    if (runtime === 'daemon' && status === 'stopped') return RED
-    if (status === 'stopped') return SLATE
-    if (spriteStatus === 'cold') return SLATE
-    if (spriteStatus === 'warm') return BLUE
-    if (k8sPodPhase) {
-        if (K8S_FAILED.has(k8sPodPhase)) return RED
-        if (K8S_WARM.has(k8sPodPhase)) return BLUE
-        if (K8S_COLD.has(k8sPodPhase)) return SLATE
-        if (K8S_RUNNING.has(k8sPodPhase)) return GREEN
-    }
-    return GREEN
+const AVAILABILITY_DOT: Record<RuntimeAvailability, string> = {
+    available: GREEN,
+    wakeable: BLUE,
+    offline: SLATE,
+    unavailable: RED
 }
 
-export const agentStatusDotLabel = (
-    status: SdkAgent['status'],
-    spriteStatus: SdkAgent['spriteStatus'],
-    k8sPodPhase: SdkAgent['k8sPodPhase']
-): string => {
-    if (status !== 'running') return status
-    if (spriteStatus) return spriteStatus
-    if (k8sPodPhase) return k8sPodPhase
-    return status
+const STATUS_LABEL_KEY: Record<SdkAgent['status'], string> = {
+    pending: 'web.tags.status.pending',
+    ready: 'web.tags.status.ready',
+    failed: 'web.tags.status.failed'
 }
+
+const STATUS_TONE: Record<Exclude<SdkAgent['status'], 'ready'>, TagTone> = {
+    pending: 'warning',
+    failed: 'error'
+}
+
+export const agentStatusDotClass = (agent: AgentStatusFacts): string => {
+    if (agent.status === 'failed') return RED
+    if (agent.status === 'pending') return AMBER
+    return AVAILABILITY_DOT[agent.availability]
+}
+
+export const agentStatusTone = (agent: AgentStatusFacts): TagTone =>
+    agent.status === 'ready'
+        ? availabilityTone(agent.availability)
+        : STATUS_TONE[agent.status]
+
+export const agentStatusDotLabel = (agent: AgentStatusFacts): string =>
+    agent.status === 'ready'
+        ? availabilityLabel(agent.availability)
+        : t(STATUS_LABEL_KEY[agent.status])

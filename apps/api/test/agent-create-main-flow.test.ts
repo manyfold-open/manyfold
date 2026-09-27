@@ -15,6 +15,32 @@ import {
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { MANYFOLD_CONTEXT_VERSION } from '../src/modules/agent-self/agent-context-doc.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
+
+// The sandbox the provisioner hands back.
+const HOST = spritesHostRow({
+    id: 'rth_1',
+    userId: 'user-1',
+    providerRef: { kind: 'sprites', spriteName: 'agt-core-agent', spriteId: 'sprite-1' }
+})
+
+// The created agent with its machine, as the orchestrator reads it back for
+// the summary: an external runtime has none.
+const contextFor = (db: FakeCreateAgentDb) =>
+    fakeRuntimeContext((id: string) => {
+        const agent = db.agentRows.find((row) => row.id === id)
+        const runtime = db.runtimeRows[0]
+        if (!agent || !runtime) return null
+        return contextOf({
+            agent: agent as never,
+            runtime: runtime as never,
+            host: runtime.framework === 'a2a' ? null : HOST
+        })
+    })
 
 const now = new Date('2026-05-22T10:00:00.000Z')
 
@@ -49,7 +75,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         'install',
         async (input: Parameters<SkillsService['install']>[0]) => {
             assert.equal(finalizedRuntimeId, provisionedRuntime.id)
-            assert.equal(db.agentRows[0].status, 'running')
+            assert.equal(db.agentRows[0].status, 'ready')
             defaultInstalls.push(input)
             return { materializeStatus: 'installed' } as never
         }
@@ -58,7 +84,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     const service = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        contextFor(db) as never,
         {
             encrypt: (plain: string) => ({
                 ciphertext: `enc:${plain}`,
@@ -79,7 +105,8 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
                 db.runtimeRows.push(provisionedRuntime)
                 return {
                     runtime: provisionedRuntime,
-                    account: { id: 'spa_1', slug: 'default' },
+                    host: HOST,
+                    provider: { id: 'rtp_1', name: 'default' },
                     spritesClient: {},
                     homeDir: '/home/sprite'
                 }
@@ -184,9 +211,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
 
     assert.equal(result.name, 'Core Agent')
     assert.equal(result.runtime, 'sprites')
-    assert.equal(result.status, 'running')
-    assert.equal(result.spriteStatus, 'running')
-    assert.equal(result.accountSlug, 'default')
+    assert.equal(result.status, 'ready')
     assert.equal(result.workspacePath, '/repo/project')
     assert.match(result.id, /^agt_[a-z2-7]{26}$/)
 
@@ -208,7 +233,6 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     const agent = db.agentRows[0]
     assert.equal(agent.id, result.id)
     assert.equal(agent.runtimeId, provisionedRuntime.id)
-    assert.equal(agent.accountId, 'spa_1')
     assert.equal(agent.modelProviderId, 'ump_1')
     const extras = agent.extras as {
         workspaceManaged: boolean
@@ -261,8 +285,6 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         'checking_quota',
         'creating_sprite',
         'bootstrapping',
-        // The runner is registered and started right after the install.
-        'starting_runner',
         'inserting_agent',
         'storing_credentials',
         'finalizing'
@@ -288,7 +310,7 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
     const service = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        contextFor(db) as never,
         {
             encrypt: (plain: string) => ({
                 ciphertext: `enc:${plain}`,
@@ -318,7 +340,8 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
                 db.runtimeRows.push(provisionedRuntime)
                 return {
                     runtime: provisionedRuntime,
-                    account: { id: 'spa_1', slug: 'default' },
+                    host: HOST,
+                    provider: { id: 'rtp_1', name: 'default' },
                     spritesClient: {},
                     homeDir: '/home/sprite'
                 }
@@ -408,7 +431,7 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         { step: (step) => steps.push(step) }
     )
 
-    assert.equal(result.status, 'running')
+    assert.equal(result.status, 'ready')
     const capturedProvisionArgs = provisionArgs as Record<
         string,
         unknown
@@ -436,8 +459,6 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         'checking_quota',
         'creating_sprite',
         'bootstrapping',
-        // The runner is registered and started right after the install.
-        'starting_runner',
         'inserting_agent',
         'storing_credentials',
         'finalizing'
@@ -463,7 +484,7 @@ test('AgentOrchestrator create runs A2A through external provisioning', async ()
     const service = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        contextFor(db) as never,
         {} as never,
         {} as never,
         {} as never,
@@ -522,7 +543,7 @@ test('AgentOrchestrator create runs A2A through external provisioning', async ()
 
     assert.equal(result.framework, 'a2a')
     assert.equal(result.runtime, 'external')
-    assert.equal(result.status, 'running')
+    assert.equal(result.status, 'ready')
     const capturedProvisionArgs = provisionArgs as Record<
         string,
         unknown
@@ -602,8 +623,6 @@ class FakeCreateAgentDb {
         if (table === agents) {
             const row = {
                 ...values,
-                spriteStatus: null,
-                k8sPodPhase: null,
                 storageBytes: null,
                 storageMeasuredAt: null,
                 createdAt: now,

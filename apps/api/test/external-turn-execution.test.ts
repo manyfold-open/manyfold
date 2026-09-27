@@ -8,6 +8,12 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 import { ChatService } from '../src/modules/chat/chat.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import type { TurnExecutionFence } from '../src/modules/chat/turn-fence'
 import {
     TURN_LEASE_RENEW_MS,
@@ -406,7 +412,31 @@ const makeHarness = (opts: {
             enabled: true,
             kick: () => {},
             stopClaiming: async () => undefined
-        } as never
+        } as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // The agent's machine by the harness's placement; an external
+        // agent has none.
+        fakeRuntimeContext(
+            contextOf({
+                agent: { ...agentRow, status: 'ready' } as never,
+                runtime: runtimeRow({
+                    id: 'runtime-1',
+                    userId: 'user-1',
+                    framework: String(opts.framework),
+                    hostId: opts.runtime === 'external' ? null : 'rth-1'
+                }),
+                host:
+                    opts.runtime === 'sprites'
+                        ? spritesHostRow({ id: 'rth-1', userId: 'user-1' })
+                        : null
+            })
+        ) as never
     )
     return {
         service,

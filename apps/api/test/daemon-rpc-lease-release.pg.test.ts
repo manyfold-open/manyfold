@@ -5,22 +5,29 @@ import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
-import { createDb, runtimeHosts, users, type Database } from '@manyfold/db'
+import {
+    createDb,
+    hostDaemons,
+    runtimeHosts,
+    users,
+    type Database
+} from '@manyfold/db'
 import type { ConfigService } from '@nestjs/config'
 import { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.service'
 
 // Regression for the staging 2026-08-03 turn loss. An api instance died on an
-// unhandled rejection, so `clearConnectionLease` never ran and runtime_hosts
-// kept naming it as the holder of a daemon socket. The broker inbox is derived
-// from the machine id, so the RESTARTED process re-subscribed to the same inbox
-// and answered relayed `exec.start` pushes with `daemon … is not connected` for
-// as long as the 45s lease looked fresh. Two codex turns dispatched 18s after
-// the crash were lost that way.
+// unhandled rejection, so `clearConnectionLease` never ran and the daemon's
+// row kept naming it as the holder of a daemon socket. The broker inbox is
+// derived from the machine id, so the RESTARTED process re-subscribed to the
+// same inbox and answered relayed `exec.start` pushes with `daemon … is not
+// connected` for as long as the 45s lease looked fresh. Two codex turns
+// dispatched 18s after the crash were lost that way.
 //
 // Real Postgres because the whole fix is one UPDATE's WHERE clause and its
 // column selection: the FakeDb unit harness returns whatever it is told and
 // structurally cannot fail on either. Both invariants below are about which
-// rows and which columns the statement actually touches.
+// rows and which columns the statement actually touches — on host_daemons,
+// where the rpc lease lives (ADR-0036).
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
 //     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
@@ -36,7 +43,7 @@ interface Harness {
     }
     ids: string[]
     addHost: (name: string, owner: string | null) => Promise<string>
-    read: (id: string) => Promise<typeof runtimeHosts.$inferSelect>
+    read: (id: string) => Promise<typeof hostDaemons.$inferSelect>
     close: () => Promise<void>
 }
 
@@ -64,10 +71,15 @@ const buildHarness = async (): Promise<Harness> => {
             await db.insert(runtimeHosts).values({
                 id,
                 userId,
-                daemonUuid: `${name}-${suffix}`,
+                kind: 'local',
                 name: `${name}-${suffix}`,
                 homeDir: '/home/dev',
-                status: 'active',
+                status: 'ready'
+            })
+            await db.insert(hostDaemons).values({
+                hostId: id,
+                userId,
+                daemonUuid: `${name}-${suffix}`,
                 lastSeenAt: stamp,
                 rpcInstanceId: owner,
                 rpcInbox: owner ? `inbox-${owner}` : null,
@@ -80,10 +92,10 @@ const buildHarness = async (): Promise<Harness> => {
         read: async (id: string) => {
             const [row] = await db
                 .select()
-                .from(runtimeHosts)
-                .where(eq(runtimeHosts.id, id))
+                .from(hostDaemons)
+                .where(eq(hostDaemons.hostId, id))
                 .limit(1)
-            assert.ok(row, `host ${id} vanished`)
+            assert.ok(row, `daemon ${id} vanished`)
             return row
         },
         close: async (): Promise<void> => {
@@ -120,9 +132,8 @@ test(
                 // leaving this set would keep routing pushes at us even with a
                 // null inbox — the row would match and then throw `is offline`.
                 assert.equal(row.rpcLastSeenAt, null, `${id} kept its lease age`)
-                // The presence sweep owns liveness. Flipping these on every boot
-                // would mark healthy daemons offline and stop their agents.
-                assert.equal(row.status, 'active', `${id} lost its status`)
+                // Presence is the heartbeat's. Touching it on every boot would
+                // read healthy daemons as offline.
                 assert.ok(row.lastSeenAt, `${id} lost its heartbeat`)
             }
 
@@ -135,7 +146,7 @@ test(
 
             const unownedRow = await h.read(unowned)
             assert.equal(unownedRow.rpcInstanceId, null)
-            assert.equal(unownedRow.status, 'active')
+            assert.ok(unownedRow.lastSeenAt)
         } finally {
             await h.close()
         }
@@ -166,7 +177,7 @@ test(
             assert.equal(released.rpcInstanceId, null)
             assert.equal(released.rpcInbox, null)
             assert.equal(released.rpcLastSeenAt, null)
-            assert.equal(released.status, 'active')
+            assert.ok(released.lastSeenAt)
         } finally {
             await h.close()
         }

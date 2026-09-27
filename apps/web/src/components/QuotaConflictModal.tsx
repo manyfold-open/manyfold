@@ -124,7 +124,7 @@ const QuotaConflictModal: FC<Props> = ({ request, onClose }) => {
             return new Map<string, boolean>()
         const map = new Map<string, boolean>()
         for (const a of request.runningAgents) {
-            map.set(a.id, a.spriteStatus === 'running')
+            map.set(a.id, a.powerState === 'running')
         }
         return map
     }, [request])
@@ -132,23 +132,26 @@ const QuotaConflictModal: FC<Props> = ({ request, onClose }) => {
     const handleStopAndStart = useCallback(
         async (stopAgent: SdkAgent): Promise<void> => {
             if (!request || request.kind !== 'concurrent') return
+            if (!stopAgent.hostId) return
             cancelledRef.current = false
             setError(null)
             setActiveStopId(stopAgent.id)
             setPhase('stopping')
             try {
-                await client.agents.stop(stopAgent.id)
+                // Stopping is host level (ADR-0036): the whole sandbox goes to
+                // sleep, and every agent on it with it.
+                await client.sandboxes.stop(stopAgent.hostId)
                 const deadline = Date.now() + STOP_TIMEOUT_MS
                 while (Date.now() < deadline) {
                     if (cancelledRef.current) return
                     const fresh = await client.agents.get(stopAgent.id)
-                    if (fresh.spriteStatus !== 'running') break
+                    if (fresh.powerState !== 'running') break
                     await new Promise((resolve) =>
                         setTimeout(resolve, POLL_INTERVAL_MS)
                     )
                 }
                 const fresh = await client.agents.get(stopAgent.id)
-                if (fresh.spriteStatus === 'running') {
+                if (fresh.powerState === 'running') {
                     setError(
                         t('web.quotaConflict.stopTimeout', {
                             name: stopAgent.name
@@ -179,7 +182,7 @@ const QuotaConflictModal: FC<Props> = ({ request, onClose }) => {
         return <UpgradeQuotaDialog request={request} onClose={onClose} />
     const busy = phase === 'stopping' || phase === 'starting'
     const runningAgents = request.runningAgents.filter(
-        (a) => a.spriteStatus === 'running'
+        (a) => a.powerState === 'running'
     )
 
     return createPortal(

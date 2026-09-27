@@ -26,20 +26,28 @@ const buildHarness = (opts: { runtime: 'sprites' | 'daemon' }) => {
     }> = []
     const interactiveCalls: string[] = []
 
+    // The agent row joined to its host: the user's own computer, or a
+    // sandbox whose daemon is the runner the turn is handed.
     const db = {
         select: () => ({
-            from: () => ({
-                where: () => ({
+            from: () => {
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
                     limit: async () => [
                         {
-                            runtime: opts.runtime,
-                            daemonId: opts.runtime === 'daemon' ? 'dh_own' : null,
+                            hostId: opts.runtime === 'daemon' ? 'dh_own' : 'rth_sprite',
+                            hostKind: opts.runtime === 'daemon' ? 'local' : 'hosted',
                             workspacePath: '/home/sprite/.manyfold/workspaces/agt_1',
-                            extras: null
+                            mountPath: null,
+                            extras: null,
+                            model: null
                         }
                     ]
-                })
-            })
+                }
+                return chain
+            }
         })
     }
     const adapter = new HermesAdapter(

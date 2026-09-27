@@ -28,7 +28,6 @@ import {
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import {
-    createClient as createSpritesClient,
     type SpritesLogger
 } from '@manyfold/sprites'
 import {
@@ -42,10 +41,9 @@ import { auditLogs } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
 import { applyCodexCredentialsOnSprite } from '@/modules/agents/credentials/codex-credential-apply'
@@ -61,8 +59,6 @@ import type {
     ResolvedOpenclawCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import {
     applyCodexCredentialsOnPod,
     podScriptRunner
@@ -81,6 +77,8 @@ const maskApiKey = (raw: string | null | undefined): string | null => {
     return `${prefix}***${tail}`
 }
 
+type AgentContext = RuntimeContext & { agent: Agent }
+
 @Injectable()
 export class AgentCredentialsService {
     private readonly log = new Logger(AgentCredentialsService.name)
@@ -91,10 +89,7 @@ export class AgentCredentialsService {
         private readonly agents: AgentsService,
         private readonly resolver: CredentialsResolverService,
         private readonly modelProviders: ModelProvidersService,
-        private readonly k8s: KubernetesService,
-        private readonly accounts: SpritesAccountsService,
-        private readonly runtimes: AgentRuntimesService,
-        private readonly podExec: PodExecFactory,
+        private readonly hostClients: HostProviderClients,
         private readonly runtimeAccess: RuntimeAccessService,
         // Appended LAST and @Optional so positional test construction keeps
         // working; without it, gateway-framework credential updates degrade
@@ -108,8 +103,9 @@ export class AgentCredentialsService {
         agentId: string,
         isAdmin: boolean
     ): Promise<AgentCredentialsView> {
-        const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
-        if (agent.runtime === 'daemon') {
+        const ctx = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const { agent } = ctx
+        if (ctx.placement === 'daemon') {
             const cred = await this.findCredentialsRow(agent)
             if (!cred) return daemonPlaceholderView(agent)
             const resolved = this.decryptResolved(cred, agent.framework)
@@ -145,8 +141,9 @@ export class AgentCredentialsService {
         agentId: string,
         isAdmin: boolean
     ): Promise<{ apiKey: string }> {
-        const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
-        if (agent.runtime === 'daemon')
+        const ctx = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const { agent } = ctx
+        if (ctx.placement === 'daemon')
             throw new BadRequestException({
                 message:
                     'daemon agents manage credentials locally; reveal is unavailable',
@@ -186,7 +183,8 @@ export class AgentCredentialsService {
         body: UpdateAgentCredentialsBody,
         isAdmin: boolean
     ): Promise<AgentCredentialsView> {
-        const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const ctx = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const { agent } = ctx
         if (credentialsManagedByRuntime(agent.framework))
             throw new BadRequestException({
                 message: `${agent.framework} agents manage provider credentials in the native UI`,
@@ -249,10 +247,10 @@ export class AgentCredentialsService {
         }
 
         try {
-            if (agent.runtime === 'sprites') {
-                await this.applyOnSprite(agent, next)
-            } else if (agent.runtime === 'k8s') {
-                await this.applyOnK8s(agent, next)
+            if (ctx.placement === 'sprites') {
+                await this.applyOnSprite(ctx, next)
+            } else if (ctx.placement === 'k8s') {
+                await this.applyOnK8s(ctx, next)
             }
             await this.syncAgentDefaultModel(agent, next)
         } catch (err) {
@@ -302,7 +300,7 @@ export class AgentCredentialsService {
 
         const savedProvider = await this.findSavedProvider(agent.userId, next)
         const view = toView(agent.framework, next, savedAt, savedProvider)
-        return agent.runtime === 'daemon'
+        return ctx.placement === 'daemon'
             ? { ...view, localManaged: true }
             : view
     }
@@ -353,9 +351,10 @@ export class AgentCredentialsService {
     }
 
     private async applyOnSprite(
-        agent: Agent,
+        ctx: AgentContext,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
+        const { agent } = ctx
         if (frameworkCapability(resolved.framework).kind === 'service') {
             // Gateway frameworks keep their model/provider in files and
             // service env the bootstrap wrote. The restart service re-runs
@@ -379,24 +378,16 @@ export class AgentCredentialsService {
         // the sprite: the key rides each exec, and pi's endpoint and agy's
         // API-key mode live in their platform views, rebuilt at every start.
         if (resolved.framework !== 'codex') return
-        if (!agent.spriteName || !agent.accountId || !agent.hostId)
+        if (!ctx.host)
             throw new InternalServerErrorException(
                 `agent ${agent.id} has no sprite to update`
             )
         await this.runtimeAccess.reserveActiveSlot({
             userId: agent.userId,
-            hostId: agent.hostId
+            hostId: ctx.host.id
         })
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${agent.accountId} not found`
-            )
-        const token = this.accounts.decryptToken(account)
-        const client = createSpritesClient({
-            token,
-            accountSlug: account.slug
-        })
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(ctx.host)
         const composioKey = await decryptComposioKey(
             this.db,
             this.crypto,
@@ -406,7 +397,7 @@ export class AgentCredentialsService {
         )
         await applyCodexCredentialsOnSprite({
             client,
-            spriteName: agent.spriteName,
+            spriteName,
             apiKey: resolved.value.openaiApiKey,
             baseUrl: resolved.value.openaiBaseUrl ?? null,
             mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
@@ -419,9 +410,10 @@ export class AgentCredentialsService {
     // codex, which reads its endpoint and MCP servers from config.toml, has
     // anything on the host to rewrite.
     private async applyOnK8s(
-        agent: Agent,
+        ctx: AgentContext,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
+        const { agent } = ctx
         // A service framework's config and env are rewritten and its service
         // restarted, as on a sprite.
         if (frameworkCapability(resolved.framework).kind === 'service') {
@@ -433,20 +425,11 @@ export class AgentCredentialsService {
             return
         }
         if (resolved.framework !== 'codex') return
-        const runtime = agent.runtimeId
-            ? await this.runtimes.findById(agent.runtimeId)
-            : null
-        if (!runtime)
+        if (!ctx.host)
             throw new InternalServerErrorException(
-                `runtime ${agent.runtimeId} not found for agent ${agent.id}`
+                `agent ${agent.id} is not on a cloud computer`
             )
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        const exec = this.podExec.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const exec = await this.hostClients.podExecForHost(ctx.host)
         const composioKey = await decryptComposioKey(
             this.db,
             this.crypto,
@@ -468,14 +451,14 @@ export class AgentCredentialsService {
         callerUserId: string,
         agentId: string,
         isAdmin: boolean
-    ): Promise<Agent> {
-        const agent = await this.agents.findForCaller(
+    ): Promise<AgentContext> {
+        const ctx = await this.agents.contextForCaller(
             agentId,
             callerUserId,
             isAdmin
         )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        return agent
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        return ctx
     }
 
     private async requireCredentialsRow(

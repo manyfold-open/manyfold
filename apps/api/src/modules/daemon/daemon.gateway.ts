@@ -10,9 +10,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
-import { eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { agentRuntimes, auditLogs, type Database } from '@manyfold/db'
+import { eq } from 'drizzle-orm'
 import { Inject } from '@nestjs/common'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonTokenService } from './daemon-token.service'
@@ -100,32 +100,42 @@ export class DaemonGateway implements OnModuleInit {
             socket.close(4401, 'unauthorized')
             return
         }
-        if (!auth.daemonId) {
+        if (!auth.hostId) {
             socket.close(4409, 'token not bound; call /register first')
             return
         }
 
-        const host = await this.hosts.findById(auth.daemonId)
+        // Admission is the host's (ADR-0036 R5): its bound token names it,
+        // a retired or deleting host refuses, and the floor is checked
+        // against what the daemon last registered as.
+        const host = await this.hosts.findById(auth.hostId)
         if (!host || host.userId !== auth.userId) {
             socket.close(4404, 'daemon not found')
             return
         }
-        if (host.status === 'revoked') {
-            socket.close(4403, 'daemon revoked')
+        if (host.status === 'retired' || host.status === 'deleting') {
+            socket.close(4403, `daemon host ${host.status}`)
             return
         }
-        if (isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)) {
+        const daemon = await this.hosts.findDaemon(host.id)
+        if (!daemon) {
+            socket.close(4409, 'daemon not registered; call /register first')
+            return
+        }
+        if (isCliVersionTooOld(daemon.cliVersion, DAEMON_MIN_CLI_VERSION)) {
             socket.close(
                 4406,
                 `daemon CLI ${DAEMON_MIN_CLI_VERSION} or newer required; run mf update`
             )
             return
         }
+        const cliVersion = daemon.cliVersion
+        const hostname = daemon.hostname
 
         const runtimes = await this.db
-            .select()
+            .select({ id: agentRuntimes.id })
             .from(agentRuntimes)
-            .where(eq(agentRuntimes.daemonId, host.id))
+            .where(eq(agentRuntimes.hostId, host.id))
 
         let pongTimer: NodeJS.Timeout | null = null
         let pingTimer: NodeJS.Timeout | null = null
@@ -134,7 +144,7 @@ export class DaemonGateway implements OnModuleInit {
             if (pongTimer) clearTimeout(pongTimer)
             pongTimer = setTimeout(() => {
                 this.log.warn(
-                    `daemon.ws.pong_timeout daemonId=${host.id} userId=${host.userId} cliVersion=${host.cliVersion ?? 'unknown'} hostname=${host.hostname ?? 'unknown'}`
+                    `daemon.ws.pong_timeout daemonId=${host.id} userId=${host.userId} cliVersion=${cliVersion ?? 'unknown'} hostname=${hostname ?? 'unknown'}`
                 )
                 try {
                     socket.close(4000, 'pong timeout')
@@ -242,7 +252,7 @@ export class DaemonGateway implements OnModuleInit {
         })
         socket.on('error', (err) => {
             this.log.warn(
-                `daemon.ws.error daemonId=${host.id} userId=${host.userId} cliVersion=${host.cliVersion ?? 'unknown'} hostname=${host.hostname ?? 'unknown'} ${(err as Error).message}`
+                `daemon.ws.error daemonId=${host.id} userId=${host.userId} cliVersion=${cliVersion ?? 'unknown'} hostname=${hostname ?? 'unknown'} ${(err as Error).message}`
             )
         })
 
@@ -253,8 +263,8 @@ export class DaemonGateway implements OnModuleInit {
         await this.registry.register({
             daemonId: host.id,
             userId: host.userId,
-            cliVersion: host.cliVersion,
-            hostname: host.hostname,
+            cliVersion,
+            hostname,
             clientProcess,
             clientFeatures: acceptedClientFeatures,
             socket

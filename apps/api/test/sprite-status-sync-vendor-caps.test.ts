@@ -28,7 +28,10 @@ const makeService = (
     const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
     const svc = new SpriteStatusSyncService(
         makeDb() as never,
-        { getById: async () => ({ id: 'acc-1', slug: 'acct' }) } as never,
+        {} as never,
+        {
+            findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
+        } as never,
         {} as never,
         { emit: () => {}, emitHostUpdate: () => {} } as never,
         {
@@ -56,7 +59,8 @@ const makeService = (
             accrue: async () => {},
             settleHostNotRunning: async () => {},
             pruneOlderThan: async () => {}
-        } as never
+        } as never,
+        {} as never
     )
     svc['clientFor' as never] = (() => ({
         listSprites: async () => listResponse,
@@ -68,7 +72,7 @@ const makeService = (
 }
 
 const sync = async (svc: SpriteStatusSyncService) =>
-    (svc['syncAccount' as never] as (id: string) => Promise<boolean>).call(
+    (svc['syncProvider' as never] as (id: string) => Promise<boolean>).call(
         svc,
         'acc-1'
     )

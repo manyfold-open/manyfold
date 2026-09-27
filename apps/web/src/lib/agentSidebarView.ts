@@ -1,6 +1,7 @@
-import { isRegisteredFramework, runtimeKindLabel } from '@manyfold/shared'
+import { isRegisteredFramework } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
+import { hostKey, placementLabel } from '@/lib/hostStatus'
 
 export type AgentSortKey = 'created' | 'recency'
 export type AgentGroupKey = 'none' | 'host' | 'framework' | 'date'
@@ -76,51 +77,24 @@ export interface RuntimeHostRef {
     label: string
 }
 
-// "Exact host" identity: the physical VM / machine / cluster an agent runs on,
-// so agents sharing a host collapse into one group. The `hostNames` map resolves
-// a host identifier to its friendly display name: daemons key on daemonId
-// (DaemonHostSummary.id), sprites key on spriteName (the sandbox VM name) so the
-// label reads the renameable sandbox name ("sandbox-002") instead of the raw VM id.
+// The machine an agent runs on (ADR-0036: one host is one machine), so agents
+// sharing a host collapse into one group. The `hostNames` map, keyed by host
+// id, carries the freshest renameable name the shell has (a daemon host or
+// sandbox row); the agent's own hostName is the fallback, then the placement.
+// External-API agents have no machine and share one bucket per placement.
 export const runtimeHostRef = (
     agent: SdkAgent,
     hostNames: ReadonlyMap<string, string>
 ): RuntimeHostRef => {
-    switch (agent.runtime) {
-        case 'daemon': {
-            const id = agent.daemonId
-            if (id)
-                return {
-                    key: `daemon:${id}`,
-                    label: hostNames.get(id) ?? runtimeKindLabel('daemon')
-                }
-            return { key: 'daemon', label: runtimeKindLabel('daemon') }
+    if (agent.hostId)
+        return {
+            key: hostKey(agent.hostId),
+            label:
+                hostNames.get(agent.hostId) ??
+                agent.hostName ??
+                placementLabel(agent.runtime)
         }
-        case 'sprites': {
-            const id = agent.spriteId ?? agent.runtimeId
-            if (id)
-                return {
-                    key: `sprite:${id}`,
-                    label:
-                        (agent.spriteName
-                            ? hostNames.get(agent.spriteName)
-                            : undefined) ??
-                        agent.spriteName ??
-                        runtimeKindLabel('sprites')
-                }
-            return { key: 'sprites', label: runtimeKindLabel('sprites') }
-        }
-        case 'k8s': {
-            const id = agent.clusterId
-            if (id)
-                return {
-                    key: `k8s:${id}`,
-                    label: agent.clusterName ?? runtimeKindLabel('k8s')
-                }
-            return { key: 'k8s', label: runtimeKindLabel('k8s') }
-        }
-        default:
-            return { key: 'external', label: runtimeKindLabel('external') }
-    }
+    return { key: agent.runtime, label: placementLabel(agent.runtime) }
 }
 
 const dateBucket = (agent: SdkAgent, now: number): DateBucketKey => {

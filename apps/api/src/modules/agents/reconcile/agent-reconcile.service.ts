@@ -1,7 +1,7 @@
 import { createObjectId, frameworkKind } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -18,11 +18,16 @@ import {
 } from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
+import type { RuntimeTarget } from '@/modules/agents/adapters/agent-adapter'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import {
     isAgentWorkspaceManaged,
     workspaceExtras
 } from '@/modules/agents/workspace/workspace-preflight'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 
 const STALE_AFTER_MS = 15_000
 const MAX_BACKOFF_MS = 5 * 60_000
@@ -37,23 +42,28 @@ const RECONCILE_CLAIM_TTL_MS = 2 * 60_000
 const reconcileClaimName = (runtimeId: string): string =>
     `agent-reconcile:${runtimeId}`
 
+// An agent the framework itself no longer lists: a lifecycle verdict, not a
+// presence one, so it is the one reason reconcile writes agents.status.
+export const NOT_PRESENT_IN_RUNTIME = 'not present in runtime'
+
 const isCodingFramework = (runtime: AgentRuntimeRow): boolean =>
     frameworkKind(runtime.framework) === 'coding'
 
-const isPerAgentCodingRuntime = (runtime: AgentRuntimeRow): boolean =>
-    runtime.kind === 'sprites' ||
-    ((runtime.kind === 'k8s' || runtime.kind === 'daemon') &&
-        isCodingFramework(runtime))
+const isPerAgentCodingRuntime = (target: RuntimeTarget): boolean =>
+    target.placement === 'sprites' || isCodingFramework(target.runtime)
 
 // The profile a service framework's gateway runs by default. On a sandbox
 // or a cloud computer the runtime's primary agent is that profile, its row
 // keeping the Manyfold agent id as internalId (ADR-0035).
 export const serviceBuiltInProfile = (
-    runtime: Pick<AgentRuntimeRow, 'kind' | 'framework'>
+    target: Pick<RuntimeTarget, 'placement'> & {
+        runtime: Pick<AgentRuntimeRow, 'framework'>
+    }
 ): string | null => {
-    if (runtime.kind !== 'sprites' && runtime.kind !== 'k8s') return null
-    if (runtime.framework === 'hermes') return 'default'
-    if (runtime.framework === 'openclaw') return 'main'
+    if (target.placement !== 'sprites' && target.placement !== 'k8s')
+        return null
+    if (target.runtime.framework === 'hermes') return 'default'
+    if (target.runtime.framework === 'openclaw') return 'main'
     return null
 }
 
@@ -80,6 +90,7 @@ export class AgentReconcileService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly registry: AgentAdapterRegistry,
+        private readonly runtimeContext: RuntimeContextService,
         @Optional() private readonly serviceLeases?: ServiceLeaseService
     ) {}
 
@@ -87,12 +98,11 @@ export class AgentReconcileService {
         runtime: AgentRuntimeRow,
         opts?: { verifiedByReport?: boolean }
     ): void {
-        if (runtime.kind === 'external') return
-        // A stopped runtime cannot change state on its own: every writer that
-        // stops a runtime already converges its agents rows inline, and the
-        // reconcile sweep backstops stragglers set-based. Reconciling here
-        // would only re-issue the same stopped UPDATE forever (#516).
-        if (runtime.status === 'stopped') return
+        // Only a service framework on a machine has anything to learn from a
+        // listing; coding frameworks' agents are Manyfold's own rows and an
+        // external runtime has no listing at all.
+        if (!runtime.hostId || isCodingFramework(runtime)) return
+        if (runtime.status !== 'ready') return
         if (this.inflight.has(runtime.id)) {
             if (opts?.verifiedByReport)
                 this.pendingVerifiedReports.set(runtime.id, runtime)
@@ -178,88 +188,35 @@ export class AgentReconcileService {
         runtime: AgentRuntimeRow,
         opts?: { verifiedByReport?: boolean }
     ): Promise<void> {
-        if (runtime.kind === 'k8s' && !isCodingFramework(runtime)) {
-            const [current] = await this.db
-                .select()
-                .from(agentRuntimes)
-                .where(eq(agentRuntimes.id, runtime.id))
-                .limit(1)
-            if (
-                !current ||
-                current.currentPhase === K8S_CREATE_INITIAL_AGENT ||
-                current.currentPhase === K8S_CREATE_CLEANUP_PENDING
-            )
-                return
-            runtime = current
-        }
-        if (runtime.status === 'stopped') {
+        const ctx = await this.runtimeContext.forRuntime(runtime.id)
+        if (!ctx || ctx.placement === 'external') return
+        runtime = ctx.runtime
+        if (runtime.status !== 'ready' || isCodingFramework(runtime)) {
             this.pendingOrphans.delete(runtime.id)
-            const now = new Date()
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'stopped',
-                    lastReconciledAt: now,
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        eq(agents.runtimeId, runtime.id),
-                        ne(agents.status, 'stopped'),
-                        runtime.kind === 'k8s'
-                            ? sql`exists (select 1 from ${agentRuntimes} where ${agentRuntimes.id} = ${runtime.id} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_INITIAL_AGENT} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_CLEANUP_PENDING})`
-                            : undefined
-                    )
-                )
             return
         }
-
-        // Coding-framework listAgents reads the agents table itself (the
-        // adapters return the runtime's own rows), so the generic reconcile
-        // below is a circular DB copy: it SELECTs the rows, "lists" the same
-        // rows again through the adapter, and rewrites every one of them with
-        // fresh timestamps (#516). The only state it owns that no lifecycle
-        // writer covers is healing false-stopped rows on an active runtime;
-        // corrupt legacy rows (internalId != id, stopped by the old orphan
-        // flow) must stay stopped, exactly like the matched-loop's internalId
-        // keying kept them out of the resurrect.
-        if (isCodingFramework(runtime)) {
-            this.pendingOrphans.delete(runtime.id)
-            const now = new Date()
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'running',
-                    failureReason: null,
-                    lastReconciledAt: now,
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        eq(agents.runtimeId, runtime.id),
-                        eq(agents.status, 'stopped'),
-                        eq(agents.internalId, agents.id),
-                        runtime.kind === 'k8s'
-                            ? sql`exists (select 1 from ${agentRuntimes} where ${agentRuntimes.id} = ${runtime.id} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_INITIAL_AGENT} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_CLEANUP_PENDING})`
-                            : undefined
-                    )
-                )
+        if (
+            ctx.placement === 'k8s' &&
+            (runtime.currentPhase === K8S_CREATE_INITIAL_AGENT ||
+                runtime.currentPhase === K8S_CREATE_CLEANUP_PENDING)
+        )
             return
-        }
 
         const existing = await this.db
             .select()
             .from(agents)
             .where(eq(agents.runtimeId, runtime.id))
-        // listing a service-framework sprite wakes the VM (billing + the #108
-        // wake race), and pre-sleep miss evidence is stale once the service restarts.
-        // A fence-valid ready report proves the service is up post-boot, voiding
-        // both reasons — verifiedByReport bypasses ONLY this skip; the 15s
+        // Listing goes through the host's daemon, so a machine that is not
+        // running (or whose daemon is away) is not listed: waking a sandbox
+        // bills it, and pre-sleep miss evidence is stale once the service
+        // restarts. A fence-valid ready report proves the service is up
+        // post-boot — verifiedByReport bypasses ONLY the power check; the 15s
         // min-wait/failure backoff in touchRuntime still bound report floods.
         if (
-            !opts?.verifiedByReport &&
-            runtime.kind === 'sprites' &&
-            !existing.some((a) => a.spriteStatus === 'running')
+            !ctx.daemonOnline ||
+            (!opts?.verifiedByReport &&
+                ctx.host?.kind === 'hosted' &&
+                ctx.host.powerState !== 'running')
         ) {
             this.pendingOrphans.delete(runtime.id)
             return
@@ -267,7 +224,7 @@ export class AgentReconcileService {
 
         const adapter = this.registry.get(runtime.framework)
         const live = await adapter.listAgents({
-            runtime,
+            ...ctx,
             primaryAgentId: runtime.primaryAgentId ?? null
         })
         const existingByInternal = new Map(
@@ -277,7 +234,7 @@ export class AgentReconcileService {
         const primary = runtime.primaryAgentId
             ? existing.find((a) => a.id === runtime.primaryAgentId)
             : undefined
-        const primaryAlias = serviceBuiltInProfile(runtime)
+        const primaryAlias = serviceBuiltInProfile(ctx)
         const primaryHasExactLiveProfile =
             primary !== undefined &&
             live.some((fa) => fa.id === primary.internalId)
@@ -309,6 +266,9 @@ export class AgentReconcileService {
                 const renamed = matchedPrimaryAlias
                     ? null
                     : await this.resolveNameSync(match, fa.name)
+                const wasOrphaned =
+                    match.status === 'failed' &&
+                    match.failureReason === NOT_PRESENT_IN_RUNTIME
                 await this.db
                     .update(agents)
                     .set({
@@ -316,33 +276,20 @@ export class AgentReconcileService {
                         model: fa.model,
                         extras: jsonbMerge(agents.extras, extrasPatch),
                         workspacePath,
-                        status:
-                            match.status === 'stopped'
-                                ? 'running'
-                                : match.status,
-                        failureReason:
-                            match.status === 'stopped'
-                                ? null
-                                : match.failureReason,
-                        spriteName: runtime.spriteName,
-                        spriteId: runtime.spriteId,
-                        namespace: runtime.namespace,
-                        ingressHost: runtime.ingressHost,
+                        ...(wasOrphaned
+                            ? { status: 'ready', failureReason: null }
+                            : {}),
                         mountPath:
-                            isPerAgentCodingRuntime(runtime) ||
-                            !workspaceManaged
+                            isPerAgentCodingRuntime(ctx) || !workspaceManaged
                                 ? (workspacePath ?? runtime.mountPath)
                                 : runtime.mountPath,
-                        accountId: runtime.accountId,
-                        clusterId: runtime.clusterId,
                         lastReconciledAt: now,
                         updatedAt: now
                     })
                     .where(eq(agents.id, match.id))
             } else {
-                // Only service frameworks reach this listing (coding
-                // frameworks take the fast path above), and they list their
-                // own state: an agent created outside Manyfold (in the
+                // Only service frameworks reach this listing, and they list
+                // their own state: an agent created outside Manyfold (in the
                 // framework's own UI) is real and must be adopted —
                 // everything keyed off its internalId (managed automations,
                 // managed channels) can only mirror once a row exists (#462).
@@ -351,27 +298,19 @@ export class AgentReconcileService {
                     userId: runtime.userId,
                     runtimeId: runtime.id,
                     framework: runtime.framework,
-                    runtime: runtime.kind,
                     name: fa.name || fa.id,
                     internalId: fa.id,
-                    status: 'running',
+                    status: 'ready',
                     model: fa.model,
                     extras: fa.extras,
                     workspacePath: fa.workspace ?? runtime.mountPath,
                     mountPath: runtime.mountPath,
                     fileRoots: buildFileRoots({
                         framework: runtime.framework,
-                        runtime: runtime.kind,
-                        mountPath: runtime.mountPath
+                        runtime: ctx.placement,
+                        mountPath: runtime.mountPath,
+                        homeDir: ctx.host?.homeDir
                     }),
-                    namespace: runtime.namespace,
-                    ingressHost: runtime.ingressHost,
-                    spriteName: runtime.spriteName,
-                    spriteId: runtime.spriteId,
-                    clusterId: runtime.clusterId,
-                    accountId: runtime.accountId,
-                    daemonId: runtime.daemonId,
-                    hostId: runtime.hostId,
                     startedAt: now,
                     lastBootstrappedAt: now,
                     lastReconciledAt: now
@@ -383,7 +322,12 @@ export class AgentReconcileService {
         // a single empty listing is indistinguishable from a fresh-boot race,
         // so require a second confirmed-empty observation >= 60s later
         const missing = existing.filter(
-            (a) => !liveIds.has(a.internalId) && a.status !== 'stopped'
+            (a) =>
+                !liveIds.has(a.internalId) &&
+                !(
+                    a.status === 'failed' &&
+                    a.failureReason === NOT_PRESENT_IN_RUNTIME
+                )
         )
         const pending =
             this.pendingOrphans.get(runtime.id) ?? new Map<string, number>()
@@ -401,7 +345,7 @@ export class AgentReconcileService {
             } else if (now.getTime() - firstMissedAt >= ORPHAN_STALE_MS) {
                 // reconcile is touch-driven, so miss evidence this old likely
                 // predates an unobserved sleep/wake (the sleep-skip clear only
-                // runs if a touch lands while the sprite sleeps) — re-arm
+                // runs if a touch lands while the machine sleeps) — re-arm
                 // instead of confirming against a post-wake fresh-boot listing
                 pending.set(a.id, now.getTime())
                 this.log.warn(
@@ -418,8 +362,8 @@ export class AgentReconcileService {
             await this.db
                 .update(agents)
                 .set({
-                    status: 'stopped',
-                    failureReason: 'not present in runtime',
+                    status: 'failed',
+                    failureReason: NOT_PRESENT_IN_RUNTIME,
                     lastReconciledAt: now,
                     updatedAt: now
                 })
@@ -429,6 +373,10 @@ export class AgentReconcileService {
                         eq(agents.runtimeId, runtime.id)
                     )
                 )
+    }
+
+    async contextFor(runtimeId: string): Promise<RuntimeContext | null> {
+        return this.runtimeContext.forRuntime(runtimeId)
     }
 
     async loadRuntime(runtimeId: string): Promise<AgentRuntimeRow | null> {

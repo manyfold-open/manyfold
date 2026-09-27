@@ -114,11 +114,12 @@ export const openDashboardInPopup = (
     })()
 }
 
-// Whether this agent exposes a dashboard/control UI at all. Frameworks differ:
-// some always have one, openclaw and hermes gate it behind a toggle, and every
-// other framework has none.
+// Whether this agent exposes a dashboard/control UI at all. Only a hosted
+// machine has a public entry the platform can mint a URL for; frameworks
+// differ beyond that: some always have one, openclaw and hermes gate it
+// behind a toggle, and every other framework has none.
 export const agentHasDashboard = (agent: SdkAgent): boolean => {
-    if (!agent.ingressHost || !agent.runtimeId) return false
+    if (agent.hostKind !== 'hosted' || !agent.runtimeId) return false
     if (nativeUiAlwaysOn(agent.framework)) return true
     switch (agent.framework) {
         case 'openclaw':

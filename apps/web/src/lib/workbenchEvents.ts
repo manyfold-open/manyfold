@@ -1,6 +1,6 @@
 import type { NcaClient } from '@manyfold/sdk'
 
-type Handlers = Parameters<NcaClient['agents']['streamSpriteStatus']>[0] & {
+type Handlers = Parameters<NcaClient['agents']['streamHostStatus']>[0] & {
     onReconnected?: () => void
 }
 const listeners = new Set<Handlers>()

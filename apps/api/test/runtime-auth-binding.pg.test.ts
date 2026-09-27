@@ -11,12 +11,13 @@ import {
     createDb,
     plans,
     runtimeAuthProfiles,
-    runtimeHosts,
     users,
     type Database
 } from '@manyfold/db'
 import { RUNTIME_AUTH_ERROR } from '@manyfold/shared'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
+import { seedHostDaemon, seedLocalHost } from './helpers/host-fixture'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 
 // The binding CAS is a WHERE predicate (id AND binding version), which the
@@ -58,41 +59,43 @@ const buildHarness = async (): Promise<Harness> => {
     await db
         .insert(users)
         .values({ id: userId, email: `${suffix}@rab.local`, planId })
-    await db.insert(runtimeHosts).values({
+    await seedLocalHost(db, {
         id: hostId,
         userId,
-        kind: 'daemon',
-        name: `rab-host-${suffix}`,
-        status: 'active',
-        clientFeatures: ['auth-profiles.v1', 'auth-context.v1'],
-        rpcLastSeenAt: new Date()
-    } as never)
+        name: `rab-host-${suffix}`
+    })
+    await seedHostDaemon(db, {
+        hostId,
+        userId,
+        clientFeatures: ['auth-profiles.v1', 'auth-context.v1']
+    })
     await db.insert(agentRuntimes).values({
         id: runtimeId,
         userId,
         name: `rab-runtime-${suffix}`,
         framework: 'codex',
-        kind: 'daemon',
         status: 'ready',
-        daemonId: hostId,
         hostId
-    } as never)
+    })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'bound',
         framework: 'codex',
-        runtime: 'daemon',
         runtimeId,
-        daemonId: hostId,
         internalId: agentId,
         extras: { runtimeLocalModelConfig: { available: true, ready: true } }
-    } as never)
+    })
     const service = new AgentModelConfigService(
         db,
         {} as never,
         {} as never,
-        {} as never
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        new RuntimeContextService(db)
     )
     ;(
         service as unknown as {

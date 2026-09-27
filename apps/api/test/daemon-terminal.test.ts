@@ -7,7 +7,6 @@ import { DaemonRpcResponseError } from '../src/modules/daemon/daemon-registry.se
 const makeAgent = () => ({
     id: 'agent-1',
     userId: 'user-1',
-    daemonId: 'dh-1',
     workspacePath: '/Users/cy/.nca/workspaces/agent-1',
     mountPath: '/workspace',
     extras: { envText: 'MY_FLAG=on' }
@@ -75,6 +74,8 @@ test('daemon terminal passes requested cwd to pty.open', async () => {
 
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         cwd: '/Users/cy/project',
         rows: 24,
@@ -129,6 +130,8 @@ test('client close asks the daemon to close the pty and waits for the ack', asyn
     let closeCause: string | null = null
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -177,6 +180,8 @@ test('the pty ending on its own reports why', async () => {
         let cause: string | null = null
         await terminal.tunnel({
             agent: makeAgent() as never,
+            hostId: 'dh-1',
+            placement: 'daemon',
             cols: 80,
             rows: 24,
             client: client as never,
@@ -220,6 +225,8 @@ test('daemon terminal injects env text, connection env and identity per session 
 
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -269,6 +276,8 @@ test('daemon terminal strips protocol byte before forwarding pty input', async (
 
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -305,6 +314,8 @@ test('daemon terminal sends pty.open failures to browser', async () => {
 
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -377,6 +388,8 @@ test('an owned terminal is opened under its id and the browser going away only d
     let closeCause: string | null = null
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -415,6 +428,8 @@ test("the daemon's attach verdict decides which token the shell carries", async 
         let closeCause: string | null = null
         await terminal.tunnel({
             agent: makeAgent() as never,
+            hostId: 'dh-1',
+            placement: 'daemon',
             cols: 80,
             rows: 24,
             client: client as never,
@@ -467,6 +482,8 @@ test('a stream ended by another attachment closes the tab with 4409 and keeps th
     let closeCause: string | null = null
     await terminal.tunnel({
         agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         cols: 80,
         rows: 24,
         client: client as never,
@@ -525,6 +542,8 @@ test('openInHerdr sends the pty env, the resume command and the labels in one rp
     const tokens: string[] = []
     const result = await terminal.openInHerdr({
         agent: { ...makeAgent(), name: 'Reviewer' } as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         terminalId: 'tms_1',
         framework: 'claude-code',
         resume: {
@@ -594,6 +613,8 @@ test('a herdr launch the daemon refuses drops the freshly minted token', async (
     await assert.rejects(
         terminal.openInHerdr({
             agent: makeAgent() as never,
+            hostId: 'dh-1',
+            placement: 'daemon',
             terminalId: 'tms_1',
             framework: 'codex',
             resume: { command: ['codex', 'resume', 'thr_1'], env: {} },

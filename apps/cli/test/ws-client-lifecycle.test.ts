@@ -309,7 +309,7 @@ test('a refusal after the upgrade backs off in minutes and says why', async () =
             assert.ok(
                 logs.some((line) =>
                     line.startsWith(
-                        'the API refused this daemon: this machine was revoked'
+                        'the API refused this daemon: this machine was retired'
                     )
                 )
             )

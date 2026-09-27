@@ -14,30 +14,36 @@ import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 // first agent cannot attach without them). The runner is left to the create
 // form's own prewarm: a second starter here registered a twin runner host.
 
-const hostWith = (detected: string[]) => ({
-    id: 'sbx_1',
-    userId: 'user_1',
-    name: 'sandbox-1',
-    spriteId: 'sprite-1',
-    spriteName: 'sbx-1',
-    accountId: 'spa_1',
-    detectedFrameworks: detected.map((framework) => ({
-        framework,
-        version: '1.0.0',
-        path: `~/.local/bin/${framework}`
-    })),
-    spriteStatus: 'warm'
+const viewWith = (detected: string[]) => ({
+    host: {
+        id: 'sbx_1',
+        userId: 'user_1',
+        name: 'sandbox-1',
+        kind: 'hosted',
+        providerId: 'rtp_1',
+        providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sprite-1' },
+        status: 'ready',
+        powerState: 'suspended'
+    },
+    provider: { id: 'rtp_1', kind: 'sprites', name: 'acct' },
+    daemon: {
+        hostId: 'sbx_1',
+        clientFeatures: [],
+        detectedFrameworks: detected.map((framework) => ({
+            framework,
+            version: '1.0.0',
+            path: `~/.local/bin/${framework}`
+        }))
+    },
+    agentsCount: 0
 })
 
 const runtimeRow = (overrides: Record<string, unknown> = {}) => ({
     id: 'art_prepared',
     userId: 'user_1',
     framework: 'claude-code',
-    kind: 'sprites',
     status: 'ready',
     hostId: 'sbx_1',
-    spriteName: 'sbx-1',
-    spriteId: 'sprite-1',
     primaryAgentId: null,
     ...overrides
 })
@@ -49,22 +55,20 @@ const buildHarness = (opts: {
     frameworkVersions?: boolean
     detected?: string[]
 }) => {
-    const host = hostWith(opts.detected ?? [])
+    const view = viewWith(opts.detected ?? [])
     const calls: {
         prepare: unknown[]
         inserted: unknown[]
-        runner: unknown[]
         summaries: unknown[]
-    } = { prepare: [], inserted: [], runner: [], summaries: [] }
+    } = { prepare: [], inserted: [], summaries: [] }
     const runtimes = {
-                listRunnerHosts: async () => [],
-
-        getSandboxForUser: async () => ({
-            host,
-            accountSlug: 'acct',
-            agentsCount: 0
-        }),
-        listRuntimesByHost: async () => opts.existing ?? [],
+        getSandboxForUser: async () => view,
+        // One row per (host, framework): a live row wins, else the failed one
+        // keeps the slot for the retry.
+        findRuntimeOnHost: async () =>
+            (opts.existing ?? []).find((r) => r.status !== 'failed') ??
+            (opts.existing ?? [])[0] ??
+            null,
         toSummary: async (row: Record<string, unknown>) => {
             calls.summaries.push(row)
             return { id: row.id, framework: row.framework, agentsCount: 0 }
@@ -86,12 +90,6 @@ const buildHarness = (opts: {
                 calls.inserted.push(row)
             }
         })
-    }
-    const runnerManager = {
-        prepareRunner: async (args: Record<string, unknown>) => {
-            calls.runner.push(args)
-            return 'started'
-        }
     }
     const frameworkVersions =
         opts.frameworkVersions === false
@@ -125,8 +123,13 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
         db as never,
-        runnerManager as never,
         frameworkVersions as never,
         crypto as never
     )
@@ -152,7 +155,7 @@ test('a live runtime for the framework on the host is returned as is', async () 
     assert.equal(h.calls.prepare.length, 0)
 })
 
-test('a coding CLI gets its runtime at the resolved version; no runner is started and no credentials row is written', async () => {
+test('a coding CLI gets its runtime at the resolved version and no credentials row is written', async () => {
     const h = buildHarness({})
     const summary = await h.svc.prepareRuntime('user_1', 'sbx_1', 'claude-code')
     assert.equal(summary.id, 'art_prepared')
@@ -168,15 +171,13 @@ test('a coding CLI gets its runtime at the resolved version; no runner is starte
         }
     ])
     assert.equal(h.calls.inserted.length, 0)
-    assert.equal(h.calls.runner.length, 0)
 })
 
-test('a service framework stores the gateway tokens its bootstrap minted and does not start a runner', async () => {
+test('a service framework stores the gateway tokens its bootstrap minted', async () => {
     const h = buildHarness({
         generatedCredentials: { apiServerKey: 'k1', runtimeReportToken: 'r1' }
     })
     await h.svc.prepareRuntime('user_1', 'sbx_1', 'hermes')
-    assert.equal(h.calls.runner.length, 0)
     assert.equal(h.calls.inserted.length, 1)
     const row = h.calls.inserted[0] as {
         runtimeId: string

@@ -23,7 +23,7 @@ export const formatSandboxStorage = (report: SandboxUsageBreakdown): string => {
     for (const host of report.hosts) {
         lines.push(
             '',
-            `${host.name} (${host.hostId})  ${bytesLabel(host.storageBytes)}  ${host.asleep ? 'asleep / ' : ''}${host.storageFreshness}`
+            `${host.name} (${host.hostId})  ${bytesLabel(host.storageBytes)}  ${host.powerState ?? 'unknown'} / ${host.storageFreshness}`
         )
         lines.push(`  Measured: ${host.storageMeasuredAt ?? 'unknown'}`)
         for (const runtime of host.runtimes)

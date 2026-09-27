@@ -124,7 +124,6 @@ test(
             userId,
             name: 'fixture',
             framework: 'codex',
-            kind: 'daemon',
             status: 'ready'
         })
         await h.db.insert(agents).values({
@@ -132,7 +131,6 @@ test(
             userId,
             name: 'fixture',
             framework: 'codex',
-            runtime: 'daemon',
             runtimeId,
             internalId: 'fixture'
         })

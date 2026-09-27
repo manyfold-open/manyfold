@@ -1,4 +1,3 @@
-import { isExternal } from '@manyfold/shared'
 import type {
     AgentRuntimeStatus,
     AgentRuntimeSummary,
@@ -8,7 +7,9 @@ import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getLocale, t } from '@manyfold/i18n'
+import { ApiError } from '@manyfold/sdk'
 import { useApiClient } from '@/lib/apiClient'
+import { availabilityTone, daemonLabel, powerLabel } from '@/lib/hostStatus'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { useTableSort, type SortAccessors } from '@/lib/useTableSort'
 import { adminRoutes } from '@/routes'
@@ -23,10 +24,9 @@ import {
 } from '@/ui'
 
 const statusTone: Record<AgentRuntimeStatus, BadgeTone> = {
-    pending: 'warning',
+    installing: 'warning',
     ready: 'success',
-    failed: 'error',
-    stopped: 'neutral'
+    failed: 'error'
 }
 
 type RuntimesSortKey =
@@ -54,7 +54,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
     const [error, setError] = useState<string | null>(null)
     const [userMap, setUserMap] = useState<Record<string, SdkUserSummary>>({})
     const [busyId, setBusyId] = useState<string | null>(null)
-    const [keepAliveBusyId, setKeepAliveBusyId] = useState<string | null>(null)
     const [ownerFilter, setOwnerFilter] = useState<string>('')
 
     const refresh = useCallback((): void => {
@@ -93,39 +92,14 @@ const AgentRuntimesList: FC = (): ReactNode => {
             await api.delete(row.id)
             refresh()
         } catch (e) {
-            setError((e as Error).message)
+            setError(
+                e instanceof ApiError && e.status === 409
+                    ? t('admin.agentRuntimes.actions.deleteBlocked')
+                    : (e as Error).message
+            )
         } finally {
             setBusyId(null)
         }
-    }
-
-    const supportsKeepAlive = (row: AgentRuntimeSummary): boolean =>
-        row.kind === 'sprites' && !isExternal(row.framework)
-
-    const onToggleKeepAlive = async (
-        row: AgentRuntimeSummary
-    ): Promise<void> => {
-        setKeepAliveBusyId(row.id)
-        setError(null)
-        try {
-            const api = isAdmin
-                ? client.admin.agentRuntimes
-                : client.agentRuntimes
-            const next = await api.setKeepAlive(row.id, !row.keepAliveEnabled)
-            setRows((prev) =>
-                prev ? prev.map((r) => (r.id === next.id ? next : r)) : prev
-            )
-        } catch (e) {
-            setError((e as Error).message)
-        } finally {
-            setKeepAliveBusyId(null)
-        }
-    }
-
-    const locationOf = (row: AgentRuntimeSummary): string => {
-        if (row.kind === 'sprites') return row.spriteName ?? '—'
-        if (row.kind === 'k8s') return row.ingressHost ?? row.namespace ?? '—'
-        return '—'
     }
 
     const ownerOptions = useMemo(() => {
@@ -301,12 +275,20 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                         </SortHeader>
                                         <th className='px-2 py-1.5 font-normal'>
                                             {t(
-                                                'admin.agentRuntimes.cols.keepAlive'
+                                                'admin.agentRuntimes.cols.availability'
                                             )}
                                         </th>
                                         <th className='px-2 py-1.5 font-normal'>
                                             {t(
                                                 'admin.agentRuntimes.cols.location'
+                                            )}
+                                        </th>
+                                        <th className='px-2 py-1.5 font-normal'>
+                                            {t('admin.agentRuntimes.cols.power')}
+                                        </th>
+                                        <th className='px-2 py-1.5 font-normal'>
+                                            {t(
+                                                'admin.agentRuntimes.cols.daemon'
                                             )}
                                         </th>
                                         <SortHeader
@@ -368,59 +350,42 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                                 {r.agentsCount}
                                             </span>
                                         </td>
-                                        <td
-                                            className='px-2 py-1.5 whitespace-nowrap'
-                                            onClick={(e): void => {
-                                                e.stopPropagation()
-                                            }}
-                                        >
-                                            {supportsKeepAlive(r) ? (
-                                                <div className='flex items-center gap-2'>
-                                                    <Badge
-                                                        tone={
-                                                            r.keepAliveEnabled
-                                                                ? 'success'
-                                                                : 'neutral'
-                                                        }
-                                                    >
-                                                        {r.keepAliveEnabled
-                                                            ? 'on'
-                                                            : 'off'}
-                                                    </Badge>
-                                                    <Button
-                                                        variant='neutral'
-                                                        size='sm'
-                                                        disabled={
-                                                            keepAliveBusyId ===
-                                                            r.id
-                                                        }
-                                                        onClick={(): void => {
-                                                            void onToggleKeepAlive(
-                                                                r
-                                                            )
-                                                        }}
-                                                    >
-                                                        {keepAliveBusyId === r.id
-                                                            ? t(
-                                                                  'admin.agentRuntimes.actions.keepAliveSaving'
-                                                              )
-                                                            : r.keepAliveEnabled
-                                                              ? t(
-                                                                    'admin.agentRuntimes.actions.keepAliveDisable'
-                                                                )
-                                                              : t(
-                                                                    'admin.agentRuntimes.actions.keepAliveEnable'
-                                                                )}
-                                                    </Button>
+                                        <td className='px-2 py-1.5 whitespace-nowrap'>
+                                            <Badge
+                                                tone={availabilityTone(
+                                                    r.availability
+                                                )}
+                                            >
+                                                {t(
+                                                    `admin.hostStatus.availability.${r.availability}`
+                                                )}
+                                            </Badge>
+                                        </td>
+                                        <td className='max-w-xs px-2 py-1.5'>
+                                            <div className='truncate'>
+                                                {r.hostName ?? '—'}
+                                            </div>
+                                            {(r.providerName ||
+                                                r.providerRefLabel) && (
+                                                <div className='text-caption-sm text-body mt-1 truncate font-mono'>
+                                                    {[
+                                                        r.providerName,
+                                                        r.providerRefLabel
+                                                    ]
+                                                        .filter(Boolean)
+                                                        .join(' · ')}
                                                 </div>
-                                            ) : (
-                                                <span className='text-body'>
-                                                    —
-                                                </span>
                                             )}
                                         </td>
-                                        <td className='max-w-xs truncate px-2 py-1.5 font-mono'>
-                                            {locationOf(r)}
+                                        <td className='px-2 py-1.5 whitespace-nowrap'>
+                                            {r.hostKind === 'hosted'
+                                                ? powerLabel(r.powerState)
+                                                : '—'}
+                                        </td>
+                                        <td className='px-2 py-1.5 whitespace-nowrap'>
+                                            {r.hostId
+                                                ? daemonLabel(r.daemonOnline)
+                                                : '—'}
                                         </td>
                                         <td className='tnum px-2 py-1.5'>
                                             {new Date(

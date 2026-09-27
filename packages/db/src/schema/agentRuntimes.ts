@@ -1,7 +1,6 @@
 import {
     boolean,
     index,
-    integer,
     jsonb,
     pgTable,
     text,
@@ -10,9 +9,14 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { users } from './users'
-import { spritesAccounts } from './spritesAccounts'
-import { k8sClusters } from './k8sClusters'
 import { runtimeHosts } from './runtimeHosts'
+
+// One framework installed on one host (ADR-0036). Where it runs, who owns the
+// machine and how it is reached are all facts of the host row, never copied
+// here: kind, provider identity and daemon connection are derived through
+// host_id. The single exception is an external-API framework, which has no
+// machine at all and keeps host_id null.
+export type AgentRuntimeInstallStatus = 'installing' | 'ready' | 'failed'
 
 export const agentRuntimes = pgTable(
     'agent_runtimes',
@@ -21,46 +25,33 @@ export const agentRuntimes = pgTable(
         userId: text('user_id')
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
+        // Display label, user-renamable; defaults to `<host name>-<framework>`.
+        // Never an address — every lookup goes through art_ ids.
         name: text('name').notNull(),
+        // No enum: an edition registers frameworks the core does not know
+        // (ADR-0034).
         framework: text('framework').notNull(),
-        kind: text('kind', {
-            enum: ['sprites', 'k8s', 'daemon', 'external']
-        }).notNull(),
+        // RESTRICT: a host is deleted only after its runtimes are gone, in the
+        // same transaction that removed them.
+        hostId: text('host_id').references(() => runtimeHosts.id, {
+            onDelete: 'restrict'
+        }),
+        // Install state only. Availability is derived (runtimeAvailable in
+        // @manyfold/shared) from this, the host's lifecycle and its daemon's
+        // presence; nothing here flips on a daemon going away.
         status: text('status', {
-            enum: ['pending', 'ready', 'failed', 'stopped']
+            enum: ['installing', 'ready', 'failed']
         })
             .notNull()
-            .default('pending'),
+            .default('installing')
+            .$type<AgentRuntimeInstallStatus>(),
         currentPhase: text('current_phase'),
         failureReason: text('failure_reason'),
-        accountId: text('account_id').references(() => spritesAccounts.id, {
-            onDelete: 'set null'
-        }),
-        spriteName: text('sprite_name'),
-        spriteId: text('sprite_id'),
-        clusterId: text('cluster_id').references(() => k8sClusters.id, {
-            onDelete: 'set null'
-        }),
-        daemonId: text('daemon_id').references(() => runtimeHosts.id, {
-            onDelete: 'set null'
-        }),
-        // Unified machine FK (runtime_hosts row, kind daemon|sandbox|pod). For
-        // daemon runtimes this equals daemonId; for sprites it points at the
-        // sandbox VM host and for k8s at the pod host (ADR-0035), so one machine
-        // can carry many per-framework runtimes. daemonId is kept
-        // as a redundant daemon-only FK (the daemon RPC route id); not retired.
-        hostId: text('host_id').references(() => runtimeHosts.id, {
-            onDelete: 'set null'
-        }),
-        homeDir: text('home_dir'),
-        workspaceBaseDir: text('workspace_base_dir'),
+        // The framework's data root on the machine.
+        mountPath: text('mount_path').notNull().default('/workspace'),
         capabilitiesJson: jsonb('capabilities_json')
             .$type<Record<string, unknown>>()
             .default({}),
-        lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-        namespace: text('namespace'),
-        ingressHost: text('ingress_host'),
-        mountPath: text('mount_path').notNull().default('/workspace'),
         primaryAgentId: text('primary_agent_id'),
         // Pre-selected runtime auth profile for NEW agents only; changing it
         // never rebinds existing ones. No FK for the same reason as
@@ -69,34 +60,23 @@ export const agentRuntimes = pgTable(
         defaultAuthProfileId: text('default_auth_profile_id'),
         controlUiEnabled: boolean('control_ui_enabled').notNull().default(true),
         dashboardEnabled: boolean('dashboard_enabled').notNull().default(false),
-        // Dashboard toggle state machine + CAS mutex. Grammar:
-        // 'enabling@<ISO>' | 'disabling@<ISO>' | 'error:<reason>' | NULL (steady).
-        // The claim timestamp lives INSIDE the value because updatedAt is
-        // refreshed by unrelated writes (service reports) and can't detect
-        // stale in-flight toggles.
+        // Dashboard toggle progress: 'enabling@<ISO>' | 'disabling@<ISO>' |
+        // 'error:<reason>' | null (steady).
         dashboardState: text('dashboard_state'),
-        keepAliveEnabled: boolean('keep_alive_enabled').notNull().default(false),
         serviceStatus: text('service_status', {
             enum: ['unknown', 'starting', 'ready', 'stopped']
         })
             .notNull()
             .default('unknown'),
-        // When service_status was last asserted (sprite boot report or platform
-        // start/stop write); lastSeenAt stays daemon-owned (daemon-runtime-sync)
-        // — two timestamps, two owners.
+        // When service_status was last asserted (boot report or platform
+        // start/stop write).
         serviceStatusAt: timestamp('service_status_at', { withTimezone: true }),
-        cpuMillicores: integer('cpu_millicores'),
-        memoryMb: integer('memory_mb'),
-        diskGb: integer('disk_gb'),
-        region: text('region'),
-        purchasedAt: timestamp('purchased_at', { withTimezone: true }),
-        startedAt: timestamp('started_at', { withTimezone: true }),
         lastBootstrappedAt: timestamp('last_bootstrapped_at', {
             withTimezone: true
         }),
         // Installed agent-framework CLI version (e.g. claude/codex/gemini
-        // --version output), probed at bootstrap / upgrade / manual refresh.
-        // Null = never probed. checkedAt drives the "refresh" freshness hint.
+        // --version output), probed at install / upgrade / manual refresh or
+        // reported by the host's daemon inventory. Null = never probed.
         frameworkVersion: text('framework_version'),
         frameworkVersionCheckedAt: timestamp('framework_version_checked_at', {
             withTimezone: true
@@ -109,36 +89,18 @@ export const agentRuntimes = pgTable(
             .defaultNow()
     },
     (table) => ({
-        // Deliberately non-unique: names are display labels, not addresses
-        // (every lookup goes through art_ ids), and auto-generated labels
-        // derive from host names which are themselves not unique. Kept as an
-        // index because it is the only user_id-prefixed one on this table.
+        // Deliberately non-unique: names are display labels, not addresses.
         userNameIdx: index('agent_runtimes_user_name_idx').on(
             table.userId,
             table.name
         ),
-        // At most one live runtime per (sandbox host, framework): co-residence
-        // puts different frameworks on one VM, never two of the same. Backstops
-        // ensureSandboxHost against concurrent creates racing the capacity check.
-        spriteHostFrameworkUnique: uniqueIndex(
-            'agent_runtimes_sprite_host_framework_uq'
-        )
+        // One runtime per (host, framework), no status predicate: a failed
+        // install keeps its slot and a retry reuses the row. External runtimes
+        // (host_id null) are one-per-agent and do not take part.
+        hostFrameworkUnique: uniqueIndex('agent_runtimes_host_framework_uq')
             .on(table.hostId, table.framework)
-            .where(
-                sql`${table.kind} = 'sprites' and ${table.status} not in ('failed', 'stopped')`
-            ),
-        // The same rule for a pod host (ADR-0035): several frameworks, one
-        // runtime each.
-        podHostFrameworkUnique: uniqueIndex(
-            'agent_runtimes_pod_host_framework_uq'
-        )
-            .on(table.hostId, table.framework)
-            .where(
-                sql`${table.kind} = 'k8s' and ${table.status} not in ('failed', 'stopped')`
-            ),
-        // Daemon runtime listings: /api/daemon/me, /api/daemon/hosts and the
-        // heartbeat runtime sync all load runtimes by daemon_id (#607).
-        daemonIdx: index('agent_runtimes_daemon_id_idx').on(table.daemonId)
+            .where(sql`${table.hostId} is not null`),
+        hostIdx: index('agent_runtimes_host_id_idx').on(table.hostId)
     })
 )
 

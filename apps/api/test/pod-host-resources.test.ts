@@ -87,7 +87,6 @@ test('the host Secret carries only the runner enrolment env', () => {
     const env = buildPodRunnerEnv({
         apiBaseUrl: 'https://api.test/api',
         daemonToken: 'ldt_secret',
-        podHostId: spec.hostId,
         homeRoot: '/home/node/.manyfold'
     })
     const secret = buildPodHostSecret(spec, env)
@@ -95,7 +94,6 @@ test('the host Secret carries only the runner enrolment env', () => {
     assert.deepEqual(Object.keys(secret.stringData ?? {}).sort(), [
         'MF_API_URL',
         'MF_CONFIG_DIR',
-        'MF_DAEMON_HOST_NAME',
         'MF_DAEMON_TOKEN',
         'MF_PROFILE'
     ])

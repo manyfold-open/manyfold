@@ -8,22 +8,15 @@ import {
     type OnModuleInit
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray } from 'drizzle-orm'
-import {
-    agentRuntimes,
-    plans,
-    runtimeHosts,
-    users,
-    type Database
-} from '@manyfold/db'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { plans, runtimeHosts, users, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
+import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
 import { SandboxesService } from './sandboxes.service'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 
@@ -38,8 +31,8 @@ const USER_COOLDOWN_MS = 5 * 60_000
 
 // Admission checks (reserveActiveSlot, the markRuntimeActive wake guard) stop
 // NEW activity for over-quota users; this sweep removes the wake causes they
-// already hold — running sandboxes and keep-alive flags — so accrual actually
-// stops instead of running until natural idle.
+// already hold — running sandboxes and keep-awake switches — so accrual
+// actually stops instead of running until natural idle.
 @Injectable()
 export class ActiveHoursEnforcementService
     implements OnModuleInit, OnModuleDestroy
@@ -56,8 +49,6 @@ export class ActiveHoursEnforcementService
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly sandboxes: SandboxesService,
         private readonly activeDuration: SandboxActiveDurationService,
-        private readonly runtimes: AgentRuntimesService,
-        private readonly sessionRegistry: SpritesSessionRegistry,
         private readonly broadcaster: SpriteStatusBroadcaster,
         private readonly adminSettings: AdminSettingsService,
         private readonly telemetry: TelemetryService,
@@ -138,21 +129,17 @@ export class ActiveHoursEnforcementService
             .from(runtimeHosts)
             .where(
                 and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.spriteStatus, 'running')
+                    liveHostedHosts('sprites'),
+                    eq(runtimeHosts.powerState, 'running')
                 )
             )
         const keepAlive = await this.db
-            .select({
-                id: agentRuntimes.id,
-                userId: agentRuntimes.userId,
-                hostId: agentRuntimes.hostId
-            })
-            .from(agentRuntimes)
+            .select({ id: runtimeHosts.id, userId: runtimeHosts.userId })
+            .from(runtimeHosts)
             .where(
                 and(
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agentRuntimes.keepAliveEnabled, true)
+                    liveHostedHosts('sprites'),
+                    eq(runtimeHosts.keepAwake, true)
                 )
             )
         const candidateIds = [
@@ -200,9 +187,9 @@ export class ActiveHoursEnforcementService
                 runningHostIds: running
                     .filter((h) => h.userId === row.id)
                     .map((h) => h.id),
-                keepAliveRuntimes: keepAlive.filter(
-                    (r) => r.userId === row.id
-                )
+                keepAwakeHostIds: keepAlive
+                    .filter((h) => h.userId === row.id)
+                    .map((h) => h.id)
             })
         }
     }
@@ -213,7 +200,7 @@ export class ActiveHoursEnforcementService
         usedHours: number
         limitHours: number
         runningHostIds: string[]
-        keepAliveRuntimes: Array<{ id: string; hostId: string | null }>
+        keepAwakeHostIds: string[]
     }): Promise<void> {
         const stopped: string[] = []
         // A stop that threw is visibly broken; a stop that returned having
@@ -224,12 +211,6 @@ export class ActiveHoursEnforcementService
         const unresolved: string[] = []
         for (const hostId of input.runningHostIds) {
             try {
-                // Bare-host terminal sessions register under the host id and
-                // are not closed by stop() itself.
-                this.sessionRegistry.closeForAgent(
-                    hostId,
-                    'active-hours-quota'
-                )
                 const res = await this.sandboxes.stop(input.userId, hostId)
                 if (res.status === 'noop' || res.warnings.length > 0)
                     unresolved.push(hostId)
@@ -242,17 +223,25 @@ export class ActiveHoursEnforcementService
             }
         }
         const runningSet = new Set(input.runningHostIds)
-        for (const rt of input.keepAliveRuntimes) {
-            // stop() already flips flags for runtimes on the hosts it stopped.
-            // A sleeping sprite holds no lease task, so the flag flip alone
-            // stops the keep-alive reconcile from re-waking it — releaseLease
-            // would exec into (and wake) the VM, the one thing this must not do.
-            if (rt.hostId && runningSet.has(rt.hostId)) continue
+        for (const hostId of input.keepAwakeHostIds) {
+            // stop() already flips the switch on the hosts it stopped. A
+            // sleeping sprite holds no lease task, so the flag flip alone
+            // (with the recorded task cleared) stops the lease sweep from
+            // re-waking it — a release would exec into (and wake) the VM, the
+            // one thing this must not do.
+            if (runningSet.has(hostId)) continue
             try {
-                await this.runtimes.setKeepAliveEnabled(rt.id, false)
+                await this.db
+                    .update(runtimeHosts)
+                    .set({
+                        keepAwake: false,
+                        keepAwakeLease: sql`case when ${runtimeHosts.keepAwakeLease} is null then null else ${runtimeHosts.keepAwakeLease} || '{"taskName": null}'::jsonb end`,
+                        updatedAt: new Date()
+                    })
+                    .where(eq(runtimeHosts.id, hostId))
             } catch (err) {
                 this.log.warn(
-                    `keep-alive disable failed for user=${input.userId} runtime=${rt.id}: ${(err as Error).message}`
+                    `keep-awake disable failed for user=${input.userId} host=${hostId}: ${(err as Error).message}`
                 )
             }
         }
@@ -268,7 +257,7 @@ export class ActiveHoursEnforcementService
             userId: input.userId,
             stoppedHosts: stopped.length,
             unresolvedHosts: unresolved.length,
-            keepAliveDisabled: input.keepAliveRuntimes.length,
+            keepAwakeDisabled: input.keepAwakeHostIds.length,
             usedHours: input.usedHours,
             limitHours: input.limitHours
         })

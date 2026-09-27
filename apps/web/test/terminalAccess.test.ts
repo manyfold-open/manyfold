@@ -5,36 +5,61 @@ import {
     terminalBlockedLabel
 } from '../src/lib/terminalAccess'
 
-test('terminal view is offered only for a running non-external agent', () => {
+test('terminal view is offered for a usable non-external agent, asleep sandboxes included', () => {
     assert.deepEqual(
-        terminalAvailabilityForAgent({ runtime: 'sprites', status: 'running' }),
+        terminalAvailabilityForAgent({
+            runtime: 'sprites',
+            availability: 'available'
+        }),
+        { available: true, reason: null }
+    )
+    // A sleeping sandbox wakes for the shell.
+    assert.deepEqual(
+        terminalAvailabilityForAgent({
+            runtime: 'sprites',
+            availability: 'wakeable'
+        }),
         { available: true, reason: null }
     )
     assert.deepEqual(
-        terminalAvailabilityForAgent({ runtime: 'daemon', status: 'running' }),
+        terminalAvailabilityForAgent({
+            runtime: 'daemon',
+            availability: 'available'
+        }),
         { available: true, reason: null }
     )
     assert.deepEqual(
-        terminalAvailabilityForAgent({ runtime: 'k8s', status: 'running' }),
+        terminalAvailabilityForAgent({ runtime: 'k8s', availability: 'available' }),
         { available: true, reason: null }
     )
 })
 
-test('a stopped agent reports the stopped reason, not the runtime one', () => {
+test('an unreachable machine reports the agent reason, not the runtime one', () => {
     assert.deepEqual(
-        terminalAvailabilityForAgent({ runtime: 'sprites', status: 'stopped' }),
-        { available: false, reason: 'agent-not-running' }
+        terminalAvailabilityForAgent({
+            runtime: 'daemon',
+            availability: 'offline'
+        }),
+        { available: false, reason: 'agent-unavailable' }
+    )
+    assert.deepEqual(
+        terminalAvailabilityForAgent({
+            runtime: 'sprites',
+            availability: 'unavailable'
+        }),
+        { available: false, reason: 'agent-unavailable' }
     )
 })
 
 // External agents run on someone else's provider, so there is no shell to
 // attach to even while they are happily serving turns. That gate has to win
-// over the status gate or a running external agent would read as "start it".
-test('an external runtime is refused even while running', () => {
+// over the availability gate or a working external agent would read as
+// "not reachable".
+test('an external runtime is refused even while available', () => {
     assert.deepEqual(
         terminalAvailabilityForAgent({
             runtime: 'external',
-            status: 'running'
+            availability: 'available'
         }),
         { available: false, reason: 'external-runtime' }
     )
@@ -49,7 +74,7 @@ test('each blocked reason maps to its own copy', () => {
         'web.terminal.unavailableExternal'
     )
     assert.equal(
-        terminalBlockedLabel('agent-not-running', t),
-        'web.terminal.unavailableStopped'
+        terminalBlockedLabel('agent-unavailable', t),
+        'web.terminal.unavailableAgent'
     )
 })

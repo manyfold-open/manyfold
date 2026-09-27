@@ -7,6 +7,7 @@ import {
     InternalServerErrorException,
     ServiceUnavailableException
 } from '@nestjs/common'
+import { contextOf, k8sHostRow } from './helpers/runtime-context-fixture'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import {
@@ -24,7 +25,6 @@ const dto = {
     name: 'byo-k8s',
     framework: 'codex',
     runtime: 'k8s',
-    clusterId: 'clus_1',
     codexCredentials: { openaiApiKey: 'sk-test' }
 }
 
@@ -66,10 +66,41 @@ const makeService = (opts: {
                       }
                   }
               }
+    // The agent's cloud computer, as the orchestrator reads it back: the
+    // fresh host for a created agent, the named runtime's host for an attach.
+    const hostOf = (runtime: { hostId?: unknown }) =>
+        k8sHostRow({ id: String(runtime.hostId), userId: 'usr_1' })
+    const runtimeContext = {
+        forAgent: async (id: string) =>
+            contextOf({
+                agent: {
+                    id,
+                    userId: 'usr_1',
+                    name: 'byo-k8s',
+                    status: 'ready',
+                    framework: 'codex',
+                    runtimeId: freshRuntime.id,
+                    internalId: id,
+                    extras: {},
+                    fileRoots: [],
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                } as never,
+                runtime: freshRuntime as never,
+                host: hostOf(freshRuntime)
+            }),
+        forRuntime: async (id: string) =>
+            opts.runtime && id === opts.runtime.id
+                ? contextOf({
+                      runtime: opts.runtime as never,
+                      host: hostOf(opts.runtime)
+                  })
+                : null
+    }
     const service = new AgentOrchestratorService(
         {} as never, // db
         {} as never, // agentsService
-        {} as never, // accounts
+        runtimeContext as never,
         {} as never, // crypto
         { findById: async () => opts.runtime ?? null } as never, // runtimes
         {} as never, // spritesProvisioner
@@ -189,9 +220,9 @@ test('self-serve create provisions a pod host and attaches the agent to it', asy
         'the install version is resolved before provisioning, as on a sprite'
     )
     assert.equal(
-        input.clusterId,
-        'clus_1',
-        'BYO means the caller names the cluster; dropping it would land the container on whichever cluster has priority'
+        input.providerId,
+        null,
+        'a self-serve create leaves the cluster to placement; only an admin pins a provider'
     )
     assert.deepEqual(
         input.credentials,
@@ -244,19 +275,34 @@ test('a service framework is provisioned onto a pod host', async () => {
 })
 
 test('installing onto a cloud computer passes a typed refusal through and wraps anything else', async () => {
-    const deletes: string[] = []
+    const failed: string[] = []
+    // The (host_id, framework) slot is claimed by an upsert and, on failure,
+    // kept as `failed` for the next try (ADR-0036) — never deleted.
     const db = {
-        insert: () => ({ values: async () => {} }),
-        delete: () => ({
-            where: async () => {
-                deletes.push('runtime')
-            }
+        insert: () => ({
+            values: () => ({
+                onConflictDoUpdate: () => ({
+                    returning: async () => [{ id: 'art_claw' }]
+                })
+            })
+        }),
+        update: () => ({
+            set: (patch: { status?: string }) => ({
+                where: async () => {
+                    failed.push(patch.status ?? '')
+                }
+            })
         })
     }
     const none = {} as never
     const provisioner = new K8sContainerProvisioner(
         db as never,
-        { getClient: async () => ({}) } as never,
+        none,
+        none,
+        { providerForHost: async () => ({ id: 'rtp_k8s', kind: 'k8s' }) } as never,
+        none,
+        none,
+        none,
         none,
         none,
         none,
@@ -269,11 +315,10 @@ test('installing onto a cloud computer passes a typed refusal through and wraps 
     const host = {
         id: 'pdh_1',
         userId: 'usr_1',
-        kind: 'pod',
-        podStatus: 'ready',
-        namespace: 'nca-user-1',
-        clusterId: 'clus_1',
-        ingressHost: null
+        kind: 'hosted',
+        providerId: 'rtp_k8s',
+        providerRef: { kind: 'k8s', namespace: 'nca-user-1', ingressHost: null, podPhase: 'Running' },
+        status: 'ready'
     }
     const install = (failure: Error) => {
         ;(
@@ -307,8 +352,8 @@ test('installing onto a cloud computer passes a typed refusal through and wraps 
             err instanceof InternalServerErrorException &&
             err.message === 'installing openclaw failed'
     )
-    // Neither leaves a runtime behind.
-    assert.deepEqual(deletes, ['runtime', 'runtime'])
+    // Neither leaves an installing runtime behind: the slot reads failed.
+    assert.deepEqual(failed, ['failed', 'failed'])
 })
 
 test('the cloud_computer master toggle blocks self-serve provisioning', async () => {

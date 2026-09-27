@@ -101,6 +101,7 @@ export class PiAdapter implements ApiChatAdapter {
             daemonId: carryingDaemonId,
             agent,
             creds,
+            runtime,
             resolvePriceScope
         } = await this.drivers.forAgent(
             ctx.agentId,
@@ -114,7 +115,7 @@ export class PiAdapter implements ApiChatAdapter {
         // one it is refused rather than quietly run on whatever pi is signed
         // in to there.
         const runtimeLocal =
-            (turnSource ?? effectiveModelConfigSource(agent)) ===
+            (turnSource ?? effectiveModelConfigSource(agent, runtime)) ===
             'runtime-local'
         const stored = runtimeLocal
             ? null

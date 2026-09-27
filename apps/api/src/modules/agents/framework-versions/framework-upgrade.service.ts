@@ -25,23 +25,12 @@ import {
     Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
-import {
-    agentRuntimes,
-    type Agent,
-    type AgentRuntimeRow,
-    type Database
-} from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite,
-    type SpritesClient
-} from '@manyfold/sprites'
+import { type Agent, type Database, type RuntimeHostRow } from '@manyfold/db'
+import { execSprite } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import {
     buildVersionInstallShell,
@@ -49,8 +38,12 @@ import {
 } from '@/modules/framework-versions/framework-version-registry'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import {
     hostsFrameworkCli,
     runOnRuntimeHost,
@@ -85,22 +78,25 @@ export interface FrameworkUpgradeEmitter {
     step(step: FrameworkUpgradeStep): void
 }
 
+type HostedRuntime = RuntimeContext & { host: RuntimeHostRow }
+
 @Injectable()
 export class FrameworkUpgradeService {
     private readonly log = new Logger(FrameworkUpgradeService.name)
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
         private readonly agents: AgentsService,
         private readonly versions: FrameworkVersionsService,
         private readonly probe: FrameworkVersionProbeService,
         private readonly adminSettings: AdminSettingsService,
+        private readonly runtimeContext: RuntimeContextService,
+        private readonly execResolver: FrameworkExecResolver,
+        private readonly hostClients: HostProviderClients,
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        // Same convention; absent, only sprites upgrade.
-        @Optional() private readonly k8s?: KubernetesService,
-        @Optional() private readonly podExec?: PodExecFactory,
+        // Appended last + @Optional; absent, pod service frameworks cannot be
+        // rebuilt.
         @Optional() private readonly podServices?: PodHostServices
     ) {}
 
@@ -127,16 +123,8 @@ export class FrameworkUpgradeService {
             throw new BadRequestException(
                 `${agent.framework} upgrade is not supported yet`
             )
-        if (!agent.runtimeId)
-            throw new BadRequestException('agent has no runtime')
-        const runtime = await this.loadRuntime(agent.runtimeId)
-        if (!runtime || !hostsFrameworkCli(runtime))
-            throw new BadRequestException(
-                'framework upgrade is only supported on sprites and cloud computers'
-            )
-        const spriteName = agent.spriteName ?? runtime.spriteName
-        if (runtime.kind === 'sprites' && !spriteName)
-            throw new BadRequestException('agent has no sprite')
+        const ctx = await this.hostedRuntime(agent)
+        const { runtime, host } = ctx
 
         const catalog = await this.versions.getForFramework(agent.framework)
         // Blocked before "not in catalog": the denylist already removed the
@@ -158,7 +146,7 @@ export class FrameworkUpgradeService {
 
         return withRuntimeUpgradeLock(
             this.db,
-            upgradeLockTarget(agent, runtime, agent.framework),
+            upgradeLockTarget(runtime, agent.framework),
             async () => {
                 const shell = buildVersionInstallShell(
                     descriptor,
@@ -173,14 +161,9 @@ export class FrameworkUpgradeService {
                 this.log.log(
                     `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
                 )
+                const exec = await this.execResolver.forRuntime(runtime, this.log)
                 const result = await runOnRuntimeHost(
-                    {
-                        accounts: this.accounts,
-                        k8s: this.k8s,
-                        podExec: this.podExec
-                    },
-                    agent,
-                    runtime,
+                    exec,
                     shell,
                     UPGRADE_TIMEOUT_MS
                 )
@@ -193,17 +176,17 @@ export class FrameworkUpgradeService {
                 // so the new version takes effect. env is unchanged so a plain restart
                 // is safe (the env-not-propagated caveat only bites on env changes).
                 if (
-                    runtime.kind === 'sprites' &&
-                    spriteName &&
+                    ctx.placement === 'sprites' &&
                     descriptor.runtimeKind === 'daemon' &&
                     descriptor.serviceName
-                )
-                    await (
-                        await this.spriteClientFor(agent, runtime)
-                    ).restartService(spriteName, descriptor.serviceName)
+                ) {
+                    const { client, spriteName } =
+                        await this.hostClients.spritesClientForHost(host)
+                    await client.restartService(spriteName, descriptor.serviceName)
+                }
                 const recipe = podServiceRecipe(agent.framework)
-                if (runtime.kind === 'k8s' && recipe)
-                    await this.restartPodService(runtime, recipe)
+                if (ctx.placement === 'k8s' && recipe)
+                    await this.restartPodService(host, recipe)
 
                 // Re-probe persists the new version. Assert it actually changed —
                 // catches the case where a pre-installed binary still shadows the
@@ -251,20 +234,14 @@ export class FrameworkUpgradeService {
                 `${agent.framework} has no upgradeable framework version`
             )
         const framework = agent.framework
-        if (!agent.runtimeId)
-            throw new BadRequestException('agent has no runtime')
-        const runtime = await this.loadRuntime(agent.runtimeId)
-        if (!runtime || !hostsFrameworkCli(runtime))
-            throw new BadRequestException(
-                'framework upgrade is only supported on sprites and cloud computers'
-            )
+        const ctx = await this.hostedRuntime(agent)
+        const { runtime, host } = ctx
         const podRecipe =
-            runtime.kind === 'k8s' ? podServiceRecipe(framework) : undefined
-        if (runtime.kind === 'k8s' && !podRecipe)
+            ctx.placement === 'k8s' ? podServiceRecipe(framework) : undefined
+        if (ctx.placement === 'k8s' && !podRecipe)
             throw new BadRequestException(
                 `${framework} rebuild upgrade is not available on cloud computers`
             )
-        const spriteName = agent.spriteName ?? runtime.spriteName
         const serviceName = frameworkVersionDescriptor(framework).serviceName
         if (!serviceName)
             throw new InternalServerErrorException(
@@ -300,11 +277,11 @@ export class FrameworkUpgradeService {
         if (podRecipe)
             return withRuntimeUpgradeLock(
                 this.db,
-                upgradeLockTarget(agent, runtime, agent.framework),
+                upgradeLockTarget(runtime, agent.framework),
                 async () => {
                     await this.rebuildOnPod({
                         agent,
-                        runtime,
+                        ctx,
                         recipe: podRecipe,
                         targetVersion,
                         sourceRepo,
@@ -314,17 +291,13 @@ export class FrameworkUpgradeService {
                 }
             )
 
-        if (!spriteName) throw new BadRequestException('agent has no sprite')
         return withRuntimeUpgradeLock(
             this.db,
-            {
-                accountId: agent.accountId ?? runtime.accountId ?? '',
-                spriteName,
-                component: agent.framework
-            },
+            upgradeLockTarget(runtime, agent.framework),
             async () => {
                 emitter.step('validating')
-                const client = await this.spriteClientFor(agent, runtime)
+                const { client, spriteName } =
+                    await this.hostClients.spritesClientForHost(host)
                 // Carry the admitted snapshot through the lock/client awaits;
                 // re-reading settings here could pair this tag with another repo.
                 const shells = this.rebuildShellsFor(
@@ -487,23 +460,19 @@ export class FrameworkUpgradeService {
     // comes back up before the version is read back (ADR-0035).
     private async rebuildOnPod(args: {
         agent: Agent
-        runtime: AgentRuntimeRow
+        ctx: HostedRuntime
         recipe: PodServiceRecipe
         targetVersion: string
         sourceRepo: string | null
         emitter: FrameworkUpgradeEmitter
     }): Promise<void> {
-        const { agent, runtime, recipe, emitter } = args
-        if (!this.podServices || !runtime.hostId)
+        const { agent, ctx, recipe, emitter } = args
+        if (!this.podServices)
             throw new ServiceUnavailableException(
                 'cloud computer services are not available'
             )
-        const host = { id: runtime.hostId, userId: runtime.userId }
-        const shellDeps = {
-            accounts: this.accounts,
-            k8s: this.k8s,
-            podExec: this.podExec
-        }
+        const host = ctx.host
+        const exec = await this.execResolver.forRuntime(ctx.runtime, this.log)
         emitter.step('validating')
         const shells = this.rebuildShellsFor(
             agent.framework,
@@ -515,17 +484,13 @@ export class FrameworkUpgradeService {
         await this.podServices.stop(host, recipe.serviceName)
         emitter.step('rebuilding')
         const rebuild = await runOnRuntimeHost(
-            shellDeps,
-            agent,
-            runtime,
+            exec,
             shells.rebuild,
             REBUILD_TIMEOUT_MS
         )
         if (rebuild.exitCode !== 0) {
             await runOnRuntimeHost(
-                shellDeps,
-                agent,
-                runtime,
+                exec,
                 shells.restore,
                 RESTORE_TIMEOUT_MS
             ).catch(() => undefined)
@@ -555,11 +520,10 @@ export class FrameworkUpgradeService {
     }
 
     private async restartPodService(
-        runtime: AgentRuntimeRow,
+        host: RuntimeHostRow,
         recipe: PodServiceRecipe
     ): Promise<void> {
-        if (!this.podServices || !runtime.hostId) return
-        const host = { id: runtime.hostId, userId: runtime.userId }
+        if (!this.podServices) return
         await this.podServices.restart(host, recipe.serviceName)
         await this.podServices.waitHealthy(
             host,
@@ -636,29 +600,18 @@ export class FrameworkUpgradeService {
             )
     }
 
-    private async loadRuntime(
-        runtimeId: string
-    ): Promise<AgentRuntimeRow | null> {
-        const [row] = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, runtimeId))
-            .limit(1)
-        return row ?? null
-    }
-
-    private async spriteClientFor(
-        agent: Agent,
-        runtime: AgentRuntimeRow
-    ): Promise<SpritesClient> {
-        const accountId = agent.accountId ?? runtime.accountId
-        if (!accountId)
-            throw new Error(`sprites agent ${agent.id} missing accountId`)
-        const account = await this.accounts.getById(accountId)
-        if (!account) throw new Error(`sprites account ${accountId} not found`)
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+    // The agent's runtime on a hosted machine (ADR-0036); a local machine's
+    // CLI is the user's own to upgrade.
+    private async hostedRuntime(agent: Agent): Promise<HostedRuntime> {
+        const ctx = await this.runtimeContext.forRuntime(agent.runtimeId)
+        if (!ctx || !ctx.host || !hostsFrameworkCli(ctx.placement))
+            throw new BadRequestException(
+                'framework upgrade is only supported on sprites and cloud computers'
+            )
+        if (ctx.host.status !== 'ready')
+            throw new BadRequestException(
+                `the machine is ${ctx.host.status}; retry once it is ready`
+            )
+        return ctx as HostedRuntime
     }
 }

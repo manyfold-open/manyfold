@@ -32,7 +32,9 @@ export const chatMessages = pgTable(
             mode: 'bigint'
         }),
         capabilityEventsJson: jsonb('capability_events_json'),
-        daemonId: text('daemon_id'),
+        // The host whose daemon ran (or is running) this turn: the routing key
+        // for resume, cancel and stdin (ADR-0036). Snapshot, not a foreign key.
+        hostId: text('host_id'),
         daemonExecRef: text('daemon_exec_ref'),
         cancelRequestedAt: timestamp('cancel_requested_at', {
             withTimezone: true
@@ -68,8 +70,8 @@ export const chatMessages = pgTable(
             table.sessionId,
             table.createdAt
         ),
-        daemonExecRefIdx: index('chat_messages_daemon_exec_ref_idx')
-            .on(table.daemonId, table.daemonExecRef)
+        hostExecRefIdx: index('chat_messages_host_exec_ref_idx')
+            .on(table.hostId, table.daemonExecRef)
             .where(sql`${table.daemonExecRef} is not null`)
     })
 )

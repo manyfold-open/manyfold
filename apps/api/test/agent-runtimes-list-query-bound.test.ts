@@ -7,8 +7,9 @@ import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtim
 
 // GET /agent-runtimes used to map every row through toSummary(), which fired
 // up to four queries per runtime — one staging request produced 83 DB spans
-// and ~10s wall time (#542). These tests pin the fixed shape: summarizing a
-// list is a bounded number of bulk queries, not O(runtime_count) fan-out.
+// and ~10s wall time (#542). Under ADR-0036 a summary is one join (runtime ⋈
+// host ⋈ host daemon ⋈ provider) plus one grouped agent count, whatever the
+// list size; these pin that shape and the facts derived from it.
 
 const user = { userId: 'user-1' } as AuthPrincipal
 
@@ -23,79 +24,114 @@ const runtimeRow = (
         userId: 'user-1',
         name: `runtime-${id}`,
         framework: 'claude-code',
-        kind: 'external',
         status: 'ready',
-        accountId: null,
-        clusterId: null,
-        daemonId: null,
+        hostId: null,
+        mountPath: '/workspace',
+        controlUiEnabled: true,
+        dashboardEnabled: false,
+        dashboardState: null,
+        serviceStatus: 'unknown',
+        serviceStatusAt: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides
     }) as AgentRuntimeRow
 
-// 50 mixed runtimes: sprites (account refs, one dangling), k8s (cluster
-// refs), daemon (one online host, one revoked), external (no refs at all).
+const host = (over: Record<string, unknown>) => ({
+    id: 'sbx_1',
+    userId: 'user-1',
+    kind: 'hosted',
+    providerId: 'rtp_1',
+    providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sp_1' },
+    name: 'sandbox-001',
+    status: 'ready',
+    powerState: 'suspended',
+    ...over
+})
+
+// 50 mixed runtimes: sandboxes, cloud computers, self-owned computers (one
+// online, one retired) and external runtimes with no host at all.
 const fixtureRuntimes = (): AgentRuntimeRow[] => {
     const rows: AgentRuntimeRow[] = []
     for (let i = 0; i < 20; i++)
-        rows.push(
-            runtimeRow(`art_${i}`, {
-                kind: 'sprites',
-                accountId: i % 2 === 0 ? 'sac_1' : 'sac_dangling'
-            })
-        )
+        rows.push(runtimeRow(`art_${i}`, { hostId: 'sbx_1' }))
     for (let i = 20; i < 35; i++)
-        rows.push(
-            runtimeRow(`art_${i}`, { kind: 'k8s', clusterId: 'k8c_1' })
-        )
+        rows.push(runtimeRow(`art_${i}`, { hostId: 'pdh_1' }))
     for (let i = 35; i < 45; i++)
         rows.push(
             runtimeRow(`art_${i}`, {
-                kind: 'daemon',
-                daemonId: i % 2 === 0 ? 'dh_online' : 'dh_revoked'
+                hostId: i % 2 === 0 ? 'dh_online' : 'dh_retired'
             })
         )
-    for (let i = 45; i < 50; i++) rows.push(runtimeRow(`art_${i}`))
+    for (let i = 45; i < 50; i++)
+        rows.push(runtimeRow(`art_${i}`, { framework: 'dify' }))
     return rows
 }
 
+const hostsById: Record<string, unknown> = {
+    sbx_1: host({}),
+    pdh_1: host({
+        id: 'pdh_1',
+        name: 'computer-001',
+        providerId: 'rtp_k8s',
+        providerRef: { kind: 'k8s', namespace: 'nca-user-1', ingressHost: null, podPhase: 'Running' },
+        powerState: 'running'
+    }),
+    dh_online: host({
+        id: 'dh_online',
+        kind: 'local',
+        providerId: null,
+        providerRef: null,
+        name: 'laptop',
+        powerState: null
+    }),
+    dh_retired: host({
+        id: 'dh_retired',
+        kind: 'local',
+        providerId: null,
+        providerRef: null,
+        name: 'old-box',
+        status: 'retired',
+        powerState: null
+    })
+}
+const providersById: Record<string, unknown> = {
+    rtp_1: { id: 'rtp_1', kind: 'sprites', name: 'acme' },
+    rtp_k8s: { id: 'rtp_k8s', kind: 'k8s', name: 'main-cluster' }
+}
+const daemonsByHost: Record<string, unknown> = {
+    sbx_1: { hostId: 'sbx_1', cliVersion: '5.0.0', lastSeenAt: new Date() },
+    dh_online: { hostId: 'dh_online', cliVersion: '5.0.1', lastSeenAt: new Date() },
+    dh_retired: {
+        hostId: 'dh_retired',
+        cliVersion: '4.9.0',
+        lastSeenAt: new Date(Date.now() - 3_600_000)
+    }
+}
+
 // Fake drizzle that records one entry per EXECUTED query (chain awaited), not
-// per builder constructed — listByUser embeds a notExists() subquery builder
-// that never runs on its own. Results route on the selection's column keys.
+// per builder constructed. Results route on the selection's column keys.
 const buildDb = (runtimes: AgentRuntimeRow[]) => {
     const executed: string[] = []
     const route = (selection?: Record<string, unknown>) => {
         if (!selection) return { label: 'runtimes.list', rows: runtimes }
         const keys = Object.keys(selection).sort().join(',')
-        if (keys === 'id,slug')
+        if (keys === 'daemon,host,provider,runtimeId')
             return {
-                label: 'accounts.bulk',
-                rows: [{ id: 'sac_1', slug: 'acme' }]
-            }
-        if (keys === 'id,name')
-            return {
-                label: 'clusters.bulk',
-                rows: [{ id: 'k8c_1', name: 'main-cluster' }]
-            }
-        if (keys === 'cliVersion,id,name,rpcLastSeenAt,status')
-            return {
-                label: 'daemons.bulk',
-                rows: [
-                    {
-                        id: 'dh_online',
-                        name: 'laptop',
-                        status: 'active',
-                        cliVersion: '0.22.3',
-                        rpcLastSeenAt: new Date()
-                    },
-                    {
-                        id: 'dh_revoked',
-                        name: 'old-box',
-                        status: 'revoked',
-                        cliVersion: null,
-                        rpcLastSeenAt: null
+                label: 'context.join',
+                rows: runtimes.map((r) => {
+                    const h = r.hostId
+                        ? (hostsById[r.hostId] as { providerId: string | null })
+                        : null
+                    return {
+                        runtimeId: r.id,
+                        host: h,
+                        daemon: r.hostId ? (daemonsByHost[r.hostId] ?? null) : null,
+                        provider: h?.providerId
+                            ? providersById[h.providerId]
+                            : null
                     }
-                ]
+                })
             }
         if (keys === 'runtimeId,value')
             return {
@@ -112,6 +148,7 @@ const buildDb = (runtimes: AgentRuntimeRow[]) => {
             const { label, rows } = route(selection)
             const chain = {
                 from: () => chain,
+                leftJoin: () => chain,
                 where: () => chain,
                 groupBy: () => chain,
                 limit: () => chain,
@@ -135,34 +172,22 @@ const buildService = (runtimes: AgentRuntimeRow[]) => {
     return { service, executed }
 }
 
-test('listing 50 mixed runtimes stays at 4 summary queries, not 4 per row', async () => {
+test('listing 50 mixed runtimes stays at 2 summary queries, not 4 per row', async () => {
     const runtimes = fixtureRuntimes()
     const { service, executed } = buildService(runtimes)
-    const controller = new AgentRuntimesController(
-        {} as never,
-        service,
-        {} as never,
-        {} as never,
-        {} as never
-    )
+    const controller = new AgentRuntimesController(service, {} as never)
 
     const summaries = await controller.list(user)
 
     assert.equal(summaries.length, 50)
     assert.deepEqual(
         [...executed].sort(),
-        [
-            'accounts.bulk',
-            'agentCounts.grouped',
-            'clusters.bulk',
-            'daemons.bulk',
-            'runtimes.list'
-        ],
-        `expected 1 list + 4 bulk queries for 50 runtimes, got: ${executed.join(', ')}`
+        ['agentCounts.grouped', 'context.join', 'runtimes.list'],
+        `expected 1 list + 2 bulk queries for 50 runtimes, got: ${executed.join(', ')}`
     )
 })
 
-test('summaries assemble from the bulk maps with unchanged semantics', async () => {
+test('summaries derive placement, host and daemon facts from the join', async () => {
     const runtimes = fixtureRuntimes()
     const { service } = buildService(runtimes)
 
@@ -174,31 +199,49 @@ test('summaries assemble from the bulk maps with unchanged semantics', async () 
         'row order must be preserved'
     )
     const byId = new Map(summaries.map((s) => [s.id, s]))
-    assert.equal(byId.get('art_0')?.accountSlug, 'acme')
-    assert.equal(byId.get('art_0')?.agentsCount, 3)
-    assert.equal(
-        byId.get('art_1')?.accountSlug,
-        null,
-        'dangling account ref resolves to null, not a throw'
-    )
+    const sandbox = byId.get('art_0')!
+    assert.equal(sandbox.kind, 'sprites')
+    assert.equal(sandbox.hostName, 'sandbox-001')
+    assert.equal(sandbox.hostKind, 'hosted')
+    assert.equal(sandbox.hostStatus, 'ready')
+    assert.equal(sandbox.providerName, 'acme')
+    assert.equal(sandbox.providerKind, 'sprites')
+    assert.equal(sandbox.providerRefLabel, 'sbx-1')
+    assert.equal(sandbox.powerState, 'suspended')
+    assert.equal(sandbox.daemonOnline, true)
+    assert.equal(sandbox.daemonCliVersion, '5.0.0')
+    assert.equal(sandbox.availability, 'available')
+    assert.equal(sandbox.agentsCount, 3)
     assert.equal(byId.get('art_1')?.agentsCount, 0)
-    assert.equal(byId.get('art_20')?.clusterName, 'main-cluster')
-    assert.equal(byId.get('art_20')?.agentsCount, 1)
-    assert.equal(byId.get('art_36')?.daemonName, 'laptop')
-    assert.equal(byId.get('art_36')?.daemonOnline, true)
-    assert.equal(byId.get('art_36')?.daemonCliVersion, '0.22.3')
-    assert.equal(byId.get('art_35')?.daemonName, 'old-box')
-    assert.equal(
-        byId.get('art_35')?.daemonOnline,
-        false,
-        'a known-but-revoked daemon host is offline, not null'
-    )
-    const external = byId.get('art_45')
-    assert.equal(external?.accountSlug, null)
-    assert.equal(external?.clusterName, null)
-    assert.equal(external?.daemonName, null)
-    assert.equal(external?.daemonOnline, null)
-    assert.equal(external?.agentsCount, 0)
+
+    const pod = byId.get('art_20')!
+    assert.equal(pod.kind, 'k8s')
+    assert.equal(pod.providerName, 'main-cluster')
+    assert.equal(pod.providerRefLabel, 'nca-user-1')
+    assert.equal(pod.daemonOnline, false, 'a registered-nowhere daemon reads offline')
+    assert.equal(pod.availability, 'wakeable', 'hosted and not online is wakeable')
+    assert.equal(pod.agentsCount, 1)
+
+    const laptop = byId.get('art_36')!
+    assert.equal(laptop.kind, 'daemon')
+    assert.equal(laptop.hostName, 'laptop')
+    assert.equal(laptop.daemonOnline, true)
+    assert.equal(laptop.daemonCliVersion, '5.0.1')
+    assert.equal(laptop.availability, 'available')
+
+    const retired = byId.get('art_35')!
+    assert.equal(retired.hostName, 'old-box')
+    assert.equal(retired.hostStatus, 'retired')
+    assert.equal(retired.daemonOnline, false, 'a stale heartbeat is offline, not null')
+    assert.equal(retired.availability, 'unavailable', 'a retired host is never usable')
+
+    const external = byId.get('art_45')!
+    assert.equal(external.kind, 'external')
+    assert.equal(external.hostId, null)
+    assert.equal(external.providerName, null)
+    assert.equal(external.daemonOnline, null)
+    assert.equal(external.availability, 'available')
+    assert.equal(external.agentsCount, 0)
 })
 
 test('an empty list touches the database zero times', async () => {
@@ -208,21 +251,14 @@ test('an empty list touches the database zero times', async () => {
     assert.deepEqual(executed, [])
 })
 
-test('toSummary delegates to the batch path and skips queries for absent refs', async () => {
-    const runtime = runtimeRow('art_0', {
-        kind: 'daemon',
-        daemonId: 'dh_online'
-    })
+test('toSummary delegates to the batch path', async () => {
+    const runtime = runtimeRow('art_0', { hostId: 'dh_online' })
     const { service, executed } = buildService([runtime])
 
     const summary = await service.toSummary(runtime)
 
     assert.equal(summary.id, 'art_0')
-    assert.equal(summary.daemonName, 'laptop')
+    assert.equal(summary.hostName, 'laptop')
     assert.equal(summary.daemonOnline, true)
-    assert.deepEqual(
-        executed,
-        ['daemons.bulk', 'agentCounts.grouped'],
-        'no account/cluster ref means no account/cluster query'
-    )
+    assert.deepEqual(executed, ['context.join', 'agentCounts.grouped'])
 })

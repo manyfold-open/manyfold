@@ -7,23 +7,21 @@ import {
     agentRowToSummary
 } from '../src/modules/agents/agents.service'
 import { UpdateAgentDto } from '../src/modules/agents/dto/update-agent.dto'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const baseAgent = {
     id: 'agt_test',
     userId: 'user_test',
-    runtimeId: null,
+    runtimeId: 'art_test',
     name: 'old-name',
     framework: 'claude-code',
-    runtime: 'sprites',
-    status: 'running',
-    spriteStatus: null,
-    k8sPodPhase: null,
-    clusterId: null,
-    spriteName: 'sprite-test',
-    spriteId: null,
+    status: 'ready',
     mountPath: '/workspace',
-    namespace: null,
-    ingressHost: null,
     currentPhase: null,
     failureReason: null,
     internalId: 'sprite-test',
@@ -37,14 +35,22 @@ const baseAgent = {
     updatedAt: new Date('2026-01-01T00:00:00Z')
 }
 
+const summaryRow = (agent = baseAgent) =>
+    contextOf({
+        agent: agent as never,
+        runtime: runtimeRow({ id: agent.runtimeId, framework: agent.framework }),
+        host: spritesHostRow()
+    })
+
 const makeService = (agent = baseAgent) => {
     let selectCalls = 0
     let lastPatch: Record<string, unknown> | null = null
     const db = {
-        select: () => ({
+        select: (cols?: unknown) => ({
             from: () => ({
                 where: () => ({
                     limit: async () => {
+                        if (cols) return []
                         selectCalls += 1
                         return selectCalls === 1 ? [agent] : []
                     }
@@ -71,12 +77,12 @@ const makeService = (agent = baseAgent) => {
         service: new AgentsService(
             db as never,
             reconcile as never,
-            {} as never,
-            { resolveNeedsUpgradeMap: async () => new Map() } as never,
-            {} as never,
-            {} as never,
+            fakeRuntimeContext(summaryRow(agent)) as never,
             { get: () => ({}) } as never,
-            {} as never,
+            {
+                latestFor: async () => null,
+                blockedRangesFor: async () => []
+            } as never,
             {} as never,
             {} as never,
             {
@@ -84,7 +90,9 @@ const makeService = (agent = baseAgent) => {
                     mcpRefreshCount += 1
                 }
             } as never,
-            {} as never
+            {
+                getCachedLatest: async () => ({ version: null, channel: 'stable' })
+            } as never
         ),
         lastPatch: () => lastPatch,
         mcpRefreshCount: () => mcpRefreshCount
@@ -191,209 +199,15 @@ test('AgentsService rejects MCP config for a non-MCP framework', async () => {
     )
 })
 
-test('AgentsService stopSprite returns keep-alive release status', async () => {
-    const agent = {
-        ...baseAgent,
-        runtimeId: 'art_test',
-        spriteStatus: 'running'
-    }
-    const runtime = {
-        id: 'art_test',
-        framework: 'hermes',
-        kind: 'sprites'
-    }
-    const auditRows: unknown[] = []
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [agent]
-                })
-            })
-        }),
-        insert: () => ({
-            values: async (row: unknown) => {
-                auditRows.push(row)
-            }
-        })
-    }
-    const keepAliveCalls: string[] = []
-    const service = new AgentsService(
-        db as never,
-        {
-            loadRuntime: async () => runtime,
-            touchRuntime: () => undefined
-        } as never,
-        {
-            closeForAgent: () => 2
-        } as never,
-        { resolveNeedsUpgradeMap: async () => new Map() } as never,
-        {
-            stopAndRelease: async (rt: { id: string }) => {
-                keepAliveCalls.push(rt.id)
-                return { state: 'verified', maxStaleSec: 90 }
-            }
-        } as never,
-        {
-            findById: async () => runtime
-        } as never,
-        { get: () => ({}) } as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-    )
-
-    const result = await service.stopSprite(agent.id, agent.userId, false)
-
-    assert.equal(result.status, 'pending')
-    assert.equal(result.closedSessions, 2)
-    assert.equal(result.estimatedReadyInSec, 90)
-    assert.deepEqual(result.keepAliveRelease, {
-        state: 'verified',
-        maxStaleSec: 90
-    })
-    assert.deepEqual(keepAliveCalls, ['art_test'])
-    assert.equal(auditRows.length, 1)
-})
-
-test('AgentsService stopSprite clears keep-alive flag before stopAndRelease', async () => {
-    const agent = {
-        ...baseAgent,
-        runtimeId: 'art_keepalive',
-        spriteStatus: 'running'
-    }
-    const runtime = {
-        id: 'art_keepalive',
-        framework: 'hermes',
-        kind: 'sprites',
-        keepAliveEnabled: true
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [agent]
-                })
-            })
-        }),
-        insert: () => ({
-            values: async () => undefined
-        })
-    }
-    const calls: string[] = []
-    const service = new AgentsService(
-        db as never,
-        {
-            loadRuntime: async () => runtime,
-            touchRuntime: () => undefined
-        } as never,
-        {
-            closeForAgent: () => 0
-        } as never,
-        { resolveNeedsUpgradeMap: async () => new Map() } as never,
-        {
-            stopAndRelease: async () => {
-                calls.push('stopAndRelease')
-                return { state: 'verified', maxStaleSec: 90 }
-            }
-        } as never,
-        {
-            findById: async () => runtime,
-            setKeepAliveEnabled: async (id: string, enabled: boolean) => {
-                calls.push(`setKeepAliveEnabled:${id}:${enabled}`)
-            }
-        } as never,
-        { get: () => ({}) } as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-    )
-
-    const result = await service.stopSprite(agent.id, agent.userId, false)
-
-    assert.equal(result.status, 'pending')
-    // WHY: with the flag left on, reconcile Pass B re-wakes the sprite within
-    // 60s and user-stop becomes a lie — the column must flip to false BEFORE
-    // stopAndRelease so even a degraded release cannot be resurrected.
-    assert.deepEqual(
-        calls,
-        ['setKeepAliveEnabled:art_keepalive:false', 'stopAndRelease'],
-        'keep-alive flag must be cleared before stopAndRelease or Pass B resurrects a user-stopped sprite'
-    )
-})
-
-test('AgentsService stopSprite keeps sprite sleep estimate for exec-kind runtimes', async () => {
-    const agent = {
-        ...baseAgent,
-        runtimeId: 'art_exec',
-        spriteStatus: 'running'
-    }
-    const runtime = {
-        id: 'art_exec',
-        framework: 'claude-code',
-        kind: 'sprites'
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [agent]
-                })
-            })
-        }),
-        insert: () => ({
-            values: async () => undefined
-        })
-    }
-    const service = new AgentsService(
-        db as never,
-        {
-            loadRuntime: async () => runtime,
-            touchRuntime: () => undefined
-        } as never,
-        {
-            closeForAgent: () => 1
-        } as never,
-        { resolveNeedsUpgradeMap: async () => new Map() } as never,
-        {
-            stopAndRelease: async () => ({
-                state: 'not_applicable',
-                maxStaleSec: 0
-            })
-        } as never,
-        {
-            findById: async () => runtime
-        } as never,
-        { get: () => ({}) } as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-    )
-
-    const result = await service.stopSprite(agent.id, agent.userId, false)
-
-    assert.equal(result.status, 'pending')
-    assert.equal(result.closedSessions, 1)
-    assert.equal(result.estimatedReadyInSec, 35)
-    assert.deepEqual(result.keepAliveRelease, {
-        state: 'not_applicable',
-        maxStaleSec: 0
-    })
-})
-
 test('agentRowToSummary carries lastMessageAt separately from the liveness timestamps', () => {
     const reconciledJustNow = new Date('2026-01-05T00:00:00Z')
-    const summary = agentRowToSummary({
-        ...baseAgent,
-        lastReconciledAt: reconciledJustNow,
-        lastMessageAt: new Date('2026-01-02T00:00:00Z')
-    } as never)
+    const summary = agentRowToSummary(
+        summaryRow({
+            ...baseAgent,
+            lastReconciledAt: reconciledJustNow,
+            lastMessageAt: new Date('2026-01-02T00:00:00Z')
+        } as never) as never
+    )
 
     assert.equal(
         summary.lastMessageAt,
@@ -408,10 +222,9 @@ test('agentRowToSummary carries lastMessageAt separately from the liveness times
 })
 
 test('agentRowToSummary reports a never-prompted agent as null, not as its creation time', () => {
-    const summary = agentRowToSummary({
-        ...baseAgent,
-        lastMessageAt: null
-    } as never)
+    const summary = agentRowToSummary(
+        summaryRow({ ...baseAgent, lastMessageAt: null } as never) as never
+    )
 
     assert.equal(
         summary.lastMessageAt,

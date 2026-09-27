@@ -11,12 +11,12 @@ import {
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import { WebSocket as UpstreamWs } from 'ws'
-import { createClient } from '@manyfold/sprites'
+import type { RuntimeHostRow } from '@manyfold/db'
 import {
     ApiTokenService,
     API_TOKEN_SCOPE_FULL
 } from '@/modules/auth/api-token.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
@@ -32,9 +32,8 @@ export interface SpritesTerminalRequest {
     // terminals (it drives MF_AGENT_ID + close-time storage measurement).
     userId: string
     sessionKey: string
-    accountId: string | null
-    spriteName: string | null
-    hostId: string | null
+    // The hosted machine on a sprites provider the shell opens on.
+    host: RuntimeHostRow
     mountPath: string
     extras: Record<string, unknown>
     agentId?: string
@@ -97,7 +96,7 @@ export class SpritesTerminal {
     private readonly log = new Logger(SpritesTerminal.name)
 
     constructor(
-        private readonly accounts: SpritesAccountsService,
+        private readonly hostClients: HostProviderClients,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly spriteStorage: SpriteStorageService,
         private readonly sessionRegistry: SpritesSessionRegistry,
@@ -113,9 +112,7 @@ export class SpritesTerminal {
         const {
             userId,
             sessionKey,
-            accountId,
-            spriteName,
-            hostId,
+            host,
             mountPath,
             extras,
             agentId,
@@ -126,19 +123,18 @@ export class SpritesTerminal {
             client,
             onClose
         } = req
-        if (!accountId || !spriteName || !hostId)
+        if (host.providerRef?.kind !== 'sprites')
             throw new NotFoundException(
-                'sprites terminal target missing accountId, spriteName or hostId'
+                `host ${host.id} has no sprite to open a terminal on`
             )
+        const hostId = host.id
         await this.runtimeAccess.reserveActiveSlot({ userId, hostId })
 
-        const account = await this.accounts.getById(accountId)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${accountId} not found`
-            )
-        const token = this.accounts.decryptToken(account)
-        const spritesClient = createClient({ token })
+        const {
+            client: spritesClient,
+            spriteName,
+            provider
+        } = await this.hostClients.spritesClientForHost(host)
 
         // The interactive terminal acts as the USER, not the agent: mint a
         // short-lived api.full token and inject it per-session only (never on the
@@ -254,6 +250,7 @@ export class SpritesTerminal {
 
         unregister = this.sessionRegistry.register(sessionKey, {
             kind: 'terminal',
+            hostId,
             close: (reason) => cleanup(4001, reason)
         })
 
@@ -312,8 +309,8 @@ export class SpritesTerminal {
                 // Agent terminals publish `running`; bare-sandbox terminals only poke
                 // (reserveActiveSlot already wrote the host `running`).
                 if (agentId)
-                    void this.spriteStatusSync.markSpriteRunning(agentId)
-                else this.spriteStatusSync.pokeAccount(accountId)
+                    void this.spriteStatusSync.markHostRunning(hostId)
+                else this.spriteStatusSync.pokeProvider(provider.id)
                 try {
                     candidate.send(
                         JSON.stringify({ type: 'resize', cols, rows })
@@ -420,19 +417,12 @@ export class SpritesTerminal {
     // Kill a terminal's process this instance may not have the socket of (a
     // takeover, the user's release from the chat view, the lease reaper).
     async killByHandle(args: {
-        accountId: string
-        spriteName: string
+        host: RuntimeHostRow
         handle: string
     }): Promise<void> {
-        const account = await this.accounts.getById(args.accountId)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${args.accountId} not found`
-            )
-        const spritesClient = createClient({
-            token: this.accounts.decryptToken(account)
-        })
-        await spritesClient.killExecSession(args.spriteName, args.handle, {
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(args.host)
+        await client.killExecSession(spriteName, args.handle, {
             timeoutSec: EXEC_KILL_TIMEOUT_SEC
         })
     }

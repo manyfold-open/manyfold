@@ -15,7 +15,6 @@ const IP = '203.0.113.7'
 
 const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     id: 'rt-1',
-    kind: 'sprites',
     framework: 'hermes',
     status: 'ready',
     serviceStatus: 'unknown',
@@ -34,6 +33,7 @@ const reportDto = (over: Record<string, unknown> = {}) =>
 const makeHarness = (
     opts: {
         runtime?: Record<string, unknown> | null
+        placement?: string
         credentialsRow?: boolean
     } = {}
 ) => {
@@ -103,13 +103,25 @@ const makeHarness = (
             touches.push({ runtime: rt, opts: o })
         }
     }
+    const context = {
+        forRuntime: async (id: string) =>
+            runtime && (runtime as { id: string }).id === id
+                ? {
+                      runtime,
+                      placement: opts.placement ?? 'sprites',
+                      host: null,
+                      daemon: null
+                  }
+                : null
+    }
     const svc = new RuntimeReportsService(
         db as never,
         crypto as never,
         telemetry as never,
         runtimes as never,
         reconcile as never,
-        new DaemonRateLimitService()
+        new DaemonRateLimitService(),
+        context as never
     )
     return {
         svc,
@@ -212,7 +224,7 @@ test('fence: missing serviceReport fence 409s even when the presented generation
 // WHY: the disk-readable token is the only gate, so failures must be inert
 // and leak no existence oracle; the scope guard keeps exec-kind/k8s/daemon
 // runtimes untouched per the issue scope.
-test('auth/scope: missing bearer, wrong token, missing credentials row, exec-kind, k8s/daemon kind, unknown runtime all 401 uniformly with zero writes', async () => {
+test('auth/scope: missing bearer, wrong token, missing credentials row, exec-kind, k8s/daemon placement, unknown runtime all 401 uniformly with zero writes', async () => {
     const cases: Array<{
         name: string
         h: ReturnType<typeof makeHarness>
@@ -233,13 +245,13 @@ test('auth/scope: missing bearer, wrong token, missing credentials row, exec-kin
             bearer: TOKEN
         },
         {
-            name: 'k8s kind',
-            h: makeHarness({ runtime: fakeRuntime({ kind: 'k8s' }) }),
+            name: 'k8s placement',
+            h: makeHarness({ placement: 'k8s' }),
             bearer: TOKEN
         },
         {
-            name: 'daemon kind',
-            h: makeHarness({ runtime: fakeRuntime({ kind: 'daemon' }) }),
+            name: 'daemon placement',
+            h: makeHarness({ placement: 'daemon' }),
             bearer: TOKEN
         },
         {
@@ -367,8 +379,8 @@ test('per-runtime limit: 31st authenticated report for one runtime 429s; failed-
 // report reaching the touch would violate "no report-driven path ever marks
 // an agent or runtime stopped" — the guard must fire BEFORE any write or
 // touch, even with a valid token and a valid fence.
-test('stopped guard: runtime.status=stopped 409s runtime_stopped before any write or touch', async () => {
-    const h = makeHarness({ runtime: fakeRuntime({ status: 'stopped' }) })
+test('not-ready guard: runtime.status=installing 409s runtime_stopped before any write or touch', async () => {
+    const h = makeHarness({ runtime: fakeRuntime({ status: 'installing' }) })
     await assert.rejects(
         () => h.svc.ingest(IP, TOKEN, reportDto({ event: 'ready' })),
         (err: unknown) => {

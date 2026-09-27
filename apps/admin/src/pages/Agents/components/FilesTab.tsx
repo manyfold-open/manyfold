@@ -1,4 +1,4 @@
-import type { FileRootSdk } from '@manyfold/shared'
+import { isRuntimeUsable, type FileRootSdk } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { SdkAgent } from '@manyfold/sdk'
@@ -20,8 +20,10 @@ const FilesTab: FC<FilesTabProps> = ({ agent }): ReactNode => {
     const [roots, setRoots] = useState<FileRootSdk[] | null>(null)
     const [error, setError] = useState<string | null>(null)
 
+    const usable = isRuntimeUsable(agent.availability)
+
     useEffect(() => {
-        if (agent.status !== 'running') return
+        if (!usable) return
         let cancelled = false
         filesApi
             .roots(agent.id)
@@ -36,9 +38,9 @@ const FilesTab: FC<FilesTabProps> = ({ agent }): ReactNode => {
         return (): void => {
             cancelled = true
         }
-    }, [filesApi, agent.id, agent.status])
+    }, [filesApi, agent.id, usable])
 
-    if (agent.status !== 'running')
+    if (!usable)
         return (
             <p className='text-caption text-body'>
                 {t('admin.agents.detail.files.unavailable')}

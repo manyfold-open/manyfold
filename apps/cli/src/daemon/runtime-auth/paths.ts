@@ -18,14 +18,16 @@ import {
 // from ids the API sends; an id that does not parse never reaches the
 // filesystem, which is what makes "no path travels over the wire" hold.
 //
-//   <configRoot>/runtime-auth/<daemonId>/<runtimeId>/
+//   <configRoot>/runtime-auth/<hostId>/<runtimeId>/
 //       profiles/<profileId>/metadata.json   safe metadata + generation
 //       profiles/<profileId>/view/           the credential context (D1)
 //       profiles/<profileId>/lock/           cross-process lock dir
 //       operations/<operationId>.json        secret-free journal
 //
-// `daemonId` is the registration id (dh_…), so two control planes sharing a
-// machine keep separate stores even under the same profile name.
+// `daemonId` is the host the daemon registered onto (ADR-0036) — a self-owned
+// computer (dh_…), a sandbox (sbx_…) or a pod host (pdh_…) — so two control
+// planes sharing a machine keep separate stores even under the same profile
+// name.
 
 export interface RuntimeAuthScope {
     daemonId: string
@@ -44,9 +46,14 @@ export const assertOperationId = (value: unknown): string => {
     return value
 }
 
+const isHostId = (value: string): boolean =>
+    isObjectId(value, 'daemonHost') ||
+    isObjectId(value, 'sandboxHost') ||
+    isObjectId(value, 'podHost')
+
 const assertScope = (scope: RuntimeAuthScope): RuntimeAuthScope => {
-    if (!isObjectId(scope.daemonId, 'daemonHost'))
-        throw new Error('invalid daemon id for runtime auth scope')
+    if (!isHostId(scope.daemonId))
+        throw new Error('invalid host id for runtime auth scope')
     if (!isObjectId(scope.runtimeId, 'agentRuntime'))
         throw new Error('invalid runtime id for runtime auth scope')
     return scope

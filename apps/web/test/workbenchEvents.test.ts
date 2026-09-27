@@ -23,11 +23,11 @@ test('shared stream observers receive updates and reconnects and stop on layout 
     dispatchWorkbenchEvents((h) => h.onReconnected?.())
     dispatchWorkbenchEvents((h) =>
         h.onHostUpdate?.({
-            type: 'host-update',
             hostId: 'host-1',
-            spriteStatus: 'running',
+            powerState: 'running',
+            daemonOnline: true,
             at: new Date().toISOString()
-        } as never)
+        })
     )
     settings()
     dispatchWorkbenchEvents((h) => h.onReconnected?.())

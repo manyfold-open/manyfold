@@ -4,14 +4,13 @@ import {
     Inject,
     Injectable,
     InternalServerErrorException,
-    Logger,
-    NotFoundException
+    Logger
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import { agents, auditLogs, type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 
 // Removes a non-primary agent from its k8s runtime. Pod hosts and their
 // framework runtimes are created by K8sContainerProvisioner (ADR-0035); a
@@ -22,20 +21,14 @@ export class K8sAgentOrchestrator {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly runtimes: AgentRuntimesService,
         private readonly adapterRegistry: AgentAdapterRegistry
     ) {}
 
-    async deleteNonPrimary(row: Agent, actorUserId: string): Promise<void> {
-        if (!row.runtimeId)
-            throw new InternalServerErrorException(
-                `agent ${row.id} has no runtimeId`
-            )
-        const runtime = await this.runtimes.findById(row.runtimeId)
-        if (!runtime)
-            throw new NotFoundException(
-                `runtime ${row.runtimeId} not found for agent ${row.id}`
-            )
+    async deleteNonPrimary(
+        ctx: RuntimeContext & { agent: Agent },
+        actorUserId: string
+    ): Promise<void> {
+        const { agent: row, runtime } = ctx
         const adapter = this.adapterRegistry.get(row.framework)
         await this.audit(
             actorUserId,
@@ -51,7 +44,7 @@ export class K8sAgentOrchestrator {
         )
         try {
             await adapter.removeAgent({
-                runtime,
+                ...ctx,
                 agent: row,
                 primaryAgentId: runtime.primaryAgentId ?? null
             })

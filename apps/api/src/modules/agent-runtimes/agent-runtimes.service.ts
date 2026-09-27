@@ -1,20 +1,17 @@
-import {
-    DAEMON_ONLINE_THRESHOLD_MS as SHARED_DAEMON_ONLINE_THRESHOLD_MS,
-    agentBaseUrl,
-    runnerHostName
-} from '@manyfold/shared'
+import { daemonOnline, placementOf, runtimeAvailability } from '@manyfold/shared'
 import type {
     AgentCreateStep,
     AgentRuntimeStatus,
     AgentRuntimeSummary,
-    DetectedFramework,
+    RuntimeProviderKind,
     RuntimeServiceStatus
 } from '@manyfold/shared'
 import {
     Inject,
     Injectable,
     Logger,
-    NotFoundException
+    NotFoundException,
+    Optional
 } from '@nestjs/common'
 import {
     and,
@@ -25,31 +22,32 @@ import {
     isNull,
     like,
     ne,
-    notExists,
-    notInArray,
     or,
     sql
 } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
+    hostDaemons,
     runtimeHosts,
-    k8sClusters,
-    spritesAccounts,
+    runtimeProviders,
     type AgentRuntimeRow,
     type Database,
+    type HostDaemonRow,
     type NewAgentRuntimeRow,
-    type RuntimeHostRow
+    type RuntimeHostRow,
+    type RuntimeProvider
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
+import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
+import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
+import { providerRefLabel } from './host-ref'
 
 export interface RuntimeStatusPatch {
     status?: AgentRuntimeStatus
     failureReason?: string | null
-    spriteId?: string | null
-    startedAt?: Date | null
     lastBootstrappedAt?: Date | null
     controlUiEnabled?: boolean
     dashboardEnabled?: boolean
@@ -65,13 +63,7 @@ export interface RuntimeServiceReportPatch {
 }
 
 export interface RuntimeProvisioningPatch {
-    accountId?: string | null
-    spriteName?: string | null
-    clusterId?: string | null
-    namespace?: string | null
-    ingressHost?: string | null
     mountPath?: string
-    homeDir?: string | null
     currentPhase?: AgentCreateStep | null
     // Version the bootstrap actually installed. Recorded at provision time so a
     // fresh agent shows a version immediately instead of "pending" until the
@@ -80,7 +72,21 @@ export interface RuntimeProvisioningPatch {
     frameworkVersionCheckedAt?: Date | null
 }
 
-const RUNNER_HOST_NAME_PREFIX = runnerHostName('')
+// A hosted sprites host as the sandbox surfaces read it: the row, its
+// provider's name, whether its daemon has registered / is online, and how many
+// agents live on it.
+export interface SandboxHostView {
+    host: RuntimeHostRow
+    provider: Pick<RuntimeProvider, 'id' | 'kind' | 'name'> | null
+    daemon: HostDaemonRow | null
+    agentsCount: number
+}
+
+const servicePortFor = (framework: string): number | null => {
+    if (framework === 'hermes') return HERMES_PORT
+    if (framework === 'openclaw') return OPENCLAW_PORT
+    return null
+}
 
 @Injectable()
 export class AgentRuntimesService {
@@ -88,7 +94,10 @@ export class AgentRuntimesService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly telemetry: TelemetryService
+        private readonly telemetry: TelemetryService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, no runtime carries a public endpoint URL.
+        @Optional() private readonly providers?: SandboxProviderRegistry
     ) {}
 
     async create(row: NewAgentRuntimeRow): Promise<AgentRuntimeRow> {
@@ -100,7 +109,7 @@ export class AgentRuntimesService {
             runtimeId: inserted.id,
             userId: inserted.userId,
             framework: inserted.framework,
-            kind: inserted.kind,
+            hostId: inserted.hostId,
             name: inserted.name
         })
         return inserted
@@ -111,17 +120,6 @@ export class AgentRuntimesService {
             .select()
             .from(agentRuntimes)
             .where(eq(agentRuntimes.id, id))
-            .limit(1)
-        return row ?? null
-    }
-
-    async findByIngressHost(
-        ingressHost: string
-    ): Promise<AgentRuntimeRow | null> {
-        const [row] = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.ingressHost, ingressHost))
             .limit(1)
         return row ?? null
     }
@@ -144,30 +142,7 @@ export class AgentRuntimesService {
         const rows = await this.db
             .select()
             .from(agentRuntimes)
-            .where(
-                and(
-                    eq(agentRuntimes.userId, userId),
-                    // `mf daemon register` creates one runtime per framework it
-                    // detects on the host. For a platform-managed host (a
-                    // Phase 3 sprite runner) that is pure noise in the user's
-                    // list — N phantom runtimes per sprite that look like
-                    // somewhere they could put an agent.
-                    notExists(
-                        this.db
-                            .select({ one: sql`1` })
-                            .from(runtimeHosts)
-                            .where(
-                                and(
-                                    eq(
-                                        runtimeHosts.id,
-                                        agentRuntimes.daemonId
-                                    ),
-                                    eq(runtimeHosts.managed, true)
-                                )
-                            )
-                    )
-                )
-            )
+            .where(eq(agentRuntimes.userId, userId))
         if (!opts.boundAgentId) return rows
         // Bound token: filter to runtimes hosting the bound agent.
         const [boundAgent] = await this.db
@@ -182,6 +157,10 @@ export class AgentRuntimesService {
             .limit(1)
         if (!boundAgent?.runtimeId) return []
         return rows.filter((r) => r.id === boundAgent.runtimeId)
+    }
+
+    async listAll(): Promise<AgentRuntimeRow[]> {
+        return this.db.select().from(agentRuntimes)
     }
 
     async setPhase(id: string, phase: AgentCreateStep | null): Promise<void> {
@@ -205,8 +184,6 @@ export class AgentRuntimesService {
         if (patch.status !== undefined) next.status = patch.status
         if (patch.failureReason !== undefined)
             next.failureReason = patch.failureReason
-        if (patch.spriteId !== undefined) next.spriteId = patch.spriteId
-        if (patch.startedAt !== undefined) next.startedAt = patch.startedAt
         if (patch.lastBootstrappedAt !== undefined)
             next.lastBootstrappedAt = patch.lastBootstrappedAt
         if (patch.controlUiEnabled !== undefined)
@@ -262,14 +239,7 @@ export class AgentRuntimesService {
         patch: RuntimeProvisioningPatch
     ): Promise<void> {
         const next: Record<string, unknown> = { updatedAt: new Date() }
-        if (patch.accountId !== undefined) next.accountId = patch.accountId
-        if (patch.spriteName !== undefined) next.spriteName = patch.spriteName
-        if (patch.clusterId !== undefined) next.clusterId = patch.clusterId
-        if (patch.namespace !== undefined) next.namespace = patch.namespace
-        if (patch.ingressHost !== undefined)
-            next.ingressHost = patch.ingressHost
         if (patch.mountPath !== undefined) next.mountPath = patch.mountPath
-        if (patch.homeDir !== undefined) next.homeDir = patch.homeDir
         if (patch.currentPhase !== undefined)
             next.currentPhase = patch.currentPhase
         if (patch.frameworkVersion !== undefined)
@@ -282,26 +252,25 @@ export class AgentRuntimesService {
             .where(eq(agentRuntimes.id, id))
     }
 
-    // Dedicated updater, NOT a RuntimeStatusPatch field — the flag is user
-    // intent, not provisioning status.
-    async setKeepAliveEnabled(id: string, enabled: boolean): Promise<void> {
-        await this.db
-            .update(agentRuntimes)
-            .set({ keepAliveEnabled: enabled, updatedAt: new Date() })
-            .where(eq(agentRuntimes.id, id))
+    async agentsCount(runtimeId: string): Promise<number> {
+        const [row] = await this.db
+            .select({ value: count() })
+            .from(agents)
+            .where(eq(agents.runtimeId, runtimeId))
+        return Number(row?.value ?? 0)
     }
 
+    // Removes the row only. Callers refuse first while agents are bound
+    // (agents.runtime_id cascades) — the controllers answer 409.
     async delete(id: string): Promise<void> {
         const existing = await this.findById(id)
-        // A k8s runtime is one framework on a pod host; the host's daemon
-        // serves every runtime there and goes with the host (ADR-0035).
         await this.db.delete(agentRuntimes).where(eq(agentRuntimes.id, id))
         if (existing) {
             this.telemetry.event('agent.runtime.delete', {
                 runtimeId: id,
                 userId: existing.userId,
                 framework: existing.framework,
-                kind: existing.kind,
+                hostId: existing.hostId,
                 lifetimeMs: Date.now() - new Date(existing.createdAt).getTime()
             })
         }
@@ -341,11 +310,10 @@ export class AgentRuntimesService {
             .where(eq(agentRuntimes.hostId, hostId))
     }
 
-    // The live instance of one framework on one sandbox host, if any. `live`
-    // excludes failed/stopped to match the partial unique index that guarantees
-    // there is at most one, so agent-create can route into it instead of
-    // installing a second copy of the framework on the same VM.
-    async findSpriteRuntimeOnHost(
+    // The one runtime a framework has on a host: (host_id, framework) is
+    // unique with no status predicate, so a failed install keeps its slot and
+    // a retry reuses the row instead of installing a second copy.
+    async findRuntimeOnHost(
         hostId: string,
         framework: AgentRuntimeRow['framework']
     ): Promise<AgentRuntimeRow | null> {
@@ -355,82 +323,37 @@ export class AgentRuntimesService {
             .where(
                 and(
                     eq(agentRuntimes.hostId, hostId),
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agentRuntimes.framework, framework),
-                    notInArray(agentRuntimes.status, ['failed', 'stopped'])
+                    eq(agentRuntimes.framework, framework)
                 )
             )
             .limit(1)
         return row ?? null
     }
 
-    // agents.host_id is the denormalized machine FK the sandbox agentsCount
-    // subqueries already rely on, so no join through agent_runtimes is needed.
     async listAgentsByHost(
         hostId: string
     ): Promise<Array<{ id: string; runtimeId: string }>> {
         return this.db
             .select({ id: agents.id, runtimeId: agents.runtimeId })
             .from(agents)
-            .where(eq(agents.hostId, hostId))
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .where(eq(agentRuntimes.hostId, hostId))
     }
 
-    // Drop a sandbox VM's machine row once its last runtime is gone. Guarded to
-    // kind='sandbox' so a daemon host is never removed through this path. Also
-    // tears down the sprite-runner daemon host bound to the same VM: it lives on
-    // a separate managed daemon row (host_id null) that the sandbox emptiness
-    // checks cannot see, so it would otherwise outlive the VM it ran inside.
-    async deleteSandboxHost(hostId: string): Promise<void> {
-        const [host] = await this.db
-            .select({
-                userId: runtimeHosts.userId,
-                spriteName: runtimeHosts.spriteName
-            })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-        await this.db
-            .delete(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-        if (host?.spriteName)
-            await deleteSpriteRunnerHostForSprite(
-                this.db,
-                host.userId,
-                host.spriteName
-            )
+    async countAgentsOnHost(hostId: string): Promise<number> {
+        const [row] = await this.db
+            .select({ value: count() })
+            .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .where(eq(agentRuntimes.hostId, hostId))
+        return Number(row?.value ?? 0)
     }
 
-    // Keep a failed sandbox host non-reusable while preserving the row as the
-    // retry record for a later remote delete.
-    async revokeSandboxHost(hostId: string): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set({ status: 'revoked', updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-    }
-
-    // Quarantine a sandbox host whose exec endpoint is failing: automatic
+    // Quarantine a hosted host whose exec endpoint is failing: automatic
     // co-residence selection skips it until `until` passes. The row survives —
-    // the VM may still be reachable for its existing runtimes, and the window
-    // expires on its own so a recovered backend needs no operator action.
-    async markSandboxHostExecCooldown(
-        hostId: string,
-        until: Date
-    ): Promise<void> {
+    // the machine may still be reachable for its existing runtimes, and the
+    // window expires on its own so a recovered backend needs no operator action.
+    async markHostExecCooldown(hostId: string, until: Date): Promise<void> {
         await this.db
             .update(runtimeHosts)
             .set({
@@ -440,25 +363,7 @@ export class AgentRuntimesService {
             .where(
                 and(
                     eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-    }
-
-    // Record a sandbox host's VM id once createSprite confirms the VM exists.
-    // reserveSpriteRuntime gates co-residence reuse on sprite_id IS NOT NULL, so
-    // a freshly-reserved host stays unselectable until this runs.
-    async setSandboxHostSprite(
-        hostId: string,
-        spriteId: string | null
-    ): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set({ spriteId, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
+                    eq(runtimeHosts.kind, 'hosted')
                 )
             )
     }
@@ -472,154 +377,111 @@ export class AgentRuntimesService {
         return row ?? null
     }
 
-    async listSandboxesForUser(userId: string): Promise<
-        Array<{
-            host: RuntimeHostRow
-            accountSlug: string | null
-            agentsCount: number
-        }>
-    > {
-        const rows = await this.db
-            .select({
-                host: runtimeHosts,
-                accountSlug: spritesAccounts.slug,
-                agentsCount: sql<number>`(select count(*) from agents a where a.host_id = ${runtimeHosts.id})::int`
-            })
-            .from(runtimeHosts)
-            .leftJoin(
-                spritesAccounts,
-                eq(spritesAccounts.id, runtimeHosts.accountId)
-            )
-            .where(
-                and(
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    ne(runtimeHosts.status, 'revoked')
-                )
-            )
-            .orderBy(desc(runtimeHosts.createdAt))
-        return rows.map((r) => ({
-            host: r.host,
-            accountSlug: r.accountSlug ?? null,
-            agentsCount: Number(r.agentsCount ?? 0)
-        }))
-    }
-
-    // The sprite-runner daemons (one per sandbox, named runnerHostName(sprite))
-    // for one user or, with null, for everyone: what a sandbox's runner can do
-    // is read off its host row even while the sandbox sleeps.
-    async listRunnerHosts(userId: string | null): Promise<RuntimeHostRow[]> {
+    private sandboxQuery() {
         return this.db
-            .select()
-            .from(runtimeHosts)
-            .where(
-                and(
-                    ...(userId ? [eq(runtimeHosts.userId, userId)] : []),
-                    eq(runtimeHosts.kind, 'daemon'),
-                    ne(runtimeHosts.status, 'revoked'),
-                    sql`${runtimeHosts.name} like ${`${RUNNER_HOST_NAME_PREFIX}%`}`
-                )
-            )
-    }
-
-    async listAllSandboxes(): Promise<
-        Array<{
-            host: RuntimeHostRow
-            accountSlug: string | null
-            agentsCount: number
-        }>
-    > {
-        const rows = await this.db
             .select({
                 host: runtimeHosts,
-                accountSlug: spritesAccounts.slug,
-                agentsCount: sql<number>`(select count(*) from agents a where a.host_id = ${runtimeHosts.id})::int`
+                provider: {
+                    id: runtimeProviders.id,
+                    kind: runtimeProviders.kind,
+                    name: runtimeProviders.name
+                },
+                daemon: hostDaemons,
+                agentsCount: sql<number>`(select count(*) from agents a join agent_runtimes r on r.id = a.runtime_id where r.host_id = ${runtimeHosts.id})::int`
             })
             .from(runtimeHosts)
-            .leftJoin(
-                spritesAccounts,
-                eq(spritesAccounts.id, runtimeHosts.accountId)
+            .innerJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
             )
+            .leftJoin(hostDaemons, eq(hostDaemons.hostId, runtimeHosts.id))
+    }
+
+    private static sandboxWhere = () =>
+        and(
+            eq(runtimeHosts.kind, 'hosted'),
+            eq(runtimeProviders.kind, 'sprites'),
+            ne(runtimeHosts.status, 'retired')
+        )
+
+    private static toSandboxView(r: {
+        host: RuntimeHostRow
+        provider: Pick<RuntimeProvider, 'id' | 'kind' | 'name'> | null
+        daemon: HostDaemonRow | null
+        agentsCount: number
+    }): SandboxHostView {
+        return {
+            host: r.host,
+            provider: r.provider ?? null,
+            daemon: r.daemon ?? null,
+            agentsCount: Number(r.agentsCount ?? 0)
+        }
+    }
+
+    async listSandboxesForUser(userId: string): Promise<SandboxHostView[]> {
+        const rows = await this.sandboxQuery()
             .where(
                 and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    ne(runtimeHosts.status, 'revoked')
+                    AgentRuntimesService.sandboxWhere(),
+                    eq(runtimeHosts.userId, userId)
                 )
             )
             .orderBy(desc(runtimeHosts.createdAt))
-        return rows.map((r) => ({
-            host: r.host,
-            accountSlug: r.accountSlug ?? null,
-            agentsCount: Number(r.agentsCount ?? 0)
-        }))
+        return rows.map(AgentRuntimesService.toSandboxView)
     }
 
-    async getSandboxById(hostId: string): Promise<{
-        host: RuntimeHostRow
-        accountSlug: string | null
-        agentsCount: number
-    } | null> {
-        const [r] = await this.db
-            .select({
-                host: runtimeHosts,
-                accountSlug: spritesAccounts.slug,
-                agentsCount: sql<number>`(select count(*) from agents a where a.host_id = ${runtimeHosts.id})::int`
-            })
-            .from(runtimeHosts)
-            .leftJoin(
-                spritesAccounts,
-                eq(spritesAccounts.id, runtimeHosts.accountId)
-            )
+    async listAllSandboxes(): Promise<SandboxHostView[]> {
+        const rows = await this.sandboxQuery()
+            .where(AgentRuntimesService.sandboxWhere())
+            .orderBy(desc(runtimeHosts.createdAt))
+        return rows.map(AgentRuntimesService.toSandboxView)
+    }
+
+    async getSandboxById(hostId: string): Promise<SandboxHostView | null> {
+        const [r] = await this.sandboxQuery()
             .where(
                 and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    ne(runtimeHosts.status, 'revoked')
+                    AgentRuntimesService.sandboxWhere(),
+                    eq(runtimeHosts.id, hostId)
                 )
             )
             .limit(1)
-        if (!r) return null
-        return {
-            host: r.host,
-            accountSlug: r.accountSlug ?? null,
-            agentsCount: Number(r.agentsCount ?? 0)
-        }
+        return r ? AgentRuntimesService.toSandboxView(r) : null
     }
 
     async getSandboxForUser(
         userId: string,
         hostId: string
-    ): Promise<{
-        host: RuntimeHostRow
-        accountSlug: string | null
-        agentsCount: number
-    } | null> {
-        const [r] = await this.db
-            .select({
-                host: runtimeHosts,
-                accountSlug: spritesAccounts.slug,
-                agentsCount: sql<number>`(select count(*) from agents a where a.host_id = ${runtimeHosts.id})::int`
-            })
-            .from(runtimeHosts)
-            .leftJoin(
-                spritesAccounts,
-                eq(spritesAccounts.id, runtimeHosts.accountId)
+    ): Promise<SandboxHostView | null> {
+        const [r] = await this.sandboxQuery()
+            .where(
+                and(
+                    AgentRuntimesService.sandboxWhere(),
+                    eq(runtimeHosts.id, hostId),
+                    eq(runtimeHosts.userId, userId)
+                )
             )
+            .limit(1)
+        return r ? AgentRuntimesService.toSandboxView(r) : null
+    }
+
+    private async patchHostedHost(
+        userId: string,
+        hostId: string,
+        patch: Partial<RuntimeHostRow>
+    ): Promise<boolean> {
+        const updated = await this.db
+            .update(runtimeHosts)
+            .set({ ...patch, updatedAt: new Date() })
             .where(
                 and(
                     eq(runtimeHosts.id, hostId),
                     eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    ne(runtimeHosts.status, 'revoked')
+                    eq(runtimeHosts.kind, 'hosted')
                 )
             )
-            .limit(1)
-        if (!r) return null
-        return {
-            host: r.host,
-            accountSlug: r.accountSlug ?? null,
-            agentsCount: Number(r.agentsCount ?? 0)
-        }
+            .returning({ id: runtimeHosts.id })
+        return updated.length > 0
     }
 
     async setSandboxTerminalEnabled(
@@ -627,18 +489,7 @@ export class AgentRuntimesService {
         hostId: string,
         enabled: boolean
     ): Promise<boolean> {
-        const updated = await this.db
-            .update(runtimeHosts)
-            .set({ terminalEnabled: enabled, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-            .returning({ id: runtimeHosts.id })
-        return updated.length > 0
+        return this.patchHostedHost(userId, hostId, { terminalEnabled: enabled })
     }
 
     async setSandboxTerminalModelCredentials(
@@ -646,21 +497,9 @@ export class AgentRuntimesService {
         hostId: string,
         enabled: boolean
     ): Promise<boolean> {
-        const updated = await this.db
-            .update(runtimeHosts)
-            .set({
-                terminalModelCredentials: enabled,
-                updatedAt: new Date()
-            })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-            .returning({ id: runtimeHosts.id })
-        return updated.length > 0
+        return this.patchHostedHost(userId, hostId, {
+            terminalModelCredentials: enabled
+        })
     }
 
     async setSandboxHostName(
@@ -668,79 +507,23 @@ export class AgentRuntimesService {
         hostId: string,
         name: string
     ): Promise<boolean> {
-        const updated = await this.db
-            .update(runtimeHosts)
-            .set({ name, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-            .returning({ id: runtimeHosts.id })
-        return updated.length > 0
+        return this.patchHostedHost(userId, hostId, { name })
     }
 
-    async setHostDetectedFrameworks(
+    async setHostKeepAwake(
         userId: string,
         hostId: string,
-        detected: DetectedFramework[]
-    ): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set({ detectedFrameworks: detected, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
+        keepAwake: boolean
+    ): Promise<boolean> {
+        return this.patchHostedHost(userId, hostId, { keepAwake })
     }
 
-    async setSandboxCliVersion(
-        userId: string,
-        hostId: string,
-        cliVersion: string
-    ): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set({ cliVersion, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-    }
-
-    // herdr inside the sandbox (ADR-0031), as the probe or an install found
-    // it; null clears a version the sandbox no longer has.
-    async setSandboxHerdrVersion(
-        userId: string,
-        hostId: string,
-        herdrVersion: string | null
-    ): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set({ herdrVersion, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox')
-                )
-            )
-    }
-
-    // Fold a sandbox detect into provisioned runtimes: the probed CLI version IS
-    // the installed version for that framework on the sprite, so back-fill the
-    // runtime rows too (fixes "version pending" without a per-agent refresh).
+    // Fold a host daemon's inventory into the runtimes installed on it: the
+    // probed CLI version IS the installed version for that framework on the
+    // machine, so the runtime rows carry it too (no per-agent refresh needed).
     async applyDetectedVersionsToHostRuntimes(
         hostId: string,
-        detected: DetectedFramework[]
+        detected: Array<{ framework: string; version: string | null }>
     ): Promise<void> {
         const now = new Date()
         for (const d of detected) {
@@ -766,139 +549,118 @@ export class AgentRuntimesService {
         return summary
     }
 
-    // List serialization used to run toSummary per row, fanning out up to four
-    // queries per runtime into the shared pool (#542). Everything a summary
-    // needs is resolved here with a bounded number of bulk queries instead.
+    // One join for the whole list (runtime ⋈ host ⋈ host daemon ⋈ provider)
+    // plus one grouped agent count, whatever the list size (#542).
     async toSummaries(
         runtimes: AgentRuntimeRow[]
     ): Promise<AgentRuntimeSummary[]> {
         if (runtimes.length === 0) return []
-        const collectIds = (values: Array<string | null>): string[] => [
-            ...new Set(values.filter((v): v is string => v !== null))
-        ]
-        const accountIds = collectIds(runtimes.map((r) => r.accountId))
-        const clusterIds = collectIds(runtimes.map((r) => r.clusterId))
-        const daemonIds = collectIds(runtimes.map((r) => r.daemonId))
-        // Read with the daemon hosts: both are runtime_hosts rows.
-        const hostIds = collectIds([
-            ...daemonIds,
-            ...runtimes.map((r) => (r.kind === 'k8s' ? r.hostId : null))
+        const ids = runtimes.map((r) => r.id)
+        const [contextRows, agentCountRows] = await Promise.all([
+            this.db
+                .select({
+                    runtimeId: agentRuntimes.id,
+                    host: runtimeHosts,
+                    daemon: hostDaemons,
+                    provider: {
+                        id: runtimeProviders.id,
+                        kind: runtimeProviders.kind,
+                        name: runtimeProviders.name
+                    }
+                })
+                .from(agentRuntimes)
+                .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+                .leftJoin(hostDaemons, eq(hostDaemons.hostId, runtimeHosts.id))
+                .leftJoin(
+                    runtimeProviders,
+                    eq(runtimeProviders.id, runtimeHosts.providerId)
+                )
+                .where(inArray(agentRuntimes.id, ids)),
+            this.db
+                .select({ runtimeId: agents.runtimeId, value: count() })
+                .from(agents)
+                .where(inArray(agents.runtimeId, ids))
+                .groupBy(agents.runtimeId)
         ])
-        const [accountRows, clusterRows, daemonRows, agentCountRows] =
-            await Promise.all([
-                accountIds.length
-                    ? this.db
-                          .select({
-                              id: spritesAccounts.id,
-                              slug: spritesAccounts.slug
-                          })
-                          .from(spritesAccounts)
-                          .where(inArray(spritesAccounts.id, accountIds))
-                    : [],
-                clusterIds.length
-                    ? this.db
-                          .select({
-                              id: k8sClusters.id,
-                              name: k8sClusters.name
-                          })
-                          .from(k8sClusters)
-                          .where(inArray(k8sClusters.id, clusterIds))
-                    : [],
-                hostIds.length
-                    ? this.db
-                          .select({
-                              id: runtimeHosts.id,
-                              name: runtimeHosts.name,
-                              status: runtimeHosts.status,
-                              cliVersion: runtimeHosts.cliVersion,
-                              rpcLastSeenAt: runtimeHosts.rpcLastSeenAt
-                          })
-                          .from(runtimeHosts)
-                          .where(inArray(runtimeHosts.id, hostIds))
-                    : [],
-                this.db
-                    .select({ runtimeId: agents.runtimeId, value: count() })
-                    .from(agents)
-                    .where(
-                        inArray(
-                            agents.runtimeId,
-                            runtimes.map((r) => r.id)
-                        )
-                    )
-                    .groupBy(agents.runtimeId)
-            ])
-        const slugByAccountId = new Map(accountRows.map((a) => [a.id, a.slug]))
-        const nameByClusterId = new Map(clusterRows.map((c) => [c.id, c.name]))
-        const daemonById = new Map(daemonRows.map((d) => [d.id, d]))
+        const contextByRuntimeId = new Map(
+            contextRows.map((c) => [c.runtimeId, c])
+        )
         const agentsCountByRuntimeId = new Map(
             agentCountRows.map((c) => [c.runtimeId, Number(c.value)])
         )
+        const now = Date.now()
         return runtimes.map((runtime) => {
-            const accountSlug = runtime.accountId
-                ? (slugByAccountId.get(runtime.accountId) ?? null)
-                : null
-            const clusterName = runtime.clusterId
-                ? (nameByClusterId.get(runtime.clusterId) ?? null)
-                : null
-            const daemonHost = runtime.daemonId
-                ? (daemonById.get(runtime.daemonId) ?? null)
-                : null
-            const agentsCount = agentsCountByRuntimeId.get(runtime.id) ?? 0
-            const daemonOnline = daemonHost
-                ? daemonHost.status === 'active' &&
-                  !!daemonHost.rpcLastSeenAt &&
-                  Date.now() - daemonHost.rpcLastSeenAt.getTime() <
-                      DAEMON_ONLINE_THRESHOLD_MS
-                : null
+            const context = contextByRuntimeId.get(runtime.id)
+            const host = context?.host ?? null
+            const daemon = context?.daemon ?? null
+            const provider = context?.provider ?? null
+            const providerKind: RuntimeProviderKind | null =
+                provider?.kind ?? null
+            const online = host ? daemonOnline(daemon, now) : null
             return {
                 id: runtime.id,
                 userId: runtime.userId,
                 name: runtime.name,
                 framework: runtime.framework,
                 frameworkVersion: runtime.frameworkVersion,
-                kind: runtime.kind,
+                kind: placementOf(host ? { kind: host.kind, providerKind } : null),
                 status: runtime.status,
-                accountSlug,
-                clusterId: runtime.clusterId,
-                clusterName,
-                spriteName: runtime.spriteName,
-                spriteId: runtime.spriteId,
-                hostId: runtime.hostId,
-                podHostName:
-                    runtime.kind === 'k8s' && runtime.hostId
-                        ? (daemonById.get(runtime.hostId)?.name ?? null)
-                        : null,
+                availability: runtimeAvailability({
+                    runtime,
+                    host,
+                    daemonOnline: online === true
+                }),
+                hostId: host?.id ?? null,
+                hostName: host?.name ?? null,
+                hostKind: host?.kind ?? null,
+                hostStatus: host?.status ?? null,
+                providerId: provider?.id ?? null,
+                providerKind,
+                providerName: provider?.name ?? null,
+                providerRefLabel: providerRefLabel(host),
+                powerState: host?.powerState ?? null,
+                daemonOnline: online,
+                daemonCliVersion: daemon?.cliVersion ?? null,
                 mountPath: runtime.mountPath,
-                namespace: runtime.namespace,
-                ingressHost: runtime.ingressHost,
-                endpointUrl: runtime.ingressHost
-                    ? agentBaseUrl(runtime.ingressHost)
-                    : null,
+                endpointUrl: this.endpointUrlFor(runtime, host, provider),
                 controlUiEnabled: runtime.controlUiEnabled,
                 dashboardEnabled: runtime.dashboardEnabled,
                 dashboardState: runtime.dashboardState,
-                keepAliveEnabled: runtime.keepAliveEnabled,
                 currentPhase: runtime.currentPhase,
                 failureReason: runtime.failureReason,
                 primaryAgentId: runtime.primaryAgentId,
-                startedAt: runtime.startedAt?.toISOString() ?? null,
                 lastBootstrappedAt:
                     runtime.lastBootstrappedAt?.toISOString() ?? null,
                 createdAt: runtime.createdAt.toISOString(),
                 updatedAt: runtime.updatedAt.toISOString(),
-                agentsCount,
-                daemonId: runtime.daemonId,
-                daemonName: daemonHost?.name ?? null,
-                daemonOnline,
-                daemonCliVersion: daemonHost?.cliVersion ?? null,
-                homeDir: runtime.homeDir,
-                workspaceBaseDir: runtime.workspaceBaseDir,
-                lastSeenAt: runtime.lastSeenAt?.toISOString() ?? null,
+                agentsCount: agentsCountByRuntimeId.get(runtime.id) ?? 0,
                 serviceStatus: runtime.serviceStatus,
                 serviceStatusAt: runtime.serviceStatusAt?.toISOString() ?? null
             }
         })
     }
-}
 
-const DAEMON_ONLINE_THRESHOLD_MS = SHARED_DAEMON_ONLINE_THRESHOLD_MS
+    // A service framework's public entry, derived by the host's provider
+    // adapter from the machine's provider ref; nothing on the runtime row.
+    private endpointUrlFor(
+        runtime: AgentRuntimeRow,
+        host: RuntimeHostRow | null,
+        provider: Pick<RuntimeProvider, 'id' | 'kind' | 'name'> | null
+    ): string | null {
+        const port = servicePortFor(runtime.framework)
+        if (!host || !provider || port === null || !this.providers) return null
+        try {
+            const adapter = this.providers.for(provider.kind)
+            return (
+                adapter.publicUrl?.({
+                    host,
+                    provider: provider as RuntimeProvider,
+                    framework: runtime.framework,
+                    port
+                }) ?? null
+            )
+        } catch {
+            return null
+        }
+    }
+}

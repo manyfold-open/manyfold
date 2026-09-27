@@ -87,13 +87,13 @@ const buildService = (opts: {
 const interactiveMessage = {
     id: 'msg_1',
     sessionId: 'cts_1',
-    daemonId: null,
+    hostId: null,
     daemonExecRef: null
 }
 const daemonMessage = {
     id: 'msg_1',
     sessionId: 'cts_1',
-    daemonId: 'dh_1',
+    hostId: 'dh_1',
     daemonExecRef: 'msg_1'
 }
 

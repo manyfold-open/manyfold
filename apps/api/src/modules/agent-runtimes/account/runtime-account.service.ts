@@ -7,30 +7,28 @@ import {
     runtimeLocalInspectFeature
 } from '@manyfold/shared'
 import type {
+    AgentRuntime,
     ModelConfigFramework,
     RuntimeAccountUsage,
     RuntimeAccountView,
-    RuntimeAccountViewStatus
+    RuntimeAccountViewStatus,
 } from '@manyfold/shared'
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
-import type { AgentRuntimeRow, SpritesAccount } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite
-} from '@manyfold/sprites'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
+import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 import {
     isConcurrentActiveLimitError,
     RuntimeAccessService
 } from '@/modules/runtime-access/runtime-access.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import {
     credentialContextFor
 } from '@/modules/agents/model-config/agent-model-config.service'
-import { AgentRuntimesService } from '../agent-runtimes.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 
 // An older CLI answers account.inspect for pi or agy with nothing, which
 // would read as "not signed in"; it is asked to update instead.
@@ -57,10 +55,17 @@ const CACHE_TTL_MS = 30_000
 // itself is still re-read on every probe.
 const USAGE_TTL_MS = 10 * 60_000
 const DAEMON_RPC_TIMEOUT_MS = 20_000
-const SANDBOX_EXEC_TIMEOUT_MS = 30_000
+const SANDBOX_RPC_TIMEOUT_MS = 30_000
 const MAX_ERROR_CHARS = 300
 
 type HostView = RuntimeAccountView['host']
+
+// The account view still speaks sprites.dev's lifecycle vocabulary for the
+// host it probed; the host row stores the provider-neutral power state.
+const hostViewOf = (host: RuntimeHostRow): HostView => ({
+    powerState: host.powerState,
+    terminalEnabled: host.terminalEnabled
+})
 
 const identityKeyOf = (view: RuntimeAccountView): string | null =>
     view.identity?.accountId ?? view.identity?.email ?? null
@@ -85,12 +90,11 @@ export class RuntimeAccountService {
     >()
 
     constructor(
-        private readonly runtimes: AgentRuntimesService,
-        private readonly daemonHosts: DaemonHostService,
+        private readonly context: RuntimeContextService,
+        private readonly hostDaemons: HostDaemonsService,
         private readonly daemonRegistry: DaemonRegistryService,
-        private readonly accounts: SpritesAccountsService,
         private readonly runtimeAccess: RuntimeAccessService,
-        @Optional() private readonly runnerManager?: RunnerManagerService
+        @Optional() private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     async getView(
@@ -100,11 +104,12 @@ export class RuntimeAccountService {
         // again; bypasses both caches.
         opts: { wake: boolean; refreshUsage?: boolean }
     ): Promise<RuntimeAccountView> {
-        const row = await this.runtimes.findById(runtimeId)
-        if (!row || row.userId !== userId)
+        const ctx = await this.context.forRuntime(runtimeId)
+        if (!ctx || ctx.runtime.userId !== userId)
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
-        if (runtimeAccountSupport(row.framework, row.kind) !== 'ok')
-            return this.view(row, 'unsupported')
+        const row = ctx.runtime
+        if (runtimeAccountSupport(row.framework, ctx.placement) !== 'ok')
+            return this.view(row, ctx.placement, 'unsupported')
         const now = Date.now()
         const cached = this.cache.get(row.id)
         // A wake request is the user asking to spend a VM start; a cached
@@ -119,7 +124,7 @@ export class RuntimeAccountService {
         const key = `${row.id}:${opts.wake ? 'wake' : 'peek'}${opts.refreshUsage ? ':usage' : ''}`
         const pending = this.inflight.get(key)
         if (pending) return pending
-        const promise = this.probe(row, opts.wake, opts.refreshUsage === true)
+        const promise = this.probe(ctx, opts.wake, opts.refreshUsage === true)
             .then((view) => {
                 const retryAfter = view.usage?.error?.retryAfterSeconds
                 const ttl =
@@ -138,21 +143,22 @@ export class RuntimeAccountService {
     }
 
     private async probe(
-        row: AgentRuntimeRow,
+        ctx: RuntimeContext,
         wake: boolean,
         refreshUsage: boolean
     ): Promise<RuntimeAccountView> {
+        const row = ctx.runtime
         const framework = row.framework as ModelConfigFramework
         try {
             const fetchUsage = refreshUsage || !this.usageFresh(row.id)
-            const view = await this.probeHost(row, framework, wake, fetchUsage)
+            const view = await this.probeHost(ctx, framework, wake, fetchUsage)
             // The kept usage belongs to whoever was signed in when it was
             // read; a different identity now means asking again now, not
             // showing one account's numbers under another's name.
             if (!fetchUsage && this.usageIdentityChanged(row.id, view))
                 return this.settleUsage(
                     row.id,
-                    await this.probeHost(row, framework, wake, true),
+                    await this.probeHost(ctx, framework, wake, true),
                     true
                 )
             return this.settleUsage(row.id, view, fetchUsage)
@@ -161,23 +167,12 @@ export class RuntimeAccountService {
             // it is still capped because a failed exec can echo a whole stdout.
             const message = (err as Error).message || String(err)
             this.log.warn(
-                `runtime account probe failed runtime=${row.id} kind=${row.kind}: ${message.slice(0, MAX_ERROR_CHARS)}`
+                `runtime account probe failed runtime=${row.id} placement=${ctx.placement}: ${message.slice(0, MAX_ERROR_CHARS)}`
             )
-            return this.view(row, 'probe-failed', {
+            return this.view(row, ctx.placement, 'probe-failed', {
                 error: message.slice(0, MAX_ERROR_CHARS)
             })
         }
-    }
-
-    private probeHost(
-        row: AgentRuntimeRow,
-        framework: ModelConfigFramework,
-        wake: boolean,
-        fetchUsage: boolean
-    ): Promise<RuntimeAccountView> {
-        return row.kind === 'daemon'
-            ? this.probeDaemon(row, framework, fetchUsage)
-            : this.probeSandbox(row, framework, wake, fetchUsage)
     }
 
     private usageFresh(runtimeId: string): boolean {
@@ -226,105 +221,91 @@ export class RuntimeAccountService {
         return view
     }
 
-    private async probeDaemon(
-        row: AgentRuntimeRow,
-        framework: ModelConfigFramework,
-        fetchUsage: boolean
-    ): Promise<RuntimeAccountView> {
-        if (!row.daemonId)
-            return this.view(row, 'probe-failed', {
-                error: 'runtime has no daemon host'
-            })
-        const host = await this.daemonHosts.findById(row.daemonId)
-        if (!host || host.userId !== row.userId)
-            return this.view(row, 'probe-failed', {
-                error: 'daemon host not found'
-            })
-        if (!this.daemonHosts.isOnline(host))
-            return this.view(row, 'daemon-offline')
-        if (!inspectsAccount(host.clientFeatures, framework))
-            return this.view(row, 'daemon-upgrade-required')
-        const payload = await this.daemonRegistry.rpc({
-            daemonId: host.id,
-            method: 'account.inspect',
-            payload: { framework, usage: fetchUsage },
-            timeoutMs: DAEMON_RPC_TIMEOUT_MS
-        })
-        return this.viewFromProbe(row, payload, null)
-    }
-
-    private async probeSandbox(
-        row: AgentRuntimeRow,
+    // Agent → Runtime → Host → host daemon (R11): the probe is one RPC to the
+    // machine's daemon whatever the placement. A sleeping sandbox is only
+    // woken on the user's explicit click; a local host that is offline can
+    // only be brought back by its owner.
+    private async probeHost(
+        ctx: RuntimeContext,
         framework: ModelConfigFramework,
         wake: boolean,
         fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
-        if (!row.hostId)
-            return this.view(row, 'probe-failed', {
-                error: 'runtime has no sandbox host'
+        const row = ctx.runtime
+        const host = ctx.host
+        if (!host)
+            return this.view(row, ctx.placement, 'probe-failed', {
+                error: 'runtime has no host'
             })
-        const host = await this.runtimes.findHostById(row.hostId)
-        if (!host || host.userId !== row.userId || host.kind !== 'sandbox')
-            return this.view(row, 'probe-failed', {
-                error: 'sandbox host not found'
-            })
-        const hostView: HostView = {
-            spriteStatus: host.spriteStatus,
-            terminalEnabled: host.terminalEnabled
+        const hostView = host.kind === 'hosted' ? hostViewOf(host) : null
+        if (host.kind === 'hosted') {
+            if (host.status !== 'ready')
+                return this.view(row, ctx.placement, 'probe-failed', {
+                    host: hostView,
+                    error: 'sandbox is not provisioned'
+                })
+            // An exec wakes a sleeping VM and starts billing its running
+            // time, so a page open only reads a sandbox that is already
+            // awake; waking is the user's explicit click.
+            if (host.powerState !== 'running' && !wake)
+                return this.view(row, ctx.placement, 'sandbox-asleep', {
+                    host: hostView
+                })
+            try {
+                await this.runtimeAccess.reserveActiveSlot({
+                    userId: row.userId,
+                    hostId: host.id
+                })
+            } catch (err) {
+                // Another sandbox holds the plan's active slot: a named
+                // state, so the page can say what to do rather than show a
+                // failed probe.
+                if (!isConcurrentActiveLimitError(err)) throw err
+                return this.view(row, ctx.placement, 'sandbox-limit', {
+                    host: hostView,
+                    error: (err as Error).message
+                })
+            }
         }
-        if (!host.spriteName || !host.accountId)
-            return this.view(row, 'probe-failed', {
-                host: hostView,
-                error: 'sandbox is not provisioned'
+        let daemon = await this.hostDaemons.findByHostId(host.id)
+        // The admitted wake is what brings a sleeping machine's daemon up;
+        // a page open on a running machine only reads the daemon it has.
+        if (
+            host.kind === 'hosted' &&
+            wake &&
+            (!daemon || !this.hostDaemons.isOnline(daemon)) &&
+            this.hostAccess
+        ) {
+            const ensured = await this.hostAccess.ensure({
+                host,
+                daemon,
+                placement: ctx.placement,
+                wake: true
             })
-        // An exec wakes a sleeping VM and starts billing its running time, so
-        // a page open only reads a sandbox that is already awake; waking is
-        // the user's explicit click.
-        if (host.spriteStatus !== 'running' && !wake)
-            return this.view(row, 'sandbox-asleep', { host: hostView })
-        try {
-            await this.runtimeAccess.reserveActiveSlot({
-                userId: row.userId,
-                hostId: host.id
-            })
-        } catch (err) {
-            // Another sandbox holds the plan's active slot: a named state, so
-            // the page can say what to do rather than show a failed probe.
-            if (!isConcurrentActiveLimitError(err)) throw err
-            return this.view(row, 'sandbox-limit', {
+            daemon = ensured.online ? ensured.daemon : null
+        }
+        if (!daemon || !this.hostDaemons.isOnline(daemon)) {
+            if (host.kind === 'local')
+                return this.view(row, ctx.placement, 'daemon-offline')
+            return this.view(row, ctx.placement, 'probe-failed', {
                 host: hostView,
-                error: (err as Error).message
+                error: 'sandbox daemon offline'
             })
         }
-        const account = await this.accounts.getById(host.accountId)
-        if (!account)
-            return this.view(row, 'probe-failed', {
-                host: hostView,
-                error: 'sandbox account unavailable'
+        if (!inspectsAccount(daemon.clientFeatures, framework))
+            return this.view(row, ctx.placement, 'daemon-upgrade-required', {
+                host: hostView
             })
-        if (!this.runnerManager)
-            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
-        const client = this.spritesClientFor(account)
-        const resolved = await this.runnerManager.ensureRunner({
-            agentId: row.primaryAgentId ?? row.id,
-            userId: row.userId,
-            spriteName: host.spriteName,
-            exec: (args) => this.exec(client, host.spriteName!, { ...args, stdin: args.stdin ?? '' })
-        })
-        if (!resolved.handle)
-            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
-        const runner = await this.daemonHosts.findById(resolved.handle.daemonId)
-        if (!runner || runner.userId !== row.userId)
-            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
-        if (!inspectsAccount(runner.clientFeatures, framework))
-            return this.view(row, 'daemon-upgrade-required', { host: hostView })
         const payload = await this.daemonRegistry.rpc({
-            daemonId: runner.id,
+            daemonId: host.id,
             method: 'account.inspect',
             payload: { framework, usage: fetchUsage },
-            timeoutMs: SANDBOX_EXEC_TIMEOUT_MS
+            timeoutMs:
+                host.kind === 'hosted'
+                    ? SANDBOX_RPC_TIMEOUT_MS
+                    : DAEMON_RPC_TIMEOUT_MS
         })
-        return this.viewFromProbe(row, payload, hostView)
+        return this.viewFromProbe(row, ctx.placement, payload, hostView)
     }
 
     // Public seam for the auth-profiles listing, which receives the ambient
@@ -332,29 +313,31 @@ export class RuntimeAccountService {
     fromProbe(
         row: AgentRuntimeRow,
         raw: unknown,
-        host: HostView
+        host: HostView,
+        placement: AgentRuntime
     ): RuntimeAccountView {
-        return this.viewFromProbe(row, raw, host)
+        return this.viewFromProbe(row, placement, raw, host)
     }
 
     private viewFromProbe(
         row: AgentRuntimeRow,
+        placement: AgentRuntime,
         raw: unknown,
         host: HostView
     ): RuntimeAccountView {
         const probe = parseRuntimeAccountProbe(raw)
         if (!probe)
-            return this.view(row, 'probe-failed', {
+            return this.view(row, placement, 'probe-failed', {
                 host,
                 error: 'host returned no account probe'
             })
         const evaluated = runtimeLocalCredentialStatus(
             probe.credentialFacts,
             Date.now(),
-            credentialContextFor(row.kind)
+            credentialContextFor(placement)
         )
         return {
-            ...this.view(row, 'ok', { host }),
+            ...this.view(row, placement, 'ok', { host }),
             checkedAt: probe.checkedAt,
             credentialStatus: evaluated.status,
             credentialReason: evaluated.reason,
@@ -366,13 +349,14 @@ export class RuntimeAccountService {
 
     private view(
         row: AgentRuntimeRow,
+        placement: AgentRuntime,
         status: RuntimeAccountViewStatus,
         extra: { host?: HostView; error?: string | null } = {}
     ): RuntimeAccountView {
         return {
             runtimeId: row.id,
             framework: row.framework,
-            kind: row.kind,
+            kind: placement,
             status,
             checkedAt: null,
             credentialStatus: 'unknown',
@@ -383,23 +367,6 @@ export class RuntimeAccountService {
             host: extra.host ?? null,
             error: extra.error ?? null
         }
-    }
-
-    // Seams so tests can fake the sprites.dev control plane and exec transport
-    // (same shape as SandboxesService).
-    protected spritesClientFor(account: SpritesAccount): SpritesClient {
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
-    }
-
-    protected exec(
-        client: SpritesClient,
-        spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        return execSprite(client, spriteName, opts)
     }
 }
 

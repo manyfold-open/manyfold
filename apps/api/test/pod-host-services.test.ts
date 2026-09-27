@@ -9,15 +9,15 @@ import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod
 
 const HOST = { id: 'pdh_1', userId: 'usr_1' }
 
+// `runner` is the host's daemon row (host_daemons), keyed by the host id.
 const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) => {
     const calls: Array<{ daemonId: string; method: string; payload: unknown }> = []
     let listed: unknown[] = []
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({ limit: async () => (runner ? [runner] : []) })
-            })
-        })
+    const hostDaemons = {
+        findByHostId: async () =>
+            runner
+                ? { hostId: HOST.id, clientFeatures: runner.clientFeatures, lastSeenAt: new Date() }
+                : null
     }
     const registry = {
         rpc: async (req: { daemonId: string; method: string; payload: unknown }) => {
@@ -26,7 +26,11 @@ const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) =
         }
     }
     return {
-        services: new PodHostServices(db as never, registry as never),
+        services: new PodHostServices(
+            registry as never,
+            { findById: async () => null } as never,
+            hostDaemons as never
+        ),
         calls,
         list: (services: unknown[]) => {
             listed = services
@@ -35,17 +39,18 @@ const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) =
 }
 
 test('services go to the host daemon, which has to advertise them', async () => {
-    const rig = servicesWith({ id: 'dh_pod', clientFeatures: [DAEMON_FEATURE_SERVICES] })
+    const rig = servicesWith({ id: 'pdh_1', clientFeatures: [DAEMON_FEATURE_SERVICES] })
     await rig.services.restart(HOST, 'openclaw')
+    // The routing key is the host id (ADR-0036).
     assert.deepEqual(
         rig.calls.map((c) => [c.daemonId, c.method, c.payload]),
         [
-            ['dh_pod', 'service.stop', { name: 'openclaw' }],
-            ['dh_pod', 'service.start', { name: 'openclaw' }]
+            ['pdh_1', 'service.stop', { name: 'openclaw' }],
+            ['pdh_1', 'service.start', { name: 'openclaw' }]
         ]
     )
 
-    const old = servicesWith({ id: 'dh_pod', clientFeatures: [] })
+    const old = servicesWith({ id: 'pdh_1', clientFeatures: [] })
     await assert.rejects(old.services.start(HOST, 'openclaw'), (err: { response?: { code?: string } }) =>
         err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
     )
@@ -57,26 +62,21 @@ test('services go to the host daemon, which has to advertise them', async () => 
     await rig.services.ready(HOST)
 
     const none = servicesWith(null)
-    await assert.rejects(none.services.start(HOST, 'openclaw'), /has no registered daemon/)
+    await assert.rejects(none.services.start(HOST, 'openclaw'), /has no connected daemon/)
 })
 
 test('a host whose CLI predates services has it updated first', async () => {
-    const reads = [
-        [{ id: 'dh_old', clientFeatures: [] }],
-        [{ id: 'pdh_1', userId: 'usr_1', kind: 'pod' }]
-    ]
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({ limit: async () => reads.shift() ?? [] })
-            })
-        })
+    const hostDaemons = {
+        findByHostId: async () => ({ hostId: 'pdh_1', clientFeatures: [], lastSeenAt: new Date() })
+    }
+    const hosts = {
+        findById: async () => ({ id: 'pdh_1', userId: 'usr_1', kind: 'hosted' })
     }
     const ensured: unknown[] = []
     const cli = {
-        ensure: async (podHost: { id: string }, runner: { id: string }, need: unknown) => {
-            ensured.push([podHost.id, runner.id, need])
-            return { id: 'dh_new', clientFeatures: [DAEMON_FEATURE_SERVICES] }
+        ensure: async (podHost: { id: string }, need: unknown) => {
+            ensured.push([podHost.id, need])
+            return { hostId: 'pdh_1', clientFeatures: [DAEMON_FEATURE_SERVICES] }
         }
     }
     const calls: unknown[] = []
@@ -86,14 +86,20 @@ test('a host whose CLI predates services has it updated first', async () => {
             return {}
         }
     }
-    const services = new PodHostServices(db as never, registry as never, cli as never)
+    const services = new PodHostServices(
+        registry as never,
+        hosts as never,
+        hostDaemons as never,
+        cli as never
+    )
     await services.start(HOST, 'openclaw')
-    assert.deepEqual(ensured, [['pdh_1', 'dh_old', { feature: DAEMON_FEATURE_SERVICES }]])
-    assert.deepEqual(calls, [['dh_new', 'service.start']])
+    assert.deepEqual(ensured, [['pdh_1', { feature: DAEMON_FEATURE_SERVICES }]])
+    // The daemon is the host's: the routing key stays the host id.
+    assert.deepEqual(calls, [['pdh_1', 'service.start']])
 })
 
 test('a service is ready when it answers its health path, not when it runs', async () => {
-    const rig = servicesWith({ id: 'dh_pod', clientFeatures: [DAEMON_FEATURE_SERVICES] })
+    const rig = servicesWith({ id: 'pdh_1', clientFeatures: [DAEMON_FEATURE_SERVICES] })
     rig.list([{ name: 'hermes', state: 'running', healthy: true, pid: 7, restarts: 0, lastExit: null, startedAt: null }])
     await rig.services.waitHealthy(HOST, 'hermes', 5_000)
 

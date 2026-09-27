@@ -5,6 +5,7 @@ import {
     isModelConfigFramework,
     isRuntimeAuthProfileFramework,
     type AgentModelConfigSource,
+    type AgentRuntime,
     type DaemonAuthContextRef,
     type RuntimeAuthSelection
 } from '@manyfold/shared'
@@ -12,7 +13,8 @@ import type { Agent } from '@manyfold/db'
 
 // Pure readers of an agent's auth selection, shared by the exec factory,
 // the terminals and the model-config service (the service imports the
-// factory, so the factory cannot import the service).
+// factory, so the factory cannot import the service). The placement is the
+// host's (placementOf), never a column on the agent (ADR-0036).
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -22,14 +24,15 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 // Mirrors AgentModelConfigService.configSourceFromAgent: the stored source
 // when it is one the agent may use, else the runtime-kind default.
 export const effectiveModelConfigSource = (
-    agent: Pick<Agent, 'framework' | 'runtime' | 'extras'>
+    agent: Pick<Agent, 'framework' | 'extras'>,
+    placement: AgentRuntime
 ): AgentModelConfigSource => {
     const stored = asRecord(asRecord(agent.extras)?.modelConfig)?.source
     const runtimeLocalAllowed = isModelConfigFramework(agent.framework)
     if (stored === 'platform') return 'platform'
     if (stored === 'runtime-local' && runtimeLocalAllowed)
         return 'runtime-local'
-    return agent.runtime === 'daemon' && runtimeLocalAllowed
+    return placement === 'daemon' && runtimeLocalAllowed
         ? 'runtime-local'
         : 'platform'
 }
@@ -38,14 +41,14 @@ export const runtimeAuthSelectionFor = (
     agent: Pick<
         Agent,
         | 'framework'
-        | 'runtime'
         | 'extras'
         | 'runtimeAuthProfileId'
         | 'runtimeAuthBindingVersion'
-    >
+    >,
+    placement: AgentRuntime
 ): RuntimeAuthSelection =>
     agent.runtimeAuthProfileId &&
-    effectiveModelConfigSource(agent) === 'runtime-local'
+    effectiveModelConfigSource(agent, placement) === 'runtime-local'
         ? {
               mode: 'profile',
               profileId: agent.runtimeAuthProfileId,
@@ -59,14 +62,14 @@ export const authContextRefFor = (
     agent: Pick<
         Agent,
         | 'framework'
-        | 'runtime'
         | 'runtimeId'
         | 'extras'
         | 'runtimeAuthProfileId'
         | 'runtimeAuthBindingVersion'
-    >
+    >,
+    placement: AgentRuntime
 ): DaemonAuthContextRef | null => {
-    const selection = runtimeAuthSelectionFor(agent)
+    const selection = runtimeAuthSelectionFor(agent, placement)
     if (selection.mode !== 'profile') return null
     if (!isRuntimeAuthProfileFramework(agent.framework) || !agent.runtimeId)
         return null

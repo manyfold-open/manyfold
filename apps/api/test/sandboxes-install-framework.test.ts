@@ -1,32 +1,27 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ConflictException } from '@nestjs/common'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
+import { ConflictException, ServiceUnavailableException } from '@nestjs/common'
+import type { ExecResult } from '@manyfold/sprites'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
 // WHY: the create form installs (or upgrades) a coding CLI on a sandbox that
-// has no runtime for it yet, before the agent exists. The install must run the
-// same staged npm shell as the agent-level upgrade, re-probe over the same exec
-// seam, persist what it finds, and refuse to call an install "done" when the
-// sprite still reports another version.
+// has no runtime for it yet, before the agent exists. The install runs the
+// same staged npm shell as the agent-level upgrade through the host daemon
+// (ADR-0036 R6), re-probes over the same seam, persists what it finds on
+// host_daemons and the runtimes, and refuses to call an install "done" when
+// the machine still reports another version.
+
+type ExecArgs = { cmd: string[]; stdin?: string; timeoutMs: number }
 
 class TestSandboxes extends SandboxesService {
-    execCalls: ExecOptions[] = []
+    execCalls: ExecArgs[] = []
     execResults: ExecResult[] = []
 
-    protected exec(
-        _client: SpritesClient,
-        _spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        this.execCalls.push(opts)
-        return Promise.resolve(
-            this.execResults.shift() ?? { exitCode: 0, stdout: '', stderr: '' }
-        )
-    }
-
-    protected spritesClientFor(): SpritesClient {
-        return {} as SpritesClient
+    protected daemonExec(): (args: ExecArgs) => Promise<ExecResult> {
+        return async (args) => {
+            this.execCalls.push(args)
+            return this.execResults.shift() ?? { exitCode: 0, stdout: '', stderr: '' }
+        }
     }
 }
 
@@ -46,47 +41,49 @@ const buildHarness = (opts: {
     installExit?: number
     probed?: string
     upgradeInProgress?: boolean
+    online?: boolean
 }) => {
     const host = {
         id: 'sbx_1',
         userId: 'user_1',
+        kind: 'hosted',
+        providerId: 'rtp_1',
+        providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sprite-1' },
         name: 'sandbox-1',
-        spriteId: 'sprite-1',
-        spriteName: 'sbx-1',
-        accountId: 'spa_1',
-        cliVersion: '0.34.0',
-        detectedFrameworks: [],
-        spriteStatus: 'warm',
+        status: 'ready',
+        powerState: 'suspended',
+        keepAwake: false,
         terminalEnabled: false,
-        terminalModelCredentials: null,
+        terminalModelCredentials: false,
         emptiedAt: null,
         createdAt: new Date('2026-09-10T00:00:00Z'),
         updatedAt: new Date('2026-09-11T00:00:00Z')
     }
-    const persisted: { frameworks?: unknown; applied?: unknown; cli?: string } =
-        {}
+    const daemon = {
+        hostId: 'sbx_1',
+        cliVersion: '0.34.0',
+        herdrVersion: null,
+        clientFeatures: [],
+        detectedFrameworks: [{ framework: 'pi', version: '1.0.0', path: '~/.local/bin/pi' }],
+        lastSeenAt: new Date()
+    }
+    const view = { host, provider: { id: 'rtp_1', kind: 'sprites', name: 'acct' }, daemon, agentsCount: 0 }
+    const persisted: { frameworks?: unknown; applied?: unknown; cli?: string } = {}
     const runtimes = {
-        listRunnerHosts: async () => [],
-        getSandboxForUser: async () => ({
-            host,
-            accountSlug: 'acct',
-            agentsCount: 0
-        }),
-        setHostDetectedFrameworks: async (
-            _u: string,
-            _h: string,
-            frameworks: unknown
-        ) => {
-            persisted.frameworks = frameworks
-        },
+        getSandboxForUser: async () => view,
         applyDetectedVersionsToHostRuntimes: async (
             _h: string,
             frameworks: unknown
         ) => {
             persisted.applied = frameworks
-        },
-        setSandboxCliVersion: async (_u: string, _h: string, v: string) => {
-            persisted.cli = v
+        }
+    }
+    const hostDaemons = {
+        isOnline: () => opts.online !== false,
+        patch: async (_id: string, values: { detectedFrameworks?: unknown; cliVersion?: string }) => {
+            persisted.frameworks = values.detectedFrameworks
+            if (values.cliVersion) persisted.cli = values.cliVersion
+            return null
         }
     }
     const frameworkVersions =
@@ -103,10 +100,11 @@ const buildHarness = (opts: {
     const svc = new TestSandboxes(
         runtimes as never,
         {} as never,
-        {
-            getById: async () => ({ id: 'spa_1', slug: 'acct' }),
-            decryptToken: () => 'tok'
-        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        hostDaemons as never,
+        {} as never,
         {
             getCachedLatest: async () => ({
                 channel: 'stable',
@@ -118,11 +116,12 @@ const buildHarness = (opts: {
         { activeSecondsInPeriodByHost: async () => new Map() } as never,
         {} as never,
         {} as never,
+        {} as never,
+        {} as never,
         {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
         } as never,
-        {} as never,
         frameworkVersions as never
     )
     svc.execResults.push(
@@ -136,7 +135,7 @@ const buildHarness = (opts: {
     return { svc, persisted }
 }
 
-test('installing a framework runs the staged npm shell for the catalog latest, re-probes, and persists what the sprite reports', async () => {
+test('installing a framework runs the staged npm shell for the catalog latest through the daemon, re-probes, and persists what the machine reports', async () => {
     const h = buildHarness({})
     await h.svc.installFramework('user_1', 'sbx_1', 'claude-code')
     assert.equal(h.svc.execCalls.length, 2)
@@ -150,15 +149,28 @@ test('installing a framework runs the staged npm shell for the catalog latest, r
                 version: string
             }>
         ).map((f) => `${f.framework}@${f.version}`),
-        ['claude-code@2.1.300', 'codex@0.60.0']
+        ['pi@1.0.0', 'claude-code@2.1.300', 'codex@0.60.0'],
+        'the probed coding CLIs replace their entries; the rest of the inventory stays'
     )
     assert.equal(h.persisted.cli, '0.34.0')
+    assert.ok(h.persisted.applied)
 })
 
-test('a competing framework install returns 409 before touching the sprite', async () => {
+test('a competing framework install returns 409 before touching the machine', async () => {
     const h = buildHarness({ upgradeInProgress: true })
     await assert.rejects(h.svc.installFramework('user_1', 'sbx_1', 'claude-code'),
         (err: unknown) => err instanceof ConflictException && err.getStatus() === 409)
+    assert.equal(h.svc.execCalls.length, 0)
+})
+
+test('an offline daemon refuses the install with 503', async () => {
+    const h = buildHarness({ online: false })
+    await assert.rejects(
+        h.svc.installFramework('user_1', 'sbx_1', 'claude-code'),
+        (err: unknown) =>
+            err instanceof ServiceUnavailableException &&
+            (err.getResponse() as { code?: string }).code === 'SANDBOX_DAEMON_OFFLINE'
+    )
     assert.equal(h.svc.execCalls.length, 0)
 })
 
@@ -173,7 +185,7 @@ test('an explicit target must be in the catalog; a bare "v" prefix is tolerated'
     assert.match(ok.svc.execCalls[0].cmd.join(' '), /claude-code@2\.1\.268/)
 })
 
-test('without a catalog the install falls back to npm latest and accepts whatever the sprite then reports', async () => {
+test('without a catalog the install falls back to npm latest and accepts whatever the machine then reports', async () => {
     const h = buildHarness({ catalog: false, probed: '2.1.290' })
     await h.svc.installFramework('user_1', 'sbx_1', 'claude-code')
     assert.doesNotMatch(
@@ -181,12 +193,14 @@ test('without a catalog the install falls back to npm latest and accepts whateve
         /claude-code@2\.1\.\d+/
     )
     assert.equal(
-        (h.persisted.frameworks as Array<{ version: string }>)[0].version,
+        (h.persisted.frameworks as Array<{ framework: string; version: string }>).find(
+            (f) => f.framework === 'claude-code'
+        )?.version,
         '2.1.290'
     )
 })
 
-test('a sprite that still reports the old version after the install is a failure, not a success', async () => {
+test('a machine that still reports the old version after the install is a failure, not a success', async () => {
     const h = buildHarness({ probed: '2.1.268' })
     await assert.rejects(
         h.svc.installFramework('user_1', 'sbx_1', 'claude-code'),

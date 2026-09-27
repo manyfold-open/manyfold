@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Manage agent runtimes — the sprite or k8s pod shell that hosts framework
-agents. `mf runtime` (alias `mf agent-runtimes`) covers runtime lifecycle
-(`list`, `get`, `delete`), the control UI and Hermes dashboard sidecars,
-and the framework agents hosted on a runtime (`agents add|list|remove`).
+Manage agent runtimes — one framework installed on one of your computers (a
+self-owned computer, a stateful sandbox or a cloud computer) that hosts
+framework agents. `mf runtime` (alias `mf agent-runtimes`) covers runtime
+lifecycle (`list`, `get`, `delete`), the control UI and Hermes dashboard
+sidecars, and the framework agents hosted on a runtime (`agents add|list|remove`).
 
 ## Required scopes
 
@@ -26,7 +27,7 @@ For a scope denial, follow `mf help auth --agent` for the current identity.
 ```sh
 mf runtime list                                    # alias: ls
 mf runtime get <runtime-id>
-mf runtime delete <runtime-id>                     # destroys the sprite/pod, cascades to hosted agents
+mf runtime delete <runtime-id>                     # refused (409) while agents still use it
 mf runtime control-ui get-url <runtime-id> --json  # also: control-ui enable|disable <runtime-id>
 mf runtime dashboard enable <runtime-id>           # Hermes only; also: dashboard disable
 mf runtime agents add <runtime-id> --name <name> --json
@@ -41,7 +42,7 @@ mf runtime agents remove <agent-id> --yes          # agent id, NOT runtime id
 
 - Human output is one line per item:
   `<id>  <name>  <framework>/<kind>  <status>  agents=<n>`; `get` adds
-  sprite/namespace/ingress/created detail lines when present.
+  availability/host/provider/power/created detail lines when present.
 - `--json` (raw JSON) exists on every subcommand: `list`/`get` emit the
   runtime object(s); `delete` and `agents remove` emit `{ ok, id }`;
   `control-ui`, `dashboard`, and `agents add`/`list` emit their result.

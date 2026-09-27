@@ -12,6 +12,9 @@ import { DeletionTokenService } from '../src/modules/user-deletion/deletion-toke
 import { UserDeletionService } from '../src/modules/user-deletion/user-deletion.service'
 import { SessionService } from '../src/modules/auth/session.service'
 import { runJournal } from '../src/db/migration-runner'
+import { HostedHostLifecycleService } from '../src/modules/agent-runtimes/hosted-host-lifecycle.service'
+import { HostsService } from '../src/modules/hosts/hosts.service'
+import { RuntimeProvidersService } from '../src/modules/hosts/runtime-providers.service'
 
 // ADR-0023 account deletion, proven against real Postgres:
 // (1) V-1 cascade completeness is INTROSPECTION-driven — every table with a
@@ -87,16 +90,31 @@ const tokenService = (): DeletionTokenService =>
 const makeService = (
     db: ReturnType<typeof createDb>,
     lifecycle = noopUserLifecyclePort,
-    email: { send: (mail: SentMail) => Promise<void> } = noEmail
+    email: { send: (mail: SentMail) => Promise<void> } = noEmail,
+    moduleRef: unknown = noModuleRef
 ): UserDeletionService =>
     new UserDeletionService(
         db as never,
         email as never,
         tokenService(),
         noConfig,
-        noModuleRef,
+        moduleRef as never,
         lifecycle
     )
+
+// The host teardown the sweep runs: the real lifecycle service over the
+// scratch database, since a local host's retire + delete is database-only.
+const hostLifecycleRef = (db: ReturnType<typeof createDb>) => ({
+    get: () =>
+        new HostedHostLifecycleService(
+            db as never,
+            new HostsService(db as never),
+            new RuntimeProvidersService(db as never),
+            {} as never,
+            { settleHostNotRunning: async () => {} } as never,
+            { event() {} } as never
+        )
+})
 
 // The link tokens ride inside the emails; pulling them back out of the
 // rendered mail is the honest proof the EMAILED link works, not just some
@@ -173,10 +191,10 @@ test(
                 await client`insert into users (id, email, plan_id) values ('admin_1', 'a@pgtest.local', 'free')`
                 await client`insert into user_sessions (id, user_id, token_hash, provider, subject, expires_at)
                     values ('uss_t0', 'user_t0', 'h1', 'email', 's', now() + interval '1 day')`
-                await client`insert into agent_runtimes (id, user_id, name, framework, kind)
-                    values ('art_t0', 'user_t0', 'rt', 'claude-code', 'daemon')`
-                await client`insert into agents (id, user_id, name, framework, runtime, runtime_id, internal_id)
-                    values ('agt_t0', 'user_t0', 'a', 'claude-code', 'daemon', 'art_t0', 'ia_t0')`
+                await client`insert into agent_runtimes (id, user_id, name, framework)
+                    values ('art_t0', 'user_t0', 'rt', 'claude-code')`
+                await client`insert into agents (id, user_id, name, framework, runtime_id, internal_id)
+                    values ('agt_t0', 'user_t0', 'a', 'claude-code', 'art_t0', 'ia_t0')`
                 await client`insert into automations
                     (id, user_id, agent_id, title, prompt, schedule_preset, rrule, timezone, dtstart, status)
                     values ('aut_t0', 'user_t0', 'agt_t0', 'auto', 'p', 'daily', 'FREQ=DAILY', 'UTC', now(), 'active')`
@@ -231,7 +249,7 @@ test(
             const db = createDb(dbUrl, { max: 1 })
             try {
                 await client`insert into users (id, email, plan_id) values ('user_rt', 'rt@pgtest.local', 'free')`
-                await client`insert into runtime_hosts (id, user_id, name, kind) values ('dh_deletion_fixture', 'user_rt', 'owned fixture', 'daemon')`
+                await client`insert into runtime_hosts (id, user_id, name, kind, status) values ('dh_deletion_fixture', 'user_rt', 'owned fixture', 'local', 'ready')`
                 await client`insert into service_leases (name, holder_id, acquired_at, expires_at, updated_at) values ('daemon-config:dh_deletion_fixture', 'fixture', now(), now(), now())`
                 let calls = 0
                 const flaky = {
@@ -241,7 +259,7 @@ test(
                         if (calls === 1) throw new Error('cloud cleanup down')
                     }
                 }
-                const service = makeService(db, flaky)
+                const service = makeService(db, flaky, noEmail, hostLifecycleRef(db))
                 await service.request({
                     userId: 'user_rt',
                     requestedBy: 'admin_1'

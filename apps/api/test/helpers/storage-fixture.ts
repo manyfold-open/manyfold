@@ -19,7 +19,7 @@ import {
     agents,
     agentRuntimes,
     runtimeHosts,
-    spritesAccounts,
+    runtimeProviders,
     type Database,
     type NewRuntimeHostRow,
     type NewAgent
@@ -48,7 +48,7 @@ export const storageFixture = async (t: TestContext) => {
     const db: Database = drizzle(client, { schema })
     const userId = createObjectId('user')
     const hostId = createObjectId('sandboxHost')
-    const accountId = createObjectId('spritesAccount')
+    const accountId = createObjectId('runtimeProvider')
     const userIds = [userId]
     const httpServer = createServer((_request, response) => response.end('{}'))
     const server = new WebSocketServer({ noServer: true })
@@ -94,8 +94,8 @@ export const storageFixture = async (t: TestContext) => {
         try {
             await db.delete(users).where(inArray(users.id, userIds))
             await db
-                .delete(spritesAccounts)
-                .where(eq(spritesAccounts.id, accountId))
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, accountId))
         } finally {
             await client.end({ timeout: 5 })
         }
@@ -104,26 +104,29 @@ export const storageFixture = async (t: TestContext) => {
         .insert(users)
         .values({ id: userId, email: `${userId}@fixture.invalid` })
     await db
-        .insert(spritesAccounts)
+        .insert(runtimeProviders)
         .values({
             id: accountId,
-            slug: accountId,
-            orgSlug: 'fixture',
-            orgId: 'fixture',
-            tokenId: 'fixture',
-            tokenCiphertext: 'not-a-credential'
+            kind: 'sprites',
+            name: accountId,
+            credentialCiphertext: 'not-a-credential',
+            config: { orgSlug: 'fixture', orgId: 'fixture', tokenId: 'fixture' }
         })
     await db
         .insert(runtimeHosts)
         .values({
             id: hostId,
             userId,
-            kind: 'sandbox',
+            kind: 'hosted',
+            providerId: accountId,
+            providerRef: {
+                kind: 'sprites',
+                spriteName: 'owned-fixture',
+                spriteId: 'owned-fixture'
+            },
             name: 'owned storage fixture',
-            accountId,
-            spriteName: 'owned-fixture',
-            spriteStatus: 'running',
-            status: 'active',
+            powerState: 'running',
+            status: 'ready',
             storageBytes: 9000,
             storageMeasuredAt: OLD,
             storageBreakdown: {
@@ -188,12 +191,12 @@ export const storageFixture = async (t: TestContext) => {
             .values({
                 id,
                 userId,
-                kind: 'sandbox',
+                kind: 'hosted',
+                providerId: accountId,
+                providerRef: { kind: 'sprites', spriteName: id, spriteId: id },
                 name: id,
-                status: 'active',
-                spriteStatus: 'running',
-                accountId,
-                spriteName: id,
+                status: 'ready',
+                powerState: 'running',
                 ...overrides
             })
             .returning()
@@ -235,7 +238,6 @@ export const storageFixture = async (t: TestContext) => {
                     userId: owner,
                     name: `${framework} runtime`,
                     framework,
-                    kind: 'sprites',
                     hostId: host,
                     status: 'ready',
                     mountPath: options.config ?? '/fixture'
@@ -251,13 +253,9 @@ export const storageFixture = async (t: TestContext) => {
                 userId: owner,
                 name: options.name ?? id,
                 framework,
-                runtime: 'sprites',
                 runtimeId: runtime.id,
-                hostId: host,
                 internalId: id,
-                status: 'running',
-                accountId,
-                spriteName: 'owned-fixture',
+                status: 'ready',
                 workspacePath: options.workspace ?? `/fixture/workspaces/${id}`,
                 mountPath: options.config ?? `/fixture/workspaces/${id}`,
                 fileRoots: options.config

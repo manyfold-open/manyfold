@@ -39,7 +39,6 @@ test(
                         userId: 'u',
                         name: 'runtime',
                         framework: 'codex',
-                        kind: 'sprites'
                     })
                 for (const id of ['caller', 'caller2', 'target'])
                     await db
@@ -49,7 +48,6 @@ test(
                             userId: 'u',
                             name: id,
                             framework: 'codex',
-                            runtime: 'sprites',
                             runtimeId: 'runtime',
                             internalId: id
                         })

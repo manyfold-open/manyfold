@@ -7,35 +7,23 @@ import {
     BadRequestException,
     Inject,
     Injectable,
-    Logger,
     NotFoundException,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import {
-    agentRuntimes,
-    agents,
-    jsonbMerge,
-    type Agent,
-    type Database
-} from '@manyfold/db'
-import { createClient as createSpritesClient } from '@manyfold/sprites'
+import { agents, jsonbMerge, type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { daemonReadTextFile } from '@/modules/daemon/daemon-fs'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import { composioInjectScope } from '@/modules/agent-runtimes/mcp/composio-mcp'
-import {
-    readFileText,
-    spritesLoggerFrom
-} from '@/modules/agent-runtimes/mcp/mcp-config-materializer.service'
 import { resolveMcpScopeTargets } from '@/modules/agent-runtimes/mcp/mcp-config'
 import {
     importScopeTexts,
     type McpManagedExclusion
 } from '@/modules/agent-runtimes/mcp/mcp-config-import'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 
 // Pulls the runtime's real MCP config files back into agent.extras.mcp — the
 // reverse of McpConfigMaterializer. Read-only on the runtime: files are never
@@ -43,11 +31,8 @@ import {
 // triggered afterwards (it would rewrite the very files we just read).
 @Injectable()
 export class McpImportService {
-    private readonly log = new Logger(McpImportService.name)
-
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
         private readonly agents: AgentsService,
         private readonly daemonRegistry: DaemonRegistryService
     ) {}
@@ -57,33 +42,27 @@ export class McpImportService {
         callerUserId: string,
         isAdmin: boolean
     ): Promise<RefreshAgentMcpResponse> {
-        const agent = await this.agents.findForCaller(
+        const ctx = await this.agents.contextForCaller(
             agentId,
             callerUserId,
             isAdmin
         )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        const { agent } = ctx
         if (!frameworkMcpSupport(agent.framework))
             throw new BadRequestException(
                 `${agent.framework} agents do not support MCP servers`
             )
-        if (agent.runtime !== 'sprites' && agent.runtime !== 'daemon')
+        if (!ctx.host)
             throw new BadRequestException(
-                'MCP import requires an agent on a sandbox or self-owned computer runtime'
+                'MCP import requires an agent on a machine'
             )
-        if (!agent.runtimeId)
-            throw new BadRequestException('agent has no linked runtime')
-        const [runtime] = await this.db
-            .select({ homeDir: agentRuntimes.homeDir })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, agent.runtimeId))
-            .limit(1)
-        const homeDir = runtime?.homeDir
+        const homeDir = ctx.host.homeDir
         if (!homeDir)
             throw new BadRequestException(
                 'agent runtime home dir is unknown (not bootstrapped yet)'
             )
-        const read = await this.readerFor(agent)
+        const read = await this.readerFor(ctx)
         const targets = resolveMcpScopeTargets(agent.framework, {
             homeDir,
             workspacePath: agent.workspacePath ?? agent.mountPath
@@ -118,36 +97,22 @@ export class McpImportService {
         }
     }
 
-    // Reads one runtime file, null when absent — a seam for tests and the one
-    // place the transport differs per runtime kind.
+    // Reads one file on the machine, null when absent — a seam for tests. The
+    // host's daemon is the one transport, whatever provisioned the machine
+    // (ADR-0036).
     protected async readerFor(
-        agent: Agent
+        ctx: RuntimeContext
     ): Promise<(absPath: string) => Promise<string | null>> {
-        if (agent.runtime === 'daemon') {
-            if (!agent.daemonId)
-                throw new BadRequestException('daemon agent has no daemonId')
-            const daemonId = agent.daemonId
-            return (absPath) =>
-                daemonReadTextFile(this.daemonRegistry, daemonId, absPath)
-        }
-        if (!agent.spriteName || !agent.accountId)
-            throw new BadRequestException(
-                'MCP import requires a sprite-hosted agent'
+        if (!ctx.host)
+            throw new BadRequestException('MCP import requires a machine')
+        if (!ctx.daemonOnline)
+            throw new ServiceUnavailableException(
+                `the machine is offline; ${ctx.host.kind === 'local' ? 'start its daemon' : 'wake it'} and retry`
             )
-        const spriteName = agent.spriteName
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new BadRequestException(
-                `sprites account ${agent.accountId} not found`
-            )
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+        const hostId = ctx.host.id
         return (absPath) =>
-            readFileText(client, spriteName, absPath, spritesLoggerFrom(this.log))
+            daemonReadTextFile(this.daemonRegistry, hostId, absPath)
     }
-
 }
 
 // The managed composio server is injected at materialize time, never stored in

@@ -5,25 +5,23 @@ import {
     Injectable,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
-    daemonTokens,
+    hostDaemons,
     serviceLeases,
     runtimeHosts,
     type AgentRuntimeRow,
-    type Database
+    type Database,
+    type RuntimeHostRow,
+    type RuntimeProvider
 } from '@manyfold/db'
-import { podRunnerHostName } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
-import {
-    KubernetesService,
-    type K8sApis
-} from '@/modules/k8s/kubernetes.service'
-import { teardownCreatedPodHost } from '@/modules/agents/orchestration/k8s-strict-teardown'
-import { deletePodRunnerHostForPodHost } from '../sprite-runner-teardown'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import {
     K8S_CREATE_CLEANUP_PENDING,
     K8S_CREATE_INITIAL_AGENT,
@@ -64,25 +62,30 @@ export class K8sCreateCleanupPendingError extends ServiceUnavailableException {
     }
 }
 
+// The cleanup of a fresh self-serve container create that failed (ADR-0035):
+// the runtime it was for reads `failed` + `create_cleanup_pending` until the
+// host it made is confirmed gone, and a retry runs the same cleanup again.
 @Injectable()
 export class K8sCreateCleanupService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly k8s: KubernetesService
+        private readonly hosts: HostsService,
+        private readonly clients: HostProviderClients,
+        private readonly providers: SandboxProviderRegistry
     ) {}
 
-    async assertClusterAvailable(
+    async assertProviderAvailable(
         userId: string,
-        clusterId: string
+        providerId: string
     ): Promise<void> {
         const [pending] = await this.db
             .select({ id: agentRuntimes.id })
             .from(agentRuntimes)
+            .innerJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
             .where(
                 and(
                     eq(agentRuntimes.userId, userId),
-                    eq(agentRuntimes.clusterId, clusterId),
-                    eq(agentRuntimes.kind, 'k8s'),
+                    eq(runtimeHosts.providerId, providerId),
                     eq(agentRuntimes.currentPhase, K8S_CREATE_CLEANUP_PENDING)
                 )
             )
@@ -100,9 +103,8 @@ export class K8sCreateCleanupService {
         userId: string
         agentId: string
         error: unknown
-        apis: K8sApis
-        clusterId: string
-        namespace: string
+        host: RuntimeHostRow
+        provider: RuntimeProvider
         requestsSettled?: boolean
     }): Promise<void> {
         const failureReason = describeK8sCreateError(args.error)
@@ -142,14 +144,12 @@ export class K8sCreateCleanupService {
                         and(
                             eq(agentRuntimes.id, args.runtimeId),
                             eq(agentRuntimes.userId, args.userId),
-                            eq(agentRuntimes.kind, 'k8s'),
-                            eq(agentRuntimes.clusterId, args.clusterId),
-                            eq(agentRuntimes.namespace, args.namespace),
+                            eq(agentRuntimes.hostId, args.host.id),
                             eq(
                                 agentRuntimes.currentPhase,
                                 K8S_CREATE_INITIAL_AGENT
                             ),
-                            eq(agentRuntimes.status, 'pending')
+                            eq(agentRuntimes.status, 'installing')
                         )
                     )
                     .returning()
@@ -159,7 +159,7 @@ export class K8sCreateCleanupService {
                 throw new Error(
                     'fresh runtime ownership changed; automatic cleanup refused'
                 )
-            await this.cleanup(runtime, args.agentId, args.apis)
+            await this.cleanup(runtime, args.agentId, args.host, args.provider)
         } catch (cleanupError) {
             // This runs after the cleanup transaction has released its lock.
             await this.db
@@ -188,8 +188,12 @@ export class K8sCreateCleanupService {
     }
 
     async retry(runtime: AgentRuntimeRow): Promise<void> {
+        const host = runtime.hostId
+            ? await this.hosts.findById(runtime.hostId)
+            : null
         if (
-            runtime.kind !== 'k8s' ||
+            !host ||
+            host.providerRef?.kind !== 'k8s' ||
             (runtime.currentPhase !== K8S_CREATE_CLEANUP_PENDING &&
                 runtime.currentPhase !== K8S_CREATE_INITIAL_AGENT)
         )
@@ -230,12 +234,8 @@ export class K8sCreateCleanupService {
                     return failed
                 })
             }
-            if (!runtime.clusterId)
-                throw new Error(
-                    'original container cluster is no longer registered'
-                )
-            const { apis } = await this.k8s.getClient(runtime.clusterId)
-            await this.cleanup(runtime, undefined, apis)
+            const provider = await this.clients.providerForHost(host)
+            await this.cleanup(runtime, undefined, host, provider)
         } catch (error) {
             if (error instanceof ConflictException) throw error
             throw new K8sCreateCleanupPendingError(
@@ -251,8 +251,13 @@ export class K8sCreateCleanupService {
     private async cleanup(
         runtime: AgentRuntimeRow,
         ownedAgentId: string | undefined,
-        apis: K8sApis
+        host: RuntimeHostRow,
+        provider: RuntimeProvider
     ): Promise<void> {
+        const adapter = this.providers.for(provider.kind)
+        // Under a fresh generation: a bring-up still running for this host
+        // finds its calls refused rather than racing the destroy.
+        const generation = await this.hosts.bumpGeneration(host.id)
         await this.db.transaction(async (tx) => {
             const signal = AbortSignal.timeout(30_000)
             await tx.execute(
@@ -272,21 +277,19 @@ export class K8sCreateCleanupService {
             if (
                 current.currentPhase !== K8S_CREATE_CLEANUP_PENDING ||
                 current.status !== 'failed' ||
-                current.clusterId !== runtime.clusterId ||
-                current.namespace !== runtime.namespace
+                current.hostId !== host.id
             )
                 throw new ConflictException('runtime cleanup ownership changed')
             // The pod host this create made for the runtime (ADR-0035). Locked
             // first: a framework added to it meanwhile has to either commit
             // before this cleanup (and be seen as a sibling below) or fail on
             // the host it referenced.
-            const hostId = current.hostId
-            if (!hostId) throw new Error('fresh runtime has no pod host')
-            await tx
-                .select({ id: runtimeHosts.id })
+            const [lockedHost] = await tx
+                .select()
                 .from(runtimeHosts)
-                .where(eq(runtimeHosts.id, hostId))
+                .where(eq(runtimeHosts.id, host.id))
                 .for('update')
+            if (!lockedHost) return
             signal.throwIfAborted()
             const lease = await lockK8sCreateLease(tx, runtime.id)
             if (lease?.active) throw k8sCreateInProgress()
@@ -294,55 +297,11 @@ export class K8sCreateCleanupService {
                 .delete(serviceLeases)
                 .where(eq(serviceLeases.name, k8sCreateLeaseName(runtime.id)))
             signal.throwIfAborted()
-            // Registration owns this token lock before creating/binding its
-            // host. Take it first so a late committed runner cannot be missed.
-            await tx
-                .select({ id: daemonTokens.id })
-                .from(daemonTokens)
-                .where(
-                    and(
-                        eq(daemonTokens.userId, current.userId),
-                        eq(daemonTokens.name, podRunnerHostName(hostId)),
-                        eq(daemonTokens.purpose, 'pod_runner')
-                    )
-                )
-                .for('update')
-            signal.throwIfAborted()
-            const runners = await tx
-                .select({ id: runtimeHosts.id })
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.userId, current.userId),
-                        eq(runtimeHosts.managed, true),
-                        eq(runtimeHosts.kind, 'daemon'),
-                        eq(runtimeHosts.name, podRunnerHostName(hostId))
-                    )
-                )
-                .for('update')
-            signal.throwIfAborted()
-            const children = runners.length
-                ? await tx
-                      .select({ id: agentRuntimes.id })
-                      .from(agentRuntimes)
-                      .where(
-                          inArray(
-                              agentRuntimes.daemonId,
-                              runners.map((runner) => runner.id)
-                          )
-                      )
-                      .for('update')
-                : []
-            signal.throwIfAborted()
             const attached = await tx
                 .select({ id: agents.id, runtimeId: agents.runtimeId })
                 .from(agents)
-                .where(
-                    inArray(agents.runtimeId, [
-                        runtime.id,
-                        ...children.map((child) => child.id)
-                    ])
-                )
+                .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+                .where(eq(agentRuntimes.hostId, host.id))
             if (
                 ownedAgentId &&
                 attached.some(
@@ -354,8 +313,6 @@ export class K8sCreateCleanupService {
                 throw new ConflictException(
                     'another agent attached; automatic container cleanup refused'
                 )
-            if (!current.namespace)
-                throw new Error('fresh runtime namespace is missing')
             // Another framework added to the fresh host in the meantime keeps
             // the host: only this runtime goes.
             const siblings = await tx
@@ -363,7 +320,7 @@ export class K8sCreateCleanupService {
                 .from(agentRuntimes)
                 .where(
                     and(
-                        eq(agentRuntimes.hostId, hostId),
+                        eq(agentRuntimes.hostId, host.id),
                         ne(agentRuntimes.id, current.id)
                     )
                 )
@@ -374,37 +331,32 @@ export class K8sCreateCleanupService {
                     .where(eq(agentRuntimes.id, current.id))
                 return
             }
-            await teardownCreatedPodHost({
-                apis,
-                namespace: current.namespace,
-                hostId,
-                signal
+            await this.hosts.patch(host.id, { status: 'deleting' }, tx)
+            await adapter.destroy({
+                host: lockedHost,
+                provider,
+                generation,
+                fence: { assertActive: async () => {}, signal }
             })
             signal.throwIfAborted()
             // Same transaction: a second DB connection would wait on the FK
-            // locks held here and could leave the runner untracked on failure.
-            await deletePodRunnerHostForPodHost(tx, current.userId, hostId)
-            signal.throwIfAborted()
-            await tx
-                .delete(daemonTokens)
-                .where(
-                    and(
-                        eq(daemonTokens.userId, current.userId),
-                        eq(daemonTokens.name, podRunnerHostName(hostId)),
-                        eq(daemonTokens.purpose, 'pod_runner'),
-                        isNull(daemonTokens.daemonId)
-                    )
-                )
-            signal.throwIfAborted()
+            // locks held here and could leave the host untracked on failure.
+            // The host's bound tokens cascade with it.
             await tx
                 .delete(agentRuntimes)
-                .where(eq(agentRuntimes.id, current.id))
+                .where(
+                    inArray(agentRuntimes.id, [
+                        current.id,
+                        ...siblings.map((s) => s.id)
+                    ])
+                )
+            await tx.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id))
             await tx
                 .delete(runtimeHosts)
                 .where(
                     and(
-                        eq(runtimeHosts.id, hostId),
-                        eq(runtimeHosts.kind, 'pod')
+                        eq(runtimeHosts.id, host.id),
+                        eq(runtimeHosts.kind, 'hosted')
                     )
                 )
             signal.throwIfAborted()

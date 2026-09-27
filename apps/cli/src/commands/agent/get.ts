@@ -24,7 +24,8 @@ export const registerAgentGet = (cmd: Command, program: Command): void => {
                 `${agent.id}  ${kleur.cyan(agent.name)}  ${kleur.yellow(agent.framework)}/${agent.runtime}  ${agent.status}`
             )
             if (agent.model) console.log(kleur.dim(`  model: ${agent.model}`))
-            if (agent.spriteName)
-                console.log(kleur.dim(`  sprite: ${agent.spriteName}`))
+            console.log(kleur.dim(`  available: ${agent.availability}`))
+            if (agent.hostName)
+                console.log(kleur.dim(`  host: ${agent.hostName}`))
         })
 }

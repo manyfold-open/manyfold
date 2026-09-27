@@ -159,25 +159,38 @@ const routingHarness = (row: {
 }) => {
     const db = {
         select: (projection?: Record<string, unknown>) => ({
-            from: () => ({
-                where: () => ({
-                    // The harness serves two different selects: the agents row
-                    // (runtime/daemonId/model/...) and daemonAdvertisesFeature's
-                    // runtime_hosts clientFeatures lookup, told apart by the
-                    // projection's keys.
+            from: () => {
+                // The harness serves two different selects: the agents row
+                // joined to its host (workspace/model/hostId/hostKind) and
+                // daemonAdvertisesFeature's host_daemons clientFeatures
+                // lookup, told apart by the projection's keys.
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
                     limit: async () =>
                         projection && 'clientFeatures' in projection
                             ? [{ clientFeatures: row.clientFeatures ?? [] }]
                             : [
                                   {
-                                      ...row,
                                       workspacePath: '/w',
+                                      mountPath: null,
                                       extras: null,
-                                      model: row.model ?? null
+                                      model: row.model ?? null,
+                                      hostId:
+                                          row.daemonId ??
+                                          (row.runtime === 'sprites'
+                                              ? 'rth_sprite'
+                                              : null),
+                                      hostKind:
+                                          row.runtime === 'daemon'
+                                              ? 'local'
+                                              : 'hosted'
                                   }
                               ]
-                })
-            })
+                }
+                return chain
+            }
         })
     }
     const adapter = new HermesAdapter(

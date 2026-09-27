@@ -18,9 +18,9 @@ import {
     agents,
     agentBackups,
     agentBackupRestores,
-    serviceLeases,
-    spritesAccounts,
     runtimeHosts,
+    runtimeProviders,
+    serviceLeases,
     type Agent
 } from '@manyfold/db'
 import { ConflictException } from '@nestjs/common'
@@ -32,6 +32,15 @@ import {
     workspaceOperationKey
 } from '../src/modules/backups/workspace-runtime.service'
 import { workspaceOperationRoot } from '../src/modules/backups/workspace-operation-scripts'
+import { RuntimeContextService } from '../src/modules/hosts/runtime-context.service'
+import {
+    seedHostDaemon,
+    seedK8sHost,
+    seedK8sProvider,
+    seedLocalHost,
+    seedSpritesHost,
+    seedSpritesProvider
+} from './helpers/host-fixture'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 const exec = promisify(execFile)
@@ -96,8 +105,12 @@ test(
         const peerDb = createDb(process.env.DATABASE_URL!, { max: 5 })
         const suffix = randomUUID()
         const userId = `user_backup_${suffix}`
-        const accountId = `spa_${suffix}`
-        const daemonId = `rth_${suffix}`
+        const providerIds = [`rtp_backup_${suffix}`, `rtp_backup_k8s_${suffix}`]
+        const hostIds = {
+            sprites: `rth_s_${suffix}`,
+            k8s: `rth_k_${suffix}`,
+            daemon: `rth_d_${suffix}`
+        }
         const dir = await mkdtemp(join(tmpdir(), 'mf-backup-pg-'))
         const workspace = join(dir, 'workspace')
         await mkdir(workspace)
@@ -139,6 +152,7 @@ test(
             WorkspaceRuntimeService.prototype
         ) as WorkspaceRuntimeService
         Object.assign(runtime, {
+            runtimeContext: new RuntimeContextService(db),
             run: async (_agent: Agent, script: string) =>
                 exec('bash', ['-c', script], { timeout: 15000 }),
             readFile: async (_agent: Agent, path: string) => ({
@@ -202,30 +216,40 @@ test(
             await db
                 .insert(users)
                 .values({ id: userId, email: `${suffix}@pgtest.local` })
-            await db.insert(spritesAccounts).values({
-                id: accountId,
-                slug: suffix,
-                orgSlug: 'test',
-                orgId: 'test',
-                tokenId: 'test',
-                tokenCiphertext: 'not-a-token'
-            })
-            await db.insert(runtimeHosts).values({
-                id: daemonId,
-                userId,
-                daemonUuid: suffix,
-                name: suffix,
-                homeDir: dir
-            })
+            await seedSpritesProvider(db, providerIds[0])
+            await seedK8sProvider(db, providerIds[1])
+            const hosts = {
+                sprites: await seedSpritesHost(db, {
+                    id: hostIds.sprites,
+                    userId,
+                    providerId: providerIds[0],
+                    homeDir: dir
+                }),
+                k8s: await seedK8sHost(db, {
+                    id: hostIds.k8s,
+                    userId,
+                    providerId: providerIds[1],
+                    homeDir: dir
+                }),
+                daemon: await seedLocalHost(db, {
+                    id: hostIds.daemon,
+                    userId,
+                    homeDir: dir
+                })
+            }
+            // A local machine is only usable while its daemon is online.
+            await seedHostDaemon(db, { hostId: hostIds.daemon, userId })
             for (const kind of ['sprites', 'k8s', 'daemon'] as const) {
                 const runtimeId = `art_${kind}_${suffix}`
                 const agentId = `agt_${kind}_${suffix}`
+                const target = { placement: kind, host: hosts[kind] }
                 await db.insert(agentRuntimes).values({
                     id: runtimeId,
                     userId,
                     name: kind,
                     framework: 'codex',
-                    kind
+                    status: 'ready',
+                    hostId: hosts[kind].id
                 })
                 const [agent] = await db
                     .insert(agents)
@@ -235,17 +259,12 @@ test(
                         runtimeId,
                         internalId: agentId,
                         name: kind,
-                        runtime: kind,
                         framework: 'codex',
-                        status: 'running',
-                        mountPath: workspace,
-                        spriteName: `sprite-${suffix}`,
-                        accountId: kind === 'sprites' ? accountId : null,
-                        daemonId: kind === 'daemon' ? daemonId : null,
-                        namespace: kind === 'k8s' ? 'test' : null
+                        status: 'ready',
+                        mountPath: workspace
                     })
                     .returning()
-                const key = workspaceOperationKey(agent)
+                const key = workspaceOperationKey(agent, target)
                 keys.push(`workspace-backup:${key}`)
                 await writeFile(join(workspace, 'content'), `${kind}-before`)
                 held = true
@@ -260,7 +279,13 @@ test(
                 assert.equal(
                     admitted.length,
                     1,
-                    'only one simultaneous request can own the workspace'
+                    `only one simultaneous request can own the workspace: ${admissions
+                        .map((result) =>
+                            result.status === 'rejected'
+                                ? String(result.reason)
+                                : 'admitted'
+                        )
+                        .join(' | ')}`
                 )
                 const rejected = admissions.find(
                     (result) => result.status === 'rejected'
@@ -290,26 +315,21 @@ test(
                         runtimeId,
                         internalId: `${agentId}_peer`,
                         name: `${kind}-peer`,
-                        runtime: kind,
                         framework: 'codex',
-                        status: 'running',
-                        mountPath: `${workspace}/./`,
-                        spriteName: agent.spriteName,
-                        accountId: agent.accountId,
-                        daemonId: agent.daemonId,
-                        namespace: agent.namespace
+                        status: 'ready',
+                        mountPath: `${workspace}/./`
                     })
                     .returning()
-                assert.equal(workspaceOperationKey(coResident), key)
+                assert.equal(workspaceOperationKey(coResident, target), key)
                 await assert.rejects(
                     peer.createBackup(userId, coResident.id, false),
                     ConflictException
                 )
                 const independent = await peerOperations.claim(
-                    workspaceOperationKey({
-                        ...coResident,
-                        mountPath: join(dir, 'other')
-                    }),
+                    workspaceOperationKey(
+                        { ...coResident, mountPath: join(dir, 'other') },
+                        target
+                    ),
                     `independent_${suffix}`
                 )
                 assert.ok(
@@ -408,8 +428,11 @@ test(
             for (const service of createdServices) service.onModuleDestroy()
             await db.delete(users).where(eq(users.id, userId))
             await db
-                .delete(spritesAccounts)
-                .where(eq(spritesAccounts.id, accountId))
+                .delete(runtimeHosts)
+                .where(inArray(runtimeHosts.id, Object.values(hostIds)))
+            await db
+                .delete(runtimeProviders)
+                .where(inArray(runtimeProviders.id, providerIds))
             if (keys.length)
                 await db
                     .delete(serviceLeases)

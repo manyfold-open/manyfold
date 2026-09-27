@@ -15,6 +15,7 @@ import { AppEventsService } from '@/common/events/app-events.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
 import { DaemonRateLimitService } from '@/modules/daemon/daemon-rate-limit.service'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { loadRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-report-token'
 import type { CreateRuntimeReportDto } from './dto/create-runtime-report.dto'
 
@@ -31,6 +32,7 @@ export class RuntimeReportsService {
         private readonly runtimes: AgentRuntimesService,
         private readonly reconcile: AgentReconcileService,
         private readonly rateLimit: DaemonRateLimitService,
+        private readonly context: RuntimeContextService,
         @Optional()
         private readonly appEvents?: AppEventsService
     ) {}
@@ -52,16 +54,18 @@ export class RuntimeReportsService {
             windowMs: RATE_WINDOW_MS
         })
         if (!bearer) throw new UnauthorizedException('unauthorized')
-        const runtime = await this.runtimes.findById(dto.runtimeId)
+        const ctx = await this.context.forRuntime(dto.runtimeId)
         // Uniform 401 for unknown/out-of-scope runtimes and bad tokens: no
-        // existence oracle, and exec-kind/k8s/daemon runtimes stay untouched.
+        // existence oracle, and exec-kind / cloud computer / self-owned
+        // runtimes stay untouched.
         if (
-            !runtime ||
-            runtime.kind !== 'sprites' ||
-            !isServiceFramework(runtime.framework)
+            !ctx ||
+            ctx.placement !== 'sprites' ||
+            !isServiceFramework(ctx.runtime.framework)
         ) {
             throw new UnauthorizedException('unauthorized')
         }
+        const runtime = ctx.runtime
         const stored = await loadRuntimeReportToken(
             this.db,
             this.crypto,
@@ -81,18 +85,14 @@ export class RuntimeReportsService {
             windowMs: RATE_WINDOW_MS
         })
 
-        // DELIBERATE DIVERGENCE from the daemon liveness model: daemon
-        // heartbeat-loss -> stopped is correct because the platform cannot
-        // wake a daemon (daemon-presence 45s sweep); sprite report silence
-        // derives only asleep/stale at read time because the platform CAN
-        // wake sprites. That is why no report-driven path may ever write
-        // 'stopped': the closed event map below produces only
-        // 'starting'/'ready', and stopped runtimes are rejected BEFORE any
-        // write or touch (a touch would let reconcileRuntime's stopped branch
-        // mark agents stopped). lastSeenAt (daemon presence) and
-        // service_status_at (sprite service assertion) stay separately owned.
+        // A report only moves service_status upward ('starting'/'ready'): a
+        // platform-initiated stop is the only writer of 'stopped', and a
+        // runtime that is not installed (installing/failed) or whose service
+        // was stopped is rejected BEFORE any write or touch. Sprite report
+        // silence derives only asleep/stale at read time because the platform
+        // can wake sprites.
         if (
-            runtime.status === 'stopped' ||
+            runtime.status !== 'ready' ||
             runtime.serviceStatus === 'stopped'
         ) {
             throw new ConflictException('runtime_stopped')

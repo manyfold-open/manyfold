@@ -18,13 +18,14 @@ import type {
 } from '@manyfold/shared'
 import { eq } from 'drizzle-orm'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
-import { runtimeHosts, type Database } from '@manyfold/db'
+import { hostDaemons, type Database } from '@manyfold/db'
 import type { Agent } from '@manyfold/db'
 import type { ManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import type { TurnExecutionFence } from '@/modules/chat/turn-fence'
 
-// Whether the daemon's CLI advertised a capability in its last heartbeat
-// (runtime_hosts.client_features). Gates per-daemon transport choices — a
+// Whether the host daemon's CLI advertised a capability in its last heartbeat
+// (host_daemons.client_features; daemonId is the host id, ADR-0036). Gates
+// per-daemon transport choices — a
 // turn.start sent to a CLI that predates it would fail the turn with
 // `not_implemented`, so the caller must fall back when this is false. Throws
 // are the CALLER's problem: a broken lookup must not silently read as
@@ -35,15 +36,15 @@ export const daemonAdvertisesFeature = async (
     feature: string
 ): Promise<boolean> => {
     const [row] = await db
-        .select({ clientFeatures: runtimeHosts.clientFeatures })
-        .from(runtimeHosts)
-        .where(eq(runtimeHosts.id, daemonId))
+        .select({ clientFeatures: hostDaemons.clientFeatures })
+        .from(hostDaemons)
+        .where(eq(hostDaemons.hostId, daemonId))
         .limit(1)
     return ((row?.clientFeatures as string[] | null) ?? []).includes(feature)
 }
 
 // What the daemon's last heartbeat detected for one framework
-// (runtime_hosts.detected_frameworks), or null if it found none. The openclaw
+// (host_daemons.detected_frameworks), or null if it found none. The openclaw
 // entry carries the resident gateway the daemon DISCOVERED — never started —
 // which is the admission fact an ACP turn needs before it dispatches. Throws
 // propagate for the same reason as above: "couldn't check" is not "absent".
@@ -53,9 +54,9 @@ export const daemonDetectedFramework = async (
     framework: DaemonDetectableFramework
 ): Promise<DetectedFramework | null> => {
     const [row] = await db
-        .select({ detectedFrameworks: runtimeHosts.detectedFrameworks })
-        .from(runtimeHosts)
-        .where(eq(runtimeHosts.id, daemonId))
+        .select({ detectedFrameworks: hostDaemons.detectedFrameworks })
+        .from(hostDaemons)
+        .where(eq(hostDaemons.hostId, daemonId))
         .limit(1)
     const detected = (row?.detectedFrameworks ??
         []) as unknown as DetectedFramework[]

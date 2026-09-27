@@ -2,6 +2,12 @@ import type { FrameworkDefaultVersionsSettings } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import {
@@ -218,19 +224,10 @@ const upgradeWith = (opts: {
     new FrameworkUpgradeService(
         runtimeDb(opts.installedVersion) as never,
         {
-            // reaching the sprite means every policy check passed — a
-            // distinctive failure marks that boundary without a live sprite
-            getById: async () => {
-                throw new Error('sprite boundary reached')
-            }
-        } as never,
-        {
             findForCaller: async () => ({
                 id: 'agt_1',
                 framework: 'gemini-cli',
-                runtimeId: 'rt_1',
-                spriteName: 'sprite-1',
-                accountId: 'sac_1'
+                runtimeId: 'rt_1'
             })
         } as never,
         {
@@ -244,7 +241,26 @@ const upgradeWith = (opts: {
                 allowDowngrade: { 'gemini-cli': opts.allowDowngrade ?? true },
                 blockedVersions: {}
             })
-        } as never
+        } as never,
+        fakeRuntimeContext(
+            contextOf({
+                runtime: runtimeRow({
+                    id: 'rt_1',
+                    framework: 'gemini-cli',
+                    hostId: 'rth_1',
+                    frameworkVersion: opts.installedVersion
+                }),
+                host: spritesHostRow({ id: 'rth_1' })
+            })
+        ) as never,
+        {
+            // reaching the host means every policy check passed — a
+            // distinctive failure marks that boundary without a live sprite
+            forRuntime: async () => {
+                throw new Error('sprite boundary reached')
+            }
+        } as never,
+        {} as never
     )
 
 // Without this the caller is told the version "is not in the catalog" — true,

@@ -55,11 +55,12 @@ const toWriteBody = (body: Readable | Buffer | undefined): FileWriteBody => {
 }
 
 const transportOf = (ctx: FilesContext): string =>
-    ctx.root.transport ?? ctx.agent.runtime
+    ctx.root.transport ?? ctx.placement ?? 'external'
 
 const capabilitiesOf = (ctx: FilesContext) =>
     rootCapabilities({
-        agent: ctx.agent,
+        framework: ctx.agent.framework,
+        placement: ctx.placement ?? 'external',
         root: ctx.root,
         binaryWriteSafe: ctx.binaryWriteSafe !== false
     })
@@ -231,14 +232,14 @@ export class FilesController {
         callerUserId: string,
         agentId: string
     ): Promise<Agent> {
-        const agent = await this.agents.findForCaller(
+        const ctx = await this.agents.contextForCaller(
             agentId,
             callerUserId,
             false
         )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        assertAgentReady(agent)
-        return agent
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        assertAgentReady(ctx)
+        return ctx.agent
     }
 
     private async context(

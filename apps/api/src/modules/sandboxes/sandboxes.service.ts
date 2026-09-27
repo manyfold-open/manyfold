@@ -2,6 +2,7 @@ import {
     auditAction,
     cliChannelOfVersion,
     createObjectId,
+    daemonOnline,
     isCliUpdateAvailable,
     isPlatformTaskName,
     isServiceFrameworkName,
@@ -12,12 +13,12 @@ import {
     DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
-    herdrFrameworksFor,
-    runnerHostName
+    DAEMON_FEATURE_MANUAL_UPDATE,
+    frameworkCapability,
+    herdrFrameworksFor
 } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
-    DaemonHerdrFramework,
     CreateSandboxBody,
     DetectedFramework,
     MfCliChannel,
@@ -43,14 +44,10 @@ import {
     agentCredentials,
     auditLogs,
     type Database,
-    type RuntimeHostRow,
-    type SpritesAccount
+    type HostDaemonRow,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite,
-    SpritesError
-} from '@manyfold/sprites'
+import { execSprite, SpritesError } from '@manyfold/sprites'
 import type {
     ExecOptions,
     ExecResult,
@@ -58,18 +55,27 @@ import type {
     ServiceObject,
     SpritesClient
 } from '@manyfold/sprites'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import {
-    AgentsService,
-    SPRITES_AUTO_SLEEP_SEC
-} from '@/modules/agents/agents.service'
+    AgentRuntimesService,
+    type SandboxHostView
+} from '@/modules/agent-runtimes/agent-runtimes.service'
+import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
+import { providerRefLabel, spritesRef } from '@/modules/agent-runtimes/host-ref'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import { DaemonFrameworkExec } from '@/modules/agents/adapters/framework-exec'
+import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import {
     buildNpmLatestInstallShell,
     buildNpmUpgradeShell,
@@ -82,12 +88,6 @@ import {
 } from '@/modules/daemon/daemon-cli-version.service'
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
-import {
-    buildCliInstallScript,
-    buildHerdrInstallScript,
-    HERDR_INSTALL_MARKER
-} from '@/modules/agent-self/sprite-shell-env.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 
 // The coding-agent CLIs every sprite image ships pre-installed. Probed as a unit
@@ -98,13 +98,16 @@ const SPRITE_CODING_FRAMEWORKS: DetectedFramework['framework'][] = [
     'gemini-cli'
 ]
 const DETECT_TIMEOUT_MS = 30_000
-const CLI_UPGRADE_TIMEOUT_MS = 180_000
-const HERDR_UPGRADE_TIMEOUT_MS = 180_000
+const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
+// How long a stopped sprite takes to suspend once nothing holds it awake.
+const SPRITES_AUTO_SLEEP_SEC = 35
+
+export const SANDBOX_DAEMON_OFFLINE_CODE = 'SANDBOX_DAEMON_OFFLINE'
 
 // One probe for everything a sandbox can host: each coding CLI's version and
-// the mf CLI's. Shared by detect-frameworks and the post-install re-probe so
-// the two can never disagree about what "installed" looks like.
+// the mf CLI's. Shared by the post-install re-probe so "installed" always
+// looks the same.
 const frameworkProbeShell = (): string =>
     [
         'export PATH="$HOME/.local/bin:$PATH"',
@@ -112,10 +115,7 @@ const frameworkProbeShell = (): string =>
             const bin = frameworkVersionDescriptor(f).binName
             return `echo "${f}=$(${bin} --version 2>/dev/null | head -1)"`
         }),
-        // The platform-managed mf CLI baked into the sprite image (used for
-        // agent auth / a2a). Surfaced as the sandbox's "mf CLI version".
         'echo "mf=$(mf --version 2>/dev/null | head -1)"',
-        // herdr, when the runner installed it (ADR-0031).
         'echo "herdr=$(herdr --version 2>/dev/null | head -1)"'
     ].join('; ')
 
@@ -126,15 +126,20 @@ export class SandboxesService {
     constructor(
         private readonly runtimes: AgentRuntimesService,
         private readonly spritesProvisioner: SpritesProvisioner,
-        private readonly accounts: SpritesAccountsService,
+        private readonly placement: HostPlacementService,
+        private readonly hostClients: HostProviderClients,
+        private readonly hosts: HostsService,
+        private readonly hostDaemons: HostDaemonsService,
+        private readonly daemonRegistry: DaemonRegistryService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
         private readonly spriteStatusSync: SpriteStatusSyncService,
         private readonly activeDuration: SandboxActiveDurationService,
-        private readonly agents: AgentsService,
+        private readonly runtimeAccess: RuntimeAccessService,
         private readonly keepAliveLease: SpriteKeepAliveLeaseService,
+        private readonly lifecycle: HostedHostLifecycleService,
+        private readonly sessions: SpritesSessionRegistry,
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly runnerManager: RunnerManagerService,
         // Appended last + @Optional so positional test construction keeps
         // working; absence means "install npm's latest" for a framework.
         @Optional()
@@ -145,7 +150,11 @@ export class SandboxesService {
         private readonly crypto?: CryptoService,
         // Same convention; absent, no herdr update is offered.
         @Optional()
-        private readonly herdrVersions?: HerdrVersionService
+        private readonly herdrVersions?: HerdrVersionService,
+        // Same convention; present, an offline hosted daemon is woken and
+        // bootstrapped (R11) before an operation instead of being refused.
+        @Optional()
+        private readonly runnerManager?: RunnerManagerService
     ) {}
 
     private async latestHerdr(): Promise<string | null> {
@@ -161,22 +170,16 @@ export class SandboxesService {
             : await this.runtimes.listSandboxesForUser(userId)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
-        const runnerHerdr = await this.runnerHerdrByHost(
-            isAdmin ? null : userId
-        )
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost(
                 rows.map((r) => ({ id: r.host.id, userId: r.host.userId }))
             )
         return rows.map((r) =>
             toSandboxSummary(
-                r.host,
-                r.accountSlug,
-                r.agentsCount,
+                r,
                 latest,
                 activeSeconds.get(r.host.id) ?? 0,
-                latestHerdr,
-                runnerHerdr(r.host)
+                latestHerdr
             )
         )
     }
@@ -186,52 +189,36 @@ export class SandboxesService {
         hostId: string,
         isAdmin = false
     ): Promise<SandboxSummary> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
-        const runnerHerdr = await this.runnerHerdrByHost(r.host.userId)
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost([
                 { id: r.host.id, userId: r.host.userId }
             ])
         return toSandboxSummary(
-            r.host,
-            r.accountSlug,
-            r.agentsCount,
+            r,
             latest,
             activeSeconds.get(r.host.id) ?? 0,
-            latestHerdr,
-            runnerHerdr(r.host)
+            latestHerdr
         )
     }
 
-    // What each sandbox's runner can start in herdr (ADR-0031): nothing for a
-    // runner that predates the handoff, until the Update Center moves its
-    // CLI; everything for a sandbox with no runner yet, which gets one on the
-    // current CLI.
-    private async runnerHerdrByHost(
-        userId: string | null
-    ): Promise<(host: RuntimeHostRow) => DaemonHerdrFramework[]> {
-        const runners = new Map<string, RuntimeHostRow>()
-        for (const runner of await this.runtimes.listRunnerHosts(userId))
-            runners.set(`${runner.userId}:${runner.name}`, runner)
-        return (host) => {
-            if (!host.spriteName) return []
-            const runner = runners.get(
-                `${host.userId}:${runnerHostName(host.spriteName)}`
-            )
-            return runner
-                ? herdrFrameworksFor(runner.clientFeatures ?? [])
-                : NEW_RUNNER_HERDR
-        }
+    private async requireSandbox(
+        userId: string,
+        hostId: string,
+        isAdmin: boolean
+    ): Promise<SandboxHostView> {
+        const r = isAdmin
+            ? await this.runtimes.getSandboxById(hostId)
+            : await this.runtimes.getSandboxForUser(userId, hostId)
+        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        return r
     }
 
     // Admin paths address sandboxes across all users. We resolve the real owner
-    // once, then drive the existing user-scoped runtime mutations with that owner
-    // id so their ownership checks pass without duplicating every query.
+    // once, then drive the existing user-scoped mutations with that owner id so
+    // their ownership checks pass without duplicating every query.
     private async resolveOwner(
         userId: string,
         hostId: string,
@@ -243,52 +230,48 @@ export class SandboxesService {
         return r.host.userId
     }
 
+    // A new sandbox: placement picks the provider, the host row is inserted
+    // as `provisioning` under the user's quota, and the provisioner creates
+    // the machine and brings its daemon up. A failed bring-up leaves the row
+    // `failed` with the reason; the user deletes it.
     async create(
         userId: string,
-        body: CreateSandboxBody
+        body: CreateSandboxBody,
+        isAdmin = false
     ): Promise<SandboxSummary> {
-        // Account pinning is admin-only and has no user-facing endpoint yet, so
-        // the user path always auto-selects (isAdmin=false, matching the agents
-        // controller). body.accountId is reserved for a future admin surface.
-        const host = await this.spritesProvisioner.createStandaloneSandbox({
+        const provider = await this.placement.selectProvider({
+            kind: 'sprites',
+            providerId: body.providerId ?? null,
+            callerIsAdmin: isAdmin
+        })
+        const host = await this.runtimeAccess.reserveStandaloneSandbox({
             userId,
             name: body.name,
-            accountId: null,
-            isAdmin: false
+            providerId: provider.id
         })
-        const full = await this.runtimes.getSandboxForUser(userId, host.id)
-        const latest = await this.cliVersion.getCachedLatest()
-        const latestHerdr = await this.latestHerdr()
-        // A sandbox this new has no runner yet; the one its first turn brings
-        // up runs the current CLI.
-        return full
-            ? toSandboxSummary(
-                  full.host,
-                  full.accountSlug,
-                  full.agentsCount,
-                  latest,
-                  0,
-                  latestHerdr,
-                  NEW_RUNNER_HERDR
-              )
-            : toSandboxSummary(
-                  host,
-                  null,
-                  0,
-                  latest,
-                  0,
-                  latestHerdr,
-                  NEW_RUNNER_HERDR
-              )
+        try {
+            await this.spritesProvisioner.provisionSandbox({ host })
+        } catch (err) {
+            const current = await this.hosts.findById(host.id)
+            if (current?.status === 'provisioning')
+                await this.hosts.setStatus(
+                    host.id,
+                    'failed',
+                    (err as Error).message.slice(0, 512)
+                )
+            throw err
+        }
+        return this.get(userId, host.id, isAdmin)
     }
 
+    // R8: refused while agents exist, else deleting → destroy → gone.
     async delete(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<void> {
-        const owner = await this.resolveOwner(userId, hostId, isAdmin)
-        await this.spritesProvisioner.deleteSandbox({ userId: owner, hostId })
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        await this.lifecycle.deleteHost(r.host.id)
     }
 
     async setTerminal(
@@ -335,100 +318,110 @@ export class SandboxesService {
         return this.get(owner, hostId)
     }
 
-    // Probe the sprite for its pre-installed coding-agent CLIs and persist the
-    // result on the host (runtime_hosts.detected_frameworks — same field daemons
-    // use). A probe failure leaves the stored value untouched (never clobbers).
+    // The host's keep-awake switch (ADR-0036 R7). The flag write is the
+    // commitment (enable is quota-gated and atomic in enableKeepAlive);
+    // sprite-side lease ops are best-effort — the lease sweep converges a
+    // degraded toggle within ~60s, so the API returns the committed flag even
+    // when the sprite ops fail.
+    async setKeepAwake(
+        userId: string,
+        hostId: string,
+        enabled: boolean,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        const owner = r.host.userId
+        if (r.host.status !== 'ready')
+            throw new ConflictException({
+                message: `sandbox ${hostId} is not ready`,
+                code: 'SANDBOX_NOT_READY'
+            })
+        // Caps + lease are driven against the OWNER, not an admin caller.
+        if (enabled) await this.runtimeAccess.enableKeepAlive({ userId: owner, hostId })
+        else await this.runtimes.setHostKeepAwake(owner, hostId, false)
+        const fresh = await this.hosts.findById(hostId)
+        if (!fresh) throw new NotFoundException(`sandbox ${hostId} not found`)
+        try {
+            if (enabled) await this.keepAliveLease.ensureLease(fresh)
+            else await this.keepAliveLease.releaseLease(fresh, 'user-toggle')
+        } catch (err) {
+            this.log.warn(
+                `keep-awake ${enabled ? 'enable' : 'disable'} sprite ops degraded for host ${hostId}: ${(err as Error).message}`
+            )
+        }
+        return this.get(owner, hostId)
+    }
+
+    // The daemon's own inventory is the sandbox's framework list (R3): the
+    // heartbeat keeps it current, and this folds the versions it reports into
+    // the runtimes installed on the host.
     async detectFrameworks(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<SandboxSummary> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
-        const { host } = r
-        const owner = host.userId
-        if (host.spriteId && host.spriteName && host.accountId) {
-            const probe = await this.probeSpriteFrameworks(
-                host.accountId,
-                host.spriteName
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        if (r.daemon)
+            await this.runtimes.applyDetectedVersionsToHostRuntimes(
+                hostId,
+                r.daemon.detectedFrameworks
             )
-            if (probe) {
-                await this.runtimes.setHostDetectedFrameworks(
-                    owner,
-                    hostId,
-                    probe.frameworks
-                )
-                await this.runtimes.applyDetectedVersionsToHostRuntimes(
-                    hostId,
-                    probe.frameworks
-                )
-                if (probe.cliVersion)
-                    await this.runtimes.setSandboxCliVersion(
-                        owner,
-                        hostId,
-                        probe.cliVersion
-                    )
-                await this.runtimes.setSandboxHerdrVersion(
-                    owner,
-                    hostId,
-                    probe.herdrVersion
-                )
-            }
-        }
-        return this.get(owner, hostId)
+        return this.get(r.host.userId, hostId)
     }
 
-    // On-demand refresh of the sandbox's sprites.dev lifecycle status, backing
-    // the host detail "Refresh" button. The periodic sync lags (up to 30s while
-    // warm/cold); this reads the sprite directly and persists it, so the
-    // returned summary carries the fresh active/warm/cold state.
+    // On-demand refresh of the sandbox's provider power state, backing the
+    // host detail "Refresh" button. The periodic sync lags (up to 30s while
+    // suspended); this reads the sprite directly and persists it, so the
+    // returned summary carries the fresh state.
     async refreshStatus(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<SandboxSummary> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
-        const { host } = r
-        if (host.spriteId && host.spriteName && host.accountId)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        if (spritesRef(r.host)?.spriteId)
             await this.spriteStatusSync
-                .refreshSandboxHost(host)
+                .refreshSandboxHost(r.host)
                 .catch((err: Error) => {
                     throw new ServiceUnavailableException(
                         `failed to refresh sandbox status: ${err.message}`
                     )
                 })
-        return this.get(host.userId, hostId)
+        return this.get(r.host.userId, hostId)
     }
 
-    // Upgrade the platform-managed mf CLI on the sprite to the latest version for
-    // the deploy channel. Unlike a daemon host, a sprite has nothing to hand the
-    // update to: we exec the channel install script over ~/.local/bin/mf and
-    // re-read the version. Per-exec mf invocations pick the fresh binary up on
-    // their own; the sprite runner does not — it is the one long-lived process
-    // on the sprite, and left alone it keeps running (and heartbeating) the
-    // build it was started with — so it is restarted here when one is up.
+    // Everything inside the machine goes through its daemon (R6). The runner
+    // manager brings an offline hosted daemon back (power → wake → bootstrap,
+    // R11); without it a sandbox whose daemon is not connected cannot be
+    // operated on until it is back.
+    private async requireOnlineDaemon(r: SandboxHostView): Promise<HostDaemonRow> {
+        if (r.daemon && this.hostDaemons.isOnline(r.daemon)) return r.daemon
+        if (this.runnerManager) return this.runnerManager.requireHostDaemon(r.host)
+        throw new ServiceUnavailableException({
+            message: `sandbox ${r.host.id} has no daemon online`,
+            code: SANDBOX_DAEMON_OFFLINE_CODE
+        })
+    }
+
+    private upgradeLockKey(
+        host: RuntimeHostRow,
+        component: string
+    ): { hostId: string; component: string } {
+        return { hostId: host.id, component }
+    }
+
+    // Upgrade the mf CLI on the sandbox through the daemon's own updater
+    // (ADR-0029 §5): it downloads, prechecks, swaps, hands its execs to a
+    // successor and rolls back on its own. The version it lands on reaches
+    // host_daemons through its next heartbeat.
     async upgradeCli(
         userId: string,
         hostId: string,
         targetVersion?: string,
         isAdmin = false
     ): Promise<SandboxSummary> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        const owner = host.userId
-        if (!host.spriteId || !host.spriteName || !host.accountId)
-            throw new BadRequestException('sandbox is not provisioned')
-        const account = await this.accounts.getById(host.accountId)
-        if (!account)
-            throw new BadRequestException('sandbox account unavailable')
         // No target = the deploy channel's latest. A pinned target must be a
         // version we actually list, and its channel comes from the version
         // string (so a dev build installs from the dev CDN).
@@ -442,169 +435,76 @@ export class SandboxesService {
         } else {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
-        const spriteName = host.spriteName
+        const daemon = await this.requireOnlineDaemon(r)
+        if (!daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE))
+            throw new ConflictException({
+                message: 'the sandbox daemon cannot update itself; it is below the supported floor',
+                code: 'SANDBOX_DAEMON_TOO_OLD'
+            })
         return withRuntimeUpgradeLock(
             this.db,
-            {
-                accountId: host.accountId,
-                spriteName,
-                component: 'mf-cli'
-            },
+            this.upgradeLockKey(host, 'mf-cli'),
             async () => {
-                // A runner that can update itself (ADR-0029 §5) is asked to:
-                // it downloads, prechecks, swaps, hands its execs to a
-                // successor and rolls back on its own, so nothing here has to
-                // install over it or restart it. The version it lands on
-                // reaches the row through its heartbeat; the ack's target is
-                // recorded meanwhile. Anything else keeps the install path.
-                const viaDaemon = await this.runnerManager.upgradeViaDaemon({
-                    userId: owner,
-                    spriteName,
-                    targetVersion,
-                    channel
-                })
-                if (viaDaemon.kind === 'dispatched') {
-                    const landing = viaDaemon.toVersion ?? targetVersion
-                    if (landing)
-                        await this.runtimes.setSandboxCliVersion(
-                            owner,
-                            hostId,
-                            landing
+                const payload: Record<string, unknown> = { channel }
+                if (targetVersion) payload.targetVersion = targetVersion
+                const ack = await this.daemonRegistry
+                    .rpc({
+                        daemonId: host.id,
+                        method: 'daemon.update',
+                        payload,
+                        timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
+                    })
+                    .catch((err: Error) => {
+                        throw new ServiceUnavailableException(
+                            `mf CLI upgrade failed: ${err.message}`
                         )
-                    this.log.log(
-                        `sandbox cli upgrade via daemon.update host=${hostId} to=${landing ?? 'latest'} deferred=${viaDaemon.deferred}`
-                    )
-                    return this.get(owner, hostId)
-                }
-                const client = this.spritesClientFor(account)
-                const exec = (opts: {
-                    cmd: string[]
-                    stdin?: string
-                    timeoutMs: number
-                }): Promise<ExecResult> => this.exec(client, spriteName, opts)
-                const shell = [
-                    buildCliInstallScript(channel, targetVersion),
-                    'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"'
-                ].join('\n')
-                const result = await exec({
-                    cmd: ['bash', '-lc', shell],
-                    stdin: '',
-                    timeoutMs: CLI_UPGRADE_TIMEOUT_MS
-                }).catch((err: Error) => {
-                    throw new ServiceUnavailableException(
-                        `mf CLI upgrade failed: ${err.message}`
-                    )
-                })
-                const mfLine = `${result.stdout}\n${result.stderr}`
-                    .split('\n')
-                    .find((l) => l.startsWith('mf-upgraded='))
-                const installed = parseProbedSemver(
-                    mfLine ? mfLine.slice('mf-upgraded='.length) : ''
-                )
-                if (result.exitCode !== 0 || !installed)
-                    throw new ServiceUnavailableException(
-                        `mf CLI upgrade did not complete on ${host.spriteName}`
-                    )
-                await this.runtimes.setSandboxCliVersion(
-                    owner,
-                    hostId,
-                    installed
-                )
-                // The binary is swapped; a runner process that is up still runs the old
-                // one and keeps heartbeating its version and features. Its outcome is
-                // logged, never thrown: the upgrade itself has landed.
-                const runner = await this.runnerManager.restartForInstalledCli({
-                    userId: owner,
-                    spriteName,
-                    exec,
-                    installedVersion: installed
-                })
+                    })
+                const toVersion =
+                    typeof ack?.toVersion === 'string' ? ack.toVersion : null
                 this.log.log(
-                    `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
+                    `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${ack?.deferred === true}`
                 )
-                return this.get(owner, hostId)
+                return this.get(host.userId, hostId)
             }
         )
     }
 
-    // Install or upgrade herdr inside the sandbox (ADR-0031): through the
-    // runner's `herdr.update` when the runner is up and herdr is already
-    // there, else herdr's own installer over the sprite's exec. The version
-    // it lands on is read back and stored; the periodic probe would find it
-    // anyway.
+    // Install or upgrade herdr inside the sandbox (ADR-0031) through the
+    // daemon's `herdr.update`; the version it lands on reaches host_daemons
+    // through the daemon's next heartbeat.
     async upgradeHerdr(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<SandboxSummary> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        const owner = host.userId
-        if (!host.spriteId || !host.spriteName || !host.accountId)
-            throw new BadRequestException('sandbox is not provisioned')
-        const account = await this.accounts.getById(host.accountId)
-        if (!account)
-            throw new BadRequestException('sandbox account unavailable')
-        const spriteName = host.spriteName
+        const daemon = await this.requireOnlineDaemon(r)
+        if (!daemon.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL))
+            throw new ConflictException({
+                message: 'the sandbox daemon cannot install herdr; update the mf CLI first',
+                code: 'SANDBOX_DAEMON_TOO_OLD'
+            })
         return withRuntimeUpgradeLock(
             this.db,
-            { accountId: host.accountId, spriteName, component: 'herdr' },
+            this.upgradeLockKey(host, 'herdr'),
             async () => {
-                if (host.herdrVersion) {
-                    const viaDaemon =
-                        await this.runnerManager.upgradeHerdrViaDaemon({
-                            userId: owner,
-                            spriteName
-                        })
-                    if (viaDaemon.kind === 'dispatched') {
-                        if (viaDaemon.toVersion)
-                            await this.runtimes.setSandboxHerdrVersion(
-                                owner,
-                                hostId,
-                                viaDaemon.toVersion
-                            )
-                        this.log.log(
-                            `sandbox herdr upgrade via herdr.update host=${hostId} to=${viaDaemon.toVersion ?? 'unknown'}`
+                const ack = await this.daemonRegistry
+                    .rpc({
+                        daemonId: host.id,
+                        method: 'herdr.update',
+                        payload: {},
+                        timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
+                    })
+                    .catch((err: Error) => {
+                        throw new ServiceUnavailableException(
+                            `herdr install failed: ${err.message}`
                         )
-                        return this.get(owner, hostId)
-                    }
-                }
-                const client = this.spritesClientFor(account)
-                const result = await this.exec(client, spriteName, {
-                    cmd: ['bash', '-lc', buildHerdrInstallScript()],
-                    stdin: '',
-                    timeoutMs: HERDR_UPGRADE_TIMEOUT_MS
-                }).catch((err: Error) => {
-                    throw new ServiceUnavailableException(
-                        `herdr install failed: ${err.message}`
-                    )
-                })
-                const line = `${result.stdout}\n${result.stderr}`
-                    .split('\n')
-                    .find((l) => l.startsWith('herdr-installed='))
-                const installed = parseHerdrVersionLine(
-                    line ? line.slice('herdr-installed='.length) : ''
-                )
-                if (
-                    result.exitCode !== 0 ||
-                    !result.stdout.includes(HERDR_INSTALL_MARKER) ||
-                    !installed
-                )
-                    throw new ServiceUnavailableException(
-                        `herdr install did not complete on ${spriteName}`
-                    )
-                await this.runtimes.setSandboxHerdrVersion(
-                    owner,
-                    hostId,
-                    installed
-                )
+                    })
                 this.log.log(
-                    `sandbox herdr installed host=${hostId} version=${installed}`
+                    `sandbox herdr upgrade via herdr.update host=${hostId} to=${typeof ack?.toVersion === 'string' ? ack.toVersion : 'unknown'}`
                 )
-                return this.get(owner, hostId)
+                return this.get(host.userId, hostId)
             }
         )
     }
@@ -612,10 +512,10 @@ export class SandboxesService {
     // Install (or move to a version of) one of the sprite image's coding CLIs
     // on a sandbox that has no runtime for it yet, so the create form can show
     // and fix the framework before the agent exists. Same staged npm shell as
-    // the agent-level upgrade: the candidate is validated in its own prefix
-    // and swapped in atomically, so a failed install never breaks the CLI on
-    // PATH. No target = the catalog's latest; with no catalog at all, npm's
-    // own latest minus the known-broken releases.
+    // the agent-level upgrade, run through the host daemon: the candidate is
+    // validated in its own prefix and swapped in atomically, so a failed
+    // install never breaks the CLI on PATH. No target = the catalog's latest;
+    // with no catalog at all, npm's own latest minus the known-broken releases.
     async installFramework(
         userId: string,
         hostId: string,
@@ -632,17 +532,8 @@ export class SandboxesService {
             throw new BadRequestException(
                 `${framework} cannot be installed on a sandbox`
             )
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        const owner = host.userId
-        if (!host.spriteId || !host.spriteName || !host.accountId)
-            throw new BadRequestException('sandbox is not provisioned')
-        const account = await this.accounts.getById(host.accountId)
-        if (!account)
-            throw new BadRequestException('sandbox account unavailable')
         const descriptor = frameworkVersionDescriptor(framework)
         const catalog = this.frameworkVersions
             ? await this.frameworkVersions.getForFramework(framework)
@@ -656,17 +547,13 @@ export class SandboxesService {
         const shell = target
             ? buildNpmUpgradeShell(descriptor, target)
             : buildNpmLatestInstallShell(descriptor)
-        const spriteName = host.spriteName
+        const daemon = await this.requireOnlineDaemon(r)
         return withRuntimeUpgradeLock(
             this.db,
-            {
-                accountId: host.accountId,
-                spriteName,
-                component: framework
-            },
+            this.upgradeLockKey(host, framework),
             async () => {
-                const client = this.spritesClientFor(account)
-                const result = await this.exec(client, spriteName, {
+                const exec = this.daemonExec(host.id)
+                const result = await exec({
                     cmd: ['bash', '-lc', shell],
                     stdin: '',
                     timeoutMs: FRAMEWORK_INSTALL_TIMEOUT_MS
@@ -679,11 +566,11 @@ export class SandboxesService {
                     throw new ServiceUnavailableException(
                         `${framework} install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
                     )
-                // Re-probe over the same seam and persist, as detect-frameworks does.
-                // The version has to be there now: a pre-installed binary still
-                // shadowing the fresh one is exactly what the staged shell guards
-                // against, so a mismatch is a failure, not a note.
-                const probed = await this.exec(client, spriteName, {
+                // Re-probe over the same seam and persist. The version has to
+                // be there now: a pre-installed binary still shadowing the
+                // fresh one is exactly what the staged shell guards against, so
+                // a mismatch is a failure, not a note.
+                const probed = await exec({
                     cmd: ['bash', '-lc', frameworkProbeShell()],
                     stdin: '',
                     timeoutMs: DETECT_TIMEOUT_MS
@@ -696,27 +583,26 @@ export class SandboxesService {
                         ?.version ?? null
                 if (!installed || (target && installed !== target))
                     throw new ServiceUnavailableException(
-                        `${framework} install did not complete on ${spriteName}: sprite reports ${installed ?? 'nothing'}`
+                        `${framework} install did not complete on ${providerRefLabel(host) ?? host.id}: sandbox reports ${installed ?? 'nothing'}`
                     )
-                await this.runtimes.setHostDetectedFrameworks(
-                    owner,
-                    hostId,
-                    probe.frameworks
+                // The daemon's next heartbeat re-reports its inventory; the
+                // probe's answer is folded in now so the summary does not lag.
+                const others = daemon.detectedFrameworks.filter(
+                    (f) =>
+                        !SPRITE_CODING_FRAMEWORKS.includes(f.framework)
                 )
+                await this.hostDaemons.patch(host.id, {
+                    detectedFrameworks: [...others, ...probe.frameworks],
+                    ...(probe.cliVersion ? { cliVersion: probe.cliVersion } : {})
+                })
                 await this.runtimes.applyDetectedVersionsToHostRuntimes(
                     hostId,
                     probe.frameworks
                 )
-                if (probe.cliVersion)
-                    await this.runtimes.setSandboxCliVersion(
-                        owner,
-                        hostId,
-                        probe.cliVersion
-                    )
                 this.log.log(
                     `sandbox framework installed host=${hostId} framework=${framework} version=${installed}`
                 )
-                return this.get(owner, hostId)
+                return this.get(host.userId, hostId)
             }
         )
     }
@@ -741,20 +627,13 @@ export class SandboxesService {
             throw new BadRequestException(
                 `${framework} cannot run on a sandbox`
             )
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        if (!host.spriteId || !host.spriteName || !host.accountId)
+        if (host.status !== 'ready' || !spritesRef(host)?.spriteId)
             throw new BadRequestException('sandbox is not provisioned')
-        const existing = (await this.runtimes.listRuntimesByHost(hostId)).find(
-            (row) =>
-                row.framework === framework &&
-                row.status !== 'failed' &&
-                row.status !== 'stopped'
-        )
-        if (existing) return this.runtimes.toSummary(existing)
+        const existing = await this.runtimes.findRuntimeOnHost(hostId, framework)
+        if (existing && existing.status !== 'failed')
+            return this.runtimes.toSummary(existing)
         const coding = SPRITE_CODING_FRAMEWORKS.includes(
             framework as DetectedFramework['framework']
         )
@@ -766,7 +645,7 @@ export class SandboxesService {
         // to another version is the icon menu's explicit Upgrade, never a side
         // effect of picking the sandbox in the create form. Only an absent
         // CLI (or a service framework) gets the version agent create would.
-        const detected = (host.detectedFrameworks ?? []).some(
+        const detected = (r.daemon?.detectedFrameworks ?? []).some(
             (f) => f.framework === framework
         )
         if (!this.frameworkVersions && resolveFrameworkRepo(framework))
@@ -804,12 +683,6 @@ export class SandboxesService {
                 keyVersion: enc.keyVersion
             })
         }
-        // The runner is NOT started here. The create form asks for it the
-        // moment this returns (its prewarm), and a second starter racing that
-        // one registered two runner hosts for one sprite — the wake then
-        // waited on the row the process was not using. Seen on the local
-        // stack [2026-09-11]: two `sprite-runner:` rows created in the same
-        // second, every later wake timing out at 120s.
         this.log.log(
             `sandbox runtime prepared host=${hostId} framework=${framework} runtime=${prepared.runtime.id}`
         )
@@ -818,20 +691,17 @@ export class SandboxesService {
 
     // The sprites.dev managed services registered on this sandbox's sprite. A
     // service registered by the agent (e.g. an http.server serving its
-    // workspace) keeps the VM running outside keep-alive accounting — surfacing
+    // workspace) keeps the VM running outside keep-awake accounting — surfacing
     // them here lets the owner see and remove the ones holding the sprite awake.
     async listServices(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<SandboxServiceSummary[]> {
-        const { spriteName, accountId } = await this.requireProvisionedSandbox(
+        const { client, spriteName } = await this.requireProvisionedSandbox(
             userId,
             hostId,
             isAdmin
-        )
-        const client = this.spritesClientFor(
-            await this.requireAccount(accountId)
         )
         const services = await this.readServicesOnSprite(client, spriteName)
         return services.map(toServiceSummary)
@@ -867,13 +737,10 @@ export class SandboxesService {
             throw new BadRequestException(
                 `service '${name}' is managed by Manyfold and cannot be deleted`
             )
-        const { spriteName, accountId } = await this.requireProvisionedSandbox(
+        const { client, spriteName } = await this.requireProvisionedSandbox(
             userId,
             hostId,
             isAdmin
-        )
-        const client = this.spritesClientFor(
-            await this.requireAccount(accountId)
         )
         await client.deleteService(spriteName, name).catch((err: Error) => {
             // Already gone is success for an idempotent delete.
@@ -885,7 +752,7 @@ export class SandboxesService {
     }
 
     // The sprite's activity tasks (/v1/tasks) — TTL leases that hold the VM in
-    // the running state; the keep-alive toggle installs one of these. Tasks are
+    // the running state; the keep-awake switch installs one of these. Tasks are
     // sprite-local (no control-plane REST) and reading them needs an exec into
     // the VM, which would wake an idle sprite. But an active task forces the
     // running state, so a non-running sprite has no tasks by definition — we
@@ -895,21 +762,12 @@ export class SandboxesService {
         hostId: string,
         isAdmin = false
     ): Promise<SandboxTaskSummary[]> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        if (
-            host.spriteStatus !== 'running' ||
-            !host.spriteName ||
-            !host.accountId
-        )
-            return []
-        const client = this.spritesClientFor(
-            await this.requireAccount(host.accountId)
-        )
-        const raw = await this.readTasksOnSprite(client, host.spriteName)
+        const ref = spritesRef(host)
+        if (host.powerState !== 'running' || !ref) return []
+        const client = await this.spritesClientFor(host)
+        const raw = await this.readTasksOnSprite(client, ref.spriteName)
         return raw
             .filter((t) => typeof t.name === 'string')
             .map((t) => ({
@@ -959,34 +817,26 @@ export class SandboxesService {
         name: string,
         isAdmin = false
     ): Promise<void> {
-        // Platform keep-alive leases are lifecycle-managed by the runtime
-        // keep-alive toggle — never deletable from this surface (reconcile
-        // would re-register them anyway).
+        // Platform keep-awake leases are lifecycle-managed by the host's
+        // switch — never deletable from this surface (the sweep would
+        // re-register them anyway).
         if (isPlatformTaskName(name))
             throw new BadRequestException(
-                `task '${name}' is a Manyfold keep-alive lease — turn keep-alive off on the runtime instead`
+                `task '${name}' is a Manyfold keep-awake lease — turn keep-awake off on the sandbox instead`
             )
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
+        const ref = spritesRef(host)
         // An active task forces the running state, so a non-running sprite has
         // no tasks to delete — and the exec would wake it.
-        if (
-            host.spriteStatus !== 'running' ||
-            !host.spriteName ||
-            !host.accountId
-        )
+        if (host.powerState !== 'running' || !ref)
             throw new ConflictException(
                 `sandbox ${hostId} is not running — it has no active tasks to delete`
             )
-        const client = this.spritesClientFor(
-            await this.requireAccount(host.accountId)
-        )
+        const client = await this.spritesClientFor(host)
         const remaining = await this.deleteTaskOnSprite(
             client,
-            host.spriteName,
+            ref.spriteName,
             name
         )
         if (remaining.some((t) => t.name === name))
@@ -996,28 +846,23 @@ export class SandboxesService {
     }
 
     // Sandbox-wide stop: removes every wake cause so the VM can suspend —
-    // per-agent stop (sessions, keep-alive flag, framework services, platform
-    // leases), then non-managed services stopped, then agent-registered
-    // activity tasks deleted. Stopped agents wake again on their next message;
-    // keep-alive stays off until re-enabled. Host-level terminal sessions are
-    // not closed here and can still hold the VM awake until they end.
+    // exec sessions closed, keep-awake off and its lease released, framework
+    // services stopped, then non-managed services stopped, then agent-
+    // registered activity tasks deleted. Agents wake again on their next
+    // message; keep-awake stays off until re-enabled. Host-level terminal
+    // sessions are not closed here and can still hold the VM awake until they
+    // end.
     async stop(
         userId: string,
         hostId: string,
         isAdmin = false
     ): Promise<SandboxStopResponse> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
+        const ref = spritesRef(host)
         // A non-running sprite has nothing pinning it awake, and the task
         // sweep's exec would wake it — the one thing a stop must never do.
-        if (
-            host.spriteStatus !== 'running' ||
-            !host.spriteName ||
-            !host.accountId
-        )
+        if (host.powerState !== 'running' || !ref)
             return {
                 status: 'noop',
                 stoppedAgents: 0,
@@ -1026,54 +871,41 @@ export class SandboxesService {
                 estimatedReadyInSec: 0,
                 warnings: []
             }
-        const spriteName = host.spriteName
+        const spriteName = ref.spriteName
         const warnings: string[] = []
         let estimate = SPRITES_AUTO_SLEEP_SEC
 
-        let stoppedAgents = 0
-        const handledRuntimeIds = new Set<string>()
         const agentsOnHost = await this.runtimes.listAgentsByHost(hostId)
-        for (const a of agentsOnHost) {
-            try {
-                const res = await this.agents.stopSprite(a.id, userId, isAdmin)
-                if (res.status === 'pending') {
-                    stoppedAgents++
-                    handledRuntimeIds.add(a.runtimeId)
-                }
-                estimate = Math.max(estimate, res.estimatedReadyInSec)
-                if (
-                    res.keepAliveRelease?.state === 'degraded' &&
-                    res.keepAliveRelease.message
-                )
-                    warnings.push(
-                        `agent ${a.id}: ${res.keepAliveRelease.message}`
-                    )
-            } catch (err) {
-                warnings.push(
-                    `agent ${a.id} stop failed: ${(err as Error).message}`
-                )
-            }
+        const closedSessions = this.sessions.closeForHost(hostId, 'sandbox-stop')
+
+        // The switch goes off first so the lease sweep cannot re-arm what is
+        // released below; a degraded release is a warning, not a failure.
+        if (host.keepAwake)
+            await this.runtimes.setHostKeepAwake(host.userId, hostId, false)
+        try {
+            const release = await this.keepAliveLease.stopAndRelease(
+                { ...host, keepAwake: false },
+                'sandbox-stop'
+            )
+            if (release.state !== 'not_applicable')
+                estimate = Math.max(estimate, release.maxStaleSec)
+            if (release.state === 'degraded' && release.message)
+                warnings.push(`keep-awake: ${release.message}`)
+        } catch (err) {
+            warnings.push(
+                `keep-awake release failed: ${(err as Error).message}`
+            )
         }
-        // Orphan runtimes (no agent row) and agents whose lagging status row
-        // made stopSprite noop are invisible to the loop above AND to both
-        // keep-alive reconcile passes — release them directly.
+
         const runtimesOnHost = await this.runtimes.listRuntimesByHost(hostId)
         for (const rt of runtimesOnHost) {
-            if (handledRuntimeIds.has(rt.id)) continue
+            if (frameworkCapability(rt.framework).kind !== 'service') continue
             try {
-                if (rt.keepAliveEnabled)
-                    await this.runtimes.setKeepAliveEnabled(rt.id, false)
-                const release = await this.keepAliveLease.stopAndRelease(
-                    rt,
-                    'sandbox-stop'
-                )
-                if (release.state !== 'not_applicable')
-                    estimate = Math.max(estimate, release.maxStaleSec)
-                if (release.state === 'degraded' && release.message)
-                    warnings.push(`runtime ${rt.id}: ${release.message}`)
+                const message = await this.keepAliveLease.stopService(rt)
+                if (message) warnings.push(`runtime ${rt.id}: ${message}`)
             } catch (err) {
                 warnings.push(
-                    `runtime ${rt.id} keep-alive release failed: ${(err as Error).message}`
+                    `runtime ${rt.id} service stop failed: ${(err as Error).message}`
                 )
             }
         }
@@ -1082,9 +914,7 @@ export class SandboxesService {
         // refuses to stop a service another one `needs` — the returned state
         // stays running — so sweep in passes (each pass can unblock the next)
         // and surface whatever still refuses as warnings.
-        const client = this.spritesClientFor(
-            await this.requireAccount(host.accountId)
-        )
+        const client = await this.spritesClientFor(host)
         const stoppedServices: string[] = []
         const services = await this.readServicesOnSprite(client, spriteName)
         let pending = services.filter(
@@ -1129,8 +959,8 @@ export class SandboxesService {
                 `service '${svc.name}' refused to stop (another service may depend on it)`
             )
 
-        // Delete non-platform activity tasks. Platform leases were already
-        // released with their renewers killed above; deleting a stray one here
+        // Delete non-platform activity tasks. The platform lease was already
+        // released with its renewer killed above; deleting a stray one here
         // would just be resurrected by its in-VM renew loop.
         const deletedTasks: string[] = []
         const tasksOnSprite = await this.readTasksOnSprite(client, spriteName)
@@ -1155,23 +985,24 @@ export class SandboxesService {
                 warnings.push(`status refresh failed: ${err.message}`)
             })
 
-        // Agents, runtimes, services and tasks are the complete set of levers a
-        // stop has, and none of them existed on this running VM. Whatever is
-        // keeping it awake is out of reach, so this stop cannot put it to sleep
-        // however successful its counters look. Said out loud last, as a
-        // verdict on the whole attempt, because a caller retrying on a timer
-        // otherwise never learns it is powerless — Seen on prod [2026-09-03]: a
-        // free-plan sandbox with a deleted agent and two leaked exec sessions
-        // absorbed 60 of these in one day, each audited as `pending` with empty
-        // arrays, while it billed 52h against a 5h quota.
+        // Sessions, the lease, runtimes, services and tasks are the complete
+        // set of levers a stop has, and none of them existed on this running
+        // VM. Whatever is keeping it awake is out of reach, so this stop cannot
+        // put it to sleep however successful its counters look. Said out loud
+        // last, as a verdict on the whole attempt, because a caller retrying on
+        // a timer otherwise never learns it is powerless — Seen on prod
+        // [2026-09-03]: a free-plan sandbox with a deleted agent and two leaked
+        // exec sessions absorbed 60 of these in one day, each audited as
+        // `pending` with empty arrays, while it billed 52h against a 5h quota.
         const hasNoLevers =
-            agentsOnHost.length === 0 &&
+            closedSessions === 0 &&
+            !host.keepAwake &&
             runtimesOnHost.length === 0 &&
             services.length === 0 &&
             tasksOnSprite.length === 0
         if (hasNoLevers) {
             warnings.push(
-                'nothing on this sandbox could be stopped: it is running with no agents, runtimes, services or tasks registered on it, so something out of reach is holding it awake and it will not sleep'
+                'nothing on this sandbox could be stopped: it is running with no sessions, runtimes, services or tasks registered on it, so something out of reach is holding it awake and it will not sleep'
             )
             this.log.warn(
                 `sandbox stop has no levers host=${hostId} sprite=${spriteName} user=${host.userId} — running with nothing registered on it`
@@ -1186,7 +1017,8 @@ export class SandboxesService {
                 subject: hostId,
                 meta: {
                     spriteName,
-                    stoppedAgents,
+                    closedSessions,
+                    agentsOnHost: agentsOnHost.length,
                     stoppedServices,
                     deletedTasks,
                     hasNoLevers,
@@ -1202,7 +1034,7 @@ export class SandboxesService {
         }
         return {
             status: 'pending',
-            stoppedAgents,
+            stoppedAgents: agentsOnHost.length,
             stoppedServices,
             deletedTasks,
             estimatedReadyInSec: estimate,
@@ -1255,30 +1087,21 @@ export class SandboxesService {
         userId: string,
         hostId: string,
         isAdmin: boolean
-    ): Promise<{ spriteName: string; accountId: string }> {
-        const r = isAdmin
-            ? await this.runtimes.getSandboxById(hostId)
-            : await this.runtimes.getSandboxForUser(userId, hostId)
-        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
-        const { host } = r
-        if (!host.spriteId || !host.spriteName || !host.accountId)
+    ): Promise<{ client: SpritesClient; spriteName: string }> {
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        const ref = spritesRef(r.host)
+        if (!ref?.spriteId)
             throw new BadRequestException('sandbox is not provisioned')
-        return { spriteName: host.spriteName, accountId: host.accountId }
-    }
-
-    private async requireAccount(accountId: string): Promise<SpritesAccount> {
-        const account = await this.accounts.getById(accountId)
-        if (!account)
-            throw new BadRequestException('sandbox account unavailable')
-        return account
+        return {
+            client: await this.spritesClientFor(r.host),
+            spriteName: ref.spriteName
+        }
     }
 
     // Seam so tests can fake the sprites.dev control-plane client.
-    protected spritesClientFor(account: SpritesAccount): SpritesClient {
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+    protected async spritesClientFor(host: RuntimeHostRow): Promise<SpritesClient> {
+        const { client } = await this.hostClients.spritesClientForHost(host)
+        return client
     }
 
     // Seam so tests can fake the sprite exec transport.
@@ -1290,51 +1113,31 @@ export class SandboxesService {
         return execSprite(client, spriteName, opts)
     }
 
-    private async probeSpriteFrameworks(
-        accountId: string,
-        spriteName: string
-    ): Promise<{
-        frameworks: DetectedFramework[]
-        cliVersion: string | null
-        herdrVersion: string | null
-    } | null> {
-        const account = await this.accounts.getById(accountId)
-        if (!account) return null
-        const shell = frameworkProbeShell()
-        try {
-            const client = createSpritesClient({
-                token: this.accounts.decryptToken(account),
-                accountSlug: account.slug
-            })
-            const result = await execSprite(client, spriteName, {
-                cmd: ['bash', '-lc', shell],
-                stdin: '',
-                timeoutMs: DETECT_TIMEOUT_MS
-            })
-            return parseSpriteFrameworkProbe(
-                `${result.stdout}\n${result.stderr}`
-            )
-        } catch (err) {
-            this.log.warn(
-                `detect-frameworks probe failed for sandbox ${spriteName}: ${(err as Error).message}`
-            )
-            return null
-        }
+    // Seam so tests can fake the daemon exec.
+    protected daemonExec(
+        hostId: string
+    ): (args: {
+        cmd: string[]
+        stdin?: string
+        timeoutMs: number
+    }) => Promise<ExecResult> {
+        const exec = new DaemonFrameworkExec(this.daemonRegistry, hostId)
+        return (args) => exec.run(args)
     }
 }
 
 /**
  * Read the `<framework>=<--version output>` / `mf=<--version output>` lines the
- * detect shell above prints.
+ * probe shell above prints.
  *
  * Exported, and split out of the probe, because the parser this picks is the
- * whole contract: every version it returns is PERSISTED (runtime_hosts.cliVersion
+ * whole contract: every version it returns is PERSISTED (host_daemons.cli_version
  * and agent_runtimes.framework_version), so it must keep the full string —
  * prerelease suffix included. parseProbedVersion would truncate
  * `0.22.5-staging.<stamp>.<sha>` to `0.22.5`, and the staging update check
  * compares by string equality (isCliUpdateAvailable, since build stamps are not
  * semver-comparable), so a sandbox on the exact latest build was told to update
- * forever (#777). Behind the sprite exec that choice was untestable.
+ * forever (#777).
  */
 export const parseSpriteFrameworkProbe = (
     output: string
@@ -1372,56 +1175,69 @@ export const parseHerdrVersionLine = (output: string): string | null => {
     return match ? match[1] : null
 }
 
-// What a runner brought up now — on the current CLI — starts in herdr.
-const NEW_RUNNER_HERDR = herdrFrameworksFor([
+// What a daemon brought up now — on the current CLI — starts in herdr.
+const NEW_DAEMON_HERDR = herdrFrameworksFor([
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_AGY
 ])
 
 const toSandboxSummary = (
-    host: RuntimeHostRow,
-    accountSlug: string | null,
-    agentsCount: number,
+    view: SandboxHostView,
     latest: LatestCliVersion,
     activeSecondsThisPeriod: number,
-    latestHerdrVersion: string | null,
-    runnerHerdr: DaemonHerdrFramework[]
-): SandboxSummary => ({
-    id: host.id,
-    userId: host.userId,
-    name: host.name,
-    accountSlug,
-    spriteName: host.spriteName,
-    spriteStatus: host.spriteStatus,
-    terminalEnabled: host.terminalEnabled,
-    terminalModelCredentials: host.terminalModelCredentials,
-    agentsCount,
-    detectedFrameworks: host.detectedFrameworks,
-    cliVersion: host.cliVersion,
-    latestCliVersion: latest.version,
-    cliUpdateAvailable: isCliUpdateAvailable(
-        latest.channel,
-        host.cliVersion,
-        latest.version
-    ),
-    herdrVersion: host.herdrVersion,
-    latestHerdrVersion,
-    // An absent herdr is offered as an install to the latest.
-    herdrUpdateAvailable:
-        latestHerdrVersion !== null &&
-        (host.herdrVersion === null ||
-            HerdrVersionService.updateAvailable(
-                host.herdrVersion,
-                latestHerdrVersion
-            )),
-    canOpenInHerdr: host.herdrVersion !== null && runnerHerdr.length > 0,
-    herdrFrameworks: host.herdrVersion !== null ? runnerHerdr : [],
-    activeSecondsThisPeriod,
-    emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
-    createdAt: host.createdAt.toISOString(),
-    updatedAt: host.updatedAt.toISOString()
-})
+    latestHerdrVersion: string | null
+): SandboxSummary => {
+    const { host, daemon } = view
+    const cliVersion = daemon?.cliVersion ?? null
+    const herdrVersion = daemon?.herdrVersion ?? null
+    // A sandbox with no daemon yet gets one on the current CLI, which starts
+    // every herdr framework.
+    const herdrFrameworks = daemon
+        ? herdrFrameworksFor(daemon.clientFeatures ?? [])
+        : NEW_DAEMON_HERDR
+    return {
+        id: host.id,
+        userId: host.userId,
+        name: host.name,
+        status: host.status,
+        failureReason: host.failureReason,
+        providerId: host.providerId,
+        providerName: view.provider?.name ?? null,
+        providerRefLabel: providerRefLabel(host),
+        powerState: host.powerState,
+        registered: daemon !== null,
+        daemonOnline: daemonOnline(daemon),
+        keepAwake: host.keepAwake,
+        terminalEnabled: host.terminalEnabled,
+        terminalModelCredentials: host.terminalModelCredentials,
+        agentsCount: view.agentsCount,
+        detectedFrameworks: daemon?.detectedFrameworks ?? [],
+        cliVersion,
+        latestCliVersion: latest.version,
+        cliUpdateAvailable: isCliUpdateAvailable(
+            latest.channel,
+            cliVersion,
+            latest.version
+        ),
+        herdrVersion,
+        latestHerdrVersion,
+        // An absent herdr is offered as an install to the latest.
+        herdrUpdateAvailable:
+            latestHerdrVersion !== null &&
+            (herdrVersion === null ||
+                HerdrVersionService.updateAvailable(
+                    herdrVersion,
+                    latestHerdrVersion
+                )),
+        canOpenInHerdr: herdrVersion !== null && herdrFrameworks.length > 0,
+        herdrFrameworks: herdrVersion !== null ? herdrFrameworks : [],
+        activeSecondsThisPeriod,
+        emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
+        createdAt: host.createdAt.toISOString(),
+        updatedAt: host.updatedAt.toISOString()
+    }
+}
 
 const toServiceSummary = (s: ServiceObject): SandboxServiceSummary => ({
     name: s.name,

@@ -6,7 +6,6 @@ import {
     type SpritesLogger
 } from '@manyfold/sprites'
 import type { Agent } from '@manyfold/db'
-import type { PodExec } from '@/modules/k8s/pod-exec'
 
 const MAX_WORKSPACE_PATH_LENGTH = 1024
 
@@ -129,17 +128,6 @@ export const assertWorkspaceUsableOnSprite = async (args: {
     assertWorkspaceProbeResult(args.workspacePath, result)
 }
 
-export const assertWorkspaceUsableWithPodExec = async (
-    exec: PodExec,
-    workspacePath: string,
-    timeoutMs = 30_000
-): Promise<void> => {
-    const result = await exec.run({
-        cmd: ['bash', '-lc', workspacePreflightScript(workspacePath)],
-        timeoutMs
-    })
-    assertWorkspaceProbeResult(workspacePath, result)
-}
 
 interface WorkspaceProbeExec {
     run(args: {

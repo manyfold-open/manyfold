@@ -603,6 +603,43 @@ const zh: Translations = {
                 conversation: '对话'
             }
         },
+        hostStatus: {
+            power: {
+                running: '运行中',
+                suspended: '已挂起',
+                stopped: '已停止',
+                unknown: '未知'
+            },
+            availability: {
+                available: '可用',
+                wakeable: '休眠中',
+                offline: '离线',
+                unavailable: '不可用'
+            },
+            lifecycle: {
+                provisioning: '准备中',
+                ready: '就绪',
+                failed: '失败',
+                deleting: '删除中',
+                retired: '已退役'
+            },
+            daemon: {
+                online: '在线',
+                offline: '离线',
+                notRegistered: '未注册'
+            },
+            keepAwake: {
+                label: '保持唤醒',
+                hint: '让这台机器持续运行。它会占用一个活跃沙箱名额，并持续累计活跃时长，直到你关闭此开关。',
+                on: '已保持唤醒'
+            },
+            placement: {
+                daemon: '自有计算机',
+                sprites: '有状态沙箱',
+                k8s: '云端计算机',
+                external: '外部 API'
+            }
+        },
         controlRow: {
             open: '打开 ↗',
             enabling: '启用中…',
@@ -625,7 +662,6 @@ const zh: Translations = {
             starting: '启动中',
             stopped: '已停止',
             unknown: '未知',
-            pending: '等待中',
             failed: '失败',
             online: '在线',
             offline: '离线',
@@ -656,25 +692,14 @@ const zh: Translations = {
                 '暴露此运行时的 Hermes Dashboard。首次启用会构建网页 UI（约一分钟），切换时网关会短暂重启。',
             updating: '更新中…',
             openDashboard: '打开 Dashboard ↗',
-            keepAlive: '保持在线',
-            keepAliveDescription:
-                '保持此沙箱持续运行，会占用并发活跃沙箱槽位并持续累计运行时长。',
             details: '详情',
             primaryAgent: '主要 Agent',
-            statefulSandbox: '有状态沙箱',
-            cluster: '集群',
-            namespace: '命名空间',
-            ingress: 'Ingress',
             machine: '机器',
             endpoint: 'Endpoint',
             mountPath: '挂载路径',
-            homeDir: '主目录',
-            workspaceBase: '工作区根目录',
             cliVersion: 'CLI 版本',
-            lastSeen: '最近发现',
             service: '服务',
             phase: '阶段',
-            started: '启动于',
             created: '创建于',
             upgradeFramework: '升级框架',
             changeFrameworkVersion: '更换框架版本',
@@ -712,7 +737,13 @@ const zh: Translations = {
                 windowGeminiFlashLite: 'Gemini Flash-Lite',
                 signIn: '登录',
                 signInBody: '在此终端中于运行时上完成登录，然后关闭终端以刷新账号。'
-            }
+            },
+            installing: '安装中',
+            provider: '提供商',
+            providerRef: '提供商引用',
+            availability: '可用性',
+            power: '电源',
+            daemon: 'Daemon'
         },
         runtimeAuth: {
             hostSignIn: '主机登录',
@@ -736,9 +767,9 @@ const zh: Translations = {
             removeConfirmBody: '保存的登录会从此运行时删除。Agent 的其他设置不受影响。',
             signInBody: '在终端中登录此账号，然后关闭终端以刷新列表。',
             executeUnsupported: '请先更新此运行时上的 mf CLI，Agent 才能使用添加的账号运行。',
-            hostUnavailable: '此沙箱还没有 runner。启动 runner 会唤醒沙箱，并计入运行时间。',
-            runnerAsleep: '沙箱的 runner 没有响应。唤醒它会计入运行时间。',
-            startRunner: '启动 runner',
+            hostUnavailable: '这个沙箱尚未连接。启动它会唤醒沙箱并计入运行时间。',
+            runnerAsleep: '沙箱没有响应。唤醒它会计入运行时间。',
+            startRunner: '唤醒沙箱',
             checkAgain: '再检查一次',
             upgradeRequired: '请更新此运行时上的 mf CLI 以添加更多账号。',
             listFailed: '无法列出此运行时上的账号。',
@@ -908,7 +939,7 @@ const zh: Translations = {
                 working: '重启中…'
             },
             overview: {
-                keepAliveOn: '保持常驻',
+                keepAwakeOn: '保持唤醒中',
                 details: '详细信息',
                 interfaces: '接口',
                 framework: '框架',
@@ -970,13 +1001,13 @@ const zh: Translations = {
             slotsPlan: '{{plan}} 套餐',
             slotsNone: '当前没有运行中的沙箱。',
             slotNoAgents: '无 Agent',
-            keepAliveTag: '常驻',
-            keepAliveDescription: '保持在线，会持续消耗在线时长。',
-            keepAliveUsage: '常驻中 — 本周期已用 {{duration}}。',
-            keepAliveHint: '关闭后会在闲置时自动休眠。',
-            keepAliveTurnOff: '关闭',
-            keepAliveViewRuntime: '查看运行环境',
-            keepAliveTurningOff: '正在关闭…',
+            keepAwakeTag: '保持唤醒',
+            keepAwakeDescription: '此沙箱会保持唤醒，并持续消耗活跃时长。',
+            keepAwakeUsage: '保持唤醒中 — 本周期已用 {{duration}}。',
+            keepAwakeHint: '关闭后，沙箱会在闲置时自动休眠。',
+            keepAwakeTurnOff: '关闭',
+            keepAwakeViewSandbox: '查看沙箱',
+            keepAwakeTurningOff: '正在关闭…',
             activeHoursTitle: '在线时长',
             activeHoursUnlimited: '不限量',
             activeHoursUsed: '{{used}} / {{limit}}',
@@ -2519,22 +2550,9 @@ const zh: Translations = {
             },
             agentStatus: {
                 pending: '等待中',
-                running: '运行中',
-                stopped: '已停止',
+                ready: '就绪',
                 failed: '失败',
-                cold: '冷启动',
-                warm: '预热',
-                notReady: '未就绪',
-                containerCreating: '容器创建中',
-                podInitializing: 'Pod 初始化中',
-                crashLoopBackOff: '反复崩溃后退避',
-                imagePullBackOff: '拉取镜像后退避',
-                errImagePull: '镜像拉取错误',
-                createContainerConfigError: '创建容器配置错误',
-                createContainerError: '创建容器错误',
-                invalidImageName: '镜像名称无效',
-                unknown: '未知',
-                succeeded: '已完成'
+                unknown: '未知'
             },
             process: '处理 {{label}}',
             result: '结果',
@@ -2683,8 +2701,8 @@ const zh: Translations = {
                     '模型 Provider 拒绝了请求 —— key 可能没额度了。更新 key 或改用平台额度。',
                 accountPoolEmpty:
                     '此模型的提供商暂时没有可用账号，请稍后重试。',
-                runnerUnavailable: 'Agent runner 暂时不可用，请恢复连接后重试。',
-                runnerUpgradeRequired: 'Agent runner 需要升级后才能继续聊天。',
+                runnerUnavailable: 'Agent 所在的计算机暂时不可用，请恢复连接后重试。',
+                runnerUpgradeRequired: 'Agent 所在计算机上的 Manyfold CLI 需要升级后才能继续聊天。',
                 threadBusy:
                     '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
                 updateKey: '更新 key',
@@ -2904,7 +2922,8 @@ const zh: Translations = {
             enablePromptConfirm: '开启终端',
             enablePromptCancel: '取消',
             unavailableExternal: '该智能体运行在外部提供方，因此没有终端。',
-            unavailableStopped: '启动该智能体后即可打开它的终端。'
+            unavailableAgent:
+                '当前无法连接到该智能体所在的电脑，因此无法打开它的终端。'
         },
         sessionView: {
             switchToTerminal: '切换到TUI',
@@ -3766,7 +3785,7 @@ const zh: Translations = {
                 configuringNetwork: '正在配置网络',
                 bootstrappingFramework: '正在引导框架',
                 installingFramework: '正在安装框架二进制文件',
-                startingRunner: '启动 sandbox runner',
+                startingRunner: '正在连接沙箱',
                 startingService: '正在启动框架服务',
                 checkingQuota: '正在检查配额',
                 preparingWorkspace: '正在准备工作区',
@@ -3891,8 +3910,8 @@ const zh: Translations = {
             nextPage: '下一页',
             kind: '类型',
             readyTag: '就绪',
-            statusStartingRunner: '正在启动 runner…',
-            statusRunnerOnline: 'Runner 在线',
+            statusStartingRunner: '正在唤醒沙箱…',
+            statusRunnerOnline: '沙箱在线',
             statusWakeRefused: '无法唤醒',
             waitingForSlot: '等待另一台沙箱进入休眠…',
             modelProviderSection: '模型 Provider',
@@ -3939,7 +3958,7 @@ const zh: Translations = {
             runtimeApiKeySave: '保存到此运行时',
             providerModelCount: '{{count}} 个模型',
             providerTestFailedTag: '测试失败',
-            runnerStarting: '正在启动沙箱 runner…',
+            runnerStarting: '正在连接沙箱…',
             creatingSandbox: '正在创建沙箱…',
             checkingSandbox: '正在检查沙箱…',
             installingFramework: '正在安装 {{framework}}…',
@@ -4063,14 +4082,9 @@ const zh: Translations = {
             tokenRevokedMeta: ' · 已于 {{revoked}} 吊销',
             revokeTokenTitle: '吊销 daemon token',
             revokeTokenDesc: '绑定的 daemon 会立即停止工作。',
-            revokeHostTitle: '吊销机器',
-            revokeHostDesc:
-                '它上面的 agent 会被标记为已停止，机器上的工作区数据保留。',
             deleteHostTitle: '删除机器',
-            deleteHostDesc:
-                '永久删除 {{name}} 的机器注册信息、绑定的 daemon token，以及 Manyfold 中关联的 Agent 和 Runtime 记录。机器上的工作区数据仍会保留。此操作无法撤销。',
+            deleteHostDesc: '从 Manyfold 永久删除 {{name}} 这台机器的注册、它的 daemon token 及其 runtime 记录。请先删除其上的 Agent。机器上的工作区数据会保留。此操作无法撤销。',
             msgTokenRevoked: 'Token 已吊销',
-            msgMachineRevoked: '机器已吊销',
             msgMachineDeleted: '机器已删除',
             msgCommandCopied: '命令已复制',
             startupLaunchdUser: '自动启动 · 登录时（launchd）',
@@ -4079,7 +4093,11 @@ const zh: Translations = {
             startupSystemdSystem: '自动启动 · 开机时（systemd）',
             startupManual: '手动',
             startupContainer: '自动启动 · 容器',
-            startupUnknown: '启动方式未知'
+            startupUnknown: '启动方式未知',
+            retire: '退役',
+            retireHostTitle: '退役机器',
+            retireHostDesc: '它的 daemon 会断开连接，token 会被撤销；这台机器无法再重新连接。其上的 Agent 会停止运行。机器上的工作区数据会保留。',
+            msgMachineRetired: '机器已退役'
         },
         agentNewV3: {
             managedProvider: 'Manyfold 托管',
@@ -4466,12 +4484,10 @@ const zh: Translations = {
             versionPending: '版本待定',
             status: {
                 ready: '就绪',
-                pending: '等待中',
                 failed: '失败',
-                stopped: '已停止',
-                unknown: '未知',
-                online: '在线',
-                offline: '离线'
+                offline: '离线',
+                installing: '安装中',
+                asleep: '休眠中'
             },
             changeVersion: '更改版本',
             updating: '更新中…',
@@ -4483,7 +4499,6 @@ const zh: Translations = {
             expandHost: '展开主机',
             runtime: '运行时',
             runtimes: '运行时',
-            keepAliveOn: '保持运行已开启 — 此运行时会让整个沙箱保持唤醒。',
             update: '更新',
             install: '安装',
             command: '命令',
@@ -4504,8 +4519,7 @@ const zh: Translations = {
             managedBy: '由 Manyfold 管理 — 请通过框架删除，而不是在此处操作。',
             managed: '已管理',
             active: '活跃',
-            keepAliveLease:
-                '保持运行租约 — 由运行时保持运行开关管理，无法在此删除。',
+            keepAliveLease: '保持唤醒租约 — 由沙箱的保持唤醒开关管理，不能在此删除。',
             deleting: '删除中…',
             delete: '删除',
             remoteUpgradeHint:
@@ -4514,13 +4528,10 @@ const zh: Translations = {
             stopSandbox: '停止沙箱',
             deleteSandbox: '删除沙箱',
             stop: '停止',
-            stopDescription:
-                '停止沙箱“{{name}}”？其中的 Agent 会停止并关闭保持运行；下次收到消息时会自动唤醒。其他服务会停止，活动任务会删除，以便沙箱挂起。',
-            deleteSandboxDescription:
-                '删除沙箱“{{name}}”？sprite VM 及其中数据都会被销毁。',
+            stopDescription: '停止沙箱“{{name}}”？其上的 Agent 会被停止并关闭保持唤醒 — 收到下一条消息时它们会自动唤醒。其他服务会被停止，活动任务会被移除，以便沙箱可以挂起。',
+            deleteSandboxDescription: '删除沙箱“{{name}}”？这台机器及其上的所有内容都会被销毁。',
             rename: '重命名',
             stopping: '停止中…',
-            removingRuntimes: '请先移除其中的运行时',
             stoppingSandbox: '停止沙箱中…',
             deletingSandbox: '删除沙箱中…',
             machineOffline: '机器离线',
@@ -4544,7 +4555,6 @@ const zh: Translations = {
                 '允许终端会话携带该智能体的模型凭证，让编程 CLI 能在自己的界面里继续某个对话。开启后，任何能打开该终端的人都能读到这个密钥。',
             terminalDescription: '允许从网页打开此沙箱中的交互式 Shell。',
             details: '详情',
-            spriteId: 'Sprite ID',
             created: '创建时间',
             hostname: '主机名',
             os: '操作系统',
@@ -4577,11 +4587,10 @@ const zh: Translations = {
             serviceStopped: '已停止',
             serviceFailed: '失败',
             sandbox: '沙箱',
-            cluster: '集群',
             provision: '配置',
             alreadyRuns: '{{framework}} 已在此运行',
             unavailableAction: '不可用',
-            leaseExpires: '保持运行租约到期时间 {{time}}',
+            leaseExpires: '保持唤醒租约到期时间 {{time}}',
             guideInstallMethods:
                 '任何安装方式都可以 — 守护进程会在 PATH（包括 Homebrew、原生安装器或 nvm/fnm/volta）中找到 CLI 并将其注册为运行时。',
             versionPickerDaemon:
@@ -4590,8 +4599,7 @@ const zh: Translations = {
                 '选择要在“{{name}}”上安装的版本。升级会原地完成，不会重启任何内容。',
             latestVersion: '最新（v{{version}}）',
             activePeriod: '活跃 {{duration}}（本周期）',
-            activityDescription:
-                '让此沙箱保持唤醒的是托管服务（例如开发服务器）和活动租约 — 保持运行开关会安装一个租约。租约由运行时开关管理；Agent 注册的任务可在此删除。',
+            activityDescription: '让这个沙箱保持唤醒的东西：托管服务（例如开发服务器）和活动租约 — 保持唤醒开关会安装一个租约。保持唤醒租约由该开关管理；Agent 注册的任务可以在此删除。',
             loading: '加载中…',
             loadingActivity: '正在加载活动…',
             services: '服务',
@@ -4615,7 +4623,17 @@ const zh: Translations = {
             upgradeMessage:
                 '正在把 mf CLI 升级到 {{version}} —— 守护进程重启中…',
             alreadyOnVersion: '当前已是 {{version}}',
-            upgradedMessage: 'mf CLI 已升级到 v{{version}}'
+            upgradedMessage: 'mf CLI 已升级到 v{{version}}',
+            machineOfflineDetail: 'daemon 未连接。在它重新连接之前，其上的 Agent 无法运行。',
+            machineOfflineSeen: 'daemon 未连接 — 最后在线 {{time}}。在它重新连接之前，其上的 Agent 无法运行。',
+            hostFailed: '机器故障',
+            hostProvisioning: '正在启动机器…',
+            hostDeleting: '正在删除机器…',
+            removingAgents: '请先删除其上的 Agent',
+            refreshStatus: '刷新状态',
+            provider: '提供商',
+            providerRef: '提供商引用',
+            daemon: 'Daemon'
         },
         runtimesDashboard: {
             heading: '仪表盘',
@@ -4699,8 +4717,7 @@ const zh: Translations = {
             sandboxes: 'Sandboxes',
             channels: '消息渠道',
             modelProviders: '模型服务商',
-            clusters: 'Cloud computer 集群',
-            spritesAccounts: 'Stateful sandbox 账号',
+            runtimeProviders: '运行环境供应商',
             selfOwnedComputers: '自有电脑',
             users: '用户',
             loginProvider: '登录服务',
@@ -4727,16 +4744,16 @@ const zh: Translations = {
                 name: '名称',
                 framework: '框架',
                 model: '模型',
-                cluster: '集群',
+                host: '机器',
                 runtime: 'Runtime',
                 status: '状态',
+                availability: '可用性',
                 createdAt: '创建时间',
                 owner: '所属用户'
             },
             status: {
                 pending: '准备中',
-                running: '运行中',
-                stopped: '已停止',
+                ready: '就绪',
                 failed: '失败'
             },
             new: {
@@ -4767,17 +4784,13 @@ const zh: Translations = {
                 runtimeK8s: 'Cloud computer',
                 runtimeHint:
                     '选择 agent 的运行位置。Claude Code / Codex / Gemini CLI / OpenClaw / Hermes 支持 Stateful sandbox；需要长期在线容器时使用 Cloud computer。',
-                clusterLabel: 'Cloud computer 集群',
-                clusterHint: '选择要把 agent 部署到哪个已注册的集群。',
-                clusterEmpty:
-                    '还没有注册任何 Cloud computer 集群，需要管理员先在「设置」里添加一个。',
-                clusterEmptyCta: '去注册集群',
-                accountLabel: 'Stateful sandbox 账号',
-                accountHint:
-                    '为该 agent 指定某个 Stateful sandbox 账号。留空则自动选用当前负载最低的已启用账号。',
-                accountEmpty:
-                    '还没有可用的 Stateful sandbox 账号，需要管理员先注册一个。',
-                accountEmptyCta: '去注册 Stateful sandbox 账号',
+                providerLabel: '运行环境供应商',
+                providerHint:
+                    '新机器放在哪个供应商上。保持"自动"则由平台在该类型的已启用供应商中选择。',
+                providerAuto: '自动（由平台选择）',
+                providerEmpty:
+                    '还没有注册该类型的已启用运行环境供应商，需要管理员先添加一个才能创建这个 agent。',
+                providerEmptyCta: '去注册运行环境供应商',
                 ownerLabel: '所属用户（仅管理员可修改）',
                 ownerHint: '代其他用户创建 agent，只有管理员能选择其他人。',
                 ownerSelf: '我自己',
@@ -4924,7 +4937,7 @@ const zh: Translations = {
                 },
                 files: {
                     title: '文件',
-                    unavailable: 'Agent 运行后即可打开文件浏览器。',
+                    unavailable: 'Agent 所在机器可用后即可打开文件浏览器。',
                     loading: '正在准备文件浏览器…',
                     refresh: '刷新',
                     newFolder: '新建文件夹',
@@ -4951,17 +4964,29 @@ const zh: Translations = {
                 }
             }
         },
-        clusters: {
-            title: 'Cloud computer 集群',
+        runtimeProviders: {
+            title: '运行环境供应商',
             subtitle:
-                '注册一个或多个承载 Cloud computer agent 的集群。Cloud computer agent 会被部署到创建时选中的集群里。',
-            newButton: '添加集群',
-            empty: '还没有注册任何集群。',
+                '托管算力的来源：承载 Stateful sandbox 的 sprites.dev 组织，以及承载 Cloud computer 的 Kubernetes 集群。凭据加密存储；停用供应商不会影响已经放在它上面的机器。',
+            newButton: '添加供应商',
+            empty: '还没有注册任何运行环境供应商。',
             cols: {
+                kind: '类型',
                 name: '名称',
-                description: '描述',
+                status: '状态',
+                priority: '优先级',
+                region: '区域',
+                hosts: '机器',
                 health: '健康状态',
                 updatedAt: '更新时间'
+            },
+            kind: {
+                sprites: 'Stateful sandbox（sprites.dev）',
+                k8s: 'Cloud computer（Kubernetes）'
+            },
+            status: {
+                enabled: '已启用',
+                disabled: '已停用'
             },
             health: {
                 ok: '可达',
@@ -4971,79 +4996,87 @@ const zh: Translations = {
             actions: {
                 edit: '编辑',
                 probe: '测试连通性',
+                enable: '启用',
+                disable: '停用',
+                disableConfirm:
+                    '确定停用该供应商？已放在它上面的机器不受影响；重新启用前不能再往上面放置新机器。',
                 delete: '删除',
-                deleteConfirm:
-                    '确定删除这个集群？引用该集群的 agent 其 cluster 关联会被清空。'
+                deleteConfirm: '确定删除该供应商？只有当它上面没有任何机器时才能删除。',
+                deleteBlocked:
+                    '该供应商上仍有机器，无法删除。请先删除这些机器。'
             },
             form: {
-                titleCreate: '添加 Cloud computer 集群',
-                titleEdit: '编辑 Cloud computer 集群',
+                titleCreate: '添加运行环境供应商',
+                titleEdit: '编辑运行环境供应商',
+                kindLabel: '类型',
+                kindHint: '创建后不可更改。',
                 nameLabel: '名称',
                 namePlaceholder: 'eu-west-prod',
-                nameHint: '1-64 字符，创建 agent 时下拉选择时展示。',
+                nameHint: '1-64 字符。创建 agent 和机器时在供应商下拉框中展示。',
+                statusLabel: '状态',
+                priorityLabel: '优先级',
+                priorityHint:
+                    '平台在同类型供应商中选择时，优先级高者优先。范围 -1000..1000。',
+                regionLabel: '区域（可选）',
+                regionHint:
+                    '用于把放置请求路由到该供应商的区域 slug（小写，可含短横线，如 us-east-1、london）。',
+                spritesCredentialLabel: 'sprites.dev Token',
+                spritesCredentialHint:
+                    '粘贴完整 Token："<orgSlug>/<orgId>/<tokenId>/<tokenValue>"。加密存储（AES-256-GCM）。',
+                spritesCredentialHintEdit:
+                    '粘贴新的 Token 可替换现有内容，留空则沿用之前的。',
+                spritesCredentialPlaceholder: 'netmind/org_xxx/tok_xxx/sk_xxx',
+                spritesCredentialInvalid:
+                    'Token 必须由 "/" 分隔的四段组成：orgSlug/orgId/tokenId/tokenValue。',
+                orgSlugLabel: '组织',
+                orgIdLabel: '组织 ID',
+                tokenIdLabel: 'Token ID',
+                notesLabel: '备注（可选）',
+                notesHint: '自由备注，会在列表中展示。',
+                kubeconfigLabel: '集群配置（YAML）',
+                kubeconfigHint:
+                    '粘贴完整 kubeconfig。使用 AES-256-GCM 加密存储，保存时会做一次连通性探测。',
+                kubeconfigHintEdit:
+                    '粘贴新的 kubeconfig 可替换现有内容，留空则沿用之前的。',
                 descriptionLabel: '描述（可选）',
                 descriptionHint: '列表里展示的备注。',
                 hostSuffixLabel: 'Ingress host 后缀（可选）',
                 hostSuffixHint:
-                    '设置后 agent 的 ingress host 将形如 `<agentId>.<后缀>`。留空则使用平台默认值。',
-                kubeconfigLabel: '集群配置（YAML）',
-                kubeconfigHint:
-                    '粘贴完整集群配置。使用 AES-256-GCM 加密存储，保存时会做一次连通性探测。',
-                kubeconfigHintEdit:
-                    '粘贴新的集群配置可替换现有内容，留空则沿用之前的。',
-                submitCreate: '添加集群',
+                    '设置后，该集群上的服务型 framework 将以 `<hostId>.<后缀>` 对外发布。留空则使用平台默认值。',
+                lastProbe: '最近探测：{{message}}',
+                submitCreate: '添加供应商',
                 submitUpdate: '保存修改',
-                submitting: '保存中…',
+                submitting: '保存中…'
             }
         },
-        spritesAccounts: {
-            title: 'Stateful sandbox 账号',
-            subtitle:
-                '用来创建 Stateful sandbox agents 的 API Token。Token 加密存储，支持轮换与停用而不影响已运行的 agent。',
-            newButton: '添加账号',
-            empty: '还没有注册任何 Stateful sandbox 账号。',
-            cols: {
-                slug: 'Slug',
-                org: 'Org',
-                status: '状态',
-                activeSprites: '活跃',
-                notes: '备注',
-                updatedAt: '更新时间'
+        hostStatus: {
+            availability: {
+                available: '可用',
+                wakeable: '休眠中',
+                offline: '离线',
+                unavailable: '不可用'
             },
-            status: {
-                enabled: '已启用',
-                disabled: '已停用'
+            power: {
+                running: '运行中',
+                suspended: '已挂起',
+                stopped: '已停止',
+                unknown: '未知'
             },
-            actions: {
-                edit: '编辑',
-                rotate: '轮换 Token',
-                disable: '停用',
-                enable: '启用',
-                disableConfirm:
-                    '确定停用该账号吗？已运行的 agent 不受影响；新建 agent 将无法选用，直到重新启用。'
+            lifecycle: {
+                provisioning: '准备中',
+                ready: '就绪',
+                failed: '失败',
+                deleting: '删除中',
+                retired: '已退役'
             },
-            form: {
-                titleCreate: '添加 Stateful sandbox 账号',
-                titleEdit: '编辑 Stateful sandbox 账号',
-                slugLabel: 'Slug',
-                slugPlaceholder: 'prod-eu',
-                slugHint:
-                    '1-64 字符。小写字母、数字、下划线、短横线。用于创建 agent 时下拉选择。',
-                tokenLabel: 'Stateful sandbox Token',
-                tokenHint:
-                    '粘贴完整 Token："<orgSlug>/<orgId>/<tokenId>/<tokenValue>"。加密存储（AES-256-GCM）。',
-                tokenPlaceholder: 'netmind/org_xxx/tok_xxx/sk_xxx',
-                notesLabel: '备注（可选）',
-                notesHint: '自由备注，会在列表中展示。',
-                rotateTitle: '轮换 Token',
-                rotateHint:
-                    '粘贴新的 Token 替换现有的。Slug 不变；已运行的 agent 仍使用旧的已解密 Token。',
-                rotateLabel: '新的 Stateful sandbox Token',
-                submitCreate: '添加账号',
-                submitUpdate: '保存更改',
-                submitRotate: '轮换 Token',
-                submitting: '保存中…',
-                rotateSuccess: 'Token 已轮换。',
+            daemon: {
+                online: '在线',
+                offline: '离线',
+                notRegistered: '未注册'
+            },
+            keepAwake: {
+                on: '已保持唤醒',
+                off: '关闭'
             }
         },
         users: {
@@ -5104,7 +5137,7 @@ const zh: Translations = {
         agentRuntimes: {
             title: 'Agent Runtimes',
             subtitle:
-                '一个 agent runtime 对应一个 Stateful sandbox 或 Cloud computer，锁定一种 framework；同一 runtime 里可以承载多个 agent，共享运行环境和凭据。',
+                '一个 runtime 就是装在一台机器上的一种 framework：机器可以是 Stateful sandbox、Cloud computer 或自有电脑。同一 runtime 里可以承载多个 agent，共享运行环境和凭据。',
             empty: '还没有 agent runtime。创建 agent 时会自动生成。',
             viewLink: '查看 Runtime →',
             newButton: '新建 Runtime',
@@ -5114,28 +5147,30 @@ const zh: Translations = {
                 framework: '框架',
                 kind: '运行位置',
                 status: '状态',
+                availability: '可用性',
                 agents: 'Agents',
-                keepAlive: '常驻',
                 location: '位置',
+                power: '电源',
+                daemon: 'Daemon',
                 createdAt: '创建时间'
             },
             status: {
-                pending: '准备中',
+                installing: '安装中',
                 ready: '就绪',
-                failed: '失败',
-                stopped: '已停止'
+                failed: '失败'
             },
             kind: {
                 sprites: 'Stateful sandbox',
-                k8s: 'Cloud computer'
+                k8s: 'Cloud computer',
+                daemon: '自有电脑',
+                external: '外部 API'
             },
             actions: {
                 delete: '删除',
                 deleteConfirm:
-                    '确定删除这个 runtime？关联的 agent、凭据以及 runtime 资源都会被一并清理。',
-                keepAliveEnable: '开启',
-                keepAliveDisable: '关闭',
-                keepAliveSaving: '保存中…'
+                    '确定删除这个 runtime？仍有 agent 使用时会被拒绝；机器本身不会被改动。',
+                deleteBlocked:
+                    '这个 runtime 下仍有 agent。请先删除它们，再删除 runtime。'
             },
             detail: {
                 notFound: '未找到该 Runtime。',
@@ -5147,12 +5182,13 @@ const zh: Translations = {
                 },
                 info: {
                     primaryAgentId: '主 Agent ID',
-                    spriteName: 'Stateful sandbox 名称',
-                    namespace: '命名空间',
-                    ingressHost: 'Ingress 域名',
+                    hostName: '机器',
+                    hostStatus: '机器状态',
+                    provider: '供应商',
+                    providerRef: '供应商引用',
+                    power: '电源',
+                    daemon: 'Daemon',
                     mountPath: '挂载路径',
-                    accountSlug: 'Stateful sandbox 账号',
-                    clusterName: '集群',
                     createdAt: '创建时间',
                     lastBootstrappedAt: '最近启动',
                     serviceStatus: '服务状态',

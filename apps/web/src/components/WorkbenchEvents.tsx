@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useApiClient } from '@/lib/apiClient'
 import { publishResourceChanged } from '@/lib/resourceChanges'
-import { createReconnectingStream } from '@/lib/spriteStatusStream'
+import { createReconnectingStream } from '@/lib/reconnectingStream'
 import { dispatchWorkbenchEvents } from '@/lib/workbenchEvents'
 
 // Mounted by the authenticated route, including settings and customization
@@ -11,7 +11,7 @@ export const WorkbenchEvents = (): null => {
     useEffect(() => {
         const stream = createReconnectingStream({
             connect: ({ onOpen, onDown }) =>
-                client.agents.streamSpriteStatus({
+                client.agents.streamHostStatus({
                     onOpen: () => {
                         onOpen()
                     },

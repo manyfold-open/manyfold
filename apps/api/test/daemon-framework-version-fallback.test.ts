@@ -10,22 +10,31 @@ import type {
     SpriteServiceBootstrapResult
 } from '../src/modules/agents/bootstrap/sprite-framework-bootstrap'
 
+const none = {} as never
+
 const emptyProvisioner = (): SpritesProvisioner =>
     new SpritesProvisioner(
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        none,
+        none,
+        none,
+        { spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} }) } as never,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none,
         new SpriteServiceBootstraps({} as never, {} as never),
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
+        none,
+        none,
+        none,
+        none,
+        none
     )
 
 interface FakeBootstrap extends SpriteServiceBootstrap {

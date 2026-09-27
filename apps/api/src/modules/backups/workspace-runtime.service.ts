@@ -1,26 +1,23 @@
 import * as posix from 'node:path/posix'
 import { createHash } from 'node:crypto'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import type { Agent } from '@manyfold/db'
+import type { Agent, RuntimeHostRow } from '@manyfold/db'
+import type { AgentRuntime } from '@manyfold/shared'
 import {
-    createClient,
     execSprite,
     spriteFsReadFile,
     spriteFsWriteFile,
     type SpritesClient,
     type SpritesLogger
 } from '@manyfold/sprites'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import {
-    drainText,
-    PodExecFactory,
-    type PodExec,
-    type PodExecStreamHandle
-} from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
+import { drainText, type PodExecStreamHandle } from '@/modules/k8s/pod-exec'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { assertAgentReady } from '@/modules/agents/files/files-context'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import {
     cancelWorkspaceOperationScript,
     shellQuote,
@@ -49,22 +46,55 @@ const EXEC_TIMEOUT_MS = 10 * 60_000
 const RESTORE_WRITE_TIMEOUT_MS = 10 * 60_000
 const POD_PROBE_TIMEOUT_MS = 30_000
 
+// The machine a workspace operation runs on (ADR-0036): the agent's host and
+// the placement that decides which transport carries the bytes.
+interface WorkspaceTarget {
+    placement: Exclude<AgentRuntime, 'external'>
+    host: RuntimeHostRow
+}
+
 @Injectable()
 export class WorkspaceRuntimeService {
     private readonly log = new Logger(WorkspaceRuntimeService.name)
 
     constructor(
-        private readonly accounts: SpritesAccountsService,
-        private readonly runtimes: AgentRuntimesService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
+        private readonly runtimeContext: RuntimeContextService,
+        private readonly hostClients: HostProviderClients,
         private readonly daemonRegistry: DaemonRegistryService
     ) {}
+
+    private async target(agent: Agent): Promise<WorkspaceTarget> {
+        const ctx = await this.runtimeContext.forAgent(agent.id)
+        if (!ctx?.agent)
+            throw new NotFoundException(`agent ${agent.id} not found`)
+        if (ctx.placement === 'external' || !ctx.host)
+            throw new NotFoundException(
+                `external-runtime agent ${agent.id} has no workspace`
+            )
+        return { placement: ctx.placement, host: ctx.host }
+    }
+
+    // The lock key of one workspace on one machine, independent of which
+    // agent addresses it.
+    async operationKey(agent: Agent): Promise<string> {
+        return workspaceOperationKey(agent, await this.target(agent))
+    }
+
+    // The one admission rule for a backup or restore (ADR-0036): an installed
+    // runtime on a ready host. Returns the placement the row snapshots.
+    async admit(agent: Agent): Promise<AgentRuntime> {
+        const ctx = await this.runtimeContext.forAgent(agent.id)
+        if (!ctx?.agent)
+            throw new NotFoundException(`agent ${agent.id} not found`)
+        assertAgentReady(ctx as RuntimeContext & { agent: Agent })
+        return ctx.placement
+    }
 
     async createArchive(
         agent: Agent,
         backupId: string
     ): Promise<WorkspaceArchive> {
+        const target = await this.target(agent)
         const workspace = workspaceRoot(agent)
         const archivePath = `${workspace}/.nca-backup-tmp/${backupId}.tar.gz`
         let result: { stdout: string; stderr: string }
@@ -73,7 +103,7 @@ export class WorkspaceRuntimeService {
                 agent,
                 trackedWorkspaceScript(
                     workspaceOperationRoot(
-                        workspaceOperationKey(agent),
+                        workspaceOperationKey(agent, target),
                         backupId
                     ),
                     'archive',
@@ -87,12 +117,12 @@ export class WorkspaceRuntimeService {
         const metrics = parseMetrics(result.stdout)
         const archiveBytes = numberMetric(metrics, 'archiveBytes')
         if (
-            (agent.runtime === 'daemon' || agent.runtime === 'k8s') &&
+            target.placement !== 'sprites' &&
             archiveBytes > BUFFERED_BACKUP_MAX_BYTES
         ) {
             await this.cleanupPath(agent, archivePath)
             throw new Error(
-                `workspace archive too large for ${agent.runtime} backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB, actual ${Math.ceil(archiveBytes / (1024 * 1024))} MB)`
+                `workspace archive too large for ${target.placement} backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB, actual ${Math.ceil(archiveBytes / (1024 * 1024))} MB)`
             )
         }
         const archive = await this.readFile(agent, archivePath)
@@ -140,7 +170,7 @@ export class WorkspaceRuntimeService {
                 agent,
                 trackedWorkspaceScript(
                     workspaceOperationRoot(
-                        workspaceOperationKey(agent),
+                        workspaceOperationKey(agent, await this.target(agent)),
                         restoreId
                     ),
                     'restore',
@@ -162,7 +192,7 @@ export class WorkspaceRuntimeService {
             agent,
             cancelWorkspaceOperationScript(
                 workspaceOperationRoot(
-                    workspaceOperationKey(agent),
+                    workspaceOperationKey(agent, await this.target(agent)),
                     operationId
                 )
             )
@@ -191,9 +221,10 @@ export class WorkspaceRuntimeService {
         agent: Agent,
         absPath: string
     ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        if (agent.runtime === 'sprites') {
+        const target = await this.target(agent)
+        if (target.placement === 'sprites') {
             const { client, spriteName, logger } =
-                await this.spriteTarget(agent)
+                await this.spriteTarget(target)
             const result = await spriteFsReadFile(
                 client,
                 spriteName,
@@ -203,9 +234,9 @@ export class WorkspaceRuntimeService {
             if (!result) throw new NotFoundException(`no such file: ${absPath}`)
             return { stream: result.stream }
         }
-        if (agent.runtime === 'daemon')
-            return this.readFileFromDaemon(agent, absPath)
-        return this.readFileFromPod(agent, absPath)
+        if (target.placement === 'daemon')
+            return this.readFileFromDaemon(target, absPath)
+        return this.readFileFromPod(target, absPath)
     }
 
     private async writeFile(
@@ -213,9 +244,10 @@ export class WorkspaceRuntimeService {
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        if (agent.runtime === 'sprites') {
+        const target = await this.target(agent)
+        if (target.placement === 'sprites') {
             const { client, spriteName, logger } =
-                await this.spriteTarget(agent)
+                await this.spriteTarget(target)
             await spriteFsWriteFile(
                 client,
                 spriteName,
@@ -229,18 +261,19 @@ export class WorkspaceRuntimeService {
             )
             return
         }
-        if (agent.runtime === 'daemon')
-            return this.writeFileToDaemon(agent, absPath, stream)
-        await this.writeFileToPod(agent, absPath, stream)
+        if (target.placement === 'daemon')
+            return this.writeFileToDaemon(target, absPath, stream)
+        await this.writeFileToPod(target, absPath, stream)
     }
 
     private async run(
         agent: Agent,
         script: string
     ): Promise<{ stdout: string; stderr: string }> {
-        if (agent.runtime === 'sprites') {
+        const target = await this.target(agent)
+        if (target.placement === 'sprites') {
             const { client, spriteName, logger } =
-                await this.spriteTarget(agent)
+                await this.spriteTarget(target)
             const result = await execSprite(
                 client,
                 spriteName,
@@ -257,8 +290,9 @@ export class WorkspaceRuntimeService {
                 )
             return { stdout: result.stdout, stderr: result.stderr }
         }
-        if (agent.runtime === 'daemon') return this.runOnDaemon(agent, script)
-        const exec = await this.k8sExec(agent)
+        if (target.placement === 'daemon')
+            return this.runOnDaemon(target, script)
+        const exec = await this.hostClients.podExecForHost(target.host)
         const result = await exec.run({
             cmd: ['bash', '-lc', script],
             timeoutMs: EXEC_TIMEOUT_MS
@@ -270,19 +304,11 @@ export class WorkspaceRuntimeService {
         return { stdout: result.stdout, stderr: result.stderr }
     }
 
-    private requireDaemonId(agent: Agent): string {
-        if (!agent.daemonId)
-            throw new NotFoundException(
-                `daemon agent ${agent.id} missing daemonId`
-            )
-        return agent.daemonId
-    }
-
     private async runOnDaemon(
-        agent: Agent,
+        target: WorkspaceTarget,
         script: string
     ): Promise<{ stdout: string; stderr: string }> {
-        const daemonId = this.requireDaemonId(agent)
+        const daemonId = target.host.id
         const stdoutChunks: string[] = []
         const stderrChunks: string[] = []
         const stream = this.daemonRegistry.streamRpc({
@@ -316,10 +342,10 @@ export class WorkspaceRuntimeService {
     }
 
     private async readFileFromDaemon(
-        agent: Agent,
+        target: WorkspaceTarget,
         absPath: string
     ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        const daemonId = this.requireDaemonId(agent)
+        const daemonId = target.host.id
         const chunks: Buffer[] = []
         let totalBytes = 0
         const stream = this.daemonRegistry.streamRpc({
@@ -358,11 +384,10 @@ export class WorkspaceRuntimeService {
     }
 
     private async writeFileToDaemon(
-        agent: Agent,
+        target: WorkspaceTarget,
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        this.requireDaemonId(agent)
         // Buffer the upload so we can ship a single base64 payload to the daemon.
         // Phase 6+ TODO: extend WS protocol to support server→daemon streaming events,
         // then write incrementally. For v1 minimum, cap at 100MB which covers
@@ -389,17 +414,17 @@ export class WorkspaceRuntimeService {
             `printf '%s' ${shellQuote(encoded)} | base64 -d > ${shellQuote(absPath)}`,
             `chmod 600 ${shellQuote(absPath)}`
         ].join('\n')
-        await this.runOnDaemon(agent, script)
+        await this.runOnDaemon(target, script)
     }
 
     // Over the exec websocket rather than the gateway, whose request body
     // (stdin) is capped far below an archive. stdout arrives as text, so the
     // archive crosses base64-encoded.
     private async readFileFromPod(
-        agent: Agent,
+        target: WorkspaceTarget,
         absPath: string
     ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        const exec = await this.k8sExec(agent)
+        const exec = await this.hostClients.podExecForHost(target.host)
         const q = shellQuote(absPath)
         const probe = await exec.run({
             cmd: ['bash', '-c', `[ -f ${q} ]`],
@@ -417,11 +442,11 @@ export class WorkspaceRuntimeService {
     }
 
     private async writeFileToPod(
-        agent: Agent,
+        target: WorkspaceTarget,
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        const exec = await this.k8sExec(agent)
+        const exec = await this.hostClients.podExecForHost(target.host)
         const q = shellQuote(absPath)
         const handle = exec.streamInteractive({
             cmd: [
@@ -457,62 +482,36 @@ export class WorkspaceRuntimeService {
             )
     }
 
-    private async spriteTarget(agent: Agent): Promise<{
+    private async spriteTarget(target: WorkspaceTarget): Promise<{
         client: SpritesClient
         spriteName: string
         logger: SpritesLogger
     }> {
-        if (!agent.accountId || !agent.spriteName)
-            throw new NotFoundException(
-                `sprites agent ${agent.id} missing accountId or spriteName`
-            )
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${agent.accountId} not found`
-            )
         const logger = spritesLoggerFor(this.log)
-        return {
-            client: createClient({
-                token: this.accounts.decryptToken(account),
-                accountSlug: account.slug,
-                logger
-            }),
-            spriteName: agent.spriteName,
-            logger
-        }
-    }
-
-    private async k8sExec(agent: Agent): Promise<PodExec> {
-        const runtime = await this.runtimes.findById(agent.runtimeId)
-        if (!runtime)
-            throw new NotFoundException(
-                `runtime ${agent.runtimeId} not found for agent ${agent.id}`
-            )
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        return this.podExecFactory.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(target.host, logger)
+        return { client, spriteName, logger }
     }
 }
 
 const workspaceRoot = (agent: Agent): string =>
     normalizeAbsPath(agent.mountPath || agent.workspacePath || '/workspace')
 
-export const workspaceOperationKey = (agent: Agent): string => {
-    const host =
-        agent.runtime === 'sprites'
-            ? [agent.accountId, agent.spriteName]
-            : agent.runtime === 'daemon'
-              ? [agent.daemonId]
-              : [agent.hostId]
-    return createHash('sha256')
-        .update(JSON.stringify([agent.runtime, host, workspaceRoot(agent)]))
+// One workspace on one machine, whichever agent addresses it and whatever
+// the machine's later fate (ADR-0036): the placement and the host id.
+export const workspaceOperationKey = (
+    agent: Agent,
+    target: { placement: AgentRuntime; host: { id: string } | null }
+): string =>
+    createHash('sha256')
+        .update(
+            JSON.stringify([
+                target.placement,
+                target.host?.id ?? null,
+                workspaceRoot(agent)
+            ])
+        )
         .digest('hex')
-}
 
 const normalizeAbsPath = (path: string): string => {
     const normalized = posix.normalize(path)

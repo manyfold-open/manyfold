@@ -60,22 +60,10 @@ test(
                     const userId = 'usr_phase8_contract'
                     // This fixture intentionally stops before later user columns.
                     await sql`insert into users (id, email) values (${userId}, 'contract@example.test')`
-                    await db.insert(agentRuntimes).values({
-                        id: 'art_contract',
-                        userId,
-                        name: 'contract',
-                        kind: 'sprites',
-                        framework: 'codex'
-                    })
-                    await db.insert(agents).values({
-                        id: 'agt_contract',
-                        userId,
-                        runtimeId: 'art_contract',
-                        internalId: 'default',
-                        name: 'contract',
-                        runtime: 'sprites',
-                        framework: 'codex'
-                    })
+                    // Boundary-era schema (0012): the placement columns still
+                    // exist there, so these rows are written in that shape.
+                    await sql`insert into agent_runtimes (id, user_id, name, kind, framework) values ('art_contract', ${userId}, 'contract', 'sprites', 'codex')`
+                    await sql`insert into agents (id, user_id, runtime_id, internal_id, name, runtime, framework) values ('agt_contract', ${userId}, 'art_contract', 'default', 'contract', 'sprites', 'codex')`
                     const tokens = new ApiTokenService(db)
                     const external = await tokens.mintA2aGrant({
                         userId,
@@ -202,22 +190,8 @@ test(
                     const userId = 'usr_binding_switch'
                     const agentId = 'agt_binding_switch'
                     await sql`insert into users (id, email) values (${userId}, 'binding@example.test')`
-                    await db.insert(agentRuntimes).values({
-                        id: 'art_binding_switch',
-                        userId,
-                        name: 'binding',
-                        kind: 'sprites',
-                        framework: 'codex'
-                    })
-                    await db.insert(agents).values({
-                        id: agentId,
-                        userId,
-                        runtimeId: 'art_binding_switch',
-                        internalId: 'default',
-                        name: 'binding',
-                        runtime: 'sprites',
-                        framework: 'codex'
-                    })
+                    await sql`insert into agent_runtimes (id, user_id, name, kind, framework) values ('art_binding_switch', ${userId}, 'binding', 'sprites', 'codex')`
+                    await sql`insert into agents (id, user_id, runtime_id, internal_id, name, runtime, framework) values (${agentId}, ${userId}, 'art_binding_switch', 'default', 'binding', 'sprites', 'codex')`
                     const tokens = new ApiTokenService(db)
                     const existing = await tokens.mintA2aGrant({
                         userId,
@@ -340,8 +314,7 @@ test(
                     id: runtimeId,
                     userId,
                     name: 'Phase 8',
-                    framework: 'codex',
-                    kind: 'sprites'
+                    framework: 'codex'
                 })
                 for (const id of ['agt_A', 'agt_B'])
                     await db.insert(agents).values({
@@ -350,8 +323,7 @@ test(
                         runtimeId,
                         internalId: id,
                         name: id,
-                        framework: 'codex',
-                        runtime: 'sprites'
+                        framework: 'codex'
                     })
                 const tokens = new ApiTokenService(db)
                 const config = new ConfigService({

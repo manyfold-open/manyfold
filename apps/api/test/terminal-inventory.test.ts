@@ -37,7 +37,7 @@ const harness = (rows: Array<ReturnType<typeof row>>) => {
             }
         } as never,
         {
-            listLiveOwnedByDaemon: async () => rows,
+            listLiveOwnedByHost: async () => rows,
             renewLeases: async (ids: string[]) => {
                 renewed.push(ids)
                 return ids.length

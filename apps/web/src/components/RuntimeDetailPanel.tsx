@@ -2,14 +2,14 @@ import {
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
     isUpgradeableFramework,
-    runtimeAccountSupport,
-    runtimeKindLabel
+    runtimeAccountSupport
 } from '@manyfold/shared'
 import type {
     AgentRuntimeStatus,
     AgentRuntimeSummary,
-    RuntimeServiceStatus,
-    SpriteStatus
+    RuntimeAvailability,
+    RuntimeHostPowerState,
+    RuntimeServiceStatus
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -50,8 +50,16 @@ import { useApiClient } from '@/lib/apiClient'
 import { updateRunStore, useIsTargetUpdating } from '@/lib/updateRunStore'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import {
+    availabilityLabel,
+    availabilityTone,
+    daemonPresenceLabel,
+    hostKey,
+    placementLabel,
+    powerStateLabel,
+    powerStateTone
+} from '@/lib/hostStatus'
 import { openDashboardInPopup } from '@/lib/openDashboard'
-import { spriteStatusLabel, spriteStatusTone } from '@/lib/spriteStatus'
 
 export { ControlRow } from '@/components/ControlRow'
 export { StatusTag, type TagTone } from '@/components/Tag'
@@ -286,27 +294,47 @@ const serviceStatusLabel = (status: RuntimeServiceStatus): string => {
     return translate('web.runtimeDetails.unknown')
 }
 
+// Install state only (ADR-0036); whether a turn can start is the
+// availability tag below.
 const STATUS_TONE: Record<AgentRuntimeStatus, TagTone> = {
     ready: 'success',
-    pending: 'warning',
-    failed: 'error',
-    stopped: 'idle'
+    installing: 'warning',
+    failed: 'error'
 }
 
-const runtimeStatusLabel = (status: AgentRuntimeStatus): string => {
+export const runtimeStatusLabel = (status: AgentRuntimeStatus): string => {
     if (status === 'ready') return translate('web.runtimeDetails.ready')
-    if (status === 'pending') return translate('web.runtimeDetails.pending')
-    if (status === 'failed') return translate('web.runtimeDetails.failed')
-    return translate('web.runtimeDetails.stopped')
+    if (status === 'installing')
+        return translate('web.runtimeDetails.installing')
+    return translate('web.runtimeDetails.failed')
 }
 
 export const runtimeStatusTag = (status: AgentRuntimeStatus): ReactNode => (
     <StatusTag
         tone={STATUS_TONE[status]}
         label={runtimeStatusLabel(status)}
-        pulse={status === 'pending'}
+        pulse={status === 'installing'}
     />
 )
+
+const availabilityTag = (
+    availability: RuntimeAvailability
+): ReactNode => (
+    <StatusTag
+        tone={availabilityTone(availability)}
+        label={availabilityLabel(availability)}
+    />
+)
+
+// A runtime's one-word verdict: its install state until it is installed,
+// then whether its machine can take a turn right now (a ready runtime on a
+// sleeping or offline machine says so instead of "Ready").
+export const runtimeAvailabilityTag = (
+    runtime: Pick<AgentRuntimeSummary, 'status' | 'availability'>
+): ReactNode =>
+    runtime.status !== 'ready' || runtime.availability === 'available'
+        ? runtimeStatusTag(runtime.status)
+        : availabilityTag(runtime.availability)
 
 export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
     if (online === null)
@@ -320,21 +348,17 @@ export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
     )
 }
 
-// Sandbox (sprite) host badge: the VM's sprites.dev lifecycle (active/warm/cold),
-// not the runtime provisioning status. Active pulses (work in flight); a not-yet
-// -reported sprite reads as provisioning.
-export const spriteStatusTag = (status: SpriteStatus | null): ReactNode => (
+// A hosted machine's power state (running / suspended / stopped), not the
+// runtime install status: a ready runtime on a suspended machine is asleep.
+export const powerStateTag = (
+    state: RuntimeHostPowerState | null
+): ReactNode => (
     <StatusTag
-        tone={spriteStatusTone(status)}
-        label={spriteStatusLabel(status)}
-        pulse={status === 'running' || status === null}
+        tone={powerStateTone(state)}
+        label={powerStateLabel(state)}
+        pulse={state === 'running'}
     />
 )
-
-const headerBadge = (runtime: AgentRuntimeSummary): ReactNode =>
-    runtime.kind === 'daemon'
-        ? daemonOnlineBadge(runtime.daemonOnline)
-        : runtimeStatusTag(runtime.status)
 
 const serviceStatusValue = (r: AgentRuntimeSummary): ReactNode => (
     <span className='flex flex-wrap items-center gap-2'>
@@ -387,8 +411,6 @@ const RuntimeDetailPanel: FC<{
     const [controlUiError, setControlUiError] = useState<string | null>(null)
     const [dashboardPending, setDashboardPending] = useState(false)
     const [dashboardError, setDashboardError] = useState<string | null>(null)
-    const [keepAlivePending, setKeepAlivePending] = useState(false)
-    const [keepAliveError, setKeepAliveError] = useState<string | null>(null)
     const [fwRefreshing, setFwRefreshing] = useState(false)
     const [fwUpgrading, setFwUpgrading] = useState(false)
     const queuedUpgrade = useIsTargetUpdating(`framework:${runtimeId}`)
@@ -432,24 +454,6 @@ const RuntimeDetailPanel: FC<{
             setDashboardError(apiErrorMessage(e))
         } finally {
             setDashboardPending(false)
-        }
-    }
-
-    const handleToggleKeepAlive = async (): Promise<void> => {
-        if (!runtime || keepAlivePending) return
-        setKeepAlivePending(true)
-        setKeepAliveError(null)
-        try {
-            const next = await client.agentRuntimes.setKeepAlive(
-                runtime.id,
-                !runtime.keepAliveEnabled
-            )
-            setRuntime(next)
-            // no 60s debounce here: that exists for k8s pod restarts, this is a sub-second exec round-trip
-            setKeepAlivePending(false)
-        } catch (e) {
-            setKeepAliveError(apiErrorMessage(e))
-            setKeepAlivePending(false)
         }
     }
 
@@ -671,7 +675,7 @@ const RuntimeDetailPanel: FC<{
             <IdentityHeader
                 icon={<FrameworkLogo framework={runtime.framework} size={28} />}
                 title={runtime.name}
-                badge={headerBadge(runtime)}
+                badge={runtimeAvailabilityTag(runtime)}
                 subtitle={
                     <>
                         <span className='text-ui text-fg font-medium'>
@@ -731,7 +735,7 @@ const RuntimeDetailPanel: FC<{
                         )}
                         <span className='text-subtle'>·</span>
                         <span className='text-caption text-muted'>
-                            {runtimeKindLabel(runtime.kind)}
+                            {placementLabel(runtime.kind)}
                         </span>
                     </>
                 }
@@ -813,8 +817,9 @@ const RuntimeDetailPanel: FC<{
                 <RuntimeAccountSection key={runtime.id} runtime={runtime} />
             )}
 
-            {(runtime.kind === 'sprites' ||
-                runtime.framework === 'openclaw') && (
+            {(runtime.framework === 'openclaw' ||
+                (runtime.framework === 'hermes' &&
+                    runtime.kind === 'sprites')) && (
                 <Section title={translate('web.runtimeDetails.controls')}>
                     <div className='settings-card'>
                         {runtime.framework === 'openclaw' && (
@@ -867,19 +872,6 @@ const RuntimeDetailPanel: FC<{
                                 }
                             />
                         )}
-                        {runtime.kind === 'sprites' && (
-                            <ControlRow
-                                label={translate('web.runtimeDetails.keepAlive')}
-                                description={translate('web.runtimeDetails.keepAliveDescription')}
-                                enabled={runtime.keepAliveEnabled}
-                                pending={keepAlivePending}
-                                pendingLabel={translate('web.runtimeDetails.updating')}
-                                onToggle={(): void => {
-                                    void handleToggleKeepAlive()
-                                }}
-                                error={keepAliveError}
-                            />
-                        )}
                     </div>
                 </Section>
             )}
@@ -907,34 +899,51 @@ const RuntimeDetailPanel: FC<{
                             ) : null
                         }
                     />
-                    {runtime.kind === 'sprites' && (
+                    {runtime.hostId && (
                         <Info
-                            label={translate('web.runtimeDetails.statefulSandbox')}
-                            value={monoCopyValue(runtime.spriteName)}
+                            label={translate('web.runtimeDetails.machine')}
+                            value={
+                                <Link
+                                    to={`/settings/runtimes?host=${encodeURIComponent(hostKey(runtime.hostId))}`}
+                                    className='text-link hover:text-fg font-medium'
+                                >
+                                    {runtime.hostName ?? runtime.hostId}
+                                </Link>
+                            }
+                        />
+                    )}
+                    {runtime.providerName && (
+                        <Info
+                            label={translate('web.runtimeDetails.provider')}
+                            value={runtime.providerName}
+                        />
+                    )}
+                    {runtime.providerRefLabel && (
+                        <Info
+                            label={translate('web.runtimeDetails.providerRef')}
+                            value={monoCopyValue(runtime.providerRefLabel)}
                             mono
                         />
                     )}
-                    {runtime.kind === 'k8s' && (
-                        <>
-                            <Info
-                                label={translate('web.runtimeDetails.cluster')}
-                                value={runtime.clusterName}
-                                mono
-                            />
-                            <Info
-                                label={translate('web.runtimeDetails.namespace')}
-                                value={runtime.namespace}
-                                mono
-                            />
-                            <Info
-                                label={translate('web.runtimeDetails.ingress')}
-                                value={runtime.ingressHost}
-                                mono
-                            />
-                        </>
+                    {runtime.hostId && (
+                        <Info
+                            label={translate('web.runtimeDetails.availability')}
+                            value={availabilityTag(runtime.availability)}
+                        />
                     )}
-                    {runtime.kind === 'daemon' && (
-                        <Info label={translate('web.runtimeDetails.machine')} value={runtime.daemonName} />
+                    {runtime.hostKind === 'hosted' && (
+                        <Info
+                            label={translate('web.runtimeDetails.power')}
+                            value={powerStateTag(runtime.powerState)}
+                        />
+                    )}
+                    {runtime.hostId && (
+                        <Info
+                            label={translate('web.runtimeDetails.daemon')}
+                            value={daemonPresenceLabel({
+                                online: runtime.daemonOnline === true
+                            })}
+                        />
                     )}
                     {runtime.kind === 'external' && (
                         <Info
@@ -950,32 +959,16 @@ const RuntimeDetailPanel: FC<{
                             mono
                         />
                     )}
-                    {runtime.kind === 'daemon' && (
-                        <>
-                            <Info
-                                label={translate('web.runtimeDetails.homeDir')}
-                                value={runtime.homeDir}
-                                mono
-                            />
-                            <Info
-                                label={translate('web.runtimeDetails.workspaceBase')}
-                                value={runtime.workspaceBaseDir}
-                                mono
-                            />
-                            <Info
-                                label={translate('web.runtimeDetails.cliVersion')}
-                                value={
-                                    runtime.daemonCliVersion
-                                        ? `v${runtime.daemonCliVersion}`
-                                        : null
-                                }
-                                mono
-                            />
-                            <Info
-                                label={translate('web.runtimeDetails.lastSeen')}
-                                value={dateValue(runtime.lastSeenAt)}
-                            />
-                        </>
+                    {runtime.hostId && (
+                        <Info
+                            label={translate('web.runtimeDetails.cliVersion')}
+                            value={
+                                runtime.daemonCliVersion
+                                    ? `v${runtime.daemonCliVersion}`
+                                    : null
+                            }
+                            mono
+                        />
                     )}
                     {runtime.kind !== 'daemon' && (
                         <Info
@@ -985,12 +978,6 @@ const RuntimeDetailPanel: FC<{
                     )}
                     {runtime.kind === 'k8s' && runtime.currentPhase && (
                         <Info label={translate('web.runtimeDetails.phase')} value={runtime.currentPhase} />
-                    )}
-                    {runtime.startedAt && (
-                        <Info
-                            label={translate('web.runtimeDetails.started')}
-                            value={dateValue(runtime.startedAt)}
-                        />
                     )}
                     <Info
                         label={translate('web.runtimeDetails.created')}

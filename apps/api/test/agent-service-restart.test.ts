@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException } from '@nestjs/common'
 import { agentCredentials, agentRuntimes, agents } from '@manyfold/db'
+import { contextOf, spritesHostRow } from './helpers/runtime-context-fixture'
 import { AgentServiceRestartService } from '../src/modules/agents/agent-service-restart.service'
 import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
@@ -59,10 +60,7 @@ const harness = (patch: Record<string, unknown> = {}): Harness => {
         runtimeId: 'runtime-1',
         name: 'Agent',
         framework: 'hermes',
-        runtime: 'sprites',
-        status: 'running',
-        accountId: 'account-1',
-        spriteName: 'sprite-1',
+        status: 'ready',
         mountPath: '/workspace',
         extras: {},
         startedAt: now,
@@ -72,23 +70,27 @@ const harness = (patch: Record<string, unknown> = {}): Harness => {
     const bootstrap = new FakeBootstrap()
     const db = new FakeDb(agentRow)
     const agentsService = {
-        findForCaller: async () => agentRow,
+        contextForCaller: async () =>
+            contextOf({ agent: agentRow as never, host: spritesHostRow() }),
         get: async () => ({ id: 'agent-1' })
     }
-    const accounts = {
-        getById: async () => ({ id: 'account-1', slug: 'acct' }),
-        decryptToken: () => 'token'
+    const hostClients = {
+        spritesClientForHost: async () => ({
+            client: {},
+            spriteName: 'sprite-1',
+            provider: { id: 'rtp_sprites', name: 'acct' }
+        })
     }
     const crypto = { decrypt: () => '{}' }
     const service = new AgentServiceRestartService(
         db as never,
-        accounts as never,
         agentsService as never,
         crypto as never,
         new SpriteServiceBootstraps(
             bootstrap as never,
             new FakeBootstrap() as never
-        )
+        ),
+        hostClients as never
     )
     return { service, agentRow, bootstrap }
 }

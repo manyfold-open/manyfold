@@ -1,6 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import type { HostDaemonRow } from '@manyfold/db'
 import { TerminalGateway } from '../src/modules/terminal/terminal.gateway'
+import {
+    contextOf,
+    daemonRow,
+    hostRow,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const makeSocket = (): {
     socket: Record<string, unknown>
@@ -79,7 +88,10 @@ const fakeHolder = (
 
 const runSession = async (args: {
     agent: Record<string, unknown>
-    findById: () => Promise<unknown>
+    // The agent's machine: a local computer by default.
+    placement?: 'daemon' | 'sprites' | 'k8s'
+    // The host daemon's row as the gateway reads it; null = none registered.
+    daemon?: Partial<HostDaemonRow> | null
     // What the resume service answers when the client asks for a session's
     // TUI; the default never resolves one, like a runtime with no resume path.
     resolve?: () => Promise<unknown>
@@ -93,6 +105,28 @@ const runSession = async (args: {
     daemonTunnel?: (req: Record<string, unknown>) => Promise<void>
 }): Promise<Array<Record<string, unknown>>> => {
     const { socket, frames, fireClose } = makeSocket()
+    const placement = args.placement ?? 'daemon'
+    const host =
+        placement === 'daemon'
+            ? hostRow({ id: 'dh-1', userId: 'u1' })
+            : placement === 'k8s'
+              ? k8sHostRow({ id: 'h-1', userId: 'u1', terminalEnabled: true })
+              : spritesHostRow({ id: 'h-1', userId: 'u1', terminalEnabled: true })
+    const daemon =
+        args.daemon === null
+            ? null
+            : daemonRow({ hostId: host.id, userId: 'u1', ...args.daemon })
+    const ctx = contextOf({
+        agent: args.agent as never,
+        runtime: runtimeRow({
+            id: 'rt-1',
+            userId: 'u1',
+            hostId: host.id,
+            framework: String(args.agent.framework)
+        }),
+        host,
+        daemon
+    })
     const gateway = new TerminalGateway(
         {} as never,
         {
@@ -103,12 +137,13 @@ const runSession = async (args: {
                 subject: 'usr_1'
             })
         } as never,
-        { listForUser: async () => [{ agent: args.agent }] } as never,
-        { findHostById: async () => ({ terminalEnabled: true }) } as never,
+        { contextForCaller: async () => ctx } as never,
+        {} as never,
+        {} as never,
+        {} as never,
         { tunnel: args.spritesTunnel ?? (async () => {}) } as never,
         { tunnel: async () => {} } as never,
         { tunnel: args.daemonTunnel ?? (async () => {}) } as never,
-        { findById: args.findById } as never,
         {
             defaultTerminalCwd: (agent: { mountPath: string }) =>
                 agent.mountPath
@@ -150,27 +185,27 @@ const daemonAgent = {
     id: 'agt-1',
     userId: 'u1',
     name: 'laptop agent',
-    status: 'running',
-    runtime: 'daemon',
+    status: 'ready',
     framework: 'claude-code',
-    daemonId: 'dh-1',
-    workspacePath: '/Users/me/.manyfold/workspaces/agt-1'
+    runtimeId: 'rt-1',
+    workspacePath: '/Users/me/.manyfold/workspaces/agt-1',
+    extras: {}
 }
 
 test('daemon session_info carries terminal_pty=false from the host row', async () => {
     const frames = await runSession({
         agent: daemonAgent,
-        findById: async () => ({ id: 'dh-1', terminalPty: false })
+        daemon: { terminalPty: false }
     })
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
     assert.equal(info.terminal_pty, false)
 })
 
-test('daemon session_info reports null terminal_pty for unknown hosts', async () => {
+test('daemon session_info reports null terminal_pty when the daemon has not said', async () => {
     const frames = await runSession({
         agent: daemonAgent,
-        findById: async () => null
+        daemon: { terminalPty: null }
     })
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
@@ -179,17 +214,9 @@ test('daemon session_info reports null terminal_pty for unknown hosts', async ()
 
 test('non-daemon session_info omits terminal_pty', async () => {
     const frames = await runSession({
-        agent: {
-            ...daemonAgent,
-            runtime: 'sprites',
-            spriteName: 's',
-            spriteId: 'sp-1',
-            hostId: 'h-1',
-            mountPath: '/work'
-        },
-        findById: async () => {
-            throw new Error('should not be called')
-        }
+        agent: { ...daemonAgent, mountPath: '/work' },
+        placement: 'sprites',
+        daemon: {}
     })
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
@@ -201,19 +228,13 @@ test('non-daemon session_info omits terminal_pty', async () => {
    own stream view lags (the turn ends while the shell stays plain) or leads (a
    chat turn starts under a TUI resumed while idle). Reported only when a
    resume was asked for, so a plain terminal says nothing about resumes. */
-const spritesAgent = {
-    ...daemonAgent,
-    runtime: 'sprites',
-    spriteName: 's',
-    spriteId: 'sp-1',
-    hostId: 'h-1',
-    mountPath: '/work'
-}
+const spritesAgent = { ...daemonAgent, mountPath: '/work' }
 
 test('session_info omits the resume outcome when none was asked for', async () => {
     const frames = await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resolve: async () => {
             throw new Error('should not be consulted')
         }
@@ -226,7 +247,8 @@ test('session_info omits the resume outcome when none was asked for', async () =
 test('session_info reports a resume withheld for a turn in flight', async () => {
     const frames = await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({ resume: null, outcome: 'turn-in-flight' })
     })
@@ -241,7 +263,8 @@ test('session_info reports an applied resume once the hold is acquired', async (
     let tunnelResume: unknown = 'unset'
     const frames = await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
@@ -286,7 +309,8 @@ test('a lost acquire opens a plain shell and reports session-held', async () => 
     let tunnelResume: unknown = 'unset'
     const frames = await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
@@ -311,7 +335,8 @@ test('a resume is not applied without a terminal identity', async () => {
     let tunnelResume: unknown = 'unset'
     const frames = await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
@@ -336,7 +361,8 @@ test('a reconnect retires the terminal it names before acquiring', async () => {
     const holder = fakeHolder('applied')
     await runSession({
         agent: spritesAgent,
-        findById: async () => null,
+        placement: 'sprites',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         prevTerminalId: 'tms_0',
         resolve: async () => ({
@@ -358,8 +384,9 @@ test('a reconnect retires the terminal it names before acquiring', async () => {
 // for the resume the client asked for is still "unavailable", not silence.
 test('session_info reports unavailable when the runtime cannot resume at all', async () => {
     const frames = await runSession({
-        agent: { ...daemonAgent, runtime: 'k8s' },
-        findById: async () => null,
+        agent: daemonAgent,
+        placement: 'k8s',
+        daemon: null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => {
             throw new Error('should not be consulted')
@@ -374,10 +401,10 @@ test('session_info reports unavailable when the runtime cannot resume at all', a
 // terminal it names — hold and all — instead of opening another, a new one
 // is addressed by its row from the start, and a daemon without the
 // capability keeps today's stream-bound pty.
-const owningHost = async () => ({
+const owningDaemon = {
     terminalPty: true,
     clientFeatures: ['pty.command', 'pty.terminal.v1']
-})
+}
 
 test('an owning daemon attaches the tab to the terminal it names, without a new row or acquire', async () => {
     const terminals = fakeTerminals()
@@ -389,7 +416,7 @@ test('an owning daemon attaches the tab to the terminal it names, without a new 
     let tunnelReq: Record<string, unknown> | null = null
     const frames = await runSession({
         agent: daemonAgent,
-        findById: owningHost,
+        daemon: owningDaemon,
         resumeChatSessionId: 'cs-1',
         prevTerminalId: 'tms_prev',
         resolve: async () => ({
@@ -429,7 +456,7 @@ test('with nothing to attach to, an owning daemon gets a new terminal addressed 
     let tunnelReq: Record<string, unknown> | null = null
     await runSession({
         agent: daemonAgent,
-        findById: owningHost,
+        daemon: owningDaemon,
         resumeChatSessionId: 'cs-1',
         prevTerminalId: 'tms_dead',
         resolve: async () => ({
@@ -460,10 +487,7 @@ test('a daemon without the capability keeps the stream-bound terminal', async ()
     let tunnelReq: Record<string, unknown> | null = null
     await runSession({
         agent: daemonAgent,
-        findById: async () => ({
-            terminalPty: true,
-            clientFeatures: ['pty.command']
-        }),
+        daemon: { terminalPty: true, clientFeatures: ['pty.command'] },
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['claude', '--resume', 's-1'], env: {} },

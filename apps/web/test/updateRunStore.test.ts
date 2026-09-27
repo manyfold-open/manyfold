@@ -178,7 +178,7 @@ const sandboxStep = (
 ): BatchStep => ({
     type: 'sandboxCli',
     rowId: `cli:sandbox:sbx_${n}`,
-    sandboxId: `sbx_${n}`,
+    hostId: `sbx_${n}`,
     targetVersion
 })
 const daemonStep = (

@@ -613,6 +613,43 @@ const en = {
                 conversation: 'Conversation'
             }
         },
+        hostStatus: {
+            power: {
+                running: 'Running',
+                suspended: 'Suspended',
+                stopped: 'Stopped',
+                unknown: 'Unknown'
+            },
+            availability: {
+                available: 'Available',
+                wakeable: 'Asleep',
+                offline: 'Offline',
+                unavailable: 'Unavailable'
+            },
+            lifecycle: {
+                provisioning: 'Provisioning',
+                ready: 'Ready',
+                failed: 'Failed',
+                deleting: 'Deleting',
+                retired: 'Retired'
+            },
+            daemon: {
+                online: 'Online',
+                offline: 'Offline',
+                notRegistered: 'Not registered'
+            },
+            keepAwake: {
+                label: 'Keep awake',
+                hint: 'Keeps this machine running. It holds an active sandbox slot and keeps accruing active hours until you turn it off.',
+                on: 'Kept awake'
+            },
+            placement: {
+                daemon: 'Self-owned computer',
+                sprites: 'Stateful sandbox',
+                k8s: 'Cloud computer',
+                external: 'External API'
+            }
+        },
         controlRow: {
             open: 'Open ↗',
             enabling: 'Enabling…',
@@ -635,7 +672,6 @@ const en = {
             starting: 'Starting',
             stopped: 'Stopped',
             unknown: 'Unknown',
-            pending: 'Pending',
             failed: 'Failed',
             online: 'Online',
             offline: 'Offline',
@@ -666,25 +702,14 @@ const en = {
                 'Expose the Hermes dashboard for this runtime. First enable builds the web UI (about a minute); toggling briefly restarts the gateway.',
             updating: 'Updating…',
             openDashboard: 'Open Dashboard ↗',
-            keepAlive: 'Keep alive',
-            keepAliveDescription:
-                'Keeps this sandbox always running. Uses one of your concurrent active sandbox slots and accrues running time until turned off.',
             details: 'Details',
             primaryAgent: 'Primary agent',
-            statefulSandbox: 'Stateful sandbox',
-            cluster: 'Cluster',
-            namespace: 'Namespace',
-            ingress: 'Ingress',
             machine: 'Machine',
             endpoint: 'Endpoint',
             mountPath: 'Mount path',
-            homeDir: 'Home dir',
-            workspaceBase: 'Workspace base',
             cliVersion: 'CLI version',
-            lastSeen: 'Last seen',
             service: 'Service',
             phase: 'Phase',
-            started: 'Started',
             created: 'Created',
             upgradeFramework: 'Upgrade framework',
             changeFrameworkVersion: 'Change framework version',
@@ -722,7 +747,13 @@ const en = {
                 windowGeminiFlashLite: 'Gemini Flash-Lite',
                 signIn: 'Sign in',
                 signInBody: 'Sign in inside this terminal on the runtime, then close it to refresh the account.'
-            }
+            },
+            installing: 'Installing',
+            provider: 'Provider',
+            providerRef: 'Provider reference',
+            availability: 'Availability',
+            power: 'Power',
+            daemon: 'Daemon'
         },
         runtimeAuth: {
             hostSignIn: 'Host sign-in',
@@ -746,9 +777,9 @@ const en = {
             removeConfirmBody: 'The saved sign-in is deleted from this runtime. Nothing else about your agents changes.',
             signInBody: 'Sign in to this account inside the terminal, then close it to refresh the list.',
             executeUnsupported: 'Update the mf CLI on this runtime before agents can run under an added account.',
-            hostUnavailable: 'This sandbox has no runner yet. Starting one wakes the sandbox and counts as running time.',
-            runnerAsleep: 'The sandbox runner is not answering. Waking it counts as running time.',
-            startRunner: 'Start runner',
+            hostUnavailable: 'This sandbox is not connected yet. Starting it wakes the sandbox and counts as running time.',
+            runnerAsleep: 'The sandbox is not answering. Waking it counts as running time.',
+            startRunner: 'Wake sandbox',
             checkAgain: 'Check again',
             upgradeRequired: 'Update the mf CLI on this runtime to add more accounts.',
             listFailed: 'Could not list the accounts on this runtime.',
@@ -925,7 +956,7 @@ const en = {
                 working: 'Restarting…'
             },
             overview: {
-                keepAliveOn: 'kept warm',
+                keepAwakeOn: 'kept awake',
                 details: 'Details',
                 interfaces: 'Interfaces',
                 framework: 'Framework',
@@ -989,13 +1020,13 @@ const en = {
             slotsPlan: '{{plan}} plan',
             slotsNone: 'No running sandboxes right now.',
             slotNoAgents: 'No agents',
-            keepAliveTag: 'Keep-alive',
-            keepAliveDescription: 'Stays online and keeps using active hours.',
-            keepAliveUsage: 'Kept online — {{duration}} used this period.',
-            keepAliveHint: 'Turn off to let it sleep when idle.',
-            keepAliveTurnOff: 'Turn off',
-            keepAliveViewRuntime: 'View runtime',
-            keepAliveTurningOff: 'Turning off…',
+            keepAwakeTag: 'Keep awake',
+            keepAwakeDescription: 'This sandbox stays awake and keeps using active hours.',
+            keepAwakeUsage: 'Kept awake — {{duration}} used this period.',
+            keepAwakeHint: 'Turn off to let the sandbox sleep when idle.',
+            keepAwakeTurnOff: 'Turn off',
+            keepAwakeViewSandbox: 'View sandbox',
+            keepAwakeTurningOff: 'Turning off…',
             activeHoursTitle: 'Active hours',
             activeHoursUnlimited: 'Unlimited',
             activeHoursUsed: '{{used}} / {{limit}}',
@@ -2599,22 +2630,9 @@ const en = {
             },
             agentStatus: {
                 pending: 'Pending',
-                running: 'Running',
-                stopped: 'Stopped',
+                ready: 'Ready',
                 failed: 'Failed',
-                cold: 'Cold',
-                warm: 'Warm',
-                notReady: 'Not ready',
-                containerCreating: 'Container creating',
-                podInitializing: 'Pod initializing',
-                crashLoopBackOff: 'Crash loop back-off',
-                imagePullBackOff: 'Image pull back-off',
-                errImagePull: 'Image pull error',
-                createContainerConfigError: 'Container config error',
-                createContainerError: 'Container creation error',
-                invalidImageName: 'Invalid image name',
-                unknown: 'Unknown',
-                succeeded: 'Succeeded'
+                unknown: 'Unknown'
             },
             process: 'Process {{label}}',
             result: 'result',
@@ -2765,8 +2783,8 @@ const en = {
                     'The model provider rejected the request — the key may be out of credit. Update the key or switch to platform credits.',
                 accountPoolEmpty:
                     "This model's provider has no available accounts right now. Try again later.",
-                runnerUnavailable: 'The agent runner is unavailable. Reconnect it and try again.',
-                runnerUpgradeRequired: 'The agent runner needs an update before chat can continue.',
+                runnerUnavailable: "The agent's computer is unavailable. Reconnect it and try again.",
+                runnerUpgradeRequired: "The Manyfold CLI on the agent's computer needs an update before chat can continue.",
                 threadBusy:
                     'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
                 updateKey: 'Update key',
@@ -3042,7 +3060,8 @@ const en = {
             enablePromptCancel: 'Cancel',
             unavailableExternal:
                 'This agent runs on an external provider, so it has no terminal.',
-            unavailableStopped: 'Start the agent to open its terminal.'
+            unavailableAgent:
+                'This agent\'s computer is not reachable right now, so its terminal cannot open.'
         },
         sessionView: {
             switchToTerminal: 'Switch to TUI',
@@ -3943,7 +3962,7 @@ const en = {
                 configuringNetwork: 'Configuring network',
                 bootstrappingFramework: 'Bootstrapping framework',
                 installingFramework: 'Installing framework binaries',
-                startingRunner: 'Starting sandbox runner',
+                startingRunner: 'Connecting the sandbox',
                 startingService: 'Starting framework service',
                 checkingQuota: 'Checking quota',
                 preparingWorkspace: 'Preparing workspace',
@@ -4078,8 +4097,8 @@ const en = {
             nextPage: 'Next page',
             kind: 'Kind',
             readyTag: 'Ready',
-            statusStartingRunner: 'Starting runner…',
-            statusRunnerOnline: 'Runner online',
+            statusStartingRunner: 'Waking the sandbox…',
+            statusRunnerOnline: 'Sandbox online',
             statusWakeRefused: 'Can’t wake',
             waitingForSlot: 'Waiting for another sandbox to fall asleep…',
             modelProviderSection: 'Model provider',
@@ -4127,7 +4146,7 @@ const en = {
             runtimeApiKeySave: 'Save on this runtime',
             providerModelCount: '{{count}} models',
             providerTestFailedTag: 'Test failed',
-            runnerStarting: 'Starting the sandbox runner…',
+            runnerStarting: 'Connecting the sandbox…',
             creatingSandbox: 'Creating the sandbox…',
             checkingSandbox: 'Checking the sandbox…',
             installingFramework: 'Installing {{framework}}…',
@@ -4267,14 +4286,9 @@ const en = {
             tokenRevokedMeta: ' · revoked {{revoked}}',
             revokeTokenTitle: 'Revoke daemon token',
             revokeTokenDesc: 'The bound daemon will stop working immediately.',
-            revokeHostTitle: 'Revoke machine',
-            revokeHostDesc:
-                'Its agents will be marked stopped. Workspace data on the machine is kept.',
             deleteHostTitle: 'Delete machine',
-            deleteHostDesc:
-                'Permanently delete the {{name}} machine registration, its bound daemon tokens, and its agent and runtime records from Manyfold. Workspace data on the machine is kept. This cannot be undone.',
+            deleteHostDesc: 'Permanently delete the {{name}} machine registration, its daemon tokens and its runtime records from Manyfold. Delete its agents first. Workspace data on the machine is kept. This cannot be undone.',
             msgTokenRevoked: 'Token revoked',
-            msgMachineRevoked: 'Machine revoked',
             msgMachineDeleted: 'Machine deleted',
             msgCommandCopied: 'Command copied',
             startupLaunchdUser: 'autostart · login (launchd)',
@@ -4283,7 +4297,11 @@ const en = {
             startupSystemdSystem: 'autostart · boot (systemd)',
             startupManual: 'manual',
             startupContainer: 'autostart · container',
-            startupUnknown: 'startup unknown'
+            startupUnknown: 'startup unknown',
+            retire: 'Retire',
+            retireHostTitle: 'Retire machine',
+            retireHostDesc: 'Its daemon is disconnected and its token revoked; the machine cannot reconnect. Agents on it stop running. Workspace data on the machine is kept.',
+            msgMachineRetired: 'Machine retired'
         },
         agentNewV3: {
             managedProvider: 'Manyfold managed',
@@ -4688,12 +4706,10 @@ const en = {
             versionPending: 'version pending',
             status: {
                 ready: 'Ready',
-                pending: 'Pending',
                 failed: 'Failed',
-                stopped: 'Stopped',
-                unknown: 'Unknown',
-                online: 'Online',
-                offline: 'Offline'
+                offline: 'Offline',
+                installing: 'Installing',
+                asleep: 'Asleep'
             },
             changeVersion: 'change version',
             updating: 'Updating…',
@@ -4705,8 +4721,6 @@ const en = {
             expandHost: 'Expand host',
             runtime: 'runtime',
             runtimes: 'runtimes',
-            keepAliveOn:
-                'Keep-alive is on — this runtime holds the whole sandbox awake.',
             update: 'Update',
             install: 'Install',
             command: 'Command',
@@ -4729,8 +4743,7 @@ const en = {
                 'Managed by Manyfold — delete via the framework, not here.',
             managed: 'Managed',
             active: 'Active',
-            keepAliveLease:
-                'Keep-alive lease — managed by the runtime keep-alive toggle, not deletable here.',
+            keepAliveLease: 'Keep-awake lease — managed by the sandbox keep-awake switch, not deletable here.',
             deleting: 'Deleting…',
             delete: 'Delete',
             remoteUpgradeHint:
@@ -4740,7 +4753,6 @@ const en = {
             deleteSandbox: 'Delete sandbox',
             rename: 'Rename',
             stopping: 'Stopping…',
-            removingRuntimes: 'Remove its runtimes first',
             stoppingSandbox: 'Stopping sandbox…',
             deletingSandbox: 'Deleting sandbox…',
             machineOffline: 'Machine offline',
@@ -4765,7 +4777,6 @@ const en = {
             terminalModelCredentialsDescription:
                 'Let a terminal session carry this agent\'s model credentials, so a coding CLI can resume a chat session in its own interface. Anyone who can open this terminal can then read the key.',
             details: 'Details',
-            spriteId: 'Sprite ID',
             created: 'Created',
             hostname: 'Hostname',
             os: 'OS',
@@ -4791,10 +4802,8 @@ const en = {
             staging: 'Dev',
             hostActions: 'Host actions',
             stop: 'Stop',
-            stopDescription:
-                'Stop sandbox "{{name}}"? Agents on it are stopped and keep-alive turned off — they wake automatically on the next message. Other services are stopped and activity tasks removed so the sandbox can suspend.',
-            deleteSandboxDescription:
-                'Delete sandbox "{{name}}"? The sprite VM and its data will be destroyed.',
+            stopDescription: 'Stop sandbox "{{name}}"? Agents on it are stopped and keep-awake turned off — they wake automatically on the next message. Other services are stopped and activity tasks removed so the sandbox can suspend.',
+            deleteSandboxDescription: 'Delete sandbox "{{name}}"? The machine and everything on it will be destroyed.',
             agent: 'agent',
             agents: 'agents',
             serviceRunning: 'Running',
@@ -4803,11 +4812,10 @@ const en = {
             serviceStopped: 'Stopped',
             serviceFailed: 'Failed',
             sandbox: 'Sandbox',
-            cluster: 'Cluster',
             provision: 'Provision',
             alreadyRuns: '{{framework}} already runs here',
             unavailableAction: 'unavailable',
-            leaseExpires: 'keep-alive lease expires {{time}}',
+            leaseExpires: 'keep-awake lease expires {{time}}',
             guideInstallMethods:
                 'Any install method works — the daemon finds the CLI on your PATH (including Homebrew, a native installer, or nvm/fnm/volta) and registers it as a runtime.',
             versionPickerDaemon:
@@ -4816,8 +4824,7 @@ const en = {
                 'Pick a version to install on "{{name}}". The upgrade is in-place; nothing restarts.',
             latestVersion: 'Latest (v{{version}})',
             activePeriod: 'active {{duration}} this period',
-            activityDescription:
-                'What keeps this sandbox awake: managed services (e.g. a dev server) and activity leases — the keep-alive toggle installs one. Keep-alive leases are managed from the runtime toggle; agent-registered tasks can be deleted here.',
+            activityDescription: 'What keeps this sandbox awake: managed services (e.g. a dev server) and activity leases — the keep-awake switch installs one. Keep-awake leases are managed from that switch; agent-registered tasks can be deleted here.',
             loading: 'Loading…',
             loadingActivity: 'Loading activity…',
             services: 'Services',
@@ -4841,7 +4848,17 @@ const en = {
             upgradeMessage:
                 'Upgrading mf CLI to {{version}} — daemon restarting…',
             alreadyOnVersion: 'Already on {{version}}',
-            upgradedMessage: 'mf CLI upgraded to v{{version}}'
+            upgradedMessage: 'mf CLI upgraded to v{{version}}',
+            machineOfflineDetail: 'The daemon is not connected. Agents on it cannot run until it reconnects.',
+            machineOfflineSeen: 'The daemon is not connected — last seen {{time}}. Agents on it cannot run until it reconnects.',
+            hostFailed: 'Machine failed',
+            hostProvisioning: 'Starting the machine…',
+            hostDeleting: 'Deleting the machine…',
+            removingAgents: 'Delete its agents first',
+            refreshStatus: 'Refresh status',
+            provider: 'Provider',
+            providerRef: 'Provider reference',
+            daemon: 'Daemon'
         },
         runtimesDashboard: {
             heading: 'Dashboard',
@@ -4927,8 +4944,7 @@ const en = {
             sandboxes: 'Sandboxes',
             channels: 'Channels',
             modelProviders: 'Model providers',
-            clusters: 'Cloud computer clusters',
-            spritesAccounts: 'Stateful sandbox accounts',
+            runtimeProviders: 'Runtime providers',
             selfOwnedComputers: 'Self-owned computers',
             users: 'Users',
             loginProvider: 'Login provider',
@@ -4955,16 +4971,16 @@ const en = {
                 name: 'Name',
                 framework: 'Framework',
                 model: 'Model',
-                cluster: 'Cluster',
+                host: 'Machine',
                 runtime: 'Runtime',
                 status: 'Status',
+                availability: 'Availability',
                 createdAt: 'Created',
                 owner: 'Owner'
             },
             status: {
                 pending: 'Pending',
-                running: 'Running',
-                stopped: 'Stopped',
+                ready: 'Ready',
                 failed: 'Failed'
             },
             new: {
@@ -4997,18 +5013,13 @@ const en = {
                 runtimeK8s: 'Cloud computer',
                 runtimeHint:
                     'Where the agent runs. Claude Code, Codex, Gemini CLI, OpenClaw, and Hermes support Stateful sandbox; use Cloud computer for always-on containers.',
-                clusterLabel: 'Cloud computer cluster',
-                clusterHint:
-                    'Pick the registered cluster where this agent will be provisioned.',
-                clusterEmpty:
-                    'No Cloud computer clusters registered yet. An admin must add one before you can create a Cloud computer agent.',
-                clusterEmptyCta: 'Register a cluster',
-                accountLabel: 'Stateful sandbox account',
-                accountHint:
-                    'Pin a specific Stateful sandbox account for this agent. Leave to auto-pick the least-loaded enabled one.',
-                accountEmpty:
-                    'No enabled Stateful sandbox accounts. Register one before creating a Stateful sandbox agent.',
-                accountEmptyCta: 'Register a Stateful sandbox account',
+                providerLabel: 'Runtime provider',
+                providerHint:
+                    'Where the new machine is placed. Leave on automatic to let placement pick an enabled provider of this kind.',
+                providerAuto: 'Automatic (placement picks)',
+                providerEmpty:
+                    'No enabled runtime provider of this kind is registered yet. An admin must add one before this agent can be created.',
+                providerEmptyCta: 'Register a runtime provider',
                 ownerLabel: 'Owner (admin only)',
                 ownerHint:
                     'Create the agent on behalf of another user. Only admins can pick a different owner.',
@@ -5163,7 +5174,7 @@ const en = {
                 files: {
                     title: 'Files',
                     unavailable:
-                        'File browser is available once the agent is running.',
+                        'File browser is available once the agent’s machine is available.',
                     loading: 'Preparing file browser…',
                     refresh: 'Refresh',
                     newFolder: 'New folder',
@@ -5190,17 +5201,29 @@ const en = {
                 }
             }
         },
-        clusters: {
-            title: 'Cloud computer clusters',
+        runtimeProviders: {
+            title: 'Runtime providers',
             subtitle:
-                'Register one or more clusters that back Cloud computer agents. Cloud computer agents will be provisioned into the cluster you pick at creation time.',
-            newButton: 'Add Cluster',
-            empty: 'No clusters registered yet.',
+                'The sources of hosted capacity: sprites.dev organizations for Stateful sandboxes and Kubernetes clusters for Cloud computers. Credentials are stored encrypted; a provider can be disabled without touching the machines already placed on it.',
+            newButton: 'Add provider',
+            empty: 'No runtime providers registered yet.',
             cols: {
+                kind: 'Kind',
                 name: 'Name',
-                description: 'Description',
+                status: 'Status',
+                priority: 'Priority',
+                region: 'Region',
+                hosts: 'Machines',
                 health: 'Health',
                 updatedAt: 'Updated'
+            },
+            kind: {
+                sprites: 'Stateful sandbox (sprites.dev)',
+                k8s: 'Cloud computer (Kubernetes)'
+            },
+            status: {
+                enabled: 'Enabled',
+                disabled: 'Disabled'
             },
             health: {
                 ok: 'Reachable',
@@ -5210,79 +5233,89 @@ const en = {
             actions: {
                 edit: 'Edit',
                 probe: 'Test connection',
+                enable: 'Enable',
+                disable: 'Disable',
+                disableConfirm:
+                    'Disable this provider? Machines already placed on it keep working; new machines cannot be placed on it until it is re-enabled.',
                 delete: 'Delete',
                 deleteConfirm:
-                    'Delete this cluster? Agents referencing it will have their cluster link cleared.'
+                    'Delete this provider? This only works while no machine is placed on it.',
+                deleteBlocked:
+                    'This provider cannot be deleted while machines are still placed on it. Delete those machines first.'
             },
             form: {
-                titleCreate: 'Add Cloud computer cluster',
-                titleEdit: 'Edit Cloud computer cluster',
+                titleCreate: 'Add runtime provider',
+                titleEdit: 'Edit runtime provider',
+                kindLabel: 'Kind',
+                kindHint: 'Fixed once the provider is created.',
                 nameLabel: 'Name',
                 namePlaceholder: 'eu-west-prod',
-                nameHint: '1-64 chars. Used in dropdowns when creating agents.',
+                nameHint:
+                    '1-64 chars. Shown in the provider pickers when creating agents and machines.',
+                statusLabel: 'Status',
+                priorityLabel: 'Priority',
+                priorityHint:
+                    'Higher wins when placement picks a provider of this kind. Range -1000..1000.',
+                regionLabel: 'Region (optional)',
+                regionHint:
+                    'Region slug used to route placement to this provider (lowercase, dashes allowed, e.g. us-east-1, london).',
+                spritesCredentialLabel: 'sprites.dev token',
+                spritesCredentialHint:
+                    'Paste the full token: "<orgSlug>/<orgId>/<tokenId>/<tokenValue>". Stored encrypted (AES-256-GCM).',
+                spritesCredentialHintEdit:
+                    'Paste a new token to replace the stored one, or leave blank to keep the current one.',
+                spritesCredentialPlaceholder: 'netmind/org_xxx/tok_xxx/sk_xxx',
+                spritesCredentialInvalid:
+                    'The token must have four "/"-separated parts: orgSlug/orgId/tokenId/tokenValue.',
+                orgSlugLabel: 'Organization',
+                orgIdLabel: 'Organization ID',
+                tokenIdLabel: 'Token ID',
+                notesLabel: 'Notes (optional)',
+                notesHint: 'Free-form note shown in the list.',
+                kubeconfigLabel: 'Cluster config (YAML)',
+                kubeconfigHint:
+                    'Paste the full kubeconfig. Stored encrypted (AES-256-GCM). A connectivity probe runs on save.',
+                kubeconfigHintEdit:
+                    'Paste a new kubeconfig to replace the stored one, or leave blank to keep the current one.',
                 descriptionLabel: 'Description (optional)',
                 descriptionHint: 'Free-form note shown in the list.',
                 hostSuffixLabel: 'Ingress host suffix (optional)',
                 hostSuffixHint:
-                    'If set, agents get `<agentId>.<suffix>` as their ingress host. Leave blank to use the platform default.',
-                kubeconfigLabel: 'Cluster config (YAML)',
-                kubeconfigHint:
-                    'Paste the full cluster config. Stored encrypted (AES-256-GCM). A connectivity probe runs on save.',
-                kubeconfigHintEdit:
-                    'Paste a new cluster config to replace the stored one, or leave blank to keep the current one.',
-                submitCreate: 'Add Cluster',
-                submitUpdate: 'Save Changes',
-                submitting: 'Saving…',
+                    'If set, service frameworks on this cluster are published under `<hostId>.<suffix>`. Leave blank to use the platform default.',
+                lastProbe: 'Last probe: {{message}}',
+                submitCreate: 'Add provider',
+                submitUpdate: 'Save changes',
+                submitting: 'Saving…'
             }
         },
-        spritesAccounts: {
-            title: 'Stateful sandbox accounts',
-            subtitle:
-                'Register API tokens used to provision Stateful sandbox agents. Tokens are stored encrypted and can be rotated or disabled without downtime.',
-            newButton: 'Add Account',
-            empty: 'No Stateful sandbox accounts registered yet.',
-            cols: {
-                slug: 'Slug',
-                org: 'Org',
-                status: 'Status',
-                activeSprites: 'Active',
-                notes: 'Notes',
-                updatedAt: 'Updated'
+        hostStatus: {
+            availability: {
+                available: 'Available',
+                wakeable: 'Asleep',
+                offline: 'Offline',
+                unavailable: 'Unavailable'
             },
-            status: {
-                enabled: 'Enabled',
-                disabled: 'Disabled'
+            power: {
+                running: 'Running',
+                suspended: 'Suspended',
+                stopped: 'Stopped',
+                unknown: 'Unknown'
             },
-            actions: {
-                edit: 'Edit',
-                rotate: 'Rotate token',
-                disable: 'Disable',
-                enable: 'Enable',
-                disableConfirm:
-                    'Disable this account? Running agents keep working; new agents cannot pick it until re-enabled.'
+            lifecycle: {
+                provisioning: 'Provisioning',
+                ready: 'Ready',
+                failed: 'Failed',
+                deleting: 'Deleting',
+                retired: 'Retired'
             },
-            form: {
-                titleCreate: 'Add Stateful sandbox account',
-                titleEdit: 'Edit Stateful sandbox account',
-                slugLabel: 'Slug',
-                slugPlaceholder: 'prod-eu',
-                slugHint:
-                    '1-64 chars. Lowercase letters, digits, underscore, dash. Used in dropdowns when creating agents.',
-                tokenLabel: 'Stateful sandbox token',
-                tokenHint:
-                    'Paste the full token string: "<orgSlug>/<orgId>/<tokenId>/<tokenValue>". Stored encrypted (AES-256-GCM).',
-                tokenPlaceholder: 'netmind/org_xxx/tok_xxx/sk_xxx',
-                notesLabel: 'Notes (optional)',
-                notesHint: 'Free-form note shown in the list.',
-                rotateTitle: 'Rotate token',
-                rotateHint:
-                    'Paste a new token to replace the stored one. The slug stays the same; running agents keep their already-decrypted token.',
-                rotateLabel: 'New Stateful sandbox token',
-                submitCreate: 'Add Account',
-                submitUpdate: 'Save Changes',
-                submitRotate: 'Rotate Token',
-                submitting: 'Saving…',
-                rotateSuccess: 'Token rotated.',
+            daemon: {
+                online: 'Online',
+                offline: 'Offline',
+                notRegistered: 'Not registered'
+            },
+            keepAwake: {
+                on: 'Kept awake',
+                off: 'Off'
             }
         },
         users: {
@@ -5345,7 +5378,7 @@ const en = {
         agentRuntimes: {
             title: 'Agent Runtimes',
             subtitle:
-                'Each runtime is a Stateful sandbox or Cloud computer pinned to one framework. Multiple agents can live inside a runtime, sharing its boot environment and credentials.',
+                'Each runtime is one framework installed on one machine: a Stateful sandbox, a Cloud computer or a self-owned computer. Multiple agents can live inside a runtime, sharing its environment and credentials.',
             empty: 'No agent runtimes yet. They are created automatically when you provision an agent.',
             viewLink: 'View runtime →',
             newButton: 'New Runtime',
@@ -5355,28 +5388,30 @@ const en = {
                 framework: 'Framework',
                 kind: 'Kind',
                 status: 'Status',
+                availability: 'Availability',
                 agents: 'Agents',
-                keepAlive: 'Keep-alive',
                 location: 'Location',
+                power: 'Power',
+                daemon: 'Daemon',
                 createdAt: 'Created'
             },
             status: {
-                pending: 'Pending',
+                installing: 'Installing',
                 ready: 'Ready',
-                failed: 'Failed',
-                stopped: 'Stopped'
+                failed: 'Failed'
             },
             kind: {
                 sprites: 'Stateful sandbox',
-                k8s: 'Cloud computer'
+                k8s: 'Cloud computer',
+                daemon: 'Self-owned computer',
+                external: 'External API'
             },
             actions: {
                 delete: 'Delete',
                 deleteConfirm:
-                    'Delete this runtime? Its agents, credentials, and runtime resources will all be torn down.',
-                keepAliveEnable: 'Enable',
-                keepAliveDisable: 'Disable',
-                keepAliveSaving: 'saving…'
+                    'Delete this runtime? It is refused while agents still use it; the machine itself is not touched.',
+                deleteBlocked:
+                    'This runtime still has agents. Delete them first, then delete the runtime.'
             },
             detail: {
                 notFound: 'Runtime not found.',
@@ -5388,12 +5423,13 @@ const en = {
                 },
                 info: {
                     primaryAgentId: 'primaryAgentId',
-                    spriteName: 'Stateful sandbox name',
-                    namespace: 'namespace',
-                    ingressHost: 'ingressHost',
+                    hostName: 'Machine',
+                    hostStatus: 'Machine status',
+                    provider: 'Provider',
+                    providerRef: 'Provider reference',
+                    power: 'Power',
+                    daemon: 'Daemon',
                     mountPath: 'mountPath',
-                    accountSlug: 'Stateful sandbox account',
-                    clusterName: 'cluster',
                     createdAt: 'createdAt',
                     lastBootstrappedAt: 'lastBootstrappedAt',
                     serviceStatus: 'serviceStatus',

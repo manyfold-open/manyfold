@@ -5,14 +5,16 @@ import {
     frameworkUpgradeAvailable,
     isDevCliVersion,
     isVersionedFramework,
-    listVersionedFrameworks,
-    runtimeKindLabel
+    listVersionedFrameworks
 } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntimeSummary,
     CliVersionCatalog,
     DaemonHostSummary,
+    RuntimeAvailability,
+    RuntimeHostPowerState,
+    RuntimeHostStatus,
     SandboxServiceSummary,
     SandboxSummary,
     SandboxTaskSummary,
@@ -44,9 +46,10 @@ import RuntimeDetailPanel, {
     daemonOnlineBadge,
     formatDate,
     monoCopyValue,
+    powerStateTag,
     relative,
-    runtimeStatusTag,
-    spriteStatusTag
+    runtimeAvailabilityTag,
+    runtimeStatusTag
 } from '@/components/RuntimeDetailPanel'
 import { formatDuration } from '@/lib/usageFormat'
 import { formatTime } from '@/lib/dateFormat'
@@ -61,6 +64,7 @@ import {
     ListViewIcon,
     LocalDaemonIcon,
     type LucideIcon,
+    RefreshIcon,
     ZapIcon
 } from '@/components/icons'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
@@ -77,20 +81,29 @@ import {
     useCascadeState
 } from '@/lib/cascade'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
+import {
+    daemonPresenceLabel,
+    hostKey,
+    hostLifecycleLabel,
+    hostLifecycleTone,
+    placementLabel,
+    powerStateTone
+} from '@/lib/hostStatus'
 import { updatesPath } from '@/lib/updateCenter'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
-import { spriteStatusDotClass } from '@/lib/spriteStatus'
 import RuntimesDashboard from '@/pages/RuntimesDashboard'
 import SandboxNew from '@/pages/SandboxNew'
 import ExternalAgentProviders from '@/pages/Settings/ExternalAgentProviders'
 import LocalDaemons from '@/pages/Settings/LocalDaemons'
-import { SpriteStatusRefresh } from '@/components/SpriteStatusRefresh'
 import { VersionTag } from '@/components/VersionTag'
 
 type RuntimeKind = AgentRuntimeSummary['kind']
 type RuntimeStatus = AgentRuntimeSummary['status']
 type RuntimeFramework = AgentRuntimeSummary['framework']
-type EffStatus = RuntimeStatus | 'offline'
+// A runtime's one word in the rail: its install state, or — once installed —
+// why its machine cannot take a turn (asleep = wakeable, offline = a
+// self-owned computer whose daemon is away or a machine that is not ready).
+type EffStatus = RuntimeStatus | 'offline' | 'asleep'
 type GroupBy = 'none' | 'kind' | 'status' | 'framework'
 
 type Selection =
@@ -120,25 +133,32 @@ const KIND_ORDER: RuntimeKind[] = ['sprites', 'k8s', 'daemon', 'external']
 
 const STATUS_RANK: Record<RuntimeStatus, number> = {
     failed: 0,
-    pending: 1,
-    ready: 2,
-    stopped: 3
+    installing: 1,
+    ready: 2
 }
 
 const STATUS_ORDER: EffStatus[] = [
     'failed',
     'offline',
-    'pending',
-    'ready',
-    'stopped'
+    'installing',
+    'asleep',
+    'ready'
 ]
 
 const EFF_DOT: Record<EffStatus, string> = {
     failed: 'bg-error',
     offline: 'bg-error',
-    pending: 'bg-warning',
-    ready: 'bg-success',
-    stopped: 'bg-idle'
+    installing: 'bg-warning',
+    asleep: 'bg-idle',
+    ready: 'bg-success'
+}
+
+export const TONE_DOT: Record<TagTone, string> = {
+    info: 'bg-info',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    error: 'bg-error',
+    idle: 'bg-idle'
 }
 
 const RUNTIME_DIMS = ['none', 'kind', 'status', 'framework'] as const
@@ -150,14 +170,20 @@ const GROUP_BY_OPTIONS: ReadonlyArray<GroupByOption<GroupBy>> = [
     { value: 'framework', label: '', icon: CodeIcon }
 ]
 
+// One machine (ADR-0036): a host with its runtimes underneath, or a single
+// external runtime, which has no machine.
 export interface RuntimeVM {
     key: string
+    hostId: string | null
     kind: RuntimeKind
     label: string
     location: string
     runtimes: AgentRuntimeSummary[]
     agentsCount: number
     status: RuntimeStatus | null
+    hostStatus: RuntimeHostStatus | null
+    powerState: RuntimeHostPowerState | null
+    keepAwake: boolean
     online: boolean | null
     host: DaemonHostSummary | null
     sandbox: SandboxSummary | null
@@ -195,45 +221,38 @@ type Group =
           leaves: AgentRuntimeSummary[]
       }
 
+const AVAILABILITY_EFF: Record<RuntimeAvailability, EffStatus> = {
+    available: 'ready',
+    wakeable: 'asleep',
+    offline: 'offline',
+    unavailable: 'offline'
+}
+
 const effStatus = (r: AgentRuntimeSummary): EffStatus =>
-    r.kind === 'daemon' && r.daemonOnline === false ? 'offline' : r.status
+    r.status !== 'ready' ? r.status : AVAILABILITY_EFF[r.availability]
 
 const groupHealth = (runtimes: AgentRuntimeSummary[]): Health => {
     let warn = false
     for (const r of runtimes) {
         const s = effStatus(r)
         if (s === 'failed' || s === 'offline') return 'error'
-        if (s === 'pending') warn = true
+        if (s === 'installing') warn = true
     }
     return warn ? 'warn' : null
 }
 
-const vmKeyOf = (r: AgentRuntimeSummary): string => {
-    if (r.kind === 'daemon') return `daemon:${r.daemonId ?? r.id}`
-    if (r.kind === 'sprites') return `sprite:${r.hostId ?? r.spriteId ?? r.id}`
-    // One cloud computer carries a runtime per framework (ADR-0035).
-    if (r.kind === 'k8s') return `k8s:${r.hostId ?? r.id}`
-    return `external:${r.id}`
-}
+const vmKeyOf = (r: AgentRuntimeSummary): string =>
+    r.hostId ? hostKey(r.hostId) : `external:${r.id}`
 
 const vmLabelOf = (r: AgentRuntimeSummary, t: TFn): string => {
-    if (r.kind === 'daemon') return r.daemonName ?? r.name
-    if (r.kind === 'sprites')
-        return r.spriteName ?? t('web.agentRuntimesList.sandbox')
-    if (r.kind === 'k8s')
-        return (
-            r.podHostName ??
-            r.clusterName ??
-            t('web.agentRuntimesList.cluster')
-        )
+    if (r.hostName) return r.hostName
+    if (r.kind === 'sprites') return t('web.agentRuntimesList.sandbox')
     return r.name
 }
 
 const vmLocationOf = (r: AgentRuntimeSummary): string => {
-    if (r.kind === 'sprites') return r.spriteName ?? '—'
-    if (r.kind === 'daemon') return r.daemonName ?? '—'
-    if (r.kind === 'k8s') return r.ingressHost ?? r.namespace ?? '—'
-    return r.endpointUrl ?? '—'
+    if (r.kind === 'external') return r.endpointUrl ?? '—'
+    return r.providerRefLabel ?? r.hostName ?? '—'
 }
 
 const aggregateStatus = (
@@ -247,15 +266,9 @@ const aggregateStatus = (
     )
 }
 
-const aggregateDaemonOnline = (
-    runtimes: AgentRuntimeSummary[]
-): boolean | null => {
-    if (runtimes.some((r) => r.daemonOnline === false)) return false
-    if (runtimes.length > 0 && runtimes.every((r) => r.daemonOnline === true))
-        return true
-    return null
-}
-
+// Every runtime on a host carries the same host facts (they are one hop from
+// one row), so the machine reads them off any of its runtimes; the host and
+// sandbox lists then overwrite them with their fresher copy.
 const buildVMs = (
     runtimeRows: AgentRuntimeSummary[],
     hostRows: DaemonHostSummary[],
@@ -269,13 +282,17 @@ const buildVMs = (
         if (!vm) {
             vm = {
                 key,
+                hostId: r.hostId,
                 kind: r.kind,
                 label: vmLabelOf(r, t),
                 location: vmLocationOf(r),
                 runtimes: [],
                 agentsCount: 0,
                 status: null,
-                online: null,
+                hostStatus: r.hostStatus,
+                powerState: r.powerState,
+                keepAwake: false,
+                online: r.daemonOnline,
                 host: null,
                 sandbox: null
             }
@@ -284,51 +301,62 @@ const buildVMs = (
         vm.runtimes.push(r)
         vm.agentsCount += r.agentsCount
     }
-    for (const vm of map.values()) {
-        vm.status = aggregateStatus(vm.runtimes)
-        if (vm.kind === 'daemon') vm.online = aggregateDaemonOnline(vm.runtimes)
-    }
+    for (const vm of map.values()) vm.status = aggregateStatus(vm.runtimes)
     for (const host of hostRows) {
-        const key = `daemon:${host.id}`
+        const key = hostKey(host.id)
         const existing = map.get(key)
         if (existing) {
             existing.label = host.name
+            existing.location = host.hostname ?? host.name
+            existing.hostStatus = host.status
             existing.online = host.online
             existing.host = host
         } else {
             map.set(key, {
                 key,
+                hostId: host.id,
                 kind: 'daemon',
                 label: host.name,
                 location: host.hostname ?? host.name,
                 runtimes: [],
                 agentsCount: host.agentCount,
                 status: null,
+                hostStatus: host.status,
+                powerState: null,
+                keepAwake: false,
                 online: host.online,
                 host,
                 sandbox: null
             })
         }
     }
-    // Merge sprite sandbox hosts so a sandbox shows even with zero runtimes
-    // (mirrors the daemon-host merge above). Sprite VMs are keyed by hostId,
-    // which equals SandboxSummary.id, so existing VMs get enriched in place.
+    // A sandbox shows even with zero runtimes; sandbox id = host id, so an
+    // existing machine is enriched in place.
     for (const sandbox of sandboxRows) {
-        const key = `sprite:${sandbox.id}`
+        const key = hostKey(sandbox.id)
         const existing = map.get(key)
         if (existing) {
             existing.label = sandbox.name
+            existing.location = sandbox.providerRefLabel ?? sandbox.name
+            existing.hostStatus = sandbox.status
+            existing.powerState = sandbox.powerState
+            existing.keepAwake = sandbox.keepAwake
+            existing.online = sandbox.daemonOnline
             existing.sandbox = sandbox
         } else {
             map.set(key, {
                 key,
+                hostId: sandbox.id,
                 kind: 'sprites',
                 label: sandbox.name,
-                location: sandbox.spriteName ?? sandbox.name,
+                location: sandbox.providerRefLabel ?? sandbox.name,
                 runtimes: [],
                 agentsCount: sandbox.agentsCount,
                 status: null,
-                online: null,
+                hostStatus: sandbox.status,
+                powerState: sandbox.powerState,
+                keepAwake: sandbox.keepAwake,
+                online: sandbox.daemonOnline,
                 host: null,
                 sandbox
             })
@@ -340,14 +368,19 @@ const buildVMs = (
     })
 }
 
+// A machine's dot is the machine, not its runtimes: a failed host is red, a
+// self-owned computer is its daemon's presence, a hosted one its power state
+// (a ready runtime on a suspended machine is still asleep).
 const vmDotClass = (vm: RuntimeVM): string => {
-    if (vm.kind === 'daemon' && vm.online === false) return 'bg-error'
-    // A sandbox host's dot is its sprite lifecycle (active/warm/cold), not the
-    // runtime provisioning status — a ready runtime on a cold VM is still cold.
-    if (vm.kind === 'sprites' && vm.sandbox)
-        return spriteStatusDotClass(vm.sandbox.spriteStatus)
-    if (vm.status === null) return vm.online === true ? 'bg-success' : 'bg-idle'
-    return EFF_DOT[vm.status]
+    if (vm.hostStatus === 'failed') return TONE_DOT.error
+    if (vm.kind === 'daemon')
+        return vm.online === false
+            ? TONE_DOT.error
+            : vm.online
+              ? TONE_DOT.success
+              : TONE_DOT.idle
+    if (vm.hostId !== null) return TONE_DOT[powerStateTone(vm.powerState)]
+    return vm.status === null ? TONE_DOT.idle : EFF_DOT[vm.status]
 }
 
 const vmContaining = (vms: RuntimeVM[], runtimeId: string): RuntimeVM | null =>
@@ -513,19 +546,7 @@ const HostRuntimeRow: FC<{
                             kind='framework'
                             linked={false}
                         />
-                        {r.kind === 'daemon' && r.daemonOnline === false
-                            ? daemonOnlineBadge(false)
-                            : runtimeStatusTag(r.status)}
-                        {r.kind === 'sprites' && r.keepAliveEnabled && (
-                            <ShortcutTooltip
-                                label={t('web.agentRuntimesList.keepAliveOn')}
-                                className='shrink-0'
-                            >
-                                <span className='tag tag-neutral'>
-                                    {t('web.shell.keepAliveTag')}
-                                </span>
-                            </ShortcutTooltip>
-                        )}
+                        {runtimeAvailabilityTag(r)}
                     </span>
                     <span className='settings-card-copy block truncate'>
                         <span className='font-mono'>{r.name}</span>
@@ -567,7 +588,7 @@ const HostKindIcon: FC<{ kind: RuntimeKind; className?: string }> = ({
     return (
         <Icon
             role='img'
-            aria-label={runtimeKindLabel(kind)}
+            aria-label={placementLabel(kind)}
             className={className}
         />
     )
@@ -642,7 +663,7 @@ const AvailableFrameworkRow: FC<{
         const href = serviceSlotTaken
             ? null
             : provisionHostId
-              ? `/agents/new?sandboxId=${encodeURIComponent(provisionHostId)}&framework=${framework}${verQuery}`
+              ? `/agents/new?hostId=${encodeURIComponent(provisionHostId)}&framework=${framework}${verQuery}`
               : `/agents/new?framework=${framework}${verQuery}`
         action = (
             <>
@@ -1015,8 +1036,8 @@ const TaskRow: FC<{
                         {task.name}
                     </span>
                     {task.keepAlive && (
-                        <span className='tag tag-neutral font-mono'>
-                            {t('web.shell.keepAliveTag')}
+                        <span className='tag tag-neutral'>
+                            {t('web.hostStatus.keepAwake.on')}
                         </span>
                     )}
                 </span>
@@ -1086,6 +1107,12 @@ const HostDetailPanel: FC<{
         enabled: boolean
     ) => void | Promise<void>
     togglingTerminal?: boolean
+    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    onToggleKeepAwake?: (
+        hostId: string,
+        enabled: boolean
+    ) => void | Promise<void>
+    togglingKeepAwake?: boolean
     onToggleTerminalModelCredentials?: (
         hostId: string,
         enabled: boolean
@@ -1116,6 +1143,8 @@ const HostDetailPanel: FC<{
     onRename,
     onToggleTerminal,
     togglingTerminal,
+    onToggleKeepAwake,
+    togglingKeepAwake,
     onToggleTerminalModelCredentials,
     togglingTerminalModelCredentials,
     onLoadServices,
@@ -1127,6 +1156,7 @@ const HostDetailPanel: FC<{
     const navigate = useNavigate()
     const [deleting, setDeleting] = useState(false)
     const [stopping, setStopping] = useState(false)
+    const [refreshingStatus, setRefreshingStatus] = useState(false)
     const [renameOpen, setRenameOpen] = useState(false)
     const { confirm, confirmDialog } = useProductConfirm()
     const [guide, setGuide] = useState<{
@@ -1215,8 +1245,7 @@ const HostDetailPanel: FC<{
         vm.runtimes.find(
             (r) =>
                 frameworkKind(r.framework) === 'service' &&
-                r.status !== 'failed' &&
-                r.status !== 'stopped'
+                r.status !== 'failed'
         )?.framework ?? null
     // A daemon lists every framework it can detect + run (5); a sandbox lists
     // every framework that runs on a sprite (every versioned one — the coding
@@ -1227,19 +1256,57 @@ const HostDetailPanel: FC<{
     const availableFrameworks = frameworkList.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )
+    // The machine's badge: lifecycle while it is not ready; then its daemon's
+    // presence for a self-owned computer and its power state for a hosted
+    // one. A sandbox's power badge doubles as its refresh control.
+    const refreshStatus = (): void => {
+        if (!onRefreshStatus || !sandboxHostId || refreshingStatus) return
+        setRefreshingStatus(true)
+        void Promise.resolve(onRefreshStatus(sandboxHostId))
+            .catch(() => undefined)
+            .finally(() => setRefreshingStatus(false))
+    }
     const badge =
-        vm.kind === 'daemon' ? (
+        vm.hostStatus !== null && vm.hostStatus !== 'ready' ? (
+            <StatusTag
+                tone={hostLifecycleTone(vm.hostStatus)}
+                label={hostLifecycleLabel(vm.hostStatus)}
+                pulse={
+                    vm.hostStatus === 'provisioning' ||
+                    vm.hostStatus === 'deleting'
+                }
+            />
+        ) : vm.kind === 'daemon' ? (
             daemonOnlineBadge(vm.online)
-        ) : vm.kind === 'sprites' && vm.sandbox ? (
-            onRefreshStatus && sandboxHostId ? (
-                <SpriteStatusRefresh
-                    spriteStatus={vm.sandbox.spriteStatus}
-                    hostId={sandboxHostId}
-                    onRefresh={onRefreshStatus}
-                />
-            ) : (
-                spriteStatusTag(vm.sandbox.spriteStatus)
-            )
+        ) : vm.kind === 'sprites' && sandbox ? (
+            <span className='flex items-center gap-1.5'>
+                {powerStateTag(vm.powerState)}
+                {onRefreshStatus && sandboxHostId && (
+                    <ShortcutTooltip
+                        label={t('web.agentRuntimesList.refreshStatus')}
+                        className='shrink-0'
+                    >
+                        <button
+                            type='button'
+                            onClick={refreshStatus}
+                            disabled={refreshingStatus}
+                            aria-label={t(
+                                'web.agentRuntimesList.refreshStatus'
+                            )}
+                            className='text-subtle hover:bg-surface-hover inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+                        >
+                            <RefreshIcon
+                                className={[
+                                    'h-3.5 w-3.5',
+                                    refreshingStatus ? 'loading-spin' : ''
+                                ].join(' ')}
+                            />
+                        </button>
+                    </ShortcutTooltip>
+                )}
+            </span>
+        ) : vm.hostId !== null ? (
+            powerStateTag(vm.powerState)
         ) : vm.status ? (
             runtimeStatusTag(vm.status)
         ) : null
@@ -1398,16 +1465,18 @@ const HostDetailPanel: FC<{
             disabled: stopping,
             onSelect: () => void handleStopSandboxClick()
         })
+    // The API refuses (409) while agents still live on the machine; its
+    // runtimes go with it.
     if (vm.kind === 'sprites' && sandboxHostId && onDelete)
         menuItems.push({
             label: deleting
                 ? t('web.agentRuntimesList.deleting')
                 : t('web.agentRuntimesList.deleteSandbox'),
             danger: true,
-            disabled: deleting || vm.runtimes.length > 0,
+            disabled: deleting || vm.agentsCount > 0,
             disabledReason:
-                vm.runtimes.length > 0
-                    ? t('web.agentRuntimesList.removingRuntimes')
+                vm.agentsCount > 0
+                    ? t('web.agentRuntimesList.removingAgents')
                     : undefined,
             onSelect: () => void handleDeleteSandboxClick()
         })
@@ -1421,8 +1490,13 @@ const HostDetailPanel: FC<{
                 subtitle={
                     <>
                         <span className='text-ui text-fg font-medium'>
-                            {runtimeKindLabel(vm.kind)}
+                            {placementLabel(vm.kind)}
                         </span>
+                        {vm.keepAwake && (
+                            <span className='tag tag-neutral'>
+                                {t('web.hostStatus.keepAwake.on')}
+                            </span>
+                        )}
                         {sandbox && sandbox.activeSecondsThisPeriod > 0 && (
                             <>
                                 <span className='text-subtle'>·</span>
@@ -1452,7 +1526,30 @@ const HostDetailPanel: FC<{
                 <NoticeRow
                     tone='danger'
                     title={t('web.agentRuntimesList.machineOffline')}
-                    detail={`The daemon is not connected${host.lastSeenAt ? ` — last seen ${relative(host.lastSeenAt)}` : ''}. Agents on it cannot run until it reconnects.`}
+                    detail={
+                        host.lastSeenAt
+                            ? t('web.agentRuntimesList.machineOfflineSeen', {
+                                  time: relative(host.lastSeenAt)
+                              })
+                            : t('web.agentRuntimesList.machineOfflineDetail')
+                    }
+                />
+            )}
+            {vm.hostStatus === 'failed' && (
+                <NoticeRow
+                    tone='danger'
+                    title={t('web.agentRuntimesList.hostFailed')}
+                    detail={sandbox?.failureReason ?? undefined}
+                />
+            )}
+            {(vm.hostStatus === 'provisioning' ||
+                vm.hostStatus === 'deleting') && (
+                <NoticeRow
+                    title={t(
+                        vm.hostStatus === 'provisioning'
+                            ? 'web.agentRuntimesList.hostProvisioning'
+                            : 'web.agentRuntimesList.hostDeleting'
+                    )}
                 />
             )}
             {(stopping || deleting) && (
@@ -1761,6 +1858,21 @@ const HostDetailPanel: FC<{
             {(host || sandbox) && (
                 <Section title={t('web.agentRuntimesList.controls')}>
                     <div className='settings-card'>
+                        {sandbox && sandboxHostId && onToggleKeepAwake && (
+                            <ControlRow
+                                label={t('web.hostStatus.keepAwake.label')}
+                                description={t('web.hostStatus.keepAwake.hint')}
+                                enabled={sandbox.keepAwake}
+                                pending={Boolean(togglingKeepAwake)}
+                                pendingLabel={t('web.runtimeDetail.updating')}
+                                onToggle={(): void => {
+                                    void onToggleKeepAwake(
+                                        sandboxHostId,
+                                        !sandbox.keepAwake
+                                    )
+                                }}
+                            />
+                        )}
                         {sandbox && sandboxHostId && onToggleTerminal && (
                             <ControlRow
                                 label={t('web.agentRuntimesList.terminal')}
@@ -1909,9 +2021,20 @@ const HostDetailPanel: FC<{
                     {sandbox && (
                         <>
                             <Info
-                                label={t('web.agentRuntimesList.spriteId')}
-                                value={monoCopyValue(sandbox.spriteName)}
+                                label={t('web.agentRuntimesList.provider')}
+                                value={sandbox.providerName}
+                            />
+                            <Info
+                                label={t('web.agentRuntimesList.providerRef')}
+                                value={monoCopyValue(sandbox.providerRefLabel)}
                                 mono
+                            />
+                            <Info
+                                label={t('web.agentRuntimesList.daemon')}
+                                value={daemonPresenceLabel({
+                                    registered: sandbox.registered,
+                                    online: sandbox.daemonOnline
+                                })}
                             />
                             <Info
                                 label={t('web.agentRuntimesList.created')}
@@ -2135,7 +2258,11 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 setSandboxRows((prev) =>
                     prev.map((s) =>
                         s.id === update.hostId
-                            ? { ...s, spriteStatus: update.spriteStatus }
+                            ? {
+                                  ...s,
+                                  powerState: update.powerState,
+                                  daemonOnline: update.daemonOnline
+                              }
                             : s
                     )
                 )
@@ -2205,7 +2332,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 out.push({
                     mode: 'kind',
                     key: `kind:${kind}`,
-                    label: runtimeKindLabel(kind),
+                    label: placementLabel(kind),
                     count: all.length,
                     health: groupHealth(all),
                     hosts: kindHosts
@@ -2404,20 +2531,41 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     const handleRenameHost = useCallback(
         async (vm: RuntimeVM, name: string): Promise<void> => {
-            if (vm.kind === 'sprites') {
-                const hostId = vm.sandbox?.id ?? vm.runtimes[0]?.hostId
-                if (!hostId) return
-                await client.sandboxes.rename(hostId, name)
-            } else if (vm.kind === 'daemon') {
-                const hostId = vm.host?.id ?? vm.runtimes[0]?.hostId
-                if (!hostId) return
-                await client.daemons.renameHost(hostId, name)
-            } else {
-                return
-            }
+            if (!vm.hostId) return
+            if (vm.kind === 'sprites')
+                await client.sandboxes.rename(vm.hostId, name)
+            else if (vm.kind === 'daemon')
+                await client.daemons.renameHost(vm.hostId, name)
+            else if (vm.kind === 'k8s')
+                await client.podHosts.rename(vm.hostId, name)
+            else return
             refresh()
         },
-        [client, refresh, t]
+        [client, refresh]
+    )
+
+    const [togglingKeepAwakeId, setTogglingKeepAwakeId] = useState<
+        string | null
+    >(null)
+    const handleToggleKeepAwake = useCallback(
+        async (hostId: string, enabled: boolean): Promise<void> => {
+            setTogglingKeepAwakeId(hostId)
+            setError(null)
+            try {
+                const updated = await client.sandboxes.setKeepAwake(
+                    hostId,
+                    enabled
+                )
+                setSandboxRows((prev) =>
+                    prev.map((s) => (s.id === hostId ? updated : s))
+                )
+            } catch (e) {
+                setError((e as Error).message)
+            } finally {
+                setTogglingKeepAwakeId(null)
+            }
+        },
+        [client]
     )
 
     const handleToggleTerminalModelCredentials = useCallback(
@@ -2659,7 +2807,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
             return vm
                 ? [
                       {
-                          label: runtimeKindLabel(vm.kind),
+                          label: placementLabel(vm.kind),
                           to: '/settings/runtimes'
                       },
                       { label: vm.label }
@@ -2672,7 +2820,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
         if (vm)
             parts.push(
                 {
-                    label: runtimeKindLabel(vm.kind),
+                    label: placementLabel(vm.kind),
                     to: '/settings/runtimes'
                 },
                 {
@@ -2821,12 +2969,15 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         onDelete={handleDeleteSandbox}
                         onStop={handleStopSandbox}
                         onRename={
-                            selectedVM.kind === 'daemon' ||
-                            selectedVM.kind === 'sprites'
+                            selectedVM.hostId !== null
                                 ? (name) => handleRenameHost(selectedVM, name)
                                 : undefined
                         }
                         onToggleTerminal={handleToggleTerminal}
+                        onToggleKeepAwake={handleToggleKeepAwake}
+                        togglingKeepAwake={
+                            togglingKeepAwakeId === selectedVM.sandbox?.id
+                        }
                         onToggleTerminalModelCredentials={
                             handleToggleTerminalModelCredentials
                         }

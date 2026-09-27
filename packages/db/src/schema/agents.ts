@@ -10,9 +10,6 @@ import {
     uniqueIndex
 } from 'drizzle-orm/pg-core'
 import { users } from './users'
-import { spritesAccounts } from './spritesAccounts'
-import { k8sClusters } from './k8sClusters'
-import { runtimeHosts } from './runtimeHosts'
 import { agentRuntimes } from './agentRuntimes'
 import { userModelProviders } from './userModelProviders'
 import { runtimeAuthProfiles } from './runtimeAuthProfiles'
@@ -35,6 +32,11 @@ export interface AgentStorageBreakdown {
     measuredVia: 'df' | 'du' | 'stale'
 }
 
+// The agent's own lifecycle (ADR-0036). Whether it can run right now is not
+// stored: it derives from its runtime's install state, the host's lifecycle
+// and the host daemon's presence (agentAvailable in @manyfold/shared).
+export type AgentLifecycleStatus = 'pending' | 'ready' | 'failed'
+
 export const agents = pgTable(
     'agents',
     {
@@ -46,32 +48,14 @@ export const agents = pgTable(
         // No enum: an edition registers frameworks the core does not know
         // (ADR-0034).
         framework: text('framework').notNull(),
-        runtime: text('runtime', {
-            enum: ['sprites', 'k8s', 'daemon', 'external']
-        }).notNull(),
         status: text('status', {
-            enum: ['pending', 'running', 'stopped', 'failed']
+            enum: ['pending', 'ready', 'failed']
         })
             .notNull()
-            .default('pending'),
-        spriteStatus: text('sprite_status', {
-            enum: ['cold', 'warm', 'running']
-        }),
-        k8sPodPhase: text('k8s_pod_phase'),
-        accountId: text('account_id').references(() => spritesAccounts.id, {
-            onDelete: 'set null'
-        }),
-        clusterId: text('cluster_id').references(() => k8sClusters.id, {
-            onDelete: 'set null'
-        }),
-        daemonId: text('daemon_id').references(() => runtimeHosts.id, {
-            onDelete: 'set null'
-        }),
-        // Denormalized machine FK (= runtime.hostId) so per-host occupancy and
-        // active-slot counts avoid a join. Mirrors the existing daemonId denorm.
-        hostId: text('host_id').references(() => runtimeHosts.id, {
-            onDelete: 'set null'
-        }),
+            .default('pending')
+            .$type<AgentLifecycleStatus>(),
+        // The one execution home. Machine, provider and daemon are one hop
+        // away through the runtime's host; nothing is copied here.
         runtimeId: text('runtime_id')
             .notNull()
             .references(() => agentRuntimes.id, {
@@ -100,8 +84,6 @@ export const agents = pgTable(
             .notNull()
             .default({}),
         workspacePath: text('workspace_path'),
-        spriteName: text('sprite_name'),
-        spriteId: text('sprite_id'),
         mountPath: text('mount_path').notNull().default('/workspace'),
         storageBytes: bigint('storage_bytes', { mode: 'number' }),
         storageMeasuredAt: timestamp('storage_measured_at', {
@@ -112,8 +94,6 @@ export const agents = pgTable(
             .$type<FileRoot[]>()
             .notNull()
             .default([]),
-        namespace: text('namespace'),
-        ingressHost: text('ingress_host'),
         currentPhase: text('current_phase'),
         failureReason: text('failure_reason'),
         startedAt: timestamp('started_at', { withTimezone: true }),
@@ -147,12 +127,7 @@ export const agents = pgTable(
             foreignColumns: [userModelProviders.id],
             name: 'agents_model_provider_id_fkey'
         }).onDelete('set null'),
-        // Daemon-scoped agent counts: GET /api/daemon/me and /api/daemon/hosts
-        // group agents by daemon on every daemon poll (#607).
-        daemonIdx: index('agents_daemon_id_idx').on(table.daemonId),
-        // Per-host occupancy: the sandbox listings count agents per host via a
-        // correlated subquery on host_id, once per sandbox row (#607).
-        hostIdx: index('agents_host_id_idx').on(table.hostId),
+        runtimeIdx: index('agents_runtime_id_idx').on(table.runtimeId),
         runtimeAuthProfileIdx: index('agents_runtime_auth_profile_idx').on(
             table.runtimeAuthProfileId
         )

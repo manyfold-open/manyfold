@@ -4,7 +4,6 @@ import {
     AgentCreateStep,
     AgentCredentialsView,
     AgentModelConfigView,
-    AgentStopResponse,
     AgentStorageUsageResponse,
     AgentSummary,
     FrameworkUpgradeEvent,
@@ -46,17 +45,13 @@ import {
     ListFilteredByBoundAgent,
     SubjectAgentFromPath
 } from '@/common/decorators/subject-agent.decorator'
-import {
-    AgentsService,
-    agentRowToSummary
-} from '@/modules/agents/agents.service'
+import { AgentsService } from '@/modules/agents/agents.service'
 import {
     AgentOrchestratorService,
     type AgentProgressEmitter
 } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import { AgentCredentialsService } from '@/modules/agents/credentials/agent-credentials.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
 import { UpdateAgentCredentialsDto } from '@/modules/agents/dto/update-agent-credentials.dto'
@@ -85,7 +80,6 @@ export class AgentsController {
         private readonly credentials: AgentCredentialsService,
         private readonly diagnostics: AgentDiagnosticsService,
         private readonly modelConfig: AgentModelConfigService,
-        private readonly daemonHosts: DaemonHostService,
         private readonly adminSettings: AdminSettingsService,
         private readonly users: UsersService,
         private readonly frameworkVersionProbe: FrameworkVersionProbeService,
@@ -104,20 +98,7 @@ export class AgentsController {
         const rows = await this.agents.listForUser(user.userId, {
             boundAgentId
         })
-        const needsUpgradeByDaemon =
-            await this.daemonHosts.resolveNeedsUpgradeMap(
-                rows.map((r) => r.agent.daemonId)
-            )
-        return rows.map((r) =>
-            agentRowToSummary(
-                r.agent,
-                r.clusterName,
-                r.agent.daemonId
-                    ? (needsUpgradeByDaemon.get(r.agent.daemonId) ?? false)
-                    : false,
-                r.dashboardFlags
-            )
-        )
+        return this.agents.summariesFor(rows)
     }
 
     @Post()
@@ -231,17 +212,6 @@ export class AgentsController {
         @Param('id') id: string
     ): Promise<void> {
         await this.orchestrator.delete(id, user.userId, false)
-    }
-
-    @Post(':id/stop')
-    @HttpCode(200)
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async stop(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<AgentStopResponse> {
-        return this.agents.stopSprite(id, user.userId, false)
     }
 
     @Post(':id/restart')

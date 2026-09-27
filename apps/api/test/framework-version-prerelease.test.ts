@@ -7,6 +7,12 @@ import {
     fixtureVersion
 } from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 
 // The upgrade endpoint is the third admission point for the pre-release opt-in.
@@ -72,19 +78,10 @@ const upgradeWith = (opts: {
     new FrameworkUpgradeService(
         runtimeDb(opts.installedVersion ?? 'v1.15.0') as never,
         {
-            // reaching the sprite means every policy check passed — a
-            // distinctive failure marks that boundary without a live sprite
-            getById: async () => {
-                throw new Error('sprite boundary reached')
-            }
-        } as never,
-        {
             findForCaller: async () => ({
                 id: 'agt_1',
                 framework: FIXTURE,
-                runtimeId: 'rt_1',
-                spriteName: 'sprite-1',
-                accountId: 'sac_1'
+                runtimeId: 'rt_1'
             })
         } as never,
         {
@@ -104,6 +101,25 @@ const upgradeWith = (opts: {
                         ? { [FIXTURE]: opts.minVersion }
                         : {}
                 })
+        } as never,
+        fakeRuntimeContext(
+            contextOf({
+                runtime: runtimeRow({
+                    id: 'rt_1',
+                    framework: FIXTURE as never,
+                    hostId: 'rth_1',
+                    frameworkVersion: opts.installedVersion ?? 'v1.15.0'
+                }),
+                host: spritesHostRow({ id: 'rth_1' })
+            })
+        ) as never,
+        {} as never,
+        {
+            // reaching the sprite means every policy check passed — a
+            // distinctive failure marks that boundary without a live sprite
+            spritesClientForHost: async () => {
+                throw new Error('sprite boundary reached')
+            }
         } as never,
         extensionsWith({ framework: FIXTURE, version: fixtureVersion }) as never
     )

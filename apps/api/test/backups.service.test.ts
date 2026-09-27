@@ -655,6 +655,18 @@ class FakeRuntime {
     written: Array<{ restoreId: string; data: string }> = []
     applied: Array<{ restoreId: string; archivePath: string }> = []
 
+    // Every agent here is on one sandbox; the operation lock is the
+    // workspace's.
+    async admit(): Promise<'sprites'> {
+        return 'sprites'
+    }
+    async operationKey(agent: {
+        id: string
+        mountPath?: string | null
+    }): Promise<string> {
+        return `sprites:rth-1:${agent.mountPath ?? agent.id}`
+    }
+
     async operationIsIdle(): Promise<boolean> {
         return true
     }

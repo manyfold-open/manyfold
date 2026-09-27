@@ -1,9 +1,9 @@
 import type {
     AgentFramework,
+    RuntimeHostPowerState,
     SandboxUsageAgentRow,
     SandboxUsageBreakdown,
-    SandboxUsageHost,
-    SpriteStatus
+    SandboxUsageHost
 } from '@manyfold/shared'
 import type { SandboxStorageBreakdown } from '@manyfold/db'
 import type { UsagePeriod } from '@/common/usage-period/usage-period'
@@ -12,7 +12,7 @@ import { workspaceReading } from '@/modules/agents/sprite-storage/workspace-read
 export interface SandboxUsageHostInput {
     id: string
     name: string
-    spriteStatus: SpriteStatus | null
+    powerState: RuntimeHostPowerState | null
     storageBytes: number | null
     storageMeasuredAt: Date | null
     storageBreakdown: SandboxStorageBreakdown | null
@@ -94,7 +94,7 @@ export const buildSandboxUsageBreakdown = (
                 }))
                 .sort((a, b) => a.name.localeCompare(b.name))
             const asleep =
-                host.spriteStatus === 'cold' || host.spriteStatus === 'warm'
+                host.powerState === 'suspended' || host.powerState === 'stopped'
             const measured =
                 host.storageBreakdown !== null &&
                 host.storageBreakdown.measuredVia !== 'stale' &&
@@ -103,7 +103,7 @@ export const buildSandboxUsageBreakdown = (
             return {
                 hostId: host.id,
                 name: host.name,
-                spriteStatus: host.spriteStatus,
+                powerState: host.powerState,
                 activeSecondsThisPeriod: secondsByHost.get(host.id) ?? 0,
                 storageBytes: host.storageBytes,
                 storageMeasuredAt:

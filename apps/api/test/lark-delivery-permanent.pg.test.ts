@@ -42,7 +42,6 @@ test(
                         userId,
                         name: 'Lark fixture',
                         framework: 'claude-code',
-                        kind: 'sprites'
                     })
                 await db
                     .insert(agents)
@@ -52,7 +51,6 @@ test(
                         runtimeId,
                         name: 'Lark fixture',
                         framework: 'claude-code',
-                        runtime: 'sprites',
                         internalId: agentId
                     })
                 for (const status of [200, 400]) {

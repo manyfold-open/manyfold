@@ -19,6 +19,7 @@ import type {
     PodHostSummary,
     SandboxSummary
 } from '@manyfold/shared'
+import { hostKey } from '@/lib/hostStatus'
 
 export type UpdateKind = 'cli' | 'herdr' | 'framework' | 'cliUsage' | 'skill'
 export type UpdateSeverity = 'recommended' | 'required'
@@ -41,12 +42,12 @@ export type UpdateExec =
     // targetVersion null = omit the parameter and take the channel's latest,
     // which is what the endpoints do with an absent `targetVersion`.
     | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
-    | { type: 'sandboxCli'; sandboxId: string; targetVersion: string | null }
+    | { type: 'sandboxCli'; hostId: string; targetVersion: string | null }
     // A cloud computer's daemon updates itself; the host restarts it.
     | { type: 'podHostCli'; podHostId: string }
     // herdr rides herdr's own updater, always to its latest (ADR-0031).
     | { type: 'daemonHerdr'; hostId: string }
-    | { type: 'sandboxHerdr'; sandboxId: string }
+    | { type: 'sandboxHerdr'; hostId: string }
     | { type: 'skillInstall'; skillId: string; agentId: string }
     // Nothing the platform can run: either a copy-a-command guide for the
     // framework, or a link to wherever the human does it.
@@ -62,6 +63,8 @@ export interface UpdateRow {
     // rather than to any one framework.
     framework: AgentFramework | null
     targetKind: UpdateTargetKind
+    // One machine is one host (ADR-0036): `host:<hostId>` for anything on a
+    // machine, `agent:<id>` for a skill, `runtime:<id>` for an external one.
     targetKey: string
     targetLabel: string
     installedVersion: string | null
@@ -152,7 +155,7 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             subjectLabel: 'mf CLI',
             framework: null,
             targetKind: 'daemon',
-            targetKey: `daemon:${host.id}`,
+            targetKey: hostKey(host.id),
             targetLabel: host.name,
             installedVersion: host.cliVersion,
             latestVersion: host.latestCliVersion,
@@ -183,7 +186,7 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             subjectLabel: 'mf CLI',
             framework: null,
             targetKind: 'sandbox',
-            targetKey: `sandbox:${sandbox.id}`,
+            targetKey: hostKey(sandbox.id),
             targetLabel: sandbox.name,
             installedVersion: sandbox.cliVersion,
             latestVersion: sandbox.latestCliVersion,
@@ -199,7 +202,7 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             blocker: null,
             exec: {
                 type: 'sandboxCli',
-                sandboxId: sandbox.id,
+                hostId: sandbox.id,
                 targetVersion: null
             }
         })
@@ -212,7 +215,7 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             subjectLabel: 'mf CLI',
             framework: null,
             targetKind: 'k8s',
-            targetKey: `k8s:${host.id}`,
+            targetKey: hostKey(host.id),
             targetLabel: host.name,
             installedVersion: host.cliVersion,
             latestVersion: host.latestCliVersion,
@@ -221,7 +224,8 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             targetChoices: [],
             severity: 'recommended',
             blockedReason: null,
-            blocker: host.status === 'ready' ? null : 'offline',
+            blocker:
+                host.status === 'ready' && host.daemonOnline ? null : 'offline',
             exec: { type: 'podHostCli', podHostId: host.id }
         })
     }
@@ -242,7 +246,7 @@ const herdrRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             subjectLabel: 'herdr',
             framework: null,
             targetKind: 'daemon',
-            targetKey: `daemon:${host.id}`,
+            targetKey: hostKey(host.id),
             targetLabel: host.name,
             installedVersion: host.herdrVersion,
             latestVersion: host.latestHerdrVersion,
@@ -268,7 +272,7 @@ const herdrRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             subjectLabel: 'herdr',
             framework: null,
             targetKind: 'sandbox',
-            targetKey: `sandbox:${sandbox.id}`,
+            targetKey: hostKey(sandbox.id),
             targetLabel: sandbox.name,
             installedVersion: sandbox.herdrVersion,
             latestVersion: sandbox.latestHerdrVersion,
@@ -276,7 +280,7 @@ const herdrRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             severity: 'recommended',
             blockedReason: null,
             blocker: null,
-            exec: { type: 'sandboxHerdr', sandboxId: sandbox.id }
+            exec: { type: 'sandboxHerdr', hostId: sandbox.id }
         })
     }
     return rows
@@ -294,29 +298,14 @@ const runtimeTargetKind = (runtime: AgentRuntimeSummary): UpdateTargetKind => {
 }
 
 const runtimeTarget = (
-    runtime: AgentRuntimeSummary,
-    sandboxNames: ReadonlyMap<string, string>
-): { key: string; label: string } => {
-    if (runtime.kind === 'daemon' && runtime.daemonId)
-        return {
-            key: `daemon:${runtime.daemonId}`,
-            label: runtime.daemonName ?? runtime.name
-        }
-    if (runtime.kind === 'k8s' && runtime.hostId)
-        return {
-            key: `k8s:${runtime.hostId}`,
-            label: runtime.podHostName ?? runtime.name
-        }
-    if (runtime.hostId)
-        return {
-            key: `sandbox:${runtime.hostId}`,
-            label:
-                sandboxNames.get(runtime.hostId) ??
-                runtime.spriteName ??
-                runtime.name
-        }
-    return { key: `runtime:${runtime.id}`, label: runtime.name }
-}
+    runtime: AgentRuntimeSummary
+): { key: string; label: string } =>
+    runtime.hostId
+        ? {
+              key: hostKey(runtime.hostId),
+              label: runtime.hostName ?? runtime.name
+          }
+        : { key: `runtime:${runtime.id}`, label: runtime.name }
 
 // Framework targets: whatever the catalog offers that is a strict upgrade over
 // what is installed. The server has already withheld blocked ranges and
@@ -354,9 +343,6 @@ const frameworkRows = (
             entry
         ])
     )
-    const sandboxNames = new Map(
-        inputs.sandboxes.map((sandbox) => [sandbox.id, sandbox.name])
-    )
     const rows: UpdateRow[] = []
     for (const runtime of inputs.runtimes) {
         if (!isVersionedFramework(runtime.framework)) continue
@@ -366,7 +352,7 @@ const frameworkRows = (
             continue
 
         const mode = frameworkUpgradeMode(runtime.framework)
-        const target = runtimeTarget(runtime, sandboxNames)
+        const target = runtimeTarget(runtime)
         // A cloud computer upgrades an npm or release-binary CLI in place, as
         // a sprite does; its rebuilt service frameworks are not on it yet
         // (ADR-0035).
@@ -682,12 +668,12 @@ export type BatchStep =
     | {
           type: 'sandboxCli'
           rowId: string
-          sandboxId: string
+          hostId: string
           targetVersion: string | null
       }
     | { type: 'podHostCli'; rowId: string; podHostId: string }
     | { type: 'daemonHerdr'; rowId: string; hostId: string }
-    | { type: 'sandboxHerdr'; rowId: string; sandboxId: string }
+    | { type: 'sandboxHerdr'; rowId: string; hostId: string }
 
 export const SKILL_INSTALL_BATCH_LIMIT = 50
 
@@ -755,7 +741,7 @@ export const planBatch = (
                 steps.push({
                     type: 'sandboxCli',
                     rowId: row.id,
-                    sandboxId: row.exec.sandboxId,
+                    hostId: row.exec.hostId,
                     targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
@@ -777,7 +763,7 @@ export const planBatch = (
                 steps.push({
                     type: 'sandboxHerdr',
                     rowId: row.id,
-                    sandboxId: row.exec.sandboxId
+                    hostId: row.exec.hostId
                 })
                 break
             case 'agentFramework':

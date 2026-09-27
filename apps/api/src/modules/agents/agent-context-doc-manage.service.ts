@@ -1,4 +1,4 @@
-import type { AgentContextDocStatus } from '@manyfold/shared'
+import { isRuntimeUsable, type AgentContextDocStatus } from '@manyfold/shared'
 import {
     BadRequestException,
     Inject,
@@ -6,11 +6,8 @@ import {
     Logger,
     NotFoundException
 } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
-import { createClient, type SpritesClient } from '@manyfold/sprites'
-import { agents, type Agent, type Database } from '@manyfold/db'
+import { type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { runDaemonBash, daemonConfigRead, daemonConfigWrite } from '@/modules/daemon/daemon-fs'
 import { DaemonConfigDeliveryService, DaemonConfigDeliveryError, readDaemonConfigSnapshot, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
@@ -20,12 +17,17 @@ import {
     AgentContextDocService,
     MANYFOLD_CONTEXT_VERSION,
     contextDocInstructionFile,
-    spriteContextDocRunner,
     buildPlatformContextDoc,
     buildReferenceBlock,
     MANYFOLD_CONTEXT_START,
     MANYFOLD_CONTEXT_END
 } from '@/modules/agent-self/agent-context-doc.service'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+
+type AgentContext = RuntimeContext & { agent: Agent }
 
 // What AgentContextDocService.write recorded into agents.extras on its last
 // successful install — the DB is the source of truth for the status card so it
@@ -45,14 +47,15 @@ const readRecord = (
 }
 
 // Read/install/refresh an agent's AGENTS.manyfold.md. Status is DB-backed
-// (cold-safe); install/on-change writes to the live sprite.
+// (cold-safe); install/on-change writes to the machine through its daemon,
+// whatever provisioned it (ADR-0036 R6).
 @Injectable()
 export class AgentContextDocManageService {
     private readonly log = new Logger(AgentContextDocManageService.name)
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
+        private readonly runtimeContext: RuntimeContextService,
         private readonly contextDoc: AgentContextDocService,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly delivery: DaemonConfigDeliveryService
@@ -63,8 +66,9 @@ export class AgentContextDocManageService {
         agentId: string,
         isAdmin: boolean
     ): Promise<AgentContextDocStatus> {
-        const agent = await this.requireAgent(userId, agentId, isAdmin)
-        if (!this.isSupported(agent))
+        const ctx = await this.requireAgent(userId, agentId, isAdmin)
+        const { agent } = ctx
+        if (!this.isSupported(ctx))
             return {
                 supported: false,
                 installed: false,
@@ -82,8 +86,8 @@ export class AgentContextDocManageService {
             version,
             generatedAt,
             currentVersion: MANYFOLD_CONTEXT_VERSION,
-            upToDate: installed && version === MANYFOLD_CONTEXT_VERSION && (agent.runtime !== 'daemon' || this.delivered(await readDaemonConfigSnapshot(this.db, agent.id))),
-            agentRunning: agent.status === 'running'
+            upToDate: installed && version === MANYFOLD_CONTEXT_VERSION && this.delivered(await readDaemonConfigSnapshot(this.db, agent.id)),
+            agentRunning: isRuntimeUsable(ctx.availability)
         }
     }
 
@@ -92,62 +96,50 @@ export class AgentContextDocManageService {
         agentId: string,
         isAdmin: boolean
     ): Promise<AgentContextDocStatus> {
-        const agent = await this.requireAgent(userId, agentId, isAdmin)
-        if (!this.isSupported(agent))
+        const ctx = await this.requireAgent(userId, agentId, isAdmin)
+        if (!this.isSupported(ctx))
             throw new BadRequestException(
-                'the context doc is only available for coding-framework agents on sandbox or self-owned computer runtimes'
+                'the context doc is only available for coding-framework agents on a machine'
             )
-        // Writing needs a live workspace. A running sprite agent whose VM has
-        // idled to warm/cold is fine — exec resumes it; a daemon agent's
-        // `running` status is presence-derived, so it means the computer is
-        // reachable (#781).
-        if (agent.status !== 'running')
+        // Writing needs a reachable machine: an installed runtime on a ready
+        // host. A hosted machine that has idled is fine — the delivery wakes
+        // it; a local machine must have its daemon connected.
+        if (!isRuntimeUsable(ctx.availability))
             throw new BadRequestException(
                 'start the agent before installing its context doc'
             )
-        await this.writeDoc(agent)
+        await this.refreshDaemon(ctx.agent)
         return this.getStatus(userId, agentId, isAdmin)
     }
 
     // Best-effort push for an agent whose doc may be missing or stale — after
     // a connection change, or for an agent just added to a running sandbox
-    // (the caller already authorized the agent). Only writes for a running
+    // (the caller already authorized the agent). Only writes for a usable
     // agent; never throws.
     async refreshOnChange(agent: Agent): Promise<void> {
-        if (!this.isSupported(agent) || agent.status !== 'running') return
         try {
-            await this.writeDoc(agent)
+            const ctx = await this.runtimeContext.forAgent(agent.id)
+            if (!ctx?.agent) return
+            const current = ctx as AgentContext
+            if (!this.isSupported(current) || !isRuntimeUsable(ctx.availability))
+                return
+            await this.refreshDaemon(agent)
         } catch (err) {
-            if (agent.runtime === 'daemon') { this.log.warn('daemon configuration context refresh deferred'); return }
+            if (err instanceof DaemonConfigDeliveryError) {
+                this.log.warn('daemon configuration context refresh deferred')
+                return
+            }
             this.log.warn(
                 `context doc on-change refresh failed for ${agent.id}: ${(err as Error).message}`
             )
         }
     }
 
-    private isSupported(agent: Agent): boolean {
+    private isSupported(ctx: AgentContext): boolean {
         return (
-            (agent.runtime === 'sprites' || agent.runtime === 'daemon') &&
-            contextDocInstructionFile(agent.framework) !== undefined
+            ctx.placement !== 'external' &&
+            contextDocInstructionFile(ctx.agent.framework) !== undefined
         )
-    }
-
-    private async writeDoc(agent: Agent): Promise<void> {
-        if (agent.runtime === 'daemon') {
-            await this.refreshDaemon(agent)
-            return
-        }
-        if (!agent.spriteName || !agent.mountPath) return
-        await this.contextDoc.write({
-            agentId: agent.id,
-            framework: agent.framework,
-            workspacePath: agent.mountPath,
-            run: spriteContextDocRunner(
-                await this.spriteClientFor(agent),
-                agent.spriteName
-            ),
-            targetLabel: agent.spriteName
-        })
     }
 
     delivered(snapshot: DaemonConfigSnapshot): boolean {
@@ -167,12 +159,13 @@ export class AgentContextDocManageService {
         agent: Agent,
         options: DaemonConfigDeliveryOptions = {}
     ): Promise<void> {
-        if (!this.isSupported(agent)) return
+        if (contextDocInstructionFile(agent.framework) === undefined) return
         await this.delivery.deliver(
             agent,
             async (snapshot, attempt) => {
                 if (options.automatic && this.delivered(snapshot)) return
                 const current = snapshot.agent
+                const daemonId = snapshot.host.id
                 const workspacePath = current.workspacePath ?? current.mountPath
                 const instruction = contextDocInstructionFile(current.framework)
                 if (!workspacePath || !instruction)
@@ -204,7 +197,7 @@ export class AgentContextDocManageService {
                         )
                         const previousDoc = await daemonConfigRead(
                             this.daemonRegistry,
-                            current.daemonId!,
+                            daemonId,
                             docPath,
                             attempt
                         )
@@ -215,7 +208,7 @@ export class AgentContextDocManageService {
                         })
                         await daemonConfigWrite(
                             this.daemonRegistry,
-                            current.daemonId!,
+                            daemonId,
                             docPath,
                             doc,
                             previousDoc,
@@ -228,13 +221,13 @@ export class AgentContextDocManageService {
                         )
                         const previous = await daemonConfigRead(
                             this.daemonRegistry,
-                            current.daemonId!,
+                            daemonId,
                             instructionPath,
                             attempt
                         )
                         await daemonConfigWrite(
                             this.daemonRegistry,
-                            current.daemonId!,
+                            daemonId,
                             instructionPath,
                             mergeContextReference(
                                 previous ?? '',
@@ -263,7 +256,7 @@ export class AgentContextDocManageService {
                         run: (script, timeoutMs) =>
                             runDaemonBash(
                                 this.daemonRegistry,
-                                current.daemonId!,
+                                daemonId,
                                 script,
                                 timeoutMs,
                                 attempt
@@ -306,27 +299,11 @@ export class AgentContextDocManageService {
         userId: string,
         agentId: string,
         isAdmin: boolean
-    ): Promise<Agent> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        if (!agent || (agent.userId !== userId && !isAdmin))
+    ): Promise<AgentContext> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        if (!ctx?.agent || (ctx.agent.userId !== userId && !isAdmin))
             throw new NotFoundException(`agent ${agentId} not found`)
-        return agent
-    }
-
-    private async spriteClientFor(agent: Agent): Promise<SpritesClient> {
-        if (!agent.accountId)
-            throw new BadRequestException('agent has no sprites account')
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new NotFoundException('sprites account not found for agent')
-        return createClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+        return ctx as AgentContext
     }
 }
 

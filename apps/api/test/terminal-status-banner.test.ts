@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildStatusBanner } from '../src/modules/terminal/status-banner'
+import { contextOf, hostRow } from './helpers/runtime-context-fixture'
 
 const baseAgent = {
     id: 'agent-1',
@@ -8,13 +9,7 @@ const baseAgent = {
     runtimeId: 'rt-1',
     name: 'mba13a',
     framework: 'claude-code',
-    runtime: 'daemon',
-    status: 'running',
-    spriteStatus: null,
-    k8sPodPhase: null,
-    accountId: null,
-    clusterId: null,
-    daemonId: 'dh-1',
+    status: 'ready',
     internalId: 'agent-1',
     model: null,
     extras: {},
@@ -23,8 +18,6 @@ const baseAgent = {
     spriteId: null,
     mountPath: '/workspace',
     fileRoots: [],
-    namespace: null,
-    ingressHost: null,
     currentPhase: null,
     failureReason: null,
     startedAt: null,
@@ -35,9 +28,15 @@ const baseAgent = {
 }
 
 test('terminal banner shows daemon workspace instead of mountPath', () => {
-    const banner = buildStatusBanner(baseAgent as never)
+    const banner = buildStatusBanner(
+        contextOf({
+            agent: baseAgent as never,
+            host: hostRow({ id: 'dh-1', userId: 'u-1', name: 'mba13a' })
+        })
+    )
 
-    assert.match(banner, / daemon {2}: dh-1/)
+    assert.match(banner, / host {5}: mba13a \(dh-1\)/)
+    assert.match(banner, / runtime {2}: daemon/)
     assert.match(banner, / workspace: \/Users\/cy\/\.nca\/workspaces\/agent-1/)
     assert.doesNotMatch(banner, / namespace: \?/)
     assert.doesNotMatch(banner, / mountPath: \/workspace/)

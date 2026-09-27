@@ -9,13 +9,13 @@ import {
     agentRuntimes,
     agents,
     createDb,
+    hostDaemons,
     plans,
     runtimeAuthOperations,
     runtimeAuthProfiles,
     runtimeHosts,
     users,
-    type Database,
-    type RuntimeHostRow
+    type Database
 } from '@manyfold/db'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
@@ -27,6 +27,9 @@ import {
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import { RuntimeAccountService } from '@/modules/agent-runtimes/account/runtime-account.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 
 // Run with:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://… node --import tsx --test test/runtime-auth-profiles.service.pg.test.ts
@@ -71,7 +74,7 @@ interface Harness {
     runtimeId: string
     hostId: string
     rpcs: Array<{ method: string; payload: Record<string, unknown> }>
-    setOnline: (online: boolean) => void
+    setOnline: (online: boolean) => Promise<void>
     setFeatures: (features: string[]) => Promise<void>
     close: () => Promise<void>
 }
@@ -99,37 +102,29 @@ const buildHarness = async (): Promise<Harness> => {
     await db.insert(runtimeHosts).values({
         id: hostId,
         userId,
-        kind: 'daemon',
+        kind: 'local',
         name: `rap-host-${suffix}`,
-        status: 'active',
+        status: 'ready'
+    })
+    await db.insert(hostDaemons).values({
+        hostId,
+        userId,
+        daemonUuid: `uuid-rap-${suffix}`,
         clientFeatures: [DAEMON_FEATURE_AUTH_PROFILES],
+        lastSeenAt: new Date(),
+        rpcConnectedAt: new Date(),
         rpcLastSeenAt: new Date()
-    } as never)
+    })
     await db.insert(agentRuntimes).values({
         id: runtimeId,
         userId,
         name: `rap-runtime-${suffix}`,
         framework: 'codex',
-        kind: 'daemon',
         status: 'ready',
-        daemonId: hostId,
         hostId
     } as never)
 
     const rpcs: Harness['rpcs'] = []
-    let online = true
-    const hostRow = async (): Promise<RuntimeHostRow | null> =>
-        (
-            await db
-                .select()
-                .from(runtimeHosts)
-                .where(eq(runtimeHosts.id, hostId))
-                .limit(1)
-        )[0] ?? null
-    const daemonHosts = {
-        findById: hostRow,
-        isOnline: () => online
-    }
     const daemonRegistry = {
         rpc: async (args: {
             method: string
@@ -194,24 +189,42 @@ const buildHarness = async (): Promise<Harness> => {
                     .limit(1)
             )[0] ?? null
     }
+    const hosts = new HostsService(db)
+    const hostDaemonsService = new HostDaemonsService(db)
+    const runtimeContext = new RuntimeContextService(db)
+    // Presence is the host_daemons row: the harness flips it by moving
+    // last_seen_at, and the access helper reports exactly that.
+    const hostAccess = {
+        ensure: async () => {
+            const daemon = await hostDaemonsService.findByHostId(hostId)
+            return { daemon, online: hostDaemonsService.isOnline(daemon) }
+        }
+    }
+    // The hosted-only collaborators (active-slot admission, awake holds) are
+    // never reached by a local host.
+    const runtimeAccess = { reserveActiveSlot: async () => {} }
+    const runnerManager = {
+        holdSpriteAwake: async () => {},
+        releaseSpriteAwake: async () => {}
+    }
     const account = new RuntimeAccountService(
-        runtimes as never,
-        daemonHosts as never,
+        runtimeContext,
+        hostDaemonsService,
         daemonRegistry as never,
-        {} as never,
-        {} as never
+        runtimeAccess as never,
+        hostAccess as never
     )
-    // The sprite-only collaborators (sandbox admission, sprites.dev account,
-    // runner wake) are never reached by a daemon runtime.
     const service = new RuntimeAuthProfilesService(
         db,
         runtimes as never,
-        daemonHosts as never,
+        runtimeContext,
+        hosts,
+        hostDaemonsService,
         daemonRegistry as never,
         account,
-        {} as never,
-        {} as never,
-        {} as never
+        runtimeAccess as never,
+        hostAccess as never,
+        runnerManager as never
     )
     const principal = {
         userId,
@@ -225,14 +238,18 @@ const buildHarness = async (): Promise<Harness> => {
         runtimeId,
         hostId,
         rpcs,
-        setOnline: (value) => {
-            online = value
+        setOnline: async (value) => {
+            const seen = value ? new Date() : new Date(Date.now() - 3_600_000)
+            await db
+                .update(hostDaemons)
+                .set({ lastSeenAt: seen, rpcLastSeenAt: seen })
+                .where(eq(hostDaemons.hostId, hostId))
         },
         setFeatures: async (features) => {
             await db
-                .update(runtimeHosts)
+                .update(hostDaemons)
                 .set({ clientFeatures: features })
-                .where(eq(runtimeHosts.id, hostId))
+                .where(eq(hostDaemons.hostId, hostId))
         },
         close: async () => {
             await db.delete(users).where(eq(users.id, userId))
@@ -368,7 +385,7 @@ test(
     async () => {
         const h = await buildHarness()
         try {
-            h.setOnline(false)
+            await h.setOnline(false)
             const offline = await h.service.list(h.userId, h.runtimeId)
             assert.equal(offline.availability, 'daemon-offline')
             assert.equal(offline.capabilities.manage, false)
@@ -379,7 +396,7 @@ test(
                 (err: { response?: { code?: string } }) =>
                     err.response?.code === RUNTIME_AUTH_ERROR.hostUnavailable
             )
-            h.setOnline(true)
+            await h.setOnline(true)
             await h.setFeatures(['account.inspect'])
             const old = await h.service.list(h.userId, h.runtimeId)
             assert.equal(old.availability, 'daemon-upgrade-required')
@@ -433,7 +450,6 @@ test(
                 userId: h.userId,
                 name: 'bound',
                 framework: 'codex',
-                runtime: 'daemon',
                 runtimeId: h.runtimeId,
                 internalId: agentId,
                 runtimeAuthProfileId: profile.id

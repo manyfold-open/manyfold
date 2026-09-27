@@ -8,8 +8,10 @@ import {
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
+    agentRuntimes,
     agents,
     auditLogs,
+    runtimeHosts,
     type Database,
     type TerminalSessionRow
 } from '@manyfold/db'
@@ -30,6 +32,7 @@ import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions
 import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
 import type { TerminalResumeOutcome } from '@/modules/terminal/terminal-resume.service'
 import { ApiTokenService } from '@/modules/auth/api-token.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
 
 // Why a terminal stopped, as its driver saw it. Everything but `daemon-lost`
 // and `detached` proves the process is dead or was killed on the way out, so
@@ -69,7 +72,11 @@ export class TerminalHolderService {
         // The token an owned terminal's shell carries lives as long as the
         // terminal, so whichever path ends the row drops it (ADR-0029 §6).
         @Optional()
-        private readonly apiTokens?: ApiTokenService
+        private readonly apiTokens?: ApiTokenService,
+        // A terminal row that names a host the agent has since left is
+        // closed on that host; absent, the agent's current one is used.
+        @Optional()
+        private readonly hosts?: HostsService
     ) {}
 
     // The hold is one compare-and-set against no live turn, no other holder
@@ -358,38 +365,28 @@ export class TerminalHolderService {
             )
             return
         }
-        const [agent] = await this.db
-            .select({
-                accountId: agents.accountId,
-                spriteName: agents.spriteName,
-                daemonId: agents.daemonId
-            })
+        // The row names the host the terminal opened on; an older row that
+        // predates the column falls back to the agent's current machine.
+        const [current] = await this.db
+            .select({ host: runtimeHosts })
             .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .innerJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
             .where(eq(agents.id, row.agentId))
             .limit(1)
+        const host =
+            row.hostId && row.hostId !== current?.host.id && this.hosts
+                ? await this.hosts.findById(row.hostId)
+                : (current?.host ?? null)
         try {
-            // A herdr pane is closed through the daemon that opened it
-            // (ADR-0031): the agent's own, or the sandbox's runner.
-            if (row.client === 'herdr') {
-                const daemonId = row.daemonId ?? agent?.daemonId
-                if (!daemonId)
-                    throw new Error('herdr terminal has no daemon to close it')
-                await this.daemon.closePty(daemonId, row.processHandle)
+            if (!host) throw new Error('terminal has no host to close it on')
+            // A herdr pane and a daemon pty are closed through the host's
+            // daemon (ADR-0031); a sprites exec through the provider.
+            if (row.client === 'herdr' || row.runtime === 'daemon') {
+                await this.daemon.closePty(host.id, row.processHandle)
                 return
             }
-            if (row.runtime === 'sprites') {
-                if (!agent?.accountId || !agent.spriteName)
-                    throw new Error('agent has no sprite to kill on')
-                await this.sprites.killByHandle({
-                    accountId: agent.accountId,
-                    spriteName: agent.spriteName,
-                    handle: row.processHandle
-                })
-            } else {
-                if (!agent?.daemonId)
-                    throw new Error('agent has no daemon to close the pty on')
-                await this.daemon.closePty(agent.daemonId, row.processHandle)
-            }
+            await this.sprites.killByHandle({ host, handle: row.processHandle })
         } catch (err) {
             this.log.warn(
                 `terminal.kill_failed terminal=${row.id} runtime=${row.runtime}: ${(err as Error).message}`

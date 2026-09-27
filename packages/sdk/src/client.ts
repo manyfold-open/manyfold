@@ -94,13 +94,13 @@ import type {
     PodHostSummary,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody,
+    SetKeepAliveBody,
     RenameBody,
     AgentSkillsGroup,
     AgentStorageUsageResponse,
     RefreshAgentMcpResponse,
     MaterializeAgentMcpResponse,
     AdminUserModelProviderSummary,
-    AgentStopResponse,
     AgentSummary,
     QuotaWarningEvent,
     ChatSessionsChangedEvent,
@@ -108,10 +108,10 @@ import type {
     SandboxQuotaTimeseriesRange,
     SandboxQuotaTimeseriesResponse,
     SandboxQuotaUsersPage,
-    SpriteHostStatusUpdate,
-    SpriteStatusEvent,
+    HostPowerStatusUpdate,
+    HostStatusEvent,
     ResourceChangedEvent,
-    SpriteStatusUpdate,
+    AgentHostStatusUpdate,
     ChatMessage,
     ChatMessagesPage,
     ChatSessionSummary,
@@ -182,8 +182,10 @@ import type {
     GetChatSessionShareResult,
     SharedChatSessionPreview,
     SharedChatMessagesPage,
-    K8sClusterProbeResult,
-    K8sClusterSummary,
+    RuntimeProviderProbeResult,
+    RuntimeProviderSummary,
+    CreateRuntimeProviderBody,
+    UpdateRuntimeProviderBody,
     BuiltinSkillReposSettings,
     SpritesVendorCapacityView,
     SpritesWholesaleCapSettings,
@@ -243,7 +245,6 @@ import type {
     RevealConnectionSecretResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRebuildParsedResponse,
-    SdkSpritesAccountSummary,
     SdkNotificationWebhookSummary,
     CreateNotificationWebhookBody,
     UpdateNotificationWebhookBody,
@@ -260,7 +261,6 @@ import type {
     AgentSessionListResponse,
     RuntimeSessionViewResponse,
     SkillRepoSummary,
-    UpdateSpritesAccountBody,
     UpdateAutomationBody,
     UpdateBuiltinSkillReposSettingsBody,
     UpdateSkillRepoBody,
@@ -294,7 +294,6 @@ import type {
     UpdateLoginProviderSettingsBody,
     UpdateUserModelProviderBody,
     UpdateUserRuntimeAccessBody,
-    UpsertK8sClusterBody,
     UserExternalAgentProviderSummary,
     UserModelProviderSummary,
     UserModelProviderUsageReport,
@@ -358,10 +357,10 @@ export interface AgentCreateStreamOptions {
     idempotencyKey?: string
 }
 
-export interface SpriteStatusStreamHandlers {
-    onSnapshot?: (snapshot: SpriteStatusUpdate[]) => void
-    onUpdate?: (update: SpriteStatusUpdate) => void
-    onHostUpdate?: (update: SpriteHostStatusUpdate) => void
+export interface HostStatusStreamHandlers {
+    onSnapshot?: (snapshot: AgentHostStatusUpdate[]) => void
+    onUpdate?: (update: AgentHostStatusUpdate) => void
+    onHostUpdate?: (update: HostPowerStatusUpdate) => void
     onQuotaWarning?: (event: QuotaWarningEvent) => void
     onSessionsChanged?: (event: ChatSessionsChangedEvent) => void
     onResourceChanged?: (event: ResourceChangedEvent) => void
@@ -370,7 +369,7 @@ export interface SpriteStatusStreamHandlers {
     onClose?: () => void
 }
 
-export interface SpriteStatusStreamHandle {
+export interface HostStatusStreamHandle {
     close: () => void
 }
 
@@ -400,7 +399,6 @@ export interface AgentsClient {
     contextDoc: (agentId: string) => Promise<AgentContextDocStatus>
     refreshContextDoc: (agentId: string) => Promise<AgentContextDocStatus>
     delete: (agentId: string) => Promise<void>
-    stop: (agentId: string) => Promise<AgentStopResponse>
     restart: (agentId: string) => Promise<AgentSummary>
     storageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
     refreshFrameworkVersion: (agentId: string) => Promise<AgentSummary>
@@ -415,9 +413,9 @@ export interface AgentsClient {
         targetVersion: string,
         onEvent: (event: FrameworkUpgradeEvent) => void
     ) => Promise<AgentSummary>
-    streamSpriteStatus: (
-        handlers: SpriteStatusStreamHandlers
-    ) => SpriteStatusStreamHandle
+    streamHostStatus: (
+        handlers: HostStatusStreamHandlers
+    ) => HostStatusStreamHandle
     credentials: AgentCredentialsClient
     permissions: AgentPermissionsClient
     requestPermission: (
@@ -461,7 +459,6 @@ export interface A2aClient {
 interface AgentsPaths {
     base: string
     byId: (id: string) => string
-    stop: (id: string) => string
     restart: (id: string) => string
     modelConfig: (id: string) => string
     modelConfigRefreshModels: (id: string) => string
@@ -595,10 +592,6 @@ export interface AgentRuntimesClient {
         runtimeId: string,
         enabled: boolean
     ) => Promise<AgentRuntimeSummary>
-    setKeepAlive: (
-        runtimeId: string,
-        enabled: boolean
-    ) => Promise<AgentRuntimeSummary>
     // wake: exec on a sleeping sandbox (starts the VM); a plain read never does.
     getAccount: (
         runtimeId: string,
@@ -656,6 +649,8 @@ export interface SandboxesClient {
     create: (body: CreateSandboxBody) => Promise<SandboxSummary>
     delete: (id: string) => Promise<void>
     rename: (id: string, name: string) => Promise<SandboxSummary>
+    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    setKeepAwake: (id: string, enabled: boolean) => Promise<SandboxSummary>
     setTerminal: (id: string, enabled: boolean) => Promise<SandboxSummary>
     setTerminalModelCredentials: (
         id: string,
@@ -1223,6 +1218,7 @@ export interface NcaClient {
             | 'get'
             | 'delete'
             | 'rename'
+            | 'setKeepAwake'
             | 'setTerminal'
             | 'setTerminalModelCredentials'
             | 'detectFrameworks'
@@ -1346,25 +1342,21 @@ export interface NcaClient {
                 body: SendTestEmailBody
             ) => Promise<SendTestEmailResult>
         }
-        spritesAccounts: {
-            list: () => Promise<SdkSpritesAccountSummary[]>
-            get: (slug: string) => Promise<SdkSpritesAccountSummary>
-            create: (input: {
-                slug: string
-                token: string
-                notes?: string
-                priority?: number
-            }) => Promise<SdkSpritesAccountSummary>
+        // Sources of hosted capacity (ADR-0036): sprites organisations and
+        // Kubernetes clusters behind one resource.
+        runtimeProviders: {
+            list: () => Promise<RuntimeProviderSummary[]>
+            get: (id: string) => Promise<RuntimeProviderSummary>
+            create: (
+                body: CreateRuntimeProviderBody
+            ) => Promise<RuntimeProviderSummary>
             update: (
-                slug: string,
-                body: UpdateSpritesAccountBody
-            ) => Promise<SdkSpritesAccountSummary>
-            rotate: (
-                slug: string,
-                token: string
-            ) => Promise<SdkSpritesAccountSummary>
-            disable: (slug: string) => Promise<SdkSpritesAccountSummary>
-            enable: (slug: string) => Promise<SdkSpritesAccountSummary>
+                id: string,
+                body: UpdateRuntimeProviderBody
+            ) => Promise<RuntimeProviderSummary>
+            // 409 while hosts are still placed on the provider.
+            delete: (id: string) => Promise<void>
+            probe: (id: string) => Promise<RuntimeProviderProbeResult>
         }
         notificationWebhooks: {
             list: () => Promise<SdkNotificationWebhookSummary[]>
@@ -1378,17 +1370,6 @@ export interface NcaClient {
             ) => Promise<SdkNotificationWebhookSummary>
             remove: (id: string) => Promise<void>
             test: (id: string) => Promise<SendTestNotificationResult>
-        }
-        clusters: {
-            list: () => Promise<K8sClusterSummary[]>
-            get: (id: string) => Promise<K8sClusterSummary>
-            create: (body: UpsertK8sClusterBody) => Promise<K8sClusterSummary>
-            update: (
-                id: string,
-                body: UpsertK8sClusterBody
-            ) => Promise<K8sClusterSummary>
-            delete: (id: string) => Promise<void>
-            probe: (id: string) => Promise<K8sClusterProbeResult>
         }
         users: {
             list: () => Promise<SdkUserSummary[]>
@@ -1684,7 +1665,7 @@ interface AgentsDeps {
     accountScope?: boolean
 }
 
-interface SpriteStatusStreamDeps {
+interface HostStatusStreamDeps {
     fetchImpl: typeof fetch
     baseUrl: string
     tokenOption?: string | (() => string | Promise<string>)
@@ -1692,9 +1673,9 @@ interface SpriteStatusStreamDeps {
     acknowledgeQuotaWarning: (receiptId: string, signal: AbortSignal) => Promise<unknown>
 }
 
-const runSpriteStatusStream = async (
-    deps: SpriteStatusStreamDeps,
-    handlers: SpriteStatusStreamHandlers
+const runHostStatusStream = async (
+    deps: HostStatusStreamDeps,
+    handlers: HostStatusStreamHandlers
 ): Promise<void> => {
     const { fetchImpl, baseUrl, tokenOption, signal } = deps
     const token = await resolveToken(tokenOption)
@@ -1772,7 +1753,7 @@ const runSpriteStatusStream = async (
             buffer += decoder.decode(value, { stream: true })
             let boundary = buffer.indexOf('\n\n')
             while (boundary !== -1 && !signal.aborted) {
-                dispatchSpriteStatusFrame(
+                dispatchHostStatusFrame(
                     buffer.slice(0, boundary),
                     handlers,
                     consumeQuotaWarning
@@ -1789,9 +1770,9 @@ const runSpriteStatusStream = async (
     handlers.onClose?.()
 }
 
-const dispatchSpriteStatusFrame = (
+const dispatchHostStatusFrame = (
     frame: string,
-    handlers: SpriteStatusStreamHandlers,
+    handlers: HostStatusStreamHandlers,
     consumeQuotaWarning: (event: QuotaWarningEvent) => void
 ): void => {
     const dataLines: string[] = []
@@ -1804,9 +1785,9 @@ const dispatchSpriteStatusFrame = (
         if (line !== null) dataLines.push(line)
     }
     if (dataLines.length === 0) return
-    let parsed: SpriteStatusEvent
+    let parsed: HostStatusEvent
     try {
-        parsed = JSON.parse(dataLines.join('\n')) as SpriteStatusEvent
+        parsed = JSON.parse(dataLines.join('\n')) as HostStatusEvent
     } catch (err) {
         handlers.onError?.(err instanceof Error ? err : new Error(String(err)))
         return
@@ -1939,10 +1920,6 @@ const buildAgentsClient = (
                 throw await buildApiError(res)
             }
         },
-        stop: (agentId) =>
-            request<AgentStopResponse>(paths.stop(agentId), {
-                method: 'POST'
-            }),
         restart: (agentId) =>
             request<AgentSummary>(paths.restart(agentId), {
                 method: 'POST'
@@ -2014,7 +1991,7 @@ const buildAgentsClient = (
                 throw new Error('stream ended without complete event')
             return completed
         },
-        streamSpriteStatus: (handlers) => {
+        streamHostStatus: (handlers) => {
             const controller = new AbortController()
             let closed = false
             const close = (): void => {
@@ -2023,7 +2000,7 @@ const buildAgentsClient = (
                 controller.abort()
                 handlers.onClose?.()
             }
-            void runSpriteStatusStream(
+            void runHostStatusStream(
                 {
                     fetchImpl,
                     baseUrl,
@@ -2170,7 +2147,6 @@ const buildFilesClient = (paths: FilesPaths, deps: AgentsDeps): FilesClient => {
 const userAgentPaths: AgentsPaths = {
     base: apiPaths.AGENTS,
     byId: apiPaths.AGENT_BY_ID,
-    stop: apiPaths.AGENT_STOP,
     restart: apiPaths.AGENT_RESTART,
     modelConfig: apiPaths.AGENT_MODEL_CONFIG,
     modelConfigRefreshModels: apiPaths.AGENT_MODEL_CONFIG_REFRESH_MODELS,
@@ -2188,7 +2164,6 @@ const userAgentPaths: AgentsPaths = {
 const adminAgentPaths: AgentsPaths = {
     base: apiPaths.ADMIN_AGENTS,
     byId: apiPaths.ADMIN_AGENT_BY_ID,
-    stop: apiPaths.ADMIN_AGENT_STOP,
     restart: apiPaths.ADMIN_AGENT_RESTART,
     modelConfig: apiPaths.ADMIN_AGENT_MODEL_CONFIG,
     modelConfigRefreshModels: apiPaths.ADMIN_AGENT_MODEL_CONFIG_REFRESH_MODELS,
@@ -2306,7 +2281,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
         controlUi: (id: string) => string
         controlUiUrl: (id: string) => string
         dashboard: (id: string) => string
-        keepAlive: (id: string) => string
         rename: (id: string) => string
         account: (id: string) => string
     }): AgentRuntimesClient => ({
@@ -2368,11 +2342,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 method: 'PATCH',
                 body: JSON.stringify({ enabled })
             }),
-        setKeepAlive: (runtimeId, enabled) =>
-            request<AgentRuntimeSummary>(paths.keepAlive(runtimeId), {
-                method: 'PATCH',
-                body: JSON.stringify({ enabled })
-            }),
         getAccount: (runtimeId, opts) => {
             const query = [
                 opts?.wake ? 'wake=1' : null,
@@ -2423,7 +2392,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
         controlUi: apiPaths.AGENT_RUNTIME_CONTROL_UI,
         controlUiUrl: apiPaths.AGENT_RUNTIME_CONTROL_UI_URL,
         dashboard: apiPaths.AGENT_RUNTIME_DASHBOARD,
-        keepAlive: apiPaths.AGENT_RUNTIME_KEEP_ALIVE,
         rename: apiPaths.AGENT_RUNTIME_RENAME,
         account: apiPaths.AGENT_RUNTIME_ACCOUNT
     })
@@ -2499,7 +2467,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
         controlUi: apiPaths.ADMIN_AGENT_RUNTIME_CONTROL_UI,
         controlUiUrl: apiPaths.ADMIN_AGENT_RUNTIME_CONTROL_UI_URL,
         dashboard: apiPaths.ADMIN_AGENT_RUNTIME_DASHBOARD,
-        keepAlive: apiPaths.ADMIN_AGENT_RUNTIME_KEEP_ALIVE,
         // no admin rename endpoint either: reuses the user path (ownership-checked)
         rename: apiPaths.AGENT_RUNTIME_RENAME,
         // no admin account endpoint: a user's vendor sign-in is not an operator concern
@@ -2642,6 +2609,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<SandboxSummary>(apiPaths.SANDBOX_RENAME(id), {
                     method: 'PATCH',
                     body: JSON.stringify({ name } as RenameBody)
+                }),
+            setKeepAwake: (id, enabled) =>
+                request<SandboxSummary>(apiPaths.SANDBOX_KEEP_AWAKE(id), {
+                    method: 'PATCH',
+                    body: JSON.stringify({ enabled } as SetKeepAliveBody)
                 }),
             setTerminal: (id, enabled) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_TERMINAL(id), {
@@ -3928,6 +3900,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         method: 'PATCH',
                         body: JSON.stringify({ name } as RenameBody)
                     }),
+                setKeepAwake: (id, enabled) =>
+                    request<SandboxSummary>(
+                        apiPaths.ADMIN_SANDBOX_KEEP_AWAKE(id),
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                enabled
+                            } as SetKeepAliveBody)
+                        }
+                    ),
                 setTerminal: (id, enabled) =>
                     request<SandboxSummary>(
                         apiPaths.ADMIN_SANDBOX_TERMINAL(id),
@@ -4219,38 +4201,30 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         { method: 'POST', body: JSON.stringify(body) }
                     )
             },
-            spritesAccounts: {
+            runtimeProviders: {
                 list: () =>
-                    request<SdkSpritesAccountSummary[]>(
-                        '/admin/sprites-accounts'
+                    request<RuntimeProviderSummary[]>(
+                        apiPaths.ADMIN_RUNTIME_PROVIDERS
                     ),
-                get: (slug) =>
-                    request<SdkSpritesAccountSummary>(
-                        `/admin/sprites-accounts/${encodeURIComponent(slug)}`
+                get: (id) =>
+                    request<RuntimeProviderSummary>(
+                        apiPaths.ADMIN_RUNTIME_PROVIDER_BY_ID(id)
                     ),
-                create: (input) =>
-                    request<SdkSpritesAccountSummary>(
-                        '/admin/sprites-accounts',
-                        { method: 'POST', body: JSON.stringify(input) }
+                create: (body) =>
+                    request<RuntimeProviderSummary>(
+                        apiPaths.ADMIN_RUNTIME_PROVIDERS,
+                        { method: 'POST', body: JSON.stringify(body) }
                     ),
-                update: (slug, body) =>
-                    request<SdkSpritesAccountSummary>(
-                        `/admin/sprites-accounts/${encodeURIComponent(slug)}`,
+                update: (id, body) =>
+                    request<RuntimeProviderSummary>(
+                        apiPaths.ADMIN_RUNTIME_PROVIDER_BY_ID(id),
                         { method: 'PATCH', body: JSON.stringify(body) }
                     ),
-                rotate: (slug, token) =>
-                    request<SdkSpritesAccountSummary>(
-                        `/admin/sprites-accounts/${encodeURIComponent(slug)}/rotate`,
-                        { method: 'POST', body: JSON.stringify({ token }) }
-                    ),
-                disable: (slug) =>
-                    request<SdkSpritesAccountSummary>(
-                        `/admin/sprites-accounts/${encodeURIComponent(slug)}/disable`,
-                        { method: 'POST' }
-                    ),
-                enable: (slug) =>
-                    request<SdkSpritesAccountSummary>(
-                        `/admin/sprites-accounts/${encodeURIComponent(slug)}/enable`,
+                delete: (id) =>
+                    deleteNoBody(apiPaths.ADMIN_RUNTIME_PROVIDER_BY_ID(id)),
+                probe: (id) =>
+                    request<RuntimeProviderProbeResult>(
+                        apiPaths.ADMIN_RUNTIME_PROVIDER_PROBE(id),
                         { method: 'POST' }
                     )
             },
@@ -4280,40 +4254,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 test: (id) =>
                     request<SendTestNotificationResult>(
                         `/admin/notification-webhooks/${encodeURIComponent(id)}/test`,
-                        { method: 'POST' }
-                    )
-            },
-            clusters: {
-                list: () => request<K8sClusterSummary[]>('/admin/clusters'),
-                get: (id) =>
-                    request<K8sClusterSummary>(
-                        `/admin/clusters/${encodeURIComponent(id)}`
-                    ),
-                create: (body) =>
-                    request<K8sClusterSummary>('/admin/clusters', {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    }),
-                update: (id, body) =>
-                    request<K8sClusterSummary>(
-                        `/admin/clusters/${encodeURIComponent(id)}`,
-                        { method: 'PUT', body: JSON.stringify(body) }
-                    ),
-                delete: async (id) => {
-                    const token = await resolveToken(options.token)
-                    const headers = new Headers()
-                    if (token) headers.set('Authorization', `Bearer ${token}`)
-                    const res = await fetchImpl(
-                        `${baseUrl}/admin/clusters/${encodeURIComponent(id)}`,
-                        { method: 'DELETE', headers }
-                    )
-                    if (!res.ok && res.status !== 204) {
-                        throw await buildApiError(res)
-                    }
-                },
-                probe: (id) =>
-                    request<K8sClusterProbeResult>(
-                        `/admin/clusters/${encodeURIComponent(id)}/probe`,
                         { method: 'POST' }
                     )
             },

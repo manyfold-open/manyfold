@@ -59,7 +59,6 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'sprites'
     })
     for (const [id, owner] of [
         [agentId, userId],
@@ -70,7 +69,6 @@ const buildHarness = async (): Promise<Harness> => {
             userId: owner,
             name: `pgtest-agent-${id}`,
             framework: 'claude-code',
-            runtime: 'sprites',
             runtimeId,
             internalId: `internal-${id}`
         })

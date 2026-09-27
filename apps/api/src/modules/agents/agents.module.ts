@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
@@ -16,12 +16,9 @@ import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-o
 import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { PodRunnerProvisioner } from '@/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
-import { createClient, spriteMkdir, spriteRm } from '@manyfold/sprites'
-import { SpritesAgentAttacher } from '@/modules/agents/adapters/sprites-agent-attacher'
-import { K8sAgentAttacher } from '@/modules/agents/adapters/k8s-agent-attacher'
 import { DaemonAgentAttacher } from '@/modules/agents/adapters/daemon-agent-attacher'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { ClaudeCodeAgentAdapter } from '@/modules/agents/adapters/claude-code-agent.adapter'
 import { CodexAgentAdapter } from '@/modules/agents/adapters/codex-agent.adapter'
 import { GeminiCliAgentAdapter } from '@/modules/agents/adapters/gemini-cli-agent.adapter'
@@ -71,10 +68,11 @@ import {
 
 @Module({
     imports: [
+        HostDaemonAccessModule,
         ResourceEventsModule,
         AuthModule,
         RunnerModule,
-        SpritesAccountsModule,
+        HostsModule,
         AgentRuntimesModule,
         RuntimeAuthModule,
         ModelProvidersModule,
@@ -107,18 +105,6 @@ import {
         K8sContainerProvisioner,
         PodRunnerProvisioner,
         RuntimeAgentAttachService,
-        {
-            provide: SpritesAgentAttacher,
-            useFactory: (accounts: SpritesAccountsService) =>
-                new SpritesAgentAttacher(
-                    accounts,
-                    spriteMkdir,
-                    spriteRm,
-                    createClient
-                ),
-            inject: [SpritesAccountsService]
-        },
-        K8sAgentAttacher,
         DaemonAgentAttacher,
         ClaudeCodeAgentAdapter,
         CodexAgentAdapter,
@@ -150,6 +136,7 @@ import {
         DaemonConfigReconciler
     ],
     exports: [
+        HostDaemonAccessModule,
         AgentsService,
         AgentAdapterRegistry,
         AgentModelConfigService,

@@ -19,7 +19,7 @@ const main = async () => {
     await db.transaction(async (tx) => {
         await tx
             .update(agentRuntimes)
-            .set({ status: 'pending', currentPhase: K8S_CREATE_INITIAL_AGENT })
+            .set({ status: 'installing', currentPhase: K8S_CREATE_INITIAL_AGENT })
             .where(eq(agentRuntimes.id, runtimeId))
         await insertK8sCreateLease(tx, runtimeId, ownerId)
     })

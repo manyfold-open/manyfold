@@ -1,4 +1,8 @@
-import type { ChatSessionSummary } from '@manyfold/shared'
+import type {
+    AgentHostStatusUpdate,
+    ChatSessionSummary,
+    HostPowerStatusUpdate
+} from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
 import { docsHref } from '@/lib/docsLinks'
 
@@ -65,11 +69,12 @@ export const reconcileSidebarAgents = (
         : reconciled
 }
 
-export interface AgentStatusSnapshot {
-    agentId: string
-    spriteStatus: SdkAgent['spriteStatus']
-    k8sPodPhase: SdkAgent['k8sPodPhase']
-}
+// What the host-status stream says about one agent: its host's power state
+// and the availability the API derived from it (ADR-0036).
+export type AgentStatusSnapshot = Pick<
+    AgentHostStatusUpdate,
+    'agentId' | 'powerState' | 'availability'
+>
 
 export const applyAgentStatusSnapshots = (
     agents: SdkAgent[],
@@ -83,15 +88,39 @@ export const applyAgentStatusSnapshots = (
         const update = updatesById.get(agent.id)
         if (
             !update ||
-            (agent.spriteStatus === update.spriteStatus &&
-                agent.k8sPodPhase === update.k8sPodPhase)
+            (agent.powerState === update.powerState &&
+                agent.availability === update.availability)
         )
             return agent
         changed = true
         return {
             ...agent,
-            spriteStatus: update.spriteStatus,
-            k8sPodPhase: update.k8sPodPhase
+            powerState: update.powerState,
+            availability: update.availability
+        }
+    })
+    return changed ? next : agents
+}
+
+// A host-level power event reaches every agent on that host. Availability is
+// left alone: the API sends it per agent in its own update frame.
+export const applyHostPowerUpdate = (
+    agents: SdkAgent[],
+    update: Pick<HostPowerStatusUpdate, 'hostId' | 'powerState' | 'daemonOnline'>
+): SdkAgent[] => {
+    let changed = false
+    const next = agents.map((agent) => {
+        if (
+            agent.hostId !== update.hostId ||
+            (agent.powerState === update.powerState &&
+                agent.daemonOnline === update.daemonOnline)
+        )
+            return agent
+        changed = true
+        return {
+            ...agent,
+            powerState: update.powerState,
+            daemonOnline: update.daemonOnline
         }
     })
     return changed ? next : agents
@@ -135,16 +164,26 @@ export const getAgentChatAvailability = (
             reason: 'Select an agent to chat.',
             code: 'no-agent'
         }
-    if (agent.status !== 'running') {
-        const wakesOnSend =
-            agent.runtime === 'sprites' && agent.status === 'stopped'
-        if (!wakesOnSend)
-            return {
-                ready: false,
-                reason: `This agent is ${agent.status} and can't receive messages right now.`,
-                code: 'status'
-            }
-    }
+    if (agent.status !== 'ready')
+        return {
+            ready: false,
+            reason: `This agent is ${agent.status} and can't receive messages right now.`,
+            code: 'status'
+        }
+    // A wakeable host (asleep sandbox) wakes on send; an offline self-owned
+    // computer and a runtime that is not installed cannot.
+    if (agent.availability === 'offline')
+        return {
+            ready: false,
+            reason: "This agent's self-owned computer is offline. Start its daemon and try again.",
+            code: 'status'
+        }
+    if (agent.availability === 'unavailable')
+        return {
+            ready: false,
+            reason: "This agent's runtime is not available right now.",
+            code: 'status'
+        }
     if (agent.daemonNeedsUpgrade) {
         return {
             ready: false,

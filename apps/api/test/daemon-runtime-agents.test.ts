@@ -7,38 +7,37 @@ import { Logger } from '@nestjs/common'
 import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    hostRow,
+    k8sHostRow,
+    runtimeRow as fixtureRuntime,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const runtime = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
-    ({
+    fixtureRuntime({
         id: 'art-daemon-1',
         userId: 'u1',
         name: 'laptop-claude-code',
         framework: 'claude-code',
-        kind: 'daemon',
-        status: 'ready',
-        accountId: null,
-        spriteName: null,
-        spriteId: null,
-        clusterId: null,
-        daemonId: 'dh-1',
-        homeDir: '/Users/me',
-        workspaceBaseDir: '/Users/me/.nca/workspaces',
-        capabilitiesJson: {},
-        lastSeenAt: new Date(),
-        namespace: null,
-        ingressHost: null,
+        hostId: 'dh-1',
         mountPath: '/workspace',
-        primaryAgentId: null,
-        controlUiEnabled: true,
-        dashboardEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        startedAt: new Date(),
-        lastBootstrappedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
         ...overrides
-    }) as AgentRuntimeRow
+    })
+
+const hostFor = (kind: 'daemon' | 'sprites' | 'k8s') =>
+    kind === 'daemon'
+        ? hostRow({
+              id: 'dh-1',
+              userId: 'u1',
+              homeDir: '/Users/me',
+              workspaceBaseDir: '/Users/me/.nca/workspaces'
+          })
+        : kind === 'sprites'
+          ? spritesHostRow({ id: 'dh-1', userId: 'u1' })
+          : k8sHostRow({ id: 'dh-1', userId: 'u1' })
 
 for (const { kind, failInstall } of [
     { kind: 'daemon', failInstall: false },
@@ -56,7 +55,7 @@ for (const { kind, failInstall } of [
                     where: () => ({
                         limit: async () =>
                             table === agentRuntimes
-                                ? [runtime({ kind })]
+                                ? [runtime()]
                                 : [{ managed: false }]
                     })
                 })
@@ -105,7 +104,7 @@ for (const { kind, failInstall } of [
             'install',
             async (input: Parameters<SkillsService['install']>[0]) => {
                 assert.ok(inserted)
-                assert.equal(inserted.status, 'running')
+                assert.equal(inserted.status, 'ready')
                 defaultInstalls.push(input)
                 if (failInstall) throw new Error('discovery unavailable')
                 return { materializeStatus: 'installed' } as never
@@ -116,12 +115,16 @@ for (const { kind, failInstall } of [
             adapterRegistry as never,
             { touchAfterWrite: () => undefined } as never,
             { assertManagedChannelBindable: async () => undefined } as never,
-            skills
+            skills,
+            fakeRuntimeContext(
+                contextOf({ runtime: runtime(), host: hostFor(kind) })
+            ) as never
         )
         const controller = new RuntimeAgentsController(
-            { findById: async () => runtime({ kind }) } as never,
+            { findById: async () => runtime() } as never,
             adapterRegistry as never,
             attach,
+            {} as never,
             { recordFirstAgentCreated: async () => {} } as never
         )
 
@@ -132,9 +135,8 @@ for (const { kind, failInstall } of [
         )
 
         const capturedInserted = inserted as NewAgent | null
-        assert.equal(capturedInserted?.runtime, kind)
-        assert.equal(capturedInserted?.status, 'running')
-        assert.equal(result.status, 'running')
+        assert.equal(capturedInserted?.status, 'ready')
+        assert.equal(result.status, 'ready')
         assert.deepEqual(defaultInstalls, [
             {
                 userId: 'u1',
@@ -177,7 +179,13 @@ test('a daemon attach gates the managed provider inherited by the new agent', as
         } as never,
         {
             installDefaults: async () => assert.fail('creation was rejected')
-        } as never
+        } as never,
+        fakeRuntimeContext(
+            contextOf({
+                runtime: runtime({ primaryAgentId: 'agt_primary' }),
+                host: hostFor('daemon')
+            })
+        ) as never
     )
 
     await assert.rejects(

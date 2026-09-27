@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentRuntimes, agents, runtimeHosts } from '@manyfold/db'
+import { agents } from '@manyfold/db'
+import type { RuntimeHostRow } from '@manyfold/db'
+import {
+    contextOf,
+    daemonRow,
+    fakeRuntimeContext,
+    hostRow,
+    runtimeRow
+} from './helpers/runtime-context-fixture'
 import { McpConfigMaterializer } from '../src/modules/agent-runtimes/mcp/mcp-config-materializer.service'
 import { readJsonbMergePatch } from './jsonb-merge'
 import { legacyConfigDelivery } from './helpers/legacy-config-delivery'
@@ -17,9 +25,8 @@ const PROJECT = '/home/cy/ws/.mcp.json'
 const agentRow = (over: Record<string, unknown> = {}) => ({
     id: 'agent-1',
     userId: 'user-1',
-    runtime: 'daemon',
     framework: 'claude-code',
-    daemonId: 'dh-1',
+    status: 'ready',
     runtimeId: 'art-1',
     workspacePath: '/home/cy/ws',
     mountPath: '/home/cy/ws',
@@ -36,17 +43,10 @@ const fakeDb = (opts: { clientFeatures: string[] }) => {
     const updates: Array<Record<string, unknown>> = []
     return {
         updates,
+        clientFeatures: opts.clientFeatures,
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => ({
-                    limit: async () => {
-                        if (table === agentRuntimes)
-                            return [{ homeDir: '/home/cy' }]
-                        if (table === runtimeHosts)
-                            return [{ clientFeatures: opts.clientFeatures }]
-                        return []
-                    }
-                })
+            from: () => ({
+                where: () => ({ limit: async () => [] })
             })
         }),
         update: (table: unknown) => ({
@@ -89,11 +89,35 @@ const fakeRegistry = (opts: {
 
 const build = (
     db: ReturnType<typeof fakeDb>,
-    registry: ReturnType<typeof fakeRegistry>
+    registry: ReturnType<typeof fakeRegistry>,
+    // The agent's machine: the user's computer unless a test says none.
+    host: RuntimeHostRow | null = hostRow({
+        id: 'dh-1',
+        userId: 'user-1',
+        homeDir: '/home/cy'
+    })
 ): McpConfigMaterializer =>
     new McpConfigMaterializer(
         db as never,
-        {} as never,
+        // The agent's computer with its daemon and the features it advertised.
+        fakeRuntimeContext(
+            contextOf({
+                agent: agentRow() as never,
+                runtime: runtimeRow({
+                    id: 'art-1',
+                    userId: 'user-1',
+                    hostId: host?.id ?? null
+                }),
+                host,
+                daemon: host
+                    ? daemonRow({
+                          hostId: host.id,
+                          userId: 'user-1',
+                          clientFeatures: db.clientFeatures
+                      })
+                    : null
+            })
+        ) as never,
         {} as never,
         registry as never,
         legacyConfigDelivery(db as never) as never
@@ -207,11 +231,13 @@ test('an unchanged scope persists as delivered and writes nothing', async () => 
     assert.equal(delivery.user.status, 'delivered')
 })
 
-test('a k8s agent cannot be pushed to and says so', async () => {
+// Every machine takes the push through its daemon (ADR-0036); only an
+// external runtime has nowhere to push to.
+test('an external agent cannot be pushed to and says so', async () => {
     const db = fakeDb({ clientFeatures: [] })
-    const svc = build(db, fakeRegistry({}))
+    const svc = build(db, fakeRegistry({}), null)
     await assert.rejects(
-        () => svc.materializeForAgent(agentRow({ runtime: 'k8s' }) as never),
+        () => svc.materializeForAgent(agentRow() as never),
         /cannot be pushed/
     )
 })

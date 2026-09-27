@@ -62,6 +62,8 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { ForbiddenException } from '@nestjs/common'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
+import { isRuntimeUsable } from '@manyfold/shared'
 
 type AutomationWithAgent = {
     automation: AutomationRow
@@ -116,7 +118,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         @Optional()
         private readonly channelBridge?: ChannelBridgeService,
         @Optional()
-        private readonly broadcaster?: SpriteStatusBroadcaster
+        private readonly broadcaster?: SpriteStatusBroadcaster,
+        // Appended last + @Optional: the run gate reads the agent's
+        // availability through it; absent, only the lifecycle is checked.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {}
 
     onModuleInit(): void {
@@ -446,8 +452,14 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
         this.changed(row.automation, 'run')
         try {
-            if (row.agent.status !== 'running')
+            // The one admission rule (ADR-0036): the agent's own lifecycle
+            // and its runtime's availability; a hosted machine that is asleep
+            // is admitted, the turn wakes it.
+            if (row.agent.status !== 'ready')
                 throw new BadRequestException(`agent is ${row.agent.status}`)
+            const ctx = await this.runtimeContext?.forAgent(row.agent.id)
+            if (ctx && !isRuntimeUsable(ctx.availability))
+                throw new BadRequestException(`agent is ${ctx.availability}`)
             // The caller's row may predate a concurrent delete (a scheduler
             // tick holding a stale due list, or runNow racing DELETE).
             // Re-check right before dispatch: a tombstone committed by now

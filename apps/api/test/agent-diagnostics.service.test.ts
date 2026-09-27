@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Agent, AgentRuntimeRow } from '@manyfold/db'
-import { SpritesError } from '@manyfold/sprites'
+import type { Agent, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
     AgentDiagnosticsService,
     duKilobytesToBytes,
@@ -9,6 +8,13 @@ import {
     parseDuKilobytes,
     redactDiagnosticText
 } from '../src/modules/agents/agent-diagnostics.service'
+import {
+    contextOf,
+    hostRow,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 test('parseDuKilobytes parses successful du output', () => {
     assert.equal(parseDuKilobytes('12\t/home/sprite/.nca/workspaces/a\n'), 12)
@@ -61,14 +67,73 @@ test('redactDiagnosticText removes secret-like output', () => {
     assert.match(redacted, /OPENAI_API_KEY=\[REDACTED\]/)
 })
 
-test('storageUsage returns a failed item when k8s pod resolution is unavailable', async () => {
+const diagnosticsAgent = (overrides: Partial<Agent> = {}): Agent =>
+    ({
+        id: 'agent-1',
+        userId: 'user-1',
+        name: 'agent',
+        framework: 'claude-code',
+        status: 'ready',
+        runtimeId: 'runtime-1',
+        internalId: 'agent-1',
+        workspacePath: '/workspace',
+        mountPath: '/workspace',
+        fileRoots: [],
+        extras: {},
+        model: null,
+        currentPhase: null,
+        failureReason: null,
+        startedAt: new Date(),
+        lastBootstrappedAt: new Date(),
+        lastReconciledAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides
+    }) as Agent
+
+type Exec = (req: {
+    cmd: string[]
+}) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+
+// The service reads the agent with its machine and runs du through the
+// host daemon's exec; both are the harness's to choose.
+const diagnosticsService = (args: {
+    agent: Agent
+    host: RuntimeHostRow | null
+    daemon?: HostDaemonRow | null
+    exec?: Exec
+    resolve?: () => Promise<never>
+}): AgentDiagnosticsService => {
+    const ctx = contextOf({
+        agent: args.agent,
+        runtime: runtimeRow({
+            id: 'runtime-1',
+            userId: 'user-1',
+            framework: args.agent.framework,
+            hostId: args.host?.id ?? null
+        }),
+        host: args.host,
+        daemon: args.daemon
+    })
+    return new AgentDiagnosticsService(
+        { contextForCaller: async () => ctx } as never,
+        {
+            forRuntime: async () => {
+                if (args.resolve) return args.resolve()
+                if (!args.exec) throw new Error('unexpected exec')
+                return { run: args.exec }
+            }
+        } as never
+    )
+}
+
+test('storageUsage reports a failed item when the host exec cannot be resolved', async () => {
     const service = diagnosticsService({
-        agent: diagnosticsAgent({ runtime: 'k8s', namespace: null }),
-        runtime: diagnosticsRuntime({
-            kind: 'k8s',
-            hostId: 'pdh_1',
-            namespace: null
-        })
+        agent: diagnosticsAgent(),
+        host: k8sHostRow({ id: 'pdh_1' }),
+        resolve: async () => {
+            throw new Error('pod daemon offline')
+        }
     })
 
     const result = await service.storageUsage('user-1', 'agent-1', false)
@@ -76,38 +141,18 @@ test('storageUsage returns a failed item when k8s pod resolution is unavailable'
     assert.equal(result.items[0].status, 'failed')
     assert.equal(result.items[0].bytes, null)
     assert.equal(result.totalBytes, null)
-    assert.match(result.items[0].message, /has no k8s namespace/)
+    assert.match(result.items[0].message, /Usage check unavailable/)
 })
 
-test('storageUsage executes through daemon runtime kind even when agent runtime is stale', async () => {
+test('storageUsage runs du through the daemon of the agent machine', async () => {
     let capturedCmd: string[] | null = null
-    const daemonRegistry = {
-        isOnline: () => true,
-        streamRpc: (args: {
-            payload: { cmd?: string[] }
-            onEvent?: (kind: string, data: string) => void
-        }) => {
-            capturedCmd = args.payload.cmd ?? null
-            args.onEvent?.('stdout', '2\t/workspace\n')
-            return {
-                refId: 'ref-1',
-                result: Promise.resolve({ exitCode: 0 }),
-                cancel: () => {}
-            }
-        }
-    }
     const service = diagnosticsService({
-        agent: diagnosticsAgent({
-            runtime: 'k8s',
-            daemonId: null,
-            namespace: null
-        }),
-        runtime: diagnosticsRuntime({
-            kind: 'daemon',
-            daemonId: 'daemon-1',
-            namespace: null
-        }),
-        daemonRegistry
+        agent: diagnosticsAgent(),
+        host: hostRow({ id: 'dh-1' }),
+        exec: async (req) => {
+            capturedCmd = req.cmd
+            return { exitCode: 0, stdout: '2\t/workspace\n', stderr: '' }
+        }
     })
 
     const result = await service.storageUsage('user-1', 'agent-1', false)
@@ -118,133 +163,19 @@ test('storageUsage executes through daemon runtime kind even when agent runtime 
     assert.deepEqual(command?.slice(0, 2), ['bash', '-lc'])
 })
 
-const diagnosticsAgent = (overrides: Partial<Agent> = {}): Agent =>
-    ({
-        id: 'agent-1',
-        userId: 'user-1',
-        name: 'agent',
-        framework: 'claude-code',
-        runtime: 'k8s',
-        status: 'running',
-        runtimeId: 'runtime-1',
-        internalId: 'agent-1',
-        workspacePath: '/workspace',
-        mountPath: '/workspace',
-        fileRoots: [],
-        namespace: 'nca-dev',
-        ingressHost: null,
-        clusterId: 'cluster-1',
-        accountId: null,
-        daemonId: null,
-        spriteName: null,
-        spriteId: null,
-        extras: {},
-        model: null,
-        currentPhase: null,
-        failureReason: null,
-        spriteStatus: null,
-        k8sPodPhase: null,
-        startedAt: new Date(),
-        lastBootstrappedAt: new Date(),
-        lastReconciledAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ...overrides
-    }) as Agent
-
-const diagnosticsRuntime = (
-    overrides: Partial<AgentRuntimeRow> = {}
-): AgentRuntimeRow =>
-    ({
-        id: 'runtime-1',
-        userId: 'user-1',
-        name: 'runtime',
-        framework: 'claude-code',
-        kind: 'k8s',
-        status: 'ready',
-        accountId: null,
-        spriteName: null,
-        spriteId: null,
-        clusterId: 'cluster-1',
-        daemonId: null,
-        homeDir: null,
-        workspaceBaseDir: null,
-        capabilitiesJson: {},
-        lastSeenAt: null,
-        namespace: 'nca-dev',
-        ingressHost: null,
-        mountPath: '/workspace',
-        primaryAgentId: 'agent-1',
-        controlUiEnabled: true,
-        dashboardEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        startedAt: new Date(),
-        lastBootstrappedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ...overrides
-    }) as AgentRuntimeRow
-
-const diagnosticsService = (args: {
-    agent: Agent
-    runtime: AgentRuntimeRow
-    daemonRegistry?: unknown
-}): AgentDiagnosticsService =>
-    new AgentDiagnosticsService(
-        {
-            findForCaller: async () => args.agent
-        } as never,
-        {
-            findById: async () => args.runtime
-        } as never,
-        {} as never,
-        {} as never,
-        {} as never,
-        (args.daemonRegistry ?? {
-            isOnline: () => false,
-            streamRpc: () => {
-                throw new Error('unexpected daemon rpc')
-            }
-        }) as never
-    )
-
 const spriteDiagnosticsSetup = (args: {
     framework: Agent['framework']
-    sprite: { status: string; id?: string } | 'not_found'
-    runtimeOverrides?: Partial<AgentRuntimeRow>
-    probeExitCode?: number
+    power: 'stopped' | 'suspended' | 'running' | null
 }) => {
-    const agent = diagnosticsAgent({
-        framework: args.framework,
-        runtime: 'sprites',
-        spriteName: 'sprite-1',
-        accountId: 'account-1'
-    })
-    const runtime = diagnosticsRuntime({
-        kind: 'sprites',
-        framework: args.framework,
-        spriteName: 'sprite-1',
-        accountId: 'account-1',
-        ...args.runtimeOverrides
-    })
-    const service = diagnosticsService({ agent, runtime })
+    const agent = diagnosticsAgent({ framework: args.framework })
     const probeCalls: string[][] = []
-    Object.assign(service, {
-        spriteClientFor: async () => ({
-            getSprite: async () => {
-                if (args.sprite === 'not_found')
-                    throw new SpritesError('not_found', 'sprite missing', 404)
-                return args.sprite
-            }
-        }),
-        runCommand: async (_agent: Agent, input: { cmd: string[] }) => {
-            probeCalls.push(input.cmd)
-            return {
-                exitCode: args.probeExitCode ?? 0,
-                stdout: '',
-                stderr: ''
-            }
+    const service = diagnosticsService({
+        agent,
+        host: spritesHostRow({ powerState: args.power }),
+        daemon: args.power === 'running' ? undefined : null,
+        exec: async (req) => {
+            probeCalls.push(req.cmd)
+            return { exitCode: 0, stdout: '', stderr: '' }
         }
     })
     return { agent, service, probeCalls }
@@ -253,11 +184,7 @@ const spriteDiagnosticsSetup = (args: {
 test('storageUsage on a sleeping service sprite skips du without any exec', async () => {
     const { service, probeCalls } = spriteDiagnosticsSetup({
         framework: 'openclaw',
-        sprite: { status: 'cold' },
-        runtimeOverrides: {
-            serviceStatus: 'ready',
-            serviceStatusAt: new Date()
-        }
+        power: 'stopped'
     })
 
     const result = await service.storageUsage('user-1', 'agent-1', false)
@@ -275,12 +202,19 @@ test('storageUsage on a sleeping service sprite skips du without any exec', asyn
     }
 })
 
-for (const sprite of [{ status: 'cold' }, { status: 'warm' }, 'not_found'] as const)
-    test(`coding sprite diagnostic avoids exec for ${typeof sprite === 'string' ? sprite : sprite.status}`, async () => {
-        const { service, probeCalls } = spriteDiagnosticsSetup({ framework: 'codex', sprite })
+for (const [label, power] of [
+    ['cold', 'stopped'],
+    ['warm', 'suspended'],
+    ['not_found', null]
+] as const)
+    test(`coding sprite diagnostic avoids exec for ${label}`, async () => {
+        const { service, probeCalls } = spriteDiagnosticsSetup({
+            framework: 'codex',
+            power
+        })
         const result = await service.storageUsage('user-1', 'agent-1', false)
         assert.equal(probeCalls.length, 0)
         assert.equal(result.totalBytes, null)
-        assert.equal(result.asleep, sprite !== 'not_found')
+        assert.equal(result.asleep, power !== null)
         assert.equal(result.items[0].bytes, null)
     })

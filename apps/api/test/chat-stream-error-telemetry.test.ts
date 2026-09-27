@@ -14,6 +14,12 @@ import type {
 } from '../src/modules/chat/chat-adapter'
 import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
 import { ChatService } from '../src/modules/chat/chat.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow as fixtureRuntime,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { buildTelemetryCaptureOptions } from '../src/sentry-grouping'
 
 // #786. Four different places in ChatService write `chat.stream.error`, and
@@ -508,7 +514,38 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         undefined,
         undefined,
         undefined,
-        readyChatRunner(opts.runnerThrows ? { resolveRunner: async () => { throw opts.runnerThrows } } : undefined)
+        readyChatRunner(opts.runnerThrows ? { resolveRunner: async () => { throw opts.runnerThrows } } : undefined),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // The agent's sandbox, so the turn is a sprites turn.
+        fakeRuntimeContext(
+            contextOf({
+                agent: agentRow as never,
+                runtime: fixtureRuntime({
+                    id: 'rt-1',
+                    userId: 'user-1',
+                    hostId: 'rth-1'
+                }),
+                host: spritesHostRow({
+                    id: 'rth-1',
+                    userId: 'user-1',
+                    providerRef: {
+                        kind: 'sprites',
+                        spriteName: 'sprite-1',
+                        spriteId: null
+                    }
+                }),
+                daemon: null
+            })
+        ) as never
     )
 
     const internals = service as unknown as {

@@ -51,6 +51,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
@@ -117,6 +118,8 @@ interface RawSourceComparison {
     degraded: boolean
 }
 
+type RecoveryAgent = Agent & { runtime: AgentRuntime; hostId: string | null }
+
 @Injectable()
 export class SessionRecoveryService {
     private readonly log = new Logger(SessionRecoveryService.name)
@@ -133,7 +136,11 @@ export class SessionRecoveryService {
         @Optional()
         private readonly execHealth?: SpriteExecHealthService,
         @Optional()
-        private readonly telemetry?: TelemetryService
+        private readonly telemetry?: TelemetryService,
+        // The agent's machine (ADR-0036): placement and host id. Absent =
+        // the agent is read as having no machine.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -362,7 +369,7 @@ export class SessionRecoveryService {
     // One scan per (agent, page) at a time — two panels opening together
     // share the execs instead of each running them.
     private scanLocalCandidates(
-        agent: Agent,
+        agent: RecoveryAgent,
         limit: number
     ): Promise<LocalScanOutcome> {
         const reader = this.readers.get(agent.framework)
@@ -618,7 +625,7 @@ export class SessionRecoveryService {
     // the transcript holds no messages (or no file exists for the ref yet).
     private async restoreFromRef(
         userId: string,
-        agent: Agent,
+        agent: RecoveryAgent,
         ref: string,
         origin: ChatSessionOrigin | null
     ): Promise<RuntimeSessionRestoreResponse | null> {
@@ -1373,17 +1380,13 @@ export class SessionRecoveryService {
         sessionId: string
     ): Promise<{
         session: DbChatSession
-        agent: Agent
+        agent: RecoveryAgent
         handle: RecoveryFsHandle | null
     }> {
         const session = await this.repo.getSession(sessionId, userId)
         if (!session || session.agentId !== agentId)
             throw new NotFoundException('session not found')
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
+        const agent = await this.loadAgentRow(agentId)
         if (!agent || agent.userId !== userId)
             throw new NotFoundException('agent not found')
         return { session, agent, handle: null }
@@ -1403,15 +1406,29 @@ export class SessionRecoveryService {
     private async loadAgentContext(
         userId: string,
         agentId: string
-    ): Promise<Agent> {
+    ): Promise<RecoveryAgent> {
+        const agent = await this.loadAgentRow(agentId)
+        if (!agent || agent.userId !== userId)
+            throw new NotFoundException('agent not found')
+        return agent
+    }
+
+    // The agent with the two host facts recovery reads (ADR-0036): its
+    // placement, which decides which transcript reader and source shape
+    // apply, and the host id the exec-health cooldown is keyed on.
+    private async loadAgentRow(agentId: string): Promise<RecoveryAgent | null> {
         const [agent] = await this.db
             .select()
             .from(agents)
             .where(eq(agents.id, agentId))
             .limit(1)
-        if (!agent || agent.userId !== userId)
-            throw new NotFoundException('agent not found')
-        return agent
+        if (!agent) return null
+        const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
+        return {
+            ...agent,
+            runtime: machine?.placement ?? 'external',
+            hostId: machine?.host?.id ?? null
+        }
     }
 
     private async selectedCloudSessionIdForRef(

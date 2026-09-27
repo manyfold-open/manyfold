@@ -7,7 +7,7 @@ export const registerRuntimeDelete = (cmd: Command, program: Command): void => {
     cmd.command('delete <id>')
         .alias('rm')
         .description(
-            'Delete an agent runtime (tears down sprite/pod and cascades to agents)'
+            'Delete an agent runtime (refused while agents still use it)'
         )
         .option('--json', 'output the result as JSON', false)
         .action(async (id: string, opts: { json?: boolean }) => {
