@@ -25,10 +25,7 @@ const zh: Translations = {
         dismiss: '关闭',
         moreActions: '更多操作',
         moreInfo: '说明',
-        breadcrumb: '面包屑导航',
-        liveStatus: '实时状态 · 点击立即刷新',
-        sandboxStatusAria:
-            '沙箱状态：{{status}}。状态会实时更新；激活以立即刷新。'
+        breadcrumb: '面包屑导航'
     },
     errors: {
         appCrash: {
@@ -455,8 +452,7 @@ const zh: Translations = {
                 },
                 updated: '更新时间',
                 updating: '更新中…',
-                workspace: '工作区',
-                yourMachine: '你的机器'
+                workspace: '工作区'
             }
         },
         automations: {
