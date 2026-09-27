@@ -2,12 +2,8 @@ import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
-import { AgentIconStatus } from '@/components/AgentStatusDot'
 import AreaBackLink from '@/components/AreaBackLink'
-import { FrameworkLogo } from '@/lib/frameworkMeta'
-import ShortcutTooltip from '@/components/ShortcutTooltip'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
-import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import type { AgentSettingsSectionId } from '@/lib/agentSettingsSections'
 import { sectionsFor } from '@/lib/agentSettingsSections'
 import { readLastChatLocationRecord } from '@/lib/chatNavigation'
@@ -20,12 +16,6 @@ import { useSidebarResize } from '@/lib/useSidebarResize'
 // settings only moves the rail's *contents*. Anything shorter (a horizontal
 // header above a stubby sidebar) would break the View Transitions premise in
 // `lib/railTransition` and make the rail's edge jump on every entry.
-//
-// The identity block carries no `…` menu, unlike the sidebar row it mirrors: in
-// here every verb that menu offers already has a home on screen (Model
-// provider in Model, Runtime and Delete on Overview, Rename on the Overview
-// header), and one of its items pointed at this very area. A menu earns its
-// place by collapsing distance; there is none left to collapse.
 const AgentSettingsRail: FC<{
     agent: SdkAgent
     activeSection: AgentSettingsSectionId
@@ -113,31 +103,6 @@ const AgentSettingsRail: FC<{
                 target='chat'
                 agentName={agent.name}
             />
-
-            <div className='border-divider/60 mb-3 flex min-w-0 items-center gap-2.5 border-b px-2 pb-3'>
-                <AgentIconStatus
-                    agent={agent}
-                    size='md'
-                    icon={
-                        <FrameworkLogo framework={agent.framework} size={28} />
-                    }
-                    ring='border-[rgb(var(--color-settings-rail))]'
-                />
-                <div className='min-w-0 flex-1'>
-                    <ShortcutTooltip
-                        label={agent.name}
-                        placement='bottom-start'
-                        className='w-full min-w-0'
-                    >
-                        <div className='text-ui text-fg w-full truncate font-medium'>
-                            {agent.name}
-                        </div>
-                    </ShortcutTooltip>
-                    <span className='sr-only'>
-                        {agentStatusDotLabel(agent)}
-                    </span>
-                </div>
-            </div>
 
             <nav className='settings-nav-list'>
                 {sectionsFor(agent).map((section) =>
