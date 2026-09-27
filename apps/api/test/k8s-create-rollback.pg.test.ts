@@ -65,7 +65,7 @@ import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import { K8sLifecycleFixture } from './helpers/k8s-lifecycle-fixture'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
-// A self-serve k8s create (ADR-0035, ADR-0036): a hosted host on a k8s runtime
+// A self-serve k8s create (ADR-0035, ADR-0037): a hosted host on a k8s runtime
 // provider, made by the k8s adapter, whose pod registers the host's daemon
 // with the token minted bound to it; the framework is installed through that
 // daemon and the fresh agent published last. Every failure between those
@@ -179,7 +179,8 @@ const fixture = async (t: TestContext) => {
         providers,
         clients,
         tokens,
-        daemonRegistry as never
+        daemonRegistry as never,
+        { hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} }) } as never
     )
     const failure = new Error('owned fixture attach timeout')
     const behavior: {

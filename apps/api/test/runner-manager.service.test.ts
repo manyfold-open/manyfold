@@ -22,7 +22,7 @@ import {
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
-// The host daemon bring-up (ADR-0036 R11): Agent → Runtime → Host →
+// The host daemon bring-up (ADR-0037 R11): Agent → Runtime → Host →
 // host_daemons. Online → the handle. A hosted host that is not online goes
 // through its provider adapter — power, wake, then a bootstrap that installs
 // mf, registers with a token BOUND to the host and starts the daemon — and
@@ -148,7 +148,25 @@ const buildHarness = (opts: HarnessOptions = {}) => {
     const mints: Array<Record<string, unknown>> = []
     const revoked: string[] = []
     const rpcs: Array<{ method: string; payload: Record<string, unknown> }> = []
-    const awake: Exec[] = []
+    // The awake lease as the runner manager asks for it (ADR-0038). The real
+    // service returns the no-op hold for a machine that never sleeps; the fake
+    // keeps that contract so a pod's tests can assert nothing held it.
+    const holds: string[] = []
+    const releases: string[] = []
+    const awake = {
+        hold: (host: RuntimeHostRow, reason: string) => {
+            if (host.providerRef?.kind !== 'sprites')
+                return { settled: Promise.resolve(true), release: async () => {}, detach: () => {} }
+            holds.push(reason)
+            return {
+                settled: Promise.resolve(true),
+                release: async () => {
+                    releases.push(reason)
+                },
+                detach: () => {}
+            }
+        }
+    }
     let bumps = 0
 
     const dialIn = () => {
@@ -233,12 +251,6 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }
-        protected override spriteExec() {
-            return Promise.resolve(async (a: { cmd: string[]; stdin?: string; timeoutMs: number }) => {
-                awake.push({ script: a.cmd[2], stdin: a.stdin })
-                return { exitCode: 0, stdout: '', stderr: '' }
-            })
-        }
     }
 
     const service = new TestRunnerManager(
@@ -279,11 +291,13 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             rpc: async (args: { method: string; payload: Record<string, unknown> }) => {
                 rpcs.push(args)
                 return opts.rpc ? opts.rpc(args) : {}
-            }
-        } as never
+            },
+            onConnected: () => () => {}
+        } as never,
+        awake as never
     )
 
-    return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, awake, bumps: () => bumps, dialIn }
+    return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, bumps: () => bumps, dialIn }
 }
 
 const scriptsOf = (h: ReturnType<typeof buildHarness>) => h.execs.map((e) => e.script)
@@ -366,7 +380,7 @@ test('a pod host is restarted through its boot loop and registered without a tok
     assert.match(register.script, new RegExp(`MF_PROFILE=${POD_RUNNER_PROFILE} MF_CONFIG_DIR=${K8S_HOME_BASE}/.manyfold`))
     const start = h.execs.find((e) => e.script.includes('pkill'))!
     assert.ok(!start.script.includes('setsid'), 'no detached start: the boot loop restarts the daemon')
-    assert.deepEqual(h.awake, [], 'a pod does not suspend, so nothing holds it awake')
+    assert.deepEqual(h.holds, [], 'a pod does not suspend, so nothing holds it awake')
 })
 
 test('a suspended sprite with a registered daemon is woken, and a fresh lease is enough', async () => {
@@ -464,12 +478,55 @@ test('a sandbox without herdr gets it installed after the CLI; one with it does 
     assert.deepEqual(withHerdr.calls, ['power', 'inspect', 'start'])
 })
 
-test('a start holds the sprite awake across the wait and lets go afterwards', async () => {
+test('a bring-up holds the sprite awake from before the power check until the admission is done', async () => {
     const h = buildHarness({ registered: true })
-    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(h.awake.length, 2)
-    assert.match(h.awake[0].script, /POST \/v1\/tasks/)
-    assert.match(h.awake[1].script, /DELETE '\/v1\/tasks\/mfturn-start-/)
+    await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1', waitOnlineMs: 50 })
+    assert.deepEqual(h.holds, ['ensure-agt_1', 'start'], 'the admission hold, then the start hold on top of it')
+    assert.deepEqual(h.releases.sort(), ['ensure-agt_1', 'start'])
+})
+
+test('a heartbeat is not a socket: presence within the window but no rpc lease is a wake, not an admission', async () => {
+    // Staging 2026-09-27: the daemon closed its socket at :42, its last
+    // heartbeat was seconds old, and every message until the window expired
+    // failed with workspace_connection_closed instead of waking the sprite.
+    const h = buildHarness({
+        daemon: daemonRow({ lastSeenAt: NOW(), rpcInstanceId: null, rpcConnectionToken: null, rpcInbox: null, rpcConnectedAt: null }),
+        power: 'suspended',
+        registered: true,
+        reconnectsOnWake: true
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1', waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.deepEqual(h.calls, ['power', 'wake'])
+    assert.deepEqual(h.holds, ['ensure-agt_1'], 'held before the machine is touched')
+})
+
+test('a socket is a socket: an rpc lease is admitted even when the heartbeat is stale', async () => {
+    const h = buildHarness({ daemon: daemonRow({ lastSeenAt: new Date(Date.now() - 120_000) }) })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.deepEqual(h.calls, [])
+})
+
+test('a local host is reachable exactly when the API holds a socket to it', async () => {
+    const stale = buildHarness({
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: daemonRow({ hostId: 'dh_1', lastSeenAt: NOW(), rpcInstanceId: null, rpcConnectionToken: null, rpcInbox: null, rpcConnectedAt: null })
+    })
+    const res = await stale.service.ensureHostDaemon({ host: stale.state.host })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.deepEqual(stale.holds, [], 'nothing holds a self-owned computer')
+})
+
+test('awaitReconnect answers on the fresh lease a thawed daemon writes', async () => {
+    const h = buildHarness({ daemon: offlineDaemon() })
+    const since = new Date()
+    const waiting = h.service.awaitReconnect(h.state.host, since, 500)
+    h.dialIn()
+    const handle = await waiting
+    assert.equal(handle?.daemonId, 'sbx_1')
+    assert.equal(await h.service.awaitReconnect(h.state.host, new Date(Date.now() + 60_000), 10), null, 'a lease older than `since` is not the reconnect')
 })
 
 // A daemon that runs execs as files (ADR-0029 §4) is stopped with
@@ -566,74 +623,6 @@ test('requireHostDaemon throws a coded 503 when the daemon cannot be reached', a
     assert.equal(daemon.hostId, 'sbx_1')
 })
 
-// --- workspace preflight ------------------------------------------------------
-
-test('a custom workspace is registered with the daemon before dispatch, once per generation', async () => {
-    const h = buildHarness({ daemon: daemonRow() })
-    const first = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
-    assert.equal(first.workspace.outcome, 'ensured')
-    assert.deepEqual(
-        h.rpcs.map((r) => [r.method, r.payload]),
-        [['workspace.ensure', { path: '/srv/custom', create: false }]]
-    )
-
-    const second = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
-    assert.equal(second.workspace.outcome, 'cached')
-    assert.equal(h.rpcs.length, 1)
-
-    h.state.daemon = daemonRow({ rpcConnectedAt: NOW() })
-    const third = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
-    assert.equal(third.workspace.outcome, 'ensured', 'a new lease generation re-registers')
-    assert.equal(h.rpcs.length, 2)
-})
-
-test('a workspace under the declared root skips the register RPC', async () => {
-    const h = buildHarness({ daemon: daemonRow() })
-    const res = await h.service.ensureHostDaemon({
-        host: h.state.host,
-        workspacePath: '/home/sprite/.manyfold/workspaces/agt_1'
-    })
-    assert.equal(res.workspace.outcome, 'base')
-    assert.deepEqual(h.rpcs, [])
-})
-
-test('a failed workspace registration is a classified fallback, not a doomed dispatch', async () => {
-    const cases: Array<[string, string]> = [
-        ['rpc workspace.ensure timed out', 'workspace_timeout'],
-        ['daemon sbx_1 is not connected', 'workspace_connection_closed'],
-        ['workspace directory does not exist', 'workspace_error']
-    ]
-    for (const [message, reason] of cases) {
-        const h = buildHarness({
-            daemon: daemonRow(),
-            rpc: async () => {
-                throw new Error(message)
-            }
-        })
-        const res = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/x' })
-        assert.equal(res.handle, null)
-        assert.equal(res.fallbackReason, reason)
-        assert.equal(res.workspace.outcome, 'failed')
-    }
-})
-
-// --- awake holds ---------------------------------------------------------------
-
-test('holding a sprite awake creates a per-turn activity lease; a non-sprite host is a no-op', async () => {
-    const sprite = buildHarness({})
-    const hold = sprite.service.keepSpriteAwake({ host: sprite.state.host, turnId: 'turn 1' })
-    await hold.release()
-    assert.equal(sprite.awake.length, 2)
-    assert.match(sprite.awake[0].script, /POST \/v1\/tasks -d '\{"name":"mfturn-turn1","expire":"30m"\}'/)
-    assert.match(sprite.awake[1].script, /DELETE '\/v1\/tasks\/mfturn-turn1'/)
-
-    const pod = buildHarness({ providerKind: 'k8s' })
-    const noop = pod.service.keepSpriteAwake({ host: pod.state.host, turnId: 'turn 1' })
-    await noop.release()
-    assert.deepEqual(pod.awake, [])
-    assert.equal(await pod.service.holdSpriteAwake({ host: pod.state.host }), true)
-})
-
 // --- restart after a CLI upgrade -----------------------------------------------
 
 const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
@@ -686,40 +675,6 @@ test('restart: live sessions win, an idle daemon on the old build is restarted',
     }
     assert.equal(await idle.service.restartForInstalledCli({ host: idle.state.host, installedVersion: '9.9.9', waitMs: 50 }), 'restarted')
     assert.ok(idle.calls.includes('start'))
-})
-
-// --- wake outside a turn -------------------------------------------------------
-
-test('wake: a connected daemon is live, a thawed one reconnects, a cold VM is started', async () => {
-    const live = buildHarness({ daemon: daemonRow() })
-    assert.equal((await live.service.wakeRunner({ host: live.state.host })).outcome, 'live')
-
-    const thawed = buildHarness({ daemon: offlineDaemon(), power: 'suspended', registered: true, reconnectsOnWake: true })
-    assert.equal((await thawed.service.wakeRunner({ host: thawed.state.host })).outcome, 'reconnected')
-
-    const cold = buildHarness({
-        daemon: offlineDaemon(),
-        power: 'stopped',
-        registered: true,
-        status: JSON.stringify({ configured: false })
-    })
-    const woke = await cold.service.wakeRunner({ host: cold.state.host, waitOnlineMs: 50 })
-    assert.equal(woke.outcome, 'restarted')
-    assert.equal(woke.handle?.daemonId, 'sbx_1')
-})
-
-test('wake: a silent busy process is left alone; a machine that never had a daemon takes the bring-up path', async () => {
-    const busy = buildHarness({
-        daemon: offlineDaemon(),
-        registered: true,
-        status: statusJson({ version: CLI_AT_FLOOR, activeExecs: 1, adoptableExecs: 0, activePtys: 0 })
-    })
-    assert.equal((await busy.service.wakeRunner({ host: busy.state.host })).outcome, 'busy')
-
-    const fresh = buildHarness({ daemon: null, registered: false, status: JSON.stringify({ configured: false }) })
-    const res = await fresh.service.wakeRunner({ host: fresh.state.host, waitOnlineMs: 50 })
-    assert.equal(res.outcome, 'brought-up')
-    assert.equal(fresh.mints[0].hostId, 'sbx_1')
 })
 
 test('the floor the bring-up enforces is the shared minimum', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
+import { DAEMON_FEATURE_EXEC_ROOTS } from '@manyfold/shared'
 import { agentRuntimes, agents, createDb, hostDaemons, users } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
@@ -13,7 +14,7 @@ import { seedHostDaemon, seedLocalHost } from './helpers/host-fixture'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 
-// Admission goes agent → runtime → host → host_daemons (ADR-0036): the owner
+// Admission goes agent → runtime → host → host_daemons (ADR-0037): the owner
 // is the agent's, presence is the daemon row's last_seen_at, and the
 // capability the framework needs is what the daemon advertised.
 test(
@@ -45,7 +46,9 @@ test(
         await seedHostDaemon(db, {
             hostId,
             userId: owner,
-            clientFeatures: ['turn.hermes']
+            // The turn carries its workspace roots (ADR-0038): a daemon that
+            // cannot take them is refused as too old.
+            clientFeatures: ['turn.hermes', DAEMON_FEATURE_EXEC_ROOTS]
         })
         await db.insert(agentRuntimes).values({
             id: runtimeId,
@@ -86,15 +89,17 @@ test(
             {} as never,
             daemons,
             {} as never,
-            new HostDaemonAccess(daemons)
+            new HostDaemonAccess(daemons, { rpc: async () => ({}) } as never)
         )
         // Another user's agent on the same runtime is refused: the machine
         // is the runtime owner's, and an agent never inherits it.
         await assert.rejects(factory.resolveRunner(otherAgent), ChatRunnerError)
         assert.equal((await factory.resolveRunner(ownAgent)).daemonId, hostId)
+        // The socket is gone: a heartbeat, however fresh, is not reachability
+        // (ADR-0038).
         await db
             .update(hostDaemons)
-            .set({ lastSeenAt: new Date(0), rpcLastSeenAt: new Date(0) })
+            .set({ rpcInstanceId: null, rpcConnectionToken: null, rpcInbox: null, rpcConnectedAt: null })
             .where(eq(hostDaemons.hostId, hostId))
         await assert.rejects(factory.resolveRunner(ownAgent), (error: unknown) => {
             assert.ok(error instanceof ChatRunnerError)
@@ -104,7 +109,10 @@ test(
         await db
             .update(hostDaemons)
             .set({
-                lastSeenAt: new Date(),
+                rpcInstanceId: 'api-test',
+                rpcConnectionToken: `token-${hostId}`,
+                rpcInbox: `inbox-${hostId}`,
+                rpcConnectedAt: new Date(),
                 rpcLastSeenAt: new Date(),
                 clientFeatures: []
             })

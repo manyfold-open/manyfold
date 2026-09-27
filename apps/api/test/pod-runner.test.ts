@@ -11,7 +11,7 @@ import { POD_HOST_WORKSPACE_BASE } from '../src/modules/agent-runtimes/provision
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
-// A pod host's daemon IS the host's daemon (ADR-0036): the pod's boot loop
+// A pod host's daemon IS the host's daemon (ADR-0037): the pod's boot loop
 // registers it with the token the platform minted BOUND to the host, and at
 // dispatch time it is found through host_daemons like every other daemon —
 // nothing by name. One daemon serves every framework runtime on its pod
@@ -125,10 +125,7 @@ const podHost = (): RuntimeHostRow =>
         workspaceBaseDir: '/home/node/.manyfold/workspaces'
     }) as unknown as RuntimeHostRow
 
-const buildResolver = (opts: {
-    daemon?: Partial<HostDaemonRow> | null
-    workspaceEnsureFails?: boolean
-}) => {
+const buildResolver = (opts: { daemon?: Partial<HostDaemonRow> | null }) => {
     const rpcCalls: Array<{ method: string; payload: Record<string, unknown> }> = []
     const daemon =
         opts.daemon === null
@@ -172,54 +169,31 @@ const buildResolver = (opts: {
         {
             rpc: async (a: { method: string; payload: Record<string, unknown> }) => {
                 rpcCalls.push({ method: a.method, payload: a.payload })
-                if (opts.workspaceEnsureFails)
-                    throw new Error('workspace directory does not exist')
                 return {}
-            }
+            },
+            onConnected: () => () => {}
+        } as never,
+        // A pod never sleeps: the real service hands out the no-op hold.
+        {
+            hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} })
         } as never
     )
     return { service, rpcCalls, adapterCalls: () => adapterCalls }
 }
 
-test('an online pod daemon resolves without any bring-up', async () => {
+test('an online pod daemon is admitted with no RPC and no provider call', async () => {
     const { service, rpcCalls, adapterCalls } = buildResolver({})
-    const resolution = await service.ensureHostDaemon({
-        host: podHost(),
-        workspacePath: '/home/node/.manyfold/workspaces/agt_1'
-    })
+    const resolution = await service.ensureHostDaemon({ host: podHost() })
     assert.equal(resolution.handle?.daemonId, 'pdh_1')
-    // Under the declared root, so it is registered by construction — no RPC.
-    assert.equal(resolution.workspace.outcome, 'base')
-    assert.deepEqual(rpcCalls, [])
+    assert.deepEqual(rpcCalls, [], 'the turn carries its own roots (ADR-0038); nothing to register first')
     assert.equal(resolution.handle?.started, false)
-    assert.equal(adapterCalls(), 0, 'no provider call for a daemon that is already online')
-})
-
-test('a workspace outside the declared root is registered before dispatch', async () => {
-    const { service, rpcCalls } = buildResolver({})
-    const resolution = await service.ensureHostDaemon({
-        host: podHost(),
-        workspacePath: '/srv/custom-workspace'
-    })
-    assert.equal(resolution.handle?.daemonId, 'pdh_1')
-    assert.equal(resolution.workspace.outcome, 'ensured')
-    assert.equal(rpcCalls[0]?.method, 'workspace.ensure')
-    assert.equal(rpcCalls[0]?.payload.path, '/srv/custom-workspace')
-})
-
-test('a failed workspace register falls back instead of dispatching', async () => {
-    const { service } = buildResolver({ workspaceEnsureFails: true })
-    const resolution = await service.ensureHostDaemon({
-        host: podHost(),
-        workspacePath: '/srv/custom-workspace'
-    })
-    assert.equal(resolution.handle, null)
-    assert.equal(resolution.workspace.outcome, 'failed')
+    assert.equal(adapterCalls(), 0, 'no provider call for a daemon that is already connected')
 })
 
 test('an offline pod daemon goes through the adapter, and its wake is a no-op', async () => {
     const { service, adapterCalls } = buildResolver({
-        daemon: { lastSeenAt: new Date(Date.now() - 120_000), rpcLastSeenAt: new Date(Date.now() - 120_000) }
+        // No socket held: a stale heartbeat alone would not make it offline (ADR-0038).
+        daemon: { lastSeenAt: new Date(Date.now() - 120_000), rpcLastSeenAt: new Date(Date.now() - 120_000), rpcInstanceId: null, rpcConnectedAt: null }
     })
     const resolution = await service.ensureHostDaemon({ host: podHost(), waitOnlineMs: 10 })
     assert.equal(resolution.handle, null)
