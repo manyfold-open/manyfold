@@ -7,20 +7,17 @@ import { AgentsService } from '../src/modules/agents/agents.service'
 // account. The list must be a pure read whose query count does not grow with
 // the caller's runtime count.
 
-const agentRow = (i: number, status: 'running' | 'stopped') => ({
+const agentRow = (i: number, status: 'ready' | 'failed') => ({
     id: `agent-${i}`,
     userId: 'u-1',
     runtimeId: `rt-${i}`,
     framework: 'claude-code',
-    runtime: 'sprites',
     name: `a${i}`,
     internalId: `agent-${i}`,
     status,
     model: null,
     extras: {},
     workspacePath: '/workspace',
-    daemonId: null,
-    clusterId: null,
     startedAt: null,
     lastBootstrappedAt: null,
     lastReconciledAt: null,
@@ -28,16 +25,15 @@ const agentRow = (i: number, status: 'running' | 'stopped') => ({
     updatedAt: new Date('2026-01-01T00:00:00Z')
 })
 
-// One agent per runtime, half stopped: 60 runtimes total, well past the
+// One agent per runtime, half failed: 60 runtimes total, well past the
 // 50-mixed-runtimes bound in the issue's acceptance criteria.
 const listRows = (count: number) =>
     Array.from({ length: count }, (_, i) => ({
-        agent: agentRow(i, i % 2 === 0 ? 'running' : 'stopped'),
-        clusterName: null,
-        controlUiEnabled: true,
-        dashboardEnabled: false,
-        dashboardState: null,
-        keepAliveEnabled: false
+        agent: agentRow(i, i % 2 === 0 ? 'ready' : 'failed'),
+        runtime: { id: `rt-${i}`, controlUiEnabled: true },
+        host: null,
+        daemon: null,
+        providerKind: null
     }))
 
 const makeDb = (rows: unknown[]) => {
@@ -45,6 +41,7 @@ const makeDb = (rows: unknown[]) => {
     const chain = () => {
         const b = Object.assign(Promise.resolve(rows), {
             from: () => b,
+            innerJoin: () => b,
             leftJoin: () => b,
             where: () => b,
             orderBy: () => b,
@@ -84,9 +81,6 @@ const makeService = (db: ReturnType<typeof makeDb>) =>
     new AgentsService(
         db as never,
         untouchableReconcile as never,
-        {} as never,
-        {} as never,
-        {} as never,
         {} as never,
         {} as never,
         {} as never,

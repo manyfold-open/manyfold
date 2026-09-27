@@ -2,11 +2,18 @@ import type { AgentCreateStep } from '@manyfold/shared'
 import { PLATFORM_DEFAULT_SKILL_IDS } from '@manyfold/shared'
 import type { NewAgent } from '@manyfold/db'
 import assert from 'node:assert/strict'
+import type { AgentRuntimeRow } from '@manyfold/db'
 import test from 'node:test'
 import { ConflictException } from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 // A sandbox holds at most one instance per framework, so creating an agent for a
 // framework the target sandbox already runs must join that instance rather than
@@ -14,21 +21,17 @@ import { SkillsService } from '../src/modules/skills/skills.service'
 // no VM is provisioned (so no provisioned-quota slot is spent), and the runtime's
 // own credentials are used instead of anything the request carried.
 
-const runtimeOnHost = (overrides: Record<string, unknown> = {}) => ({
-    id: 'art_existing',
-    userId: 'user-1',
-    name: 'sandbox-001-codex',
-    framework: 'codex',
-    kind: 'sprites',
-    status: 'ready',
-    hostId: 'sbx_1',
-    spriteName: 'sbx-1',
-    spriteId: 'sprite-1',
-    accountId: 'spa_1',
-    mountPath: '/home/sprite',
-    primaryAgentId: 'agt_first',
-    ...overrides
-})
+const runtimeOnHost = (overrides: Record<string, unknown> = {}) =>
+    runtimeRow({
+        id: 'art_existing',
+        userId: 'user-1',
+        name: 'sandbox-001-codex',
+        framework: 'codex',
+        hostId: 'sbx_1',
+        mountPath: '/home/sprite',
+        primaryAgentId: 'agt_first',
+        ...(overrides as Partial<AgentRuntimeRow>)
+    })
 
 const emptyDb = {
     select: () => ({
@@ -55,7 +58,7 @@ interface Harness {
     defaultInstalls: Array<Parameters<SkillsService['install']>[0]>
 }
 
-const makeHarness = (instance: Record<string, unknown> | null): Harness => {
+const makeHarness = (instance: ReturnType<typeof runtimeOnHost> | null): Harness => {
     const state = {
         attachCalls: [] as Array<Record<string, unknown>>,
         provisionCalls: 0,
@@ -96,7 +99,13 @@ const makeHarness = (instance: Record<string, unknown> | null): Harness => {
         } as never,
         { touchAfterWrite: () => {} } as never,
         { assertManagedChannelBindable: async () => {} } as never,
-        skills
+        skills,
+        fakeRuntimeContext(
+            contextOf({
+                runtime: instance ?? runtimeOnHost(),
+                host: spritesHostRow({ id: 'sbx_1', userId: 'user-1' })
+            })
+        ) as never
     )
     const service = new AgentOrchestratorService(
         emptyDb as never,
@@ -104,7 +113,7 @@ const makeHarness = (instance: Record<string, unknown> | null): Harness => {
         {} as never,
         {} as never,
         {
-            findSpriteRuntimeOnHost: async (
+            findRuntimeOnHost: async (
                 hostId: string,
                 framework: string
             ) => {

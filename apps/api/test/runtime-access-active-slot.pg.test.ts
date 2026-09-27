@@ -9,6 +9,7 @@ import {
     createDb,
     plans,
     runtimeHosts,
+    runtimeProviders,
     users,
     type Database
 } from '@manyfold/db'
@@ -75,6 +76,7 @@ const buildHarness = async (): Promise<Harness> => {
     const userId = `user_pgtest_${suffix}`
     const planId = `plan_pgtest_${suffix}`
     const hostId = `rt_pgtest_${suffix}`
+    const providerId = `rtp_pgtest_${suffix}`
 
     await db.insert(plans).values({
         id: planId,
@@ -89,14 +91,24 @@ const buildHarness = async (): Promise<Harness> => {
         email: `${suffix}@pgtest.local`,
         planId
     })
-    // A cold sandbox host with an unopened watermark (activeAccrualSince null),
-    // exactly the state a chat/terminal admission finds before reserving a slot.
+    await db.insert(runtimeProviders).values({
+        id: providerId,
+        kind: 'sprites',
+        name: `pgtest-${suffix}`,
+        credentialCiphertext: 'encrypted'
+    })
+    // A stopped sandbox host with an unopened watermark (activeAccrualSince
+    // null), exactly the state a chat/terminal admission finds before
+    // reserving a slot.
     await db.insert(runtimeHosts).values({
         id: hostId,
         userId,
-        kind: 'sandbox',
+        kind: 'hosted',
+        providerId,
+        providerRef: { kind: 'sprites', spriteName: hostId, spriteId: 'sp' },
         name: `pgtest-sandbox-${suffix}`,
-        spriteStatus: 'cold',
+        status: 'ready',
+        powerState: 'stopped',
         activeAccrualSince: null
     })
 
@@ -110,6 +122,9 @@ const buildHarness = async (): Promise<Harness> => {
             // runtime_hosts.user_id cascades on user delete.
             await db.delete(users).where(eq(users.id, userId))
             await db.delete(plans).where(eq(plans.id, planId))
+            await db
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, providerId))
             const client = (
                 db as unknown as { $client?: { end?: () => Promise<void> } }
             ).$client
@@ -140,14 +155,14 @@ test(
 
             const [row] = await h.db
                 .select({
-                    spriteStatus: runtimeHosts.spriteStatus,
+                    powerState: runtimeHosts.powerState,
                     activeAccrualSince: runtimeHosts.activeAccrualSince
                 })
                 .from(runtimeHosts)
                 .where(eq(runtimeHosts.id, h.hostId))
                 .limit(1)
 
-            assert.equal(row.spriteStatus, 'running')
+            assert.equal(row.powerState, 'running')
             assert.ok(
                 row.activeAccrualSince instanceof Date,
                 'watermark must be opened'
@@ -178,24 +193,30 @@ test(
     }
 )
 
-// WHY: a sandbox delete marks its host 'revoked' before calling sprites.dev;
-// when that call fails the row stays as the retry record with its last
-// sprite_status frozen — 'running' if the VM was up. Seen on a local dev
+// WHY: a host whose provisioning failed never got (or already lost) its VM;
+// a frozen `running` on such a row must not hold a slot. Seen on a local dev
 // stack [2026-09-10]: one such row pinned a Free-plan user at 1/1 active and
 // refused every wake of the sandbox they had just created.
 test(
-    'a revoked host left behind by a failed sprites.dev delete holds no active slot',
+    'a failed host with a frozen running state holds no active slot',
     { skip: !RUN },
     async () => {
         const h = await buildHarness()
         try {
+            const [own] = await h.db
+                .select({ providerId: runtimeHosts.providerId })
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.id, h.hostId))
+                .limit(1)
             await h.db.insert(runtimeHosts).values({
                 id: `${h.hostId}_ghost`,
                 userId: h.userId,
-                kind: 'sandbox',
+                kind: 'hosted',
+                providerId: own.providerId,
+                providerRef: { kind: 'sprites', spriteName: 'ghost', spriteId: null },
                 name: `pgtest-ghost-${h.hostId}`,
-                status: 'revoked',
-                spriteStatus: 'running',
+                status: 'failed',
+                powerState: 'running',
                 activeAccrualSince: null
             })
             // maxConcurrentActive is 1: counting the ghost would refuse this.

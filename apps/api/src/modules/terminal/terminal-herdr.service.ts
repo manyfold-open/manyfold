@@ -22,10 +22,10 @@ import {
     type SessionHerdrOpenResponse,
     herdrFrameworksFor
 } from '@manyfold/shared'
-import type { RuntimeHostRow } from '@manyfold/db'
+import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
+import { isRuntimeUsable } from '@manyfold/shared'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import {
     assertHostHonoursAuthContext,
     authContextRefFor,
@@ -33,8 +33,8 @@ import {
 } from '@/modules/agents/model-config/runtime-auth-selection'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SessionHeldByTerminalError } from '@/modules/chat/chat.service'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import {
     PI_PLATFORM_VIEW_ENV,
@@ -106,29 +106,27 @@ const herdrLaunchError = (err: unknown): HttpException => {
     })
 }
 
-// Hand a chat session to herdr on the agent's own machine (ADR-0031). The
-// gates are the browser terminal's, minus the browser: the agent runs on a
-// self-owned daemon that is online and advertises herdr, the session has a
-// CLI ref and no running turn, the hold is taken as the last fallible step
-// before anything starts, and a launch herdr refuses gives the hold back.
+// Hand a chat session to herdr on the agent's machine (ADR-0031). The gates
+// are the browser terminal's, minus the browser: the machine's daemon is
+// online and advertises herdr, the session has a CLI ref and no running
+// turn, the hold is taken as the last fallible step before anything starts,
+// and a launch herdr refuses gives the hold back.
 @Injectable()
 export class TerminalHerdrService {
     private readonly log = new Logger(TerminalHerdrService.name)
 
     constructor(
         private readonly agents: AgentsService,
-        private readonly daemonHosts: DaemonHostService,
         private readonly chatRepo: ChatRepository,
         private readonly resume: TerminalResumeService,
         private readonly terminals: TerminalSessionsRepository,
         private readonly holder: TerminalHolderService,
         private readonly daemon: DaemonTerminal,
         // Appended last + @Optional so positional test construction keeps
-        // working; absent, a sprites agent cannot be handed off.
+        // working; absent, a sleeping hosted machine cannot be woken for
+        // the handoff.
         @Optional()
-        private readonly runtimeAuth?: RuntimeAuthProfilesService,
-        @Optional()
-        private readonly runtimes?: AgentRuntimesService
+        private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     async open(
@@ -137,7 +135,8 @@ export class TerminalHerdrService {
         sessionId: string,
         body: SessionHerdrOpenRequest
     ): Promise<SessionHerdrOpenResponse> {
-        const { agent, host, sandbox } = await this.herdrHost(userId, agentId)
+        const { agent, host, daemon, placement, sandbox } =
+            await this.herdrHost(userId, agentId)
         const session = await this.chatRepo.getSession(sessionId, userId)
         if (!session || session.agentId !== agentId)
             throw new NotFoundException('session not found')
@@ -147,12 +146,12 @@ export class TerminalHerdrService {
             )
         // The host's CLI must know the framework's herdr kind too.
         if (
-            !herdrFrameworksFor(host.clientFeatures ?? []).includes(
+            !herdrFrameworksFor(daemon.clientFeatures ?? []).includes(
                 agent.framework
             )
         )
             throw unavailable(
-                agent.runtime === 'sprites'
+                sandbox
                     ? 'the sandbox runner cannot start this framework in herdr yet; upgrade its Manyfold CLI'
                     : 'update the Manyfold CLI on this computer to hand this framework to herdr'
             )
@@ -168,16 +167,16 @@ export class TerminalHerdrService {
             )
         // A profile-bound agent's TUI must answer as that account, which
         // only a host that honours the context can arrange.
-        const authContext = authContextRefFor(agent)
+        const authContext = authContextRefFor(agent, placement)
         if (authContext)
             assertHostHonoursAuthContext(
                 authContext,
-                host,
-                agent.runtime === 'sprites' ? 'this sandbox' : 'this machine'
+                daemon,
+                sandbox ? 'this sandbox' : 'this machine'
             )
 
         const runtimeLocalAgent =
-            effectiveModelConfigSource(agent) === 'runtime-local'
+            effectiveModelConfigSource(agent, placement) === 'runtime-local'
         const resolution = await this.resume.resolve({
             agentId: agent.id,
             runtimeId: agent.runtimeId,
@@ -189,11 +188,10 @@ export class TerminalHerdrService {
             // hands the platform's credentials to the TUI only when it opted
             // in, as the browser terminal does.
             modelCredentialsAllowed:
-                agent.runtime === 'daemon' ||
+                !sandbox ||
                 runtimeLocalAgent ||
-                sandbox?.terminalModelCredentials === true,
-            injectModelCredentials:
-                agent.runtime === 'sprites' && !runtimeLocalAgent,
+                sandbox.terminalModelCredentials === true,
+            injectModelCredentials: !!sandbox && !runtimeLocalAgent,
             model: agent.model
         })
         if (resolution.outcome === 'turn-in-flight')
@@ -248,11 +246,10 @@ export class TerminalHerdrService {
         const row = await this.terminals.create({
             userId,
             agentId,
-            runtime: agent.runtime === 'sprites' ? 'sprites' : 'daemon',
-            hostId: agent.hostId ?? null,
-            runtimeId: agent.runtimeId ?? null,
-            client: 'herdr',
-            daemonId: host.id
+            runtime: 'daemon',
+            hostId: host.id,
+            runtimeId: agent.runtimeId,
+            client: 'herdr'
         })
         await this.terminals.setHandle(row.id, row.id)
         const outcome = await this.holder.acquire({
@@ -279,13 +276,14 @@ export class TerminalHerdrService {
             cleanTitle(body.title) || cleanTitle(session.title) || agent.name
         try {
             const herdr = await this.daemon.openInHerdr({
-                agent: agent as Agent,
+                agent,
                 terminalId: row.id,
                 framework: agent.framework,
                 resume,
                 title,
                 chatSessionId: sessionId,
-                daemonId: host.id,
+                hostId: host.id,
+                placement,
                 onToken: (tokenId) => {
                     void this.terminals
                         .bindToken(row.id, tokenId)
@@ -316,7 +314,7 @@ export class TerminalHerdrService {
         agentId: string,
         sessionId: string
     ): Promise<SessionHerdrFocusResponse> {
-        const { agent } = await this.herdrHost(userId, agentId)
+        const { host } = await this.herdrHost(userId, agentId)
         const session = await this.chatRepo.getSession(sessionId, userId)
         if (!session || session.agentId !== agentId)
             throw new NotFoundException('session not found')
@@ -325,9 +323,7 @@ export class TerminalHerdrService {
         const row = await this.terminals.findById(session.holderTerminalId)
         if (!row || row.endedAt || row.agentId !== agentId)
             throw unavailable('this conversation is not open in herdr')
-        const daemonId = row.daemonId ?? agent.daemonId
-        if (!daemonId)
-            throw unavailable('this conversation is not open in herdr')
+        const daemonId = row.hostId ?? host.id
         try {
             const focused = await this.daemon.focusHerdr(daemonId, row.id)
             return { focused }
@@ -336,9 +332,9 @@ export class TerminalHerdrService {
         }
     }
 
-    // The agent, owned and running, and the daemon that can hand its sessions
-    // to herdr: the agent's own on a self-owned computer, or the sandbox's
-    // runner for a sprites agent (woken if asleep). Either must be online and
+    // The agent, owned and usable, and the daemon of its machine that can
+    // hand its sessions to herdr (ADR-0036): a local computer's own daemon,
+    // or a hosted machine's (woken if asleep). Either must be online and
     // advertise herdr.
     private async herdrHost(
         userId: string,
@@ -346,69 +342,79 @@ export class TerminalHerdrService {
     ): Promise<{
         agent: Agent
         host: RuntimeHostRow
+        daemon: HostDaemonRow
+        placement: RuntimeContext['placement']
         sandbox: RuntimeHostRow | null
     }> {
-        const rows = await this.agents.listForUser(userId)
-        const agent = rows.find((r) => r.agent.id === agentId)?.agent
-        if (!agent) throw new NotFoundException('agent not found for this user')
-        if (agent.status !== 'running')
+        const ctx = await this.agents.contextForCaller(agentId, userId, false)
+        if (!ctx) throw new NotFoundException('agent not found for this user')
+        const { agent, host, placement } = ctx
+        if (!host)
+            throw unavailable('this agent does not run on a machine')
+        // A local computer whose daemon is away is the one state the user
+        // can fix themselves; say so before the generic refusal.
+        if (ctx.availability === 'offline')
+            throw new ServiceUnavailableException({
+                code: HERDR_UNAVAILABLE_CODE,
+                message: 'the computer is offline; start its daemon first'
+            })
+        if (!isRuntimeUsable(ctx.availability))
             throw unavailable(
-                `agent is ${agent.status}; herdr is only available when running`
+                `agent is ${ctx.availability}; herdr is only available when its runtime is ready`
             )
-        let host: RuntimeHostRow | null = null
-        let sandbox: RuntimeHostRow | null = null
-        if (agent.runtime === 'daemon' && agent.daemonId) {
-            host = await this.daemonHosts.findById(agent.daemonId)
-            if (!host) throw unavailable('the computer is no longer registered')
-            if (!this.daemonHosts.isOnline(host))
-                throw new ServiceUnavailableException({
-                    code: HERDR_UNAVAILABLE_CODE,
-                    message: 'the computer is offline; start its daemon first'
-                })
-        } else if (agent.runtime === 'sprites' && agent.runtimeId) {
-            if (!this.runtimeAuth || !this.runtimes)
-                throw unavailable('herdr is not available for sandboxes here')
-            sandbox = agent.hostId
-                ? await this.runtimes.findHostById(agent.hostId)
-                : null
-            if (!sandbox?.herdrVersion)
-                throw unavailable(
-                    'herdr is not installed in this sandbox; install it from the Update Center'
-                )
+        let daemon = ctx.daemon
+        if (host.kind === 'hosted') {
             // The pane's shell gets a full-scope terminal token, as the
             // browser terminal's does, and the viewer is a terminal: the
-            // sandbox's terminal opt-in covers both, and nothing is woken
-            // for a sandbox that has not given it.
-            if (!sandbox.terminalEnabled)
+            // machine's terminal opt-in covers both, and nothing is woken
+            // for a machine that has not given it.
+            if (!host.terminalEnabled)
                 throw unavailable(
                     'the terminal is disabled for this sandbox; enable it first'
                 )
-            const resolved = await this.runtimeAuth.resolveRuntimeHost(
-                userId,
-                agent.runtimeId,
-                { wake: true }
-            )
-            if (!resolved.host || resolved.availability !== 'ok')
-                throw new ServiceUnavailableException({
-                    code: HERDR_UNAVAILABLE_CODE,
-                    message: `the sandbox runner is not ready (${resolved.availability}); try again in a moment`
+            if (!ctx.daemonOnline) {
+                const ensured = await this.hostAccess?.ensure({
+                    host,
+                    daemon,
+                    placement,
+                    agentId: agent.id,
+                    wake: true
                 })
-            host = resolved.host
-        } else {
+                if (!ensured?.online || !ensured.daemon)
+                    throw new ServiceUnavailableException({
+                        code: HERDR_UNAVAILABLE_CODE,
+                        message: `the sandbox runner is not ready (${ensured?.fallbackReason ?? 'unavailable'}); try again in a moment`
+                    })
+                daemon = ensured.daemon
+            }
+        } else if (!ctx.daemonOnline || !daemon)
+            throw new ServiceUnavailableException({
+                code: HERDR_UNAVAILABLE_CODE,
+                message: 'the computer is offline; start its daemon first'
+            })
+        if (!daemon) throw unavailable('the computer is no longer registered')
+        if (!daemon.herdrVersion)
             throw unavailable(
-                'this agent does not run on a self-owned computer or a sandbox'
+                host.kind === 'hosted'
+                    ? 'herdr is not installed in this sandbox; install it from the Update Center'
+                    : 'herdr is not available on this computer; install herdr and update the Manyfold CLI'
             )
-        }
-        const features = host.clientFeatures ?? []
+        const features = daemon.clientFeatures ?? []
         if (
             !features.includes(DAEMON_FEATURE_HERDR_TERMINAL) ||
             !features.includes(DAEMON_FEATURE_PTY_COMMAND)
         )
             throw unavailable(
-                agent.runtime === 'sprites'
+                host.kind === 'hosted'
                     ? 'the sandbox runner cannot reach herdr yet; upgrade its Manyfold CLI'
                     : 'herdr is not available on this computer; install herdr and update the Manyfold CLI'
             )
-        return { agent: agent as Agent, host, sandbox }
+        return {
+            agent,
+            host,
+            daemon,
+            placement,
+            sandbox: host.kind === 'hosted' ? host : null
+        }
     }
 }

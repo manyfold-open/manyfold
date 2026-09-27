@@ -17,7 +17,7 @@ const JUNE: UsagePeriod = {
 const hostA: SandboxUsageHostInput = {
     id: 'sbx-a',
     name: 'alpha',
-    spriteStatus: 'running',
+    powerState: 'running',
     storageBytes: 5_000_000_000,
     storageMeasuredAt: new Date(Date.UTC(2026, 5, 15, 10, 0, 0)),
     storageBreakdown: {
@@ -34,7 +34,7 @@ const hostA: SandboxUsageHostInput = {
 const hostB: SandboxUsageHostInput = {
     id: 'sbx-b',
     name: 'beta',
-    spriteStatus: null,
+    powerState: null,
     storageBytes: null,
     storageMeasuredAt: null,
     storageBreakdown: null
@@ -98,7 +98,7 @@ test('buildSandboxUsageBreakdown reports a bare measured sandbox as measured', (
     const bare: SandboxUsageHostInput = {
         id: 'sbx-c',
         name: 'gamma',
-        spriteStatus: 'running',
+        powerState: 'running',
         storageBytes: 4_200_000_000,
         storageMeasuredAt: new Date(Date.UTC(2026, 5, 15, 10, 0, 0)),
         storageBreakdown: {
@@ -119,7 +119,7 @@ test('buildSandboxUsageBreakdown reports a backfilled host as not measured', () 
     const backfilled: SandboxUsageHostInput = {
         id: 'sbx-d',
         name: 'delta',
-        spriteStatus: 'warm',
+        powerState: 'suspended',
         storageBytes: 1_500_000_000,
         storageMeasuredAt: new Date(Date.UTC(2026, 5, 15, 10, 0, 0)),
         storageBreakdown: null

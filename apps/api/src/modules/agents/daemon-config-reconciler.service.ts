@@ -5,7 +5,7 @@ import {
     OnModuleInit
 } from '@nestjs/common'
 import { and, asc, eq, gt, ne } from 'drizzle-orm'
-import { agents, type Database } from '@manyfold/db'
+import { agentRuntimes, agents, type Database } from '@manyfold/db'
 import { frameworkMcpSupport } from '@manyfold/shared'
 import { trace } from '@opentelemetry/api'
 import { DRIZZLE } from '@/db/tokens'
@@ -141,22 +141,29 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                         cancelled = true
                         return
                     }
-                    const rows = await this.db
-                        .select()
-                        .from(agents)
-                        .where(
-                            and(
-                                eq(agents.daemonId, daemonId),
-                                eq(agents.userId, state.userId),
-                                eq(agents.runtime, 'daemon'),
-                                ne(agents.status, 'failed'),
-                                state.cursor
-                                    ? gt(agents.id, state.cursor)
-                                    : undefined
+                    // Every agent whose runtime sits on this host (the hello's
+                    // daemonId is the host id, ADR-0036).
+                    const rows = (
+                        await this.db
+                            .select({ agent: agents })
+                            .from(agents)
+                            .innerJoin(
+                                agentRuntimes,
+                                eq(agentRuntimes.id, agents.runtimeId)
                             )
-                        )
-                        .orderBy(asc(agents.id))
-                        .limit(100)
+                            .where(
+                                and(
+                                    eq(agentRuntimes.hostId, daemonId),
+                                    eq(agents.userId, state.userId),
+                                    ne(agents.status, 'failed'),
+                                    state.cursor
+                                        ? gt(agents.id, state.cursor)
+                                        : undefined
+                                )
+                            )
+                            .orderBy(asc(agents.id))
+                            .limit(100)
+                    ).map((row) => row.agent)
                     for (const agent of rows) {
                         if (
                             this.stopped ||

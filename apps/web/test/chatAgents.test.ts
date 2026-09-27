@@ -1,62 +1,28 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SdkAgent } from '@manyfold/sdk'
+import { makeAgentSummary } from './hostModelFixtures'
 import {
     applyAgentStatusSnapshots,
+    applyHostPowerUpdate,
     getAgentChatAvailability,
     reconcileSidebarAgents,
     sortSidebarAgents
 } from '../src/lib/chatAgents'
 
-const agent = (patch: Partial<SdkAgent>): SdkAgent => ({
-    id: 'agent-a',
-    userId: 'user-1',
-    runtimeId: 'runtime-1',
-    name: 'Agent A',
-    framework: 'codex',
-    frameworkVersion: null,
-    frameworkLatestVersion: null,
-    frameworkUpgradeAvailable: false,
-    frameworkVersionBlockedReason: null,
-    cliVersion: null,
-    cliLatestVersion: null,
-    cliUpdateAvailable: false,
-    daemonId: null,
-    daemonNeedsUpgrade: false,
-    runtime: 'sprites',
-    status: 'running',
-    spriteStatus: null,
-    k8sPodPhase: null,
-    accountSlug: null,
-    clusterId: null,
-    clusterName: null,
-    spriteName: null,
-    spriteId: null,
-    mountPath: '/workspace',
-    namespace: null,
-    ingressHost: null,
-    endpointUrl: null,
-    controlUiEnabled: false,
-    dashboardEnabled: false,
-    dashboardState: null,
-    keepAliveEnabled: false,
-    currentPhase: null,
-    failureReason: null,
-    internalId: 'internal-a',
-    model: null,
-    extras: {},
-    workspacePath: '/home/sprite/.nca/workspaces/agent-a',
-    workspaceBytes: null,
-    workspaceMeasuredAt: null,
-    lastActiveAt: null,
-    lastMessageAt: null,
-    startedAt: null,
-    lastBootstrappedAt: null,
-    lastReconciledAt: null,
-    createdAt: '2026-05-01T00:00:00.000Z',
-    updatedAt: '2026-05-01T00:00:00.000Z',
-    ...patch
-})
+const agent = (patch: Partial<SdkAgent>): SdkAgent =>
+    makeAgentSummary({
+        id: 'agent-a',
+        runtimeId: 'runtime-1',
+        hostId: 'host-1',
+        framework: 'codex',
+        mountPath: '/workspace',
+        internalId: 'internal-a',
+        workspacePath: '/home/sprite/.nca/workspaces/agent-a',
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+        ...patch
+    })
 
 test('sorts sidebar agents by newest createdAt first', () => {
     const rows = [
@@ -206,16 +172,16 @@ test('same-value status events leave the agent list untouched', () => {
     const current = [
         agent({
             id: 'agent-a',
-            spriteStatus: 'warm',
-            k8sPodPhase: 'Running'
+            powerState: 'suspended',
+            availability: 'wakeable'
         })
     ]
 
     const reconciled = applyAgentStatusSnapshots(current, [
         {
             agentId: 'agent-a',
-            spriteStatus: 'warm',
-            k8sPodPhase: 'Running'
+            powerState: 'suspended',
+            availability: 'wakeable'
         }
     ])
 
@@ -227,8 +193,8 @@ test('status events replace only the affected agent', () => {
     const current = [
         agent({
             id: 'agent-a',
-            spriteStatus: 'warm',
-            k8sPodPhase: 'Running'
+            powerState: 'suspended',
+            availability: 'wakeable'
         }),
         agent({ id: 'agent-b' })
     ]
@@ -236,39 +202,76 @@ test('status events replace only the affected agent', () => {
     const reconciled = applyAgentStatusSnapshots(current, [
         {
             agentId: 'agent-a',
-            spriteStatus: 'running',
-            k8sPodPhase: 'Running'
+            powerState: 'running',
+            availability: 'available'
         }
     ])
 
     assert.notEqual(reconciled, current)
     assert.notEqual(reconciled[0], current[0])
-    assert.equal(reconciled[0].spriteStatus, 'running')
+    assert.equal(reconciled[0].powerState, 'running')
+    assert.equal(reconciled[0].availability, 'available')
     assert.equal(reconciled[1], current[1])
 })
 
-test('stopped sprite agent is ready to send', () => {
+test('a host power event reaches every agent on that host and no other', () => {
+    const current = [
+        agent({ id: 'agent-a', hostId: 'host-1' }),
+        agent({ id: 'agent-b', hostId: 'host-1' }),
+        agent({ id: 'agent-c', hostId: 'host-2' })
+    ]
+
+    const reconciled = applyHostPowerUpdate(current, {
+        hostId: 'host-1',
+        powerState: 'suspended',
+        daemonOnline: false
+    })
+
+    assert.equal(reconciled[0].powerState, 'suspended')
+    assert.equal(reconciled[0].daemonOnline, false)
+    assert.equal(reconciled[1].powerState, 'suspended')
+    assert.equal(reconciled[2], current[2])
+    // Availability is the API's per-agent word, not re-derived here.
+    assert.equal(reconciled[0].availability, current[0].availability)
+    assert.equal(
+        applyHostPowerUpdate(reconciled, {
+            hostId: 'host-1',
+            powerState: 'suspended',
+            daemonOnline: false
+        }),
+        reconciled
+    )
+})
+
+test('an asleep sandbox agent is ready to send', () => {
     const availability = getAgentChatAvailability(
-        agent({ status: 'stopped', runtime: 'sprites' })
+        agent({ availability: 'wakeable', powerState: 'suspended' })
     )
 
     assert.equal(
         availability.ready,
         true,
-        'sending wakes the sprite and server-side reconcile self-heals; blocking the composer was the #108 lockout'
+        'sending wakes the sandbox and server-side reconcile self-heals; blocking the composer was the #108 lockout'
     )
 })
 
-test('stopped daemon agent stays blocked with honest copy', () => {
+test('an offline self-owned computer stays blocked with honest copy', () => {
     const availability = getAgentChatAvailability(
-        agent({ status: 'stopped', runtime: 'daemon' })
+        agent({
+            runtime: 'daemon',
+            hostKind: 'local',
+            providerKind: null,
+            powerState: null,
+            daemonOnline: false,
+            availability: 'offline'
+        })
     )
 
     assert.equal(availability.ready, false)
     assert.equal(availability.code, 'status')
     assert.ok(
-        availability.reason?.includes('stopped'),
-        'the copy must state the actual agent status'
+        availability.reason?.includes('offline'),
+        'the copy must say the machine is offline'
     )
     assert.ok(
         !availability.reason?.includes('repair'),
@@ -276,35 +279,41 @@ test('stopped daemon agent stays blocked with honest copy', () => {
     )
 })
 
-test('failed sprite agent stays blocked', () => {
+test('a failed agent stays blocked', () => {
     const availability = getAgentChatAvailability(
-        agent({ status: 'failed', runtime: 'sprites' })
+        agent({ status: 'failed', availability: 'unavailable' })
     )
 
     assert.equal(
         availability.ready,
         false,
-        'waking a sprite does not fix a failed bootstrap'
+        'waking a sandbox does not fix a failed bootstrap'
     )
 })
 
-test('pending sprite agent stays blocked', () => {
+test('a pending agent stays blocked', () => {
     const availability = getAgentChatAvailability(
-        agent({ status: 'pending', runtime: 'sprites' })
+        agent({ status: 'pending', availability: 'unavailable' })
     )
 
-    assert.equal(
-        availability.ready,
-        false,
-        'stopped-sprite is the only carve-out'
-    )
+    assert.equal(availability.ready, false)
+    assert.ok(availability.reason?.includes('pending'))
 })
 
-test('stopped sprite agent still hits the cli-upgrade gate', () => {
+test('an agent whose runtime is not available stays blocked', () => {
+    const availability = getAgentChatAvailability(
+        agent({ availability: 'unavailable' })
+    )
+
+    assert.equal(availability.ready, false)
+    assert.equal(availability.code, 'status')
+})
+
+test('an asleep sandbox agent still hits the cli-upgrade gate', () => {
     const availability = getAgentChatAvailability(
         agent({
-            status: 'stopped',
-            runtime: 'sprites',
+            availability: 'wakeable',
+            powerState: 'suspended',
             daemonNeedsUpgrade: true
         })
     )
@@ -313,7 +322,7 @@ test('stopped sprite agent still hits the cli-upgrade gate', () => {
     assert.equal(
         availability.code,
         'cli-upgrade',
-        'unblocking wakeable sprites must not skip the CLI-upgrade gate'
+        'unblocking wakeable sandboxes must not skip the CLI-upgrade gate'
     )
 })
 

@@ -21,7 +21,6 @@ import { and, eq, isNull } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
-    runtimeHosts,
     type AgentRuntimeRow,
     type Database,
     type NewAgent
@@ -36,7 +35,8 @@ import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry
 import {
     NotSupportedError,
     type AddAgentResult,
-    type AgentAdapter
+    type AgentAdapter,
+    type RuntimeTarget
 } from '@/modules/agents/adapters/agent-adapter'
 import { agentRowToSummary } from '@/modules/agents/agents.service'
 import {
@@ -52,6 +52,10 @@ import {
     normalizeWorkspacePathInput,
     workspaceExtras
 } from '@/modules/agents/workspace/workspace-preflight'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 
 // Every framework that runs in a runtime of its own can take a live agent;
 // the external-API frameworks cannot.
@@ -65,15 +69,15 @@ const frameworkInternalIdForAgentId = (agentId: string): string =>
 // the service's own.
 const builtInProfileAgent = async (
     adapter: AgentAdapter,
-    runtime: AgentRuntimeRow,
+    target: RuntimeTarget,
     agentId: string,
     profile: string
 ): Promise<AddAgentResult> => {
-    const live = await adapter.listAgents({ runtime, primaryAgentId: null })
+    const live = await adapter.listAgents({ ...target, primaryAgentId: null })
     const found = live.find((agent) => agent.id === profile)
     if (!found)
         throw new ServiceUnavailableException(
-            `${runtime.framework} on cloud computer ${runtime.hostId} lists no ${profile} profile`
+            `${target.runtime.framework} on cloud computer ${target.runtime.hostId} lists no ${profile} profile`
         )
     return {
         internalId: agentId,
@@ -94,7 +98,7 @@ export interface AttachAgentInput {
     // which used to land every joiner on the runtime's inherited source.
     modelConfigSource?: AgentModelConfigSource
     runtimeAuthProfileId?: string | null
-    // Server-only: the pending runtime belongs to this fresh create request.
+    // Server-only: the installing runtime belongs to this fresh create request.
     agentCreateId?: string
     assertAgentCreateActive?: () => Promise<void>
 }
@@ -109,6 +113,7 @@ export class RuntimeAgentAttachService {
         private readonly reconcile: AgentReconcileService,
         private readonly credentialsResolver: CredentialsResolverService,
         private readonly skills: SkillsService,
+        private readonly runtimeContext: RuntimeContextService,
         @Optional()
         private readonly modelConfig?: AgentModelConfigService,
         @Optional()
@@ -117,63 +122,38 @@ export class RuntimeAgentAttachService {
     ) {}
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
-        let { runtime } = input
-        if (runtime.kind === 'daemon' && runtime.daemonId) {
-            const [host] = await this.db
-                .select({ managed: runtimeHosts.managed })
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.id, runtime.daemonId),
-                        eq(runtimeHosts.userId, runtime.userId)
-                    )
-                )
-                .limit(1)
-            if (host?.managed)
-                throw new ConflictException({
-                    code: 'MANAGED_RUNNER_RUNTIME',
-                    message:
-                        'managed runner runtimes are transport-only; attach agents to their parent runtime'
-                })
-        }
-        if (runtime.kind === 'k8s') {
-            const [current] = await this.db
-                .select()
-                .from(agentRuntimes)
-                .where(
-                    and(
-                        eq(agentRuntimes.id, runtime.id),
-                        eq(agentRuntimes.userId, runtime.userId)
-                    )
-                )
-                .limit(1)
-            const ownedPending =
-                current?.status === 'pending' &&
-                current.currentPhase === K8S_CREATE_INITIAL_AGENT &&
-                current.primaryAgentId === null &&
+        const ctx = await this.runtimeContext.forRuntime(input.runtime.id)
+        if (!ctx || ctx.runtime.userId !== input.runtime.userId)
+            throw new ConflictException(
+                `runtime ${input.runtime.id} is not attachable`
+            )
+        const runtime = ctx.runtime
+        if (!supportsLiveAgents(runtime.framework) || ctx.placement === 'external')
+            throw new ConflictException(
+                `framework ${runtime.framework} does not support add-agent`
+            )
+        if (ctx.placement === 'k8s') {
+            const ownedInstalling =
+                runtime.status === 'installing' &&
+                runtime.currentPhase === K8S_CREATE_INITIAL_AGENT &&
+                runtime.primaryAgentId === null &&
                 !!input.agentCreateId
             if (
-                !current ||
-                (input.agentCreateId
-                    ? !ownedPending
-                    : current.currentPhase === K8S_CREATE_INITIAL_AGENT ||
-                      current.currentPhase === K8S_CREATE_CLEANUP_PENDING)
+                input.agentCreateId
+                    ? !ownedInstalling
+                    : runtime.currentPhase === K8S_CREATE_INITIAL_AGENT ||
+                      runtime.currentPhase === K8S_CREATE_CLEANUP_PENDING
             )
                 throw new ConflictException({
                     code: 'CONTAINER_NOT_READY',
                     message: 'container is not ready for another agent'
                 })
-            runtime = current
         }
-        if (!supportsLiveAgents(runtime.framework))
-            throw new ConflictException(
-                `framework ${runtime.framework} does not support add-agent`
-            )
         const isCodingFramework = frameworkKind(runtime.framework) === 'coding'
+        // Coding frameworks keep one workspace per agent on every placement;
+        // a sandbox's service frameworks do as well (one profile each).
         const isCodingAgentRuntime =
-            runtime.kind === 'sprites' ||
-            (runtime.kind === 'k8s' && isCodingFramework) ||
-            (runtime.kind === 'daemon' && isCodingFramework)
+            ctx.placement === 'sprites' || isCodingFramework
         if (isCodingAgentRuntime && input.cloneFrom)
             throw new BadRequestException(
                 'cloneFrom is not supported on coding-agent runtimes'
@@ -190,8 +170,8 @@ export class RuntimeAgentAttachService {
         // and every chat session binds to, as on a sandbox; not a profile
         // pushed beside it (ADR-0035).
         const builtInProfile =
-            runtime.kind === 'k8s' && runtime.primaryAgentId === null
-                ? serviceBuiltInProfile(runtime)
+            ctx.placement === 'k8s' && runtime.primaryAgentId === null
+                ? serviceBuiltInProfile(ctx)
                 : null
         if (builtInProfile && (workspace || input.cloneFrom))
             throw new BadRequestException(
@@ -222,12 +202,12 @@ export class RuntimeAgentAttachService {
             const res = builtInProfile
                 ? await builtInProfileAgent(
                       adapter,
-                      runtime,
+                      ctx,
                       agentId,
                       builtInProfile
                   )
                 : await adapter.addAgent({
-                      runtime,
+                      ...ctx,
                       primaryAgentId: runtime.primaryAgentId ?? null,
                       agentId,
                       internalId,
@@ -238,43 +218,33 @@ export class RuntimeAgentAttachService {
                   })
             const now = new Date()
             const workspacePath = res.workspace ?? runtime.mountPath
+            const mountPath = isCodingAgentRuntime
+                ? workspacePath
+                : runtime.mountPath
             const newAgent: NewAgent = {
                 id: agentId,
                 userId: runtime.userId,
                 runtimeId: runtime.id,
                 framework: runtime.framework,
-                runtime: runtime.kind,
                 name: displayName,
                 internalId: res.internalId,
-                status: input.agentCreateId ? 'pending' : 'running',
+                status: input.agentCreateId ? 'pending' : 'ready',
                 model: res.model,
                 modelProviderId: inheritedProviderId,
                 extras: workspace
                     ? workspaceExtras(false, res.extras)
                     : res.extras,
                 workspacePath,
-                mountPath: isCodingAgentRuntime
-                    ? workspacePath
-                    : runtime.mountPath,
+                mountPath,
                 fileRoots: buildFileRoots({
                     framework: runtime.framework,
-                    runtime: runtime.kind,
-                    mountPath: isCodingAgentRuntime
-                        ? workspacePath
-                        : runtime.mountPath,
-                    homeDir: runtime.homeDir,
-                    ...(runtime.kind === 'k8s' && workspace
+                    runtime: ctx.placement,
+                    mountPath,
+                    homeDir: ctx.host?.homeDir,
+                    ...(ctx.placement === 'k8s' && workspace
                         ? { workspaceTransport: 'pod-exec' as const }
                         : {})
                 }),
-                namespace: runtime.namespace,
-                ingressHost: runtime.ingressHost,
-                spriteName: runtime.spriteName,
-                spriteId: runtime.spriteId,
-                clusterId: runtime.clusterId,
-                daemonId: runtime.daemonId,
-                hostId: runtime.hostId,
-                accountId: runtime.accountId,
                 startedAt: now,
                 lastBootstrappedAt: now,
                 lastReconciledAt: now
@@ -292,7 +262,7 @@ export class RuntimeAgentAttachService {
                     await input.assertAgentCreateActive?.()
                     if (isCodingAgentRuntime) {
                         await adapter.removeAgent({
-                            runtime,
+                            ...ctx,
                             agent: {
                                 ...newAgent,
                                 createdAt: now,
@@ -364,24 +334,32 @@ export class RuntimeAgentAttachService {
                 userId: inserted.userId,
                 agentId: inserted.id,
                 framework: inserted.framework,
-                runtime: inserted.runtime
+                runtime: ctx.placement
             })
             // A created agent's bootstrap writes its context doc; one added
             // to a sandbox that is already there runs none, so it is written
-            // now. A daemon's arrives with its configuration delivery.
-            if (inserted.runtime === 'sprites' && isCodingAgentRuntime)
+            // now. A local machine's arrives with its configuration delivery.
+            if (ctx.placement === 'sprites' && isCodingAgentRuntime)
                 await this.contextDoc?.refreshOnChange(inserted)
             this.changes?.emit(inserted.userId, { resource: 'agent', resourceId: inserted.id, agentId: inserted.id, reason: 'created' })
-            return agentRowToSummary(inserted, null, false, {
-                controlUiEnabled: runtime.controlUiEnabled,
-                dashboardEnabled: runtime.dashboardEnabled,
-                dashboardState: runtime.dashboardState,
-                keepAliveEnabled: runtime.keepAliveEnabled
+            return agentRowToSummary({
+                agent: inserted,
+                runtime,
+                host: ctx.host,
+                daemon: ctx.daemon,
+                providerKind: ctx.providerKind
             })
         } catch (err) {
             if (err instanceof NotSupportedError)
                 throw new ConflictException(err.message)
             throw err
         }
+    }
+
+    // The runtime as its adapters see it, for callers that hold only the row.
+    async targetFor(runtime: AgentRuntimeRow): Promise<RuntimeContext> {
+        const ctx = await this.runtimeContext.forRuntime(runtime.id)
+        if (!ctx) throw new ConflictException(`runtime ${runtime.id} not found`)
+        return ctx
     }
 }

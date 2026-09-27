@@ -1,8 +1,7 @@
-import type {
-    QuotaWarningCode,
-    SpriteStatus
-} from '@manyfold/shared'
+import { agentAvailability, daemonOnline } from '@manyfold/shared'
+import type { QuotaWarningCode, RuntimeHostPowerState } from '@manyfold/shared'
 import {
+    ConflictException,
     Inject,
     Injectable,
     Logger,
@@ -15,17 +14,15 @@ import { and, count, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
+    hostDaemons,
     runtimeHosts,
     spriteQuotaSnapshots,
     users,
-    type Agent,
-    type AgentRuntimeRow,
     type Database,
     type RuntimeHostRow,
-    type SpritesAccount
+    type RuntimeProvider
 } from '@manyfold/db'
 import {
-    createClient as createSpritesClient,
     SpritesError,
     type ExecSessionInfo,
     type ListSpritesResponse,
@@ -33,9 +30,12 @@ import {
     type SpritesLogger
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { RuntimeProvidersService } from '@/modules/hosts/runtime-providers.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { patchProviderRef } from '@/modules/hosts/providers/generation'
+import { spritePowerState } from '@/modules/hosts/providers/sprites.provider'
+import { podPowerState } from '@/modules/hosts/providers/k8s.provider'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import {
     derivePodPhase,
@@ -45,8 +45,14 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import {
+    hostedOnProviderKind,
+    liveHostedHosts
+} from '@/modules/runtime-access/runtime-usage-counts'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
+import { k8sRef, spritesRef } from '@/modules/agent-runtimes/host-ref'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 
@@ -75,30 +81,9 @@ const SYNC_LEASE_TTL_MS = 45_000
 // (runtime_hosts.emptied_at). Empty-duration based — terminal activity does NOT
 // reset it; only attaching an agent (which clears emptied_at) does.
 const REAP_EMPTY_AGE_MS = 7 * 24 * 60 * 60_000
-// How long a revoked row is left alone before the reaper retries its delete:
-// long enough for the delete that revoked it to finish or fail on its own.
-const REVOKED_RETRY_AGE_MS = 5 * 60_000
-
-// What the reaper may remove: a sandbox agent-less past the idle window, or
-// one already revoked by a delete whose sprites.dev call failed — that row is
-// the delete's retry record and nothing else retries it (the status sync
-// only follows active hosts), so left alone it would keep its last
-// sprite_status forever. The age gate keeps the reaper off a delete still
-// in flight.
-const reapable = (cutoff: Date, revokedCutoff: Date) =>
-    or(
-        and(
-            eq(runtimeHosts.kind, 'sandbox'),
-            inArray(runtimeHosts.status, ['active', 'revoked']),
-            isNotNull(runtimeHosts.emptiedAt),
-            lte(runtimeHosts.emptiedAt, cutoff)
-        ),
-        and(
-            eq(runtimeHosts.kind, 'sandbox'),
-            eq(runtimeHosts.status, 'revoked'),
-            lte(runtimeHosts.updatedAt, revokedCutoff)
-        )
-    )
+// How long a `deleting` row is left alone before the reaper retries its
+// destroy: long enough for the delete that marked it to finish or fail.
+const DELETING_RETRY_AGE_MS = 5 * 60_000
 const REAPER_BATCH = 50
 // Backstop for exec sessions nobody is attached to any more. sprites.dev keeps
 // a session's process alive after the client socket goes away, so an exec that
@@ -122,16 +107,15 @@ const hourFloor = (epochMs: number): number =>
 
 // Wake-up cadence — short so adaptive intervals can resolve quickly.
 const WAKEUP_INTERVAL_MS = 1_500
-// While any sprite in the account is currently executing (running on
-// sprites.dev), sample fast so we catch the running→warm transition
+// While any sprite in the provider is currently executing (running on
+// sprites.dev), sample fast so we catch the running→suspended transition
 // (~30–45s idle on Fly's side) promptly after a turn finishes.
 const SPRITE_FAST_INTERVAL_MS = 3_000
-// `warm` is the long-tail idle state — Fly keeps the snapshot warm for hours
-// or days; `warm→cold` is an unbounded host-eviction event with no public
-// timeout. Polling fast while warm wastes API calls without changing the UX
-// (warm and cold both wake in <1s, so they're functionally identical to the
-// user). Slow cadence here both backs off load and is sufficient to
-// eventually catch a real eviction.
+// `suspended` (warm) is the long-tail idle state — Fly keeps the snapshot warm
+// for hours or days; warm→cold is an unbounded host-eviction event with no
+// public timeout. Polling fast there wastes API calls without changing the UX
+// (both wake in <1s). Slow cadence backs off load and still catches a real
+// eviction eventually.
 const SPRITE_SLOW_INTERVAL_MS = 30_000
 // K8s pod state changes are not bursty; a steady 10s cadence is fine.
 const K8S_INTERVAL_MS = 10_000
@@ -145,26 +129,12 @@ const MAX_BACKOFF_MS = 5 * 60_000
 // before paying the getSprite confirmation call.
 const SPRITE_MISSING_CONFIRM_MS = 2 * 60_000
 // Absence evidence older than this likely predates a sync blackout (process
-// pause / account backoff) — re-arm instead of confirming against a single
-// fresh listing. Mirrors ORPHAN_STALE_MS in agent-reconcile.
+// pause / provider backoff) — re-arm instead of confirming against a single
+// fresh listing.
 const SPRITE_MISSING_STALE_MS = 5 * SPRITE_MISSING_CONFIRM_MS
-// createSprite → listing visibility may lag; freshly provisioned runtimes
-// never enter the missing-sprite window.
+// createSprite → listing visibility may lag; freshly provisioned hosts never
+// enter the missing-sprite window.
 const SPRITE_PROVISION_GRACE_MS = 10 * 60_000
-
-const VALID_STATUSES = new Set<SpriteStatus>(['cold', 'warm', 'running'])
-
-const normalizeStatus = (raw: unknown): SpriteStatus | null => {
-    if (typeof raw !== 'string') return null
-    return VALID_STATUSES.has(raw as SpriteStatus)
-        ? (raw as SpriteStatus)
-        : null
-}
-
-// Only `running` (actively executing on sprites.dev) is "hot" — `warm` is the
-// idle steady state and using slow cadence there is correct. See the comment
-// on SPRITE_SLOW_INTERVAL_MS above.
-const isHotSpriteStatus = (s: SpriteStatus | null): boolean => s === 'running'
 
 // running_limit / warm_limit are optional in the envelope; an older or partial
 // vendor response must record "unknown" (null) rather than a bogus 0, which
@@ -224,22 +194,26 @@ const execCommandHead = (command: string | undefined): string =>
 const backoffMs = (count: number): number =>
     Math.min(SPRITE_SLOW_INTERVAL_MS * 2 ** Math.min(count, 5), MAX_BACKOFF_MS)
 
+// Shared by the gone marker (write) and the revive scan (match) — the exact
+// string is what scopes revival to our own failures.
+export const spriteGoneReason = (spriteName: string): string =>
+    `sprite ${spriteName} not found on sprites.dev`
+
+const runningSpritesHosts = () =>
+    and(liveHostedHosts('sprites'), eq(runtimeHosts.powerState, 'running'))
+
 @Injectable()
 export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     private readonly log = new Logger(SpriteStatusSyncService.name)
     private timer: NodeJS.Timeout | null = null
     private inflight = false
-    private readonly accountFailures = new Map<string, FailureState>()
-    private readonly accountNextEligibleAt = new Map<string, number>()
+    private readonly providerFailures = new Map<string, FailureState>()
+    private readonly providerNextEligibleAt = new Map<string, number>()
     private readonly podHostFailures = new Map<string, FailureState>()
     private readonly podHostNextEligibleAt = new Map<string, number>()
-    private readonly readyEmitted = new Set<string>()
     private readonly quotaNextEligibleAt = new Map<string, number>()
-    // runtimeId → epoch ms of the first listing missing the runtime's sprite.
-    // In-memory only: a restart just restarts the confirmation window.
-    private readonly spriteMissingSince = new Map<string, number>()
-    // hostId → epoch ms of first listing missing an agent-less sandbox host's
-    // VM. In-memory; a restart re-arms the window.
+    // hostId → epoch ms of the first listing missing the host's VM. In-memory
+    // only: a restart just restarts the confirmation window.
     private readonly hostSpriteMissingSince = new Map<string, number>()
     private nextSnapshotAt = 0
     private nextKeepAliveReconcileAt = 0
@@ -252,8 +226,9 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
-        private readonly k8s: KubernetesService,
+        private readonly hosts: HostsService,
+        private readonly providers: RuntimeProvidersService,
+        private readonly hostClients: HostProviderClients,
         private readonly broadcaster: SpriteStatusBroadcaster,
         private readonly telemetry: TelemetryService,
         private readonly spriteStorage: SpriteStorageService,
@@ -261,6 +236,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         private readonly adminSettings: AdminSettingsService,
         private readonly keepAliveLease: SpriteKeepAliveLeaseService,
         private readonly activeDuration: SandboxActiveDurationService,
+        private readonly lifecycle: HostedHostLifecycleService,
         @Optional() private readonly serviceLeases?: ServiceLeaseService
     ) {}
 
@@ -303,8 +279,8 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Only the tick loop is leader-gated. On-demand paths — refreshSandboxHost
-    // (the panel refresh button) and publishStatus (chat-originated wakes) —
-    // must keep working from any instance. Manually constructed instances
+    // (the panel refresh button) and publishHostPower (chat-originated wakes)
+    // — must keep working from any instance. Manually constructed instances
     // (tests) have no lease service and behave as the sole leader.
     private async acquireLeadership(): Promise<boolean> {
         if (!this.serviceLeases) return true
@@ -350,34 +326,37 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    // Delete sandboxes that have been agent-less past the idle window. Each is
-    // re-confirmed empty + still-expired under the per-user lock (serializes
-    // against attach, which clears emptied_at) before its VM + row are removed.
+    // Delete sandboxes that have been agent-less past the idle window, and
+    // retry hosts whose destroy never confirmed. Both go through the one host
+    // delete path (R8), which re-confirms emptiness under the per-user lock.
     private async tickReaper(): Promise<void> {
         const now = Date.now()
         if (now < this.nextReaperAt) return
         this.nextReaperAt = now + REAPER_INTERVAL_MS
         const cutoff = new Date(now - REAP_EMPTY_AGE_MS)
-        const revokedCutoff = new Date(now - REVOKED_RETRY_AGE_MS)
-        let candidates: Array<{
-            id: string
-            userId: string
-            accountId: string | null
-            spriteName: string | null
-        }>
+        const deletingCutoff = new Date(now - DELETING_RETRY_AGE_MS)
+        let candidates: Array<{ id: string; status: string }>
         try {
-            // 'revoked' is included so a host whose earlier reap attempt died
-            // between claim and delete (e.g. a failed settle) is retried
-            // instead of leaking its row + VM forever.
             candidates = await this.db
-                .select({
-                    id: runtimeHosts.id,
-                    userId: runtimeHosts.userId,
-                    accountId: runtimeHosts.accountId,
-                    spriteName: runtimeHosts.spriteName
-                })
+                .select({ id: runtimeHosts.id, status: runtimeHosts.status })
                 .from(runtimeHosts)
-                .where(reapable(cutoff, revokedCutoff))
+                .where(
+                    and(
+                        eq(runtimeHosts.kind, 'hosted'),
+                        hostedOnProviderKind('sprites'),
+                        or(
+                            and(
+                                eq(runtimeHosts.status, 'ready'),
+                                isNotNull(runtimeHosts.emptiedAt),
+                                lte(runtimeHosts.emptiedAt, cutoff)
+                            ),
+                            and(
+                                eq(runtimeHosts.status, 'deleting'),
+                                lte(runtimeHosts.updatedAt, deletingCutoff)
+                            )
+                        )
+                    )
+                )
                 .limit(REAPER_BATCH)
         } catch (err) {
             this.log.warn(`reaper scan failed: ${describeError(err)}`)
@@ -385,73 +364,13 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         }
         for (const c of candidates) {
             try {
-                const claimed = await this.db.transaction(async (tx) => {
-                    await tx.execute(
-                        sql`select pg_advisory_xact_lock(hashtextextended(${c.userId}, 0))`
-                    )
-                    const [r] = await tx
-                        .select({ value: count() })
-                        .from(agentRuntimes)
-                        .where(eq(agentRuntimes.hostId, c.id))
-                    if (Number(r?.value ?? 0) > 0) return false
-                    const updated = await tx
-                        .update(runtimeHosts)
-                        .set({ status: 'revoked', updatedAt: new Date() })
-                        .where(
-                            and(
-                                eq(runtimeHosts.id, c.id),
-                                reapable(cutoff, revokedCutoff)
-                            )
-                        )
-                        .returning({ id: runtimeHosts.id })
-                    return updated.length > 0
-                })
-                if (!claimed) continue
-                // Settle any still-open running interval before the row vanishes
-                // (the ledger row outlives the host). Normally a no-op since the
-                // emptied host has long been idle, but a keep-alive bare sandbox
-                // can be running at reap time.
-                await this.activeDuration.settleHostNotRunning(
-                    c.id,
-                    c.userId,
-                    new Date()
-                )
-                if (c.accountId && c.spriteName) {
-                    const account = await this.accounts.getById(c.accountId)
-                    if (account)
-                        await this.clientFor(account)
-                            .deleteSprite(c.spriteName)
-                            .catch((err) => {
-                                if (
-                                    !(
-                                        err instanceof SpritesError &&
-                                        err.code === 'not_found'
-                                    )
-                                )
-                                    throw err
-                            })
-                }
-                await this.db
-                    .delete(runtimeHosts)
-                    .where(
-                        and(
-                            eq(runtimeHosts.id, c.id),
-                            eq(runtimeHosts.kind, 'sandbox')
-                        )
-                    )
-                // The sprite-runner daemon host on this VM is keyed by daemon_id,
-                // not host_id, so it survived the emptiness check that let this
-                // sandbox be reaped. Remove it with the VM it ran inside.
-                if (c.spriteName)
-                    await deleteSpriteRunnerHostForSprite(
-                        this.db,
-                        c.userId,
-                        c.spriteName
-                    )
+                await this.lifecycle.deleteHost(c.id)
                 this.log.warn(
-                    `reaped empty sandbox host ${c.id} (${c.spriteName})`
+                    `reaped ${c.status === 'deleting' ? 'stuck deleting' : 'empty'} sandbox host ${c.id}`
                 )
             } catch (err) {
+                // An agent attached since the scan: the host stays.
+                if (err instanceof ConflictException) continue
                 this.log.warn(
                     `reap failed for sandbox host ${c.id}: ${describeError(err)}`
                 )
@@ -463,34 +382,19 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     // hosts sprites.dev currently reports `running`: that is both the
     // population that bills active hours and the only one where a live session
     // can still be the thing holding the VM up. Note that SandboxesService.stop
-    // cannot do this job — it only removes agents, runtimes, services and
-    // tasks, so a host with none of those (the prod case) has nothing it can
-    // pull, and there is no vendor API to suspend a sprite outright.
+    // cannot do this job — it only removes runtimes, services and tasks, so a
+    // host with none of those (the prod case) has nothing it can pull, and
+    // there is no vendor API to suspend a sprite outright.
     private async tickExecSessionReaper(): Promise<void> {
         const now = Date.now()
         if (now < this.nextExecSessionReaperAt) return
         this.nextExecSessionReaperAt = now + EXEC_SESSION_REAPER_INTERVAL_MS
-        let hosts: Array<{
-            id: string
-            userId: string
-            accountId: string | null
-            spriteName: string | null
-        }>
+        let hosts: RuntimeHostRow[]
         try {
             hosts = await this.db
-                .select({
-                    id: runtimeHosts.id,
-                    userId: runtimeHosts.userId,
-                    accountId: runtimeHosts.accountId,
-                    spriteName: runtimeHosts.spriteName
-                })
+                .select()
                 .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.spriteStatus, 'running')
-                    )
-                )
+                .where(runningSpritesHosts())
                 .limit(REAPER_BATCH)
         } catch (err) {
             this.log.warn(
@@ -499,14 +403,10 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             return
         }
         for (const host of hosts) {
-            if (!host.accountId || !host.spriteName) continue
+            const ref = spritesRef(host)
+            if (!ref) continue
             try {
-                await this.reapExecSessionsOnHost({
-                    id: host.id,
-                    userId: host.userId,
-                    accountId: host.accountId,
-                    spriteName: host.spriteName
-                })
+                await this.reapExecSessionsOnHost(host, ref.spriteName)
             } catch (err) {
                 // A sprite the row still points at may already be gone; every
                 // other failure is worth a line so a persistently unreapable
@@ -520,32 +420,29 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    private async reapExecSessionsOnHost(host: {
-        id: string
-        userId: string
-        accountId: string
+    private async reapExecSessionsOnHost(
+        host: RuntimeHostRow,
         spriteName: string
-    }): Promise<void> {
-        const account = await this.accounts.getById(host.accountId)
-        if (!account) return
-        const client = this.clientFor(account)
+    ): Promise<void> {
+        const provider = await this.hostClients.providerForHost(host)
+        const client = this.clientFor(provider)
         const abandoned = abandonedExecSessions(
-            await client.listExecSessions(host.spriteName),
+            await client.listExecSessions(spriteName),
             Date.now(),
             EXEC_SESSION_MAX_IDLE_MS
         )
         for (const { session, idleMs } of abandoned) {
-            await client.killExecSession(host.spriteName, session.id)
+            await client.killExecSession(spriteName, session.id)
             const command = execCommandHead(session.command)
             // warn, not log: each one is a session that got past the
             // client-side kill in @manyfold/sprites, so it wants to be findable
             this.log.warn(
-                `killed abandoned exec session ${session.id} on ${host.spriteName} (host=${host.id} cmd=${command} idle=${Math.round(idleMs / 60_000)}m)`
+                `killed abandoned exec session ${session.id} on ${spriteName} (host=${host.id} cmd=${command} idle=${Math.round(idleMs / 60_000)}m)`
             )
             this.telemetry.event('sprite_exec_session.reaped', {
                 hostId: host.id,
                 userId: host.userId,
-                spriteName: host.spriteName,
+                spriteName,
                 sessionId: session.id,
                 command,
                 tty: session.tty === true,
@@ -590,20 +487,14 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         try {
             const cap =
                 await this.adminSettings.getCachedSpritesEffectiveCap()
-            // orgActive is per running sandbox VM (host-level sprite_status), the
+            // orgActive is per running sandbox VM (host-level power state), the
             // same grain as the hard cap in RuntimeAccessService
             // (reserveActiveSlot / spritesWholesaleHeadroom): a bare running
             // sandbox counts; co-resident agents share one VM and count once.
             const [row] = await this.db
                 .select({ value: count() })
                 .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        eq(runtimeHosts.spriteStatus, 'running')
-                    )
-                )
+                .where(runningSpritesHosts())
             const orgActive = Number(row?.value ?? 0)
             const softCap = Math.floor(
                 (cap.activeCap * cap.softThresholdPct) / 100
@@ -670,8 +561,8 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         provisioned: number
         storageBytes: number
     }> {
-        // Running/warm/cold are per sandbox VM (host-level sprite_status) so a
-        // bare sandbox counts; provisioned is every active sandbox host (incl.
+        // Running/warm/cold are per sandbox VM (host-level power state) so a
+        // bare sandbox counts; provisioned is every live sandbox host (incl.
         // agent-less). Storage is a host-level sum too (one whole-VM rootfs
         // reading per host — sprites.dev bills per VM). This hourly snapshot
         // feeds the timeseries charted beside the live (also per-host)
@@ -679,17 +570,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         // chart contradicts the cards.
         const statusRows = await this.db
             .select({
-                spriteStatus: runtimeHosts.spriteStatus,
+                powerState: runtimeHosts.powerState,
                 value: count()
             })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
-            )
-            .groupBy(runtimeHosts.spriteStatus)
+            .where(liveHostedHosts('sprites'))
+            .groupBy(runtimeHosts.powerState)
         let running = 0
         let warm = 0
         let cold = 0
@@ -697,36 +583,31 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         for (const r of statusRows) {
             const n = Number(r.value ?? 0)
             provisioned += n
-            if (r.spriteStatus === 'running') running = n
-            else if (r.spriteStatus === 'warm') warm = n
-            else if (r.spriteStatus === 'cold') cold = n
+            if (r.powerState === 'running') running = n
+            else if (r.powerState === 'suspended') warm = n
+            else if (r.powerState === 'stopped') cold = n
         }
         const [storageRow] = await this.db
             .select({
                 storage: sql<number>`coalesce(sum(${runtimeHosts.storageBytes}), 0)::bigint`
             })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
-            )
+            .where(liveHostedHosts('sprites'))
         const storageBytes = Number(storageRow?.storage ?? 0)
         return { running, warm, cold, provisioned, storageBytes }
     }
 
-    // Everyone with a quota worth evaluating, not just sprite owners. The
+    // Everyone with a quota worth evaluating, not just sandbox owners. The
     // channel / automation / API-request warnings apply to users who may own no
-    // sandbox at all, and gating on `agents.runtime = 'sprites'` would silently
-    // never fire for them — a warning that cannot reach its audience is worse
-    // than none, because it reads as covered.
+    // sandbox at all, and gating on hosted hosts would silently never fire for
+    // them — a warning that cannot reach its audience is worse than none,
+    // because it reads as covered.
     // Recent authenticated activity bounds evaluation work; it is not proof
     // of an SSE subscriber. Pending receipts are stamped only by a client ACK.
     private async usersForQuotaEvaluation(): Promise<string[]> {
         const rows = (await this.db.execute(sql`
             select user_id from (
-                select user_id from agents where runtime = 'sprites'
+                select user_id from runtime_hosts where kind = 'hosted'
                 union
                 select user_id from channels
                 union
@@ -762,24 +643,27 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async tickSprites(): Promise<void> {
-        const accountIds = await this.activeAccountIds()
-        for (const accountId of accountIds) {
-            const next = this.accountNextEligibleAt.get(accountId) ?? 0
+        const providerIds = await this.activeSpritesProviderIds()
+        for (const providerId of providerIds) {
+            const next = this.providerNextEligibleAt.get(providerId) ?? 0
             if (Date.now() < next) continue
             try {
-                const hot = await this.syncAccount(accountId)
-                this.accountFailures.delete(accountId)
+                const hot = await this.syncProvider(providerId)
+                this.providerFailures.delete(providerId)
                 const interval = hot
                     ? SPRITE_FAST_INTERVAL_MS
                     : SPRITE_SLOW_INTERVAL_MS
-                this.accountNextEligibleAt.set(accountId, Date.now() + interval)
+                this.providerNextEligibleAt.set(
+                    providerId,
+                    Date.now() + interval
+                )
             } catch (err) {
                 this.recordFailure(
-                    'account',
-                    accountId,
+                    'provider',
+                    providerId,
                     err,
-                    this.accountFailures,
-                    this.accountNextEligibleAt
+                    this.providerFailures,
+                    this.providerNextEligibleAt
                 )
             }
         }
@@ -789,30 +673,29 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         await this.db
             .update(runtimeHosts)
             .set({
-                podStatus: 'failed',
-                podPhase: null,
-                podFailureReason: 'provisioning did not finish',
+                status: 'failed',
+                failureReason: 'provisioning did not finish',
                 updatedAt: new Date()
             })
             .where(
                 and(
-                    eq(runtimeHosts.kind, 'pod'),
-                    eq(runtimeHosts.podStatus, 'provisioning'),
+                    eq(runtimeHosts.kind, 'hosted'),
+                    hostedOnProviderKind('k8s'),
+                    eq(runtimeHosts.status, 'provisioning'),
                     lte(
                         runtimeHosts.createdAt,
                         new Date(Date.now() - POD_HOST_PROVISION_DEADLINE_MS)
                     )
                 )
             )
-        // A host still provisioning shows its provisioning step in pod_phase;
-        // the pod's own phase takes over once it is ready.
         const hosts = await this.db
             .select()
             .from(runtimeHosts)
             .where(
                 and(
-                    eq(runtimeHosts.kind, 'pod'),
-                    eq(runtimeHosts.podStatus, 'ready')
+                    eq(runtimeHosts.kind, 'hosted'),
+                    hostedOnProviderKind('k8s'),
+                    eq(runtimeHosts.status, 'ready')
                 )
             )
         for (const host of hosts) {
@@ -837,101 +720,50 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    private async activeAccountIds(): Promise<string[]> {
-        // Union agent accounts with sandbox-host accounts: a bare sandbox (zero
-        // agents) is invisible to the agents table but its VM still needs status
-        // sync, so its account must be visited.
-        const [agentRows, hostRows] = await Promise.all([
-            this.db
-                .selectDistinct({ accountId: agents.accountId })
-                .from(agents)
-                .where(
-                    and(
-                        eq(agents.runtime, 'sprites'),
-                        isNotNull(agents.accountId)
-                    )
-                ),
-            this.db
-                .selectDistinct({ accountId: runtimeHosts.accountId })
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        isNotNull(runtimeHosts.accountId)
-                    )
+    // Every sprites provider with a live host on it: a bare sandbox (zero
+    // agents) still has a VM that needs status sync.
+    private async activeSpritesProviderIds(): Promise<string[]> {
+        const rows = await this.db
+            .selectDistinct({ providerId: runtimeHosts.providerId })
+            .from(runtimeHosts)
+            .where(
+                and(
+                    liveHostedHosts('sprites'),
+                    isNotNull(runtimeHosts.providerId)
                 )
-        ])
-        const ids = new Set<string>()
-        for (const r of [...agentRows, ...hostRows])
-            if (r.accountId) ids.add(r.accountId)
-        return [...ids]
+            )
+        return rows
+            .map((r) => r.providerId)
+            .filter((id): id is string => typeof id === 'string')
     }
 
     /**
-     * Returns true if any sprite in this account is currently hot
-     * (running/warm) — used to decide whether the next tick for this account
-     * should run on the fast or slow cadence.
+     * Returns true if any sprite on this provider is currently hot (running)
+     * — used to decide whether the next tick for this provider should run on
+     * the fast or slow cadence.
      */
-    private async syncAccount(accountId: string): Promise<boolean> {
-        const account = await this.accounts.getById(accountId)
-        if (!account) return false
+    private async syncProvider(providerId: string): Promise<boolean> {
+        const provider = await this.providers.findById(providerId)
+        if (!provider || provider.kind !== 'sprites') return false
 
-        const client = this.clientFor(account)
+        const client = this.clientFor(provider)
         const list = await client.listSprites()
         if (!list) return false
-        const byName = new Map<string, SpriteStatus | null>()
+        const byName = new Map<string, RuntimeHostPowerState>()
         const counts = { running: 0, warm: 0, cold: 0 }
         let anyHot = false
         for (const sprite of list.sprites) {
             const name = (sprite as { name?: unknown }).name
             if (typeof name !== 'string') continue
-            const status = normalizeStatus(sprite.status)
-            byName.set(name, status)
+            const status = sprite.status
+            byName.set(name, spritePowerState(status))
             if (status === 'running') counts.running += 1
             else if (status === 'warm') counts.warm += 1
             else if (status === 'cold') counts.cold += 1
-            if (isHotSpriteStatus(status)) anyHot = true
+            if (status === 'running') anyHot = true
         }
-        await this.recordVendorCapacity(account, list, counts)
-
-        const rows = await this.db
-            .select()
-            .from(agents)
-            .where(
-                and(
-                    eq(agents.accountId, accountId),
-                    eq(agents.runtime, 'sprites'),
-                    isNotNull(agents.spriteName)
-                )
-            )
-
-        const now = new Date()
-        for (const row of rows) {
-            if (!row.spriteName) continue
-            if (!byName.has(row.spriteName)) continue
-            const next = byName.get(row.spriteName) ?? null
-            if (next === row.spriteStatus) continue
-            if (row.spriteStatus === 'running' && next === 'warm') {
-                await this.spriteStorage.measureIfDue(row.id, 'status_sync')
-            }
-            await this.db
-                .update(agents)
-                .set({ spriteStatus: next, updatedAt: now })
-                .where(eq(agents.id, row.id))
-            this.broadcaster.emit(row.userId, {
-                agentId: row.id,
-                spriteName: row.spriteName,
-                spriteStatus: next,
-                k8sPodPhase: row.k8sPodPhase,
-                at: now.toISOString()
-            })
-            this.maybeEmitReady(row, next, now)
-        }
-
-        await this.detectDeletedSprites(client, rows, byName, now)
-        await this.syncSandboxHosts(client, accountId, byName, now)
-
+        await this.recordVendorCapacity(provider, list, counts)
+        await this.syncHosts(client, provider.id, byName, new Date())
         return anyHot
     }
 
@@ -947,7 +779,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
      * are account-level.
      */
     private async recordVendorCapacity(
-        account: SpritesAccount,
+        provider: RuntimeProvider,
         list: ListSpritesResponse,
         counts: { running: number; warm: number; cold: number }
     ): Promise<void> {
@@ -955,9 +787,9 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         const warmLimit = vendorLimit(list.warm_limit)
         try {
             const wrote = await this.adminSettings.recordSpritesVendorCapacity(
-                account.id,
+                provider.id,
                 {
-                    slug: account.slug,
+                    slug: provider.name,
                     runningLimit,
                     warmLimit,
                     running: counts.running,
@@ -967,13 +799,13 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             )
             if (wrote)
                 await this.emitWarmCapacityTelemetry(
-                    account,
+                    provider,
                     warmLimit,
                     counts.warm
                 )
         } catch (err) {
             this.log.warn(
-                `vendor capacity record failed for account=${account.slug}: ${(err as Error).message}`
+                `vendor capacity record failed for provider=${provider.name}: ${(err as Error).message}`
             )
         }
     }
@@ -985,7 +817,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     // caller, which only reaches this when an observation actually changed (or
     // every VENDOR_CAPS_REFRESH_MS while it sits pinned).
     private async emitWarmCapacityTelemetry(
-        account: SpritesAccount,
+        provider: RuntimeProvider,
         warmLimit: number | null,
         warm: number
     ): Promise<void> {
@@ -994,7 +826,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             await this.adminSettings.getCachedSpritesWholesaleCap()
         const softCap = Math.floor((warmLimit * softThresholdPct) / 100)
         const attrs = {
-            accountSlug: account.slug,
+            accountSlug: provider.name,
             warm,
             warmLimit,
             softCap,
@@ -1006,14 +838,14 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             this.telemetry.event('wholesale_warm_soft_cap', attrs)
     }
 
-    // Host-level sprite_status writer. Bare sandboxes (zero agents) are invisible
-    // to the agent loop in syncAccount, so the running-concurrency counters that
-    // read runtime_hosts.sprite_status depend on this pass; it also confirms +
-    // reaps an empty sandbox host whose VM vanished from the listing.
-    private async syncSandboxHosts(
+    // Host-level power writer (R4): the listing is mapped onto power_state,
+    // the running interval is accrued, and every agent on the host hears
+    // about the change. Nothing here touches runtime or agent rows. A host
+    // failed by the gone marker is revived when its VM shows up again.
+    private async syncHosts(
         client: SpritesClient,
-        accountId: string,
-        byName: Map<string, SpriteStatus | null>,
+        providerId: string,
+        byName: Map<string, RuntimeHostPowerState>,
         now: Date
     ): Promise<void> {
         const hosts = await this.db
@@ -1021,16 +853,24 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             .from(runtimeHosts)
             .where(
                 and(
-                    eq(runtimeHosts.accountId, accountId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active'),
-                    isNotNull(runtimeHosts.spriteName)
+                    eq(runtimeHosts.providerId, providerId),
+                    eq(runtimeHosts.kind, 'hosted'),
+                    inArray(runtimeHosts.status, ['ready', 'failed'])
                 )
             )
         const missing: RuntimeHostRow[] = []
         for (const host of hosts) {
-            if (!host.spriteName) continue
-            if (!byName.has(host.spriteName)) {
+            const ref = spritesRef(host)
+            if (!ref) continue
+            if (host.status === 'failed') {
+                if (
+                    host.failureReason === spriteGoneReason(ref.spriteName) &&
+                    byName.has(ref.spriteName)
+                )
+                    await this.reviveHost(host, now)
+                continue
+            }
+            if (!byName.has(ref.spriteName)) {
                 // Sprite vanished from the listing: settle any open running
                 // interval now so the dangling watermark can't mis-accrue if the
                 // VM reappears, then hand off to the deleted-host detector.
@@ -1044,12 +884,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                 continue
             }
             this.hostSpriteMissingSince.delete(host.id)
-            const next = byName.get(host.spriteName) ?? null
+            const next = byName.get(ref.spriteName) ?? 'unknown'
             // Accrue before the unchanged-status short-circuit: a host that stays
-            // 'running' across samples writes no status change but must still
+            // `running` across samples writes no status change but must still
             // advance the watermark + credit the elapsed seconds. Metering
             // failure is contained per host: letting it throw would abort the
-            // whole account pass and freeze sprite_status for every other host
+            // whole provider pass and freeze power_state for every other host
             // (phantom `running` rows then inflate the concurrency caps).
             try {
                 await this.activeDuration.accrue(host, next === 'running', now)
@@ -1058,37 +898,31 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     `active-duration accrue failed for host ${host.id}: ${describeError(err)}`
                 )
             }
-            if (next === host.spriteStatus) continue
+            if (next === host.powerState) continue
             // Host-level so a bare sandbox (zero agents, still billed for its
-            // rootfs) gets measured too; agent-bearing hosts dedupe against the
-            // agent-loop trigger via storage_measured_at.
-            if (host.spriteStatus === 'running' && next === 'warm')
+            // rootfs) gets measured too.
+            if (host.powerState === 'running' && next === 'suspended')
                 await this.spriteStorage.measureHostIfDue(host.id, 'status_sync')
-            await this.db
-                .update(runtimeHosts)
-                .set({ spriteStatus: next, updatedAt: now })
-                .where(eq(runtimeHosts.id, host.id))
-            this.broadcaster.emitHostUpdate(host.userId, {
-                hostId: host.id,
-                spriteStatus: next,
-                at: now.toISOString()
-            })
+            await this.hosts.setPower(host.id, next)
+            await this.broadcastPower(host, next, now)
         }
         if (missing.length > 0)
-            await this.detectDeletedSandboxHosts(client, missing, now)
+            await this.detectDeletedHosts(client, missing, now)
     }
 
-    // Empty sandbox hosts whose VM is gone from the listing. Agent-bearing hosts
-    // are left to detectDeletedSprites (which stops the runtime + keeps the row
-    // for revive); only zero-runtime hosts are removed here, after the same
-    // confirmation window used for agent sprites.
-    private async detectDeletedSandboxHosts(
+    // Hosts whose VM is gone from the listing, after the same confirmation
+    // window for agent-bearing and bare hosts alike. An empty host is deleted
+    // through the host delete path; one with agents is `failed` with the gone
+    // reason so its agents read as unavailable, and revives if the VM
+    // reappears (a control-plane incident, a false positive).
+    private async detectDeletedHosts(
         client: SpritesClient,
         hosts: RuntimeHostRow[],
         now: Date
     ): Promise<void> {
         for (const host of hosts) {
-            if (!host.spriteName) continue
+            const ref = spritesRef(host)
+            if (!ref) continue
             if (
                 now.getTime() - host.createdAt.getTime() <
                 SPRITE_PROVISION_GRACE_MS
@@ -1096,313 +930,189 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                 this.hostSpriteMissingSince.delete(host.id)
                 continue
             }
-            const [runtimeRow] = await this.db
-                .select({ value: count() })
-                .from(agentRuntimes)
-                .where(eq(agentRuntimes.hostId, host.id))
-            if (Number(runtimeRow?.value ?? 0) > 0) {
-                this.hostSpriteMissingSince.delete(host.id)
-                continue
-            }
             const firstMissedAt = this.hostSpriteMissingSince.get(host.id)
             if (firstMissedAt === undefined) {
                 this.hostSpriteMissingSince.set(host.id, now.getTime())
+                this.log.warn(
+                    `sprite ${ref.spriteName} missing from provider listing (host=${host.id}); awaiting confirmation`
+                )
                 continue
             }
             if (now.getTime() - firstMissedAt >= SPRITE_MISSING_STALE_MS) {
                 this.hostSpriteMissingSince.set(host.id, now.getTime())
-                continue
-            }
-            if (now.getTime() - firstMissedAt < SPRITE_MISSING_CONFIRM_MS)
-                continue
-            try {
-                await client.getSprite(host.spriteName)
-                this.hostSpriteMissingSince.delete(host.id)
-            } catch (err) {
-                if (err instanceof SpritesError && err.code === 'not_found') {
-                    // Atomic empty-guard: a racing attach that added a runtime
-                    // (and cleared emptied_at) keeps the host.
-                    await this.db.execute(sql`
-                        delete from runtime_hosts h
-                        where h.id = ${host.id}
-                          and h.kind = 'sandbox'
-                          and not exists (
-                              select 1 from agent_runtimes r
-                              where r.host_id = h.id
-                          )
-                    `)
-                    this.hostSpriteMissingSince.delete(host.id)
-                    this.log.warn(
-                        `sandbox host ${host.id} VM ${host.spriteName} gone; removed empty host`
-                    )
-                } else {
-                    this.log.warn(
-                        `getSprite confirm failed for sandbox host ${host.id} (${host.spriteName}): ${describeError(err)}`
-                    )
-                }
-            }
-        }
-    }
-
-    // A DB row whose sprite is absent from the account listing is otherwise
-    // skipped forever by the loop above, freezing a stale 'running' that
-    // defeats reconcile's sleep gate and leaks an occupancy slot (#107).
-    // deleteSprite only happens in teardown flows that also delete the DB
-    // rows, so "sprite absent while runtime ready" is always an anomaly.
-    private async detectDeletedSprites(
-        client: SpritesClient,
-        rows: Agent[],
-        byName: Map<string, SpriteStatus | null>,
-        now: Date
-    ): Promise<void> {
-        const missingByRuntime = new Map<string, Agent[]>()
-        const reviveRuntimeIds = new Set<string>()
-        for (const row of rows) {
-            if (!row.spriteName) continue
-            if (byName.has(row.spriteName)) {
-                this.spriteMissingSince.delete(row.runtimeId)
-                if (row.failureReason === spriteGoneReason(row.spriteName))
-                    reviveRuntimeIds.add(row.runtimeId)
-                continue
-            }
-            const missing = missingByRuntime.get(row.runtimeId) ?? []
-            missing.push(row)
-            missingByRuntime.set(row.runtimeId, missing)
-        }
-        if (missingByRuntime.size === 0 && reviveRuntimeIds.size === 0) return
-
-        const runtimes = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(
-                and(
-                    inArray(agentRuntimes.id, [
-                        ...new Set([
-                            ...missingByRuntime.keys(),
-                            ...reviveRuntimeIds
-                        ])
-                    ]),
-                    eq(agentRuntimes.kind, 'sprites')
-                )
-            )
-        const byId = new Map(runtimes.map((r) => [r.id, r]))
-        for (const runtimeId of missingByRuntime.keys())
-            if (!byId.has(runtimeId)) this.spriteMissingSince.delete(runtimeId)
-
-        for (const runtime of runtimes) {
-            if (reviveRuntimeIds.has(runtime.id)) {
-                await this.reviveSpriteRuntime(runtime, now)
-                continue
-            }
-            if (
-                runtime.status !== 'ready' ||
-                !runtime.spriteName ||
-                now.getTime() - runtime.createdAt.getTime() <
-                    SPRITE_PROVISION_GRACE_MS
-            ) {
-                this.spriteMissingSince.delete(runtime.id)
-                continue
-            }
-            const firstMissedAt = this.spriteMissingSince.get(runtime.id)
-            if (firstMissedAt === undefined) {
-                this.spriteMissingSince.set(runtime.id, now.getTime())
-                this.log.warn(
-                    `sprite ${runtime.spriteName} missing from account listing (runtime=${runtime.id}); awaiting confirmation`
-                )
-                continue
-            }
-            if (now.getTime() - firstMissedAt >= SPRITE_MISSING_STALE_MS) {
-                this.spriteMissingSince.set(runtime.id, now.getTime())
                 continue
             }
             if (now.getTime() - firstMissedAt < SPRITE_MISSING_CONFIRM_MS)
                 continue
             try {
                 // control-plane read; never wakes the VM
-                await client.getSprite(runtime.spriteName)
-                this.spriteMissingSince.delete(runtime.id)
+                await client.getSprite(ref.spriteName)
+                this.hostSpriteMissingSince.delete(host.id)
             } catch (err) {
                 if (err instanceof SpritesError && err.code === 'not_found') {
-                    await this.markSpriteDeleted(
-                        runtime,
-                        missingByRuntime.get(runtime.id) ?? [],
-                        now
-                    )
-                    this.spriteMissingSince.delete(runtime.id)
+                    await this.markHostGone(host, ref.spriteName, now)
+                    this.hostSpriteMissingSince.delete(host.id)
                 } else {
                     // transient/auth: keep the window armed, retry next tick
                     this.log.warn(
-                        `getSprite confirm failed for ${runtime.spriteName} (runtime=${runtime.id}): ${describeError(err)}`
+                        `getSprite confirm failed for host ${host.id} (${ref.spriteName}): ${describeError(err)}`
                     )
                 }
             }
         }
     }
 
-    private async markSpriteDeleted(
-        runtime: AgentRuntimeRow,
-        rows: Agent[],
+    private async markHostGone(
+        host: RuntimeHostRow,
+        spriteName: string,
         now: Date
     ): Promise<void> {
-        const reason = spriteGoneReason(runtime.spriteName ?? '')
-        // status guard + returning: with several API instances only the
-        // winner emits events; the agents update below stays unconditional
-        // because already-stopped rows can still carry a frozen spriteStatus.
-        const won = await this.db
-            .update(agentRuntimes)
-            .set({ status: 'stopped', failureReason: reason, updatedAt: now })
-            .where(
-                and(
-                    eq(agentRuntimes.id, runtime.id),
-                    eq(agentRuntimes.status, 'ready')
+        const reason = spriteGoneReason(spriteName)
+        const [agentRow] = await this.db
+            .select({ value: count() })
+            .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .where(eq(agentRuntimes.hostId, host.id))
+        const agentCount = Number(agentRow?.value ?? 0)
+        if (agentCount === 0) {
+            try {
+                await this.lifecycle.deleteHost(host.id)
+                this.log.warn(
+                    `sandbox host ${host.id} VM ${spriteName} gone; removed empty host`
                 )
-            )
-            .returning({ id: agentRuntimes.id })
-        await this.db
-            .update(agents)
+            } catch (err) {
+                this.log.warn(
+                    `delete of gone sandbox host ${host.id} failed: ${describeError(err)}`
+                )
+            }
+            return
+        }
+        // status guard + returning: with several API instances only the
+        // winner emits events.
+        const won = await this.db
+            .update(runtimeHosts)
             .set({
-                status: 'stopped',
-                spriteStatus: null,
+                status: 'failed',
                 failureReason: reason,
+                powerState: 'unknown',
                 updatedAt: now
             })
-            .where(eq(agents.runtimeId, runtime.id))
+            .where(
+                and(eq(runtimeHosts.id, host.id), eq(runtimeHosts.status, 'ready'))
+            )
+            .returning({ id: runtimeHosts.id })
         if (won.length === 0) return
         this.log.warn(
-            `${reason}; marking runtime ${runtime.id} and ${rows.length} agent(s) stopped`
+            `${reason}; marking host ${host.id} failed (${agentCount} agent(s))`
         )
-        for (const row of rows) {
-            this.broadcaster.emit(row.userId, {
-                agentId: row.id,
-                spriteName: row.spriteName,
-                spriteStatus: null,
-                k8sPodPhase: row.k8sPodPhase,
-                at: now.toISOString()
-            })
-        }
-        this.telemetry.event('agent.runtime.sprite_deleted', {
-            runtimeId: runtime.id,
-            userId: runtime.userId,
-            accountId: runtime.accountId,
-            spriteName: runtime.spriteName,
-            framework: runtime.framework,
-            agentCount: rows.length
+        await this.broadcastPower(
+            { ...host, status: 'failed', failureReason: reason },
+            'unknown',
+            now
+        )
+        this.telemetry.event('host.sprite_deleted', {
+            hostId: host.id,
+            userId: host.userId,
+            providerId: host.providerId,
+            spriteName,
+            agentCount
         })
     }
 
-    // Symmetric recovery (mirrors daemon-runtime-sync): if the sprite shows
-    // up in the listing again — false positive or control-plane incident —
-    // un-stop exactly what markSpriteDeleted stopped, nothing else.
-    private async reviveSpriteRuntime(
-        runtime: AgentRuntimeRow,
-        now: Date
-    ): Promise<void> {
-        if (!runtime.spriteName) return
-        const reason = spriteGoneReason(runtime.spriteName)
-        if (runtime.status !== 'stopped' || runtime.failureReason !== reason)
-            return
+    // Symmetric recovery: the VM showed up in the listing again, so the host
+    // is usable and exactly what the gone marker took away comes back.
+    private async reviveHost(host: RuntimeHostRow, now: Date): Promise<void> {
         const won = await this.db
-            .update(agentRuntimes)
+            .update(runtimeHosts)
             .set({ status: 'ready', failureReason: null, updatedAt: now })
             .where(
                 and(
-                    eq(agentRuntimes.id, runtime.id),
-                    eq(agentRuntimes.status, 'stopped'),
-                    eq(agentRuntimes.failureReason, reason)
+                    eq(runtimeHosts.id, host.id),
+                    eq(runtimeHosts.status, 'failed'),
+                    eq(runtimeHosts.failureReason, host.failureReason ?? '')
                 )
             )
-            .returning({ id: agentRuntimes.id })
+            .returning({ id: runtimeHosts.id })
         if (won.length === 0) return
-        await this.db
-            .update(agents)
-            .set({ status: 'running', failureReason: null, updatedAt: now })
-            .where(
-                and(
-                    eq(agents.runtimeId, runtime.id),
-                    eq(agents.failureReason, reason)
-                )
-            )
         this.log.warn(
-            `sprite ${runtime.spriteName} reappeared; reviving runtime ${runtime.id}`
+            `sprite for host ${host.id} reappeared; reviving the host`
         )
-        this.telemetry.event('agent.runtime.sprite_restored', {
-            runtimeId: runtime.id,
-            userId: runtime.userId,
-            accountId: runtime.accountId,
-            spriteName: runtime.spriteName,
-            framework: runtime.framework
+        this.telemetry.event('host.sprite_restored', {
+            hostId: host.id,
+            userId: host.userId,
+            providerId: host.providerId
         })
+        await this.broadcastPower(
+            { ...host, status: 'ready', failureReason: null },
+            host.powerState ?? 'unknown',
+            now
+        )
     }
 
-    private maybeEmitReady(
-        row: Pick<
-            Agent,
-            'id' | 'userId' | 'runtimeId' | 'runtime' | 'createdAt'
-        >,
-        next: SpriteStatus | string | null,
-        now: Date
-    ): void {
-        if (next !== 'running' && next !== 'Running') return
-        if (this.readyEmitted.has(row.id)) return
-        this.readyEmitted.add(row.id)
-        // NOT a provisioning latency: readyEmitted is per-process, so after an
-        // api restart every pre-existing agent re-emits and this reads as the
-        // agent record's age (days). Named for what it measures — see
-        // ops/axiom/monitors.md "agent.runtime.ready has no readiness metric".
-        this.telemetry.event('agent.runtime.ready', {
-            agentId: row.id,
-            userId: row.userId,
-            runtimeId: row.runtimeId,
-            runtime: row.runtime,
-            agentAgeMs: now.getTime() - new Date(row.createdAt).getTime()
-        })
-    }
-
-    // One pod per host (ADR-0035): its phase is the host's and every agent's
-    // on it, whichever framework runtime the agent belongs to.
+    // One pod per host (ADR-0035): its phase is the host's power, whichever
+    // framework runtime an agent on it belongs to.
     private async syncPodHost(host: RuntimeHostRow): Promise<void> {
-        if (!host.namespace) return
-        const client = await this.k8s.getClient(host.clusterId)
-        const pod = await fetchPodForHost(client, host.namespace, host.id)
+        const ref = k8sRef(host)
+        if (!ref) return
+        const client = await this.hostClients.k8sClientForHost(host)
+        const pod = await fetchPodForHost(client, ref.namespace, host.id)
         const phase = derivePodPhase(pod)
-
         const now = new Date()
-        if (phase !== host.podPhase)
-            await this.db
-                .update(runtimeHosts)
-                .set({ podPhase: phase, updatedAt: now })
-                .where(eq(runtimeHosts.id, host.id))
+        if (phase !== ref.podPhase)
+            await patchProviderRef(this.hosts, host.id, { podPhase: phase })
+        const power = podPowerState(phase)
+        if (power === host.powerState) return
+        await this.hosts.setPower(host.id, power)
+        await this.broadcastPower(host, power, now)
+    }
+
+    // The host's own event plus one per agent on it, with the availability
+    // each client would otherwise re-derive.
+    private async broadcastPower(
+        host: RuntimeHostRow,
+        powerState: RuntimeHostPowerState,
+        now: Date
+    ): Promise<void> {
         const rows = await this.db
-            .select()
-            .from(agents)
-            .where(and(eq(agents.hostId, host.id), eq(agents.runtime, 'k8s')))
+            .select({
+                agent: agents,
+                runtime: agentRuntimes,
+                daemon: hostDaemons
+            })
+            .from(agentRuntimes)
+            .innerJoin(agents, eq(agents.runtimeId, agentRuntimes.id))
+            .leftJoin(hostDaemons, eq(hostDaemons.hostId, agentRuntimes.hostId))
+            .where(eq(agentRuntimes.hostId, host.id))
+        const online = daemonOnline(rows[0]?.daemon ?? null, now.getTime())
+        this.broadcaster.emitHostUpdate(host.userId, {
+            hostId: host.id,
+            powerState,
+            daemonOnline: online,
+            at: now.toISOString()
+        })
         for (const row of rows) {
-            if (phase === row.k8sPodPhase) continue
-            await this.db
-                .update(agents)
-                .set({ k8sPodPhase: phase, updatedAt: now })
-                .where(eq(agents.id, row.id))
-            this.broadcaster.emit(row.userId, {
-                agentId: row.id,
-                spriteName: row.spriteName,
-                spriteStatus: row.spriteStatus,
-                k8sPodPhase: phase,
+            this.broadcaster.emit(row.agent.userId, {
+                agentId: row.agent.id,
+                hostId: host.id,
+                powerState,
+                availability: agentAvailability({
+                    agent: row.agent,
+                    runtime: row.runtime,
+                    host,
+                    daemonOnline: online
+                }),
                 at: now.toISOString()
             })
-            this.maybeEmitReady(row, phase, now)
         }
     }
 
-    private clientFor(account: SpritesAccount): SpritesClient {
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug,
-            logger: silentLogger
-        })
+    // Seam so tests can fake the sprites.dev control-plane client.
+    protected clientFor(provider: RuntimeProvider): SpritesClient {
+        return this.hostClients.spritesClientForProvider(provider, silentLogger)
     }
 
     private recordFailure(
-        kind: 'account' | 'pod host',
+        kind: 'provider' | 'pod host',
         key: string,
         err: unknown,
         failures: Map<string, FailureState>,
@@ -1423,189 +1133,113 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     /**
-     * Helper used by orchestrator/reconcile paths to publish a status change
-     * outside the periodic tick (e.g. set 'cold' immediately after sprite
-     * creation, or 'Running' for k8s pod after bootstrap completes). When the
-     * patch hints the sprite is now hot, also kicks the account's next tick
-     * to fire immediately so we re-poll on the fast cadence.
+     * Publish a host power change outside the periodic tick (a chat or
+     * terminal wake). Opens the accrual watermark the instant `running` is
+     * published so a short turn that is back to suspended before the next
+     * sample still credits from its start; the periodic pass settles it when
+     * the VM goes idle. When the host is now hot, its provider's next tick
+     * fires immediately so the release is seen on the fast cadence.
      */
-    async publishStatus(
-        agent: Pick<
-            Agent,
-            | 'id'
-            | 'userId'
-            | 'spriteName'
-            | 'spriteStatus'
-            | 'k8sPodPhase'
-            | 'accountId'
-            | 'hostId'
-        >,
-        patch: {
-            spriteStatus?: SpriteStatus | null
-            k8sPodPhase?: string | null
-        }
+    async publishHostPower(
+        host: Pick<RuntimeHostRow, 'id' | 'userId' | 'providerId'>,
+        state: RuntimeHostPowerState
     ): Promise<void> {
         this.log.log(
-            `publishStatus agentId=${agent.id} userId=${agent.userId} patch=${JSON.stringify(patch)}`
+            `publishHostPower hostId=${host.id} userId=${host.userId} state=${state}`
         )
         const now = new Date()
-        const update: Partial<Agent> = { updatedAt: now }
-        if ('spriteStatus' in patch) update.spriteStatus = patch.spriteStatus
-        if ('k8sPodPhase' in patch) update.k8sPodPhase = patch.k8sPodPhase
-        await this.db.update(agents).set(update).where(eq(agents.id, agent.id))
-        // Mirror sprite_status onto the host so host-level concurrency counters
-        // stay current between periodic syncs. Co-resident agents share the VM,
-        // so the host takes this agent's status.
-        if ('spriteStatus' in patch && agent.hostId) {
-            const nextStatus = patch.spriteStatus ?? null
-            await this.db
-                .update(runtimeHosts)
-                .set({
-                    spriteStatus: nextStatus,
-                    // Open the accrual watermark the instant we publish 'running'
-                    // (chat/terminal wake) so a short turn that's back to warm
-                    // before the next status sample still credits from its start.
-                    // coalesce keeps an already-open interval intact; the periodic
-                    // syncSandboxHosts pass settles it when the VM goes idle.
-                    // ms-precision ISO string, NOT a raw Date: postgres-js crashes
-                    // binding a JS Date interpolated into a sql`` fragment.
-                    ...(nextStatus === 'running'
-                        ? {
-                              activeAccrualSince: sql`coalesce(${runtimeHosts.activeAccrualSince}, ${now.toISOString()}::timestamptz)`
-                          }
-                        : {}),
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        eq(runtimeHosts.id, agent.hostId),
-                        eq(runtimeHosts.kind, 'sandbox')
-                    )
-                )
-            this.broadcaster.emitHostUpdate(agent.userId, {
-                hostId: agent.hostId,
-                spriteStatus: nextStatus,
-                at: now.toISOString()
+        const [updated] = await this.db
+            .update(runtimeHosts)
+            .set({
+                powerState: state,
+                powerChangedAt: sql`case when ${runtimeHosts.powerState} is distinct from ${state} then ${now.toISOString()}::timestamptz else ${runtimeHosts.powerChangedAt} end`,
+                // ms-precision ISO string, NOT a raw Date: postgres-js crashes
+                // binding a JS Date interpolated into a sql`` fragment.
+                ...(state === 'running'
+                    ? {
+                          activeAccrualSince: sql`coalesce(${runtimeHosts.activeAccrualSince}, ${now.toISOString()}::timestamptz)`
+                      }
+                    : {}),
+                updatedAt: now
             })
-        }
-        this.broadcaster.emit(agent.userId, {
-            agentId: agent.id,
-            spriteName: agent.spriteName,
-            spriteStatus:
-                'spriteStatus' in patch
-                    ? (patch.spriteStatus ?? null)
-                    : agent.spriteStatus,
-            k8sPodPhase:
-                'k8sPodPhase' in patch
-                    ? (patch.k8sPodPhase ?? null)
-                    : agent.k8sPodPhase,
-            at: now.toISOString()
-        })
-        if (agent.accountId && isHotSpriteStatus(patch.spriteStatus ?? null)) {
-            this.accountNextEligibleAt.set(agent.accountId, 0)
-        }
+            .where(
+                and(eq(runtimeHosts.id, host.id), eq(runtimeHosts.kind, 'hosted'))
+            )
+            .returning()
+        if (!updated) return
+        await this.broadcastPower(updated, state, now)
+        if (state === 'running' && host.providerId)
+            this.pokeProvider(host.providerId)
     }
 
-    // Force the account's next sprite sync to fire on the upcoming wakeup,
+    // Force the provider's next sprite sync to fire on the upcoming wakeup,
     // overriding the slow/backoff cadence. Used by non-chat activity (terminal
-    // open) so the running→warm release is reconciled on the fast cadence
+    // open) so the running→suspended release is reconciled on the fast cadence
     // instead of up to 30s later. listSprites stays the source of truth.
-    pokeAccount(accountId: string): void {
-        this.accountNextEligibleAt.set(accountId, 0)
+    pokeProvider(providerId: string): void {
+        this.providerNextEligibleAt.set(providerId, 0)
     }
 
     // On-demand single-host status refresh for the host detail "Refresh" button.
-    // The periodic pass lags (up to 30s on the warm/cold slow cadence), so we
-    // read this one sprite directly. getSprite is a control-plane read that never
-    // wakes the VM; we persist the status on the host row so the caller's HTTP
-    // response carries it, then poke the account so the periodic pass reconciles
-    // co-resident agents + SSE on the very next tick. Returns the fresh status.
+    // The periodic pass lags (up to 30s on the slow cadence), so we read this
+    // one sprite directly. getSprite is a control-plane read that never wakes
+    // the VM; the power is persisted on the host row so the caller's HTTP
+    // response carries it, then the provider is poked so the periodic pass
+    // reconciles co-resident agents + SSE on the very next tick.
     async refreshSandboxHost(
         host: RuntimeHostRow
-    ): Promise<SpriteStatus | null> {
-        if (host.kind !== 'sandbox' || !host.accountId || !host.spriteName)
-            return host.spriteStatus
-        const account = await this.accounts.getById(host.accountId)
-        if (!account) return host.spriteStatus
-        let status: SpriteStatus | null
+    ): Promise<RuntimeHostPowerState | null> {
+        const ref = spritesRef(host)
+        if (host.kind !== 'hosted' || !ref || !host.providerId)
+            return host.powerState
+        const provider = await this.providers.findById(host.providerId)
+        if (!provider) return host.powerState
+        let state: RuntimeHostPowerState
         try {
-            const sprite = await this.clientFor(account).getSprite(
-                host.spriteName
+            const sprite = await this.clientFor(provider).getSprite(
+                ref.spriteName
             )
-            status = normalizeStatus(sprite.status)
+            state = spritePowerState(sprite.status)
         } catch (err) {
             // A vanished sprite is a teardown anomaly the periodic detector
-            // owns; don't clobber the row here, just surface the last status.
+            // owns; don't clobber the row here, just surface the last state.
             if (err instanceof SpritesError && err.code === 'not_found')
-                return host.spriteStatus
+                return host.powerState
             throw err
         }
         const now = new Date()
-        // Manual refresh is another direct host-status writer; accrue here too so
-        // an interval that opened or closed between periodic samples isn't lost.
-        await this.activeDuration.accrue(host, status === 'running', now)
-        if (status !== host.spriteStatus) {
-            await this.db
-                .update(runtimeHosts)
-                .set({ spriteStatus: status, updatedAt: now })
-                .where(
-                    and(
-                        eq(runtimeHosts.id, host.id),
-                        eq(runtimeHosts.kind, 'sandbox')
-                    )
-                )
-            // Persisting here makes the poked periodic pass see the status as
+        // Manual refresh is another direct host-power writer; accrue here too
+        // so an interval that opened or closed between samples isn't lost.
+        await this.activeDuration.accrue(host, state === 'running', now)
+        if (state !== host.powerState) {
+            await this.hosts.setPower(host.id, state)
+            // Persisting here makes the poked periodic pass see the state as
             // unchanged and skip its emit — broadcast now or other open clients
             // never hear about this transition.
-            this.broadcaster.emitHostUpdate(host.userId, {
-                hostId: host.id,
-                spriteStatus: status,
-                at: now.toISOString()
-            })
+            await this.broadcastPower(host, state, now)
         }
-        this.pokeAccount(host.accountId)
-        return status
+        this.pokeProvider(host.providerId)
+        return state
     }
 
-    // Generalizes chat's markRuntimeActive sprite-status path to non-chat
-    // callers: on a sprites agent becoming active, kick the account onto the
-    // fast cadence and publish `running` if the row hasn't caught up yet. Always
-    // pokes (even when already `running`) so a stale slow cadence still flips
-    // fast. Never rejects — callers fire-and-forget.
-    async markSpriteRunning(agentId: string): Promise<void> {
+    // A turn or terminal on a sprites host is running: kick the provider onto
+    // the fast cadence and publish `running` if the row hasn't caught up yet.
+    // Always pokes (even when already `running`) so a stale slow cadence still
+    // flips fast. Never rejects — callers fire-and-forget.
+    async markHostRunning(hostId: string): Promise<void> {
         try {
-            const rows = await this.db
-                .select({
-                    id: agents.id,
-                    userId: agents.userId,
-                    runtime: agents.runtime,
-                    spriteName: agents.spriteName,
-                    spriteStatus: agents.spriteStatus,
-                    k8sPodPhase: agents.k8sPodPhase,
-                    accountId: agents.accountId,
-                    hostId: agents.hostId
-                })
-                .from(agents)
-                .where(eq(agents.id, agentId))
-                .limit(1)
-            const row = rows[0]
-            if (!row || row.runtime !== 'sprites') return
-            if (row.accountId) this.pokeAccount(row.accountId)
-            if (row.spriteStatus !== 'running') {
-                await this.publishStatus(row, { spriteStatus: 'running' })
-            }
+            const host = await this.hosts.findById(hostId)
+            if (!host || host.kind !== 'hosted' || !spritesRef(host)) return
+            if (host.providerId) this.pokeProvider(host.providerId)
+            if (host.powerState !== 'running')
+                await this.publishHostPower(host, 'running')
         } catch (err) {
             this.log.warn(
-                `markSpriteRunning failed agentId=${agentId}: ${(err as Error).message}`
+                `markHostRunning failed hostId=${hostId}: ${(err as Error).message}`
             )
         }
     }
 }
-
-// Shared by markSpriteDeleted (write) and reviveSpriteRuntime / the revive
-// scan (match) — the exact string is what scopes revival to our own stops.
-const spriteGoneReason = (spriteName: string): string =>
-    `sprite ${spriteName} not found on sprites.dev`
 
 const silentLogger: SpritesLogger = {
     debug: () => {},

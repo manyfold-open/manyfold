@@ -2763,10 +2763,8 @@ const formatStatusLabel = (status: AgentStatus, t: TFn): string => {
     switch (status) {
         case 'pending':
             return t('web.chat.agentStatus.pending')
-        case 'running':
-            return t('web.chat.agentStatus.running')
-        case 'stopped':
-            return t('web.chat.agentStatus.stopped')
+        case 'ready':
+            return t('web.chat.agentStatus.ready')
         case 'failed':
             return t('web.chat.agentStatus.failed')
         default:

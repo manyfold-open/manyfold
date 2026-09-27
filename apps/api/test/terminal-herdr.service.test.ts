@@ -14,6 +14,15 @@ import {
 } from '@manyfold/shared'
 import { DaemonRpcResponseError } from '../src/modules/daemon/daemon-registry.service'
 import { TerminalHerdrService } from '../src/modules/terminal/terminal-herdr.service'
+import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
+import { daemonOnline } from '@manyfold/shared'
+import {
+    contextOf,
+    daemonRow,
+    hostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 // Handing a session to herdr (ADR-0031): the gates, the hold taken before
 // anything runs, and the hold given back when herdr refuses.
@@ -22,10 +31,7 @@ const AGENT: Record<string, unknown> = {
     id: 'agt-1',
     userId: 'u1',
     name: 'Reviewer',
-    status: 'running',
-    runtime: 'daemon',
-    daemonId: 'dh-1',
-    hostId: null,
+    status: 'ready',
     runtimeId: 'rt-1',
     framework: 'claude-code',
     workspacePath: '/home/me/ws',
@@ -33,9 +39,10 @@ const AGENT: Record<string, unknown> = {
     extras: {}
 }
 
-const HOST: Record<string, unknown> = {
-    id: 'dh-1',
-    clientFeatures: [DAEMON_FEATURE_PTY_COMMAND, DAEMON_FEATURE_HERDR_TERMINAL]
+// The machine's daemon: it knows herdr and can run a command in a pty.
+const DAEMON: Partial<HostDaemonRow> = {
+    clientFeatures: [DAEMON_FEATURE_PTY_COMMAND, DAEMON_FEATURE_HERDR_TERMINAL],
+    herdrVersion: '0.9.1'
 }
 
 const SESSION: Record<string, unknown> = {
@@ -54,7 +61,7 @@ const codeOf = (err: unknown): string | undefined =>
 const harness = (
     overrides: {
         agent?: Record<string, unknown>
-        host?: Record<string, unknown> | null
+        daemon?: Partial<HostDaemonRow> | null
         online?: boolean
         session?: Record<string, unknown> | null
         resolve?: Record<string, unknown>
@@ -69,10 +76,9 @@ const harness = (
             env: Record<string, string>,
             cwd: string | null
         ) => Promise<string>
-        // The sprites arm: the sandbox row and what resolving its runner
-        // gives; absent, the service was built without those services.
-        sandbox?: Record<string, unknown> | null
-        runner?: { host: Record<string, unknown> | null; availability: string }
+        // The sprites arm: the agent's machine is a sandbox with these
+        // settings; its daemon is the runner.
+        sandbox?: Partial<RuntimeHostRow>
         row?: Record<string, unknown>
     } = {}
 ) => {
@@ -87,15 +93,42 @@ const harness = (
     const prepares: Array<[string, Record<string, string>, (string | null)?]> =
         []
     const agent = { ...AGENT, ...overrides.agent }
-    const host = overrides.host === null ? null : { ...HOST, ...overrides.host }
+    const host = overrides.sandbox
+        ? spritesHostRow({
+              id: 'sbx-1',
+              userId: 'u1',
+              terminalEnabled: true,
+              terminalModelCredentials: true,
+              ...overrides.sandbox
+          })
+        : hostRow({ id: 'dh-1', userId: 'u1' })
+    const daemon =
+        overrides.daemon === null
+            ? null
+            : daemonRow({
+                  hostId: host.id,
+                  userId: 'u1',
+                  ...DAEMON,
+                  ...(overrides.online === false
+                      ? { lastSeenAt: new Date(0) }
+                      : {}),
+                  ...overrides.daemon
+              })
+    const ctx = contextOf({
+        agent: agent as never,
+        runtime: runtimeRow({
+            id: 'rt-1',
+            userId: 'u1',
+            hostId: host.id,
+            framework: String(agent.framework)
+        }),
+        host,
+        daemon
+    })
     const session =
         overrides.session === null ? null : { ...SESSION, ...overrides.session }
     const service = new TerminalHerdrService(
-        { listForUser: async () => [{ agent }] } as never,
-        {
-            findById: async () => host,
-            isOnline: () => overrides.online ?? true
-        } as never,
+        { contextForCaller: async () => ctx } as never,
         { getSession: async () => session } as never,
         {
             resolve: async (args: Record<string, unknown>) => {
@@ -128,7 +161,7 @@ const harness = (
                 agentId: 'agt-1',
                 endedAt: null,
                 client: 'herdr',
-                daemonId: null,
+                hostId: null,
                 ...overrides.row
             })
         } as never,
@@ -178,16 +211,17 @@ const harness = (
                     : '--app_data_dir=../.manyfold/antigravity-cli/rt-1/app'
             }
         } as never,
-        ...(overrides.runner
-            ? [
-                  {
-                      resolveRuntimeHost: async () => overrides.runner
-                  } as never,
-                  {
-                      findHostById: async () => overrides.sandbox ?? null
-                  } as never
-              ]
-            : [])
+        {
+            // The runner manager's answer for a sandbox whose daemon is not
+            // online: here, a daemon that is offline stays offline.
+            ensure: async (args: { daemon: HostDaemonRow | null }) => ({
+                daemon: args.daemon,
+                online: daemonOnline(args.daemon),
+                fallbackReason: daemonOnline(args.daemon)
+                    ? undefined
+                    : 'runner_unavailable'
+            })
+        } as never
     )
     return {
         service,
@@ -311,21 +345,16 @@ test('a running turn or a session without a ref is refused before any row exists
 
 test('only a running agent on an online self-owned computer that advertises herdr can hand off', async () => {
     const cases: Array<[string, Parameters<typeof harness>[0], number]> = [
-        [
-            'a sprites agent where sandboxes cannot reach herdr',
-            { agent: { runtime: 'sprites', daemonId: null } },
-            409
-        ],
-        ['a stopped agent', { agent: { status: 'stopped' } }, 409],
+        ['a failed agent', { agent: { status: 'failed' } }, 409],
         ['an offline computer', { online: false }, 503],
         [
             'a daemon without herdr',
-            { host: { clientFeatures: [DAEMON_FEATURE_PTY_COMMAND] } },
+            { daemon: { clientFeatures: [DAEMON_FEATURE_PTY_COMMAND] } },
             409
         ],
         [
             'a daemon too old to run a command',
-            { host: { clientFeatures: [DAEMON_FEATURE_HERDR_TERMINAL] } },
+            { daemon: { clientFeatures: [DAEMON_FEATURE_HERDR_TERMINAL] } },
             409
         ],
         [
@@ -371,20 +400,13 @@ test('focus reaches the daemon only for a session herdr holds', async () => {
 
 // The sprites arm (ADR-0031): the sandbox's runner daemon hosts herdr, so
 // the row and the pane are addressed through it, not through the agent.
-const SPRITES_AGENT = {
-    runtime: 'sprites',
-    daemonId: null,
-    hostId: 'sbx-1',
-    runtimeId: 'rt-1'
-}
-const SANDBOX = {
-    id: 'sbx-1',
-    herdrVersion: '0.9.1',
+const SPRITES_AGENT = { runtimeId: 'rt-1' }
+const SANDBOX: Partial<RuntimeHostRow> = {
     terminalEnabled: true,
     terminalModelCredentials: true
 }
-const RUNNER = {
-    id: 'dh-runner',
+const RUNNER: Partial<HostDaemonRow> = {
+    herdrVersion: '0.9.1',
     clientFeatures: [DAEMON_FEATURE_PTY_COMMAND, DAEMON_FEATURE_HERDR_TERMINAL]
 }
 
@@ -392,14 +414,13 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     const h = harness({
         agent: SPRITES_AGENT,
         sandbox: SANDBOX,
-        runner: { host: RUNNER, availability: 'ok' }
+        daemon: RUNNER
     })
     const result = await h.service.open('u1', 'agt-1', 'cs-1', {})
     assert.equal(result.terminalId, 'tms_new')
-    assert.equal(h.created[0].runtime, 'sprites')
     assert.equal(h.created[0].hostId, 'sbx-1')
-    assert.equal(h.created[0].daemonId, 'dh-runner')
-    assert.equal(h.opens[0].daemonId, 'dh-runner')
+    assert.equal(h.opens[0].hostId, 'sbx-1')
+    assert.equal(h.opens[0].placement, 'sprites')
     // The sandbox opted in to lending the platform's credentials, and a
     // sandbox TUI gets them injected as the browser terminal does.
     assert.equal(h.resolves[0].modelCredentialsAllowed, true)
@@ -410,7 +431,7 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     const noLending = harness({
         agent: SPRITES_AGENT,
         sandbox: { ...SANDBOX, terminalModelCredentials: false },
-        runner: { host: RUNNER, availability: 'ok' }
+        daemon: RUNNER
     })
     await assert.rejects(
         noLending.service.open('u1', 'agt-1', 'cs-1', {}),
@@ -424,7 +445,7 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     const codex = harness({
         agent: { ...SPRITES_AGENT, framework: 'codex' },
         sandbox: { ...SANDBOX, terminalModelCredentials: false },
-        runner: { host: RUNNER, availability: 'ok' },
+        daemon: RUNNER,
         resolve: {
             resume: { command: ['codex', 'resume', 'ref-1'], env: {} },
             outcome: 'applied',
@@ -442,7 +463,7 @@ test('a sandbox needs herdr installed, its terminal enabled and a ready runner t
             {
                 agent: SPRITES_AGENT,
                 sandbox: { ...SANDBOX, terminalEnabled: false },
-                runner: { host: RUNNER, availability: 'ok' }
+                daemon: RUNNER
             },
             409
         ],
@@ -450,8 +471,8 @@ test('a sandbox needs herdr installed, its terminal enabled and a ready runner t
             'no herdr in the sandbox',
             {
                 agent: SPRITES_AGENT,
-                sandbox: { ...SANDBOX, herdrVersion: null },
-                runner: { host: RUNNER, availability: 'ok' }
+                sandbox: SANDBOX,
+                daemon: { ...RUNNER, herdrVersion: null }
             },
             409
         ],
@@ -460,7 +481,8 @@ test('a sandbox needs herdr installed, its terminal enabled and a ready runner t
             {
                 agent: SPRITES_AGENT,
                 sandbox: SANDBOX,
-                runner: { host: RUNNER, availability: 'starting' }
+                daemon: RUNNER,
+                online: false
             },
             503
         ],
@@ -469,12 +491,9 @@ test('a sandbox needs herdr installed, its terminal enabled and a ready runner t
             {
                 agent: SPRITES_AGENT,
                 sandbox: SANDBOX,
-                runner: {
-                    host: {
-                        ...RUNNER,
-                        clientFeatures: [DAEMON_FEATURE_PTY_COMMAND]
-                    },
-                    availability: 'ok'
+                daemon: {
+                    ...RUNNER,
+                    clientFeatures: [DAEMON_FEATURE_PTY_COMMAND]
                 }
             },
             409
@@ -497,19 +516,19 @@ test('focus for a sandbox session goes to the daemon the row names', async () =>
     const h = harness({
         agent: SPRITES_AGENT,
         sandbox: SANDBOX,
-        runner: { host: RUNNER, availability: 'ok' },
+        daemon: RUNNER,
         session: { holderTerminalId: 'tms_h', holderClient: 'herdr' },
-        row: { daemonId: 'dh-runner' }
+        row: { hostId: 'sbx-1' }
     })
     assert.deepEqual(await h.service.focus('u1', 'agt-1', 'cs-1'), {
         focused: true
     })
-    assert.deepEqual(h.focuses, [['dh-runner', 'tms_h']])
+    assert.deepEqual(h.focuses, [['sbx-1', 'tms_h']])
 })
 
 // pi joins herdr (its `pi` agent kind) wherever the CLI there knows it.
-const PI_HOST = {
-    id: 'dh-1',
+const PI_DAEMON: Partial<HostDaemonRow> = {
+    herdrVersion: '0.9.1',
     clientFeatures: [
         DAEMON_FEATURE_PTY_COMMAND,
         DAEMON_FEATURE_HERDR_TERMINAL,
@@ -520,7 +539,7 @@ const PI_HOST = {
 test('a pi conversation on a computer whose CLI knows pi goes to herdr as plain pi', async () => {
     const h = harness({
         agent: { framework: 'pi' },
-        host: PI_HOST,
+        daemon: PI_DAEMON,
         resolve: {
             resume: {
                 command: ['pi', '--session-id', 'ref-1', '--approve'],
@@ -559,10 +578,7 @@ test('a sandbox pi on the platform key gets its view built by the runner before 
     const h = harness({
         agent: { ...SPRITES_AGENT, framework: 'pi' },
         sandbox: SANDBOX,
-        runner: {
-            host: { ...RUNNER, clientFeatures: PI_HOST.clientFeatures },
-            availability: 'ok'
-        },
+        daemon: { ...RUNNER, clientFeatures: PI_DAEMON.clientFeatures },
         resolve: {
             resume: {
                 command: [
@@ -588,7 +604,7 @@ test('a sandbox pi on the platform key gets its view built by the runner before 
     })
     await h.service.open('u1', 'agt-1', 'cs-1', {})
     assert.equal(h.prepares.length, 1)
-    assert.equal(h.prepares[0][0], 'dh-runner')
+    assert.equal(h.prepares[0][0], 'sbx-1')
     assert.equal(h.prepares[0][1].MF_PI_VIEW, 'rt-1')
     const resume = h.opens[0].resume as {
         command: string[]
@@ -611,10 +627,7 @@ test('a sandbox pi on the platform key gets its view built by the runner before 
     const failed = harness({
         agent: { ...SPRITES_AGENT, framework: 'pi' },
         sandbox: SANDBOX,
-        runner: {
-            host: { ...RUNNER, clientFeatures: PI_HOST.clientFeatures },
-            availability: 'ok'
-        },
+        daemon: { ...RUNNER, clientFeatures: PI_DAEMON.clientFeatures },
         resolve: {
             resume: {
                 command: [
@@ -660,10 +673,7 @@ test('a sandbox agy on the platform key starts in herdr as agy, on the view the 
             model: 'gemini-3.1-pro-low'
         },
         sandbox: SANDBOX,
-        runner: {
-            host: { ...RUNNER, clientFeatures: AGY_FEATURES },
-            availability: 'ok'
-        },
+        daemon: { ...RUNNER, clientFeatures: AGY_FEATURES },
         resolve: {
             resume: {
                 command: [
@@ -690,7 +700,7 @@ test('a sandbox agy on the platform key starts in herdr as agy, on the view the 
     await h.service.open('u1', 'agt-1', 'cs-1', {})
     assert.equal(h.resolves[0].model, 'gemini-3.1-pro-low')
     assert.equal(h.prepares.length, 1)
-    assert.equal(h.prepares[0][0], 'dh-runner')
+    assert.equal(h.prepares[0][0], 'sbx-1')
     assert.equal(h.prepares[0][1].MF_AGY_VIEW, 'rt-1')
     // In the folder herdr starts agy in, which the view then trusts.
     assert.equal(h.prepares[0][2], '/home/me/ws')
@@ -716,7 +726,7 @@ test('a sandbox agy on the platform key starts in herdr as agy, on the view the 
     // A herdr that does not know agy leaves the handoff to the browser.
     const older = harness({
         agent: { framework: 'antigravity-cli' },
-        host: {
+        daemon: {
             clientFeatures: AGY_FEATURES.filter(
                 (f) => f !== DAEMON_FEATURE_HERDR_AGY
             )

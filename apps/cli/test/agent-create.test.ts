@@ -40,9 +40,10 @@ const ndjsonCreateFetch = (
                     id: 'agt_new',
                     name: 'demo',
                     framework: 'codex',
-                    runtime: 'sprite',
+                    runtime: 'sprites',
                     status: 'ready',
-                    spriteName: 'sprite-1'
+                    availability: 'available',
+                    hostName: 'sandbox-1'
                 }
             }
         ]
@@ -134,7 +135,7 @@ test('agent create human output keeps the summary lines after streaming', async 
     const { out } = await runCreate(createArgs, ndjsonCreateFetch(captured))
     const rendered = out.join('\n')
     assert.match(rendered, /agt_new/)
-    assert.match(rendered, /sprite: sprite-1/)
+    assert.match(rendered, /host: sandbox-1/)
 })
 
 test('agent create sends an Antigravity CLI agent its Gemini key and agy model', async (t) => {

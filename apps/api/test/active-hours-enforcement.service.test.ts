@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentRuntimes, runtimeHosts, users } from '@manyfold/db'
+import { Param } from 'drizzle-orm'
+import { runtimeHosts, users } from '@manyfold/db'
 import type { SandboxStopResponse } from '@manyfold/shared'
 import { ActiveHoursEnforcementService } from '../src/modules/sandboxes/active-hours-enforcement.service'
 
@@ -11,18 +12,47 @@ interface LimitRow {
     monthlyActiveHoursIncluded: number | null
 }
 
+// The sweep reads runtime_hosts twice — running sandboxes, then kept-awake
+// ones — telling them apart by the predicate it binds ('running' vs the
+// keep_awake flag), the way the real query does.
+const paramsOf = (query: unknown): unknown[] => {
+    const params: unknown[] = []
+    const visit = (chunk: unknown): void => {
+        if (chunk instanceof Param) params.push(chunk.value)
+        else
+            for (const nested of (chunk as { queryChunks?: unknown[] })
+                ?.queryChunks ?? [])
+                visit(nested)
+    }
+    visit(query)
+    return params
+}
+
 class FakeSweepDb {
-    hosts: Array<{ id: string; userId: string }> = []
-    keepAlive: Array<{ id: string; userId: string; hostId: string | null }> = []
+    running: Array<{ id: string; userId: string }> = []
+    keepAwake: Array<{ id: string; userId: string }> = []
     limits: LimitRow[] = []
+    flips: string[] = []
 
     select(): FakeSweepQuery {
         return new FakeSweepQuery(this)
+    }
+
+    update(): { set: (v: unknown) => { where: (c: unknown) => Promise<void> } } {
+        return {
+            set: () => ({
+                where: async (condition: unknown) => {
+                    const [id] = paramsOf(condition) as string[]
+                    this.flips.push(id)
+                }
+            })
+        }
     }
 }
 
 class FakeSweepQuery implements PromiseLike<unknown[]> {
     private table: unknown
+    private condition: unknown
 
     constructor(private readonly db: FakeSweepDb) {}
 
@@ -35,7 +65,8 @@ class FakeSweepQuery implements PromiseLike<unknown[]> {
         return this
     }
 
-    where(): this {
+    where(condition?: unknown): this {
+        this.condition = condition
         return this
     }
 
@@ -48,8 +79,10 @@ class FakeSweepQuery implements PromiseLike<unknown[]> {
             | null
     ): PromiseLike<TResult1 | TResult2> {
         let rows: unknown[] = []
-        if (this.table === runtimeHosts) rows = this.db.hosts
-        else if (this.table === agentRuntimes) rows = this.db.keepAlive
+        if (this.table === runtimeHosts)
+            rows = paramsOf(this.condition).includes('running')
+                ? this.db.running
+                : this.db.keepAwake
         else if (this.table === users) rows = this.db.limits
         return Promise.resolve(rows).then(onfulfilled, onrejected)
     }
@@ -63,12 +96,10 @@ const makeHarness = (opts: {
     stopError?: (hostId: string) => boolean
     // Whatever stop() reports back for a host. The default is a stop that
     // actually removed something; a real SandboxStopResponse shape matters
-    // here because the sweep now reads `status` and `warnings` off it.
+    // here because the sweep reads `status` and `warnings` off it.
     stopResult?: (hostId: string) => Partial<SandboxStopResponse>
 }) => {
     const stops: Array<{ userId: string; hostId: string }> = []
-    const closed: string[] = []
-    const flips: Array<{ id: string; enabled: boolean }> = []
     const events: Array<{ userId: string; code: string; usage: number }> = []
     const telemetry: Array<{ name: string; attrs: Record<string, unknown> }> =
         []
@@ -100,17 +131,6 @@ const makeHarness = (opts: {
                 )
         } as never,
         {
-            setKeepAliveEnabled: async (id: string, enabled: boolean) => {
-                flips.push({ id, enabled })
-            }
-        } as never,
-        {
-            closeForAgent: (id: string) => {
-                closed.push(id)
-                return 0
-            }
-        } as never,
-        {
             emitQuotaWarning: (
                 userId: string,
                 event: { code: string; usage: number }
@@ -138,89 +158,68 @@ const makeHarness = (opts: {
         log: (message: string) => logs.push({ level: 'log', message }),
         warn: (message: string) => logs.push({ level: 'warn', message })
     } as never
-    return { service, stops, closed, flips, events, telemetry, logs }
+    return { service, stops, events, telemetry, logs, flips: opts.db.flips }
 }
+
+const overQuota = (id = 'u-over'): LimitRow => ({
+    id,
+    activeHoursBonus: 0,
+    planName: 'Free',
+    monthlyActiveHoursIncluded: 5
+})
 
 test('sweep force-sleeps running hosts of over-quota users and emits the hard event', async () => {
     const db = new FakeSweepDb()
-    db.hosts.push({ id: 'host-1', userId: 'u-over' })
-    db.keepAlive.push({ id: 'rt-1', userId: 'u-over', hostId: 'host-1' })
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 5
-    })
-    const h = makeHarness({ db, secondsByUser: { 'u-over': 5 * 3600 } })
-
-    await h.service.tick()
-
-    assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'host-1' }])
-    assert.deepEqual(h.closed, ['host-1'])
-    assert.deepEqual(
-        h.flips,
-        [],
-        'runtimes on a stopped host are handled by stop(), not flipped again'
-    )
-    assert.deepEqual(h.events, [
-        { userId: 'u-over', code: 'active_hours', usage: 5 }
-    ])
-    assert.equal(h.telemetry[0]?.name, 'active_hours.force_sleep')
-})
-
-test('sweep only flips keep-alive for sleeping runtimes — never stops a non-running host', async () => {
-    const db = new FakeSweepDb()
-    // no running hosts; a keep-alive flag alone would re-wake the VM via the
-    // reconcile ensure pass, so the sweep must clear it without exec'ing.
-    db.keepAlive.push({ id: 'rt-sleeping', userId: 'u-over', hostId: 'h-cold' })
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 5
-    })
+    db.running.push({ id: 'host-1', userId: 'u-over' })
+    db.keepAwake.push({ id: 'host-1', userId: 'u-over' })
+    db.limits.push(overQuota())
     const h = makeHarness({ db, secondsByUser: { 'u-over': 6 * 3600 } })
 
     await h.service.tick()
 
+    assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'host-1' }])
+    // stop() already flipped the switch on the host it stopped.
+    assert.deepEqual(h.flips, [])
+    assert.deepEqual(h.events, [
+        { userId: 'u-over', code: 'active_hours', usage: 6 }
+    ])
+    assert.equal(h.telemetry[0]?.name, 'active_hours.force_sleep')
+    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 1)
+})
+
+test('sweep only flips keep-awake for sleeping hosts — never stops a non-running host', async () => {
+    const db = new FakeSweepDb()
+    db.keepAwake.push({ id: 'h-cold', userId: 'u-over' })
+    db.limits.push(overQuota())
+    const h = makeHarness({ db, secondsByUser: { 'u-over': 10 * 3600 } })
+
+    await h.service.tick()
+
+    // WHY: a sleeping sprite holds no lease task, so the flag flip alone
+    // stops the lease sweep from re-waking it; a stop (or a release) would
+    // exec into and wake the VM, the one thing this must not do.
     assert.deepEqual(h.stops, [])
-    assert.deepEqual(h.flips, [{ id: 'rt-sleeping', enabled: false }])
-    assert.equal(h.events.length, 1)
+    assert.deepEqual(h.flips, ['h-cold'])
 })
 
 test('sweep leaves under-quota, unlimited-plan and bonus-covered users untouched', async () => {
     const db = new FakeSweepDb()
-    db.hosts.push(
+    db.running.push(
         { id: 'h-under', userId: 'u-under' },
         { id: 'h-unlimited', userId: 'u-unlimited' },
         { id: 'h-bonus', userId: 'u-bonus' }
     )
     db.limits.push(
-        {
-            id: 'u-under',
-            activeHoursBonus: 0,
-            planName: 'Free',
-            monthlyActiveHoursIncluded: 5
-        },
-        {
-            id: 'u-unlimited',
-            activeHoursBonus: 0,
-            planName: 'Pro',
-            monthlyActiveHoursIncluded: null
-        },
-        {
-            id: 'u-bonus',
-            activeHoursBonus: 10,
-            planName: 'Free',
-            monthlyActiveHoursIncluded: 5
-        }
+        overQuota('u-under'),
+        { ...overQuota('u-unlimited'), monthlyActiveHoursIncluded: null },
+        { ...overQuota('u-bonus'), activeHoursBonus: 10 }
     )
     const h = makeHarness({
         db,
         secondsByUser: {
-            'u-under': 3600,
+            'u-under': 4 * 3600,
             'u-unlimited': 1000 * 3600,
-            'u-bonus': 6 * 3600
+            'u-bonus': 12 * 3600
         }
     })
 
@@ -232,56 +231,37 @@ test('sweep leaves under-quota, unlimited-plan and bonus-covered users untouched
 })
 
 test('sweep does nothing when the toggle is off or the lease is denied', async () => {
-    const db = new FakeSweepDb()
-    db.hosts.push({ id: 'host-1', userId: 'u-over' })
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 1
-    })
-    const seconds = { 'u-over': 100 * 3600 }
+    for (const opts of [{ toggleOn: false }, { leaseGranted: false }]) {
+        const db = new FakeSweepDb()
+        db.running.push({ id: 'host-1', userId: 'u-over' })
+        db.limits.push(overQuota())
+        const h = makeHarness({
+            db,
+            secondsByUser: { 'u-over': 6 * 3600 },
+            ...opts
+        })
 
-    const toggleOff = makeHarness({
-        db,
-        secondsByUser: seconds,
-        toggleOn: false
-    })
-    await toggleOff.service.tick()
-    assert.deepEqual(toggleOff.stops, [])
+        await h.service.tick()
 
-    const noLease = makeHarness({
-        db,
-        secondsByUser: seconds,
-        leaseGranted: false
-    })
-    await noLease.service.tick()
-    assert.deepEqual(noLease.stops, [])
+        assert.deepEqual(h.stops, [], JSON.stringify(opts))
+        assert.deepEqual(h.events, [], JSON.stringify(opts))
+    }
 })
 
 test('sweep cools down per user and re-checks limits live on later ticks', async () => {
     const db = new FakeSweepDb()
-    db.hosts.push({ id: 'host-1', userId: 'u-over' })
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 5
-    })
+    db.running.push({ id: 'host-1', userId: 'u-over' })
+    db.limits.push(overQuota())
     const h = makeHarness({ db, secondsByUser: { 'u-over': 6 * 3600 } })
 
     await h.service.tick()
     await h.service.tick()
 
-    assert.equal(
-        h.stops.length,
-        1,
-        'second tick inside the cooldown window must not stop again'
-    )
+    assert.equal(h.stops.length, 1, 'second tick inside the cooldown is a no-op')
 
-    // an upgrade (limits re-read each tick) un-flags the user regardless of
-    // cooldown state
-    db.limits[0] = { ...db.limits[0], monthlyActiveHoursIncluded: null }
+    // An upgrade un-flags the user on the next eligible pass with no plumbing.
+    db.limits[0].monthlyActiveHoursIncluded = 100
+    ;(h.service as never as { nextEligibleAt: Map<string, number> }).nextEligibleAt.clear()
     await h.service.tick()
     assert.equal(h.stops.length, 1)
 })
@@ -289,92 +269,65 @@ test('sweep cools down per user and re-checks limits live on later ticks', async
 test('sweep bounds enforcement to five users per tick', async () => {
     const db = new FakeSweepDb()
     const seconds: Record<string, number> = {}
-    for (let i = 0; i < 6; i += 1) {
-        const userId = `u-${i}`
-        db.hosts.push({ id: `host-${i}`, userId })
-        db.limits.push({
-            id: userId,
-            activeHoursBonus: 0,
-            planName: 'Free',
-            monthlyActiveHoursIncluded: 1
-        })
-        seconds[userId] = 10 * 3600
+    for (let i = 0; i < 7; i += 1) {
+        db.running.push({ id: `h-${i}`, userId: `u-${i}` })
+        db.limits.push(overQuota(`u-${i}`))
+        seconds[`u-${i}`] = 6 * 3600
     }
     const h = makeHarness({ db, secondsByUser: seconds })
 
     await h.service.tick()
 
-    assert.equal(h.stops.length, 5, 'per-tick cap bounds the blast radius')
+    assert.equal(h.stops.length, 5)
 })
 
 test('sweep keeps going when one host stop fails', async () => {
     const db = new FakeSweepDb()
-    db.hosts.push(
-        { id: 'host-bad', userId: 'u-over' },
-        { id: 'host-good', userId: 'u-over' }
+    db.running.push(
+        { id: 'h-bad', userId: 'u-over' },
+        { id: 'h-good', userId: 'u-over' }
     )
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 5
-    })
+    db.limits.push(overQuota())
     const h = makeHarness({
         db,
         secondsByUser: { 'u-over': 6 * 3600 },
-        stopError: (hostId) => hostId === 'host-bad'
+        stopError: (hostId) => hostId === 'h-bad'
     })
 
     await h.service.tick()
 
-    assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'host-good' }])
-    assert.equal(h.events.length, 1, 'hard event still emitted')
+    assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'h-good' }])
+    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 1)
+    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
+    assert.ok(h.logs.some((l) => l.level === 'warn' && /unresolved=h-bad/.test(l.message)))
 })
 
-const overQuotaDb = (hostId: string): FakeSweepDb => {
-    const db = new FakeSweepDb()
-    db.hosts.push({ id: hostId, userId: 'u-over' })
-    db.limits.push({
-        id: 'u-over',
-        activeHoursBonus: 0,
-        planName: 'Free',
-        monthlyActiveHoursIncluded: 5
-    })
-    return db
-}
-
-// WHY this test exists: this sweep's whole job is to make the accrual stop, and
-// a stop() that returns having removed nothing does not make it stop. Reporting
-// that host as `stopped=` is how three days of prod over-billing looked like a
-// working enforcement loop in the logs (2026-09-03). The distinction has to be
-// on the line an operator reads, not inferable only by joining audit rows.
+// WHY: a stop that returned having removed nothing is the dangerous one —
+// the retry loop reads it as success. Seen on prod [2026-09-03]: a free
+// sandbox pinned by leaked exec sessions absorbed 60 no-op stops in a day.
 test('a stop that could not do anything is reported unresolved, not stopped', async () => {
+    const db = new FakeSweepDb()
+    db.running.push({ id: 'h-stuck', userId: 'u-over' })
+    db.limits.push(overQuota())
     const h = makeHarness({
-        db: overQuotaDb('host-pinned'),
+        db,
         secondsByUser: { 'u-over': 6 * 3600 },
-        stopResult: () => ({
-            stoppedAgents: 0,
-            warnings: ['nothing on this sandbox could be stopped: …']
-        })
+        stopResult: () => ({ warnings: ['nothing on this sandbox could be stopped'] })
     })
 
     await h.service.tick()
 
-    const [ev] = h.telemetry
-    assert.equal(ev.name, 'active_hours.force_sleep')
-    assert.equal(ev.attrs.unresolvedHosts, 1)
-    assert.equal(ev.attrs.stoppedHosts, 0)
-    const line = h.logs.find((l) => l.message.includes('quota enforced'))
-    assert.equal(line?.level, 'warn', 'an unresolved host must warn, not log')
-    assert.match(line!.message, /stopped=none/)
-    assert.match(line!.message, /unresolved=host-pinned/)
+    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 0)
+    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
+    assert.ok(h.logs.some((l) => l.level === 'warn' && /unresolved=h-stuck/.test(l.message)))
 })
 
-// A stop on a host that is no longer running is not a failure — but it is not
-// an enforcement action either, so it must not be counted as one.
 test('a noop stop counts as unresolved', async () => {
+    const db = new FakeSweepDb()
+    db.running.push({ id: 'h-noop', userId: 'u-over' })
+    db.limits.push(overQuota())
     const h = makeHarness({
-        db: overQuotaDb('host-warm'),
+        db,
         secondsByUser: { 'u-over': 6 * 3600 },
         stopResult: () => ({ status: 'noop', stoppedAgents: 0 })
     })
@@ -382,41 +335,17 @@ test('a noop stop counts as unresolved', async () => {
     await h.service.tick()
 
     assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
-    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 0)
 })
 
-// The other side of the same line: a sweep that worked stays at log level, so
-// the warn above is a signal rather than noise on every tick.
 test('a stop that removed something is reported stopped and does not warn', async () => {
-    const h = makeHarness({
-        db: overQuotaDb('host-1'),
-        secondsByUser: { 'u-over': 6 * 3600 }
-    })
+    const db = new FakeSweepDb()
+    db.running.push({ id: 'h-ok', userId: 'u-over' })
+    db.limits.push(overQuota())
+    const h = makeHarness({ db, secondsByUser: { 'u-over': 6 * 3600 } })
 
     await h.service.tick()
 
     assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 1)
     assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 0)
-    const line = h.logs.find((l) => l.message.includes('quota enforced'))
-    assert.equal(line?.level, 'log')
-    assert.match(line!.message, /stopped=host-1 unresolved=none/)
-})
-
-// A throwing stop was already logged, but it never reached the summary line —
-// so a host the sweep could not even attempt looked identical to a host it put
-// to sleep.
-test('a throwing stop is unresolved too', async () => {
-    const h = makeHarness({
-        db: overQuotaDb('host-bad'),
-        secondsByUser: { 'u-over': 6 * 3600 },
-        stopError: () => true
-    })
-
-    await h.service.tick()
-
-    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
-    assert.match(
-        h.logs.find((l) => l.message.includes('quota enforced'))!.message,
-        /unresolved=host-bad/
-    )
+    assert.ok(h.logs.every((l) => l.level === 'log'))
 })

@@ -55,7 +55,6 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'sprites'
     })
     for (const id of [targetId, otherTargetId, callerId])
         await db.insert(agents).values({
@@ -63,7 +62,6 @@ const buildHarness = async (): Promise<Harness> => {
             userId,
             name: `pgtest-${id}`,
             framework: 'claude-code',
-            runtime: 'sprites',
             runtimeId,
             internalId: `internal-${id}`
         })

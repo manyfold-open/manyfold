@@ -71,7 +71,7 @@ const harness = (consume?: (event: QuotaWarningEvent) => void) => {
             return result.promise
         }
     })
-    const handle = client.agents.streamSpriteStatus({
+    const handle = client.agents.streamHostStatus({
         onOpen: () => opened.resolve(),
         onQuotaWarning: consume,
         onUpdate: () => {

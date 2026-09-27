@@ -10,7 +10,7 @@ export const registerRuntime = (program: Command): void => {
     const cmd = program
         .command('runtime')
         .alias('agent-runtimes')
-        .description('Manage agent runtimes (the sprite/pod shell)')
+        .description('Manage agent runtimes (a framework on one of your computers)')
     registerRuntimeList(cmd, program)
     registerRuntimeGet(cmd, program)
     registerRuntimeDelete(cmd, program)

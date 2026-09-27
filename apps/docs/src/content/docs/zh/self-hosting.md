@@ -4,8 +4,8 @@ description: 在自己的基础设施上运行完整的 Manyfold 栈——安装
 order: 1
 ---
 开源版用一份 Docker Compose 文件跑起完整的栈——API、Web 工作台、管理后台。
-执行环境由你自带:在自己的机器上跑 `mf daemon`、接入 Kubernetes 集群,或在
-管理后台粘贴 sprites.dev 账号 token。
+执行环境由你自带:在自己的机器上跑 `mf daemon`,或在管理后台把 Kubernetes
+集群或 sprites.dev 组织注册为 runtime provider。
 
 ## 安装
 
@@ -181,8 +181,8 @@ STARTTLS(通常为 587 端口)。STARTTLS 不可用或升级失败时,不会发�
 ## 删除账号
 
 删除是管理员专属操作:管理后台 → Users → 用户详情 → Danger zone。发起删除
-即刻停用账号——所有会话吊销、全部登录方式封禁、automation 暂停、keep-alive
-关闭——并给用户发一封写明最终删除日期的邮件。
+即刻停用账号——所有会话吊销、全部登录方式封禁、automation 暂停、每个沙箱的
+保持唤醒开关关闭——并给用户发一封写明最终删除日期的邮件。
 
 硬删除在宽限期(默认 30 天,`MF_DELETION_GRACE_DAYS`)之后执行。宽限期内管
 理员可以恢复账号:登录封禁解除,但 automation 保持暂停直到手动重开。「立即
@@ -203,13 +203,13 @@ Agent 跑在你接入的计算机上,三条路:
   `mf login --api-url https://<your-api>/api` + `mf setup`。完整流程见
   [自托管部署的 CLI 与 daemon](/zh/docs/self-hosting-cli/),注册细节见
   [本地 daemon](/zh/docs/local-daemons/)。
-- **Kubernetes**——在 API env 里加 kubeconfig,运行需要 gateway/cronjob 能力
-  的框架;集群内 exec gateway 用
+- **Kubernetes**——管理后台 → Infrastructure → Runtime providers:用
+  kubeconfig 注册集群,运行需要 gateway/cronjob 能力的框架;集群内 exec gateway 用
   `apps/k8s-gateway/helm/manyfold-k8s-gateway` 的 Helm chart 部署(其
   README 覆盖 `MF_K8S_GATEWAY_URL` / `MF_K8S_GATEWAY_TOKEN` 的接线)。
-- **sprites.dev**——管理后台 → Infrastructure → Stateful sandbox accounts:
-  粘贴 sprites.dev 账号 token,把 coding agent 跑在租用的 VM 上;并发跟随账
-  号的 vendor 限额。
+- **sprites.dev**——管理后台 → Infrastructure → Runtime providers:用
+  sprites.dev 凭证注册组织,把 coding agent 跑在租用的 VM 上;并发跟随该组织
+  的 vendor 限额。
 
 ## 密钥轮换
 
@@ -217,6 +217,6 @@ Agent 跑在你接入的计算机上,三条路:
 key 设为 `API_CRYPTO_KEY`。在没有任何存量行仍记录 key version 0 之前保留旧
 key;仓库里的 `.env.example` 对非 compose 部署记录了同样的流程。
 
-## 聊天 Runner 要求
+## 聊天 Daemon 要求
 
-Claude Code、Codex、Gemini CLI、OpenClaw、Hermes 聊天必须连接 mf daemon runner。旧 daemon 运行 `mf update` 后重启；Kubernetes runtime 更新镜像并保留 PVC。OpenClaw/Hermes 镜像同时运行 gateway 和 daemon。`PUBLIC_API_BASE_URL` 必须能从 runtime 访问。Runner 缺失或过旧时会明确报错，不再切换到直连执行。Dify、Langflow、A2A 仍使用外部 API。
+Claude Code、Codex、Gemini CLI、OpenClaw、Hermes 聊天必须连接 Agent 所在计算机上的 mf daemon：每台自有计算机、有状态沙箱和云端计算机都只运行一个。旧 daemon 运行 `mf update` 后重启；Kubernetes runtime 更新镜像并保留 PVC。OpenClaw/Hermes 镜像同时运行 gateway 和 daemon。`PUBLIC_API_BASE_URL` 必须能从该机器访问。daemon 缺失或过旧时会明确报错，不再切换到直连执行。Dify、Langflow、A2A 仍使用外部 API。

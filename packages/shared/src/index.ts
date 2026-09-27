@@ -1175,10 +1175,8 @@ export {
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,
-    podRunnerHostName,
     profilePaths,
     profilesRoot,
-    runnerHostName,
     runtimeAuthRoot
 } from './profile-paths'
 export type { ProfilePaths } from './profile-paths'

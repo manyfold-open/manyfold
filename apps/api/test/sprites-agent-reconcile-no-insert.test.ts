@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import { reconcilerFor } from './helpers/reconcile-fixture'
+import { k8sHostRow } from './helpers/runtime-context-fixture'
 
 const WS = '/home/sprite/.nca/workspaces/agent-1'
 
@@ -38,7 +39,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
-    status: 'running',
+    status: 'ready',
     workspacePath: WS,
     mountPath: WS,
     spriteName: 'nca-user-abc-main',
@@ -103,7 +104,7 @@ test('reconcile sprites: no INSERT when live id has no matching internalId (lega
         }
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime() as never)
 
     assert.equal(
@@ -127,12 +128,8 @@ test('reconcile k8s/claude-code: no INSERT when live id has no matching internal
         }
     }
 
-    const k8sRuntime = fakeRuntime({
-        kind: 'k8s',
-        framework: 'claude-code',
-        namespace: 'nca-dev'
-    })
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const k8sRuntime = fakeRuntime({ framework: 'claude-code' })
+    const svc = reconcilerFor(db, registry, { host: k8sHostRow() })
 
     await svc.reconcileRuntime(k8sRuntime as never)
 
@@ -155,8 +152,7 @@ test('reconcile sprites/service framework: adopts a framework-native live agent'
     const primary = fakeDbAgent({
         id: 'agent-1',
         internalId: 'agent-1',
-        framework: 'hermes',
-        spriteStatus: 'running'
+        framework: 'hermes'
     })
     const db = makeDb([primary])
 
@@ -181,7 +177,7 @@ test('reconcile sprites/service framework: adopts a framework-native live agent'
         })
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime({ framework: 'hermes' }) as never)
 
     assert.equal(db.inserts.length, 1, 'the native agent must be adopted')
@@ -199,7 +195,6 @@ test('reconcile sprites: clean state — UPDATE existing row, no INSERT', async 
         id: 'agent-1',
         internalId: 'agent-1',
         framework: 'hermes',
-        spriteStatus: 'running',
         lastReconciledAt: null
     })
     const db = makeDb([cleanRow])
@@ -218,7 +213,7 @@ test('reconcile sprites: clean state — UPDATE existing row, no INSERT', async 
         })
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime({ framework: 'hermes' }) as never)
 
     assert.equal(
@@ -233,24 +228,24 @@ test('reconcile sprites: clean state — UPDATE existing row, no INSERT', async 
     )
 })
 
-test('reconcile stopped runtime marks agents stopped without listing live agents', async () => {
+// A runtime that is not ready has nothing to list; presence is never
+// mirrored into its agents (ADR-0036), so nothing is written either.
+test('reconcile of a runtime that is not ready neither lists nor writes', async () => {
     const row = fakeDbAgent({
         id: 'agent-1',
         internalId: 'agent-1',
-        status: 'running'
+        status: 'ready'
     })
     const db = makeDb([row])
     const registry = {
         get: () => {
-            throw new Error('stopped runtime must not query the adapter')
+            throw new Error('a runtime that is not ready must not query the adapter')
         }
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
-    await svc.reconcileRuntime(fakeRuntime({ status: 'stopped' }) as never)
+    const svc = reconcilerFor(db, registry)
+    await svc.reconcileRuntime(fakeRuntime({ status: 'failed' }) as never)
 
     assert.equal(db.inserts.length, 0)
-    assert.equal(db.updates.length, 1)
-    assert.equal(db.updates[0].set.status, 'stopped')
-    assert.ok(db.updates[0].set.lastReconciledAt instanceof Date)
+    assert.equal(db.updates.length, 0)
 })

@@ -15,13 +15,11 @@ import {
     createObjectId,
     frameworkDefinition,
     isExternal,
-    isModelConfigFramework,
     normalizeAgentName,
     supportsRuntime
 } from '@manyfold/shared'
 import type { AgentSummary } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
-import { workspaceReading } from '../sprite-storage/workspace-reading'
 import {
     BadRequestException,
     ConflictException,
@@ -35,7 +33,7 @@ import {
     Optional
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { and, asc, eq, ne, notInArray } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import {
     agents,
     agentCredentials,
@@ -43,20 +41,13 @@ import {
     auditLogs,
     jsonbMerge,
     runtimeHosts,
+    runtimeProviders,
     type Agent,
     type AgentRuntimeRow,
-    type Database
+    type Database,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite,
-    SpritesError
-} from '@manyfold/sprites'
-import type { SpritesClient } from '@manyfold/sprites'
-import {
-    RunnerManagerService,
-    type SpriteExecFn
-} from '@/modules/chat/runner/runner-manager.service'
+import { SpritesError } from '@manyfold/sprites'
 import {
     EXPERIMENT_ASSIGNMENT_PORT,
     type ExperimentAssignmentPort
@@ -76,10 +67,13 @@ import {
     type ResolvedInstallVersion
 } from '@/modules/framework-versions/resolve-install-version'
 import { UsersService } from '@/modules/users/users.service'
-import { AgentsService } from '@/modules/agents/agents.service'
+import {
+    AgentsService,
+    agentRowToSummary,
+    summaryRowOf
+} from '@/modules/agents/agents.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { RuntimeTokenService } from '@/modules/auth/runtime-token.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import {
@@ -116,6 +110,11 @@ import {
     resolveWorkspaceSelection,
     workspaceExtras
 } from '@/modules/agents/workspace/workspace-preflight'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 
 interface OrchestratorContext {
     userId: string
@@ -129,6 +128,8 @@ export interface AgentProgressEmitter {
 }
 
 const noopEmitter: AgentProgressEmitter = { step: () => {} }
+
+type AgentContext = RuntimeContext & { agent: Agent }
 
 type ConfigurableRuntimeDefaultFramework =
     keyof FrameworkRuntimeDefaultsSettings['defaults']
@@ -178,123 +179,6 @@ export const resolveRuntime = (
     )
 }
 
-const lastActiveAtFor = (row: Agent): string | null => {
-    const candidates = [
-        row.startedAt,
-        row.lastBootstrappedAt,
-        row.lastReconciledAt
-    ].filter((d): d is Date => d !== null && d !== undefined)
-    if (candidates.length === 0) return null
-    return candidates
-        .reduce((acc, d) => (d > acc ? d : acc), candidates[0])
-        .toISOString()
-}
-
-const toExternalSummary = (row: Agent): AgentSummary => ({
-    id: row.id,
-    userId: row.userId,
-    runtimeId: row.runtimeId,
-    daemonId: row.daemonId ?? null,
-    daemonNeedsUpgrade: false,
-    name: row.name,
-    framework: row.framework,
-    frameworkVersion: null,
-    frameworkLatestVersion: null,
-    frameworkUpgradeAvailable: false,
-    frameworkVersionBlockedReason: null,
-    cliVersion: null,
-    cliLatestVersion: null,
-    cliUpdateAvailable: false,
-    runtime: row.runtime,
-    status: row.status,
-    spriteStatus: row.spriteStatus,
-    k8sPodPhase: row.k8sPodPhase,
-    accountSlug: null,
-    clusterId: null,
-    clusterName: null,
-    spriteName: null,
-    spriteId: null,
-    mountPath: row.mountPath,
-    namespace: null,
-    ingressHost: null,
-    endpointUrl: null,
-    controlUiEnabled: false,
-    dashboardEnabled: false,
-    dashboardState: null,
-    keepAliveEnabled: false,
-    currentPhase: null,
-    failureReason: null,
-    internalId: row.internalId,
-    model: row.model,
-    extras: row.extras,
-    workspacePath: row.workspacePath,
-    ...workspaceReading(row),
-    startedAt: row.startedAt?.toISOString() ?? null,
-    lastActiveAt: lastActiveAtFor(row),
-    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    lastBootstrappedAt: row.lastBootstrappedAt?.toISOString() ?? null,
-    lastReconciledAt: row.lastReconciledAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
-})
-
-const toSpritesSummary = (
-    row: Agent,
-    accountSlug: string | null,
-    runtime: {
-        controlUiEnabled: boolean
-        dashboardEnabled: boolean
-        dashboardState: string | null
-        keepAliveEnabled: boolean
-    } | null = null
-): AgentSummary => ({
-    id: row.id,
-    userId: row.userId,
-    runtimeId: row.runtimeId,
-    daemonId: row.daemonId ?? null,
-    daemonNeedsUpgrade: false,
-    name: row.name,
-    framework: row.framework,
-    frameworkVersion: null,
-    frameworkLatestVersion: null,
-    frameworkUpgradeAvailable: false,
-    frameworkVersionBlockedReason: null,
-    cliVersion: null,
-    cliLatestVersion: null,
-    cliUpdateAvailable: false,
-    runtime: row.runtime,
-    status: row.status,
-    spriteStatus: row.spriteStatus,
-    k8sPodPhase: row.k8sPodPhase,
-    accountSlug,
-    clusterId: row.clusterId,
-    clusterName: null,
-    spriteName: row.spriteName,
-    spriteId: row.spriteId,
-    mountPath: row.mountPath,
-    namespace: row.namespace,
-    ingressHost: row.ingressHost,
-    endpointUrl: null,
-    controlUiEnabled: runtime?.controlUiEnabled ?? false,
-    dashboardEnabled: runtime?.dashboardEnabled ?? false,
-    dashboardState: runtime?.dashboardState ?? null,
-    keepAliveEnabled: runtime?.keepAliveEnabled ?? false,
-    currentPhase: row.currentPhase,
-    failureReason: row.failureReason,
-    internalId: row.internalId,
-    model: row.model,
-    extras: row.extras,
-    workspacePath: row.workspacePath,
-    ...workspaceReading(row),
-    startedAt: row.startedAt?.toISOString() ?? null,
-    lastActiveAt: lastActiveAtFor(row),
-    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    lastBootstrappedAt: row.lastBootstrappedAt?.toISOString() ?? null,
-    lastReconciledAt: row.lastReconciledAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
-})
-
 @Injectable()
 export class AgentOrchestratorService {
     private readonly log = new Logger(AgentOrchestratorService.name)
@@ -302,7 +186,7 @@ export class AgentOrchestratorService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly agentsService: AgentsService,
-        private readonly accounts: SpritesAccountsService,
+        private readonly runtimeContext: RuntimeContextService,
         private readonly crypto: CryptoService,
         private readonly runtimes: AgentRuntimesService,
         private readonly spritesProvisioner: SpritesProvisioner,
@@ -343,7 +227,10 @@ export class AgentOrchestratorService {
         // (ADR-0034); absent means only the core frameworks.
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        @Optional() private readonly changes?: ResourceChangesService
+        @Optional() private readonly changes?: ResourceChangesService,
+        // Only the sprites rotate path reaches the provider directly (the
+        // identity is injected into the VM's shell profile).
+        @Optional() private readonly hostClients?: HostProviderClients
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -368,6 +255,20 @@ export class AgentOrchestratorService {
         )
     }
 
+    private async agentContext(agentId: string): Promise<AgentContext | null> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        return ctx?.agent ? (ctx as AgentContext) : null
+    }
+
+    private async summaryFor(agentId: string): Promise<AgentSummary> {
+        const ctx = await this.agentContext(agentId)
+        if (!ctx)
+            throw new InternalServerErrorException(
+                `agent ${agentId} vanished after create`
+            )
+        return agentRowToSummary(summaryRowOf(ctx))
+    }
+
     // Rotate the agent's runtime identity and re-inject it live. Order-B,
     // brick-safe-by-recovery: installRuntimeIdentity mints (revoking the prior
     // active row + inserting the new active row atomically) THEN re-injects with
@@ -383,15 +284,12 @@ export class AgentOrchestratorService {
         callerUserId: string,
         isAdmin: boolean
     ): Promise<RotateRuntimeTokenResponse> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        if (!agent || (agent.userId !== callerUserId && !isAdmin))
+        const ctx = await this.agentContext(agentId)
+        if (!ctx || (ctx.agent.userId !== callerUserId && !isAdmin))
             throw new NotFoundException('agent not found')
+        const { agent, placement } = ctx
 
-        if (agent.runtime === 'daemon') {
+        if (placement === 'daemon') {
             // Mint-only (#781): daemon identity is injected per turn, so
             // rotation has no live re-inject step — the old token dies the
             // instant the mint commits and the next turn carries the new one.
@@ -407,6 +305,7 @@ export class AgentOrchestratorService {
             await this.writeRotateAudit(
                 auditAction.RUNTIME_TOKEN_ROTATED,
                 agent,
+                placement,
                 callerUserId
             )
             return {
@@ -416,39 +315,34 @@ export class AgentOrchestratorService {
             }
         }
 
-        if (agent.runtime !== 'sprites') {
-            if (agent.runtime === 'k8s')
+        if (placement !== 'sprites' || !ctx.host) {
+            if (placement === 'k8s')
                 throw new ConflictException(
                     'k8s runtime-token rotation is not supported yet; re-provision the agent to rotate its identity'
                 )
             throw new BadRequestException(
-                `runtime-token rotation is not supported for ${agent.runtime} runtimes`
+                `runtime-token rotation is not supported for ${placement} runtimes`
             )
         }
-        if (!agent.accountId || !agent.spriteName)
-            throw new BadRequestException(
-                'sprite agent is missing its account or sprite name'
+        if (!this.hostClients)
+            throw new InternalServerErrorException(
+                'host provider clients unavailable'
             )
-
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new NotFoundException('sprites account not found for agent')
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(ctx.host)
 
         try {
             await this.spritesProvisioner.installRuntimeIdentity({
                 userId: agent.userId,
                 agentId: agent.id,
                 client,
-                spriteName: agent.spriteName
+                spriteName
             })
         } catch (err) {
             await this.writeRotateAudit(
                 auditAction.RUNTIME_TOKEN_ROTATE_FAILED,
                 agent,
+                placement,
                 callerUserId,
                 (err as Error).message
             )
@@ -460,6 +354,7 @@ export class AgentOrchestratorService {
         await this.writeRotateAudit(
             auditAction.RUNTIME_TOKEN_ROTATED,
             agent,
+            placement,
             callerUserId
         )
         return {
@@ -472,6 +367,7 @@ export class AgentOrchestratorService {
     private async writeRotateAudit(
         action: string,
         agent: Agent,
+        placement: AgentRuntime,
         actorUserId: string,
         error?: string
     ): Promise<void> {
@@ -483,7 +379,7 @@ export class AgentOrchestratorService {
                 subject: agent.id,
                 meta: {
                     userId: agent.userId,
-                    runtime: agent.runtime,
+                    runtime: placement,
                     ...(error ? { error } : {})
                 }
             })
@@ -538,9 +434,9 @@ export class AgentOrchestratorService {
         emitter: AgentProgressEmitter = noopEmitter
     ): Promise<AgentSummary> {
         // When the caller supplies runtimeId (purchased container), route by
-        // the container's actual kind instead of inferring from framework. This
-        // lets the frontend always POST /agents with { framework, runtimeId }
-        // without having to also set runtime='k8s'.
+        // the container's actual placement instead of inferring from framework.
+        // This lets the frontend always POST /agents with { framework,
+        // runtimeId } without having to also set runtime='k8s'.
         const [defaults, userOverrides] = ctx.dto.runtimeId
             ? [undefined, undefined]
             : await Promise.all([
@@ -591,32 +487,38 @@ export class AgentOrchestratorService {
         let fresh: ProvisionAgentContainerResult | undefined
         let agentCreateId: string | undefined
         if (dto.runtimeId) {
-            const existing = await this.runtimes.findById(dto.runtimeId)
-            if (!existing || (existing.userId !== userId && !isAdmin))
+            const existing = await this.runtimeContext.forRuntime(dto.runtimeId)
+            if (
+                !existing ||
+                (existing.runtime.userId !== userId && !isAdmin)
+            )
                 throw new NotFoundException(
                     `agent runtime ${dto.runtimeId} not found`
                 )
-            if (existing.kind !== 'k8s')
+            if (existing.placement !== 'k8s' || !existing.host)
                 throw new ConflictException({
                     message: `runtime ${dto.runtimeId} is not a k8s container`,
                     code: 'RUNTIME_KIND_MISMATCH',
-                    kind: existing.kind
+                    kind: existing.placement
                 })
-            if (existing.framework !== dto.framework)
+            if (existing.runtime.framework !== dto.framework)
                 throw new ConflictException({
-                    message: `container is for framework ${existing.framework}; cannot attach ${dto.framework} agent`,
+                    message: `container is for framework ${existing.runtime.framework}; cannot attach ${dto.framework} agent`,
                     code: 'FRAMEWORK_MISMATCH',
-                    expected: existing.framework,
+                    expected: existing.runtime.framework,
                     got: dto.framework
                 })
-            if (existing.status !== 'ready')
+            if (
+                existing.runtime.status !== 'ready' ||
+                existing.host.status !== 'ready'
+            )
                 throw new ConflictException({
-                    message: `container ${dto.runtimeId} is not ready (status=${existing.status})`,
+                    message: `container ${dto.runtimeId} is not ready (status=${existing.runtime.status})`,
                     code: 'CONTAINER_NOT_READY',
-                    status: existing.status
+                    status: existing.runtime.status
                 })
-            if (existing.hostId) await this.assertPodHostAttachable(existing.hostId, isAdmin)
-            runtimeRow = existing
+            await this.assertPodHostAttachable(existing.host.id, isAdmin)
+            runtimeRow = existing.runtime
         } else if (dto.podHostId) {
             assertPodHostFramework(dto.framework)
             runtimeRow = await this.placeOnPodHost(ctx, dto.podHostId, emitter)
@@ -672,7 +574,7 @@ export class AgentOrchestratorService {
                 name: dto.name,
                 credentials: resolved.value,
                 modelConfigSource: dto.modelConfigSource ?? null,
-                clusterId: dto.clusterId ?? null
+                providerId: dto.providerId ?? null
             })
             runtimeRow = fresh.runtime
         }
@@ -709,8 +611,11 @@ export class AgentOrchestratorService {
             const summary = fresh
                 ? await fresh.runAgentCreate(attachAndConfigure)
                 : await attachAndConfigure()
-            await fresh?.completeAgentCreate()
-            return fresh ? { ...summary, status: 'running' } : summary
+            if (!fresh) return summary
+            // The fresh create's agent stayed `pending` until its runtime-local
+            // config committed; the completed row is what the caller sees.
+            await fresh.completeAgentCreate()
+            return this.summaryFor(summary.id)
         } catch (error) {
             await fresh?.rollbackAgentCreate(error)
             throw error
@@ -719,22 +624,38 @@ export class AgentOrchestratorService {
 
     // A k8s agent placed on an existing pod host (ADR-0035): it joins the
     // host's runtime for its framework, or that framework is installed on the
-    // host first.
+    // host first. A failed install keeps its (host, framework) slot and is
+    // retried through the same install path.
     private async placeOnPodHost(
         ctx: OrchestratorContext,
         podHostId: string,
         emitter: AgentProgressEmitter
     ): Promise<AgentRuntimeRow> {
         const { userId, dto, isAdmin } = ctx
-        const [host] = await this.db
-            .select()
+        const [found] = await this.db
+            .select({ host: runtimeHosts, providerKind: runtimeProviders.kind })
             .from(runtimeHosts)
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(
-                and(eq(runtimeHosts.id, podHostId), eq(runtimeHosts.kind, 'pod'))
+                and(
+                    eq(runtimeHosts.id, podHostId),
+                    eq(runtimeHosts.kind, 'hosted')
+                )
             )
             .limit(1)
+        const host: RuntimeHostRow | undefined =
+            found?.providerKind === 'k8s' ? found.host : undefined
         if (!host || (host.userId !== userId && !isAdmin))
             throw new NotFoundException(`cloud computer ${podHostId} not found`)
+        if (host.status !== 'ready')
+            throw new ConflictException({
+                message: `cloud computer ${podHostId} is not ready (status=${host.status})`,
+                code: 'CONTAINER_NOT_READY',
+                status: host.status
+            })
         await this.assertPodHostAttachable(host.id, isAdmin)
         const [existing] = await this.db
             .select()
@@ -742,13 +663,11 @@ export class AgentOrchestratorService {
             .where(
                 and(
                     eq(agentRuntimes.hostId, host.id),
-                    eq(agentRuntimes.kind, 'k8s'),
-                    eq(agentRuntimes.framework, dto.framework),
-                    notInArray(agentRuntimes.status, ['failed', 'stopped'])
+                    eq(agentRuntimes.framework, dto.framework)
                 )
             )
             .limit(1)
-        if (existing) {
+        if (existing && existing.status !== 'failed') {
             if (existing.status !== 'ready')
                 throw new ConflictException({
                     message: `${dto.framework} on cloud computer ${podHostId} is not ready (status=${existing.status})`,
@@ -821,54 +740,28 @@ export class AgentOrchestratorService {
         callerUserId: string,
         isAdmin: boolean
     ): Promise<void> {
-        const [row] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        if (!row) throw new NotFoundException(`agent ${agentId} not found`)
+        const ctx = await this.agentContext(agentId)
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        const row = ctx.agent
         if (row.userId !== callerUserId && !isAdmin)
             throw new NotFoundException(`agent ${agentId} not found`)
 
-        const runtime = row.runtimeId
-            ? await this.runtimes.findById(row.runtimeId)
-            : null
-        const isPrimary = !!runtime && runtime.primaryAgentId === row.id
+        const { runtime } = ctx
+        const isPrimary = runtime.primaryAgentId === row.id
 
-        if (row.runtime === 'k8s') {
+        if (ctx.placement === 'k8s') {
             if (isPrimary)
                 throw new ConflictException({
                     message: 'primary agent; delete the runtime instead',
                     code: 'PRIMARY_AGENT_DELETE_RUNTIME'
                 })
-            await this.k8sOrchestrator.deleteNonPrimary(row, callerUserId)
-        } else if (row.runtime === 'daemon') {
-            if (!runtime)
-                throw new InternalServerErrorException(
-                    `daemon agent ${row.id} has no runtime`
-                )
-            await this.deleteDaemonAgent(row, runtime, callerUserId)
-        } else if (row.runtime === 'sprites') {
-            if (!runtime)
-                throw new InternalServerErrorException(
-                    `sprites agent ${row.id} has no runtime`
-                )
-            if (!isPrimary)
-                await this.deleteSpritesSecondary(row, runtime, callerUserId)
-            else await this.deleteSpritesPrimaryWithPromote(
-                row,
-                runtime,
-                callerUserId
-            )
-        } else if (row.runtime === 'external') {
-            if (!runtime)
-                throw new InternalServerErrorException(
-                    `external agent ${row.id} has no runtime`
-                )
-            await this.deleteExternal(row, runtime, callerUserId)
-        } else throw new InternalServerErrorException(
-            `unknown agent runtime kind: ${row.runtime}`
-        )
+            await this.k8sOrchestrator.deleteNonPrimary(ctx, callerUserId)
+        } else if (ctx.placement === 'daemon') {
+            await this.deleteDaemonAgent(ctx, callerUserId)
+        } else if (ctx.placement === 'sprites') {
+            if (!isPrimary) await this.deleteSpritesSecondary(ctx, callerUserId)
+            else await this.deleteSpritesPrimaryWithPromote(ctx, callerUserId)
+        } else await this.deleteExternal(row, runtime, callerUserId)
         this.changes?.emit(row.userId, { resource: 'agent', resourceId: row.id, agentId: row.id, reason: 'deleted' })
         this.changes?.emit(row.userId, { resource: 'channel', reason: 'updated' })
         this.changes?.emit(row.userId, { resource: 'skill-library', reason: 'updated' })
@@ -970,15 +863,14 @@ export class AgentOrchestratorService {
                 binding: { providerId: binding.providerId, remoteRef }
             })
             const { runtime } = provisioned
-            const [insertedAgent] = await this.db
+            await this.db
                 .insert(agents)
                 .values({
                     id: agentId,
                     userId,
                     name: displayName,
                     framework: dto.framework,
-                    runtime: 'external',
-                    status: 'running',
+                    status: 'ready',
                     runtimeId: runtime.id,
                     workspacePath: null,
                     mountPath: '/workspace',
@@ -994,7 +886,6 @@ export class AgentOrchestratorService {
                     startedAt: new Date(),
                     lastBootstrappedAt: new Date()
                 })
-                .returning()
             await this.db
                 .update(agentRuntimes)
                 .set({ primaryAgentId: agentId })
@@ -1009,7 +900,7 @@ export class AgentOrchestratorService {
                     onBehalfOf: actorUserId !== userId
                 }
             )
-            return toExternalSummary(insertedAgent)
+            return await this.summaryFor(agentId)
         } catch (err: unknown) {
             if (err instanceof HttpException) {
                 if (provisioned)
@@ -1039,10 +930,11 @@ export class AgentOrchestratorService {
     }
 
     private async deleteDaemonAgent(
-        row: Agent,
-        runtime: AgentRuntimeRow,
+        ctx: AgentContext,
         actorUserId: string
     ): Promise<void> {
+        const { agent: row, runtime } = ctx
+        const hostId = ctx.host?.id ?? null
         const adapter = this.adapterRegistry.get(row.framework)
         await this.audit(
             actorUserId,
@@ -1057,7 +949,7 @@ export class AgentOrchestratorService {
         )
         try {
             await adapter.removeAgent({
-                runtime,
+                ...ctx,
                 agent: row,
                 primaryAgentId: runtime.primaryAgentId ?? null
             })
@@ -1076,7 +968,7 @@ export class AgentOrchestratorService {
                     reason,
                     failureClass,
                     runtimeId: runtime.id,
-                    daemonId: runtime.daemonId,
+                    hostId,
                     ownerUserId: row.userId,
                     onBehalfOf: actorUserId !== row.userId
                 }
@@ -1085,29 +977,29 @@ export class AgentOrchestratorService {
                 agentId: row.id,
                 framework: row.framework,
                 runtimeId: runtime.id,
-                daemonId: runtime.daemonId,
+                hostId,
                 failureClass,
                 reason
             })
             // The row is retained on purpose: daemon agents mirror state the
             // user's own machine holds (openclaw/hermes profiles, workspaces).
             // Deleting the row while the remote copy survives would strand it
-            // with no cleanup owner. The host lifecycle (revoke + permanent
+            // with no cleanup owner. The host lifecycle (retire + permanent
             // delete) remains the recovery path for a daemon that never
             // comes back.
             if (failureClass === 'daemon_unavailable')
                 throw new ConflictException({
                     code: 'agent.daemon_unavailable',
                     message:
-                        `daemon ${runtime.daemonId} did not confirm the detach; ` +
-                        'start the daemon on its host and retry, or revoke and ' +
-                        'permanently delete the daemon host to remove all of ' +
+                        `the daemon on ${ctx.host?.name ?? hostId} did not confirm the detach; ` +
+                        'start the daemon on its host and retry, or retire and ' +
+                        'permanently delete the host to remove all of ' +
                         'its agents',
                     details: {
                         retryable: true,
                         agentId: row.id,
                         runtimeId: runtime.id,
-                        daemonId: runtime.daemonId,
+                        hostId,
                         reason
                     }
                 })
@@ -1118,7 +1010,7 @@ export class AgentOrchestratorService {
                     retryable: false,
                     agentId: row.id,
                     runtimeId: runtime.id,
-                    daemonId: runtime.daemonId,
+                    hostId,
                     reason
                 }
             })
@@ -1154,10 +1046,10 @@ export class AgentOrchestratorService {
     }
 
     private async deleteSpritesSecondary(
-        row: Agent,
-        runtime: AgentRuntimeRow,
+        ctx: AgentContext,
         actorUserId: string
     ): Promise<void> {
+        const { agent: row, runtime } = ctx
         const adapter = this.adapterRegistry.get(row.framework)
         await this.audit(
             actorUserId,
@@ -1173,7 +1065,7 @@ export class AgentOrchestratorService {
         )
         try {
             await adapter.removeAgent({
-                runtime,
+                ...ctx,
                 agent: row,
                 primaryAgentId: runtime.primaryAgentId ?? null
             })
@@ -1212,10 +1104,10 @@ export class AgentOrchestratorService {
     }
 
     private async deleteSpritesPrimaryWithPromote(
-        row: Agent,
-        runtime: AgentRuntimeRow,
+        ctx: AgentContext,
         actorUserId: string
     ): Promise<void> {
+        const { agent: row, runtime } = ctx
         const candidates = await this.db
             .select()
             .from(agents)
@@ -1247,12 +1139,12 @@ export class AgentOrchestratorService {
             .update(agentRuntimes)
             .set({ primaryAgentId: successor.id })
             .where(eq(agentRuntimes.id, runtime.id))
-        const refreshed = await this.runtimes.findById(runtime.id)
+        const refreshed = await this.agentContext(row.id)
         if (!refreshed)
             throw new InternalServerErrorException(
-                `runtime ${runtime.id} disappeared during promote`
+                `agent ${row.id} disappeared during promote`
             )
-        await this.deleteSpritesSecondary(row, refreshed, actorUserId)
+        await this.deleteSpritesSecondary(refreshed, actorUserId)
     }
 
     private async assertAgentNameFree(
@@ -1278,9 +1170,9 @@ export class AgentOrchestratorService {
 
         emitter.step('validating')
 
-        if (dto.accountId && !isAdmin)
+        if (dto.providerId && !isAdmin)
             throw new ForbiddenException(
-                'Only admins may pin a sprites account via accountId'
+                'Only admins may pin a runtime provider via providerId'
             )
 
         const displayName = normalizeAgentName(dto.name)
@@ -1293,13 +1185,13 @@ export class AgentOrchestratorService {
         // version and model provider, and any of those supplied here are ignored.
         // Runs BEFORE credential resolution on purpose: callers targeting an
         // existing instance send no credentials, and resolving first would reject
-        // them for that.
+        // them for that. A failed install keeps its slot and is retried below.
         if (dto.sandboxId) {
-            const instance = await this.runtimes.findSpriteRuntimeOnHost(
+            const instance = await this.runtimes.findRuntimeOnHost(
                 dto.sandboxId,
                 dto.framework
             )
-            if (instance) {
+            if (instance && instance.status !== 'failed') {
                 if (instance.status !== 'ready')
                     throw new ConflictException({
                         message: `sandbox ${dto.sandboxId} is still bringing up ${dto.framework} (status=${instance.status}); retry once it is ready`,
@@ -1363,7 +1255,7 @@ export class AgentOrchestratorService {
             provisioned = await this.spritesProvisioner.provisionRuntime({
                 userId,
                 framework: dto.framework,
-                accountId: dto.accountId ?? null,
+                providerId: dto.providerId ?? null,
                 attachHostId: dto.sandboxId ?? null,
                 isAdmin,
                 credentials: creds,
@@ -1400,43 +1292,25 @@ export class AgentOrchestratorService {
             })
         }
 
-        const { runtime, account } = provisioned
+        const { runtime, host, provider } = provisioned
+        const spriteName =
+            host.providerRef?.kind === 'sprites'
+                ? host.providerRef.spriteName
+                : null
         await this.audit(
             actorUserId,
             auditAction.AGENT_CREATE_STARTED,
             agentId,
             {
                 framework: dto.framework,
-                accountSlug: account.slug,
+                hostId: host.id,
+                providerId: provider.id,
                 ownerUserId: userId,
                 onBehalfOf: actorUserId !== userId
             }
         )
 
         const workspacePath = workspace.path
-
-        // The sprite's runner is registered and started here, while the VM is
-        // still awake from the framework install, rather than on the first
-        // turn: a runtime whose account list is read before any turn would
-        // otherwise report "no runner yet" and need a full bring-up on the
-        // user's click. Coding frameworks only — they are the ones with a
-        // runtime-local surface; the service frameworks bring theirs up on
-        // the turn path as before.
-        if (isModelConfigFramework(dto.framework) && runtime.spriteName) {
-            emitter.step('starting_runner')
-            await this.prepareSpriteRunner({
-                userId,
-                agentId,
-                spriteName: runtime.spriteName,
-                client: provisioned.spritesClient
-            })
-        }
-
-        const spriteIngressHost = extractHost(provisioned.endpointUrl ?? null)
-        if (spriteIngressHost)
-            await this.runtimes.applyProvisioningPatch(runtime.id, {
-                ingressHost: spriteIngressHost
-            })
 
         emitter.step('inserting_agent')
         try {
@@ -1447,13 +1321,7 @@ export class AgentOrchestratorService {
                     userId,
                     name: displayName,
                     framework: dto.framework,
-                    runtime: 'sprites',
                     status: 'pending',
-                    accountId: account.id,
-                    spriteName: runtime.spriteName,
-                    spriteId: runtime.spriteId,
-                    hostId: runtime.hostId,
-                    ingressHost: spriteIngressHost,
                     mountPath: workspacePath,
                     extras: workspaceExtras(
                         workspace.managed,
@@ -1477,7 +1345,7 @@ export class AgentOrchestratorService {
                         framework: dto.framework,
                         runtime: 'sprites',
                         mountPath: workspacePath,
-                        homeDir: provisioned.homeDir
+                        homeDir: provisioned.homeDir ?? host.homeDir
                     }),
                     internalId: agentId,
                     modelProviderId: resolved.providerId
@@ -1493,15 +1361,15 @@ export class AgentOrchestratorService {
             // doing this during provisioning would violate the FK. Fail-loud: a
             // mint/inject failure throws and the catch below tears the runtime
             // down (no half-provisioned, tokenless agent).
-            if (!runtime.spriteName)
+            if (!spriteName)
                 throw new InternalServerErrorException(
-                    `runtime ${runtime.id} has no spriteName for identity injection`
+                    `host ${host.id} has no sprite for identity injection`
                 )
             await this.spritesProvisioner.installRuntimeIdentity({
                 userId,
                 agentId,
                 client: provisioned.spritesClient,
-                spriteName: runtime.spriteName
+                spriteName
             })
 
             emitter.step('storing_credentials')
@@ -1525,20 +1393,15 @@ export class AgentOrchestratorService {
             if (this.extensions.get(dto.framework)?.pushPrimaryAgent) {
                 // The framework's own agent list starts empty. Push the
                 // primary agent now so reconcile's listAgents finds it on the
-                // first pass (instead of marking it stopped). The local
-                // `runtime` variable predates applyProvisioningPatch's
-                // ingressHost write — refresh so the adapter has a host to
-                // hit.
-                const refreshedRuntime = await this.runtimes.findById(
-                    runtime.id
-                )
-                if (!refreshedRuntime)
+                // first pass (instead of marking it missing).
+                const target = await this.runtimeContext.forRuntime(runtime.id)
+                if (!target)
                     throw new InternalServerErrorException(
                         `${dto.framework} runtime ${runtime.id} vanished after provision`
                     )
                 const adapter = this.adapterRegistry.get(dto.framework)
                 await adapter.addAgent({
-                    runtime: refreshedRuntime,
+                    ...target,
                     primaryAgentId: null,
                     agentId,
                     internalId: agentId,
@@ -1570,10 +1433,7 @@ export class AgentOrchestratorService {
             }
 
             if (dto.modelConfigSource === 'runtime-local')
-                await this.enableSandboxTerminalForSignIn(
-                    userId,
-                    runtime.hostId
-                )
+                await this.enableSandboxTerminalForSignIn(userId, host.id)
 
             if (dto.restoreBackupId) {
                 emitter.step('restoring_backup')
@@ -1588,11 +1448,10 @@ export class AgentOrchestratorService {
             emitter.step('finalizing')
             const now = new Date()
             await this.spritesProvisioner.finalizeReady(runtime.id, now)
-            const [updated] = await this.db
+            await this.db
                 .update(agents)
                 .set({
-                    status: 'running',
-                    spriteStatus: 'running',
+                    status: 'ready',
                     startedAt: now,
                     lastBootstrappedAt: now,
                     failureReason: null,
@@ -1600,14 +1459,14 @@ export class AgentOrchestratorService {
                     updatedAt: now
                 })
                 .where(eq(agents.id, agentId))
-                .returning()
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_CREATE_SUCCEEDED,
                 agentId,
                 {
                     framework: dto.framework,
-                    accountSlug: account.slug,
+                    hostId: host.id,
+                    providerId: provider.id,
                     ownerUserId: userId,
                     onBehalfOf: actorUserId !== userId
                 }
@@ -1628,7 +1487,7 @@ export class AgentOrchestratorService {
                 agentId,
                 framework: dto.framework
             })
-            return toSpritesSummary(updated, account.slug, runtime)
+            return await this.summaryFor(agentId)
         } catch (err: unknown) {
             const reason = sanitizeReason(err)
             const errorClass = errorClassOf(err)
@@ -1638,7 +1497,8 @@ export class AgentOrchestratorService {
                 agentId,
                 {
                     framework: dto.framework,
-                    accountSlug: account.slug,
+                    hostId: host.id,
+                    providerId: provider.id,
                     errorClass,
                     reason,
                     ownerUserId: userId,
@@ -1658,52 +1518,6 @@ export class AgentOrchestratorService {
                 message: reason,
                 errorClass
             })
-        }
-    }
-
-    // Non-fatal by design: the runner is an optimisation the turn path degrades
-    // without, so a daemon that fails to install or start must not fail the
-    // create. Resolved through the module ref: RunnerModule imports this
-    // module's neighbours, so a constructor injection would be a cycle.
-    private async prepareSpriteRunner(input: {
-        userId: string
-        agentId: string
-        spriteName: string
-        client: SpritesClient
-    }): Promise<void> {
-        let runner: RunnerManagerService | null = null
-        try {
-            runner = this.moduleRef.get(RunnerManagerService, { strict: false })
-        } catch {
-            runner = null
-        }
-        // A container without the runner module (or a test double standing in
-        // for the module ref) is simply a create without a runner.
-        if (typeof runner?.prepareRunner !== 'function') return
-        try {
-            const exec: SpriteExecFn = (a) =>
-                execSprite(input.client, input.spriteName, {
-                    cmd: a.cmd,
-                    stdin: a.stdin ?? '',
-                    timeoutMs: a.timeoutMs
-                })
-            const outcome = await runner.prepareRunner({
-                userId: input.userId,
-                agentId: input.agentId,
-                spriteName: input.spriteName,
-                exec
-            })
-            this.log.log(
-                `sprite runner prepared agent=${input.agentId} sprite=${input.spriteName} outcome=${outcome}`
-            )
-            this.telemetry.event('agent.create.runner_prepare', {
-                agentId: input.agentId,
-                outcome
-            })
-        } catch (err) {
-            this.log.warn(
-                `sprite runner prepare failed agent=${input.agentId} sprite=${input.spriteName}: ${(err as Error).message}`
-            )
         }
     }
 
@@ -1764,15 +1578,6 @@ const defaultSpriteWorkspaceFor = (
     )
 }
 
-const extractHost = (url: string | null): string | null => {
-    if (!url) return null
-    try {
-        return new URL(url).host || null
-    } catch {
-        return null
-    }
-}
-
 const extractSpritesCredentials = (
     resolved: ResolvedAgentCredentials
 ): unknown => {
@@ -1803,4 +1608,6 @@ const sanitizeReason = (err: unknown): string => {
 const isDaemonUnavailableDetachError = (message: string): boolean =>
     isDaemonOfflineTransportError(message) ||
     isDaemonNotDispatchedError(message) ||
-    /rpc \S+ timed out/.test(message)
+    /rpc \S+ timed out/.test(message) ||
+    /is offline; start its daemon/.test(message) ||
+    /has no running daemon/.test(message)

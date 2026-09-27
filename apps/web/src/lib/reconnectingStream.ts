@@ -63,7 +63,7 @@ export const createReconnectingStream = (
         // Close any existing handle before opening a replacement.
         // Critical when onDown fires from an in-stream parse error:
         // the old read loop may still be alive because the SDK's
-        // dispatchSpriteStatusFrame calls onError then continues.
+        // dispatchHostStatusFrame calls onError then continues.
         handle?.close()
         handle = null
         const gen = ++generation

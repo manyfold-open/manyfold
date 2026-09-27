@@ -185,8 +185,6 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     assert.equal(result.name, 'Core Agent')
     assert.equal(result.runtime, 'sprites')
     assert.equal(result.status, 'running')
-    assert.equal(result.spriteStatus, 'running')
-    assert.equal(result.accountSlug, 'default')
     assert.equal(result.workspacePath, '/repo/project')
     assert.match(result.id, /^agt_[a-z2-7]{26}$/)
 
@@ -602,8 +600,6 @@ class FakeCreateAgentDb {
         if (table === agents) {
             const row = {
                 ...values,
-                spriteStatus: null,
-                k8sPodPhase: null,
                 storageBytes: null,
                 storageMeasuredAt: null,
                 createdAt: now,

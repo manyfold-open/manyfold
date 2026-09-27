@@ -58,7 +58,6 @@ test(
                     userId: 'owner',
                     name: 'runtime',
                     framework: 'codex',
-                    kind: 'sprites'
                 })
                 for (const id of ['caller', 'target'])
                     await db.insert(agents).values({
@@ -66,7 +65,6 @@ test(
                         userId: 'owner',
                         name: id,
                         framework: 'codex',
-                        runtime: 'sprites',
                         runtimeId: 'runtime',
                         internalId: id,
                         extras: {

@@ -13,7 +13,8 @@ import {
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
-    chatCapabilitiesFor
+    chatCapabilitiesFor,
+    isRuntimeUsable
 } from '@manyfold/shared'
 import {
     Suspense,
@@ -54,7 +55,7 @@ import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
 import { RuntimeLocalSignInCard } from '@/components/chat/RuntimeLocalSignInCard'
 import { ChatStreamRecoveryNotice } from '@/components/chat/ChatStreamRecoveryNotice'
 import { shouldShowRuntimeSignIn } from '@/lib/runtimeSignIn'
-import { useI18n, type TFn } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { Ghost } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
 import { publishAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
@@ -1294,15 +1295,18 @@ const AgentChat: FC = (): ReactNode => {
 
     const terminalAvailability = currentAgent
         ? terminalAvailabilityForAgent(currentAgent)
-        : { available: false, reason: 'agent-not-running' as const }
+        : { available: false, reason: 'agent-unavailable' as const }
 
-    const sessionSandbox = currentAgent?.spriteName
-        ? (sandboxes.find((s) => s.spriteName === currentAgent.spriteName) ??
-          null)
-        : null
-    const sessionDaemon = currentAgent?.daemonId
-        ? (daemonHosts.find((h) => h.id === currentAgent.daemonId) ?? null)
-        : null
+    // The agent's machine (ADR-0036): a sandbox row or a self-owned computer,
+    // both keyed by the same host id the agent carries.
+    const sessionSandbox =
+        currentAgent?.runtime === 'sprites' && currentAgent.hostId
+            ? (sandboxes.find((s) => s.id === currentAgent.hostId) ?? null)
+            : null
+    const sessionDaemon =
+        currentAgent?.runtime === 'daemon' && currentAgent.hostId
+            ? (daemonHosts.find((h) => h.id === currentAgent.hostId) ?? null)
+            : null
     const resumeAvailability = currentAgent
         ? terminalResumeAvailability({
               framework: currentAgent.framework,
@@ -1322,7 +1326,7 @@ const AgentChat: FC = (): ReactNode => {
     const herdrHandoff = currentAgent
         ? herdrHandoffAvailability({
               runtime: currentAgent.runtime,
-              running: currentAgent.status === 'running',
+              available: isRuntimeUsable(currentAgent.availability),
               framework: currentAgent.framework,
               daemonCanOpenInHerdr: sessionDaemon?.canOpenInHerdr === true,
               daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
@@ -3211,7 +3215,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                   {
                       label: t('web.chat.header.openTerminal'),
                       onSelect: onOpenTerminal,
-                      disabled: agent.status !== 'running'
+                      disabled: !isRuntimeUsable(agent.availability)
                   }
               ]
             : []),
@@ -3286,22 +3290,11 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                             <span
                                 className={[
                                     'h-1.5 w-1.5 rounded-full',
-                                    agentStatusDotClass(
-                                        agent.status,
-                                        agent.spriteStatus,
-                                        agent.k8sPodPhase
-                                    )
+                                    agentStatusDotClass(agent)
                                 ].join(' ')}
                                 aria-hidden='true'
                             />
-                            {formatStatusLabel(
-                                agentStatusDotLabel(
-                                    agent.status,
-                                    agent.spriteStatus,
-                                    agent.k8sPodPhase
-                                ),
-                                t
-                            )}
+                            {agentStatusDotLabel(agent)}
                         </span>
                     </Link>
                 </ShortcutTooltip>
@@ -3526,47 +3519,3 @@ const getHttpStatus = (error: unknown): number | null => {
     return Number(match[1])
 }
 
-const formatStatusLabel = (status: string, t: TFn): string => {
-    const normalized = status
-        .replace(/([a-z])([A-Z])/g, '$1_$2')
-        .replace(/[\s-]+/g, '_')
-        .toLowerCase()
-    switch (normalized) {
-        case 'pending':
-            return t('web.chat.agentStatus.pending')
-        case 'running':
-            return t('web.chat.agentStatus.running')
-        case 'stopped':
-            return t('web.chat.agentStatus.stopped')
-        case 'failed':
-            return t('web.chat.agentStatus.failed')
-        case 'cold':
-            return t('web.chat.agentStatus.cold')
-        case 'warm':
-            return t('web.chat.agentStatus.warm')
-        case 'not_ready':
-            return t('web.chat.agentStatus.notReady')
-        case 'container_creating':
-            return t('web.chat.agentStatus.containerCreating')
-        case 'pod_initializing':
-            return t('web.chat.agentStatus.podInitializing')
-        case 'crash_loop_back_off':
-            return t('web.chat.agentStatus.crashLoopBackOff')
-        case 'image_pull_back_off':
-            return t('web.chat.agentStatus.imagePullBackOff')
-        case 'err_image_pull':
-            return t('web.chat.agentStatus.errImagePull')
-        case 'create_container_config_error':
-            return t('web.chat.agentStatus.createContainerConfigError')
-        case 'create_container_error':
-            return t('web.chat.agentStatus.createContainerError')
-        case 'invalid_image_name':
-            return t('web.chat.agentStatus.invalidImageName')
-        case 'unknown':
-            return t('web.chat.agentStatus.unknown')
-        case 'succeeded':
-            return t('web.chat.agentStatus.succeeded')
-        default:
-            return t('web.chat.agentStatus.unknown')
-    }
-}

@@ -15,6 +15,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getLocale, t } from '@manyfold/i18n'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useApiClient } from '@/lib/apiClient'
+import { availabilityTone, daemonLabel, powerLabel } from '@/lib/hostStatus'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { adminRoutes } from '@/routes'
 import {
@@ -46,8 +47,7 @@ const isKnownStep = (
 
 const statusTone: Record<AgentStatus, BadgeTone> = {
     pending: 'warning',
-    running: 'success',
-    stopped: 'neutral',
+    ready: 'success',
     failed: 'error'
 }
 
@@ -562,8 +562,18 @@ const AgentDetail: FC = (): ReactNode => {
                                 ) : null}
                                 <Row
                                     label='runtime'
-                                    value={agent.runtime}
-                                    mono
+                                    value={
+                                        <>
+                                            <span className='font-mono'>
+                                                {agent.runtime}
+                                            </span>
+                                            <span className='text-body ml-2'>
+                                                {t(
+                                                    `admin.agentRuntimes.kind.${agent.runtime}`
+                                                )}
+                                            </span>
+                                        </>
+                                    }
                                 />
                                 <Row
                                     label={t('admin.agents.cols.status')}
@@ -571,6 +581,20 @@ const AgentDetail: FC = (): ReactNode => {
                                         <Badge tone={statusTone[agent.status]}>
                                             {t(
                                                 `admin.agents.status.${agent.status}`
+                                            )}
+                                        </Badge>
+                                    }
+                                />
+                                <Row
+                                    label={t('admin.agents.cols.availability')}
+                                    value={
+                                        <Badge
+                                            tone={availabilityTone(
+                                                agent.availability
+                                            )}
+                                        >
+                                            {t(
+                                                `admin.hostStatus.availability.${agent.availability}`
                                             )}
                                         </Badge>
                                     }
@@ -585,47 +609,50 @@ const AgentDetail: FC = (): ReactNode => {
                                     value={agent.model}
                                     mono
                                 />
-                                <Row
-                                    label='accountSlug'
-                                    value={agent.accountSlug}
-                                    mono
-                                />
-                                {agent.runtime === 'k8s' && (
-                                    <Row
-                                        label={t('admin.agents.cols.cluster')}
-                                        value={
-                                            agent.clusterName &&
-                                            agent.clusterId ? (
-                                                <Link
-                                                    to={adminRoutes.cluster(
-                                                        agent.clusterId
+                                {agent.hostId && (
+                                    <>
+                                        <Row
+                                            label={t('admin.agents.cols.host')}
+                                            value={
+                                                <>
+                                                    {agent.hostName ??
+                                                        agent.hostId}
+                                                    <span className='text-caption-sm text-body ml-2 font-mono'>
+                                                        {agent.hostId}
+                                                    </span>
+                                                </>
+                                            }
+                                        />
+                                        {agent.hostKind === 'hosted' && (
+                                            <>
+                                                <Row
+                                                    label={t(
+                                                        'admin.agentRuntimes.detail.info.power'
                                                     )}
-                                                    className='text-brand hover:text-brand-hover font-mono'
-                                                >
-                                                    {agent.clusterName}
-                                                </Link>
-                                            ) : agent.clusterName ? (
-                                                <span className='font-mono'>
-                                                    {agent.clusterName}
-                                                </span>
-                                            ) : agent.clusterId ? (
-                                                <span className='text-accent-ruby font-mono'>
-                                                    {agent.clusterId} (deleted)
-                                                </span>
-                                            ) : null
-                                        }
-                                    />
+                                                    value={powerLabel(
+                                                        agent.powerState
+                                                    )}
+                                                />
+                                                <Row
+                                                    label='keepAwake'
+                                                    value={t(
+                                                        agent.keepAwake
+                                                            ? 'admin.hostStatus.keepAwake.on'
+                                                            : 'admin.hostStatus.keepAwake.off'
+                                                    )}
+                                                />
+                                            </>
+                                        )}
+                                        <Row
+                                            label={t(
+                                                'admin.agentRuntimes.detail.info.daemon'
+                                            )}
+                                            value={daemonLabel(
+                                                agent.daemonOnline
+                                            )}
+                                        />
+                                    </>
                                 )}
-                                <Row
-                                    label='Stateful sandbox name'
-                                    value={agent.spriteName}
-                                    mono
-                                />
-                                <Row
-                                    label='Stateful sandbox ID'
-                                    value={agent.spriteId}
-                                    mono
-                                />
                                 <Row
                                     label='mountPath'
                                     value={agent.mountPath}

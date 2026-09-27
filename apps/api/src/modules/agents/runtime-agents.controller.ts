@@ -29,6 +29,10 @@ import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.se
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { AddRuntimeAgentDto } from '@/modules/agents/dto/add-runtime-agent.dto'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 
 @Controller('agent-runtimes')
 @UseGuards(AuthGuard)
@@ -37,6 +41,7 @@ export class RuntimeAgentsController {
         private readonly runtimes: AgentRuntimesService,
         private readonly adapterRegistry: AgentAdapterRegistry,
         private readonly attach: RuntimeAgentAttachService,
+        private readonly runtimeContext: RuntimeContextService,
         @Inject(ACQUISITION_PORT)
         private readonly attribution: AcquisitionPort
     ) {}
@@ -78,10 +83,10 @@ export class RuntimeAgentsController {
         @CurrentUser() user: AuthPrincipal,
         @Param('id') runtimeId: string
     ): Promise<FrameworkAgentSummary[]> {
-        const runtime = await this.runtimes.findById(runtimeId)
-        if (!runtime || runtime.userId !== user.userId)
+        const ctx = await this.runtimeContext.forRuntime(runtimeId)
+        if (!ctx || ctx.runtime.userId !== user.userId)
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
-        return listFrameworkAgents(this.adapterRegistry, runtime)
+        return listFrameworkAgents(this.adapterRegistry, ctx)
     }
 }
 
@@ -91,7 +96,8 @@ export class AdminRuntimeAgentsController {
     constructor(
         private readonly runtimes: AgentRuntimesService,
         private readonly adapterRegistry: AgentAdapterRegistry,
-        private readonly attach: RuntimeAgentAttachService
+        private readonly attach: RuntimeAgentAttachService,
+        private readonly runtimeContext: RuntimeContextService
     ) {}
 
     @Post(':id/agents')
@@ -118,10 +124,10 @@ export class AdminRuntimeAgentsController {
     async listFrameworkAgents(
         @Param('id') runtimeId: string
     ): Promise<FrameworkAgentSummary[]> {
-        const runtime = await this.runtimes.findById(runtimeId)
-        if (!runtime)
+        const ctx = await this.runtimeContext.forRuntime(runtimeId)
+        if (!ctx)
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
-        return listFrameworkAgents(this.adapterRegistry, runtime)
+        return listFrameworkAgents(this.adapterRegistry, ctx)
     }
 }
 
@@ -138,16 +144,17 @@ const SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS: ReadonlySet<AgentFramework> =
 
 const listFrameworkAgents = async (
     adapterRegistry: AgentAdapterRegistry,
-    runtime: Awaited<ReturnType<AgentRuntimesService['findById']>> & {}
+    ctx: RuntimeContext
 ): Promise<FrameworkAgentSummary[]> => {
-    if (!runtime) throw new BadRequestException('runtime required')
+    const { runtime } = ctx
     if (!SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS.has(runtime.framework))
         throw new ConflictException(
             `framework ${runtime.framework} does not support live agent listing`
         )
+    if (!ctx.host) throw new BadRequestException('runtime has no host')
     const adapter = adapterRegistry.get(runtime.framework)
     return adapter.listAgents({
-        runtime,
+        ...ctx,
         primaryAgentId: runtime.primaryAgentId ?? null
     })
 }

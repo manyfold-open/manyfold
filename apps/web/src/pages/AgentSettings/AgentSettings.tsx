@@ -5,8 +5,7 @@ import {
     isSkillFramework,
     isUpgradeableFramework,
     isVersionedFramework,
-    nativeUiAlwaysOn,
-    runtimeKindLabel
+    nativeUiAlwaysOn
 } from '@manyfold/shared'
 import type {
     AgentBackupRestoreSummary,
@@ -72,7 +71,8 @@ import {
     readEnvPendingRestart
 } from '@/lib/envPendingRestart'
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
-import { agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { agentStatusDotLabel, agentStatusTone } from '@/lib/agentStatusDot'
+import { hostKey, placementLabel } from '@/lib/hostStatus'
 import { formatDateTime } from '@/lib/dateFormat'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { useI18n } from '@/lib/i18n'
@@ -934,17 +934,10 @@ const AgentSettingsContent: FC = (): ReactNode => {
         )
     }
 
-    const statusChipLabel = agentStatusDotLabel(
-        agent.status,
-        agent.spriteStatus,
-        agent.k8sPodPhase
-    )
-    const runtimeLocation =
-        agent.runtime === 'sprites'
-            ? agent.spriteName
-            : agent.runtime === 'daemon'
-              ? t('web.agents.detail.yourMachine')
-              : (agent.namespace ?? agent.ingressHost)
+    const statusChipLabel = agentStatusDotLabel(agent)
+    const statusChipTone = agentStatusTone(agent)
+    // The machine's own name; an external-API agent has no machine.
+    const runtimeLocation = agent.hostName
     // Skills materialize into the agent's workspace for the frameworks that
     // discover them (claude-code/codex/gemini-cli/hermes); the API resolves
     // them through the agent's runtime, so a runtime must be attached.
@@ -1224,18 +1217,21 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                 </div>
                                 <div className='mt-1 flex flex-wrap items-center gap-2'>
                                     <StatusTag
-                                        tone={statusTone(statusChipLabel)}
-                                        label={statusLabel(
-                                            statusChipLabel,
-                                            translate
-                                        )}
+                                        tone={statusChipTone}
+                                        label={statusChipLabel}
                                     />
-                                    {agent.keepAliveEnabled ? (
-                                        <span className='text-caption text-subtle'>
+                                    {/* Keep-awake is the sandbox's switch
+                                        (ADR-0036), so it reads here and is
+                                        changed there. */}
+                                    {agent.keepAwake && agent.hostId ? (
+                                        <Link
+                                            to={`/settings/runtimes?host=${hostKey(agent.hostId)}`}
+                                            className='text-caption text-subtle hover:text-fg transition-colors'
+                                        >
                                             {t(
-                                                'web.agentSettings.overview.keepAliveOn'
+                                                'web.agentSettings.overview.keepAwakeOn'
                                             )}
-                                        </span>
+                                        </Link>
                                     ) : null}
                                 </div>
                             </div>
@@ -1356,7 +1352,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                 >
                                                     <RuntimeIcon className='h-3.5 w-3.5 shrink-0' />
                                                     <span>
-                                                        {runtimeKindLabel(
+                                                        {placementLabel(
                                                             agent.runtime
                                                         )}
                                                     </span>

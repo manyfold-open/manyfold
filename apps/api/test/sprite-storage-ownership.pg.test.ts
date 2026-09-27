@@ -357,16 +357,16 @@ test(
     { skip: !RUN, timeout: 20_000 },
     async (t) => {
         const h = await fixture(t)
-        for (const spriteStatus of ['cold', 'warm'] as const) {
+        for (const powerState of ['stopped', 'suspended'] as const) {
             await h.db
                 .update(runtimeHosts)
-                .set({ spriteStatus })
+                .set({ powerState })
                 .where(eq(runtimeHosts.id, h.hostId))
             await h.service().measureHostIfDue(h.hostId, 'status_sync')
         }
         await h.db
             .update(runtimeHosts)
-            .set({ spriteStatus: 'running' })
+            .set({ powerState: 'running' })
             .where(eq(runtimeHosts.id, h.hostId))
         await h.service(true).measureHostIfDue(h.hostId, 'chat')
         const [host] = await h.db

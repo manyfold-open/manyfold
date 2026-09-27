@@ -3,7 +3,6 @@ import {
     K8S_HOME_BASE
 } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
-import type { AgentRuntimeRow } from '@manyfold/db'
 import { sanitizeMessage } from '@/modules/agents/agents.controller'
 import {
     FrameworkExecResolver,
@@ -17,20 +16,20 @@ import type {
     AgentAdapterCreateResult,
     AgentAdapterListContext,
     FrameworkAgent,
-    RemoveAgentContext
+    RemoveAgentContext,
+    RuntimeTarget
 } from './agent-adapter'
 
 const EXEC_TIMEOUT_MS = 30_000
 const DEFAULT_HERMES_HOME = `${K8S_HOME_BASE}/.hermes`
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
-const hermesHomeFor = (runtime: AgentRuntimeRow): string => {
-    if (runtime.kind === 'daemon' && runtime.homeDir)
-        return `${runtime.homeDir}/.hermes`
-    // Sprite bootstraps persist the full HERMES_HOME as homeDir; mountPath is
-    // the workspace and diverges from it on custom-workspace runtimes.
-    if (runtime.kind === 'sprites' && runtime.homeDir) return runtime.homeDir
-    return runtime.mountPath || DEFAULT_HERMES_HOME
+// HERMES_HOME is `<home>/.hermes` on the machine; the host declares its home
+// at registration. A sprite bootstrap that persisted the full path as the
+// runtime's mountPath is honoured when the host reported no home.
+const hermesHomeFor = (target: RuntimeTarget): string => {
+    if (target.host?.homeDir) return `${target.host.homeDir}/.hermes`
+    return target.runtime.mountPath || DEFAULT_HERMES_HOME
 }
 
 const PROFILE_LIST_PY = `import json
@@ -83,7 +82,7 @@ export class HermesAgentAdapter implements AgentAdapter {
     async listAgents(ctx: AgentAdapterListContext): Promise<FrameworkAgent[]> {
         const { runtime } = ctx
         const exec = await this.execResolver.forRuntime(runtime, this.log)
-        const profiles = await tryPythonList(exec, hermesHomeFor(runtime))
+        const profiles = await tryPythonList(exec, hermesHomeFor(ctx))
         if (!profiles)
             throw new Error(
                 `hermes profile discovery failed for runtime ${runtime.id}; filesystem fallback is not trustworthy for reconcile`
@@ -102,7 +101,7 @@ export class HermesAgentAdapter implements AgentAdapter {
                 `hermes profile create failed (exit ${create.exitCode}): ${sanitizeMessage(new Error(create.stderr || create.stdout))}`
             )
 
-        const home = hermesHomeFor(runtime)
+        const home = hermesHomeFor(ctx)
         const all = await this.discoverProfiles(exec, home)
         const found = all.find((a) => a.id === internalId)
         return {

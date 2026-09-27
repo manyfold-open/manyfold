@@ -1,4 +1,3 @@
-import { isExternal } from '@manyfold/shared'
 import type {
     AgentRuntimeStatus,
     AgentRuntimeSummary,
@@ -8,8 +7,14 @@ import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getLocale, t } from '@manyfold/i18n'
-import type { SdkAgent } from '@manyfold/sdk'
+import { ApiError, type SdkAgent } from '@manyfold/sdk'
 import { useApiClient } from '@/lib/apiClient'
+import {
+    availabilityTone,
+    daemonLabel,
+    lifecycleTone,
+    powerLabel
+} from '@/lib/hostStatus'
 import { openDashboardInPopup } from '@/lib/openDashboard'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { adminRoutes } from '@/routes'
@@ -28,16 +33,14 @@ import UsageTab from '../Agents/components/UsageTab'
 type RuntimeTab = 'overview' | 'usage'
 
 const runtimeStatusTone: Record<AgentRuntimeStatus, BadgeTone> = {
-    pending: 'warning',
+    installing: 'warning',
     ready: 'success',
-    failed: 'error',
-    stopped: 'neutral'
+    failed: 'error'
 }
 
 const agentStatusTone: Record<AgentStatus, BadgeTone> = {
     pending: 'warning',
-    running: 'success',
-    stopped: 'neutral',
+    ready: 'success',
     failed: 'error'
 }
 
@@ -108,8 +111,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
     const [controlUiError, setControlUiError] = useState<string | null>(null)
     const [dashboardPending, setDashboardPending] = useState(false)
     const [dashboardError, setDashboardError] = useState<string | null>(null)
-    const [keepAlivePending, setKeepAlivePending] = useState(false)
-    const [keepAliveError, setKeepAliveError] = useState<string | null>(null)
     const [tab, setTab] = useState<RuntimeTab>('overview')
 
     const handleToggleControlUi = async (): Promise<void> => {
@@ -143,25 +144,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
         } catch (err) {
             setDashboardError((err as Error).message)
             setDashboardPending(false)
-        }
-    }
-
-    const handleToggleKeepAlive = async (): Promise<void> => {
-        if (!runtime || keepAlivePending) return
-        setKeepAlivePending(true)
-        setKeepAliveError(null)
-        try {
-            const next = await runtimesApi.setKeepAlive(
-                runtime.id,
-                !runtime.keepAliveEnabled
-            )
-            setRuntime(next)
-            // no 60s debounce: keep-alive is a sub-second sprite exec, not a
-            // k8s pod restart like control-ui/dashboard
-            setKeepAlivePending(false)
-        } catch (err) {
-            setKeepAliveError((err as Error).message)
-            setKeepAlivePending(false)
         }
     }
 
@@ -285,7 +267,11 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
             await runtimesApi.delete(runtime.id)
             navigate(adminRoutes.runtimes)
         } catch (e) {
-            setError((e as Error).message)
+            setError(
+                e instanceof ApiError && e.status === 409
+                    ? t('admin.agentRuntimes.actions.deleteBlocked')
+                    : (e as Error).message
+            )
             setDeletingRuntime(false)
         }
     }
@@ -335,6 +321,13 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                 <Badge tone={runtimeStatusTone[runtime.status]}>
                                     {t(
                                         `admin.agentRuntimes.status.${runtime.status}`
+                                    )}
+                                </Badge>
+                                <Badge
+                                    tone={availabilityTone(runtime.availability)}
+                                >
+                                    {t(
+                                        `admin.hostStatus.availability.${runtime.availability}`
                                     )}
                                 </Badge>
                             </div>
@@ -405,56 +398,97 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                         ) : null
                                     }
                                 />
-                                {runtime.kind === 'sprites' && (
-                                    <Row
-                                        label={t(
-                                            'admin.agentRuntimes.detail.info.spriteName'
-                                        )}
-                                        value={runtime.spriteName}
-                                        mono
-                                    />
-                                )}
-                                {runtime.kind === 'k8s' && (
+                                {runtime.hostId && (
                                     <>
                                         <Row
                                             label={t(
-                                                'admin.agentRuntimes.detail.info.namespace'
-                                            )}
-                                            value={runtime.namespace}
-                                            mono
-                                        />
-                                        <Row
-                                            label={t(
-                                                'admin.agentRuntimes.detail.info.ingressHost'
-                                            )}
-                                            value={runtime.ingressHost}
-                                            mono
-                                        />
-                                        <Row
-                                            label={t(
-                                                'admin.agentRuntimes.detail.info.clusterName'
+                                                'admin.agentRuntimes.detail.info.hostName'
                                             )}
                                             value={
-                                                runtime.clusterName &&
-                                                runtime.clusterId ? (
-                                                    <Link
-                                                        to={adminRoutes.cluster(
-                                                            runtime.clusterId
+                                                <>
+                                                    {runtime.hostName ??
+                                                        runtime.hostId}
+                                                    <span className='text-caption-sm text-body ml-2 font-mono'>
+                                                        {runtime.hostId}
+                                                    </span>
+                                                </>
+                                            }
+                                        />
+                                        {runtime.hostStatus && (
+                                            <Row
+                                                label={t(
+                                                    'admin.agentRuntimes.detail.info.hostStatus'
+                                                )}
+                                                value={
+                                                    <Badge
+                                                        tone={lifecycleTone(
+                                                            runtime.hostStatus
                                                         )}
-                                                        className='text-brand hover:text-brand-hover font-mono'
                                                     >
-                                                        {runtime.clusterName}
-                                                    </Link>
-                                                ) : runtime.clusterName ? (
-                                                    <span className='font-mono'>
-                                                        {runtime.clusterName}
-                                                    </span>
-                                                ) : runtime.clusterId ? (
-                                                    <span className='text-accent-ruby font-mono'>
-                                                        {runtime.clusterId}{' '}
-                                                        (deleted)
-                                                    </span>
-                                                ) : null
+                                                        {t(
+                                                            `admin.hostStatus.lifecycle.${runtime.hostStatus}`
+                                                        )}
+                                                    </Badge>
+                                                }
+                                            />
+                                        )}
+                                        {runtime.hostKind === 'hosted' && (
+                                            <>
+                                                <Row
+                                                    label={t(
+                                                        'admin.agentRuntimes.detail.info.provider'
+                                                    )}
+                                                    value={
+                                                        runtime.providerId ? (
+                                                            <Link
+                                                                to={adminRoutes.runtimeProvider(
+                                                                    runtime.providerId
+                                                                )}
+                                                                className='text-brand hover:text-brand-hover font-mono'
+                                                            >
+                                                                {runtime.providerName ??
+                                                                    runtime.providerId}
+                                                            </Link>
+                                                        ) : null
+                                                    }
+                                                />
+                                                <Row
+                                                    label={t(
+                                                        'admin.agentRuntimes.detail.info.providerRef'
+                                                    )}
+                                                    value={
+                                                        runtime.providerRefLabel
+                                                    }
+                                                    mono
+                                                />
+                                                <Row
+                                                    label={t(
+                                                        'admin.agentRuntimes.detail.info.power'
+                                                    )}
+                                                    value={powerLabel(
+                                                        runtime.powerState
+                                                    )}
+                                                />
+                                            </>
+                                        )}
+                                        <Row
+                                            label={t(
+                                                'admin.agentRuntimes.detail.info.daemon'
+                                            )}
+                                            value={
+                                                <>
+                                                    {daemonLabel(
+                                                        runtime.daemonOnline
+                                                    )}
+                                                    {runtime.daemonCliVersion && (
+                                                        <span className='text-caption-sm text-body ml-2 font-mono'>
+                                                            mf{' '}
+                                                            {
+                                                                runtime.daemonCliVersion
+                                                            }
+                                                        </span>
+                                                    )}
+                                                </>
                                             }
                                         />
                                     </>
@@ -466,15 +500,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                     value={runtime.mountPath}
                                     mono
                                 />
-                                {runtime.accountSlug && (
-                                    <Row
-                                        label={t(
-                                            'admin.agentRuntimes.detail.info.accountSlug'
-                                        )}
-                                        value={runtime.accountSlug}
-                                        mono
-                                    />
-                                )}
                                 <Row
                                     label={t(
                                         'admin.agentRuntimes.detail.info.createdAt'
@@ -539,42 +564,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                         }
                                     />
                                 )}
-                                {runtime.kind === 'sprites' &&
-                                    !isExternal(runtime.framework) && (
-                                        <Row
-                                            label='keepAlive'
-                                            value={
-                                                <div className='flex flex-wrap items-center gap-3'>
-                                                    <span className='font-mono'>
-                                                        {runtime.keepAliveEnabled
-                                                            ? 'enabled'
-                                                            : 'disabled'}
-                                                    </span>
-                                                    <Button
-                                                        variant='neutral'
-                                                        size='sm'
-                                                        onClick={(): void => {
-                                                            void handleToggleKeepAlive()
-                                                        }}
-                                                        disabled={
-                                                            keepAlivePending
-                                                        }
-                                                    >
-                                                        {keepAlivePending
-                                                            ? 'saving…'
-                                                            : runtime.keepAliveEnabled
-                                                              ? 'Disable'
-                                                              : 'Enable'}
-                                                    </Button>
-                                                    {keepAliveError && (
-                                                        <span className='text-accent-ruby text-caption-sm'>
-                                                            {keepAliveError}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            }
-                                        />
-                                    )}
                                 {runtime.framework === 'openclaw' && (
                                         <Row
                                             label='controlUi'

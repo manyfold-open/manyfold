@@ -1,19 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common'
-import type { AgentRuntimeRow } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite,
-    shellSingleQuote,
-    type ExecOptions,
-    type ExecResult,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExec, PodExecFactory } from '@/modules/k8s/pod-exec'
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { resolveAgentPod } from './k8s-pod-resolver'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
+import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import type { HostScriptRunner } from '@/modules/agents/bootstrap/framework-version-install'
 
 export interface FrameworkExecRunRequest {
     cmd: string[]
@@ -33,21 +23,12 @@ export interface FrameworkExec {
     run(req: FrameworkExecRunRequest): Promise<FrameworkExecRunResult>
 }
 
-export class K8sFrameworkExec implements FrameworkExec {
-    constructor(private readonly pod: PodExec) {}
-
-    async run(req: FrameworkExecRunRequest): Promise<FrameworkExecRunResult> {
-        return this.pod.run({
-            cmd: req.cmd,
-            stdin: req.stdin,
-            timeoutMs: req.timeoutMs
-        })
-    }
-}
-
+// One command on a host, through its daemon (ADR-0036 R6): the only way
+// anything inside a machine is run, whichever provider the machine is on.
 export class DaemonFrameworkExec implements FrameworkExec {
     constructor(
         private readonly registry: DaemonRegistryService,
+        // The host id: the daemon's routing key.
         private readonly daemonId: string
     ) {}
 
@@ -82,128 +63,60 @@ export class DaemonFrameworkExec implements FrameworkExec {
     }
 }
 
-export type SpriteExecFn = (
-    client: SpritesClient,
-    spriteName: string,
-    opts: ExecOptions,
-    logger?: SpritesLogger
-) => Promise<ExecResult>
-
-export class SpritesFrameworkExec implements FrameworkExec {
-    constructor(
-        private readonly client: SpritesClient,
-        private readonly spriteName: string,
-        private readonly exec: SpriteExecFn,
-        private readonly logger?: SpritesLogger
-    ) {}
-
-    async run(req: FrameworkExecRunRequest): Promise<FrameworkExecRunResult> {
-        // Framework CLIs live on login-shell-only PATH entries (~/.local/bin,
-        // venvs), so argv goes through `bash -lc` like every other sprite exec.
-        const line = req.cmd.map(shellSingleQuote).join(' ')
-        const res = await this.exec(
-            this.client,
-            this.spriteName,
-            {
-                cmd: ['bash', '-lc', line],
-                ...(req.env ? { env: req.env } : {}),
-                ...(req.stdin !== undefined ? { stdin: req.stdin } : {}),
-                ...(req.dir ? { dir: req.dir } : {}),
-                timeoutMs: req.timeoutMs
-            },
-            this.logger
-        )
-        return {
-            exitCode: res.exitCode,
-            stdout: res.stdout,
-            stderr: res.stderr
-        }
-    }
-}
+// The staged framework install (installFrameworkVersionOn) runs login-shell
+// scripts; this is that runner over a daemon exec, so a framework installs
+// the same way on every kind of host.
+export const daemonScriptRunner = (
+    exec: FrameworkExec,
+    warn: HostScriptRunner['warn']
+): HostScriptRunner => ({
+    run: (script, timeoutMs) =>
+        exec.run({ cmd: ['bash', '-lc', script], timeoutMs }),
+    warn
+})
 
 @Injectable()
 export class FrameworkExecResolver {
     constructor(
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
         private readonly registry: DaemonRegistryService,
-        private readonly spritesAccounts: SpritesAccountsService
+        private readonly runtimeContext: RuntimeContextService,
+        private readonly runnerManager: RunnerManagerService
     ) {}
 
+    // The exec for a runtime's host: its daemon, brought online first when
+    // the host is the platform's. An external runtime has no machine.
     async forRuntime(
         runtime: AgentRuntimeRow,
         logger?: Logger
     ): Promise<FrameworkExec> {
-        if (runtime.kind === 'daemon') {
-            if (!runtime.daemonId)
-                throw new Error(
-                    `runtime ${runtime.id} has kind=daemon but no daemonId`
-                )
-            return new DaemonFrameworkExec(this.registry, runtime.daemonId)
-        }
-        if (runtime.kind === 'k8s') {
-            const pod = await resolveAgentPod(this.k8s, runtime)
-            const podExec = this.podExecFactory.forClient(
-                pod.client,
-                pod.namespace,
-                pod.podName,
-                pod.containerName
+        if (!runtime.hostId)
+            throw new Error(
+                `runtime ${runtime.id} is external; framework exec needs a host`
             )
-            return new K8sFrameworkExec(podExec)
-        }
-        if (runtime.kind === 'sprites') {
-            if (!runtime.spriteName)
-                throw new Error(
-                    `runtime ${runtime.id} has kind=sprites but no spriteName`
-                )
-            if (!runtime.accountId)
-                throw new Error(
-                    `runtime ${runtime.id} has kind=sprites but no accountId`
-                )
-            const account = await this.spritesAccounts.getById(
-                runtime.accountId
-            )
-            if (!account)
-                throw new Error(
-                    `sprites account ${runtime.accountId} not found for runtime ${runtime.id}`
-                )
-            const spritesLogger = spritesLoggerFor(logger)
-            const client = createSpritesClient({
-                token: this.spritesAccounts.decryptToken(account),
-                accountSlug: account.slug,
-                logger: spritesLogger
-            })
-            return new SpritesFrameworkExec(
-                client,
-                runtime.spriteName,
-                this.execSprite.bind(this),
-                spritesLogger
-            )
-        }
-        throw new Error(
-            `runtime ${runtime.id} has kind=${runtime.kind}; framework exec only supports k8s, daemon or sprites`
-        )
+        const context = await this.runtimeContext.forRuntime(runtime.id)
+        if (!context?.host)
+            throw new Error(`runtime ${runtime.id} has no host`)
+        return this.forHost(context.host, logger)
     }
 
-    protected execSprite(
-        client: SpritesClient,
-        spriteName: string,
-        opts: ExecOptions,
-        logger?: SpritesLogger
-    ): Promise<ExecResult> {
-        return execSprite(client, spriteName, opts, logger)
+    async forHost(
+        host: RuntimeHostRow,
+        logger?: Logger
+    ): Promise<FrameworkExec> {
+        const resolution = await this.runnerManager.ensureHostDaemon({ host })
+        if (!resolution.handle) {
+            logger?.warn(
+                `framework exec unavailable hostId=${host.id} reason=${resolution.fallbackReason ?? 'offline'}`
+            )
+            throw new ServiceUnavailableException({
+                code:
+                    host.kind === 'local'
+                        ? 'DAEMON_OFFLINE'
+                        : 'SANDBOX_DAEMON_OFFLINE',
+                message: `${host.name} is not reachable (${resolution.fallbackReason ?? 'daemon offline'})`,
+                hostId: host.id
+            })
+        }
+        return new DaemonFrameworkExec(this.registry, host.id)
     }
 }
-
-const spritesLoggerFor = (log?: Logger): SpritesLogger | undefined =>
-    log
-        ? {
-              debug: () => {},
-              info: (m, meta) =>
-                  log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-              warn: (m, meta) =>
-                  log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-              error: (m, meta) =>
-                  log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
-          }
-        : undefined

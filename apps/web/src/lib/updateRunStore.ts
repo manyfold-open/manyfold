@@ -161,13 +161,13 @@ const runSteps = async (
                     }
                     case 'sandboxCli':
                         await client.sandboxes.upgradeCli(
-                            step.sandboxId,
+                            step.hostId,
                             step.targetVersion ?? undefined
                         )
                         succeed(ids)
                         break
                     case 'sandboxHerdr':
-                        await client.sandboxes.upgradeHerdr(step.sandboxId)
+                        await client.sandboxes.upgradeHerdr(step.hostId)
                         succeed(ids)
                         break
                     case 'podHostCli':

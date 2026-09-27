@@ -64,7 +64,6 @@ const withDatabase = (
                         userId: 'owner',
                         name: 'contract',
                         framework: 'codex',
-                        kind: 'sprites'
                     })
                 for (const id of ['caller', 'target'])
                     await db
@@ -74,7 +73,6 @@ const withDatabase = (
                             userId: 'owner',
                             runtimeId: 'runtime',
                             framework: 'codex',
-                            runtime: 'sprites',
                             internalId: id,
                             name: id
                         })

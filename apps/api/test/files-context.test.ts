@@ -16,6 +16,14 @@ import {
     fixtureFiles
 } from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
+import {
+    contextOf,
+    daemonRow,
+    fakeRuntimeContext,
+    hostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const agent = (overrides: Partial<Agent> = {}): Agent =>
     ({
@@ -24,23 +32,13 @@ const agent = (overrides: Partial<Agent> = {}): Agent =>
         runtimeId: 'runtime-1',
         name: 'local claude',
         framework: 'claude-code',
-        runtime: 'daemon',
-        status: 'running',
-        spriteStatus: null,
-        k8sPodPhase: null,
-        accountId: null,
-        clusterId: null,
-        daemonId: 'dh-1',
+        status: 'ready',
         internalId: 'agent-1',
         model: null,
         extras: {},
         workspacePath: '/Users/me/.nca/workspaces/agent-1',
-        spriteName: null,
-        spriteId: null,
         mountPath: '/Users/me/.nca/workspaces/agent-1',
         fileRoots: [],
-        namespace: null,
-        ingressHost: null,
         currentPhase: null,
         failureReason: null,
         startedAt: new Date(),
@@ -51,56 +49,101 @@ const agent = (overrides: Partial<Agent> = {}): Agent =>
         ...overrides
     }) as Agent
 
-test('assertAgentReady accepts running daemon agents with daemonId', () => {
-    assert.doesNotThrow(() => assertAgentReady(agent()))
+const localContext = (
+    row: Agent = agent(),
+    overrides: { daemonOnline?: boolean; features?: string[] } = {}
+) =>
+    contextOf({
+        agent: row,
+        host: hostRow({ id: 'dh-1', homeDir: '/Users/me' }),
+        daemon: daemonRow({
+            hostId: 'dh-1',
+            clientFeatures: overrides.features ?? [],
+            ...(overrides.daemonOnline === false
+                ? { lastSeenAt: new Date(0), rpcLastSeenAt: new Date(0) }
+                : {})
+        })
+    })
+
+// The one admission rule (ADR-0036): an installed runtime on a ready host. A
+// hosted machine that is asleep is still admitted (reads wake it); a local
+// one whose daemon is gone is not.
+test('assertAgentReady accepts an available local agent', () => {
+    assert.doesNotThrow(() => assertAgentReady(localContext()))
 })
 
-test('assertAgentReady rejects daemon agents without daemonId', () => {
+test('assertAgentReady rejects a local agent whose daemon is offline', () => {
     assert.throws(
-        () => assertAgentReady(agent({ daemonId: null })),
+        () => assertAgentReady(localContext(agent(), { daemonOnline: false })),
         (err: unknown) =>
             err instanceof NotFoundException &&
-            err.message === 'daemon agent missing daemonId'
+            err.message.startsWith('agent is offline')
     )
 })
 
-test('assertAgentReady still rejects k8s agents without namespace', () => {
+test('assertAgentReady admits a sleeping sandbox and refuses an uninstalled runtime', () => {
+    const asleep = contextOf({
+        agent: agent(),
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: null
+    })
+    assert.doesNotThrow(() => assertAgentReady(asleep))
+    const installing = contextOf({
+        agent: agent(),
+        runtime: runtimeRow({ status: 'installing' }),
+        host: hostRow()
+    })
     assert.throws(
-        () => assertAgentReady(agent({ runtime: 'k8s', daemonId: null })),
+        () => assertAgentReady(installing),
         (err: unknown) =>
             err instanceof NotFoundException &&
-            err.message === 'k8s agent missing namespace'
+            err.message.startsWith('agent is unavailable')
+    )
+})
+
+test('assertAgentReady rejects external agents', () => {
+    assert.throws(
+        () =>
+            assertAgentReady(
+                contextOf({ agent: agent(), host: null, daemon: null })
+            ),
+        (err: unknown) =>
+            err instanceof NotFoundException &&
+            err.message === 'external-runtime agents have no filesystem'
     )
 })
 
 const frameworkAgent = (overrides: Partial<Agent> = {}): Agent =>
     agent({
         framework: FIXTURE,
-        runtime: 'sprites',
-        daemonId: null,
-        spriteName: 'sprite-1',
-        accountId: 'spa-1',
         mountPath: FIXTURE_WORKSPACE,
         ...overrides
     })
 
 // A framework that serves its own files (FrameworkDefinition.files): its
 // provider owns the roots, answers the ones it serves, and hands the rest back
-// to the runtime's own transport.
+// to the runtime's own transport (here a sprites host).
 const frameworkBuilder = (
     files: Record<string, Uint8Array> = {}
 ): FilesContextBuilder =>
     new FilesContextBuilder(
-        { getById: async () => null } as never,
-        { findById: async () => null } as never,
-        {} as never,
-        {} as never,
+        fakeRuntimeContext((id) =>
+            contextOf({
+                agent: frameworkAgent({ id }),
+                host: spritesHostRow({ id: 'spa-1' })
+            })
+        ) as never,
+        {
+            spritesClientForHost: async () => {
+                throw new NotFoundException('sprites account spa-1 not found')
+            }
+        } as never,
         {} as never,
         {} as never,
         extensionsWith({ framework: FIXTURE, files: fixtureFiles(files) })
     )
 
-// With no sprite account wired, the runtime transport fails on the account
+// With no sprite client wired, the runtime transport fails on the host
 // lookup, which proves the root took that path rather than the provider's.
 test('a root the framework does not serve goes through the runtime transport', async () => {
     await assert.rejects(
@@ -130,8 +173,9 @@ const DAEMON_WORKSPACE = '/Users/me/.manyfold/workspaces/agent-1'
 
 // keeping the stored roots in their current shape avoids the fileRoots backfill
 // write, so the db stub only has to serve the clientFeatures lookup
-const daemonAgent = (): Agent =>
+const daemonAgent = (overrides: Partial<Agent> = {}): Agent =>
     agent({
+        ...overrides,
         mountPath: DAEMON_WORKSPACE,
         workspacePath: DAEMON_WORKSPACE,
         fileRoots: [
@@ -198,25 +242,18 @@ const daemonStub = (
             return { result }
         }
     }
-    const rows = [
-        { clientFeatures: opts.features ?? [DAEMON_FEATURE_FS_WRITE_BINARY] }
-    ]
-    const db = {
-        select: () => ({
-            from: () => ({ where: () => ({ limit: async () => rows }) })
-        })
-    }
+    const features = opts.features ?? [DAEMON_FEATURE_FS_WRITE_BINARY]
     return {
         calls,
         settleRead: (payload) => settle(payload),
         failRead: (err) => fail(err),
         builder: new FilesContextBuilder(
-            {} as never,
-            { findById: async () => null } as never,
-            {} as never,
+            fakeRuntimeContext((id) =>
+                localContext(daemonAgent({ id }), { features })
+            ) as never,
             {} as never,
             registry as never,
-            db as never
+            {} as never
         )
     }
 }

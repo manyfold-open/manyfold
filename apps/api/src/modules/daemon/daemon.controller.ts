@@ -29,17 +29,24 @@ import {
 } from '@nestjs/common'
 import { count, eq, inArray } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
-import { agents, agentRuntimes, auditLogs, type Database } from '@manyfold/db'
+import {
+    agents,
+    agentRuntimes,
+    auditLogs,
+    type Database,
+    type RuntimeHostRow
+} from '@manyfold/db'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { DRIZZLE } from '@/db/tokens'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { DaemonAuthGuard } from './daemon-auth.guard'
 import { CurrentDaemon } from './current-daemon.decorator'
 import {
     DaemonTokenService,
     type DaemonAuthContext
 } from './daemon-token.service'
-import { DaemonHostService } from './daemon-host.service'
+import { DaemonHostService, type DaemonSummaryRuntime } from './daemon-host.service'
 import { CliUpgradeDto } from './dto/cli-upgrade.dto'
 import { RenameDaemonHostDto } from './dto/rename-host.dto'
 import { DaemonRuntimeSyncService } from './daemon-runtime-sync.service'
@@ -58,6 +65,7 @@ export class DaemonController {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly tokens: DaemonTokenService,
         private readonly hosts: DaemonHostService,
+        private readonly hostDaemons: HostDaemonsService,
         private readonly runtimeSync: DaemonRuntimeSyncService,
         private readonly rateLimit: DaemonRateLimitService,
         private readonly registry: DaemonRegistryService
@@ -82,27 +90,21 @@ export class DaemonController {
             windowMs: RATE_WINDOW_MS
         })
 
-        const host = await this.hosts.upsertOnRegister({
+        const { host } = await this.hosts.upsertOnRegister({
             tokenId: auth.tokenId,
             request: body,
             lastIp
         })
-        const runtimes = await this.runtimeSync.syncForDaemon({
+        await this.runtimeSync.syncForDaemon({
             host,
             detectedFrameworks: body.detectedFrameworks
         })
         await this.audit(host.userId, auditAction.DAEMON_REGISTERED, host.id, {
             daemonUuid: body.daemonUuid,
+            kind: host.kind,
             detectedFrameworks: body.detectedFrameworks.map((d) => d.framework)
         })
-        return {
-            daemonId: host.id,
-            runtimes: runtimes.map((r) => ({
-                runtimeId: r.id,
-                framework: r.framework as DetectedFramework['framework']
-            })),
-            wsUrl: '/api/daemon/ws'
-        }
+        return { daemonId: host.id, wsUrl: '/api/daemon/ws' }
     }
 
     @Post('heartbeat')
@@ -111,17 +113,17 @@ export class DaemonController {
         @CurrentDaemon() auth: DaemonAuthContext,
         @Body() body: HeartbeatRequest
     ): Promise<HeartbeatResponse> {
-        if (!auth.daemonId)
+        if (!auth.hostId)
             throw new BadRequestException(
-                'token not bound to a daemon; call /register first'
+                'token not bound to a host; call /register first'
             )
         this.rateLimit.consume({
             key: `daemon:heartbeat:${auth.tokenId}`,
             limit: HEARTBEAT_LIMIT,
             windowMs: RATE_WINDOW_MS
         })
-        const host = await this.hosts.heartbeat({
-            daemonId: auth.daemonId,
+        const registered = await this.hosts.heartbeat({
+            daemonId: auth.hostId,
             detectedFrameworks: body.detectedFrameworks,
             cliVersion: body.cliVersion,
             startupMethod: body.startupMethod,
@@ -141,13 +143,13 @@ export class DaemonController {
                       ? body.herdrVersion
                       : null
         })
-        if (host)
+        if (registered)
             await this.runtimeSync.syncForDaemon({
-                host,
+                host: registered.host,
                 detectedFrameworks: body.detectedFrameworks
             })
-        if (host && body.terminals !== undefined)
-            this.hosts.reportTerminalInventory(auth.daemonId, body.terminals)
+        if (registered && body.terminals !== undefined)
+            this.hosts.reportTerminalInventory(auth.hostId, body.terminals)
         return { ok: true, actions: [] }
     }
 
@@ -156,29 +158,13 @@ export class DaemonController {
     async me(
         @CurrentDaemon() auth: DaemonAuthContext
     ): Promise<DaemonHostSummary> {
-        if (!auth.daemonId)
+        if (!auth.hostId)
             throw new BadRequestException(
-                'token not bound to a daemon; call /register first'
+                'token not bound to a host; call /register first'
             )
-        const host = await this.hosts.findById(auth.daemonId)
+        const host = await this.hosts.findById(auth.hostId)
         if (!host) throw new NotFoundException('daemon host not found')
-        const runtimes = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.daemonId, host.id))
-        const [{ count: agentCount }] = await this.db
-            .select({ count: count() })
-            .from(agents)
-            .where(eq(agents.daemonId, host.id))
-        return this.hosts.toSummary(
-            host,
-            runtimes.map((r) => ({
-                runtimeId: r.id,
-                framework: r.framework as DetectedFramework['framework'],
-                name: r.name
-            })),
-            Number(agentCount)
-        )
+        return this.summarize(host)
     }
 
     @Post('tokens')
@@ -210,7 +196,7 @@ export class DaemonController {
             summary: {
                 id: minted.tokenId,
                 name: minted.name,
-                daemonId: null,
+                hostId: null,
                 lastUsedAt: null,
                 expiresAt: minted.expiresAt?.toISOString() ?? null,
                 revokedAt: null,
@@ -228,7 +214,7 @@ export class DaemonController {
         return rows.map((r) => ({
             id: r.id,
             name: r.name,
-            daemonId: r.daemonId,
+            hostId: r.hostId,
             lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
             expiresAt: r.expiresAt?.toISOString() ?? null,
             revokedAt: r.revokedAt?.toISOString() ?? null,
@@ -243,11 +229,11 @@ export class DaemonController {
         @CurrentUser() user: AuthPrincipal,
         @Param('id') id: string
     ): Promise<void> {
-        const daemonId = await this.tokens.revoke({
+        const hostId = await this.tokens.revoke({
             tokenId: id,
             userId: user.userId
         })
-        if (daemonId) this.registry.disconnect(daemonId, 'daemon token revoked')
+        if (hostId) this.registry.disconnect(hostId, 'daemon token revoked')
         await this.audit(user.userId, auditAction.DAEMON_TOKEN_REVOKED, id, {})
     }
 
@@ -259,49 +245,47 @@ export class DaemonController {
         const hosts = await this.hosts.listForUser(user.userId)
         if (hosts.length === 0) return []
         const hostIds = hosts.map((h) => h.id)
-        const [countsRaw, runtimeRows] = await Promise.all([
+        const [daemons, countsRaw, runtimeRows] = await Promise.all([
+            this.hostDaemons.findByHostIds(hostIds),
             this.db
-                .select({ daemonId: agents.daemonId, count: count() })
+                .select({ hostId: agentRuntimes.hostId, count: count() })
                 .from(agents)
-                .where(inArray(agents.daemonId, hostIds))
-                .groupBy(agents.daemonId),
+                .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+                .where(inArray(agentRuntimes.hostId, hostIds))
+                .groupBy(agentRuntimes.hostId),
             this.db
                 .select({
                     id: agentRuntimes.id,
-                    daemonId: agentRuntimes.daemonId,
+                    hostId: agentRuntimes.hostId,
                     framework: agentRuntimes.framework,
-                    name: agentRuntimes.name
+                    name: agentRuntimes.name,
+                    status: agentRuntimes.status
                 })
                 .from(agentRuntimes)
-                .where(inArray(agentRuntimes.daemonId, hostIds))
+                .where(inArray(agentRuntimes.hostId, hostIds))
         ])
         const countByHost = new Map(
-            countsRaw.map((r) => [r.daemonId, Number(r.count)])
+            countsRaw.map((r) => [r.hostId, Number(r.count)])
         )
-        const runtimesByDaemon = new Map<
-            string,
-            Array<{
-                runtimeId: string
-                framework: DetectedFramework['framework']
-                name: string
-            }>
-        >()
+        const runtimesByHost = new Map<string, DaemonSummaryRuntime[]>()
         for (const r of runtimeRows) {
-            if (!r.daemonId) continue
-            const list = runtimesByDaemon.get(r.daemonId) ?? []
+            if (!r.hostId) continue
+            const list = runtimesByHost.get(r.hostId) ?? []
             list.push({
                 runtimeId: r.id,
                 framework: r.framework as DetectedFramework['framework'],
-                name: r.name
+                name: r.name,
+                status: r.status
             })
-            runtimesByDaemon.set(r.daemonId, list)
+            runtimesByHost.set(r.hostId, list)
         }
         const out: DaemonHostSummary[] = []
         for (const host of hosts) {
             out.push(
                 await this.hosts.toSummary(
                     host,
-                    runtimesByDaemon.get(host.id) ?? [],
+                    daemons.get(host.id) ?? null,
+                    runtimesByHost.get(host.id) ?? [],
                     countByHost.get(host.id) ?? 0
                 )
             )
@@ -317,7 +301,6 @@ export class DaemonController {
         @Param('id') id: string
     ): Promise<void> {
         await this.hosts.revoke({ id, userId: user.userId })
-        this.registry.disconnect(id, 'daemon host revoked')
         await this.audit(user.userId, auditAction.DAEMON_REVOKED, id, {})
     }
 
@@ -328,7 +311,7 @@ export class DaemonController {
         @CurrentUser() user: AuthPrincipal,
         @Param('id') id: string
     ): Promise<void> {
-        await this.hosts.deleteRevoked({
+        await this.hosts.deleteRetired({
             id,
             actorId: user.userId,
             userId: user.userId
@@ -377,22 +360,28 @@ export class DaemonController {
             userId: user.userId,
             name: body.name
         })
-        const runtimes = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.daemonId, host.id))
-        const [agentCountRow] = await this.db
-            .select({ value: count() })
-            .from(agents)
-            .where(eq(agents.daemonId, host.id))
+        return this.summarize(host)
+    }
+
+    private async summarize(host: RuntimeHostRow): Promise<DaemonHostSummary> {
+        const [daemon, runtimes, agentCount] = await Promise.all([
+            this.hostDaemons.findByHostId(host.id),
+            this.db
+                .select()
+                .from(agentRuntimes)
+                .where(eq(agentRuntimes.hostId, host.id)),
+            this.hosts.agentCount(host.id)
+        ])
         return this.hosts.toSummary(
             host,
+            daemon,
             runtimes.map((r) => ({
                 runtimeId: r.id,
                 framework: r.framework as DetectedFramework['framework'],
-                name: r.name
+                name: r.name,
+                status: r.status
             })),
-            Number(agentCountRow?.value ?? 0)
+            agentCount
         )
     }
 

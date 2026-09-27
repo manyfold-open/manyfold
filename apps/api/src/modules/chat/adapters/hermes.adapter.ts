@@ -20,7 +20,9 @@ import type {
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import {
+    agentRuntimes,
     agents,
+    runtimeHosts,
     agentCredentials,
     jsonbMerge,
     type Database
@@ -243,17 +245,22 @@ export class HermesAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const [agentRow] = await this.db
             .select({
-                runtime: agents.runtime,
-                daemonId: agents.daemonId,
                 workspacePath: agents.workspacePath,
                 mountPath: agents.mountPath,
                 extras: agents.extras,
-                model: agents.model
+                model: agents.model,
+                hostId: runtimeHosts.id,
+                hostKind: runtimeHosts.kind
             })
             .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
             .where(eq(agents.id, ctx.agentId))
             .limit(1)
         if (!agentRow) throw new Error(`agent ${ctx.agentId} not found`)
+        // A local machine's own hermes answers on its own sign-in; a hosted
+        // one runs the platform's gateway and its provider aliases.
+        const localMachine = agentRow.hostKind === 'local'
 
         // What set_model should enforce this turn. The web auto-defaults the
         // override to the agent's model, so "override present" alone is not
@@ -271,7 +278,7 @@ export class HermesAdapter implements ApiChatAdapter {
                 ? ctx.hermesPermissionMode
                 : null
 
-        const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
+        const daemonId = ctx.runnerDaemonId ?? agentRow.hostId
         if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
         try {
             if (!await this.requireTurnHermes(daemonId)) {
@@ -295,7 +302,7 @@ export class HermesAdapter implements ApiChatAdapter {
         }
         let aliasEnv: Record<string, string> = {}
         try {
-            if (agentRow.runtime !== 'daemon') aliasEnv = await this.providerAliasEnv(ctx.agentId)
+            if (!localMachine) aliasEnv = await this.providerAliasEnv(ctx.agentId)
         } catch (err) {
             const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
             yield { type: 'error', error: {

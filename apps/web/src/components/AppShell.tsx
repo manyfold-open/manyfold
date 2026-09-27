@@ -1,3 +1,4 @@
+import { isRuntimeUsable } from '@manyfold/shared'
 import type {
     AgentFramework,
     ChatSessionSummary,
@@ -65,7 +66,7 @@ import { daysAgoIso, fmtCost, hoursAgoIso } from '@/lib/usageFormat'
 import { useAppAuth } from '@/lib/auth'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import SignupBetaBadge from '@/components/signup-gate/BetaBadge'
-import { agentStatusDotClass } from '@/lib/agentStatusDot'
+import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
 import AgentStatusDot from '@/components/AgentStatusDot'
 import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
@@ -131,6 +132,7 @@ import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { StatusTag, tagToneClass } from '@/components/Tag'
 import {
     applyAgentStatusSnapshots,
+    applyHostPowerUpdate,
     getAgentChatAvailability,
     reconcileSidebarAgents,
     sortSidebarAgents
@@ -1292,11 +1294,10 @@ const CollapsedAgentSessionsMenu: FC<CollapsedAgentSessionsMenuProps> = ({
     const { direction, t } = useI18n()
     const availability = getAgentChatAvailability(agent)
     const agentStreaming = useIsAgentStreaming(agent.id)
-    const daemonStopped =
-        agent.runtime === 'daemon' && agent.status === 'stopped'
+    const daemonOffline = agent.availability === 'offline'
     const showReadOnlyBadge =
         !availability.ready &&
-        !daemonStopped &&
+        !daemonOffline &&
         availability.code !== 'cli-upgrade'
     const location = useLocation()
     const [open, setOpen] = useState(false)
@@ -1411,9 +1412,9 @@ const CollapsedAgentSessionsMenu: FC<CollapsedAgentSessionsMenuProps> = ({
         action()
     }
 
-    const agentTitle = `${agent.name} · ${frameworkDisplayLabel(agent.framework)} · ${
-        agent.status
-    }${showReadOnlyBadge ? ` · ${t('web.shell.readOnly')}` : ''}`
+    const agentTitle = `${agent.name} · ${frameworkDisplayLabel(agent.framework)} · ${agentStatusDotLabel(
+        agent
+    )}${showReadOnlyBadge ? ` · ${t('web.shell.readOnly')}` : ''}`
     const sessionPanel =
         open && typeof document !== 'undefined'
             ? createPortal(
@@ -1556,12 +1557,7 @@ const CollapsedAgentSessionsMenu: FC<CollapsedAgentSessionsMenuProps> = ({
                     <span
                         className={[
                             'absolute bottom-2.5 right-2.5 h-2.5 w-2.5 rounded-full border-2 border-[#f3f3ef]',
-                            agentStatusDotClass(
-                                agent.status,
-                                agent.spriteStatus,
-                                agent.k8sPodPhase,
-                                agent.runtime
-                            ),
+                            agentStatusDotClass(agent),
                             agentStreaming ? 'animate-pulse' : ''
                         ].join(' ')}
                         aria-hidden='true'
@@ -2240,14 +2236,12 @@ const AppShell: FC = (): ReactNode => {
             return next
         })
     }, [])
+    // Renameable machine names by host id, fresher than the agent rows'
+    // own hostName between agent polls.
     const hostNames = useMemo(() => {
         const map = new Map<string, string>()
         for (const host of daemonHosts) map.set(host.id, host.name)
-        // Sprite agents carry spriteName (the VM id), not the sandbox host id;
-        // key sandbox names by spriteName so host grouping/filters show the
-        // renameable "sandbox-002" label instead of the raw VM id.
-        for (const sandbox of sandboxes)
-            if (sandbox.spriteName) map.set(sandbox.spriteName, sandbox.name)
+        for (const sandbox of sandboxes) map.set(sandbox.id, sandbox.name)
         return map
     }, [daemonHosts, sandboxes])
     const agentsView = useMemo(
@@ -2340,11 +2334,13 @@ const AppShell: FC = (): ReactNode => {
         return agents.find((agent) => agent.id === activeTab.agentId) ?? null
     }, [activeTerminalId, agents, terminalTabs])
     const terminalCreateTarget =
-        currentAgent?.status === 'running' &&
-        currentAgent.runtime !== 'external'
+        currentAgent &&
+        currentAgent.runtime !== 'external' &&
+        isRuntimeUsable(currentAgent.availability)
             ? currentAgent
-            : activeTerminalAgent?.status === 'running' &&
-                activeTerminalAgent.runtime !== 'external'
+            : activeTerminalAgent &&
+                activeTerminalAgent.runtime !== 'external' &&
+                isRuntimeUsable(activeTerminalAgent.availability)
               ? activeTerminalAgent
               : null
     const currentAgentChat = useMemo(
@@ -2551,12 +2547,15 @@ const AppShell: FC = (): ReactNode => {
         }
     }, [refreshSessionsForAgent])
 
-    const handleSetKeepAlive = useCallback(
-        async (runtimeId: string, enabled: boolean): Promise<void> => {
-            await client.agentRuntimes.setKeepAlive(runtimeId, enabled)
-            await refreshAgents({ showLoading: false })
+    const handleSetKeepAwake = useCallback(
+        async (hostId: string, enabled: boolean): Promise<void> => {
+            await client.sandboxes.setKeepAwake(hostId, enabled)
+            await Promise.all([
+                refreshAgents({ showLoading: false }),
+                refreshSandboxes()
+            ])
         },
-        [client, refreshAgents]
+        [client, refreshAgents, refreshSandboxes]
     )
 
     const dismissQuotaWarning = useCallback((code: string): void => {
@@ -2751,7 +2750,7 @@ const AppShell: FC = (): ReactNode => {
         return subscribeWorkbenchEvents({
             onSnapshot: (snapshot) => {
                 console.log(
-                    '[sprite-status] snapshot',
+                    '[host-status] snapshot',
                     snapshot.length,
                     'agents',
                     snapshot
@@ -2761,11 +2760,11 @@ const AppShell: FC = (): ReactNode => {
                 )
             },
             onUpdate: (update) => {
-                console.log('[sprite-status] update', update)
+                console.log('[host-status] update', update)
                 setAgents((previous) =>
                     applyAgentStatusSnapshots(previous, [update])
                 )
-                if (update.spriteStatus !== 'running') {
+                if (update.powerState !== 'running') {
                     setReleasingAgentIds((prev) => {
                         if (!prev.has(update.agentId)) return prev
                         const next = new Set(prev)
@@ -2780,14 +2779,16 @@ const AppShell: FC = (): ReactNode => {
                         s.id === update.hostId
                             ? {
                                   ...s,
-                                  spriteStatus: update.spriteStatus
+                                  powerState: update.powerState,
+                                  daemonOnline: update.daemonOnline
                               }
                             : s
                     )
                 )
+                setAgents((previous) => applyHostPowerUpdate(previous, update))
             },
             onQuotaWarning: (event) => {
-                console.log('[sprite-status] quota-warning', event)
+                console.log('[host-status] quota-warning', event)
                 try {
                     const key = `quota-dismissed:${event.code}:${event.at.slice(0, 10)}`
                     if (window.localStorage.getItem(key)) return
@@ -3605,12 +3606,11 @@ const AppShell: FC = (): ReactNode => {
                                             agent.id === selectedAgentId
                                         const availability =
                                             getAgentChatAvailability(agent)
-                                        const daemonStopped =
-                                            agent.runtime === 'daemon' &&
-                                            agent.status === 'stopped'
+                                        const daemonOffline =
+                                            agent.availability === 'offline'
                                         const showReadOnlyBadge =
                                             !availability.ready &&
-                                            !daemonStopped &&
+                                            !daemonOffline &&
                                             availability.code !== 'cli-upgrade'
                                         const sidebarToggleDisabled =
                                             !availability.ready &&
@@ -3659,12 +3659,12 @@ const AppShell: FC = (): ReactNode => {
                                             null
                                         const occupiesSlot =
                                             agent.runtime === 'sprites' &&
-                                            agent.spriteStatus === 'running'
+                                            agent.powerState === 'running'
                                         const isReleasing =
                                             releasingAgentIds.has(agent.id)
                                         const agentTitle = `${agent.name} · ${frameworkDisplayLabel(
                                             agent.framework
-                                        )} · ${agent.status}${showReadOnlyBadge ? ` · ${readOnlyLabel}` : ''}`
+                                        )} · ${agentStatusDotLabel(agent)}${showReadOnlyBadge ? ` · ${readOnlyLabel}` : ''}`
 
                                         return (
                                             <div
@@ -3815,9 +3815,9 @@ const AppShell: FC = (): ReactNode => {
                                                                         {frameworkDisplayLabel(
                                                                             agent.framework
                                                                         )}{' '}
-                                                                        {
-                                                                            agent.status
-                                                                        }
+                                                                        {agentStatusDotLabel(
+                                                                            agent
+                                                                        )}
                                                                     </span>
                                                                 </button>
                                                             </ShortcutTooltip>
@@ -4133,7 +4133,7 @@ const AppShell: FC = (): ReactNode => {
                             usagePeriodEnd={
                                 runtimeAccess?.usagePeriod.end ?? null
                             }
-                            onSetKeepAlive={handleSetKeepAlive}
+                            onSetKeepAwake={handleSetKeepAwake}
                             compact={collapsed}
                         />
                         {extraSidebarMeters.map(({ Component, id }) => (

@@ -1,6 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    hostRow,
+    k8sHostRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 // #516: coding-framework adapters (claude-code/codex/gemini-cli) implement
 // listAgents as a SELECT of the agents table itself, so the generic reconcile
@@ -70,19 +77,23 @@ const throwingRegistry = {
     }
 }
 
-for (const [kind, framework] of [
-    ['sprites', 'claude-code'],
-    ['k8s', 'codex'],
-    ['daemon', 'gemini-cli']
+// Presence is never mirrored into agent rows (ADR-0036): a coding-framework
+// runtime has nothing to reconcile, so the pass touches no table at all.
+for (const [host, framework] of [
+    [spritesHostRow(), 'claude-code'],
+    [k8sHostRow(), 'codex'],
+    [hostRow(), 'gemini-cli']
 ] as const) {
-    test(`reconcile ${kind}/${framework}: single heal UPDATE, no SELECT, no adapter`, async () => {
+    test(`reconcile ${host.kind}/${framework}: no SELECT, no writes, no adapter`, async () => {
         const db = makeDb()
+        const runtime = fakeRuntime({ framework, hostId: host.id })
         const svc = new AgentReconcileService(
             db as never,
-            throwingRegistry as never
+            throwingRegistry as never,
+            fakeRuntimeContext(contextOf({ runtime: runtime as never, host })) as never
         )
 
-        await svc.reconcileRuntime(fakeRuntime({ kind, framework }) as never)
+        await svc.reconcileRuntime(runtime as never)
 
         assert.equal(
             db.counters.selects,
@@ -90,13 +101,7 @@ for (const [kind, framework] of [
             'fast path must not re-read the agents table'
         )
         assert.equal(db.counters.inserts, 0, 'fast path never inserts')
-        assert.equal(
-            db.counters.updates,
-            1,
-            'exactly one guarded heal statement'
-        )
-        assert.equal(db.updates[0].set.status, 'running')
-        assert.equal(db.updates[0].set.failureReason, null)
-        assert.ok(db.updates[0].set.lastReconciledAt instanceof Date)
+        assert.equal(db.counters.updates, 0, 'fast path never writes')
+        assert.deepEqual(db.updates, [])
     })
 }

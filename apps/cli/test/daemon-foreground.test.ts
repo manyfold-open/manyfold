@@ -90,8 +90,7 @@ const fixture = async (shellBody?: string) => {
                     JSON.stringify({
                         type: 'welcome',
                         daemonId: 'ldh_fixture',
-                        serverTime: new Date().toISOString(),
-                        runtimeIds: []
+                        serverTime: new Date().toISOString()
                     })
                 )
             if (frame.type === 'ping')

@@ -1,19 +1,18 @@
 import {
     DAEMON_FEATURE_SERVICES,
-    podRunnerHostName,
+    daemonOnline,
     type DaemonServiceSpec,
     type DaemonServiceStatus
 } from '@manyfold/shared'
 import {
-    Inject,
     Injectable,
     Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
-import { runtimeHosts, type Database, type RuntimeHostRow } from '@manyfold/db'
-import { DRIZZLE } from '@/db/tokens'
+import type { RuntimeHostRow } from '@manyfold/db'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
 
 const SERVICE_RPC_TIMEOUT_MS = 60_000
@@ -23,60 +22,36 @@ type PodHostRef = Pick<RuntimeHostRow, 'id' | 'userId'>
 
 // The long-running processes of the service frameworks on a pod host, run by
 // the host's own daemon (ADR-0035 §6) — the pod's counterpart of a sprite's
-// Services API.
+// Services API. The daemon is the host's (ADR-0036): host_daemons for the host.
 @Injectable()
 export class PodHostServices {
     constructor(
-        @Inject(DRIZZLE) private readonly db: Database,
         private readonly registry: DaemonRegistryService,
+        private readonly hosts: HostsService,
+        private readonly hostDaemons: HostDaemonsService,
         // Absent in tests that build the service positionally: a daemon
         // without services is then refused rather than updated.
         @Optional() private readonly cli?: PodHostCliService
     ) {}
 
     private async runnerId(host: PodHostRef): Promise<string> {
-        const [runner] = await this.db
-            .select()
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.userId, host.userId),
-                    eq(runtimeHosts.kind, 'daemon'),
-                    eq(runtimeHosts.managed, true),
-                    eq(runtimeHosts.name, podRunnerHostName(host.id))
-                )
-            )
-            .limit(1)
-        if (!runner)
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        if (!daemon || !daemonOnline(daemon))
             throw new ServiceUnavailableException(
-                `cloud computer ${host.id} has no registered daemon`
+                `cloud computer ${host.id} has no connected daemon`
             )
-        if (runner.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
-            return runner.id
+        if (daemon.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
+            return host.id
         // A host started from an image whose CLI predates services has it
         // updated in place first (ADR-0035 §5).
-        const [podHost] = this.cli
-            ? await this.db
-                  .select()
-                  .from(runtimeHosts)
-                  .where(
-                      and(
-                          eq(runtimeHosts.id, host.id),
-                          eq(runtimeHosts.userId, host.userId),
-                          eq(runtimeHosts.kind, 'pod')
-                      )
-                  )
-                  .limit(1)
-            : []
-        if (!this.cli || !podHost)
+        const podHost = this.cli ? await this.hosts.findById(host.id) : null
+        if (!this.cli || !podHost || podHost.userId !== host.userId)
             throw new ServiceUnavailableException({
                 code: 'POD_HOST_DAEMON_TOO_OLD',
                 message: `the Manyfold CLI on cloud computer ${host.id} is too old to run services; update it first`
             })
-        const updated = await this.cli.ensure(podHost, runner, {
-            feature: DAEMON_FEATURE_SERVICES
-        })
-        return updated.id
+        await this.cli.ensure(podHost, { feature: DAEMON_FEATURE_SERVICES })
+        return host.id
     }
 
     private async call(

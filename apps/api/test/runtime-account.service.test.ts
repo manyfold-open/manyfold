@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
-import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
-import type { RuntimeAccountProbe } from '@manyfold/shared'
+import type {
+    AgentRuntimeRow,
+    HostDaemonRow,
+    RuntimeHostRow
+} from '@manyfold/db'
+import { daemonOnline, type RuntimeAccountProbe } from '@manyfold/shared'
 import {
     mergeSandboxProbe,
     RuntimeAccountService
 } from '../src/modules/agent-runtimes/account/runtime-account.service'
+import {
+    contextOf,
+    daemonRow,
+    hostRow as fixtureHost,
+    k8sHostRow,
+    runtimeRow as fixtureRuntime,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 // The account view is the runtime page's contract: which state a host lands in
 // (asleep / offline / upgrade-required / probe-failed / ok), that a page open
@@ -20,33 +31,17 @@ const NOW_ISO = '2026-09-03T10:00:00.000Z'
 const runtimeRow = (
     overrides: Partial<AgentRuntimeRow> = {}
 ): AgentRuntimeRow =>
-    ({
+    fixtureRuntime({
         id: 'art_1',
         userId: 'user-1',
         name: 'codex',
         framework: 'codex',
-        kind: 'daemon',
-        status: 'ready',
-        daemonId: 'host-daemon',
-        hostId: null,
-        accountId: null,
-        spriteName: null,
+        hostId: 'host-daemon',
         ...overrides
-    }) as AgentRuntimeRow
+    })
 
 const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
-    ({
-        id: 'host-daemon',
-        userId: 'user-1',
-        kind: 'daemon',
-        status: 'active',
-        clientFeatures: ['account.inspect'],
-        spriteStatus: null,
-        terminalEnabled: false,
-        spriteName: null,
-        accountId: null,
-        ...overrides
-    }) as RuntimeHostRow
+    fixtureHost({ id: 'host-daemon', userId: 'user-1', ...overrides })
 
 const probeFor = (
     overrides: Partial<RuntimeAccountProbe> = {}
@@ -97,65 +92,54 @@ const probeFor = (
 interface Harness {
     service: RuntimeAccountService
     calls: string[]
-    execs: ExecOptions[]
     setRow: (row: AgentRuntimeRow | null) => void
     setHost: (host: RuntimeHostRow | null) => void
     setRpc: (fn: () => Promise<unknown>) => void
-    setExecOutput: (stdout: string) => void
 }
 
+// The runtime with its machine and the machine's daemon, as the service
+// reads them; the daemon answers the probe over RPC on every placement.
 const harness = (opts: {
     row: AgentRuntimeRow | null
     host?: RuntimeHostRow | null
+    daemon?: Partial<HostDaemonRow> | null
     online?: boolean
     // The plan's active-slot cap refuses the admission.
     refuseSlot?: boolean
 }): Harness => {
     const calls: string[] = []
-    const execs: ExecOptions[] = []
     let row = opts.row
     let host = opts.host ?? null
     let rpc: () => Promise<unknown> = async () => probeFor()
-    let execStdout = ''
-    class TestService extends RuntimeAccountService {
-        protected spritesClientFor(): SpritesClient {
-            calls.push('spritesClientFor')
-            return {} as SpritesClient
-        }
-        protected exec(
-            _client: SpritesClient,
-            spriteName: string,
-            options: ExecOptions
-        ): Promise<ExecResult> {
-            calls.push(`exec:${spriteName}`)
-            execs.push(options)
-            return Promise.resolve({
-                exitCode: 0,
-                stdout: execStdout,
-                stderr: ''
-            })
-        }
+    let woken: HostDaemonRow | null = null
+    const daemonFor = (): HostDaemonRow | null =>
+        woken ??
+        (opts.daemon === null || !host
+            ? null
+            : daemonRow({
+                  hostId: host.id,
+                  userId: host.userId,
+                  clientFeatures: ['account.inspect'],
+                  ...(opts.online === false
+                      ? { lastSeenAt: new Date(0) }
+                      : {}),
+                  ...opts.daemon
+              }))
+    const context = {
+        forRuntime: async (id: string) =>
+            row && row.id === id
+                ? contextOf({ runtime: row, host, daemon: daemonFor() })
+                : null
     }
-    const runtimes = {
-        findById: async (id: string) => (row && row.id === id ? row : null),
-        findHostById: async (id: string) =>
-            host && host.id === id ? host : null
-    }
-    const daemonHosts = {
-        findById: async (id: string) => id === 'dh_runner'
-            ? { ...hostRow(), id: 'dh_runner' }
-            : (host && host.id === id ? host : null),
-        isOnline: () => opts.online ?? true
+    const hostDaemons = {
+        findByHostId: async () => daemonFor(),
+        isOnline: (daemon: HostDaemonRow | null) => daemonOnline(daemon)
     }
     const daemonRegistry = {
         rpc: async (args: { method: string; payload: unknown }) => {
             calls.push(`rpc:${args.method}:${JSON.stringify(args.payload)}`)
             return rpc()
         }
-    }
-    const accounts = {
-        getById: async (id: string) => ({ id, slug: 'acct', token: 'x' }),
-        decryptToken: () => 'token'
     }
     const runtimeAccess = {
         reserveActiveSlot: async (input: { hostId: string }) => {
@@ -169,18 +153,29 @@ const harness = (opts: {
             return { plan: null, activeCount: 0, wholesale: null }
         }
     }
-    const service = new TestService(
-        runtimes as never,
-        daemonHosts as never,
+    // The runner manager's wake: the machine comes up with a daemon that
+    // can inspect accounts.
+    const hostAccess = {
+        ensure: async (args: { host: RuntimeHostRow }) => {
+            calls.push(`ensure:${args.host.id}`)
+            woken = daemonRow({
+                hostId: args.host.id,
+                userId: args.host.userId,
+                clientFeatures: ['account.inspect']
+            })
+            return { daemon: woken, online: true }
+        }
+    }
+    const service = new RuntimeAccountService(
+        context as never,
+        hostDaemons as never,
         daemonRegistry as never,
-        accounts as never,
         runtimeAccess as never,
-        { ensureRunner: async () => { calls.push('ensureRunner'); return { handle: { daemonId: 'dh_runner' } } } } as never
+        hostAccess as never
     )
     return {
         service,
         calls,
-        execs,
         setRow: (next) => {
             row = next
         },
@@ -189,9 +184,6 @@ const harness = (opts: {
         },
         setRpc: (fn) => {
             rpc = fn
-        },
-        setExecOutput: (stdout) => {
-            execStdout = stdout
         }
     }
 }
@@ -211,7 +203,10 @@ test('service frameworks and non-host runtime kinds are unsupported without any 
             .status,
         'unsupported'
     )
-    const k8s = harness({ row: runtimeRow({ kind: 'k8s' }) })
+    const k8s = harness({
+        row: runtimeRow(),
+        host: k8sHostRow({ id: 'host-daemon', userId: 'user-1' })
+    })
     assert.equal(
         (await k8s.service.getView('user-1', 'art_1', { wake: false })).status,
         'unsupported'
@@ -233,7 +228,8 @@ test('daemon: offline and pre-feature daemons are named states, not probe failur
     )
     const old = harness({
         row: runtimeRow(),
-        host: hostRow({ clientFeatures: ['model.credential-facts'] })
+        host: hostRow(),
+        daemon: { clientFeatures: ['model.credential-facts'] }
     })
     assert.equal(
         (await old.service.getView('user-1', 'art_1', { wake: false })).status,
@@ -281,22 +277,28 @@ test('daemon: a payload that is not a probe is probe-failed rather than a crash'
     assert.match(view.error ?? '', /no account probe/)
 })
 
-const sandboxRow = (): AgentRuntimeRow =>
-    runtimeRow({ kind: 'sprites', daemonId: null, hostId: 'host-sb' })
+const sandboxRow = (): AgentRuntimeRow => runtimeRow({ hostId: 'host-sb' })
 const sandboxHost = (
     spriteStatus: 'cold' | 'warm' | 'running'
 ): RuntimeHostRow =>
-    hostRow({
+    spritesHostRow({
         id: 'host-sb',
-        kind: 'sandbox',
-        spriteStatus,
-        spriteName: 'art-1',
-        accountId: 'spa_1',
+        userId: 'user-1',
+        powerState:
+            spriteStatus === 'cold'
+                ? 'stopped'
+                : spriteStatus === 'warm'
+                  ? 'suspended'
+                  : 'running',
         terminalEnabled: true
     })
 
 test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot first', async () => {
-    const h = harness({ row: sandboxRow(), host: sandboxHost('cold') })
+    const h = harness({
+        row: sandboxRow(),
+        host: sandboxHost('cold'),
+        daemon: null
+    })
     const asleep = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(asleep.status, 'sandbox-asleep')
     assert.deepEqual(asleep.host, {
@@ -305,33 +307,15 @@ test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot f
     })
     assert.deepEqual(h.calls, [])
 
-    h.setExecOutput(
-        [
-            'noise from bash profile',
-            JSON.stringify({
-                frameworks: [
-                    {
-                        framework: 'codex',
-                        credentialFacts: probeFor().credentialFacts
-                    }
-                ]
-            }),
-            JSON.stringify({
-                account: { ...probeFor(), credentialFacts: undefined }
-            })
-        ].join('\n')
-    )
     const woken = await h.service.getView('user-1', 'art_1', { wake: true })
     assert.equal(woken.status, 'ok')
     assert.equal(woken.credentialStatus, 'valid')
     assert.equal(woken.usage?.windows.length, 1)
     assert.deepEqual(h.calls, [
         'reserveActiveSlot:host-sb',
-        'spritesClientFor',
-        'ensureRunner',
+        'ensure:host-sb',
         'rpc:account.inspect:{"framework":"codex","usage":true}'
     ])
-    assert.equal(h.execs.length, 0, 'account probe must use RPC')
 })
 
 test('sandbox: a wake refused by the active-slot cap is its own state, and is not cached', async () => {
@@ -352,11 +336,6 @@ test('sandbox: a wake refused by the active-slot cap is its own state, and is no
 
 test('sandbox: a running VM is read on a plain page open', async () => {
     const h = harness({ row: sandboxRow(), host: sandboxHost('running') })
-    h.setExecOutput(
-        JSON.stringify({
-            account: { ...probeFor(), credentialFacts: undefined }
-        })
-    )
     const view = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(view.status, 'ok')
     assert.equal(view.credentialStatus, 'valid')
@@ -436,12 +415,11 @@ test('usage is kept for ten minutes, re-read only on request, and a refused re-r
 })
 
 test('cache: a wake request is not answered by a cached asleep view', async () => {
-    const h = harness({ row: sandboxRow(), host: sandboxHost('warm') })
-    h.setExecOutput(
-        JSON.stringify({
-            account: { ...probeFor(), credentialFacts: undefined }
-        })
-    )
+    const h = harness({
+        row: sandboxRow(),
+        host: sandboxHost('warm'),
+        daemon: null
+    })
     assert.equal(
         (await h.service.getView('user-1', 'art_1', { wake: false })).status,
         'sandbox-asleep'
@@ -494,12 +472,11 @@ test('daemon: agy is read only from a daemon that knows it, and judged on agy’
 
     const h = harness({
         row: agyRow,
-        host: hostRow({
-            clientFeatures: [
+        host: hostRow(),
+        daemon: { clientFeatures: [
                 'account.inspect',
                 'antigravity-cli.runtime-local.v1'
-            ]
-        })
+            ] }
     })
     h.setRpc(async () =>
         probeFor({

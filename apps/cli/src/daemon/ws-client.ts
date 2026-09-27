@@ -61,7 +61,7 @@ const BACKOFF_MAX_MS = 30_000
 // a transient refusal from a bad API deploy must not strand the fleet.
 const REFUSED_CLOSES: Record<number, string> = {
     4401: 'it rejected the daemon token; issue a new token in Settings → Self-owned computers and run mf daemon register --token -',
-    4403: 'this machine was revoked in Settings → Self-owned computers; register it again to reconnect',
+    4403: 'this machine was retired in Settings → Self-owned computers; register it again with a new token to reconnect',
     4404: "it no longer has this machine's registration; issue a new token in Settings → Self-owned computers and run mf daemon register --token -",
     4406: `it requires mf ${DAEMON_MIN_CLI_VERSION} or newer for daemons; run mf update, then restart the daemon`,
     4409: 'the daemon token is not bound to a machine; run mf daemon register --token -'

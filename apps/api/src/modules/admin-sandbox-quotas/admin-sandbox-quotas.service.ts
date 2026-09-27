@@ -7,7 +7,7 @@ import type {
     SandboxQuotasOverview
 } from '@manyfold/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, count, desc, eq, gte, sql } from 'drizzle-orm'
+import { count, desc, eq, gte, sql } from 'drizzle-orm'
 import {
     plans,
     runtimeHosts,
@@ -18,6 +18,11 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
+import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
+
+// The raw-SQL twin of liveHostedHosts('sprites') for the per-user scalar
+// subqueries below.
+const LIVE_SPRITES_HOST_SQL = `h.kind = 'hosted' and h.status in ('provisioning', 'ready', 'deleting') and exists (select 1 from runtime_providers p where p.id = h.provider_id and p.kind = 'sprites')`
 
 const DEFAULT_USERS_LIMIT = 50
 const MAX_USERS_LIMIT = 200
@@ -46,22 +51,17 @@ export class AdminSandboxQuotasService {
         // admission actually enforces, or it reads 50/50 healthy while wakes
         // are 503ing against a vendor limit of 10.
         const cap = await this.adminSettings.getCachedSpritesEffectiveCap()
-        // Sandbox VM metrics are per host: running/warm/cold from
-        // runtime_hosts.sprite_status, provisioned = every active sandbox host
-        // (incl. agent-less). Storage stays an agent-level sum (per-workspace).
+        // Sandbox VM metrics are per host: running/warm/cold from the host's
+        // power state, provisioned = every live sandbox host (incl.
+        // agent-less). Storage is the host-level rootfs sum.
         const rows = await this.db
             .select({
-                spriteStatus: runtimeHosts.spriteStatus,
+                powerState: runtimeHosts.powerState,
                 count: count()
             })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
-            )
-            .groupBy(runtimeHosts.spriteStatus)
+            .where(liveHostedHosts('sprites'))
+            .groupBy(runtimeHosts.powerState)
 
         let orgActive = 0
         let orgWarm = 0
@@ -70,21 +70,16 @@ export class AdminSandboxQuotasService {
         for (const r of rows) {
             const n = Number(r.count ?? 0)
             orgProvisioned += n
-            if (r.spriteStatus === 'running') orgActive = n
-            else if (r.spriteStatus === 'warm') orgWarm = n
-            else if (r.spriteStatus === 'cold') orgCold = n
+            if (r.powerState === 'running') orgActive = n
+            else if (r.powerState === 'suspended') orgWarm = n
+            else if (r.powerState === 'stopped') orgCold = n
         }
         const [storageRow] = await this.db
             .select({
                 storage: sql<number>`coalesce(sum(${runtimeHosts.storageBytes}), 0)::bigint`
             })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
-            )
+            .where(liveHostedHosts('sprites'))
         const orgStorageBytes = Number(storageRow?.storage ?? 0)
         const softCap = Math.floor(
             (cap.activeCap * cap.softThresholdPct) / 100
@@ -118,9 +113,9 @@ export class AdminSandboxQuotasService {
         // Active seconds resolve per-user billing windows in TS (page <= 200),
         // NOT as a scalar subquery — the window logic lives once, in
         // usage-period, and raw SQL would silently survive schema renames.
-        const provisionedSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active')::int`
-        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active' and h.sprite_status = 'running')::int`
-        const storageBytesSql = sql<number>`(select coalesce(sum(h.storage_bytes), 0) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active')::bigint`
+        const provisionedSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)})::int`
+        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)} and h.power_state = 'running')::int`
+        const storageBytesSql = sql<number>`(select coalesce(sum(h.storage_bytes), 0) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)})::bigint`
         const rows = await this.db
             .select({
                 userId: users.id,
@@ -130,7 +125,7 @@ export class AdminSandboxQuotasService {
                 provisioned: provisionedSql,
                 concurrentActive: concurrentActiveSql,
                 storageBytes: storageBytesSql,
-                lastActiveAt: sql<Date | null>`(select max(a.last_reconciled_at) from agents a where a.user_id = ${users.id} and a.runtime = 'sprites')`
+                lastActiveAt: sql<Date | null>`(select max(a.last_reconciled_at) from agents a join agent_runtimes r on r.id = a.runtime_id join runtime_hosts h on h.id = r.host_id where a.user_id = ${users.id} and h.kind = 'hosted')`
             })
             .from(users)
             .innerJoin(plans, eq(plans.id, users.planId))

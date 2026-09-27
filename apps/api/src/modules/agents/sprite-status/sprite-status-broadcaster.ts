@@ -1,10 +1,10 @@
 import type {
+    AgentHostStatusUpdate,
     ChatSessionsChangedEvent,
+    HostPowerStatusUpdate,
+    HostStatusEvent,
     QuotaWarningEvent,
-    ResourceChangedEvent,
-    SpriteHostStatusUpdate,
-    SpriteStatusEvent,
-    SpriteStatusUpdate
+    ResourceChangedEvent
 } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
 import {
@@ -13,15 +13,15 @@ import {
 } from '@/modules/agents/sprite-status/sprite-status-bus'
 
 export type {
+    AgentHostStatusUpdate,
     ChatSessionsChangedEvent,
-    QuotaWarningEvent,
-    SpriteHostStatusUpdate,
-    SpriteStatusEvent,
-    SpriteStatusUpdate
+    HostPowerStatusUpdate,
+    HostStatusEvent,
+    QuotaWarningEvent
 }
 
 export interface SpriteStatusSubscriber {
-    send: (event: SpriteStatusEvent) => void
+    send: (event: HostStatusEvent) => void
     close: () => void
     isAdmin?: boolean
 }
@@ -62,22 +62,22 @@ export class SpriteStatusBroadcaster {
         }
     }
 
-    emit(userId: string, update: SpriteStatusUpdate): void {
+    emit(userId: string, update: AgentHostStatusUpdate): void {
         const count = this.subscribers.get(userId)?.size ?? 0
         this.log.log(
-            `emit userId=${userId} agentId=${update.agentId} sprite=${update.spriteStatus} k8s=${update.k8sPodPhase} subscribers=${count}`
+            `emit userId=${userId} agentId=${update.agentId} host=${update.hostId} power=${update.powerState} availability=${update.availability} subscribers=${count}`
         )
-        const event: SpriteStatusEvent = { type: 'update', ...update }
+        const event: HostStatusEvent = { type: 'update', ...update }
         this.deliverLocal(userId, event, {})
         this.bus.publish(userId, event)
     }
 
-    emitHostUpdate(userId: string, update: SpriteHostStatusUpdate): void {
+    emitHostUpdate(userId: string, update: HostPowerStatusUpdate): void {
         const count = this.subscribers.get(userId)?.size ?? 0
         this.log.log(
-            `emit host-update userId=${userId} hostId=${update.hostId} sprite=${update.spriteStatus} subscribers=${count}`
+            `emit host-update userId=${userId} hostId=${update.hostId} power=${update.powerState} daemonOnline=${update.daemonOnline} subscribers=${count}`
         )
-        const event: SpriteStatusEvent = { type: 'host-update', ...update }
+        const event: HostStatusEvent = { type: 'host-update', ...update }
         this.deliverLocal(userId, event, {})
         this.bus.publish(userId, event)
     }
@@ -124,7 +124,7 @@ export class SpriteStatusBroadcaster {
 
     private deliverLocal(
         userId: string,
-        event: SpriteStatusEvent,
+        event: HostStatusEvent,
         opts: SpriteStatusDeliveryOpts
     ): void {
         const subs = this.subscribers.get(userId)

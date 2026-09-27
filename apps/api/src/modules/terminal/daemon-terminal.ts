@@ -9,13 +9,13 @@ import {
     HERDR_LAUNCH_FAILED_CODE,
     envTextFromExtras,
     envTextToRecord,
-    isObjectId
+    isObjectId,
+    type AgentRuntime
 } from '@manyfold/shared'
 import {
     BadGatewayException,
     Injectable,
     Logger,
-    NotFoundException,
     Optional
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -40,6 +40,10 @@ import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
 
 export interface DaemonTerminalRequest {
     agent: Agent
+    // The machine's host id is the daemon's routing key (ADR-0036); the
+    // placement decides which sign-in the agent's shell runs under.
+    hostId: string
+    placement: AgentRuntime
     // The terminal's durable identity (ADR-0029 §1), injected as
     // MF_TERMINAL_ID so the CLI session hooks report from this shell.
     terminalId?: string | null
@@ -107,9 +111,9 @@ export interface DaemonHerdrOpenRequest {
     // conversation with it.
     chatSessionId?: string
     cwd?: string
-    // The agent's own daemon when absent; a sandbox's runner daemon for a
-    // sprites agent (ADR-0031).
-    daemonId?: string
+    // The host whose daemon opens the pane: the agent's machine (ADR-0031).
+    hostId: string
+    placement: AgentRuntime
     onToken?: (tokenId: string) => void
 }
 
@@ -128,9 +132,7 @@ export class DaemonTerminal {
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
         const { agent, cols, cwd, rows, resume, client, onClose } = req
-        if (!agent.daemonId)
-            throw new NotFoundException('daemon agent missing daemonId')
-        const daemonId = agent.daemonId
+        const daemonId = req.hostId
         // Same per-session env a sprites terminal gets (#781): the agent's env
         // text plus its connection tokens, resolved fresh so nothing lands on
         // the machine's own profile.
@@ -169,7 +171,7 @@ export class DaemonTerminal {
             if (req.boundTokenId) tokenInUse = req.boundTokenId
         }
         const dropTerminalToken = (): void => dropToken(tokenInUse)
-        const authContext = authContextRefFor(agent)
+        const authContext = authContextRefFor(agent, req.placement)
         await this.openPty({
             daemonId,
             cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
@@ -232,9 +234,7 @@ export class DaemonTerminal {
     // again, and the caller ends the row.
     async openInHerdr(req: DaemonHerdrOpenRequest): Promise<DaemonHerdrOpenResult> {
         const { agent } = req
-        const daemonId = req.daemonId ?? agent.daemonId
-        if (!daemonId)
-            throw new NotFoundException('agent has no daemon to open herdr on')
+        const daemonId = req.hostId
         const connectionEnv = await this.connections.resolveAgentEnv({
             userId: agent.userId,
             extras: agent.extras
@@ -247,7 +247,7 @@ export class DaemonTerminal {
             tokenKind: 'terminal'
         })
         req.onToken?.(terminalToken.tokenId)
-        const authContext = authContextRefFor(agent)
+        const authContext = authContextRefFor(agent, req.placement)
         const cwd = req.cwd ?? agent.workspacePath ?? agent.mountPath
         const payload: DaemonHerdrOpenPayload = {
             terminalId: req.terminalId,

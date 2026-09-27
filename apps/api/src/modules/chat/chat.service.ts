@@ -12,13 +12,16 @@ import {
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
     CHAT_SESSION_IMPORT_PENDING_CODE,
     createObjectId,
-    isObjectId
+    isObjectId,
+    placementOf
 } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource,
     AgentRuntime,
+    RuntimeHostKind,
+    RuntimeHostPowerState,
     ChatAttachmentBlock,
     ChatContentBlock,
     ChatContextRefBlock,
@@ -67,9 +70,12 @@ import {
     agents,
     agentRuntimes,
     chatMessages as chatMessagesTable,
+    runtimeHosts,
+    runtimeProviders,
     userModelProviders,
     type Agent,
     type AgentUsageEventRow,
+    type RuntimeHostRow,
     type ChatMessage as DbChatMessage,
     type ChatSession as DbChatSession,
     type Database,
@@ -175,7 +181,7 @@ import {
     type TurnSeenState
 } from '@/modules/chat/recovery/turn-jsonl-recovery'
 import { buildSeenStateFromPersisted } from '@/modules/chat/recovery/adoption-seen-state'
-import { execSprite, SpritesError } from '@manyfold/sprites'
+import { SpritesError } from '@manyfold/sprites'
 import {
     createAdoptionInterceptor,
     deliveredBaselineFromStreamEvents,
@@ -268,12 +274,6 @@ interface ProviderTurnFacts {
     managedBrand: UserModelProvider | null
     inferenceProtocol: InferenceProtocol | null
 }
-const EMPTY_PROVIDER_FACTS: ProviderTurnFacts = Object.freeze({
-    modelProviderBuiltInId: null,
-    modelProviderSource: null,
-    managedBrand: null,
-    inferenceProtocol: null
-})
 // The `chat.turn.terminal` funnel's closed outcome set, and where the terminal
 // was written from. Every durable done/error row has exactly one of these
 // events, so the funnel reconciles 1:1 against chat_stream_events (#544).
@@ -1138,7 +1138,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             .claimTurnForResume({
                 messageId: message.id,
                 sessionId: message.sessionId,
-                daemonId,
+                hostId: daemonId,
                 daemonExecRef: refId,
                 ownerId,
                 leaseSeconds: TURN_LEASE_SECONDS
@@ -1429,7 +1429,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             throw new NotFoundException('message not found')
         const terminal = await this.repo.findTerminalStreamEvent(messageId)
         if (terminal) throw new ConflictException('the turn has already ended')
-        if (message.daemonId && message.daemonExecRef) {
+        if (message.hostId && message.daemonExecRef) {
             if (!this.daemonRegistry)
                 throw new BadGatewayException(
                     'daemon transport unavailable for permission answer'
@@ -1437,7 +1437,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             let ack: Record<string, unknown> | undefined
             try {
                 ack = await this.daemonRegistry.rpc({
-                    daemonId: message.daemonId,
+                    daemonId: message.hostId,
                     method: 'turn.permission',
                     payload: {
                         refId: message.daemonExecRef,
@@ -1891,8 +1891,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
     private async runPrewarm(agentId: string): Promise<void> {
         try {
-            const agent = await this.loadAgent(agentId)
-            if (agent.runtime !== 'sprites') return
+            const agentCtx = await this.resolveAgentContext(agentId)
+            if (agentCtx.runtime !== 'sprites') return
             // A VM known to be refusing exec cannot be prewarmed, and one focus
             // event per composer against a 502ing endpoint is how #730 multiplied
             // the wasted handshakes. READ-ONLY: prewarm never claims the fleet's
@@ -1900,9 +1900,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // the probe, but spending the lease on a background wake would leave
             // the turn behind it with nothing to claim, and the turn is the one
             // that owes the user an answer.
-            if (await this.spriteExecHealth?.isKnownUnavailable(agent.hostId))
+            if (await this.spriteExecHealth?.isKnownUnavailable(agentCtx.hostId))
                 return
-            await this.execDrivers!.resolveRunner(agent)
+            await this.execDrivers!.resolveRunner(agentId)
             this.telemetry.event('chat.prewarm', { agentId })
         } catch (err) {
             // Quota rejections and transient wake failures are expected here;
@@ -2941,7 +2941,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     ownership = await this.repo.claimTurnForResume({
                         messageId: message.id,
                         sessionId: session.id,
-                        daemonId,
+                        hostId: daemonId,
                         daemonExecRef: refId,
                         ownerId,
                         leaseSeconds: TURN_LEASE_SECONDS
@@ -3010,7 +3010,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // instance held. Its lease died with it (or is about to expire), and
             // an unheld sprite suspends the runner mid-answer.
             awakeHold = await this.holdRunnerSpriteAwake(agentCtx, {
-                agentId: session.agentId,
                 turnId: message.id
             })
             await this.broadcaster.beginResumeStream(
@@ -3192,23 +3191,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // runner. A daemon-runtime turn runs on the user's machine and has no
     // sprite to keep awake.
     private async holdRunnerSpriteAwake(
-        agentCtx: { runtime: AgentRuntime; spriteName: string | null },
-        args: { agentId: string; turnId: string }
+        agentCtx: { runtime: AgentRuntime; host: RuntimeHostRow | null },
+        args: { turnId: string }
     ): Promise<SpriteAwakeHold | null> {
         if (!this.runnerManager) return null
-        if (agentCtx.runtime !== 'sprites' || !agentCtx.spriteName) return null
-        const exec = await this.spriteExecFor(
-            args.agentId,
-            agentCtx.spriteName
-        ).catch((err: Error) => {
-            this.logger.warn(
-                `sprite awake-hold unavailable agentId=${args.agentId}: ${err.message}`
-            )
-            return null
-        })
-        if (!exec) return null
+        if (agentCtx.runtime !== 'sprites' || !agentCtx.host) return null
         return this.runnerManager.keepSpriteAwake({
-            exec,
+            host: agentCtx.host,
             turnId: args.turnId
         })
     }
@@ -3425,7 +3414,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // turn whose daemon is gone for good still converges.
                 const carrier = await this.repo
                     .daemonSeenWithin(
-                        message.daemonId,
+                        message.hostId,
                         DAEMON_RECONNECT_GRACE_MS
                     )
                     .catch(() => false)
@@ -3495,22 +3484,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // second. Built on the handle already resolved above: resolving
             // another costs a second agent read, admission reservation and
             // client for nothing.
-            const awakeSpriteName =
-                spriteName ??
-                (agentCtx.runtime === 'sprites' ? agentCtx.spriteName : null)
-            if (this.runnerManager && spritesClient && awakeSpriteName) {
-                const client = spritesClient
-                const name = awakeSpriteName
+            if (this.runnerManager && agentCtx.host && agentCtx.runtime === 'sprites')
                 awakeHold = this.runnerManager.keepSpriteAwake({
-                    exec: (a) =>
-                        execSprite(client, name, {
-                            cmd: a.cmd,
-                            stdin: a.stdin ?? '',
-                            timeoutMs: a.timeoutMs
-                        }),
+                    host: agentCtx.host,
                     turnId: row.messageId
                 })
-            }
             await this.broadcaster.beginResumeStream(
                 session.id,
                 row.messageId,
@@ -4662,7 +4640,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // real command here could run it twice (#503).
         const lease = admission.lease
         if (!lease) return null
-        const probe = await this.probeSpriteExec(args.agentId, args.spriteName)
+        const probe = await this.probeSpriteExec(args.agentId)
         // Inconclusive is neither recovery nor failure: an auth rejection or a
         // quota refusal says nothing about this VM's endpoint. Do not dispatch
         // the real command behind a probe whose lease remains held — that would
@@ -4705,11 +4683,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // account-wide auth or quota refusal, a fact about the request — and it
     // neither clears nor re-arms.
     private async probeSpriteExec(
-        agentId: string,
-        spriteName: string
+        agentId: string
     ): Promise<'ok' | 'inconclusive' | SpriteExecFailureClass> {
         try {
-            const exec = await this.spriteExecFor(agentId, spriteName)
+            const exec = await this.spriteExecFor(agentId)
             if (!exec) return 'inconclusive'
             const res = await exec({
                 cmd: ['true'],
@@ -4789,19 +4766,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // Run a command on an agent's sprite. Shared by runner bring-up, the awake
     // lease and the exec-health probe so all three talk to the same sprite
     // through the same client.
-    private async spriteExecFor(
-        agentId: string,
-        spriteName: string
-    ): Promise<SpriteExecFn | null> {
-        const agent = await this.loadAgent(agentId)
-        const client = await this.execDrivers?.spritesClientForAgent(agent)
-        if (!client) return null
-        return (a) =>
-            execSprite(client, spriteName, {
-                cmd: a.cmd,
-                stdin: a.stdin ?? '',
-                timeoutMs: a.timeoutMs
-            })
+    private async spriteExecFor(agentId: string): Promise<SpriteExecFn | null> {
+        return (await this.execDrivers?.spriteExecForAgent(agentId)) ?? null
     }
 
     private abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -5705,23 +5671,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             }
         }
         const servedPricing: { scope: ServedPriceScope | null } = { scope: null }
-        const agentCtx =
-            agent && agent.id === session.agentId
-                ? {
-                      framework: agent.framework,
-                      runtime: agent.runtime,
-                      runtimeId: agent.runtimeId ?? null,
-                      model: agent.model ?? null,
-                      modelProviderId: agent.modelProviderId ?? null,
-                      ...(await this.providerFacts(
-                          agent.modelProviderId ?? null
-                      )),
-                      daemonId: agent.daemonId ?? null,
-                      spriteName: agent.spriteName ?? null,
-                      hostId: agent.hostId ?? null,
-                      workspacePath: agent.workspacePath ?? null
-                  }
-                : await this.resolveAgentContext(session.agentId)
+        const agentCtx = await this.resolveAgentContext(session.agentId)
         // Decided BEFORE any runner, daemon or CLI work: when a managed
         // channel's shared upstream account pool is known empty, every one of
         // those steps is spent rediscovering it — minutes per turn (#660) — and
@@ -5797,13 +5747,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // at the terminal; if THIS instance dies mid-turn the lease survives on
         // its TTL, which is what keeps the runner executing and the turn
         // resumable.
-        // Only a sprite runner carries an exec: a pod never suspends, so there
-        // is nothing to hold awake and no lease to pay for.
-        const runnerExec = runner?.exec ?? null
+        // Only a sprite host suspends: a pod never does, so there is nothing
+        // to hold awake and no lease to pay for.
         const awakeHold =
-            runnerExec && this.runnerManager
+            runner && this.runnerManager && agentCtx.runtime === 'sprites' && agentCtx.host
                 ? this.runnerManager.keepSpriteAwake({
-                      exec: runnerExec,
+                      host: agentCtx.host,
                       turnId: assistantMessageId
                   })
                 : null
@@ -5817,7 +5766,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             await this.db
                 .update(chatMessagesTable)
                 .set({
-                    daemonId: carryingDaemonId,
+                    hostId: carryingDaemonId,
                     daemonExecRef: assistantMessageId
                 })
                 .where(eq(chatMessagesTable.id, assistantMessageId))
@@ -6725,70 +6674,37 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
     private async markRuntimeActive(agentId: string): Promise<void> {
         try {
-            const rows = await this.db
-                .select({
-                    id: agents.id,
-                    userId: agents.userId,
-                    runtime: agents.runtime,
-                    runtimeId: agents.runtimeId,
-                    spriteName: agents.spriteName,
-                    spriteStatus: agents.spriteStatus,
-                    k8sPodPhase: agents.k8sPodPhase,
-                    accountId: agents.accountId,
-                    hostId: agents.hostId
-                })
-                .from(agents)
-                .where(eq(agents.id, agentId))
-                .limit(1)
-            const row = rows[0]
-            if (!row) return
-            if (row.runtime === 'sprites') {
-                // Over-quota users must not re-open the accrual watermark via
-                // this fire-and-forget wake: publishStatus('running') would let
-                // the turn hit reserveActiveSlot's fast path unchecked. Skipping
-                // forces the slow path, which reports the typed 403.
-                if (
-                    this.runtimeAccess &&
-                    (await this.runtimeAccess.isActiveHoursExhausted(
-                        row.userId
-                    ))
-                ) {
-                    this.logger.debug(
-                        `skipping sprite wake for agent=${agentId}: active hours quota reached`
-                    )
-                    return
-                }
-                if (row.spriteStatus !== 'running') {
-                    await this.spriteStatusSync.publishStatus(row, {
-                        spriteStatus: 'running'
-                    })
-                }
-                // Always nudge the sprite-side service on chat activity. The
-                // sprite VM can stay `running` while the service process
-                // inside it has stopped. The nudge restarts the service
-                // WITHOUT re-instating a keep-alive lease — the lease exists
-                // only while `keepAliveEnabled` is on. `wakeSpriteRuntime` is
-                // idempotent and no-ops for exec-kind frameworks.
-                if (row.runtimeId) {
-                    const runtime = await this.runtimes.findById(row.runtimeId)
-                    if (runtime) {
-                        await this.spritesProvisioner.wakeSpriteRuntime(runtime)
-                        // chat-originated wakes publish spriteStatus='running'
-                        // directly so sprite-status-sync never observes a wake
-                        // transition, and channel/CLI/automation sends never hit
-                        // the agent list/get views that call touchRuntime —
-                        // this touch is what lets a false-stopped row heal on
-                        // the next listing
-                        this.reconcile?.touchRuntime(runtime)
-                    }
-                }
-            } else if (
-                row.runtime === 'k8s' &&
-                row.k8sPodPhase &&
-                row.k8sPodPhase !== 'Running'
+            const agentCtx = await this.resolveAgentContext(agentId)
+            if (agentCtx.runtime !== 'sprites' || !agentCtx.hostId) return
+            // Over-quota users must not re-open the accrual watermark via
+            // this fire-and-forget wake: a running power write would let the
+            // turn hit reserveActiveSlot's fast path unchecked. Skipping
+            // forces the slow path, which reports the typed 403.
+            if (
+                this.runtimeAccess &&
+                (await this.runtimeAccess.isActiveHoursExhausted(
+                    agentCtx.userId
+                ))
             ) {
-                // Don't override real k8s phase (Pending/CrashLoopBackOff/...) here;
-                // the 10s sync tick is the source of truth for k8s pod state.
+                this.logger.debug(
+                    `skipping sprite wake for agent=${agentId}: active hours quota reached`
+                )
+                return
+            }
+            if (agentCtx.powerState !== 'running')
+                await this.spriteStatusSync.markHostRunning(agentCtx.hostId)
+            // Always nudge the sprite-side service on chat activity. The
+            // sprite VM can stay `running` while the service process inside
+            // it has stopped. The nudge restarts the service WITHOUT
+            // re-instating a keep-awake lease — the lease exists only while
+            // the host's keep-awake switch is on. `wakeSpriteRuntime` is
+            // idempotent and no-ops for exec-kind frameworks.
+            if (agentCtx.runtimeId) {
+                const runtime = await this.runtimes.findById(agentCtx.runtimeId)
+                if (runtime) {
+                    await this.spritesProvisioner.wakeSpriteRuntime(runtime)
+                    this.reconcile?.touchRuntime(runtime)
+                }
             }
         } catch (err) {
             this.logger.warn(
@@ -6831,7 +6747,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         agent: Agent,
         db: Pick<Database, 'select'> = this.db
     ): Promise<void> {
-        if (agent.runtime !== 'k8s' || !agent.runtimeId) return
+        if (!agent.runtimeId) return
         const [runtime] = await db
             .select({
                 phase: agentRuntimes.currentPhase
@@ -6899,43 +6815,24 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // catalog id for the per-built-in price scope, and the managed identity the
     // channel breaker keys on. One primary-key read; used by the path that
     // already holds the agent row and so skips resolveAgentContext's join.
-    private async providerFacts(
-        providerId: string | null
-    ): Promise<ProviderTurnFacts> {
-        if (!providerId) return EMPTY_PROVIDER_FACTS
-        const rows = await this.db
-            .select({
-                builtInId: userModelProviders.builtInId,
-                source: userModelProviders.source,
-                managedBrand: userModelProviders.managedBrand,
-                inferenceProtocol: userModelProviders.inferenceProtocol
-            })
-            .from(userModelProviders)
-            .where(eq(userModelProviders.id, providerId))
-            .limit(1)
-        const row = rows[0]
-        if (!row) return EMPTY_PROVIDER_FACTS
-        return {
-            modelProviderBuiltInId: row.builtInId ?? null,
-            modelProviderSource: row.source ?? null,
-            managedBrand: row.managedBrand ?? null,
-            inferenceProtocol: row.inferenceProtocol ?? null
-        }
-    }
-
     private async resolveAgentContext(agentId: string): Promise<
         {
             framework: AgentFramework
+            userId: string
+            // The product placement, derived from the host (ADR-0036).
             runtime: AgentRuntime
             runtimeId: string | null
             model: string | null
             modelProviderId: string | null
-            daemonId: string | null
-            spriteName: string | null
-            // The sandbox VM row, which is what exec health is keyed on: the
-            // sprite NAME is the platform's handle for the machine, the host id
-            // is ours, and the cooldown lives on ours (#730).
+            // The machine the agent's runtime lives on: the daemon routing
+            // key, and what exec health and power are keyed on (#730).
             hostId: string | null
+            hostKind: RuntimeHostKind | null
+            powerState: RuntimeHostPowerState | null
+            // The host row itself, for the awake holds a sprites turn places.
+            host: RuntimeHostRow | null
+            // The provider's name for a sprite host, for the turn snapshot.
+            spriteName: string | null
             workspacePath: string | null
         } & ProviderTurnFacts
     > {
@@ -6946,7 +6843,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         const rows = await this.db
             .select({
                 framework: agents.framework,
-                runtime: agents.runtime,
+                userId: agents.userId,
                 runtimeId: agents.runtimeId,
                 model: agents.model,
                 modelProviderId: agents.modelProviderId,
@@ -6954,12 +6851,17 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 modelProviderSource: userModelProviders.source,
                 managedBrand: userModelProviders.managedBrand,
                 inferenceProtocol: userModelProviders.inferenceProtocol,
-                daemonId: agents.daemonId,
-                spriteName: agents.spriteName,
-                hostId: agents.hostId,
-                workspacePath: agents.workspacePath
+                workspacePath: agents.workspacePath,
+                host: runtimeHosts,
+                providerKind: runtimeProviders.kind
             })
             .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .leftJoin(
                 userModelProviders,
                 eq(userModelProviders.id, agents.modelProviderId)
@@ -6970,7 +6872,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!row) throw new NotFoundException('agent not found')
         return {
             framework: row.framework,
-            runtime: row.runtime,
+            userId: row.userId,
+            runtime: placementOf(
+                row.host
+                    ? { kind: row.host.kind, providerKind: row.providerKind }
+                    : null
+            ),
             runtimeId: row.runtimeId ?? null,
             model: row.model ?? null,
             modelProviderId: row.modelProviderId ?? null,
@@ -6978,9 +6885,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             modelProviderSource: row.modelProviderSource ?? null,
             managedBrand: row.managedBrand ?? null,
             inferenceProtocol: row.inferenceProtocol ?? null,
-            daemonId: row.daemonId ?? null,
-            spriteName: row.spriteName ?? null,
-            hostId: row.hostId ?? null,
+            hostId: row.host?.id ?? null,
+            hostKind: row.host?.kind ?? null,
+            powerState: row.host?.powerState ?? null,
+            host: row.host ?? null,
+            spriteName:
+                row.host?.providerRef?.kind === 'sprites'
+                    ? row.host.providerRef.spriteName
+                    : null,
             workspacePath: row.workspacePath ?? null
         }
     }

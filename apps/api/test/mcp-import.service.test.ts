@@ -3,14 +3,17 @@ import test from 'node:test'
 import { ServiceUnavailableException } from '@nestjs/common'
 import { McpImportService } from '../src/modules/agents/mcp-import.service'
 import { readJsonbMergePatch } from './jsonb-merge'
+import {
+    contextOf,
+    hostRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const agentRow = {
     id: 'agent-1',
     userId: 'user-1',
     framework: 'claude-code',
-    runtime: 'sprites',
-    spriteName: 'sprite-1',
-    accountId: 'acct-1',
+    status: 'ready',
     runtimeId: 'rt-1',
     workspacePath: '/home/test/.manyfold/workspaces/agent-1',
     mountPath: '/home/test/.manyfold/workspaces/agent-1',
@@ -44,13 +47,12 @@ const fakeDb = (): {
     }
 }
 
-const fakeAccounts = {
-    getById: async () => ({ slug: 'acct' }),
-    decryptToken: () => 'token'
-}
-
 const fakeAgents = {
-    findForCaller: async () => ({ ...agentRow }),
+    contextForCaller: async () =>
+        contextOf({
+            agent: { ...agentRow } as never,
+            host: spritesHostRow({ homeDir: '/home/test' })
+        }),
     get: async () => summary
 }
 
@@ -59,12 +61,7 @@ class TestImport extends McpImportService {
     failReads = false
 
     constructor(db: ReturnType<typeof fakeDb>) {
-        super(
-            db as never,
-            fakeAccounts as never,
-            fakeAgents as never,
-            {} as never
-        )
+        super(db as never, { ...fakeAgents } as never, {} as never)
     }
 
     protected override async readerFor(): Promise<
@@ -120,18 +117,15 @@ test('mcp import 503s and leaves the DB untouched when the sprite read fails', a
 test('mcp import preserves a missing user config while importing the project scope', async () => {
     const db = fakeDb()
     const svc = new TestImport(db)
-    const daemonAgent = {
-        ...agentRow,
-        runtime: 'daemon',
-        daemonId: 'dh-1',
-        spriteName: null,
-        accountId: null
-    }
     ;(
         svc as unknown as {
-            agents: { findForCaller: () => Promise<unknown> }
+            agents: { contextForCaller: () => Promise<unknown> }
         }
-    ).agents.findForCaller = async () => ({ ...daemonAgent })
+    ).agents.contextForCaller = async () =>
+        contextOf({
+            agent: { ...agentRow } as never,
+            host: hostRow({ id: 'dh-1', homeDir: '/home/test' })
+        })
     svc.reads['/home/test/.manyfold/workspaces/agent-1/.mcp.json'] =
         '{"mcpServers":{"proj":{"command":"z"}}}'
 

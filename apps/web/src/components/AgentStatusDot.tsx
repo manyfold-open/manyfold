@@ -22,19 +22,8 @@ const AgentStatusDot: FC<Props> = ({
 }): ReactNode => {
     const streaming = useIsAgentStreaming(agent.id)
     const dim = SIZE_CLASS[size]
-    const color =
-        tone ??
-        agentStatusDotClass(
-            agent.status,
-            agent.spriteStatus,
-            agent.k8sPodPhase,
-            agent.runtime
-        )
-    const baseLabel = agentStatusDotLabel(
-        agent.status,
-        agent.spriteStatus,
-        agent.k8sPodPhase
-    )
+    const color = tone ?? agentStatusDotClass(agent)
+    const baseLabel = agentStatusDotLabel(agent)
     const label = streaming ? `${baseLabel} · streaming` : baseLabel
     return (
         <ShortcutTooltip label={label} className='shrink-0'>

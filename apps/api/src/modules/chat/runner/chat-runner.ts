@@ -1,11 +1,9 @@
-import type { SpritesClient } from '@manyfold/sprites'
 import type { AgentRuntime, ChatError } from '@manyfold/shared'
-import type { RunnerExecFailure, SpriteExecFn } from './runner-manager.service'
+import type { RunnerExecFailure } from './runner-manager.service'
 
+// The daemon a turn was resolved to: the host id is its routing key.
 export interface ChatRunner {
     daemonId: string
-    exec: SpriteExecFn | null
-    spritesClient?: SpritesClient
 }
 
 export class ChatRunnerError extends Error {

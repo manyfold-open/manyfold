@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, eq, isNotNull, lte, sql } from 'drizzle-orm'
-import { runtimeHosts, type Database } from '@manyfold/db'
+import {
+    runtimeHosts,
+    type Database,
+    type RuntimeHostProviderRef
+} from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { providerRefLabel } from '@/modules/agent-runtimes/host-ref'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 
 // `pass` — nothing is known against this VM's exec endpoint; run the turn.
@@ -162,9 +167,9 @@ export class SpriteExecHealthService {
     ) {}
 
     // Decide whether a turn may use this host's exec endpoint. Returns null for
-    // anything this breaker does not own — no host, a deleted one, or a daemon
-    // that reaches its machine over the reverse websocket instead — so callers
-    // can tell "not mine" apart from "mine and healthy".
+    // anything this breaker does not own — no host, a deleted one, or a local
+    // host that reaches its machine over the reverse websocket instead — so
+    // callers can tell "not mine" apart from "mine and healthy".
     async admit(
         hostId: string | null | undefined
     ): Promise<SpriteExecAdmission | null> {
@@ -202,7 +207,7 @@ export class SpriteExecHealthService {
                 .where(
                     and(
                         eq(runtimeHosts.id, hostId),
-                        eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.kind, 'hosted'),
                         isNotNull(runtimeHosts.execCooldownUntil),
                         lte(
                             runtimeHosts.execCooldownUntil,
@@ -213,7 +218,7 @@ export class SpriteExecHealthService {
                 .returning({ id: runtimeHosts.id })
             if (claimed.length > 0) {
                 this.telemetry?.event(SPRITE_EXEC_PROBE_EVENT, {
-                    ...this.hostAttrs(hostId, host.spriteName),
+                    ...this.hostAttrs(hostId, host.providerRef),
                     leaseMs: spriteExecHealthConfig().probeLeaseMs
                 })
                 return { hostId, decision: 'probe', retryAt: null, lease }
@@ -280,16 +285,16 @@ export class SpriteExecHealthService {
                 .where(
                     and(
                         eq(runtimeHosts.id, failure.hostId),
-                        eq(runtimeHosts.kind, 'sandbox')
+                        eq(runtimeHosts.kind, 'hosted')
                     )
                 )
                 .returning({
-                    spriteName: runtimeHosts.spriteName,
+                    providerRef: runtimeHosts.providerRef,
                     until: runtimeHosts.execCooldownUntil
                 })
             if (!row) return null
             this.telemetry?.event(SPRITE_EXEC_UNAVAILABLE_EVENT, {
-                ...this.hostAttrs(failure.hostId, row.spriteName),
+                ...this.hostAttrs(failure.hostId, row.providerRef),
                 failureClass: failure.failureClass,
                 upstreamStatus: failure.upstreamStatus ?? undefined,
                 cooldownMs,
@@ -325,16 +330,16 @@ export class SpriteExecHealthService {
                 .where(
                     and(
                         eq(runtimeHosts.id, result.hostId),
-                        eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.kind, 'hosted'),
                         eq(runtimeHosts.execCooldownUntil, result.lease)
                     )
                 )
                 .returning({
-                    spriteName: runtimeHosts.spriteName,
+                    providerRef: runtimeHosts.providerRef,
                     retryAt: runtimeHosts.execCooldownUntil
                 })
             if (!row) return { outcome: 'not_owner', retryAt: null }
-            const attrs = this.hostAttrs(result.hostId, row.spriteName)
+            const attrs = this.hostAttrs(result.hostId, row.providerRef)
             if (result.ok)
                 this.telemetry?.event(SPRITE_EXEC_RECOVERED_EVENT, attrs)
             else
@@ -354,19 +359,19 @@ export class SpriteExecHealthService {
     }
 
     private async read(hostId: string): Promise<{
-        spriteName: string | null
+        providerRef: RuntimeHostProviderRef | null
         execCooldownUntil: Date | null
     } | null> {
         const [row] = await this.db
             .select({
-                spriteName: runtimeHosts.spriteName,
+                providerRef: runtimeHosts.providerRef,
                 execCooldownUntil: runtimeHosts.execCooldownUntil
             })
             .from(runtimeHosts)
             .where(
                 and(
                     eq(runtimeHosts.id, hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
+                    eq(runtimeHosts.kind, 'hosted')
                 )
             )
             .limit(1)
@@ -375,11 +380,14 @@ export class SpriteExecHealthService {
 
     private refuse(
         hostId: string,
-        host: { spriteName: string | null; execCooldownUntil: Date | null }
+        host: {
+            providerRef: RuntimeHostProviderRef | null
+            execCooldownUntil: Date | null
+        }
     ): SpriteExecAdmission {
         const retryAt = host.execCooldownUntil
         this.telemetry?.event(SPRITE_EXEC_BLOCKED_EVENT, {
-            ...this.hostAttrs(hostId, host.spriteName),
+            ...this.hostAttrs(hostId, host.providerRef),
             retryInMs: retryAt ? retryAt.getTime() - Date.now() : undefined
         })
         return { hostId, decision: 'blocked', retryAt, lease: null }
@@ -389,9 +397,12 @@ export class SpriteExecHealthService {
     // exec token, the endpoint URL — belongs in an event about a machine.
     private hostAttrs(
         hostId: string,
-        spriteName: string | null
+        providerRef: RuntimeHostProviderRef | null
     ): Record<string, string | undefined> {
-        return { hostId, spriteName: spriteName ?? undefined }
+        return {
+            hostId,
+            spriteName: providerRefLabel({ providerRef }) ?? undefined
+        }
     }
 
     // Breaker bookkeeping never changes a turn's outcome: the terminal the user

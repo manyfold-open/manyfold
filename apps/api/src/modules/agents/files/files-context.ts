@@ -1,6 +1,8 @@
 import {
     DAEMON_FEATURE_FS_WRITE_BINARY,
-    frameworkDefinition
+    frameworkDefinition,
+    isRuntimeUsable,
+    type AgentRuntime
 } from '@manyfold/shared'
 import type {
     FileRootCapabilitiesSdk,
@@ -20,15 +22,12 @@ import {
 import { eq } from 'drizzle-orm'
 import {
     agents,
-    runtimeHosts,
     type Agent,
-    type AgentRuntimeRow,
     type Database,
-    type FileRoot
+    type FileRoot,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import {
-    createClient,
-    execSprite,
     spriteListDir,
     spriteMkdir,
     spriteMv,
@@ -36,15 +35,10 @@ import {
     spriteRm,
     spriteStatFile,
     spriteWriteFile,
-    type FsEntry,
-    type SpritesClient
+    type FsEntry
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
+import type { PodExec } from '@/modules/k8s/pod-exec'
 import {
     HOME_ROOT_ID,
     buildFileRoots,
@@ -65,9 +59,17 @@ import {
 } from '@/modules/agents/files/files-upload'
 import { resolveImageContentType } from '@/modules/agents/files/files-content-type'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 
 export interface FilesContext {
     agent: Agent
+    // The product placement of the agent's host (placementOf, ADR-0036);
+    // absent on a context a framework builds for its own files.
+    placement?: AgentRuntime
     root: FileRoot
     mountPath: string
     list(absPath: string): Promise<FsEntry[]>
@@ -92,6 +94,11 @@ export interface FilesContext {
     binaryWriteSafe?: boolean
 }
 
+// The agent with its machine resolved (ADR-0036): where the files live is a
+// fact of the host, never of the agent row.
+type AgentContext = RuntimeContext & { agent: Agent }
+type HostedAgentContext = AgentContext & { host: RuntimeHostRow }
+
 const withImageContentTypeFallback = (ctx: FilesContext): FilesContext => ({
     ...ctx,
     stat: async (absPath) => {
@@ -114,11 +121,15 @@ const withImageContentTypeFallback = (ctx: FilesContext): FilesContext => ({
 
 // The bound an adapter enforces while consuming a write body. binaryWriteSafe
 // does not affect sizes, so the capability lookup can assume the safe value.
-const uploadBound = (agent: Agent, root: FileRoot): UploadBound => ({
-    maxBytes: rootCapabilities({ agent, root, binaryWriteSafe: true })
-        .maxUploadBytes,
+const uploadBound = (ctx: AgentContext, root: FileRoot): UploadBound => ({
+    maxBytes: rootCapabilities({
+        framework: ctx.agent.framework,
+        placement: ctx.placement,
+        root,
+        binaryWriteSafe: true
+    }).maxUploadBytes,
     rootId: root.id,
-    transport: root.transport ?? agent.runtime
+    transport: root.transport ?? ctx.placement
 })
 
 const isUtf8RoundTrippable = (body: Buffer): boolean =>
@@ -143,21 +154,19 @@ const deriveHomeFromStored = (stored: FileRoot[]): string | undefined => {
 
 const POD_CACHE_TTL_MS = 60_000
 
-interface CachedPod {
-    pod: Awaited<ReturnType<typeof resolveAgentPod>>
+interface CachedPodExec {
+    exec: PodExec
     expiresAt: number
 }
 
 @Injectable()
 export class FilesContextBuilder {
     private readonly log = new Logger(FilesContextBuilder.name)
-    private readonly podCache = new Map<string, CachedPod>()
+    private readonly podCache = new Map<string, CachedPodExec>()
 
     constructor(
-        private readonly accounts: SpritesAccountsService,
-        private readonly runtimes: AgentRuntimesService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
+        private readonly runtimeContext: RuntimeContextService,
+        private readonly hostClients: HostProviderClients,
         private readonly daemonRegistry: DaemonRegistryService,
         @Inject(DRIZZLE) private readonly db: Database,
         // Appended last + @Optional: frameworks whose files their own API
@@ -166,25 +175,36 @@ export class FilesContextBuilder {
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
-    private async resolvePodCached(
-        runtime: AgentRuntimeRow
-    ): Promise<Awaited<ReturnType<typeof resolveAgentPod>>> {
-        const key = runtime.hostId ?? runtime.id
-        const cached = this.podCache.get(key)
+    private async contextOf(agent: Agent): Promise<AgentContext> {
+        const ctx = await this.runtimeContext.forAgent(agent.id)
+        if (!ctx?.agent)
+            throw new NotFoundException(`agent ${agent.id} not found`)
+        return { ...ctx, agent }
+    }
+
+    // The pod of a hosted k8s machine, cached by host: every framework
+    // runtime and agent on the host resolves to this one pod (ADR-0035).
+    private async podExecCached(host: RuntimeHostRow): Promise<PodExec> {
+        const cached = this.podCache.get(host.id)
         const now = Date.now()
-        if (cached && cached.expiresAt > now) return cached.pod
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        this.podCache.set(key, { pod, expiresAt: now + POD_CACHE_TTL_MS })
-        return pod
+        if (cached && cached.expiresAt > now) return cached.exec
+        const exec = await this.hostClients.podExecForHost(host)
+        this.podCache.set(host.id, { exec, expiresAt: now + POD_CACHE_TTL_MS })
+        return exec
     }
 
     async resolveRoots(agent: Agent): Promise<FileRoot[]> {
+        return this.resolveRootsFor(await this.contextOf(agent))
+    }
+
+    private async resolveRootsFor(ctx: AgentContext): Promise<FileRoot[]> {
+        const { agent } = ctx
         const provider = this.extensions.get(agent.framework)?.files
         if (provider) return await provider.resolveRoots(agent)
         const stored = Array.isArray(agent.fileRoots) ? agent.fileRoots : []
-        if (stored.length > 0 && this.storedShapeIsCurrent(agent, stored))
+        if (stored.length > 0 && this.storedShapeIsCurrent(ctx, stored))
             return stored
-        const computed = await this.computeDefaults(agent, stored)
+        const computed = await this.computeDefaults(ctx, stored)
         if (computed.length === 0) return [defaultFileRoot(agent.mountPath)]
         if (computed.length < stored.length) return stored
         try {
@@ -200,38 +220,41 @@ export class FilesContextBuilder {
         return computed
     }
 
-    private async daemonBinaryWriteSafe(daemonId: string): Promise<boolean> {
-        const [hostRow] = await this.db
-            .select({ clientFeatures: runtimeHosts.clientFeatures })
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, daemonId))
-            .limit(1)
-        return ((hostRow?.clientFeatures as string[] | null) ?? []).includes(
+    private daemonBinaryWriteSafe(ctx: AgentContext): boolean {
+        return (ctx.daemon?.clientFeatures ?? []).includes(
             DAEMON_FEATURE_FS_WRITE_BINARY
         )
     }
 
-    // binarySafe depends on the host's CLI version, so capabilities cannot be a
-    // static per-runtime table — they are resolved per request alongside roots
+    // binarySafe depends on the host daemon's CLI version, so capabilities
+    // cannot be a static per-runtime table — they are resolved per request
+    // alongside roots
     async resolveRootsForSdk(agent: Agent): Promise<FileRootSdk[]> {
-        const roots = await this.resolveRoots(agent)
+        const ctx = await this.contextOf(agent)
+        const roots = await this.resolveRootsFor(ctx)
         const binaryWriteSafe =
-            agent.runtime === 'daemon' && agent.daemonId
-                ? await this.daemonBinaryWriteSafe(agent.daemonId)
-                : true
+            ctx.placement === 'daemon' ? this.daemonBinaryWriteSafe(ctx) : true
         return roots.map((root) =>
-            toSdkRoot(root, rootCapabilities({ agent, root, binaryWriteSafe }))
+            toSdkRoot(
+                root,
+                rootCapabilities({
+                    framework: agent.framework,
+                    placement: ctx.placement,
+                    root,
+                    binaryWriteSafe
+                })
+            )
         )
     }
 
-    private storedShapeIsCurrent(agent: Agent, stored: FileRoot[]): boolean {
+    private storedShapeIsCurrent(ctx: AgentContext, stored: FileRoot[]): boolean {
         const homeKnown =
-            agent.runtime === 'k8s' ||
-            agent.runtime === 'daemon' ||
+            ctx.placement === 'k8s' ||
+            ctx.placement === 'daemon' ||
             stored.some((r) => r.id !== 'workspace' && !!r.path)
         const expected = expectedRootIds({
-            framework: agent.framework,
-            runtime: agent.runtime,
+            framework: ctx.agent.framework,
+            runtime: ctx.placement,
             homeKnown
         })
         const have = new Set(stored.map((r) => r.id))
@@ -239,10 +262,11 @@ export class FilesContextBuilder {
     }
 
     private async computeDefaults(
-        agent: Agent,
+        ctx: AgentContext,
         stored: FileRoot[] = []
     ): Promise<FileRoot[]> {
-        if (agent.runtime === 'k8s')
+        const { agent, host } = ctx
+        if (ctx.placement === 'k8s')
             return buildFileRoots({
                 framework: agent.framework,
                 runtime: 'k8s',
@@ -251,20 +275,20 @@ export class FilesContextBuilder {
                     ? { workspaceTransport: 'pod-exec' as const }
                     : {})
             })
-        if (agent.runtime === 'daemon') {
-            const runtime = agent.runtimeId
-                ? await this.runtimes.findById(agent.runtimeId)
-                : null
+        if (ctx.placement === 'daemon')
             return buildFileRoots({
                 framework: agent.framework,
                 runtime: 'daemon',
                 mountPath: agent.mountPath,
-                homeDir: runtime?.homeDir ?? deriveHomeFromStored(stored)
+                homeDir: host?.homeDir ?? deriveHomeFromStored(stored)
             })
-        }
-        const probedHome = await this.probeSpriteHome(agent).catch(
-            () => undefined
-        )
+        // The host declared its home at daemon registration (ADR-0014); a
+        // sandbox whose daemon has not registered yet is asked directly.
+        const probedHome =
+            host?.homeDir ??
+            (host
+                ? await this.probeSpriteHome(host).catch(() => undefined)
+                : undefined)
         const homeDir = probedHome ?? deriveHomeFromStored(stored)
         return buildFileRoots({
             framework: agent.framework,
@@ -274,9 +298,11 @@ export class FilesContextBuilder {
         })
     }
 
-    private async probeSpriteHome(agent: Agent): Promise<string | undefined> {
-        const client = await this.spriteClientFor(agent)
-        const result = await execSprite(client, agent.spriteName!, {
+    private async probeSpriteHome(
+        host: RuntimeHostRow
+    ): Promise<string | undefined> {
+        const exec = await this.hostClients.spriteExecForHost(host)
+        const result = await exec({
             cmd: ['bash', '-lc', `printf 'MF_HOME=%s\\n' "$HOME"`],
             stdin: '',
             timeoutMs: 10_000
@@ -285,66 +311,58 @@ export class FilesContextBuilder {
         return extractHomeDir(result.stdout)
     }
 
-    private async spriteClientFor(agent: Agent): Promise<SpritesClient> {
-        const account = await this.accounts.getById(agent.accountId!)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${agent.accountId} not found`
-            )
-        const token = this.accounts.decryptToken(account)
-        return createClient({ token, accountSlug: account.slug })
-    }
-
     async build(agent: Agent, rootId?: string | null): Promise<FilesContext> {
-        if (agent.runtime === 'external')
+        const ctx = await this.contextOf(agent)
+        if (ctx.placement === 'external' || !ctx.host)
             throw new NotFoundException(
                 `external-runtime agents have no filesystem`
             )
+        const hosted = ctx as HostedAgentContext
         const provider = this.extensions.get(agent.framework)?.files
         if (provider) {
             // The framework owns these roots' layout: nothing is created, and a
             // root it does not serve itself falls to the runtime's transport.
             const root = pickRoot(await provider.resolveRoots(agent), rootId)
-            const ctx =
+            const filesCtx =
                 (await provider.buildContext(agent, root)) ??
-                (await this.runtimeCtx(agent, root))
-            return withImageContentTypeFallback(ctx)
+                (await this.runtimeCtx(hosted, root))
+            return withImageContentTypeFallback(filesCtx)
         }
-        const roots = await this.resolveRoots(agent)
+        const roots = await this.resolveRootsFor(ctx)
         const root = pickRoot(roots, rootId)
-        const ctx = await this.runtimeCtx(agent, root)
-        await this.ensureRootExists(agent, root, ctx)
-        return withImageContentTypeFallback(ctx)
+        const filesCtx = await this.runtimeCtx(hosted, root)
+        await this.ensureRootExists(agent, root, filesCtx)
+        return withImageContentTypeFallback(filesCtx)
     }
 
     // Where a terminal opens when the caller names no directory.
-    defaultTerminalCwd(agent: Agent): string {
+    defaultTerminalCwd(agent: Agent, placement: AgentRuntime): string {
         const fromProvider = this.extensions
             .get(agent.framework)
             ?.files?.defaultTerminalCwd?.(agent)
         if (fromProvider) return fromProvider
-        if (agent.runtime === 'daemon' && agent.workspacePath)
+        if (placement === 'daemon' && agent.workspacePath)
             return agent.workspacePath
         return agent.mountPath
     }
 
-    private runtimeCtx(agent: Agent, root: FileRoot): Promise<FilesContext> {
-        return agent.runtime === 'sprites'
-            ? this.spriteCtx(agent, root)
-            : agent.runtime === 'daemon'
-              ? this.daemonCtx(agent, root)
-              : this.k8sCtx(agent, root)
+    private runtimeCtx(
+        ctx: HostedAgentContext,
+        root: FileRoot
+    ): Promise<FilesContext> {
+        return ctx.placement === 'sprites'
+            ? this.spriteCtx(ctx, root)
+            : ctx.placement === 'daemon'
+              ? this.daemonCtx(ctx, root)
+              : this.k8sCtx(ctx, root)
     }
 
     private async daemonCtx(
-        agent: Agent,
+        ctx: HostedAgentContext,
         root: FileRoot
     ): Promise<FilesContext> {
-        if (!agent.daemonId)
-            throw new NotFoundException(
-                `daemon agent ${agent.id} missing daemonId`
-            )
-        const daemonId = agent.daemonId
+        const { agent } = ctx
+        const daemonId = ctx.host.id
         const rpc = (
             method: import('@manyfold/shared').DaemonRpcMethod,
             payload: Record<string, unknown>
@@ -356,9 +374,10 @@ export class FilesContextBuilder {
                 timeoutMs: 30_000
             })
         }
-        const binaryWriteSafe = await this.daemonBinaryWriteSafe(daemonId)
+        const binaryWriteSafe = this.daemonBinaryWriteSafe(ctx)
         return {
             agent,
+            placement: ctx.placement,
             root,
             mountPath: root.path,
             binaryWriteSafe,
@@ -468,7 +487,7 @@ export class FilesContextBuilder {
                 const abs = rawAbs
                 const body = await collectBounded(
                     rawBody,
-                    uploadBound(agent, root)
+                    uploadBound(ctx, root)
                 )
                 if (!binaryWriteSafe) {
                     // the legacy fs.write takes a UTF-8 string, which silently
@@ -523,17 +542,12 @@ export class FilesContextBuilder {
     }
 
     private async spriteCtx(
-        agent: Agent,
+        ctx: HostedAgentContext,
         root: FileRoot
     ): Promise<FilesContext> {
-        const account = await this.accounts.getById(agent.accountId!)
-        if (!account)
-            throw new NotFoundException(
-                `sprites account ${agent.accountId} not found`
-            )
-        const token = this.accounts.decryptToken(account)
-        const client = createClient({ token, accountSlug: account.slug })
-        const spriteName = agent.spriteName!
+        const { agent } = ctx
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(ctx.host)
         const mountPath = root.path
         // Every op here reaches the sprite over the exec WSS, whose failures are
         // SpritesError (not HttpException) — unguarded they fall through to a
@@ -545,6 +559,7 @@ export class FilesContextBuilder {
                 fn(...a).catch(spritesHttpError)
         return {
             agent,
+            placement: ctx.placement,
             root,
             mountPath,
             list: guard((abs: string) =>
@@ -598,7 +613,7 @@ export class FilesContextBuilder {
             write: guard((abs: string, body: FileWriteBody) =>
                 spriteWriteFile(client, spriteName, {
                     absPath: abs,
-                    body: boundedChunks(body, uploadBound(agent, root)),
+                    body: boundedChunks(body, uploadBound(ctx, root)),
                     containRoot: mountPath
                 })
             ),
@@ -617,22 +632,16 @@ export class FilesContextBuilder {
         }
     }
 
-    private async k8sCtx(agent: Agent, root: FileRoot): Promise<FilesContext> {
-        const runtime = await this.runtimes.findById(agent.runtimeId)
-        if (!runtime)
-            throw new NotFoundException(
-                `runtime ${agent.runtimeId} not found for agent ${agent.id}`
-            )
-        const pod = await this.resolvePodCached(runtime)
-        const podExec = this.podExecFactory.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+    private async k8sCtx(
+        ctx: HostedAgentContext,
+        root: FileRoot
+    ): Promise<FilesContext> {
+        const { agent } = ctx
+        const podExec = await this.podExecCached(ctx.host)
         const client = new K8sPodFilesClient(podExec, root.path)
         return {
             agent,
+            placement: ctx.placement,
             root,
             mountPath: root.path,
             list: (abs) => client.list(abs),
@@ -645,7 +654,7 @@ export class FilesContextBuilder {
             write: async (abs, body) =>
                 client.write(
                     abs,
-                    await collectBounded(body, uploadBound(agent, root))
+                    await collectBounded(body, uploadBound(ctx, root))
                 ),
             mkdir: (abs) => client.mkdir(abs),
             mv: (src, dst) => client.mv(src, dst),
@@ -654,35 +663,23 @@ export class FilesContextBuilder {
     }
 }
 
-export const assertAgentReady = (agent: Agent): void => {
-    if (agent.runtime === 'external')
+// The one admission rule for files (ADR-0036): the agent's runtime is
+// installed on a ready host. A hosted machine that is asleep is admitted —
+// reads wake it.
+export const assertAgentReady = (
+    ctx: Pick<RuntimeContext, 'placement' | 'availability'> & { agent: Agent }
+): void => {
+    if (ctx.placement === 'external')
         throw new NotFoundException(
             `external-runtime agents have no filesystem`
         )
-    if (agent.status !== 'running')
-        throw new NotFoundException(
-            `agent is ${agent.status}; files available only when running`
-        )
     // Framework-served files need nothing from the runtime transport.
-    if (frameworkDefinition(agent.framework)?.files?.servedBy === 'framework')
+    if (frameworkDefinition(ctx.agent.framework)?.files?.servedBy === 'framework')
         return
-    if (agent.runtime === 'sprites') {
-        if (!agent.spriteName || !agent.accountId)
-            throw new NotFoundException(
-                'sprite agent missing spriteName or accountId'
-            )
-        return
-    }
-    if (agent.runtime === 'daemon') {
-        if (!agent.daemonId)
-            throw new NotFoundException('daemon agent missing daemonId')
-        return
-    }
-    if (agent.runtime === 'k8s') {
-        if (!agent.namespace)
-            throw new NotFoundException('k8s agent missing namespace')
-        return
-    }
+    if (!isRuntimeUsable(ctx.availability))
+        throw new NotFoundException(
+            `agent is ${ctx.availability}; files available only while its runtime is ready`
+        )
 }
 
 export const resolveSafePath = (mountPath: string, raw: string): string => {

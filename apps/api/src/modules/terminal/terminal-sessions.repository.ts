@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import {
-    agents,
     terminalSessions,
     type Database,
     type TerminalSessionRow
@@ -33,9 +32,6 @@ export class TerminalSessionsRepository {
         // Absent, the browser terminal; `herdr` for a pane on the agent's
         // machine (ADR-0031).
         client?: TerminalClient
-        // The daemon a herdr terminal is reached through (the agent's own,
-        // or a sandbox's runner).
-        daemonId?: string | null
     }): Promise<TerminalSessionRow> {
         const [row] = await this.db
             .insert(terminalSessions)
@@ -143,32 +139,20 @@ export class TerminalSessionsRepository {
         return rows.length
     }
 
-    // The live terminals a daemon owns: rows addressed by their own id (the
-    // handle an owned or herdr terminal gets at creation), reached through
-    // the daemon the row names or, for a daemon-arm row that predates the
-    // column, the agent's current daemon.
-    async listLiveOwnedByDaemon(
-        daemonId: string
-    ): Promise<TerminalSessionRow[]> {
-        const rows = await this.db
-            .select({ row: terminalSessions })
+    // The live terminals a host's daemon owns: rows addressed by their own id
+    // (the handle an owned or herdr terminal gets at creation), reached
+    // through the host the row names (ADR-0036).
+    async listLiveOwnedByHost(hostId: string): Promise<TerminalSessionRow[]> {
+        return this.db
+            .select()
             .from(terminalSessions)
-            .innerJoin(agents, eq(agents.id, terminalSessions.agentId))
             .where(
                 and(
-                    or(
-                        eq(terminalSessions.daemonId, daemonId),
-                        and(
-                            isNull(terminalSessions.daemonId),
-                            eq(agents.daemonId, daemonId),
-                            eq(terminalSessions.runtime, 'daemon')
-                        )
-                    ),
+                    eq(terminalSessions.hostId, hostId),
                     isNull(terminalSessions.endedAt),
                     eq(terminalSessions.processHandle, terminalSessions.id)
                 )
             )
-        return rows.map((r) => r.row)
     }
 
     async findById(id: string): Promise<TerminalSessionRow | null> {

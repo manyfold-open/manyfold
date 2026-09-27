@@ -68,7 +68,9 @@ const makeHost = (over: Partial<DaemonHostSummary> = {}): DaemonHostSummary => {
         homeDir: null,
         workspaceBaseDir: null,
         detectedFrameworks: [],
-        status: 'active',
+        kind: 'local',
+        registered: true,
+        status: 'ready',
         online: true,
         lastSeenAt: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -84,9 +86,15 @@ const makeSandbox = (over: Partial<SandboxSummary> = {}): SandboxSummary => {
         id: `sbx_${seq}`,
         userId: 'usr_1',
         name: `sandbox-${seq}`,
-        accountSlug: null,
-        spriteName: `sprite-${seq}`,
-        spriteStatus: 'running',
+        status: 'ready',
+        failureReason: null,
+        providerId: 'rtp_1',
+        providerName: 'sprites.dev',
+        providerRefLabel: `sprite-${seq}`,
+        powerState: 'running',
+        registered: true,
+        daemonOnline: true,
+        keepAwake: false,
         terminalEnabled: true,
         terminalModelCredentials: false,
         agentsCount: 1,
@@ -119,36 +127,30 @@ const makeRuntime = (
         frameworkVersion: '2.0.0',
         kind: 'sprites',
         status: 'ready',
-        accountSlug: null,
-        clusterId: null,
-        clusterName: null,
-        spriteName: `sprite-${seq}`,
-        spriteId: null,
-        hostId: null,
-        podHostName: null,
+        availability: 'available',
+        hostId: `sbx_host_${seq}`,
+        hostName: null,
+        hostKind: 'hosted',
+        hostStatus: 'ready',
+        providerId: 'rtp_1',
+        providerKind: 'sprites',
+        providerName: 'sprites.dev',
+        providerRefLabel: `sprite-${seq}`,
+        powerState: 'running',
+        daemonOnline: true,
+        daemonCliVersion: null,
         mountPath: '/home',
-        namespace: null,
-        ingressHost: null,
         endpointUrl: null,
         controlUiEnabled: false,
         dashboardEnabled: false,
         dashboardState: null,
-        keepAliveEnabled: false,
         currentPhase: null,
         failureReason: null,
         primaryAgentId: `agt_${seq}`,
-        startedAt: null,
         lastBootstrappedAt: null,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         agentsCount: 1,
-        daemonId: null,
-        daemonName: null,
-        daemonOnline: null,
-        daemonCliVersion: null,
-        homeDir: null,
-        workspaceBaseDir: null,
-        lastSeenAt: null,
         serviceStatus: 'unknown',
         serviceStatusAt: null,
         ...over
@@ -210,7 +212,7 @@ const skillGroup = (
             id: agentId,
             name: agentName,
             framework: 'claude-code',
-            status: 'running',
+            status: 'ready',
             runtime: 'sprites',
             runtimeId: 'art_1',
             runtimeName: 'runtime',
@@ -288,7 +290,7 @@ test('a sandbox with a stale CLI is executable', () => {
     assert.equal(rows[0].targetLabel, 'box')
     assert.deepEqual(rows[0].exec, {
         type: 'sandboxCli',
-        sandboxId: sandbox.id,
+        hostId: sandbox.id,
         targetVersion: null
     })
 })
@@ -383,14 +385,21 @@ test("a framework on the user's own machine offers the command, not a mutation",
         runtimes: [
             makeRuntime({
                 kind: 'daemon',
-                daemonId: 'dmn_x',
-                daemonName: 'Ying MBP'
+                hostId: 'dmn_x',
+                hostName: 'Ying MBP',
+                hostKind: 'local',
+                providerId: null,
+                providerKind: null,
+                providerName: null,
+                providerRefLabel: null,
+                powerState: null
             })
         ],
         frameworkCatalog: [catalogEntry()]
     })
     assert.equal(rows[0].blocker, 'manual')
     assert.equal(rows[0].targetKind, 'daemon')
+    assert.equal(rows[0].targetKey, 'host:dmn_x')
     assert.equal(rows[0].targetLabel, 'Ying MBP')
     assert.deepEqual(rows[0].exec, {
         type: 'none',
@@ -403,7 +412,8 @@ test('a cloud computer upgrades its framework in place, addressed by its agent',
     const runtime = makeRuntime({
         kind: 'k8s',
         hostId: 'pdh_1',
-        podHostName: 'computer-001',
+        hostName: 'computer-001',
+        providerKind: 'k8s',
         primaryAgentId: 'agt_1'
     })
     const rows = build({
@@ -411,7 +421,7 @@ test('a cloud computer upgrades its framework in place, addressed by its agent',
         frameworkCatalog: [catalogEntry()]
     })
     assert.equal(rows[0].blocker, null)
-    assert.equal(rows[0].targetKey, 'k8s:pdh_1')
+    assert.equal(rows[0].targetKey, 'host:pdh_1')
     assert.equal(rows[0].targetLabel, 'computer-001')
     assert.deepEqual(rows[0].exec, {
         type: 'agentFramework',
@@ -437,6 +447,7 @@ test("a cloud computer's stale CLI is updated through its daemon", () => {
         id: 'pdh_1',
         name: 'computer-001',
         status: 'ready',
+        daemonOnline: true,
         cliVersion: '3.0.1',
         latestCliVersion: '3.1.0',
         cliUpdateAvailable: true
@@ -452,6 +463,9 @@ test("a cloud computer's stale CLI is updated through its daemon", () => {
         podHosts: [{ ...podHost, status: 'provisioning' }]
     })
     assert.equal(starting[0].blocker, 'offline')
+    // A ready host whose daemon is away cannot take daemon.update either.
+    const away = build({ podHosts: [{ ...podHost, daemonOnline: false }] })
+    assert.equal(away[0].blocker, 'offline')
 })
 
 test('a blocked installed version raises the row to required and carries the reason', () => {
@@ -473,18 +487,18 @@ test('a blocked installed version raises the row to required and carries the rea
     assert.equal(rows[0].blockedReason, 'drops signatures')
 })
 
-test('a sprite framework row is labelled with the sandbox name, not the sprite id', () => {
+test('a sprite framework row is labelled with its host name, keyed by the host', () => {
     const sandbox = makeSandbox({
         name: 'workhorse',
         cliUpdateAvailable: false
     })
     const rows = build({
         sandboxes: [sandbox],
-        runtimes: [makeRuntime({ hostId: sandbox.id })],
+        runtimes: [makeRuntime({ hostId: sandbox.id, hostName: 'workhorse' })],
         frameworkCatalog: [catalogEntry()]
     })
     assert.equal(rows[0].targetLabel, 'workhorse')
-    assert.equal(rows[0].targetKey, `sandbox:${sandbox.id}`)
+    assert.equal(rows[0].targetKey, `host:${sandbox.id}`)
 })
 
 test('the platform CLI-usage skill is its own kind, other skills are not', () => {
@@ -645,15 +659,16 @@ test('grouping by target collapses every update on one machine', () => {
         runtimes: [
             makeRuntime({
                 kind: 'daemon',
-                daemonId: host.id,
-                daemonName: host.name
+                hostId: host.id,
+                hostName: host.name,
+                hostKind: 'local'
             })
         ],
         frameworkCatalog: [catalogEntry()]
     })
     const groups = groupUpdateRows(rows, 'target', groupLabels)
     assert.equal(groups.length, 1)
-    assert.equal(groups[0].key, `target:daemon:${host.id}`)
+    assert.equal(groups[0].key, `target:host:${host.id}`)
     assert.equal(groups[0].rows.length, 2)
 })
 

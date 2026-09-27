@@ -4,7 +4,7 @@ import {
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { BadRequestException, ConflictException } from '@nestjs/common'
-import type { Database, RuntimeHostRow } from '@manyfold/db'
+import type { Database, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
 import { CLI_ABOVE_FLOOR, CLI_AT_FLOOR } from './helpers/cli-floor'
 
@@ -12,25 +12,51 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
     ({
         id: 'dh-1',
         userId: 'u1',
-        daemonUuid: 'uuid-1',
+        kind: 'local',
+        providerId: null,
+        providerRef: null,
         name: 'laptop',
-        hostname: 'laptop.local',
-        os: 'darwin',
-        arch: 'arm64',
-        cliVersion: CLI_AT_FLOOR,
+        status: 'ready',
+        failureReason: null,
+        generation: 0,
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.manyfold/workspaces',
-        detectedFrameworks: [],
-        clientFeatures: ['daemon.update'],
-        startupMethod: 'launchd-user',
-        rpcLastSeenAt: new Date(),
-        lastSeenAt: new Date(),
-        lastIp: null,
-        status: 'active',
+        skillsDir: null,
+        keepAwake: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides
     }) as RuntimeHostRow
+
+// The daemon row the service reads for the version, the features and the
+// presence it decides on; the host row carries none of them (ADR-0036).
+const daemon = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
+    ({
+        hostId: 'dh-1',
+        userId: 'u1',
+        daemonUuid: 'uuid-1',
+        tokenId: 'ldt-1',
+        hostname: 'laptop.local',
+        os: 'darwin',
+        arch: 'arm64',
+        cliVersion: CLI_AT_FLOOR,
+        herdrVersion: null,
+        clientFeatures: ['daemon.update'],
+        startupMethod: 'launchd-user',
+        terminalPty: null,
+        detectedFrameworks: [],
+        registeredAt: new Date(),
+        lastSeenAt: new Date(),
+        lastIp: null,
+        rpcInstanceId: null,
+        rpcConnectionToken: null,
+        rpcInbox: null,
+        rpcConnectedAt: null,
+        rpcLastSeenAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides
+    }) as HostDaemonRow
 
 const auditDb = { insert: () => ({ values: async () => undefined }) }
 
@@ -40,6 +66,7 @@ const makeService = (opts: {
     rpc?: (args: unknown) => Promise<Record<string, unknown> | undefined>
     latest?: string | null
     consume?: () => void
+    daemon?: HostDaemonRow
 }): DaemonHostService =>
     new DaemonHostService(
         auditDb as unknown as Database,
@@ -62,7 +89,13 @@ const makeService = (opts: {
         {
             isInstallableVersion: async () => true
         } as never,
-        { get: () => 'local' } as never
+        { get: () => 'local' } as never,
+        { findById: async () => host() } as never,
+        {
+            findByHostId: async () => opts.daemon ?? daemon(),
+            patch: async () => opts.daemon ?? daemon()
+        } as never,
+        {} as never
     )
 
 test('isCliUpdateAvailable: stable compares by semver, dev by exact build', () => {
@@ -91,7 +124,7 @@ test('isCliUpdateAvailable: stable compares by semver, dev by exact build', () =
 
 test('toSummary surfaces latest version, updateAvailable and canRemoteUpgrade', async () => {
     const service = makeService({ latest: CLI_ABOVE_FLOOR })
-    const summary = await service.toSummary(host(), [], 0)
+    const summary = await service.toSummary(host(), daemon(), [], 0)
     assert.equal(summary.latestCliVersion, CLI_ABOVE_FLOOR)
     assert.equal(summary.updateAvailable, true)
     assert.equal(summary.canRemoteUpgrade, true)
@@ -100,7 +133,8 @@ test('toSummary surfaces latest version, updateAvailable and canRemoteUpgrade', 
 test('canRemoteUpgrade is false when the daemon does not advertise daemon.update', async () => {
     const service = makeService({ latest: CLI_ABOVE_FLOOR })
     const summary = await service.toSummary(
-        host({ clientFeatures: [] }),
+        host(),
+        daemon({ clientFeatures: [] }),
         [],
         0
     )
@@ -109,13 +143,9 @@ test('canRemoteUpgrade is false when the daemon does not advertise daemon.update
 })
 
 test('upgrade refuses a manual daemon that cannot hand off to a successor', async () => {
-    const service = makeService({})
+    const service = makeService({ daemon: daemon({ startupMethod: 'manual' }) })
     await assert.rejects(
-        () =>
-            service.upgrade({
-                host: host({ startupMethod: 'manual' }),
-                actorId: 'u1'
-            }),
+        () => service.upgrade({ host: host(), actorId: 'u1' }),
         BadRequestException
     )
 })
@@ -124,34 +154,33 @@ test('upgrade refuses a manual daemon that cannot hand off to a successor', asyn
 // by itself is upgradeable from here like an init-unit daemon.
 test('upgrade accepts a manual daemon that advertises daemon.update.manual', async () => {
     const rpcs: Array<Record<string, unknown>> = []
+    const manual = daemon({
+        startupMethod: 'manual',
+        clientFeatures: ['daemon.update', 'daemon.update.manual']
+    })
     const service = makeService({
         rpc: async (call: unknown) => {
             rpcs.push(call as Record<string, unknown>)
             return { toVersion: '9.9.9', restarting: true }
-        }
-    })
-    const manual = host({
-        startupMethod: 'manual',
-        clientFeatures: ['daemon.update', 'daemon.update.manual']
+        },
+        daemon: manual
     })
     assert.equal(
-        (await service.toSummary(manual, [], 0)).canRemoteUpgrade,
+        (await service.toSummary(host(), manual, [], 0)).canRemoteUpgrade,
         true
     )
-    const result = await service.upgrade({ host: manual, actorId: 'u1' })
+    const result = await service.upgrade({ host: host(), actorId: 'u1' })
     assert.equal(result.ok, true)
     assert.equal(rpcs.length, 1)
     assert.equal(rpcs[0].method, 'daemon.update')
 })
 
 test('upgrade refuses an offline daemon', async () => {
-    const service = makeService({})
+    const service = makeService({
+        daemon: daemon({ lastSeenAt: new Date(Date.now() - 120_000) })
+    })
     await assert.rejects(
-        () =>
-            service.upgrade({
-                host: host({ rpcLastSeenAt: new Date(Date.now() - 120_000) }),
-                actorId: 'u1'
-            }),
+        () => service.upgrade({ host: host(), actorId: 'u1' }),
         BadRequestException
     )
 })

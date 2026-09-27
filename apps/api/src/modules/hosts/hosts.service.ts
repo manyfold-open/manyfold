@@ -73,13 +73,12 @@ export class HostsService {
         id: string,
         state: RuntimeHostPowerState
     ): Promise<RuntimeHostRow | null> {
-        const now = new Date()
         const [row] = await this.db
             .update(runtimeHosts)
             .set({
                 powerState: state,
-                powerChangedAt: sql`case when ${runtimeHosts.powerState} is distinct from ${state} then ${now} else ${runtimeHosts.powerChangedAt} end`,
-                updatedAt: now
+                powerChangedAt: sql`case when ${runtimeHosts.powerState} is distinct from ${state} then now() else ${runtimeHosts.powerChangedAt} end`,
+                updatedAt: new Date()
             })
             .where(eq(runtimeHosts.id, id))
             .returning()

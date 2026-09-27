@@ -18,15 +18,15 @@ import {
    herdr keep the browser terminal and its old name, so the control is
    offered — with its herdr label — only where it can work, and the reasons
    it is disabled are the resume's own plus what the handoff adds: no
-   session on screen yet, an agent that is not running, and a sandbox
-   runner whose Manyfold CLI predates the handoff. */
+   session on screen yet, an agent whose machine is not reachable, and a
+   sandbox whose Manyfold CLI predates the handoff. */
 
 export type HerdrHandoffBlocked =
     | 'no-herdr'
-    | 'agent-not-running'
+    | 'agent-unavailable'
     | 'no-session'
-    | 'sandbox-runner-needs-upgrade'
-    | 'sandbox-runner-needs-release'
+    | 'sandbox-cli-needs-upgrade'
+    | 'sandbox-cli-needs-release'
     | TerminalResumeBlocked
 
 export interface HerdrHandoffAvailability {
@@ -50,11 +50,13 @@ const HERDR_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
 
 export const herdrHandoffAvailability = (args: {
     runtime: AgentRuntime
-    running: boolean
+    // isRuntimeUsable(agent.availability): the machine can take a turn now
+    // (or wakes for one).
+    available: boolean
     framework: AgentFramework
     daemonCanOpenInHerdr: boolean
     daemonCanResume: boolean
-    // The agent's sandbox: herdr installed there, its runner able to drive
+    // The agent's sandbox: herdr installed there, its daemon able to drive
     // it, and the terminal credential opt-in the sandbox resume needs.
     sandboxHasHerdr: boolean
     sandboxCanOpenInHerdr: boolean
@@ -62,8 +64,8 @@ export const herdrHandoffAvailability = (args: {
     // the difference between "update it there" and "nothing to update yet".
     sandboxCliUpdateAvailable: boolean
     sandboxModelCredentials: boolean
-    // What the machine's (or the sandbox runner's) Manyfold CLI can start in
-    // herdr: one from before pi joined herdr starts claude and codex only.
+    // What the machine's Manyfold CLI can start in herdr: one from before pi
+    // joined herdr starts claude and codex only.
     hostHerdrFrameworks: readonly DaemonHerdrFramework[]
     sessionId: string | null
     frameworkSessionRef: string | null
@@ -78,16 +80,16 @@ export const herdrHandoffAvailability = (args: {
             !HERDR_FRAMEWORKS.has(args.framework))
     )
         return { offered: false, available: false, blocked: 'no-herdr' }
-    if (!args.running)
-        return { offered: true, available: false, blocked: 'agent-not-running' }
+    if (!args.available)
+        return { offered: true, available: false, blocked: 'agent-unavailable' }
     if (!args.sessionId)
         return { offered: true, available: false, blocked: 'no-session' }
-    // The sandbox's runner predates the handoff. When a newer CLI is on
-    // offer the Update Center is the way out; when the runner already runs
-    // the newest release, the handoff waits for the next one, and saying
-    // "update" would send the user to an empty page.
-    // The same when the runner (or the machine's own CLI) drives herdr but
-    // predates this framework's kind there.
+    // The sandbox's Manyfold CLI predates the handoff. When a newer CLI is
+    // on offer the Update Center is the way out; when the sandbox already
+    // runs the newest release, the handoff waits for the next one, and
+    // saying "update" would send the user to an empty page.
+    // The same when the machine's CLI drives herdr but predates this
+    // framework's kind there.
     const kindMissing =
         HERDR_FRAMEWORKS.has(args.framework) &&
         !args.hostHerdrFrameworks.some((f) => f === args.framework)
@@ -96,8 +98,8 @@ export const herdrHandoffAvailability = (args: {
             offered: true,
             available: false,
             blocked: args.sandboxCliUpdateAvailable
-                ? 'sandbox-runner-needs-upgrade'
-                : 'sandbox-runner-needs-release'
+                ? 'sandbox-cli-needs-upgrade'
+                : 'sandbox-cli-needs-release'
         }
     if (onDaemon && kindMissing)
         return {
@@ -127,8 +129,8 @@ export const herdrHandoffBlockedLabel = (
     t: TFn
 ): string | null => {
     switch (blocked) {
-        case 'agent-not-running':
-            return t('web.terminal.unavailableStopped')
+        case 'agent-unavailable':
+            return t('web.terminal.unavailableAgent')
         case 'no-session':
             return t('web.sessionView.herdrNeedsSession')
         case 'no-session-ref':
@@ -139,9 +141,9 @@ export const herdrHandoffBlockedLabel = (
             return t('web.sessionView.herdrNeedsDaemonUpgrade')
         case 'needs-runtime-signin':
             return t('web.sessionView.herdrNeedsSignIn')
-        case 'sandbox-runner-needs-upgrade':
+        case 'sandbox-cli-needs-upgrade':
             return t('web.sessionView.herdrNeedsSandboxCliUpgrade')
-        case 'sandbox-runner-needs-release':
+        case 'sandbox-cli-needs-release':
             return t('web.sessionView.herdrNeedsSandboxCliRelease')
         case 'needs-credential-toggle':
             return t('web.sessionView.herdrNeedsCredentials')

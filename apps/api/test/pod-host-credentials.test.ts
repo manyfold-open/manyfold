@@ -62,9 +62,6 @@ test('a bare pod runtime gets its first credentials row from the update', async 
         } as never,
         { findByApiKey: async () => null } as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
         {} as never
     )
     const view = await service.update(

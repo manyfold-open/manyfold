@@ -1,9 +1,10 @@
 import type {
+    RuntimeHostPowerState,
+    RuntimeHostStatus,
     SandboxServiceSummary,
     SandboxSummary,
     SandboxTaskSummary,
-    SdkUserSummary,
-    SpriteStatus
+    SdkUserSummary
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -13,11 +14,21 @@ import { useCurrentUser } from '@/lib/useCurrentUser'
 import { adminRoutes } from '@/routes'
 import { Badge, Button, Card, Heading, type BadgeTone } from '@/ui'
 
-const statusTone = (status: SpriteStatus | null): BadgeTone => {
-    if (status === 'running') return 'success'
-    if (status === 'warm') return 'brand'
+const powerTone = (state: RuntimeHostPowerState | null): BadgeTone => {
+    if (state === 'running') return 'success'
+    if (state === 'suspended') return 'brand'
     return 'neutral'
 }
+
+const lifecycleTone = (status: RuntimeHostStatus): BadgeTone => {
+    if (status === 'ready') return 'success'
+    if (status === 'failed') return 'error'
+    if (status === 'retired') return 'neutral'
+    return 'warning'
+}
+
+const daemonLabel = (r: SandboxSummary): string =>
+    !r.registered ? 'not registered' : r.daemonOnline ? 'online' : 'offline'
 
 // Active (running) duration this month, hours with one decimal; '—' when none
 // has accrued yet.
@@ -125,6 +136,19 @@ const SandboxesList: FC = (): ReactNode => {
         }
     }
 
+    const toggleKeepAwake = async (r: SandboxSummary): Promise<void> => {
+        setBusyId(r.id)
+        setError(null)
+        try {
+            await sandboxesApi.setKeepAwake(r.id, !r.keepAwake)
+            refresh()
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
     const toggleTerminal = async (r: SandboxSummary): Promise<void> => {
         setBusyId(r.id)
         setError(null)
@@ -207,7 +231,7 @@ const SandboxesList: FC = (): ReactNode => {
     const stop = async (r: SandboxSummary): Promise<void> => {
         if (
             !window.confirm(
-                `Stop sandbox ${r.name}? Agents on it are stopped and keep-alive turned off — they wake on the next message. Non-platform services are stopped and activity tasks removed.`
+                `Stop sandbox ${r.name}? Agents on it are stopped and keep-awake turned off — they wake on the next message. Non-platform services are stopped and activity tasks removed.`
             )
         )
             return
@@ -286,7 +310,7 @@ const SandboxesList: FC = (): ReactNode => {
                                         </th>
                                     )}
                                     <th className='px-2 py-1.5 font-normal'>
-                                        Account
+                                        Provider
                                     </th>
                                     <th className='px-2 py-1.5 font-normal'>
                                         Status
@@ -296,6 +320,9 @@ const SandboxesList: FC = (): ReactNode => {
                                     </th>
                                     <th className='px-2 py-1.5 font-normal'>
                                         Active (period)
+                                    </th>
+                                    <th className='px-2 py-1.5 font-normal'>
+                                        Keep awake
                                     </th>
                                     <th className='px-2 py-1.5 font-normal'>
                                         Terminal
@@ -315,7 +342,7 @@ const SandboxesList: FC = (): ReactNode => {
                                         <td className='px-2 py-1.5'>
                                             {r.name}
                                             <div className='text-caption-sm text-body mt-1 font-mono'>
-                                                {r.spriteName ?? r.id}
+                                                {r.providerRefLabel ?? r.id}
                                             </div>
                                         </td>
                                         {isAdmin && (
@@ -325,14 +352,33 @@ const SandboxesList: FC = (): ReactNode => {
                                             </td>
                                         )}
                                         <td className='px-2 py-1.5 font-mono'>
-                                            {r.accountSlug ?? '—'}
+                                            {r.providerName ?? '—'}
                                         </td>
                                         <td className='px-2 py-1.5'>
-                                            <Badge
-                                                tone={statusTone(r.spriteStatus)}
-                                            >
-                                                {r.spriteStatus ?? 'cold'}
-                                            </Badge>
+                                            <div className='flex flex-wrap items-center gap-1'>
+                                                <Badge
+                                                    tone={lifecycleTone(
+                                                        r.status
+                                                    )}
+                                                >
+                                                    {r.status}
+                                                </Badge>
+                                                <Badge
+                                                    tone={powerTone(
+                                                        r.powerState
+                                                    )}
+                                                >
+                                                    {r.powerState ?? 'unknown'}
+                                                </Badge>
+                                                <span className='text-caption-sm text-body'>
+                                                    daemon {daemonLabel(r)}
+                                                </span>
+                                            </div>
+                                            {r.failureReason && (
+                                                <p className='text-caption-sm text-accent-ruby mt-1 max-w-md truncate font-mono'>
+                                                    {r.failureReason}
+                                                </p>
+                                            )}
                                         </td>
                                         <td className='px-2 py-1.5'>
                                             {r.agentsCount}
@@ -341,6 +387,20 @@ const SandboxesList: FC = (): ReactNode => {
                                             {formatActiveHours(
                                                 r.activeSecondsThisPeriod
                                             )}
+                                        </td>
+                                        <td className='px-2 py-1.5'>
+                                            <Button
+                                                variant='ghost'
+                                                size='sm'
+                                                disabled={busyId === r.id}
+                                                onClick={(): void => {
+                                                    void toggleKeepAwake(r)
+                                                }}
+                                            >
+                                                {r.keepAwake
+                                                    ? 'On — disable'
+                                                    : 'Off — enable'}
+                                            </Button>
                                         </td>
                                         <td className='px-2 py-1.5'>
                                             <Button
@@ -368,11 +428,11 @@ const SandboxesList: FC = (): ReactNode => {
                                                     size='sm'
                                                     disabled={
                                                         busyId === r.id ||
-                                                        r.spriteStatus !==
+                                                        r.powerState !==
                                                             'running'
                                                     }
                                                     title={
-                                                        r.spriteStatus !==
+                                                        r.powerState !==
                                                         'running'
                                                             ? 'Sandbox is already asleep'
                                                             : undefined
@@ -421,7 +481,7 @@ const SandboxesList: FC = (): ReactNode => {
                                             className='bg-surface-subtle'
                                         >
                                             <td
-                                                colSpan={isAdmin ? 9 : 8}
+                                                colSpan={isAdmin ? 10 : 9}
                                                 className='px-2 py-2'
                                             >
                                                 <div className='text-caption-sm text-body mb-1'>
@@ -540,9 +600,9 @@ const SandboxesList: FC = (): ReactNode => {
                                                                         </span>
                                                                     )}
                                                                     {t.keepAlive ? (
-                                                                        <span title='Keep-alive lease — turn off keep-alive on the runtime.'>
+                                                                        <span title='Keep-awake lease — turn off keep-awake on this sandbox.'>
                                                                             <Badge tone='neutral'>
-                                                                                keep-alive
+                                                                                keep-awake
                                                                             </Badge>
                                                                         </span>
                                                                     ) : (

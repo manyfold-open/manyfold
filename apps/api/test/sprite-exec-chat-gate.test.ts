@@ -21,6 +21,7 @@ import type {
     SpriteExecAdmission,
     SpriteExecDecision
 } from '../src/modules/agents/sprite-exec-health/sprite-exec-health.service'
+import { spritesHostRow } from './helpers/runtime-context-fixture'
 
 // #730, the half that lives in the turn path. A sprite whose exec endpoint 502s
 // the WebSocket upgrade cost every routed turn 39s on the runner inspect and 39s
@@ -134,24 +135,29 @@ const spritesClientFor = (port: number): SpritesClient =>
     }) as unknown as SpritesClient
 
 const HOST_ID = 'rh_sandbox_1'
+const AGENT_ID = 'agent-1'
 
-const agentRow = {
-    id: 'agent-1',
+// The agent's machine: a running sandbox whose sprite is `art-abc`.
+const HOST = spritesHostRow({
+    id: HOST_ID,
     userId: 'user-1',
+    providerRef: { kind: 'sprites', spriteName: 'art-abc', spriteId: null }
+})
+
+// The row ChatService reads for a turn: the agent joined to its machine.
+const agentRow = {
     framework: 'claude-code',
-    runtime: 'sprites',
+    userId: 'user-1',
     runtimeId: 'runtime-1',
-    spriteName: 'art-abc',
-    spriteStatus: 'running',
-    hostId: HOST_ID,
-    workspacePath: null,
-    daemonId: null,
     model: 'claude-sonnet-4',
     modelProviderId: null,
-    builtInId: null,
-    source: null,
+    modelProviderBuiltInId: null,
+    modelProviderSource: null,
     managedBrand: null,
-    inferenceProtocol: null
+    inferenceProtocol: null,
+    workspacePath: null,
+    host: HOST,
+    providerKind: 'sprites'
 }
 
 const sessionRow = {
@@ -231,28 +237,6 @@ test('a failed cooldown write does not promise a deadline that was never armed',
         assert.doesNotMatch(
             h.terminals[0].error?.message ?? '',
             /try again in about/i
-        )
-    } finally {
-        await server.close()
-    }
-})
-
-test('a hostless agent still suppresses fallback after a classified inspect failure', async () => {
-    const server = await startRejectingServer(502)
-    const h = makeHarness({ port: server.port, runner: true, hostId: null })
-    try {
-        await h.send()
-
-        assert.equal(server.upgrades, 1)
-        assert.equal(h.adapterCalls.length, 0)
-        assert.deepEqual(
-            h.health.map((call) => [call.method, call.hostId]),
-            [['admit', null]]
-        )
-        assert.equal(h.terminals[0].error?.code, SANDBOX_EXEC_UNAVAILABLE_CODE)
-        assert.match(
-            h.terminals[0].error?.message ?? '',
-            /try again in a moment/i
         )
     } finally {
         await server.close()
@@ -482,7 +466,6 @@ test('the terminal exposes no host, sprite, endpoint or command — to the user 
 
 interface HarnessOptions {
     port: number
-    hostId?: string | null
     decision?: SpriteExecDecision
     runner?: boolean
     unavailable?: boolean
@@ -510,10 +493,7 @@ interface Harness {
 }
 
 const makeHarness = (opts: HarnessOptions): Harness => {
-    const currentAgent = {
-        ...agentRow,
-        hostId: opts.hostId === undefined ? HOST_ID : opts.hostId
-    }
+    const currentAgent = { ...agentRow }
     const insertedMessages: Array<{ id: string; role: string }> = []
     let latestInflight: string | null = null
     const events: Array<{ name: string; props: Record<string, unknown> }> = []
@@ -535,19 +515,17 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     const db = {
         select: () => ({
             from: (table: Parameters<typeof getTableName>[0]) => {
-                // The runner's own lookup asks runtime_hosts whether a runner
-                // daemon already exists for this sprite; answering it with an
-                // agent row would hand the turn a runner it never brought up.
+                // The agent read joins its runtime, host and provider; every
+                // other table answers empty.
                 const rows =
-                    getTableName(table) === 'runtime_hosts'
-                        ? []
-                        : [currentAgent]
-                return {
-                    leftJoin: () => ({
-                        where: () => ({ limit: async () => rows })
-                    }),
-                    where: () => ({ limit: async () => rows })
+                    getTableName(table) === 'agents' ? [currentAgent] : []
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
+                    limit: async () => rows
                 }
+                return chain
             }
         }),
         update: (table: Parameters<typeof getTableName>[0]) => {
@@ -697,23 +675,29 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         }
     }
 
+    const spriteExec = (args: {
+        cmd: string[]
+        stdin?: string
+        timeoutMs?: number
+    }) =>
+        execSprite(spritesClientFor(opts.port), 'art-abc', {
+            ...args,
+            stdin: args.stdin ?? '',
+            timeoutMs: args.timeoutMs ?? 1000
+        })
     const execDrivers = {
-        spritesClientForAgent: async () => spritesClientFor(opts.port),
+        spriteExecForAgent: async () => spriteExec,
         resolveRunner: async () => {
             calls.forAgent += 1
-            if (!opts.runner) return { daemonId: 'dh_runner', exec: null }
-            const resolution = await runnerManager.ensureRunner({
-                agentId: currentAgent.id,
-                userId: currentAgent.userId,
-                spriteName: currentAgent.spriteName!,
-                exec: args => execSprite(spritesClientFor(opts.port), currentAgent.spriteName!, {
-                    ...args, stdin: args.stdin ?? ''
-                }),
+            if (!opts.runner) return { daemonId: HOST_ID }
+            const resolution = await runnerManager.ensureHostDaemon({
+                host: HOST,
+                agentId: AGENT_ID,
                 firstExecTimeoutMs: 1000
             })
             if (!resolution.handle)
                 throw new ChatRunnerError('sprites', resolution.fallbackReason ?? 'runner unavailable', false, resolution.execFailure)
-            return { daemonId: resolution.handle.daemonId, exec: null }
+            return { daemonId: resolution.handle.daemonId }
         }
     }
 
@@ -722,11 +706,36 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             return Promise.resolve()
         }
     }
+    // The sprites adapter's exec is the sprite's own socket: what the runner
+    // inspect rides on, and what fails the way the staging sprite did.
+    const sandboxProvider = {
+        kind: 'sprites',
+        power: async () => 'running',
+        wake: async () => {},
+        bootstrap: async (args: {
+            script: string
+            stdin?: string
+            timeoutMs?: number
+        }) =>
+            spriteExec({
+                cmd: ['bash', '-lc', args.script],
+                stdin: args.stdin,
+                timeoutMs: args.timeoutMs
+            })
+    }
     const runnerManager = new TestRunnerManager(
-        db as never,
         {
-            isOnline: () => false,
-            findById: async () => null
+            setPower: async () => {},
+            bumpGeneration: async () => 1
+        } as never,
+        { findByHostId: async () => null } as never,
+        { for: () => sandboxProvider } as never,
+        {
+            providerForHost: async () => ({
+                id: 'rtp_1',
+                kind: 'sprites',
+                name: 'test'
+            })
         } as never,
         {
             mint: async () => ({

@@ -1,7 +1,8 @@
 import {
     auditAction,
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
-    createObjectId
+    createObjectId,
+    placementOf
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -37,7 +38,10 @@ import {
 import { randomUUID } from 'node:crypto'
 import { desc, eq, or } from 'drizzle-orm'
 import {
+    agentRuntimes,
     agents,
+    runtimeHosts,
+    runtimeProviders,
     auditLogs,
     terminalSessionRefs,
     terminalSessions,
@@ -116,6 +120,8 @@ interface RawSourceComparison {
     rawDiffEntries: RecoveryDiffEntry[]
     degraded: boolean
 }
+
+type RecoveryAgent = Agent & { runtime: AgentRuntime; hostId: string | null }
 
 @Injectable()
 export class SessionRecoveryService {
@@ -362,7 +368,7 @@ export class SessionRecoveryService {
     // One scan per (agent, page) at a time — two panels opening together
     // share the execs instead of each running them.
     private scanLocalCandidates(
-        agent: Agent,
+        agent: RecoveryAgent,
         limit: number
     ): Promise<LocalScanOutcome> {
         const reader = this.readers.get(agent.framework)
@@ -618,7 +624,7 @@ export class SessionRecoveryService {
     // the transcript holds no messages (or no file exists for the ref yet).
     private async restoreFromRef(
         userId: string,
-        agent: Agent,
+        agent: RecoveryAgent,
         ref: string,
         origin: ChatSessionOrigin | null
     ): Promise<RuntimeSessionRestoreResponse | null> {
@@ -1373,17 +1379,13 @@ export class SessionRecoveryService {
         sessionId: string
     ): Promise<{
         session: DbChatSession
-        agent: Agent
+        agent: RecoveryAgent
         handle: RecoveryFsHandle | null
     }> {
         const session = await this.repo.getSession(sessionId, userId)
         if (!session || session.agentId !== agentId)
             throw new NotFoundException('session not found')
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
+        const agent = await this.loadAgentRow(agentId)
         if (!agent || agent.userId !== userId)
             throw new NotFoundException('agent not found')
         return { session, agent, handle: null }
@@ -1403,15 +1405,43 @@ export class SessionRecoveryService {
     private async loadAgentContext(
         userId: string,
         agentId: string
-    ): Promise<Agent> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
+    ): Promise<RecoveryAgent> {
+        const agent = await this.loadAgentRow(agentId)
         if (!agent || agent.userId !== userId)
             throw new NotFoundException('agent not found')
         return agent
+    }
+
+    // The agent with the two host facts recovery reads (ADR-0036): its
+    // placement, which decides which transcript reader and source shape
+    // apply, and the host id the exec-health cooldown is keyed on.
+    private async loadAgentRow(agentId: string): Promise<RecoveryAgent | null> {
+        const [row] = await this.db
+            .select({
+                agent: agents,
+                hostId: runtimeHosts.id,
+                hostKind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
+            })
+            .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
+            .where(eq(agents.id, agentId))
+            .limit(1)
+        if (!row) return null
+        return {
+            ...row.agent,
+            runtime: placementOf(
+                row.hostId && row.hostKind
+                    ? { kind: row.hostKind, providerKind: row.providerKind }
+                    : null
+            ),
+            hostId: row.hostId ?? null
+        }
     }
 
     private async selectedCloudSessionIdForRef(

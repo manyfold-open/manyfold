@@ -8,11 +8,10 @@ import {
 import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
-import type { Agent } from '@manyfold/db'
+import type { Agent, RuntimeHostRow } from '@manyfold/db'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { principalScopes } from '@/modules/auth/auth-principal'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import {
     assertHostHonoursAuthContext,
@@ -27,7 +26,8 @@ import {
 import {
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_PTY_COMMAND,
-    DAEMON_FEATURE_PTY_TERMINAL
+    DAEMON_FEATURE_PTY_TERMINAL,
+    isRuntimeUsable
 } from '@manyfold/shared'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
@@ -39,12 +39,17 @@ import {
     TerminalHolderService,
     type TerminalCloseCause
 } from '@/modules/terminal/terminal-holder.service'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { buildStatusBanner } from '@/modules/terminal/status-banner'
 import {
     FilesContextBuilder,
     resolveSafePath
 } from '@/modules/agents/files/files-context'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 
 interface TerminalQuery {
     agentId?: string
@@ -73,6 +78,10 @@ const SANDBOX_TERMINAL_CWD = '/home/sprite'
 const PING_INTERVAL_MS = 25_000
 const PONG_TIMEOUT_MS = 35_000
 
+// How the shell reaches the machine (ADR-0036): the host's daemon whenever
+// it is online and owns terminals, else the provider's own exec channel.
+type TerminalTransport = 'daemon' | 'sprites' | 'k8s'
+
 @Injectable()
 export class TerminalGateway implements OnModuleInit {
     private readonly log = new Logger(TerminalGateway.name)
@@ -81,11 +90,12 @@ export class TerminalGateway implements OnModuleInit {
         private readonly adapterHost: HttpAdapterHost,
         private readonly bearerAuth: BearerAuthService,
         private readonly agents: AgentsService,
-        private readonly runtimes: AgentRuntimesService,
+        private readonly hosts: HostsService,
+        private readonly hostDaemons: HostDaemonsService,
+        private readonly runtimeContext: RuntimeContextService,
         private readonly sprites: SpritesTerminal,
         private readonly k8s: K8sTerminal,
         private readonly daemon: DaemonTerminal,
-        private readonly daemonHosts: DaemonHostService,
         private readonly files: FilesContextBuilder,
         private readonly resume: TerminalResumeService,
         // Appended last + @Optional so positional test construction keeps
@@ -214,36 +224,39 @@ export class TerminalGateway implements OnModuleInit {
             return
         }
 
-        const rows_ = await this.agents.listForUser(auth.userId)
-        const agent = rows_.find((r) => r.agent.id === agentId)?.agent
-        if (!agent) {
+        const ctx = await this.agents.contextForCaller(
+            agentId,
+            auth.userId,
+            false
+        )
+        if (!ctx) {
             sendError(socket, 'agent not found for this user')
             socket.close(4404, 'not found')
             return
         }
-        if (agent.status !== 'running') {
-            sendError(
-                socket,
-                `agent is ${agent.status}; terminal is only available when running`
-            )
-            socket.close(4409, 'not running')
-            return
-        }
-        if (agent.runtime === 'external') {
+        const { agent, host, placement } = ctx
+        if (placement === 'external' || !host) {
             sendError(socket, 'external-runtime agents have no terminal')
             socket.close(4404, 'not supported')
             return
         }
-        // Opt-in terminal: off by default for every sandbox (incl. existing
-        // agents). Enable it on the sandbox first; doing so authorizes the
-        // per-session user api.full token injected by SpritesTerminal.
+        // The one admission rule (ADR-0036): an installed runtime on a ready
+        // host. A hosted machine that is asleep is admitted — the exec that
+        // opens the shell is what wakes it.
+        if (!isRuntimeUsable(ctx.availability)) {
+            sendError(
+                socket,
+                `agent is ${ctx.availability}; terminal is only available when the runtime is ready`
+            )
+            socket.close(4409, 'not running')
+            return
+        }
+        // Opt-in terminal: off by default for every hosted machine (incl.
+        // existing agents). Enable it on the host first; doing so authorizes
+        // the per-session user api.full token the shell carries.
         let modelCredentialsAllowed = false
-        let sandboxHerdr = false
-        if (agent.runtime === 'sprites') {
-            const host = agent.hostId
-                ? await this.runtimes.findHostById(agent.hostId)
-                : null
-            if (!host?.terminalEnabled) {
+        if (host.kind === 'hosted') {
+            if (!host.terminalEnabled) {
                 sendError(
                     socket,
                     'terminal is disabled for this sandbox; enable it first'
@@ -252,55 +265,53 @@ export class TerminalGateway implements OnModuleInit {
                 return
             }
             modelCredentialsAllowed = host.terminalModelCredentials
-            sandboxHerdr = host.herdrVersion !== null
         }
         const herdrViewer = query.viewer?.trim() === 'herdr'
 
-        // Open straight into the framework TUI for this chat session when the
-        // client asked for it. The client sends only the session id — the argv
-        // is built here from the session's own framework_session_ref so no
-        // caller can choose what runs in the sandbox.
-        const resumeSessionId = query.resumeChatSessionId?.trim()
-        // A daemon runs on the user's own machine against the CLI sign-in that
-        // already lives there, so it needs no credential opt-in — but it does
-        // need to be new enough to run a command as its shell's argv, or it
-        // would open a plain shell while the UI promised a resumed session.
-        const daemonHost =
-            agent.runtime === 'daemon' && agent.daemonId
-                ? await this.daemonHosts.findById(agent.daemonId)
-                : null
-        const daemonFeatures = daemonHost?.clientFeatures ?? []
-        const daemonCanResume =
-            agent.runtime === 'daemon' && agent.daemonId
-                ? daemonFeatures.includes(DAEMON_FEATURE_PTY_COMMAND)
-                : false
         // The daemon keeps its terminals (ADR-0029 §6): the pty is addressed
         // by the row's id, a reconnect attaches to it, and the daemon's
-        // inventory, not this tunnel's lease, is its proof of life.
+        // inventory, not this tunnel's lease, is its proof of life. Whenever
+        // the host's daemon is online and owns terminals it is preferred over
+        // the provider's exec channel; a local machine has nothing else.
+        const daemonFeatures = ctx.daemon?.clientFeatures ?? []
+        const daemonOwnsTerminals =
+            ctx.daemonOnline && daemonFeatures.includes(DAEMON_FEATURE_PTY_TERMINAL)
+        const transport: TerminalTransport =
+            host.kind === 'local' || daemonOwnsTerminals
+                ? 'daemon'
+                : placement === 'k8s'
+                  ? 'k8s'
+                  : 'sprites'
+        // A daemon runs against the CLI sign-in that already lives on the
+        // machine, but it does need to be new enough to run a command as its
+        // shell's argv, or it would open a plain shell while the UI promised
+        // a resumed session.
+        const daemonCanResume =
+            transport === 'daemon' &&
+            daemonFeatures.includes(DAEMON_FEATURE_PTY_COMMAND)
         // A herdr viewer is a plain process the browser watches: killed with
         // its socket (never daemon-owned), and never a resume of anything.
         const ownedTerminals =
-            !herdrViewer &&
-            agent.runtime === 'daemon' &&
-            !!agent.daemonId &&
-            daemonFeatures.includes(DAEMON_FEATURE_PTY_TERMINAL)
+            !herdrViewer && transport === 'daemon' && daemonOwnsTerminals
         if (herdrViewer) {
             const available =
-                agent.runtime === 'daemon'
-                    ? daemonCanResume &&
-                      daemonFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
-                    : agent.runtime === 'sprites' && sandboxHerdr
+                daemonCanResume &&
+                daemonFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
+                !!ctx.daemon?.herdrVersion
             if (!available) {
                 sendError(socket, 'herdr is not available on this runtime')
                 socket.close(4409, 'herdr unavailable')
                 return
             }
         }
-        const resumeSupported =
-            agent.runtime === 'sprites' ||
-            (agent.runtime === 'daemon' && daemonCanResume)
+        const resumeSupported = transport === 'sprites' || daemonCanResume
         const runtimeLocalAgent =
-            effectiveModelConfigSource(agent as Agent) === 'runtime-local'
+            effectiveModelConfigSource(agent, placement) === 'runtime-local'
+        const resumeSessionId = query.resumeChatSessionId?.trim()
+        // Open straight into the framework TUI for this chat session when the
+        // client asked for it. The client sends only the session id — the argv
+        // is built here from the session's own framework_session_ref so no
+        // caller can choose what runs on the machine.
         const resolution =
             resumeSessionId && resumeSupported && !herdrViewer
                 ? await this.resume.resolve({
@@ -308,17 +319,17 @@ export class TerminalGateway implements OnModuleInit {
                       runtimeId: agent.runtimeId,
                       framework: agent.framework,
                       chatSessionId: resumeSessionId,
-                      // Sandboxes are shared ground and the key is the
-                      // platform's to hand out, so they gate it; the daemon's
-                      // own on-disk sign-in needs no such consent, and
-                      // neither does a runtime-local agent, whose TUI runs on
-                      // the runtime's own sign-in (or its profile's).
+                      // Hosted machines are shared ground and the key is the
+                      // platform's to hand out, so they gate it; a local
+                      // machine's own on-disk sign-in needs no such consent,
+                      // and neither does a runtime-local agent, whose TUI
+                      // runs on the runtime's own sign-in (or its profile's).
                       modelCredentialsAllowed:
-                          agent.runtime === 'daemon' ||
+                          host.kind === 'local' ||
                           runtimeLocalAgent ||
                           modelCredentialsAllowed,
                       injectModelCredentials:
-                          agent.runtime === 'sprites' && !runtimeLocalAgent,
+                          host.kind === 'hosted' && !runtimeLocalAgent,
                       workspacePath: agent.workspacePath,
                       model: agent.model
                   })
@@ -336,7 +347,7 @@ export class TerminalGateway implements OnModuleInit {
         let cwd: string | undefined
         try {
             cwd = await this.resolveCwd(
-                agent as Agent,
+                agent,
                 query.cwdRootId,
                 query.cwdPath
             )
@@ -345,11 +356,11 @@ export class TerminalGateway implements OnModuleInit {
             socket.close(4400, 'bad cwd')
             return
         }
-        const terminalCwd = cwd ?? this.files.defaultTerminalCwd(agent as Agent)
+        const terminalCwd =
+            cwd ?? this.files.defaultTerminalCwd(agent, placement)
 
-        let terminalPty: boolean | null = null
-        if (agent.runtime === 'daemon' && agent.daemonId)
-            terminalPty = daemonHost?.terminalPty ?? null
+        const terminalPty =
+            transport === 'daemon' ? (ctx.daemon?.terminalPty ?? null) : null
 
         // Attach first (ADR-0029 §6): a terminal the daemon still owns — the
         // one this tab had before its reconnect, or the one holding the very
@@ -371,14 +382,13 @@ export class TerminalGateway implements OnModuleInit {
         // opens the terminal, as a plain shell (ADR-0029 §1).
         const terminalRow =
             reused ??
-            (this.terminals &&
-            (agent.runtime === 'sprites' || agent.runtime === 'daemon')
+            (this.terminals && transport !== 'k8s'
                 ? await this.terminals.create({
                       userId: agent.userId,
                       agentId: agent.id,
-                      runtime: agent.runtime,
-                      hostId: agent.hostId ?? null,
-                      runtimeId: agent.runtimeId ?? null
+                      runtime: transport,
+                      hostId: host.id,
+                      runtimeId: agent.runtimeId
                   })
                 : null)
         const terminalId = terminalRow?.id ?? null
@@ -430,12 +440,12 @@ export class TerminalGateway implements OnModuleInit {
                 JSON.stringify({
                     type: 'session_info',
                     agent_id: agent.id,
-                    runtime: agent.runtime,
+                    runtime: placement,
                     framework: agent.framework,
                     cwd: terminalCwd,
                     cols,
                     rows,
-                    ...(agent.runtime === 'daemon'
+                    ...(transport === 'daemon'
                         ? { terminal_pty: terminalPty }
                         : {}),
                     // The client cannot predict this: the gate is decided here
@@ -447,7 +457,7 @@ export class TerminalGateway implements OnModuleInit {
                     ...(terminalId ? { terminal_id: terminalId } : {})
                 })
             )
-            socket.send(Buffer.from(buildStatusBanner(agent), 'utf8'), {
+            socket.send(Buffer.from(buildStatusBanner(ctx), 'utf8'), {
                 binary: true
             })
         } catch {}
@@ -460,7 +470,7 @@ export class TerminalGateway implements OnModuleInit {
         const onClose = (cause: TerminalCloseCause): void => {
             const durationMs = Date.now() - connectedAt
             this.log.log(
-                `terminal.closed agent=${agent.id} runtime=${agent.runtime} cause=${cause} durationMs=${durationMs}`
+                `terminal.closed agent=${agent.id} runtime=${placement} transport=${transport} cause=${cause} durationMs=${durationMs}`
             )
             finishTerminal(cause)
         }
@@ -468,26 +478,24 @@ export class TerminalGateway implements OnModuleInit {
         try {
             // A profile-bound agent: refuse a host that cannot honour the
             // context rather than open a shell under the wrong sign-in.
-            const authContext = authContextRefFor(agent)
-            if (authContext && agent.runtime === 'daemon' && agent.daemonId)
+            const authContext = authContextRefFor(agent, placement)
+            if (authContext && transport === 'daemon')
                 assertHostHonoursAuthContext(
                     authContext,
-                    await this.daemonHosts.findById(agent.daemonId),
+                    ctx.daemon,
                     'this machine'
                 )
             const extraEnv =
-                authContext && agent.runtime === 'sprites'
-                    ? await this.runtimeAuth?.sessionEnvForAgent(agent)
+                authContext && transport !== 'daemon'
+                    ? await this.runtimeAuth?.sessionEnvForAgent(ctx)
                     : undefined
-            if (authContext && agent.runtime === 'sprites' && !extraEnv)
+            if (authContext && transport !== 'daemon' && !extraEnv)
                 assertHostHonoursAuthContext(authContext, null, 'this sandbox')
-            if (agent.runtime === 'sprites') {
+            if (transport === 'sprites') {
                 await this.sprites.tunnel({
                     userId: agent.userId,
                     sessionKey: agent.id,
-                    accountId: agent.accountId,
-                    spriteName: agent.spriteName,
-                    hostId: agent.hostId,
+                    host,
                     mountPath: agent.mountPath,
                     extras: agent.extras,
                     ...(extraEnv ? { extraEnv } : {}),
@@ -502,9 +510,11 @@ export class TerminalGateway implements OnModuleInit {
                     onToken: this.terminalRecorder(terminalId, 'token'),
                     onHandle: this.terminalRecorder(terminalId, 'handle')
                 })
-            } else if (agent.runtime === 'daemon') {
+            } else if (transport === 'daemon') {
                 await this.daemon.tunnel({
-                    agent: agent as Agent,
+                    agent,
+                    hostId: host.id,
+                    placement,
                     terminalId,
                     cols,
                     cwd: terminalCwd,
@@ -523,7 +533,8 @@ export class TerminalGateway implements OnModuleInit {
                 })
             } else {
                 await this.k8s.tunnel({
-                    agent: agent as Agent,
+                    agent,
+                    host,
                     cols,
                     cwd: terminalCwd,
                     rows,
@@ -592,21 +603,16 @@ export class TerminalGateway implements OnModuleInit {
         socket.on('close', () => clearInterval(timer))
     }
 
-    // Bare-sandbox terminal: addressed by sandboxId, no agent. Resolves the host,
-    // enforces the opt-in gate, then tunnels with a host-derived target (the
-    // user api.full token is minted per-session by SpritesTerminal).
+    // Bare-sandbox terminal: addressed by the host, no agent. Resolves the
+    // host, enforces the opt-in gate, then tunnels with a host-derived target
+    // (the user api.full token is minted per-session by SpritesTerminal). A
+    // hosted machine on a pod provider gets its daemon's host shell instead.
     private async handleSandboxSession(
         socket: WsClient,
         args: { sandboxId: string; userId: string; cols: number; rows: number }
     ): Promise<void> {
-        const host = await this.runtimes.findHostById(args.sandboxId)
-        if (
-            !host ||
-            host.userId !== args.userId ||
-            host.kind !== 'sandbox' ||
-            host.status !== 'active' ||
-            !host.spriteName
-        ) {
+        const host = await this.hosts.findForUser(args.userId, args.sandboxId)
+        if (!host || host.kind !== 'hosted' || host.status !== 'ready') {
             sendError(socket, 'sandbox not found for this user')
             socket.close(4404, 'not found')
             return
@@ -617,6 +623,10 @@ export class TerminalGateway implements OnModuleInit {
                 'terminal is disabled for this sandbox; enable it first'
             )
             socket.close(4403, 'terminal disabled')
+            return
+        }
+        if (host.providerRef?.kind !== 'sprites') {
+            await this.tunnelHostShell(socket, host, args)
             return
         }
         try {
@@ -643,9 +653,7 @@ export class TerminalGateway implements OnModuleInit {
             await this.sprites.tunnel({
                 userId: host.userId,
                 sessionKey: host.id,
-                accountId: host.accountId,
-                spriteName: host.spriteName,
-                hostId: host.id,
+                host,
                 mountPath: SANDBOX_TERMINAL_CWD,
                 extras: {},
                 cols: args.cols,
@@ -664,64 +672,86 @@ export class TerminalGateway implements OnModuleInit {
         }
     }
 
-    // Bare-runtime terminal: resolves the runtime to its host. A sandbox
-    // reuses the bare-sandbox flow (same opt-in gate); a daemon machine gets a
-    // host shell with no agent env. Other kinds have no host shell to offer.
+    // Bare-runtime terminal: resolves the runtime to its host. A hosted
+    // machine reuses the bare-sandbox flow (same opt-in gate); a local machine
+    // gets a host shell with no agent env. An external runtime has no host
+    // shell to offer.
     private async handleRuntimeSession(
         socket: WsClient,
         args: { runtimeId: string; userId: string; cols: number; rows: number }
     ): Promise<void> {
-        const row = await this.runtimes.findById(args.runtimeId)
-        if (!row || row.userId !== args.userId) {
+        const ctx = await this.runtimeContext.forRuntime(args.runtimeId)
+        if (!ctx || ctx.runtime.userId !== args.userId) {
             sendError(socket, 'runtime not found for this user')
             socket.close(4404, 'not found')
             return
         }
-        if (row.kind === 'sprites' && row.hostId) {
+        const host = ctx.host
+        if (!host || host.userId !== args.userId) {
+            sendError(socket, 'this runtime has no host terminal')
+            socket.close(4404, 'not supported')
+            return
+        }
+        if (host.kind === 'hosted') {
             await this.handleSandboxSession(socket, {
-                sandboxId: row.hostId,
+                sandboxId: host.id,
                 userId: args.userId,
                 cols: args.cols,
                 rows: args.rows
             })
             return
         }
-        if (row.kind !== 'daemon' || !row.daemonId) {
-            sendError(socket, 'this runtime has no host terminal')
-            socket.close(4404, 'not supported')
-            return
-        }
-        const host = await this.daemonHosts.findById(row.daemonId)
-        if (!host || host.userId !== args.userId || host.status !== 'active') {
+        if (host.status !== 'ready') {
             sendError(socket, 'daemon host not found for this user')
             socket.close(4404, 'not found')
             return
         }
-        if (!this.daemonHosts.isOnline(host)) {
+        await this.tunnelHostShell(socket, host, {
+            ...args,
+            runtime: ctx
+        })
+    }
+
+    // A shell on the machine itself through its daemon: no agent env, no user
+    // API token (DaemonTerminal.tunnelHost). Used by a local runtime's sign-in
+    // shell and by a hosted pod's bare terminal.
+    private async tunnelHostShell(
+        socket: WsClient,
+        host: RuntimeHostRow,
+        args: { cols: number; rows: number; runtime?: RuntimeContext }
+    ): Promise<void> {
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        if (!this.hostDaemons.isOnline(daemon)) {
             sendError(socket, 'the machine is offline; start its daemon first')
             socket.close(4409, 'offline')
             return
         }
+        const runtime = args.runtime
         try {
             socket.send(
                 JSON.stringify({
                     type: 'session_info',
-                    runtime_id: row.id,
-                    runtime: 'daemon',
-                    framework: row.framework,
+                    ...(runtime
+                        ? {
+                              runtime_id: runtime.runtime.id,
+                              runtime: runtime.placement,
+                              framework: runtime.runtime.framework
+                          }
+                        : { sandbox_id: host.id, runtime: 'k8s' }),
                     cwd: host.homeDir,
                     cols: args.cols,
                     rows: args.rows,
-                    terminal_pty: host.terminalPty ?? null
+                    terminal_pty: daemon?.terminalPty ?? null
                 })
             )
         } catch {}
 
         const connectedAt = Date.now()
-        this.attachHeartbeat(socket, `runtime=${row.id}`)
+        const label = runtime ? `runtime=${runtime.runtime.id}` : `host=${host.id}`
+        this.attachHeartbeat(socket, label)
         const onClose = (): void => {
             this.log.log(
-                `terminal.closed runtime=${row.id} runtime_kind=daemon durationMs=${Date.now() - connectedAt}`
+                `terminal.closed ${label} host_kind=${host.kind} durationMs=${Date.now() - connectedAt}`
             )
         }
         try {
@@ -775,13 +805,13 @@ export class TerminalGateway implements OnModuleInit {
                 JSON.stringify({
                     type: 'session_info',
                     runtime_id: target.runtime.id,
-                    runtime: target.runtime.kind,
+                    runtime: target.placement,
                     framework: target.runtime.framework,
                     auth_operation_id: args.operationId,
                     cwd: target.host.homeDir,
                     cols: args.cols,
                     rows: args.rows,
-                    terminal_pty: target.host.terminalPty ?? null
+                    terminal_pty: target.daemon.terminalPty ?? null
                 })
             )
         } catch {}

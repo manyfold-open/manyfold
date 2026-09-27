@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
-import type { StreamLifecycle } from '../src/lib/spriteStatusStream'
-import { createReconnectingStream } from '../src/lib/spriteStatusStream'
+import type { StreamLifecycle } from '../src/lib/reconnectingStream'
+import { createReconnectingStream } from '../src/lib/reconnectingStream'
 
 interface Connection {
     lifecycle: StreamLifecycle

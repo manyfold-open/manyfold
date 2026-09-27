@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { SdkAgent } from '@manyfold/sdk'
+import { makeAgentSummary } from './hostModelFixtures'
 import { buildAgentMenuItems, isSectionBoundary } from '../src/lib/agentMenu'
 
 // The builder only reads label keys, so echoing the key back is enough to
@@ -10,59 +10,7 @@ const t = ((key: string) => key) as unknown as Parameters<
     typeof buildAgentMenuItems
 >[1]
 
-let seq = 0
-const makeAgent = (over: Partial<SdkAgent> = {}): SdkAgent => {
-    seq += 1
-    return {
-        id: `agt_${seq}`,
-        userId: 'usr_1',
-        runtimeId: 'rt_1',
-        daemonId: null,
-        daemonNeedsUpgrade: false,
-        name: `Agent ${seq}`,
-        framework: 'claude-code',
-        frameworkVersion: null,
-        frameworkLatestVersion: null,
-        frameworkUpgradeAvailable: false,
-        frameworkVersionBlockedReason: null,
-        cliVersion: null,
-        cliLatestVersion: null,
-        cliUpdateAvailable: false,
-        runtime: 'sprites',
-        status: 'running',
-        spriteStatus: null,
-        k8sPodPhase: null,
-        accountSlug: null,
-        clusterId: null,
-        clusterName: null,
-        spriteName: null,
-        spriteId: null,
-        mountPath: '/',
-        namespace: null,
-        ingressHost: null,
-        endpointUrl: null,
-        controlUiEnabled: false,
-        dashboardEnabled: false,
-        dashboardState: null,
-        keepAliveEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        internalId: 'int',
-        model: null,
-        extras: {},
-        workspacePath: null,
-    workspaceBytes: null,
-    workspaceMeasuredAt: null,
-        startedAt: null,
-        lastActiveAt: null,
-        lastMessageAt: null,
-        lastBootstrappedAt: null,
-        lastReconciledAt: null,
-        createdAt: '2026-08-01T00:00:00.000Z',
-        updatedAt: '2026-08-01T00:00:00.000Z',
-        ...over
-    }
-}
+const makeAgent = makeAgentSummary
 
 const noop = (): void => {}
 

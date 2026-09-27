@@ -9,8 +9,6 @@ import {
 } from '@nestjs/common'
 import { and, eq, getTableColumns, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
-    agents,
-    agentRuntimes,
     chatMessages,
     chatStreamEvents,
     turnExecutions,
@@ -265,7 +263,6 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             streamCount: number
         } | null
         try {
-            await this.repairRuntimeStatus(daemonId)
             if (
                 !this.isLookupScopeCurrent(daemonId, scope) ||
                 !this.registry.isCurrentHelloEvidence(daemonId, evidence)
@@ -1516,38 +1513,6 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             this.pendingOpenLookups.delete(daemonId)
     }
 
-    private async repairRuntimeStatus(daemonId: string): Promise<void> {
-        const now = new Date()
-        try {
-            await this.db
-                .update(agentRuntimes)
-                .set({ status: 'ready', updatedAt: now })
-                .where(
-                    and(
-                        eq(agentRuntimes.daemonId, daemonId),
-                        eq(agentRuntimes.status, 'stopped')
-                    )
-                )
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'running',
-                    failureReason: null,
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        eq(agents.daemonId, daemonId),
-                        eq(agents.failureReason, 'daemon disconnected')
-                    )
-                )
-        } catch (err) {
-            this.log.warn(
-                `runtime status repair failed daemonId=${daemonId}: ${(err as Error).message}`
-            )
-        }
-    }
-
     // Ask the DB for THIS DAEMON's unfinished turns and intersect locally,
     // rather than asking it about every refId the daemon reported.
     //
@@ -1560,7 +1525,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
     // 65535 parameters, so that shape was on course to fail outright.
     //
     // The flipped query is bounded by open turns instead of buffer size and
-    // rides the existing partial index on (daemon_id, daemon_exec_ref).
+    // rides the existing partial index on (host_id, daemon_exec_ref).
     private async findOpenTurns(
         daemonId: string,
         connectionToken = this.registry.currentHelloEvidence(daemonId)
@@ -1573,7 +1538,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
                 .from(chatMessages)
                 .where(
                     and(
-                        eq(chatMessages.daemonId, daemonId),
+                        eq(chatMessages.hostId, daemonId),
                         isNotNull(chatMessages.daemonExecRef),
                         sql`not exists (
                             select 1 from ${chatStreamEvents}
@@ -1623,7 +1588,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             .where(
                 and(
                     eq(chatMessages.id, messageId),
-                    eq(chatMessages.daemonId, daemonId),
+                    eq(chatMessages.hostId, daemonId),
                     isNotNull(chatMessages.daemonExecRef),
                     sql`not exists (
                         select 1 from ${chatStreamEvents}
@@ -1667,7 +1632,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             .where(
                 and(
                     eq(chatMessages.id, messageId),
-                    eq(chatMessages.daemonId, daemonId),
+                    eq(chatMessages.hostId, daemonId),
                     isNotNull(chatMessages.daemonExecRef),
                     sql`not exists (
                         select 1 from ${chatStreamEvents}

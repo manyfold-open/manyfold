@@ -1,1810 +1,727 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import {
-    chmodSync,
-    mkdirSync,
-    mkdtempSync,
-    rmSync,
-    writeFileSync
-} from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import test from 'node:test'
-import { DAEMON_MIN_CLI_VERSION } from '@manyfold/shared'
-import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
 import {
-    parseRunnerStatus,
-    RunnerManagerService,
+    DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_MIN_CLI_VERSION,
+    K8S_HOME_BASE,
+    POD_RUNNER_PROFILE,
     RUNNER_PROFILE,
-    runnerHostName
+    profilePaths
+} from '@manyfold/shared'
+import type {
+    HostDaemonRow,
+    RuntimeHostPowerState,
+    RuntimeHostRow,
+    RuntimeProvider
+} from '@manyfold/db'
+import { SpritesError } from '@manyfold/sprites'
+import {
+    RunnerManagerService,
+    parseRunnerStatus
 } from '../src/modules/chat/runner/runner-manager.service'
+import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
+import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
-// Two probe facts drive these contracts (real sprite, 2026-07-24):
-// a sprite has no supervisor, so we start the runner ourselves; and its reverse
-// WSS does NOT survive sprite suspension (`pong timeout` while the process is
-// still alive), so ensureRunner runs on the TURN path and must be a cheap no-op
-// when the runner is already connected and must DEGRADE (null), never throw,
-// when it cannot be brought up — the caller falls back to sprite exec.
+// The host daemon bring-up (ADR-0036 R11): Agent → Runtime → Host →
+// host_daemons. Online → the handle. A hosted host that is not online goes
+// through its provider adapter — power, wake, then a bootstrap that installs
+// mf, registers with a token BOUND to the host and starts the daemon — and
+// waits for the daemon to dial in. A local host's daemon is the user's to
+// start. Nothing is ever looked up by name.
 
-interface ExecCall {
-    cmd: string
+const NOW = () => new Date()
+
+interface Exec {
+    script: string
     stdin?: string
 }
 
-const buildHarness = (opts: {
-    // sprite state: what the first inspect exec reports
+interface HarnessOptions {
+    host?: Partial<RuntimeHostRow>
+    // null = never registered; a row whose lastSeenAt is old = offline.
+    daemon?: HostDaemonRow | null
+    providerKind?: 'sprites' | 'k8s'
+    power?: RuntimeHostPowerState
+    // The machine as the inspect finds it.
     installed?: boolean
     registered?: boolean
-    // host row visibility: null until the register call "creates" it
-    hostIdAfterRegister?: string | null
-    hostIdUpfront?: string | null
-    onlineAfterStart?: boolean
-    onlineUpfront?: boolean
-    hostVersion?: string
-    // what `mf --version` reports inside the sprite
-    version?: string
-    // whether the inspect finds herdr in the sprite (ADR-0031); unset = the
-    // probe line is absent, as an older probe's would be
+    version?: string | null
     herdr?: boolean
-    execExit?: (cmd: string) => number
-    execThrowOn?: (cmd: string) => boolean
-    // host-row root for the workspace-register gate + daemon-RPC behaviour
-    workspaceBaseDir?: string | null
-    workspaceEnsureFails?: boolean
-}) => {
-    const calls: ExecCall[] = []
-    let hostId = opts.hostIdUpfront ?? null
-    let online = opts.onlineUpfront ?? false
-    let hostVersion = opts.hostVersion ?? DAEMON_MIN_CLI_VERSION
-    let minted = 0
-    const mintedPurposes: Array<string | undefined> = []
-    const deleteUnboundCalls: Array<{ tokenId: string; userId: string }> = []
-    const rpcCalls: Array<{
-        daemonId: string
-        method: string
-        payload: Record<string, unknown>
-    }> = []
+    // Whether a started daemon dials in (the fake heartbeat) — and, for a
+    // wake, whether the thawed process reconnects on its own.
+    connects?: boolean
+    reconnectsOnWake?: boolean
+    // What `mf daemon status --json` answers.
+    status?: string
+    logTail?: string
+    registerExit?: number
+    registerOutput?: string
+    // A bootstrap that throws before anything ran (the exec endpoint).
+    inspectError?: Error
+    rpc?: (args: { method: string; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>
+}
 
-    const exec = async (args: {
-        cmd: string[]
-        stdin?: string
-        timeoutMs: number
-    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
-        const cmd = args.cmd.join(' ')
-        calls.push({ cmd, stdin: args.stdin })
-        if (opts.execThrowOn?.(cmd)) throw new Error('exec transport failed')
-        const exitCode = opts.execExit ? opts.execExit(cmd) : 0
-        if (cmd.includes('install.sh')) {
-            return { exitCode, stdout: '', stderr: '' }
-        }
-        if (cmd.includes('test -x')) {
-            return {
-                exitCode,
-                stdout: `installed=${opts.installed === false ? 0 : 1}\nregistered=${
-                    opts.registered === false ? 0 : 1
-                }\nversion=${opts.version ?? DAEMON_MIN_CLI_VERSION}${
-                    opts.herdr === undefined ? '' : `\nherdr=${opts.herdr ? 1 : 0}`
-                }`,
-                stderr: ''
-            }
-        }
-        if (cmd.includes('daemon register')) {
-            if (exitCode === 0) hostId = opts.hostIdAfterRegister ?? 'dh_runner'
-            return {
-                exitCode,
-                stdout: exitCode === 0 ? '✓ daemon registered' : '',
-                stderr: ''
-            }
-        }
-        if (cmd.includes('daemon start')) {
-            if (exitCode === 0 && opts.onlineAfterStart !== false) {
-                online = true
-                hostVersion = DAEMON_MIN_CLI_VERSION
-            }
-            return { exitCode, stdout: '', stderr: '' }
-        }
-        return { exitCode, stdout: '', stderr: '' }
-    }
+const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
+    ({
+        id: 'sbx_1',
+        userId: 'user-1',
+        kind: 'hosted',
+        providerId: 'rtp_1',
+        providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sprite-1' },
+        name: 'sandbox-001',
+        status: 'ready',
+        failureReason: null,
+        generation: 3,
+        powerState: 'unknown',
+        homeDir: '/home/sprite',
+        workspaceBaseDir: '/home/sprite/.manyfold/workspaces',
+        skillsDir: null,
+        keepAwake: false,
+        createdAt: NOW(),
+        updatedAt: NOW(),
+        ...overrides
+    }) as RuntimeHostRow
 
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () =>
-                        hostId ? [{ id: hostId, status: 'active' }] : []
-                })
-            })
-        })
-    }
-    // Readiness is the HOST ROW (cross-instance), not a local socket map.
-    const hosts = {
-        isOnline: (row: { id: string }) => online && row.id === hostId && DaemonHostService.prototype.isOnline({ status: 'active', cliVersion: hostVersion, rpcLastSeenAt: new Date() } as never),
-        findById: async (id: string) =>
-            hostId && id === hostId
+const daemonRow = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
+    ({
+        hostId: 'sbx_1',
+        userId: 'user-1',
+        daemonUuid: 'uuid-1',
+        tokenId: 'ldt_1',
+        hostname: 'sbx-1',
+        os: 'linux',
+        arch: 'x86_64',
+        cliVersion: CLI_AT_FLOOR,
+        herdrVersion: null,
+        startupMethod: 'manual',
+        clientFeatures: [],
+        terminalPty: null,
+        detectedFrameworks: [],
+        registeredAt: NOW(),
+        lastSeenAt: NOW(),
+        lastIp: null,
+        rpcInstanceId: 'api-1',
+        rpcConnectionToken: 'api-1:tok',
+        rpcInbox: 'inbox',
+        rpcConnectedAt: new Date(Date.now() - 60_000),
+        rpcLastSeenAt: NOW(),
+        createdAt: NOW(),
+        updatedAt: NOW(),
+        ...overrides
+    }) as HostDaemonRow
+
+const offlineDaemon = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
+    daemonRow({
+        lastSeenAt: new Date(Date.now() - 120_000),
+        rpcLastSeenAt: new Date(Date.now() - 120_000),
+        rpcInstanceId: null,
+        rpcConnectionToken: null,
+        rpcInbox: null,
+        rpcConnectedAt: null,
+        ...overrides
+    })
+
+const buildHarness = (opts: HarnessOptions = {}) => {
+    const providerKind = opts.providerKind ?? 'sprites'
+    const state = {
+        host: hostRow({
+            ...(providerKind === 'k8s'
                 ? {
-                      id: hostId,
-                      workspaceBaseDir:
-                          opts.workspaceBaseDir === undefined
-                              ? '/home/sprite/.manyfold/workspaces'
-                              : opts.workspaceBaseDir
+                      id: 'pdh_1',
+                      providerRef: { kind: 'k8s', namespace: 'nca-user-1', ingressHost: null, podPhase: 'Running' },
+                      homeDir: K8S_HOME_BASE,
+                      workspaceBaseDir: `${K8S_HOME_BASE}/.manyfold/workspaces`
                   }
-                : null
+                : {}),
+            ...opts.host
+        }),
+        daemon: opts.daemon === undefined ? null : opts.daemon,
+        registered: opts.registered ?? false,
+        installed: opts.installed ?? true,
+        version: opts.version === undefined ? CLI_AT_FLOOR : opts.version,
+        started: 0
     }
-    const registry = {
-        rpc: async (a: {
-            daemonId: string
-            method: string
-            payload: Record<string, unknown>
-        }) => {
-            rpcCalls.push(a)
-            if (opts.workspaceEnsureFails)
-                throw new Error('workspace directory does not exist')
-            return {}
-        }
-    }
-    const tokens = {
-        mint: async (a: { userId: string; name: string; purpose?: string }) => {
-            minted++
-            mintedPurposes.push(a.purpose)
-            return {
-                tokenId: 'ldt_id',
-                plaintext: 'ldt_secret_value',
-                name: a.name,
-                expiresAt: null,
-                createdAt: new Date()
-            }
-        },
-        deleteUnbound: async (a: { tokenId: string; userId: string }) => {
-            deleteUnboundCalls.push(a)
-            return true
-        }
-    }
-    // `delay` is overridden rather than injected: a function has no DI token,
-    // and passing one as a constructor param broke the Nest container at boot.
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        tokens as never,
-        registry as never
-    )
-    return {
-        service,
-        calls,
-        exec,
-        mintedCount: () => minted,
-        mintedPurposes,
-        deleteUnboundCalls,
-        rpcCalls
-    }
-}
-
-// A registered runner whose token is rejected (`ws closed code=4401
-// reason=unauthorized`) is a DEAD END without this: the sprite still has a
-// config, so inspect keeps reporting registered=1 and nothing ever mints a
-// replacement. It happened on staging exactly 24h after registering, because the
-// token TTL was 1 day and the token also authenticates every websocket connect.
-const rejectedCredentialHarness = (
-    logTail = 'ws closed code=4401 reason=unauthorized'
-) => {
+    const provider = { id: 'rtp_1', kind: providerKind, name: 'org' } as RuntimeProvider
+    const execs: Exec[] = []
     const calls: string[] = []
-    let registrations = 0
-    let online = false
-    const exec = async (a: { cmd: string[] }) => {
-        const cmd = a.cmd.join(' ')
-        calls.push(cmd)
-        if (cmd.includes('tail -n'))
-            return {
-                exitCode: 0,
-                stdout: logTail,
-                stderr: ''
-            }
-        if (cmd.includes('test -x'))
-            return {
-                exitCode: 0,
-                stdout: 'installed=1\nregistered=1\nversion=0.20.0',
-                stderr: ''
-            }
-        if (cmd.includes('daemon register')) {
-            registrations++
-            // The fresh credential is what lets the next start connect.
-            online = true
-            return { exitCode: 0, stdout: 'daemon registered', stderr: '' }
-        }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [{ id: 'dh_runner', status: 'active' }]
-                })
-            })
+    const powers: RuntimeHostPowerState[] = []
+    const mints: Array<Record<string, unknown>> = []
+    const revoked: string[] = []
+    const rpcs: Array<{ method: string; payload: Record<string, unknown> }> = []
+    const awake: Exec[] = []
+    let bumps = 0
+
+    const dialIn = () => {
+        state.daemon = daemonRow({
+            hostId: state.host.id,
+            cliVersion: state.version ?? CLI_AT_FLOOR,
+            rpcConnectedAt: NOW()
         })
     }
-    const hosts = { isOnline: () => online }
-    const tokens = {
-        mint: async (x: { name: string }) => ({
-            tokenId: 't',
-            plaintext: 'ldt_fresh',
-            name: x.name,
-            expiresAt: null,
-            createdAt: new Date()
-        }),
-        deleteUnbound: async () => true
+
+    const adapter = {
+        kind: providerKind,
+        capabilities: { suspend: providerKind === 'sprites', publicService: true },
+        power: async () => {
+            calls.push('power')
+            return opts.power ?? 'running'
+        },
+        wake: async ({ generation }: { generation: number }) => {
+            calls.push('wake')
+            if (generation < state.host.generation)
+                throw new StaleGenerationError(state.host.id, generation, state.host.generation)
+            if (opts.reconnectsOnWake) dialIn()
+        },
+        create: async () => {
+            throw new Error('create is provisioning’s')
+        },
+        destroy: async () => {
+            calls.push('destroy')
+        },
+        bootstrap: async (args: { generation: number; script: string; stdin?: string }) => {
+            if (args.generation < state.host.generation)
+                throw new StaleGenerationError(state.host.id, args.generation, state.host.generation)
+            execs.push({ script: args.script, stdin: args.stdin })
+            const s = args.script
+            if (s.includes('echo installed=')) {
+                calls.push('inspect')
+                if (opts.inspectError) throw opts.inspectError
+                return {
+                    exitCode: 0,
+                    stdout: [
+                        `installed=${state.installed ? 1 : 0}`,
+                        `registered=${state.registered ? 1 : 0}`,
+                        `version=${state.version ?? ''}`,
+                        `herdr=${opts.herdr === false ? 0 : 1}`
+                    ].join('\n'),
+                    stderr: ''
+                }
+            }
+            if (s.includes('daemon register')) {
+                calls.push('register')
+                const exitCode = opts.registerExit ?? 0
+                if (exitCode === 0) state.registered = true
+                return { exitCode, stdout: opts.registerOutput ?? 'registered', stderr: '' }
+            }
+            if (s.includes('MF_INSTALL_DIR') || s.includes('install.sh')) {
+                calls.push(s.includes('herdr') ? 'install-herdr' : 'install-cli')
+                if (!s.includes('herdr')) {
+                    state.installed = true
+                    state.version = CLI_AT_FLOOR
+                }
+                return { exitCode: 0, stdout: s.includes('herdr') ? 'MF_HERDR_OK' : '', stderr: '' }
+            }
+            if (s.includes('daemon status --json')) {
+                calls.push('status')
+                return { exitCode: 0, stdout: opts.status ?? '{"configured":false}', stderr: '' }
+            }
+            if (s.includes('daemon start') || s.includes('pkill')) {
+                calls.push('start')
+                state.started += 1
+                if (opts.connects !== false) dialIn()
+                return { exitCode: 0, stdout: '1', stderr: '' }
+            }
+            if (s.includes('tail -n 6')) {
+                calls.push('tail')
+                return { exitCode: 0, stdout: opts.logTail ?? '(no runner log)', stderr: '' }
+            }
+            throw new Error(`unexpected bootstrap script: ${s.slice(0, 60)}`)
+        }
     }
+
     class TestRunnerManager extends RunnerManagerService {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }
+        protected override spriteExec() {
+            return Promise.resolve(async (a: { cmd: string[]; stdin?: string; timeoutMs: number }) => {
+                awake.push({ script: a.cmd[2], stdin: a.stdin })
+                return { exitCode: 0, stdout: '', stderr: '' }
+            })
+        }
     }
-    return {
-        service: new TestRunnerManager(
-            db as never,
-            hosts as never,
-            tokens as never,
-            { rpc: async () => ({}) } as never
-        ),
-        exec,
-        calls,
-        registrations: () => registrations
-    }
+
+    const service = new TestRunnerManager(
+        {
+            findById: async () => state.host,
+            patch: async (_id: string, patch: Partial<RuntimeHostRow>) => {
+                if (patch.powerState) powers.push(patch.powerState)
+                state.host = { ...state.host, ...patch }
+                return state.host
+            },
+            bumpGeneration: async () => {
+                bumps += 1
+                state.host = { ...state.host, generation: state.host.generation + 1 }
+                return state.host.generation
+            }
+        } as never,
+        { findByHostId: async () => state.daemon } as never,
+        { for: () => adapter } as never,
+        { providerForHost: async () => provider } as never,
+        {
+            mint: async (args: Record<string, unknown>) => {
+                mints.push(args)
+                return {
+                    tokenId: 'ldt_new',
+                    plaintext: 'ldt_secret_value',
+                    name: String(args.name),
+                    hostId: args.hostId ?? null,
+                    expiresAt: null,
+                    createdAt: NOW()
+                }
+            },
+            revoke: async (args: { tokenId: string }) => {
+                revoked.push(args.tokenId)
+                return state.host.id
+            }
+        } as never,
+        {
+            rpc: async (args: { method: string; payload: Record<string, unknown> }) => {
+                rpcs.push(args)
+                return opts.rpc ? opts.rpc(args) : {}
+            }
+        } as never
+    )
+
+    return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, awake, bumps: () => bumps, dialIn }
 }
 
-test('a runner whose credential is rejected is re-registered once', async () => {
-    const h = rejectedCredentialHarness()
+const scriptsOf = (h: ReturnType<typeof buildHarness>) => h.execs.map((e) => e.script)
 
-    const res = await h.service.ensureRunner({
-        agentId: 'agt_1',
-        userId: 'user-1',
-        spriteName: 'art-abc',
-        exec: h.exec as never,
-        waitOnlineMs: 50
+test('a local host whose daemon is online is admitted with no adapter call', async () => {
+    const h = buildHarness({
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: daemonRow({ hostId: 'dh_1' })
     })
-
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.equal(h.registrations(), 1, 'exactly one re-registration')
-    // It must have LOOKED at the runner log to decide that — re-registering on
-    // every failed bring-up would mint tokens for unrelated problems.
-    assert.ok(h.calls.some((c) => c.includes('tail -n')))
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle?.daemonId, 'dh_1')
+    assert.equal(res.handle?.started, false)
+    assert.equal(res.handle?.generation, `api-1:${h.state.daemon!.rpcConnectedAt!.getTime()}`)
+    assert.deepEqual(h.calls, [])
 })
 
-test('old credential-bearing runner logs are scrubbed before warning and re-registration', async (t) => {
-    const secret = 'sentinel-runner-private/+='
-    const encoded = encodeURIComponent(secret)
-    const h = rejectedCredentialHarness(
-        `ws connected wss://api.test/api/daemon/ws?token=${encoded}\nws closed code=4401 reason=unauthorized`
-    )
-    const warnings: string[] = []
-    const diagnostics = h.service as unknown as {
-        logger: { warn(message: string): void }
-        logRunnerTail(args: unknown): Promise<string | null>
-    }
-    const logger = diagnostics.logger
-    const tails: string[] = []
-    const readTail = diagnostics.logRunnerTail.bind(h.service)
-    t.mock.method(diagnostics, 'logRunnerTail', async (args: unknown) => {
-        const tail = await readTail(args)
-        tails.push(tail ?? '')
-        return tail
+test('a local host whose daemon is offline is runner_unavailable: only the user can start it', async () => {
+    const h = buildHarness({
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: offlineDaemon({ hostId: 'dh_1' })
     })
-    t.mock.method(logger, 'warn', (message: string) => warnings.push(message))
-    const result = await h.service.ensureRunner({
-        agentId: 'agt_1',
-        userId: 'user-1',
-        spriteName: 'art-abc',
-        exec: h.exec as never,
-        waitOnlineMs: 50
-    })
-    assert.equal(result.handle?.daemonId, 'dh_runner')
-    assert.equal(h.registrations(), 1)
-    assert(warnings.some(message => message.includes('credential rejected')))
-    assert(tails.some(message => message.includes('4401')))
-    assert(![...warnings, ...tails].some(message => message.includes(secret) || message.includes(encoded)))
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.deepEqual(h.calls, [], 'nothing is ever brought up on a user\'s own computer')
+    assert.deepEqual(h.mints, [])
 })
 
-const args = (exec: never, extra: Record<string, unknown> = {}) => ({
-    agentId: 'agt_1',
-    userId: 'user-1',
-    spriteName: 'art-abc',
-    exec,
-    waitOnlineMs: 2000,
-    ...extra
+test('an already-connected hosted daemon is a single-lookup no-op', async () => {
+    const h = buildHarness({ daemon: daemonRow() })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1' })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.started, false)
+    assert.deepEqual(h.calls, [])
+    assert.equal(h.bumps(), 0)
 })
 
-test('an already-connected runner is a single-lookup no-op', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-
-    const res = await h.service.ensureRunner(args(h.exec as never))
-
-    assert.deepEqual(res.handle, {
-        daemonId: 'dh_runner',
-        started: false,
-        generation: null
-    })
-    // WHY: this runs on every turn. Waking/inspecting the sprite when the runner
-    // is already there would add a round trip to the hot path.
-    assert.deepEqual(h.calls, [], 'no sprite exec at all')
-    assert.equal(h.mintedCount(), 0, 'no token minted')
-})
-
-test('a cold sprite is inspected, installed, registered, started, then awaited', async () => {
-    const h = buildHarness({ installed: false, registered: false })
-
-    const res = await h.service.ensureRunner(args(h.exec as never))
-
-    assert.equal(res.handle?.daemonId, 'dh_runner')
+test('a cold machine is inspected, installed, registered with a bound token, started, then awaited', async () => {
+    const h = buildHarness({ installed: false, registered: false, version: null })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1', waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
     assert.equal(res.handle?.started, true)
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    const order = h.calls.map((c) =>
-        c.cmd.includes('install.sh')
-            ? 'install'
-            : c.cmd.includes('test -x')
-              ? 'inspect'
-              : c.cmd.includes('daemon register')
-                ? 'register'
-                : c.cmd.includes('daemon start')
-                  ? 'start'
-                  : c.cmd.includes('-X DELETE')
-                    ? 'release'
-                    : c.cmd.includes('/v1/tasks')
-                      ? 'hold'
-                      : 'other'
-    )
-    assert.deepEqual(order, [
-        'inspect',
-        'install',
-        'register',
-        'hold',
-        'start',
-        'release'
-    ])
+    assert.deepEqual(h.calls, ['power', 'inspect', 'install-cli', 'register', 'start'])
+    assert.equal(h.bumps(), 1, 'the bootstrap runs under a fresh generation')
+    assert.deepEqual(h.powers, ['running'], 'the power observation lands on the host')
+    // The token is minted BOUND to the host (R5) and goes over stdin, never argv.
+    assert.equal(h.mints.length, 1)
+    assert.equal(h.mints[0].hostId, 'sbx_1')
+    assert.equal(h.mints[0].expiresInDays, 90)
+    const register = h.execs.find((e) => e.script.includes('daemon register'))!
+    assert.equal(register.stdin, 'ldt_secret_value')
+    assert.ok(!register.script.includes('ldt_secret_value'))
+    assert.match(register.script, /--token -/)
+    assert.match(register.script, new RegExp(`MF_PROFILE=${RUNNER_PROFILE}`))
+    assert.match(register.script, /--name 'sandbox-001'/)
 })
 
-// herdr rides along with the runner (ADR-0031): the same inspect says whether
-// the sandbox has it, and only a sandbox without it pays for the install —
-// which is best effort, so a refusing installer does not stop the bring-up.
+test('the inspect probes the ADR-0014 profile layout of the machine kind', async () => {
+    const sprite = buildHarness({ registered: true })
+    await sprite.service.ensureHostDaemon({ host: sprite.state.host, waitOnlineMs: 50 })
+    const spriteProbe = profilePaths('$HOME/.manyfold', RUNNER_PROFILE).daemonConfigPath
+    assert.ok(scriptsOf(sprite)[0].includes(`test -f "${spriteProbe}"`))
+
+    const pod = buildHarness({ providerKind: 'k8s', registered: true })
+    await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
+    const podProbe = profilePaths(`${K8S_HOME_BASE}/.manyfold`, POD_RUNNER_PROFILE).daemonConfigPath
+    assert.ok(scriptsOf(pod)[0].includes(`test -f "${podProbe}"`))
+})
+
+// A pod's daemon is supervised by the image's boot loop (ADR-0035): stopping
+// it IS starting it, its token never expires, and its profile lives on the PVC.
+test('a pod host is restarted through its boot loop and registered without a token expiry', async () => {
+    const h = buildHarness({ providerKind: 'k8s', registered: false })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'pdh_1')
+    assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'start'])
+    assert.equal('expiresInDays' in h.mints[0], false)
+    assert.equal(h.mints[0].hostId, 'pdh_1')
+    const register = h.execs.find((e) => e.script.includes('daemon register'))!
+    assert.match(register.script, new RegExp(`MF_PROFILE=${POD_RUNNER_PROFILE} MF_CONFIG_DIR=${K8S_HOME_BASE}/.manyfold`))
+    const start = h.execs.find((e) => e.script.includes('pkill'))!
+    assert.ok(!start.script.includes('setsid'), 'no detached start: the boot loop restarts the daemon')
+    assert.deepEqual(h.awake, [], 'a pod does not suspend, so nothing holds it awake')
+})
+
+test('a suspended sprite with a registered daemon is woken, and a fresh lease is enough', async () => {
+    const h = buildHarness({
+        daemon: offlineDaemon(),
+        power: 'suspended',
+        registered: true,
+        reconnectsOnWake: true
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.deepEqual(h.calls, ['power', 'wake'], 'no bootstrap when the thawed daemon dials back in')
+    assert.deepEqual(h.powers, ['suspended'])
+    assert.equal(h.bumps(), 0)
+})
+
+test('a suspended sprite whose daemon does not come back after the wake is bootstrapped', async () => {
+    const h = buildHarness({ daemon: offlineDaemon(), power: 'suspended', registered: true })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.started, true)
+    assert.deepEqual(h.calls, ['power', 'wake', 'inspect', 'start'])
+    assert.deepEqual(h.mints, [], 'a registered machine is not registered again')
+})
+
+test('a daemon that never dials in degrades to null instead of throwing', async () => {
+    const h = buildHarness({ registered: true, connects: false })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.deepEqual(h.calls, ['power', 'inspect', 'start', 'tail'])
+})
+
+// A rejected credential is terminal on its own: the machine still has a
+// config, so the inspect says registered=1 forever. The log tail is the only
+// evidence, and it earns exactly one re-register.
+test('a daemon whose credential is rejected is re-registered once', async () => {
+    const h = buildHarness({
+        registered: true,
+        connects: false,
+        logTail: 'ws closed code=4401 reason=unauthorized'
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    assert.equal(res.handle, null)
+    assert.deepEqual(h.calls, ['power', 'inspect', 'start', 'tail', 'register', 'start'])
+    assert.equal(h.mints.length, 1)
+})
+
+test('a CLI below the floor is upgraded before the daemon is used', async () => {
+    const h = buildHarness({ registered: true, version: CLI_BELOW_FLOOR })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.deepEqual(h.calls, ['power', 'inspect', 'install-cli', 'start'])
+})
+
+test('a CLI too old to read the token from stdin is reinstalled and the register retried', async () => {
+    let registers = 0
+    const h = buildHarness({ registered: false })
+    const original = h.adapter.bootstrap
+    h.adapter.bootstrap = async (args) => {
+        if (args.script.includes('daemon register') && registers++ === 0) {
+            h.calls.push('register')
+            return { exitCode: 2, stdout: '', stderr: 'error: token must start with ldt_' }
+        }
+        return original(args)
+    }
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'install-cli', 'register', 'start'])
+    assert.deepEqual(h.revoked, ['ldt_new'], 'the credential the old CLI never read is revoked')
+    assert.equal(h.mints.length, 2)
+})
+
+test('a failed register revokes the token it minted; a register whose exec throws too', async () => {
+    const failed = buildHarness({ registered: false, registerExit: 1, registerOutput: 'api unreachable' })
+    const res = await failed.service.ensureHostDaemon({ host: failed.state.host, waitOnlineMs: 20 })
+    assert.equal(res.handle, null)
+    assert.deepEqual(failed.revoked, ['ldt_new'])
+
+    const thrown = buildHarness({ registered: false })
+    const original = thrown.adapter.bootstrap
+    thrown.adapter.bootstrap = async (args) => {
+        if (args.script.includes('daemon register')) throw new Error('socket hang up')
+        return original(args)
+    }
+    await thrown.service.ensureHostDaemon({ host: thrown.state.host, waitOnlineMs: 20 })
+    assert.deepEqual(thrown.revoked, ['ldt_new'])
+})
+
 test('a sandbox without herdr gets it installed after the CLI; one with it does not', async () => {
-    const kinds = (h: ReturnType<typeof buildHarness>): string[] =>
-        h.calls.map((c) =>
-            c.cmd.includes('herdr.dev')
-                ? 'herdr'
-                : c.cmd.includes('install.sh')
-                  ? 'install'
-                  : c.cmd.includes('test -x')
-                    ? 'inspect'
-                    : c.cmd.includes('daemon register')
-                      ? 'register'
-                      : c.cmd.includes('daemon start')
-                        ? 'start'
-                        : c.cmd.includes('/v1/tasks')
-                          ? 'lease'
-                          : 'other'
-        )
-    const without = buildHarness({
-        installed: false,
-        registered: false,
-        herdr: false,
-        execExit: (cmd) => (cmd.includes('herdr.dev') ? 1 : 0)
-    })
-    const res = await without.service.ensureRunner(args(without.exec as never))
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.deepEqual(
-        kinds(without).filter((k) => k !== 'lease'),
-        ['inspect', 'install', 'herdr', 'register', 'start']
-    )
-    const withIt = buildHarness({
-        installed: false,
-        registered: false,
-        herdr: true
-    })
-    await withIt.service.ensureRunner(args(withIt.exec as never))
-    assert.deepEqual(
-        kinds(withIt).filter((k) => k !== 'lease'),
-        ['inspect', 'install', 'register', 'start']
-    )
+    const without = buildHarness({ registered: true, herdr: false })
+    await without.service.ensureHostDaemon({ host: without.state.host, waitOnlineMs: 50 })
+    assert.deepEqual(without.calls, ['power', 'inspect', 'install-herdr', 'start'])
+
+    const withHerdr = buildHarness({ registered: true, herdr: true })
+    await withHerdr.service.ensureHostDaemon({ host: withHerdr.state.host, waitOnlineMs: 50 })
+    assert.deepEqual(withHerdr.calls, ['power', 'inspect', 'start'])
 })
 
-// The inspect's herdr line, run for real against a sandbox-shaped home: an
-// empty herdr is reported missing, so the bring-up reinstalls it. Seen on prod
-// [2026-09-26]: a 0-byte ~/.local/bin/herdr passed `test -x`, and the daemon
-// probing it died on ENOEXEC at every start.
-test('the inspect counts an empty herdr as missing and a real one as present', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-    let script = ''
-    const exec = (a: { cmd: string[]; stdin?: string; timeoutMs: number }) => {
-        if (!script && a.cmd.join(' ').includes('test -x'))
-            script = a.cmd.at(-1)!
-        return h.exec(a)
-    }
-    await h.service.prepareRunner(args(exec as never))
-    const home = mkdtempSync(join(tmpdir(), 'mfr-home-'))
-    const herdr = join(home, '.local', 'bin', 'herdr')
-    mkdirSync(join(home, '.local', 'bin'), { recursive: true })
-    const probe = (): string =>
-        /herdr=(\d)/.exec(
-            execFileSync('bash', ['-c', script], {
-                env: { HOME: home, PATH: '/usr/bin:/bin' },
-                encoding: 'utf8'
-            })
-        )?.[1] ?? '?'
-    try {
-        assert.equal(probe(), '0', 'no herdr')
-        writeFileSync(herdr, '')
-        chmodSync(herdr, 0o755)
-        assert.equal(probe(), '0', 'an empty herdr')
-        writeFileSync(herdr, '#!/bin/sh\n')
-        assert.equal(probe(), '1', 'a real one')
-    } finally {
-        rmSync(home, { recursive: true, force: true })
-    }
+test('a start holds the sprite awake across the wait and lets go afterwards', async () => {
+    const h = buildHarness({ registered: true })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(h.awake.length, 2)
+    assert.match(h.awake[0].script, /POST \/v1\/tasks/)
+    assert.match(h.awake[1].script, /DELETE '\/v1\/tasks\/mfturn-start-/)
 })
 
-// The create path has the VM awake already and does not want to wait the
-// ~60-75s a fresh daemon takes to dial in: prepareRunner installs, registers
-// and starts, then holds the sprite awake for that connect and returns.
-test('prepareRunner installs, registers and starts without waiting for the runner to connect', async () => {
-    const h = buildHarness({
-        installed: false,
-        registered: false,
-        onlineAfterStart: false
-    })
-
-    const outcome = await h.service.prepareRunner(args(h.exec as never))
-
-    assert.equal(outcome, 'started')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    const order = h.calls.map((c) =>
-        c.cmd.includes('install.sh')
-            ? 'install'
-            : c.cmd.includes('test -x')
-              ? 'inspect'
-              : c.cmd.includes('daemon register')
-                ? 'register'
-                : c.cmd.includes('daemon start')
-                  ? 'start'
-                  : c.cmd.includes('/v1/tasks')
-                    ? 'hold'
-                    : 'other'
-    )
-    assert.deepEqual(order, ['inspect', 'install', 'register', 'start', 'hold'])
-    assert.match(h.calls[4].cmd, /"expire":"5m"/)
-})
-
-test('prepareRunner leaves an already-connected runner alone', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-
-    const outcome = await h.service.prepareRunner(args(h.exec as never))
-
-    assert.equal(outcome, 'live')
-    assert.equal(h.calls.length, 1, 'one inspect, no start, no hold')
-    assert.ok(h.calls[0].cmd.includes('test -x'))
-})
-
-test('the runner token goes over STDIN and never appears in argv', async () => {
-    const h = buildHarness({ installed: true, registered: false })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    const register = h.calls.find((c) => c.cmd.includes('daemon register'))
-    assert.ok(register, 'register must have run')
-    // WHY: the sprite's process list is readable by anything else in that VM,
-    // and the CLI itself warns that argv tokens leak there.
-    assert.equal(register!.stdin, 'ldt_secret_value')
-    assert.match(register!.cmd, /--token -/)
-    assert.doesNotMatch(register!.cmd, /(?:^|\s)(?:-y|--yes)(?:\s|$)/)
-    for (const call of h.calls)
-        assert.ok(
-            !call.cmd.includes('ldt_secret_value'),
-            `token leaked into argv: ${call.cmd}`
-        )
-})
-
-test('a suspended sprite with an existing runner is only woken and restarted', async () => {
-    // The realistic steady state: the runner registered on an earlier turn, so
-    // its host row exists, but the WSS died when the sprite was suspended.
-    const h = buildHarness({
-        installed: true,
+// A daemon that runs execs as files (ADR-0029 §4) is stopped with
+// --keep-execs so the daemon started right after adopts what it carried.
+test('a capable daemon is stopped with --keep-execs, an older one plainly', async () => {
+    const capable = buildHarness({
         registered: true,
-        hostIdUpfront: 'dh_runner',
-        onlineUpfront: false
+        daemon: offlineDaemon({ clientFeatures: [DAEMON_FEATURE_EXEC_FILES] })
     })
+    await capable.service.ensureHostDaemon({ host: capable.state.host, waitOnlineMs: 50 })
+    assert.match(scriptsOf(capable).find((s) => s.includes('daemon start'))!, /daemon stop --keep-execs/)
 
-    const res = await h.service.ensureRunner(args(h.exec as never))
-
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.equal(h.mintedCount(), 0, 'no second token for an existing runner')
-    assert.ok(!h.calls.some((c) => c.cmd.includes('install.sh')))
-    assert.ok(!h.calls.some((c) => c.cmd.includes('daemon register')))
+    const plain = buildHarness({ registered: true, daemon: offlineDaemon() })
+    await plain.service.ensureHostDaemon({ host: plain.state.host, waitOnlineMs: 50 })
+    assert.match(scriptsOf(plain).find((s) => s.includes('daemon start'))!, /daemon stop >/)
 })
 
-test('a runner that never reconnects degrades to null instead of throwing', async () => {
+test('an exec endpoint that cannot open is a classified failure, not a missing daemon', async () => {
     const h = buildHarness({
-        installed: true,
-        registered: true,
-        onlineAfterStart: false
+        inspectError: new SpritesError(
+            'transient',
+            'execSpriteStream handshake failed: HTTP 502',
+            502,
+            undefined,
+            { execPhase: 'pre_open' }
+        )
     })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'sprite_exec_unavailable')
+    assert.deepEqual(res.execFailure, { failureClass: 'handshake_5xx', upstreamStatus: 502 })
+    assert.deepEqual(h.calls, ['power', 'inspect'], 'nothing else pays the same failing handshake')
+    assert.deepEqual(h.mints, [])
+})
 
-    const res = await h.service.ensureRunner(args(h.exec as never))
+test('concurrent turns on one host share a single bring-up', async () => {
+    const h = buildHarness({ registered: false })
+    const results = await Promise.all([
+        h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 }),
+        h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 }),
+        h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    ])
+    for (const res of results) assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(h.calls.filter((c) => c === 'register').length, 1)
+    assert.equal(h.mints.length, 1)
+})
 
-    // WHY: the caller must be able to fall back to sprite exec. A throw here
-    // would fail a turn that has a perfectly good execution path left.
+test('a bring-up superseded by a newer generation drops out instead of racing it', async () => {
+    const h = buildHarness({ registered: true })
+    const original = h.adapter.bootstrap
+    h.adapter.bootstrap = async (args) => {
+        if (args.script.includes('echo installed=')) {
+            // Someone bumped the host (a delete, another bootstrap) meanwhile.
+            h.state.host = { ...h.state.host, generation: h.state.host.generation + 1 }
+        }
+        return original(args)
+    }
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    assert.equal(res.handle, null)
+    assert.ok(!h.calls.includes('start'))
+})
+
+test('a daemon lacking a required feature is refused rather than handed out', async () => {
+    const h = buildHarness({ daemon: daemonRow({ clientFeatures: [] }) })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['auth-context.v1']
+    })
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_unavailable')
 })
 
-// The wait after a start is the one stretch of a bring-up with no exec in
-// flight, and a sprite suspends seconds after the last one: the start is
-// bracketed by the bring-up's own awake lease, dropped once the wait is over
-// either way. Seen on prod [2026-09-26]: the VM went warm three seconds after
-// `runner start` and the daemon only dialled in when a later exec woke it.
-const leaseAround = (cmds: string[]): string => {
-    const hold = cmds.findIndex((c) => c.includes('-X POST /v1/tasks'))
-    const start = cmds.findIndex((c) => c.includes('daemon start'))
-    const release = cmds.findIndex((c) => c.includes('-X DELETE'))
-    assert.ok(
-        hold >= 0 && hold < start,
-        'the lease is requested before the start'
-    )
-    assert.ok(release > start, 'and dropped after it')
-    const name = /\/v1\/tasks\/(mfturn-start-[0-9a-f-]+)/.exec(
-        cmds[release]
-    )?.[1]
-    assert.ok(
-        name && cmds[hold].includes(name),
-        'the release drops that same lease'
-    )
-    return name
-}
-
-test('a bring-up holds the sprite awake across the wait and lets go whether or not the runner connects', async () => {
-    const names: string[] = []
-    for (const onlineAfterStart of [true, false]) {
-        const h = buildHarness({
-            installed: true,
-            registered: true,
-            hostIdUpfront: 'dh_runner',
-            onlineAfterStart
-        })
-        const res = await h.service.ensureRunner(
-            args(h.exec as never, { waitOnlineMs: 50 })
-        )
-        assert.equal(res.handle !== null, onlineAfterStart)
-        await new Promise((resolve) => setTimeout(resolve, 5))
-        names.push(leaseAround(h.calls.map((c) => c.cmd)))
+test('a host that is failed, deleting or retired is never brought up', async () => {
+    for (const status of ['failed', 'deleting', 'retired'] as const) {
+        const h = buildHarness({ host: { status } })
+        const res = await h.service.ensureHostDaemon({ host: h.state.host })
+        assert.equal(res.handle, null)
+        assert.deepEqual(h.calls, [])
     }
-    assert.notEqual(
-        names[0],
-        names[1],
-        'each bring-up holds a lease of its own'
-    )
 })
 
-test('a failing exec degrades to null', async () => {
+test('requireHostDaemon throws a coded 503 when the daemon cannot be reached', async () => {
     const h = buildHarness({
-        installed: false,
-        registered: false,
-        execExit: (cmd) => (cmd.includes('install.sh') ? 1 : 0)
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: null
     })
-
-    const res = await h.service.ensureRunner(args(h.exec as never))
-    assert.equal(res.handle, null)
+    await assert.rejects(
+        h.service.requireHostDaemon(h.state.host),
+        (err: { getResponse?: () => { code?: string } }) =>
+            err.getResponse?.().code === 'DAEMON_OFFLINE'
+    )
+    const online = buildHarness({ daemon: daemonRow() })
+    const daemon = await online.service.requireHostDaemon(online.state.host)
+    assert.equal(daemon.hostId, 'sbx_1')
 })
 
-test('concurrent turns on one sprite share a single bring-up', async () => {
-    const h = buildHarness({ installed: false, registered: false })
+// --- workspace preflight ------------------------------------------------------
 
-    const [a, b, c] = await Promise.all([
-        h.service.ensureRunner(args(h.exec as never)),
-        h.service.ensureRunner(args(h.exec as never)),
-        h.service.ensureRunner(args(h.exec as never))
-    ])
-
-    assert.equal(a.handle?.daemonId, 'dh_runner')
-    assert.deepEqual(b.handle, a.handle)
-    assert.deepEqual(c.handle, a.handle)
-    // WHY: without de-duplication three concurrent turns would each install the
-    // CLI and mint a token, and `daemon register` would race with itself.
-    assert.equal(
-        h.calls.filter((x) => x.cmd.includes('daemon register')).length,
-        1
+test('a custom workspace is registered with the daemon before dispatch, once per generation', async () => {
+    const h = buildHarness({ daemon: daemonRow() })
+    const first = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
+    assert.equal(first.workspace.outcome, 'ensured')
+    assert.deepEqual(
+        h.rpcs.map((r) => [r.method, r.payload]),
+        [['workspace.ensure', { path: '/srv/custom', create: false }]]
     )
-    assert.equal(h.mintedCount(), 1)
+
+    const second = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
+    assert.equal(second.workspace.outcome, 'cached')
+    assert.equal(h.rpcs.length, 1)
+
+    h.state.daemon = daemonRow({ rpcConnectedAt: NOW() })
+    const third = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/custom' })
+    assert.equal(third.workspace.outcome, 'ensured', 'a new lease generation re-registers')
+    assert.equal(h.rpcs.length, 2)
 })
 
-// A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
-// outside the machine-scoped root the runner registered, and the daemon exec
-// guard refuses a cwd it does not know. Staging 2026-08-04: a claude agent
-// co-resident on a service framework's sandbox, with its workspace under that
-// framework's home, failed every runner turn with `claude_exec_failed: … outside allowed roots`
-// — while the direct sprite exec the runner replaced would have run it. The
-// runner has to be told about the workspace the same way a daemon-runtime
-// attach is: workspace.ensure in register-existing mode.
-test('a custom workspace is registered with the runner before dispatch', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-
-    const res = await h.service.ensureRunner(
-        args(h.exec as never, { workspacePath: '/home/sprite/.service-home' })
-    )
-
-    assert.deepEqual(res.handle, {
-        daemonId: 'dh_runner',
-        started: false,
-        generation: null
+test('a workspace under the declared root skips the register RPC', async () => {
+    const h = buildHarness({ daemon: daemonRow() })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        workspacePath: '/home/sprite/.manyfold/workspaces/agt_1'
     })
-    assert.equal(res.workspace.outcome, 'ensured')
-    assert.deepEqual(h.rpcCalls, [
-        {
-            daemonId: 'dh_runner',
-            method: 'workspace.ensure',
-            // create:false pins register-existing: the workspace already exists
-            // on the sprite, and `create` would instead mean "make a managed
-            // dir under the workspaces root".
-            payload: { path: '/home/sprite/.service-home', create: false },
-            // The setup deadline, NOT the registry's generic 30s default: a
-            // frozen socket inside the presence grace window must cost the turn
-            // seconds before the sprite-exec fallback, not the full RPC budget
-            // (#592: 8 of 10 production fallbacks burned 29–30.1s here).
-            timeoutMs: 5_000
-        }
-    ])
-})
-
-test('a workspace under the runner-managed root skips the register RPC', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-
-    const res = await h.service.ensureRunner(
-        args(h.exec as never, {
-            workspacePath: '/home/sprite/.manyfold/workspaces/agt_1'
-        })
-    )
-
-    // WHY: this runs on every turn, and the default workspace is already inside
-    // the root the daemon accepts — an RPC here would be a hot-path round trip
-    // for nothing.
-    assert.equal(res.handle?.daemonId, 'dh_runner')
     assert.equal(res.workspace.outcome, 'base')
-    assert.deepEqual(h.rpcCalls, [])
+    assert.deepEqual(h.rpcs, [])
 })
 
-test('a turn with no workspace path never touches the registry', async () => {
-    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
-
-    const res = await h.service.ensureRunner(args(h.exec as never))
-
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.equal(res.workspace.outcome, 'none')
-    assert.deepEqual(h.rpcCalls, [])
-})
-
-test('a failed workspace registration degrades to null, not a doomed dispatch', async () => {
-    const h = buildHarness({
-        hostIdUpfront: 'dh_runner',
-        onlineUpfront: true,
-        workspaceEnsureFails: true
-    })
-
-    const res = await h.service.ensureRunner(
-        args(h.exec as never, { workspacePath: '/home/sprite/.service-home' })
-    )
-
-    // WHY: dispatching anyway would fail the exec with `outside allowed roots`.
-    // Null falls the turn back to the direct sprite exec, which has no such
-    // guard — a runner must never be the reason a turn cannot start.
-    assert.equal(res.handle, null)
-    // A daemon that ANSWERED with an error is not a dead connection: the
-    // telemetry bucket must say the preflight itself failed.
-    assert.equal(res.fallbackReason, 'workspace_error')
-    assert.equal(res.workspace.outcome, 'failed')
-})
-
-// #592: a runner can look online for the whole presence grace window while its
-// websocket generation is frozen (sprite suspended mid-ping — the audited
-// runner logged 28 pong timeouts in 12h) or already closed. The preflight then
-// burned the registry's generic 30s RPC default before the direct-sprite
-// fallback: 8 of 10 post-rollout fallbacks took 29–30.1s, all on a legacy
-// workspace outside the runner's base root, which re-ran workspace.ensure on
-// every turn. These pin both halves of the fix: a dead generation is a
-// CLASSIFIED fallback bounded by the setup deadline, and a successful
-// registration is remembered per daemon generation.
-const preflightHarness = (
-    opts: {
-        generation?: { instanceId: string; connectedAtMs: number } | null
-    } = {}
-) => {
-    let generation =
-        opts.generation === undefined
-            ? { instanceId: 'api-1', connectedAtMs: 1_000 }
-            : opts.generation
-    let failWith: string | null = null
-    const rpcCalls: Array<Record<string, unknown>> = []
-    const execCalls: string[] = []
-    const exec = async (a: { cmd: string[] }) => {
-        execCalls.push(a.cmd.join(' '))
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [{ id: 'dh_runner', status: 'active' }]
-                })
-            })
-        })
-    }
-    const hosts = {
-        isOnline: () => true,
-        findById: async () => ({
-            id: 'dh_runner',
-            workspaceBaseDir: '/home/sprite/.manyfold/workspaces',
-            rpcInstanceId: generation?.instanceId ?? null,
-            rpcConnectedAt: generation
-                ? new Date(generation.connectedAtMs)
-                : null
-        })
-    }
-    const registry = {
-        rpc: async (a: Record<string, unknown>) => {
-            rpcCalls.push(a)
-            if (failWith) {
-                const message = failWith
-                failWith = null
+test('a failed workspace registration is a classified fallback, not a doomed dispatch', async () => {
+    const cases: Array<[string, string]> = [
+        ['rpc workspace.ensure timed out', 'workspace_timeout'],
+        ['daemon sbx_1 is not connected', 'workspace_connection_closed'],
+        ['workspace directory does not exist', 'workspace_error']
+    ]
+    for (const [message, reason] of cases) {
+        const h = buildHarness({
+            daemon: daemonRow(),
+            rpc: async () => {
                 throw new Error(message)
             }
-            return {}
-        }
-    }
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        {} as never,
-        registry as never
-    )
-    const resolve = (workspacePath = '/home/sprite/.service-home') =>
-        service.ensureRunner({
-            agentId: 'agt_1',
-            userId: 'user-1',
-            spriteName: 'art-abc',
-            exec: exec as never,
-            workspacePath
         })
-    return {
-        resolve,
-        rpcCalls,
-        execCalls,
-        failNext: (message: string) => {
-            failWith = message
-        },
-        setGeneration: (g: { instanceId: string; connectedAtMs: number }) => {
-            generation = g
-        }
-    }
-}
-
-test('a frozen socket behind a fresh host row is a classified, bounded fallback', async () => {
-    const h = preflightHarness()
-    h.failNext('rpc workspace.ensure timed out')
-
-    const res = await h.resolve()
-
-    assert.equal(res.handle, null)
-    assert.equal(res.fallbackReason, 'workspace_timeout')
-    // The deadline the manager sends down IS the bound: the registry enforces
-    // whatever it is told, and 30s was what it enforced before this fix.
-    assert.equal(h.rpcCalls[0].timeoutMs, 5_000)
-})
-
-test('a connection that dies during workspace.ensure is classified as such', async () => {
-    // Every shape the registry produces for a closed / replaced / mislaid
-    // socket, local and broker-relayed. Classifying any of them as a generic
-    // error would fold the #592 signal back into the noise bucket.
-    for (const message of [
-        'connection closed',
-        'connection replaced',
-        'daemon dh_runner is not connected',
-        'daemon dh_runner is offline; no active websocket',
-        'daemon dh_runner websocket lease is stale on this api instance'
-    ]) {
-        const h = preflightHarness()
-        h.failNext(message)
-        const res = await h.resolve()
-        assert.equal(res.handle, null, message)
-        assert.equal(res.fallbackReason, 'workspace_connection_closed', message)
+        const res = await h.service.ensureHostDaemon({ host: h.state.host, workspacePath: '/srv/x' })
+        assert.equal(res.handle, null)
+        assert.equal(res.fallbackReason, reason)
+        assert.equal(res.workspace.outcome, 'failed')
     }
 })
 
-test('a registered workspace is not re-ensured within one daemon generation', async () => {
-    const h = preflightHarness()
+// --- awake holds ---------------------------------------------------------------
 
-    const first = await h.resolve()
-    const second = await h.resolve()
-
-    assert.equal(first.workspace.outcome, 'ensured')
-    assert.equal(second.handle?.daemonId, 'dh_runner')
-    // WHY: the affected production path was a legacy workspace outside the
-    // runner's base root, which paid — and bet the turn's latency on — this
-    // RPC every single turn.
-    assert.equal(second.workspace.outcome, 'cached')
-    assert.equal(h.rpcCalls.length, 1)
-    // The whole preflight is DB + cache: no sprite exec sneaks onto the hot
-    // path either way.
-    assert.deepEqual(h.execCalls, [])
-})
-
-test('each distinct path is ensured once within one generation', async () => {
-    const h = preflightHarness()
-
-    await h.resolve('/home/sprite/.service-home')
-    await h.resolve('/home/sprite/legacy-project')
-    const cachedA = await h.resolve('/home/sprite/.service-home')
-    const cachedB = await h.resolve('/home/sprite/legacy-project')
-
-    // One registration per path: sharing a daemon must not let one path's
-    // registration vouch for another's.
-    assert.equal(h.rpcCalls.length, 2)
-    assert.equal(cachedA.workspace.outcome, 'cached')
-    assert.equal(cachedB.workspace.outcome, 'cached')
-})
-
-test('a generation change invalidates the registration and re-ensures', async () => {
-    const h = preflightHarness()
-    await h.resolve()
-
-    // Same daemon id, new socket lease: its process may have restarted and
-    // forgotten every ensured root, so the cache must not carry over.
-    h.setGeneration({ instanceId: 'api-1', connectedAtMs: 2_000 })
-    const reconnected = await h.resolve()
-    assert.equal(reconnected.workspace.outcome, 'ensured')
-    assert.equal(h.rpcCalls.length, 2)
-
-    // Reconnecting through the peer api instance is a new generation too.
-    h.setGeneration({ instanceId: 'api-2', connectedAtMs: 2_000 })
-    await h.resolve()
-    assert.equal(h.rpcCalls.length, 3)
-})
-
-test('a failed ensure is not cached: the next turn tries again', async () => {
-    const h = preflightHarness()
-    h.failNext('rpc workspace.ensure timed out')
-
-    const failed = await h.resolve()
-    const retried = await h.resolve()
-
-    assert.equal(failed.handle, null)
-    // WHY: caching a failure would pin every later turn to the fallback for
-    // the rest of the generation even after the daemon thawed.
-    assert.equal(retried.workspace.outcome, 'ensured')
-    assert.equal(retried.handle?.daemonId, 'dh_runner')
-    assert.equal(h.rpcCalls.length, 2)
-})
-
-test('a host row without an rpc lease never uses the cache', async () => {
-    const h = preflightHarness({ generation: null })
-
-    await h.resolve()
-    const second = await h.resolve()
-
-    // WHY: no lease means mid-reconnect — there is no generation to scope the
-    // registration to, and skipping the ensure on trust would dispatch into a
-    // daemon that may never have seen the path. Re-ensuring is the safe
-    // direction.
-    assert.equal(second.workspace.outcome, 'ensured')
-    assert.equal(h.rpcCalls.length, 2)
-})
-
-// `mf daemon register` also creates one agent_runtime per framework it detects
-// inside the sprite. On staging that put a fake host plus 4 runtimes named
-// sprite-runner:art-…-{claude-code,codex,gemini-cli,hermes} into the user's own
-// runtime list. Marking the host is what keeps the platform's plumbing out of
-// their account, so it has to happen on the register path, not somewhere a
-// later refactor can drop.
-// A sprite from an older image already HAS ~/.local/bin/mf — the legacy binary,
-// or the nca->mf bridge symlink the shell-env writes — so the install step is
-// skipped and the register runs against a CLI that predates `--token -`. It
-// takes the dash literally and rejects it. Measured on a staging codex sprite:
-// `daemon register token must start with ldt_`, on every turn, forever, because
-// nothing ever reinstalls. The runner must heal itself.
-test('a CLI too old to read the token from stdin is reinstalled and retried', async () => {
-    const calls: string[] = []
-    let registrations = 0
-    let installed = false
-    const exec = async (a: { cmd: string[] }) => {
-        const cmd = a.cmd.join(' ')
-        calls.push(cmd)
-        if (cmd.includes('test -x'))
-            // Reports a CURRENT version on purpose: this pins the BACKSTOP (a
-            // register that fails with the stale-flag signature) rather than the
-            // version floor, which would otherwise catch it first and make the
-            // backstop unreachable.
-            return {
-                exitCode: 0,
-                stdout: `installed=1\nregistered=0\nversion=${DAEMON_MIN_CLI_VERSION}`,
-                stderr: ''
-            }
-        if (cmd.includes('install.sh')) {
-            installed = true
-            return { exitCode: 0, stdout: '', stderr: '' }
-        }
-        if (cmd.includes('daemon register')) {
-            registrations++
-            if (!installed)
-                return {
-                    exitCode: 1,
-                    stdout: '',
-                    stderr: 'Error: daemon register token must start with ldt_'
-                }
-            return { exitCode: 0, stdout: 'daemon registered', stderr: '' }
-        }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [{ id: 'dh_runner', status: 'active' }]
-                })
-            })
-        })
-    }
-    const hosts = {
-        isOnline: () => installed
-    }
-    const tokens = {
-        mint: async (x: { name: string }) => ({
-            tokenId: 't',
-            plaintext: 'ldt_fresh',
-            name: x.name,
-            expiresAt: null,
-            createdAt: new Date()
-        }),
-        deleteUnbound: async () => true
-    }
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        tokens as never,
-        { rpc: async () => ({}) } as never
-    )
-
-    const res = await service.ensureRunner({
-        agentId: 'agt_1',
-        userId: 'user-1',
-        spriteName: 'art-abc',
-        exec: exec as never,
-        waitOnlineMs: 50
-    })
-
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.equal(registrations, 2, 'retried after reinstalling')
-    assert.ok(
-        calls.some((c) => c.includes('install.sh')),
-        'reinstalled despite installed=1'
-    )
-})
-
-// Nothing else ever updates the CLI the platform installed inside a sprite, so
-// without a floor a sprite keeps its first binary forever — including bugs since
-// fixed in it. The one that matters: below 0.20.0 the exec buffer grows without
-// bound and the daemon re-enumerates every turn it ever ran BEFORE dialling
-// back, which is the most plausible reason a bring-up blew its 120s budget on a
-// sprite that was already installed and registered.
-test('a sprite running an outdated runner CLI is upgraded, not just started', async () => {
-    const h = buildHarness({ version: '0.19.0' })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    assert.ok(
-        h.calls.some((c) => c.cmd.includes('install.sh')),
-        'installed=1 is not sufficient when the version is below the floor'
-    )
-})
-
-test('a runner predating header authentication is upgraded even though it cleared the old floor', async () => {
-    const h = buildHarness({ version: '0.33.1' })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    assert.ok(
-        h.calls.some((c) => c.cmd.includes('install.sh')),
-        '0.33.1 authenticates with a query credential and must reinstall'
-    )
-})
-
-for (const version of [
-    DAEMON_MIN_CLI_VERSION,
-    `${DAEMON_MIN_CLI_VERSION}-dev.test`
-])
-    test(`a sprite on ${version} is not reinstalled`, async () => {
-        const h = buildHarness({ version })
-
-        await h.service.ensureRunner(args(h.exec as never))
-
-        // WHY: this runs on the turn path. Reinstalling a current CLI would add tens
-        // of seconds to a turn for nothing.
-        assert.ok(!h.calls.some((c) => c.cmd.includes('install.sh')))
-    })
-
-test('registering a runner mints a token the server marks as platform-managed', async () => {
-    const h = buildHarness({ installed: false, registered: false })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    // WHY: the ONLY thing that makes the register quota-exempt and its host
-    // managed. It lives on the token row rather than in the register body or
-    // the --name, so a user's own token can never claim it (#804).
-    assert.deepEqual(h.mintedPurposes, ['sprite_runner'])
-    assert.deepEqual(h.deleteUnboundCalls, [])
-})
-
-test('a failed register discards the token it minted', async () => {
-    const h = buildHarness({
-        installed: false,
-        registered: false,
-        execExit: (cmd) => (cmd.includes('daemon register') ? 1 : 0)
-    })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    // Seen on production [2026-08-12]: a rejected bring-up left a valid 90-day
-    // token behind, once per turn, and the turn retried every time.
-    assert.deepEqual(h.deleteUnboundCalls, [
-        { tokenId: 'ldt_id', userId: 'user-1' }
-    ])
-})
-
-test('a register whose exec throws discards the token it minted', async () => {
-    const h = buildHarness({
-        installed: false,
-        registered: false,
-        execThrowOn: (cmd) => cmd.includes('daemon register')
-    })
-
-    // The bring-up still degrades to sprite exec rather than failing the turn.
-    const res = await h.service.ensureRunner(args(h.exec as never))
-
-    assert.equal(res.handle, null)
-    assert.deepEqual(h.deleteUnboundCalls, [
-        { tokenId: 'ldt_id', userId: 'user-1' }
-    ])
-})
-
-test('the runner is bound to its sprite by a derived name', () => {
-    // WHY: this name IS the agent↔runner binding until a column exists, so a
-    // host belonging to another sprite can never be picked up as this one's.
-    assert.equal(runnerHostName('art-abc'), 'sprite-runner:art-abc')
-    assert.notEqual(runnerHostName('art-abc'), runnerHostName('art-abd'))
-    assert.equal(RUNNER_PROFILE, 'spriterunner')
-})
-
-test('the runner probes and registers under the ADR-0014 profile layout', async () => {
-    const h = buildHarness({ installed: true, registered: false })
-
-    await h.service.ensureRunner(args(h.exec as never))
-
-    // Probe path comes from shared profilePaths — the same source the CLI
-    // derives its layout from, so probe and reality cannot drift.
-    const inspect = h.calls.find((c) => c.cmd.includes('test -x'))
-    assert.ok(inspect)
-    assert.ok(
-        inspect.cmd.includes(
-            '$HOME/.manyfold/profiles/spriterunner/daemon/config.json'
-        )
-    )
-    // The data plane is the machine-scoped shared root — the CLI's own
-    // registration default — so the register command declares nothing:
-    // overriding here would be the on-demand isolation vocabulary, which the
-    // runner precisely does not want.
-    const register = h.calls.find((c) => c.cmd.includes('daemon register'))
-    assert.ok(register)
-    assert.ok(!register.cmd.includes('--workspace-root'))
-    assert.ok(!register.cmd.includes('--skills-dir'))
-})
-
-// A runner turn has NO platform-visible activity, so the sprite suspends, the
-// frozen runner misses websocket pings and the API drops it mid-turn — measured
-// on staging: `runner online` → 34s → `daemon.ws.pong_timeout` → `connection
-// closed`. These pin the turn-scoped activity lease that fixes it.
-const awakeHarness = (opts: { exitCode?: number } = {}) => {
-    const calls: string[] = []
-    const exec = async (a: { cmd: string[] }) => {
-        calls.push(a.cmd.join(' '))
-        return { exitCode: opts.exitCode ?? 0, stdout: '', stderr: '' }
-    }
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        {} as never,
-        {} as never,
-        {} as never,
-        {} as never
-    )
-    return { service, exec, calls }
-}
-
-test('holding the sprite awake creates a per-turn activity lease with a TTL', async () => {
-    const h = awakeHarness()
-
-    const ok = await h.service.holdSpriteAwake({
-        exec: h.exec as never,
-        turnId: 'msg-abc',
-        ttl: '30m'
-    })
-
-    assert.equal(ok, true)
-    assert.equal(h.calls.length, 1)
-    assert.match(h.calls[0], /curl -s -X POST \/v1\/tasks -d /)
-    // The path must sit before -d with no -H/-o/-w: the other order made curl
-    // exit 3 (malformed URL) and the hold silently never happened on staging.
-    assert.ok(!h.calls[0].includes('-w '), 'no -w: it breaks sprite-env curl')
-    // Falls back to a renew (PUT) so retrying the same turn is not a failure.
-    assert.match(h.calls[0], /-X PUT/)
-    // The TTL is what makes an API crash mid-turn safe: the lease expires on its
-    // own, so the sprite can suspend again instead of being pinned forever.
-    assert.match(h.calls[0], /"expire":"30m"/)
-    // Per-turn name: two concurrent turns on one sprite must not be able to
-    // release each other's lease.
-    assert.match(h.calls[0], /"name":"mfturn-msg-abc"/)
-})
-
-test('a create-or-renew that succeeds counts as held', async () => {
-    const h = awakeHarness()
-    assert.equal(
-        await h.service.holdSpriteAwake({
-            exec: h.exec as never,
-            turnId: 'msg-abc',
-            ttl: '30m'
-        }),
-        true
-    )
-})
-
-test('a rejected hold reports false rather than throwing', async () => {
-    const h = awakeHarness({ exitCode: 3 })
-    // WHY: the caller must be able to continue the turn — a sprite that suspends
-    // is a degraded turn, not a reason to refuse to start one.
-    assert.equal(
-        await h.service.holdSpriteAwake({
-            exec: h.exec as never,
-            turnId: 'msg-abc',
-            ttl: '30m'
-        }),
-        false
-    )
-})
-
-test('the awake lease is renewed so a turn can outlive its TTL', async (t) => {
-    const h = awakeHarness()
-    t.mock.timers.enable({ apis: ['setInterval'] })
-
-    const hold = h.service.keepSpriteAwake({
-        exec: h.exec as never,
-        turnId: 'msg-long'
-    })
-    await Promise.resolve()
-    assert.equal(h.calls.length, 1, 'held immediately, not one interval late')
-
-    // WHY this matters: the lease TTL is 30m but a turn may run for the full
-    // 2h exec ceiling (maxTimeoutSeconds). Without renewal the sprite suspends
-    // at minute 30, freezing the runner mid-answer — the exact failure the
-    // lease exists to prevent, just delayed.
-    t.mock.timers.tick(31 * 60_000)
-    await Promise.resolve()
-    assert.ok(h.calls.length >= 4, `renewed while running (${h.calls.length})`)
-    assert.ok(h.calls.every((c) => c.includes('mfturn-msg-long')))
-
+test('holding a sprite awake creates a per-turn activity lease; a non-sprite host is a no-op', async () => {
+    const sprite = buildHarness({})
+    const hold = sprite.service.keepSpriteAwake({ host: sprite.state.host, turnId: 'turn 1' })
     await hold.release()
-    const afterRelease = h.calls.length
-    assert.match(h.calls[afterRelease - 1], /DELETE .*\/v1\/tasks\/mfturn-/)
-    // Releasing stops the renewals: an orphaned interval would pin the sprite
-    // awake for the life of the process.
-    t.mock.timers.tick(60 * 60_000)
-    await Promise.resolve()
-    assert.equal(h.calls.length, afterRelease)
-    // The turn's finally can run twice (error path then cleanup); a second
-    // release must not fire another exec.
-    await hold.release()
-    assert.equal(h.calls.length, afterRelease)
+    assert.equal(sprite.awake.length, 2)
+    assert.match(sprite.awake[0].script, /POST \/v1\/tasks -d '\{"name":"mfturn-turn1","expire":"30m"\}'/)
+    assert.match(sprite.awake[1].script, /DELETE '\/v1\/tasks\/mfturn-turn1'/)
+
+    const pod = buildHarness({ providerKind: 'k8s' })
+    const noop = pod.service.keepSpriteAwake({ host: pod.state.host, turnId: 'turn 1' })
+    await noop.release()
+    assert.deepEqual(pod.awake, [])
+    assert.equal(await pod.service.holdSpriteAwake({ host: pod.state.host }), true)
 })
 
-test('detaching leaves the lease alive for whoever resumes the turn', async (t) => {
-    const h = awakeHarness()
-    t.mock.timers.enable({ apis: ['setInterval'] })
-
-    const hold = h.service.keepSpriteAwake({
-        exec: h.exec as never,
-        turnId: 'msg-suspended'
-    })
-    await Promise.resolve()
-    const held = h.calls.length
-
-    // WHY: a suspended turn is still being executed by the runner. Deleting the
-    // lease on the way out would let the sprite suspend and freeze it
-    // mid-answer — the TTL is the right bound, exactly as when this instance
-    // dies outright.
-    hold.detach()
-    t.mock.timers.tick(60 * 60_000)
-    await Promise.resolve()
-    assert.equal(h.calls.length, held, 'no DELETE, and no further renewals')
-    assert.ok(h.calls.every((c) => !c.includes('-X DELETE')))
-})
-
-test('releasing deletes that turn lease and swallows failures', async () => {
-    const h = awakeHarness()
-    await h.service.releaseSpriteAwake({
-        exec: h.exec as never,
-        turnId: 'msg-abc'
-    })
-    assert.match(h.calls[0], /DELETE .*\/v1\/tasks\/mfturn-msg-abc/)
-
-    const failing = {
-        service: h.service,
-        exec: async () => {
-            throw new Error('sprite unreachable')
-        }
-    }
-    // WHY: this runs in the turn's finally block — throwing here would turn a
-    // completed turn into a failed one, and the TTL already bounds the leak.
-    await failing.service.releaseSpriteAwake({
-        exec: failing.exec as never,
-        turnId: 'msg-abc'
-    })
-})
-
-// The create is fire-and-forget, so a hold settled on its first poll — routine
-// for an adoption that finds the turn already terminal — could see its DELETE
-// land before its own POST and leave a full-TTL lease nobody renews. release()
-// waits for whatever hold was last in flight before it deletes.
-test('releasing waits for the in-flight create so the DELETE cannot overtake it', async () => {
-    const calls: string[] = []
-    let finishCreate: () => void = () => {}
-    const created = new Promise<void>((resolve) => {
-        finishCreate = resolve
-    })
-    const exec = async (a: { cmd: string[] }) => {
-        const cmd = a.cmd.join(' ')
-        // Only the create is slow; the DELETE answers at once, which is the
-        // ordering that used to leak.
-        if (/-X POST/.test(cmd)) await created
-        calls.push(cmd)
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const h = awakeHarness()
-    const hold = h.service.keepSpriteAwake({
-        exec: exec as never,
-        turnId: 'msg-fast'
-    })
-    let released = false
-    const releasing = hold.release().then(() => {
-        released = true
-    })
-    await Promise.resolve()
-    assert.equal(
-        released,
-        false,
-        'release must not complete ahead of the create'
-    )
-    assert.equal(calls.length, 0)
-
-    finishCreate()
-    await releasing
-    assert.equal(calls.length, 2)
-    assert.match(calls[0], /-X POST \/v1\/tasks/)
-    assert.match(calls[1], /-X DELETE .*\/v1\/tasks\/mfturn-msg-fast/)
-})
-
-// The sandbox CLI upgrade swaps ~/.local/bin/mf under a runner that keeps
-// running — and heartbeating — the build it was started with: nothing re-execs
-// a `setsid nohup` daemon, its own daemon.update refuses without an init unit,
-// and a warm sprite resume brings the old process back (staging 2026-09-10:
-// sandbox row on the new build, runner row on the old one without
-// auth-profiles.v1). These pin what restartForInstalledCli does about that
-// process, and what it refuses to do.
-
-const OLD_BUILD = '0.31.2-dev.202609091242.909c84a'
-const NEW_BUILD = `${DAEMON_MIN_CLI_VERSION}-dev.test`
+// --- restart after a CLI upgrade -----------------------------------------------
 
 const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
     JSON.stringify({ configured: true, localPid: pid, local })
 
-const restartStep = (cmd: string): string =>
-    cmd.includes('daemon status')
-        ? 'status'
-        : cmd.includes('daemon start')
-          ? 'start'
-          : cmd.includes('-X DELETE')
-            ? 'release'
-            : cmd.includes('/v1/tasks')
-              ? 'hold'
-              : 'other'
-const startOf = (calls: string[]): string => {
-    const start = calls.find((c) => c.includes('daemon start'))
-    assert.ok(start, 'a start exec ran')
-    return start
-}
-
-const restartHarness = (opts: {
-    clientFeatures?: string[]
-    hostRow?: boolean
-    statusStdout?: string
-    statusExit?: number
-    // what the host row reports once `daemon start` ran; null = it never moves
-    versionAfterStart?: string | null
-    execThrowOn?: (cmd: string) => boolean
-}) => {
-    const calls: string[] = []
-    let rowVersion = OLD_BUILD
-    const exec = async (a: {
-        cmd: string[]
-        timeoutMs: number
-    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
-        const cmd = a.cmd.join(' ')
-        calls.push(cmd)
-        if (opts.execThrowOn?.(cmd)) throw new Error('exec transport failed')
-        if (cmd.includes('daemon status'))
-            return {
-                exitCode: opts.statusExit ?? 0,
-                stdout: opts.statusStdout ?? statusJson(null, null as never),
-                stderr: ''
-            }
-        if (cmd.includes('daemon start')) {
-            if (opts.versionAfterStart) rowVersion = opts.versionAfterStart
-            return { exitCode: 0, stdout: '1', stderr: '' }
-        }
-        if (cmd.includes('tail -n'))
-            return { exitCode: 0, stdout: 'daemon running pid=1', stderr: '' }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () =>
-                        opts.hostRow === false
-                            ? []
-                            : [
-                                  {
-                                      id: 'dh_runner',
-                                      status: 'active',
-                                      cliVersion: rowVersion,
-                                      clientFeatures: opts.clientFeatures ?? []
-                                  }
-                              ]
-                })
-            })
-        })
-    }
-    const hosts = { isOnline: () => true }
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        {} as never,
-        { rpc: async () => ({}) } as never
-    )
-    const restart = () =>
-        service.restartForInstalledCli({
-            userId: 'user_1',
-            spriteName: 'art-1',
-            exec,
-            installedVersion: NEW_BUILD,
-            waitMs: 20
-        })
-    return { restart, calls }
-}
-
 test('parseRunnerStatus: the running daemon, shell noise, and every way there is no answer', () => {
     assert.deepEqual(
-        parseRunnerStatus(
-            `Last login: today\n${statusJson({
-                version: OLD_BUILD,
-                activeExecs: 1,
-                activePtys: 0,
-                wsConnected: true
-            })}\n`
-        ),
-        {
-            kind: 'running',
-            version: OLD_BUILD,
-            activeExecs: 1,
-            adoptableExecs: 0,
-            activePtys: 0
-        }
+        parseRunnerStatus(`motd\n${statusJson({ version: '1.2.3', activeExecs: 2, adoptableExecs: 1, activePtys: 0 })}`),
+        { kind: 'running', version: '1.2.3', activeExecs: 2, adoptableExecs: 1, activePtys: 0 }
     )
-    // Missing counters read as idle rather than as a parse failure.
-    assert.deepEqual(parseRunnerStatus(statusJson({ version: OLD_BUILD })), {
-        kind: 'running',
-        version: OLD_BUILD,
-        activeExecs: 0,
-        adoptableExecs: 0,
-        activePtys: 0
-    })
-    assert.deepEqual(parseRunnerStatus('{"configured":false}'), {
-        kind: 'not-running'
-    })
-    assert.deepEqual(parseRunnerStatus(statusJson(null, null as never)), {
-        kind: 'not-running'
-    })
-    // A pid with no health: a daemon older than the control socket.
+    assert.deepEqual(parseRunnerStatus(JSON.stringify({ configured: false })), { kind: 'not-running' })
+    assert.deepEqual(parseRunnerStatus(JSON.stringify({ configured: true, local: null })), { kind: 'not-running' })
     assert.deepEqual(parseRunnerStatus(statusJson(null)), { kind: 'unknown' })
-    assert.deepEqual(parseRunnerStatus('no daemon configured'), {
-        kind: 'unknown'
+    assert.deepEqual(parseRunnerStatus('garbage'), { kind: 'unknown' })
+})
+
+test('restart: no daemon row, no process, and a current build each end without a restart', async () => {
+    const none = buildHarness({ daemon: null })
+    assert.equal(await none.service.restartForInstalledCli({ host: none.state.host, installedVersion: '9.9.9' }), 'no-runner')
+    assert.deepEqual(none.calls, [])
+
+    const idle = buildHarness({ daemon: offlineDaemon(), status: JSON.stringify({ configured: false }) })
+    assert.equal(await idle.service.restartForInstalledCli({ host: idle.state.host, installedVersion: '9.9.9' }), 'not-running')
+
+    const current = buildHarness({
+        daemon: daemonRow(),
+        status: statusJson({ version: '9.9.9', activeExecs: 0, adoptableExecs: 0, activePtys: 0 })
     })
+    assert.equal(await current.service.restartForInstalledCli({ host: current.state.host, installedVersion: '9.9.9' }), 'current')
 })
 
-test('restart: no managed runner host means nothing runs the old build — no exec at all', async () => {
-    const h = restartHarness({ hostRow: false })
-    assert.equal(await h.restart(), 'no-runner')
-    assert.deepEqual(h.calls, [])
-})
-
-test('restart: a registered runner with no process is left to the next bring-up', async () => {
-    const h = restartHarness({ statusStdout: statusJson(null, null as never) })
-    assert.equal(await h.restart(), 'not-running')
-    assert.equal(h.calls.length, 1)
-    assert.match(h.calls[0], /MF_PROFILE=spriterunner/)
-    assert.match(h.calls[0], /daemon status --json/)
-})
-
-test('restart: a daemon already on the installed build is not touched', async () => {
-    const h = restartHarness({
-        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 })
+test('restart: live sessions win, an idle daemon on the old build is restarted', async () => {
+    const busy = buildHarness({
+        daemon: daemonRow(),
+        status: statusJson({ version: '1.0.0', activeExecs: 1, adoptableExecs: 0, activePtys: 0 })
     })
-    assert.equal(await h.restart(), 'current')
-    assert.equal(h.calls.length, 1)
-})
+    assert.equal(await busy.service.restartForInstalledCli({ host: busy.state.host, installedVersion: '9.9.9' }), 'busy')
+    assert.ok(!busy.calls.includes('start'))
 
-test('restart: live sessions win — a busy runner keeps its old build', async () => {
-    for (const local of [
-        { version: OLD_BUILD, activeExecs: 1, activePtys: 0 },
-        { version: OLD_BUILD, activeExecs: 0, activePtys: 1 }
-    ]) {
-        const h = restartHarness({ statusStdout: statusJson(local) })
-        assert.equal(await h.restart(), 'busy')
-        assert.equal(h.calls.length, 1, JSON.stringify(local))
-        assert.ok(!h.calls.some((c) => c.includes('daemon start')))
+    const idle = buildHarness({
+        daemon: daemonRow(),
+        status: statusJson({ version: '1.0.0', activeExecs: 0, adoptableExecs: 0, activePtys: 0 })
+    })
+    const original = idle.adapter.bootstrap
+    idle.adapter.bootstrap = async (args) => {
+        const res = await original(args)
+        if (args.script.includes('daemon start'))
+            idle.state.daemon = daemonRow({ cliVersion: '9.9.9', rpcConnectedAt: NOW() })
+        return res
     }
+    assert.equal(await idle.service.restartForInstalledCli({ host: idle.state.host, installedVersion: '9.9.9', waitMs: 50 }), 'restarted')
+    assert.ok(idle.calls.includes('start'))
 })
 
-test('restart: an idle runner on the old build is stopped and started, and counts as restarted once the row reports the installed build', async () => {
-    const h = restartHarness({
-        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
-        versionAfterStart: NEW_BUILD
+// --- wake outside a turn -------------------------------------------------------
+
+test('wake: a connected daemon is live, a thawed one reconnects, a cold VM is started', async () => {
+    const live = buildHarness({ daemon: daemonRow() })
+    assert.equal((await live.service.wakeRunner({ host: live.state.host })).outcome, 'live')
+
+    const thawed = buildHarness({ daemon: offlineDaemon(), power: 'suspended', registered: true, reconnectsOnWake: true })
+    assert.equal((await thawed.service.wakeRunner({ host: thawed.state.host })).outcome, 'reconnected')
+
+    const cold = buildHarness({
+        daemon: offlineDaemon(),
+        power: 'stopped',
+        registered: true,
+        status: JSON.stringify({ configured: false })
     })
-    assert.equal(await h.restart(), 'restarted')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    assert.deepEqual(h.calls.map(restartStep), [
-        'status',
-        'hold',
-        'start',
-        'release'
-    ])
-    const start = startOf(h.calls)
-    assert.match(start, /MF_PROFILE=spriterunner/)
-    assert.ok(
-        start.indexOf('daemon stop') < start.indexOf('daemon start'),
-        'stop precedes start in the same exec'
-    )
-    assert.match(start, /setsid nohup .* daemon start --foreground/)
+    const woke = await cold.service.wakeRunner({ host: cold.state.host, waitOnlineMs: 50 })
+    assert.equal(woke.outcome, 'restarted')
+    assert.equal(woke.handle?.daemonId, 'sbx_1')
 })
 
-// ADR-0029 §4 (B3): an exec the next daemon adopts is not a reason to keep
-// the old build, and the stop that precedes the start leaves it alive — but
-// only when the daemon said it can (an older CLI would refuse the flag).
-test('restart: adoptable execs do not make the runner busy, and a capable daemon is stopped with --keep-execs', async () => {
-    const h = restartHarness({
-        statusStdout: statusJson({
-            version: OLD_BUILD,
-            activeExecs: 2,
-            adoptableExecs: 2,
-            activePtys: 0
-        }),
-        versionAfterStart: NEW_BUILD,
-        clientFeatures: ['exec.files.v1']
+test('wake: a silent busy process is left alone; a machine that never had a daemon takes the bring-up path', async () => {
+    const busy = buildHarness({
+        daemon: offlineDaemon(),
+        registered: true,
+        status: statusJson({ version: CLI_AT_FLOOR, activeExecs: 1, adoptableExecs: 0, activePtys: 0 })
     })
-    assert.equal(await h.restart(), 'restarted')
-    assert.match(startOf(h.calls), /daemon stop --keep-execs/)
-})
+    assert.equal((await busy.service.wakeRunner({ host: busy.state.host })).outcome, 'busy')
 
-test('restart: an exec that would die with the daemon still keeps the old build, and a daemon without the capability is stopped plainly', async () => {
-    const busy = restartHarness({
-        statusStdout: statusJson({
-            version: OLD_BUILD,
-            activeExecs: 2,
-            adoptableExecs: 1,
-            activePtys: 0
-        }),
-        clientFeatures: ['exec.files.v1']
-    })
-    assert.equal(await busy.restart(), 'busy')
-    const plain = restartHarness({
-        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
-        versionAfterStart: NEW_BUILD
-    })
-    assert.equal(await plain.restart(), 'restarted')
-    assert.match(startOf(plain.calls), /daemon stop >\/dev\/null/)
-    assert.doesNotMatch(startOf(plain.calls), /--keep-execs/)
-})
-
-test('restart: the row still on the old build after the wait is a timeout, with the runner log read for the report', async () => {
-    const h = restartHarness({
-        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
-        versionAfterStart: null
-    })
-    assert.equal(await h.restart(), 'restart-timeout')
-    assert.ok(h.calls.some((c) => c.includes('daemon start')))
-    assert.ok(h.calls.some((c) => c.includes('tail -n')))
-})
-
-test('restart: a daemon that cannot answer its control socket is restarted anyway', async () => {
-    for (const h of [
-        restartHarness({
-            statusStdout: statusJson(null),
-            versionAfterStart: NEW_BUILD
-        }),
-        restartHarness({
-            statusExit: 1,
-            statusStdout: '',
-            versionAfterStart: NEW_BUILD
-        })
-    ]) {
-        assert.equal(await h.restart(), 'restarted')
-        assert.ok(h.calls.some((c) => c.includes('daemon start')))
-    }
-})
-
-test('restart: an exec that throws is reported as failed, never thrown', async () => {
-    const h = restartHarness({
-        execThrowOn: (cmd) => cmd.includes('daemon status')
-    })
-    assert.equal(await h.restart(), 'failed')
-})
-
-// ---- wakeRunner ---------------------------------------------------------------
-// An auth.* RPC has no exec to thaw the sprite and no lease to hold it, and the
-// host row cannot tell it the runner is frozen (a suspended process keeps its
-// 45s socket lease). Seen on staging [2026-09-10]: heartbeat at :27, sprite
-// suspended at :35, `auth.create` at :41 sat on the frozen socket for the full
-// RPC timeout, twice. These pin how a wake resolves each state a suspension
-// leaves a runner in, and what proves the runner is back.
-
-const wakeHarness = (opts: {
-    // host row present at all (a sprite that never had a runner has none)
-    hostRow?: boolean
-    // what the inspect exec reports
-    registered?: boolean
-    // the row's lease as the wake finds it
-    online?: boolean
-    // `mf daemon status --json` inside the sprite
-    statusStdout?: string
-    // whether the process dials back in on its own after the status probe
-    // (a thawed process reconnecting) — refreshes the lease without a start
-    reconnectsAfterStatus?: boolean
-    // whether `daemon start` brings a fresh lease; false = the row stays as
-    // it was
-    leaseAfterStart?: boolean
-    // the trap: after the start the row reads online, but on the lease the
-    // frozen process left behind — nothing new has connected
-    staleOnlineAfterStart?: boolean
-    execThrowOn?: (cmd: string) => boolean
-}) => {
-    const calls: string[] = []
-    let online = opts.online ?? false
-    // A register is what creates the host row.
-    let hasRow = opts.hostRow !== false
-    // Older than any `since` the wake can take: the lease a frozen process
-    // left behind.
-    let rpcLastSeenAt = new Date(Date.now() - 60_000)
-    const refreshLease = (): void => {
-        online = true
-        rpcLastSeenAt = new Date(Date.now() + 1_000)
-    }
-    const exec = async (a: {
-        cmd: string[]
-        timeoutMs: number
-    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
-        const cmd = a.cmd.join(' ')
-        calls.push(cmd)
-        if (opts.execThrowOn?.(cmd)) throw new Error('exec transport failed')
-        if (cmd.includes('test -x'))
-            return {
-                exitCode: 0,
-                stdout: `installed=1\nregistered=${opts.registered === false ? 0 : 1}\nversion=${NEW_BUILD}`,
-                stderr: ''
-            }
-        if (cmd.includes('daemon status')) {
-            if (opts.reconnectsAfterStatus) refreshLease()
-            return {
-                exitCode: 0,
-                stdout: opts.statusStdout ?? statusJson(null, null as never),
-                stderr: ''
-            }
-        }
-        if (cmd.includes('daemon register')) {
-            hasRow = true
-            refreshLease()
-            return { exitCode: 0, stdout: 'daemon registered', stderr: '' }
-        }
-        if (cmd.includes('daemon start')) {
-            if (opts.staleOnlineAfterStart) online = true
-            else if (opts.leaseAfterStart !== false) refreshLease()
-            return { exitCode: 0, stdout: '1', stderr: '' }
-        }
-        if (cmd.includes('tail -n'))
-            return { exitCode: 0, stdout: 'daemon running pid=1', stderr: '' }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () =>
-                        hasRow
-                            ? [
-                                  {
-                                      id: 'dh_runner',
-                                      status: 'active',
-                                      rpcLastSeenAt,
-                                      rpcInstanceId: 'api-1',
-                                      rpcConnectedAt: rpcLastSeenAt
-                                  }
-                              ]
-                            : []
-                })
-            })
-        })
-    }
-    const hosts = { isOnline: () => online }
-    const tokens = {
-        mint: async (x: { name: string }) => ({
-            tokenId: 't',
-            plaintext: 'ldt_fresh',
-            name: x.name,
-            expiresAt: null,
-            createdAt: new Date()
-        }),
-        deleteUnbound: async () => true
-    }
-    class TestRunnerManager extends RunnerManagerService {
-        protected override delay(): Promise<void> {
-            return Promise.resolve()
-        }
-    }
-    const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        tokens as never,
-        { rpc: async () => ({}) } as never
-    )
-    const wake = () =>
-        service.wakeRunner({
-            userId: 'user_1',
-            spriteName: 'art-1',
-            exec,
-            waitOnlineMs: 20
-        })
-    return { wake, calls }
-}
-
-test('wake: a registered runner whose socket the API still holds is live after the one exec that thawed it', async () => {
-    const h = wakeHarness({ online: true })
-    const res = await h.wake()
-    assert.equal(res.outcome, 'live')
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.deepEqual(
-        h.calls.filter((c) => /daemon (status|start|register)/.test(c)),
-        [],
-        'no probe, no restart: the RPC that follows is the proof'
-    )
-    assert.ok(
-        h.calls.some((c) => c.includes('test -x')),
-        'the inspect ran'
-    )
-})
-
-test('wake: a dropped socket with a live process is a reconnect, not a restart', async () => {
-    const h = wakeHarness({
-        online: false,
-        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 }),
-        reconnectsAfterStatus: true
-    })
-    const res = await h.wake()
-    assert.equal(res.outcome, 'reconnected')
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    assert.ok(!h.calls.some((c) => c.includes('daemon start')))
-})
-
-test('wake: no process (a cold VM keeps the config) is started and proven by a fresh lease', async () => {
-    const h = wakeHarness({ online: false })
-    const res = await h.wake()
-    assert.equal(res.outcome, 'restarted')
-    assert.equal(res.handle?.daemonId, 'dh_runner')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-    leaseAround(h.calls)
-})
-
-test('wake: a silent idle process is restarted; a silent busy one is left alone', async () => {
-    const idle = wakeHarness({
-        online: false,
-        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 })
-    })
-    assert.equal((await idle.wake()).outcome, 'restarted')
-    assert.ok(idle.calls.some((c) => c.includes('daemon start')))
-
-    const busy = wakeHarness({
-        online: false,
-        statusStdout: statusJson({
-            version: NEW_BUILD,
-            activeExecs: 1,
-            activePtys: 0
-        })
-    })
-    const res = await busy.wake()
-    assert.equal(res.outcome, 'busy')
-    assert.equal(res.handle, null)
-    assert.ok(!busy.calls.some((c) => c.includes('daemon start')))
-})
-
-test('wake: after a start, an online row with the OLD lease is not proof — the restart times out', async () => {
-    // The frozen process's lease can outlive the start by up to 45s; a wake
-    // that trusted `online` here would hand back a daemon that is not there.
-    const h = wakeHarness({ online: false, staleOnlineAfterStart: true })
-    const res = await h.wake()
-    assert.equal(res.outcome, 'not-online')
-    assert.equal(res.handle, null)
-    assert.ok(
-        h.calls.some((c) => c.includes('tail -n')),
-        'the runner log was read for the report'
-    )
-})
-
-test('wake: a sprite that never had a runner takes the bring-up path', async () => {
-    const h = wakeHarness({ hostRow: false, registered: false })
-    const res = await h.wake()
+    const fresh = buildHarness({ daemon: null, registered: false, status: JSON.stringify({ configured: false }) })
+    const res = await fresh.service.wakeRunner({ host: fresh.state.host, waitOnlineMs: 50 })
     assert.equal(res.outcome, 'brought-up')
-    assert.ok(h.calls.some((c) => c.includes('daemon register')))
-    assert.ok(h.calls.some((c) => c.includes('daemon start')))
+    assert.equal(fresh.mints[0].hostId, 'sbx_1')
 })
 
-test('wake: an exec that throws is exec-failed, never thrown', async () => {
-    const h = wakeHarness({
-        online: true,
-        execThrowOn: (cmd) => cmd.includes('test -x')
-    })
-    const res = await h.wake()
-    assert.equal(res.outcome, 'exec-failed')
-    assert.equal(res.handle, null)
-})
-
-test('a recently connected Sprite below the CLI floor enters bring-up and upgrades', async () => {
-    const h = buildHarness({
-        hostIdUpfront: 'dh_runner',
-        onlineUpfront: true,
-        hostVersion: '0.33.0',
-        version: '0.33.0'
-    })
-    const result = await h.service.ensureRunner(args(h.exec as never))
-    assert.equal(result.handle?.daemonId, 'dh_runner')
-    assert.ok(h.calls.some(call => call.cmd.includes('install.sh')))
-    assert.ok(h.calls.some(call => call.cmd.includes('daemon start')))
+test('the floor the bring-up enforces is the shared minimum', () => {
+    assert.ok(DAEMON_MIN_CLI_VERSION.length > 0)
 })

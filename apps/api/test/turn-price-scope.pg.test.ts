@@ -44,7 +44,6 @@ test(
                     userId,
                     name: 'scope fixture',
                     framework: 'codex',
-                    kind: 'daemon'
                 })
             await db
                 .insert(agents)
@@ -54,7 +53,6 @@ test(
                     runtimeId,
                     name: 'scope fixture',
                     framework: 'codex',
-                    runtime: 'daemon',
                     internalId: suffix
                 })
             await db

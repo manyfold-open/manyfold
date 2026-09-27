@@ -18,7 +18,7 @@ interface CreateOptions {
     piBaseUrl?: string
     piModel?: string
     agyModel?: string
-    accountId?: string
+    providerId?: string
     json?: boolean
 }
 
@@ -79,8 +79,8 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
             'Antigravity CLI model as `agy models` names it, e.g. gemini-3.1-pro-low (antigravity-cli only)'
         )
         .option(
-            '--account-id <id>',
-            'Admin only: pin to a specific sprites.dev account id'
+            '--provider-id <id>',
+            'Admin only: place the new sandbox on a specific runtime provider'
         )
         .option('--json', 'output the result as JSON', false)
         .action(async (name: string, opts: CreateOptions) => {
@@ -104,10 +104,8 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
                 console.log(
                     `${res.id}  ${kleur.cyan(res.name)}  ${kleur.yellow(res.framework)}/${res.runtime}  ${res.status}`
                 )
-                if (res.spriteName)
-                    console.log(kleur.dim(`  sprite: ${res.spriteName}`))
-                if (res.accountSlug)
-                    console.log(kleur.dim(`  account: ${res.accountSlug}`))
+                if (res.hostName)
+                    console.log(kleur.dim(`  host: ${res.hostName}`))
             })
         })
 }
@@ -124,7 +122,7 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
         return {
             name,
             framework: 'claude-code',
-            accountId: opts.accountId,
+            providerId: opts.providerId,
             claudeCodeCredentials: {
                 anthropicAuthToken: token,
                 anthropicBaseUrl:
@@ -144,7 +142,7 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
         return {
             name,
             framework: 'gemini-cli',
-            accountId: opts.accountId,
+            providerId: opts.providerId,
             geminiCliCredentials: {
                 googleApiKey: key,
                 googleGeminiBaseUrl:
@@ -166,7 +164,7 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
         return {
             name,
             framework: 'antigravity-cli',
-            accountId: opts.accountId,
+            providerId: opts.providerId,
             antigravityCliCredentials: {
                 googleApiKey: key,
                 googleGeminiBaseUrl:
@@ -187,7 +185,7 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
         return {
             name,
             framework: 'pi',
-            accountId: opts.accountId,
+            providerId: opts.providerId,
             piCredentials: {
                 apiKey: key,
                 provider,
@@ -204,7 +202,7 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
     return {
         name,
         framework: 'codex',
-        accountId: opts.accountId,
+        providerId: opts.providerId,
         codexCredentials: {
             openaiApiKey: key,
             openaiBaseUrl: opts.openaiBaseUrl ?? process.env.OPENAI_BASE_URL

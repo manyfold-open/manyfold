@@ -30,16 +30,27 @@ test('terminal reconnect budget resets only after the Sprite session opens', () 
     )
 })
 
-test('a daemon PTY has no second hop, so the gateway session_info opens it', () => {
+test('a PTY on the host daemon has no second hop, so its session_info opens it', () => {
+    // The API says `terminal_pty` on every daemon PTY, whatever the placement
+    // (ADR-0036): a self-owned computer and a hosted sandbox alike.
     assert.equal(
         isUpstreamTerminalSessionInfo({
             type: 'session_info',
             runtime: 'daemon',
-            runtime_id: 'art_1'
+            terminal_pty: true
         }),
         true
     )
-    // Sprites keep the stricter rule: the gateway frame alone is not enough.
+    assert.equal(
+        isUpstreamTerminalSessionInfo({
+            type: 'session_info',
+            runtime: 'sprites',
+            terminal_pty: false
+        }),
+        true
+    )
+    // A frame that names neither a PTY nor an upstream session is the
+    // gateway speaking before anything opened: not enough.
     assert.equal(
         isUpstreamTerminalSessionInfo({
             type: 'session_info',

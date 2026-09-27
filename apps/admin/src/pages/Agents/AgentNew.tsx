@@ -2,9 +2,9 @@ import {
     AgentCreateStep,
     AgentRuntime,
     CreateAgentBody,
-    K8sClusterSummary,
+    RuntimeProviderKind,
+    RuntimeProviderSummary,
     SandboxSummary,
-    SdkSpritesAccountSummary,
     SdkUserSummary,
     UserExternalAgentProviderSummary,
     externalSteps,
@@ -125,12 +125,15 @@ const defaultRuntimeFor = (framework: Framework): AgentRuntime => {
     return supportsRuntimeChoice(framework) ? 'sprites' : 'k8s'
 }
 
-const needsClusterId = (
+// The provider kind a new machine for this agent is placed on; null when no
+// machine is created (external frameworks).
+const providerKindFor = (
     framework: Framework,
     runtime: AgentRuntime
-): boolean => {
-    if (framework === 'openclaw' || framework === 'hermes') return true
-    return runtime === 'k8s'
+): RuntimeProviderKind | null => {
+    if (isExternalFramework(framework)) return null
+    if (framework === 'openclaw' || framework === 'hermes') return 'k8s'
+    return runtime === 'k8s' ? 'k8s' : 'sprites'
 }
 
 const frameworkCardClass = (active: boolean): string =>
@@ -165,14 +168,11 @@ const AgentNew: FC = (): ReactNode => {
     const [name, setName] = useState('')
     const [framework, setFramework] = useState<Framework>('claude-code')
     const [runtime, setRuntime] = useState<AgentRuntime>('sprites')
-    const [clusters, setClusters] = useState<K8sClusterSummary[] | null>(null)
-    const [clusterId, setClusterId] = useState<string>('')
-    const [clustersError, setClustersError] = useState<string | null>(null)
-    const [accounts, setAccounts] = useState<SdkSpritesAccountSummary[] | null>(
-        null
-    )
-    const [accountId, setAccountId] = useState<string>('')
-    const [accountsError, setAccountsError] = useState<string | null>(null)
+    const [providers, setProviders] = useState<
+        RuntimeProviderSummary[] | null
+    >(null)
+    const [providerId, setProviderId] = useState<string>('')
+    const [providersError, setProvidersError] = useState<string | null>(null)
     const [sandboxes, setSandboxes] = useState<SandboxSummary[] | null>(null)
     const [sandboxId, setSandboxId] = useState<string>('')
     const [users, setUsers] = useState<SdkUserSummary[] | null>(null)
@@ -201,31 +201,23 @@ const AgentNew: FC = (): ReactNode => {
 
     const streamOpen = progress !== null && !progress.done
 
-    useEffect(() => {
-        if (!needsClusterId(framework, runtime)) return
-        if (clusters !== null) return
-        client.admin.clusters
-            .list()
-            .then((rows) => {
-                setClusters(rows)
-                if (rows.length === 1) setClusterId(rows[0].id)
-            })
-            .catch((e: Error) => setClustersError(e.message))
-    }, [client, framework, runtime, clusters])
+    const providerKind = providerKindFor(framework, runtime)
 
     useEffect(() => {
-        if (!isAdmin) return
-        if (runtime !== 'sprites') return
-        if (accounts !== null) return
-        client.admin.spritesAccounts
+        if (!isAdmin || providerKind === null) return
+        if (providers !== null) return
+        client.admin.runtimeProviders
             .list()
-            .then((rows) => {
-                const enabled = rows.filter((r) => r.status === 'enabled')
-                setAccounts(enabled)
-                if (enabled.length === 1) setAccountId(enabled[0].id)
-            })
-            .catch((e: Error) => setAccountsError(e.message))
-    }, [client, isAdmin, runtime, accounts])
+            .then((rows) =>
+                setProviders(rows.filter((r) => r.status === 'enabled'))
+            )
+            .catch((e: Error) => setProvidersError(e.message))
+    }, [client, isAdmin, providerKind, providers])
+
+    // A pick is per kind: switching sandbox ↔ cloud computer drops it.
+    useEffect(() => {
+        setProviderId('')
+    }, [providerKind])
 
     useEffect(() => {
         const execKind = isCodingFramework(framework)
@@ -266,12 +258,10 @@ const AgentNew: FC = (): ReactNode => {
             .catch((e: Error) => setExternalProvidersError(e.message))
     }, [client, framework])
 
-    const clusterRequired = needsClusterId(framework, runtime)
-    const clusterValid = !clusterRequired || clusterId !== ''
-
-    const accountSelectorShown = isAdmin && runtime === 'sprites'
-    const accountRequired = accountSelectorShown
-    const accountValid = !accountRequired || accountId !== ''
+    const providerSelectorShown = isAdmin && providerKind !== null
+    const providerOptions = (providers ?? []).filter(
+        (p) => p.kind === providerKind
+    )
 
     const sandboxAttachShown =
         runtime === 'sprites' && isCodingFramework(framework)
@@ -304,18 +294,12 @@ const AgentNew: FC = (): ReactNode => {
             ? null
             : nameValidation.message
 
-    const canSubmit =
-        nameValidation.valid &&
-        activeIsValid &&
-        clusterValid &&
-        accountValid &&
-        !streamOpen
+    const canSubmit = nameValidation.valid && activeIsValid && !streamOpen
 
     const buildBody = (): CreateAgentBody => {
         const runtimeField = supportsRuntimeChoice(framework) ? { runtime } : {}
-        const clusterField = clusterRequired ? { clusterId } : {}
-        const accountField =
-            accountSelectorShown && accountId ? { accountId } : {}
+        const providerField =
+            providerSelectorShown && providerId ? { providerId } : {}
         const ownerField =
             isAdmin && me && ownerUserId && ownerUserId !== me.id
                 ? { targetUserId: ownerUserId }
@@ -327,8 +311,7 @@ const AgentNew: FC = (): ReactNode => {
                 name: normalizedName,
                 framework,
                 ...runtimeField,
-                ...clusterField,
-                ...accountField,
+                ...providerField,
                 ...ownerField,
                 ...sandboxField,
                 claudeCodeCredentials: claudeCodeToPayload(claudeCode)
@@ -339,8 +322,7 @@ const AgentNew: FC = (): ReactNode => {
                 name: normalizedName,
                 framework,
                 ...runtimeField,
-                ...clusterField,
-                ...accountField,
+                ...providerField,
                 ...ownerField,
                 ...sandboxField,
                 codexCredentials: codexToPayload(codex)
@@ -351,8 +333,7 @@ const AgentNew: FC = (): ReactNode => {
                 name: normalizedName,
                 framework,
                 ...runtimeField,
-                ...clusterField,
-                ...accountField,
+                ...providerField,
                 ...ownerField,
                 ...sandboxField,
                 geminiCliCredentials: geminiCliToPayload(geminiCli)
@@ -363,8 +344,7 @@ const AgentNew: FC = (): ReactNode => {
                 name: normalizedName,
                 framework,
                 ...runtimeField,
-                ...clusterField,
-                ...accountField,
+                ...providerField,
                 ...ownerField,
                 ...sandboxField,
                 piCredentials: piToPayload(pi)
@@ -375,8 +355,7 @@ const AgentNew: FC = (): ReactNode => {
                 name: normalizedName,
                 framework,
                 ...runtimeField,
-                ...clusterField,
-                ...accountField,
+                ...providerField,
                 ...ownerField,
                 ...sandboxField,
                 antigravityCliCredentials:
@@ -387,7 +366,7 @@ const AgentNew: FC = (): ReactNode => {
             return {
                 name: normalizedName,
                 framework,
-                ...clusterField,
+                ...providerField,
                 ...ownerField,
                 openclawCredentials: openclawToPayload(openclaw)
             }
@@ -419,7 +398,7 @@ const AgentNew: FC = (): ReactNode => {
         return {
             name: normalizedName,
             framework: 'hermes',
-            ...clusterField,
+            ...providerField,
             ...ownerField,
             hermesCredentials: hermesToPayload(hermes)
         }
@@ -661,115 +640,66 @@ const AgentNew: FC = (): ReactNode => {
                                 </div>
                             )}
 
-                            {clusterRequired && (
+                            {providerSelectorShown && (
                                 <div>
                                     <label
-                                        htmlFor='clusterId'
+                                        htmlFor='providerId'
                                         className='text-caption text-label mb-1 block font-normal'
                                     >
-                                        {t('admin.agents.new.clusterLabel')}
+                                        {t('admin.agents.new.providerLabel')}
                                     </label>
-                                    {clusters && clusters.length === 0 ? (
+                                    {providers && providerOptions.length === 0 ? (
                                         <div className='border-border-dashed rounded border border-dashed bg-white p-2'>
                                             <p className='text-caption text-body mb-3'>
                                                 {t(
-                                                    'admin.agents.new.clusterEmpty'
-                                                )}
-                                            </p>
-                                            <Link
-                                                to={adminRoutes.clusterNew}
-                                                className='text-caption text-brand hover:text-brand-hover'
-                                            >
-                                                {t(
-                                                    'admin.agents.new.clusterEmptyCta'
-                                                )}{' '}
-                                                →
-                                            </Link>
-                                        </div>
-                                    ) : (
-                                        <select
-                                            id='clusterId'
-                                            className='border-border text-body text-heading focus:border-brand focus:ring-brand block h-10 w-full rounded border bg-white px-3 focus:ring-1 focus:outline-none'
-                                            value={clusterId}
-                                            onChange={(e) =>
-                                                setClusterId(e.target.value)
-                                            }
-                                            required
-                                        >
-                                            <option value=''>—</option>
-                                            {(clusters ?? []).map((c) => (
-                                                <option key={c.id} value={c.id}>
-                                                    {c.name}
-                                                    {c.lastHealthStatus !==
-                                                        'ok' &&
-                                                        ` (${t(`admin.clusters.health.${c.lastHealthStatus}`)})`}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    )}
-                                    <p className='text-caption-sm text-body mt-1'>
-                                        {t('admin.agents.new.clusterHint')}
-                                    </p>
-                                    {clustersError && (
-                                        <p className='text-caption-sm text-accent-ruby mt-1'>
-                                            {clustersError}
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-
-                            {accountSelectorShown && (
-                                <div>
-                                    <label
-                                        htmlFor='accountId'
-                                        className='text-caption text-label mb-1 block font-normal'
-                                    >
-                                        {t('admin.agents.new.accountLabel')}
-                                    </label>
-                                    {accounts && accounts.length === 0 ? (
-                                        <div className='border-border-dashed rounded border border-dashed bg-white p-2'>
-                                            <p className='text-caption text-body mb-3'>
-                                                {t(
-                                                    'admin.agents.new.accountEmpty'
+                                                    'admin.agents.new.providerEmpty'
                                                 )}
                                             </p>
                                             <Link
                                                 to={
-                                                    adminRoutes.sandboxAccountNew
+                                                    adminRoutes.runtimeProviderNew
                                                 }
                                                 className='text-caption text-brand hover:text-brand-hover'
                                             >
                                                 {t(
-                                                    'admin.agents.new.accountEmptyCta'
+                                                    'admin.agents.new.providerEmptyCta'
                                                 )}{' '}
                                                 →
                                             </Link>
                                         </div>
                                     ) : (
                                         <select
-                                            id='accountId'
+                                            id='providerId'
                                             className='border-border text-body text-heading focus:border-brand focus:ring-brand block h-10 w-full rounded border bg-white px-3 focus:ring-1 focus:outline-none'
-                                            value={accountId}
+                                            value={providerId}
                                             onChange={(e) =>
-                                                setAccountId(e.target.value)
+                                                setProviderId(e.target.value)
                                             }
-                                            required
                                         >
-                                            <option value=''>—</option>
-                                            {(accounts ?? []).map((a) => (
-                                                <option key={a.id} value={a.id}>
-                                                    {a.slug} · {a.orgSlug} (
-                                                    {a.activeSprites})
+                                            <option value=''>
+                                                {t(
+                                                    'admin.agents.new.providerAuto'
+                                                )}
+                                            </option>
+                                            {providerOptions.map((p) => (
+                                                <option key={p.id} value={p.id}>
+                                                    {p.name}
+                                                    {p.region
+                                                        ? ` · ${p.region}`
+                                                        : ''}
+                                                    {p.lastHealthStatus !==
+                                                        'ok' &&
+                                                        ` (${t(`admin.runtimeProviders.health.${p.lastHealthStatus}`)})`}
                                                 </option>
                                             ))}
                                         </select>
                                     )}
                                     <p className='text-caption-sm text-body mt-1'>
-                                        {t('admin.agents.new.accountHint')}
+                                        {t('admin.agents.new.providerHint')}
                                     </p>
-                                    {accountsError && (
+                                    {providersError && (
                                         <p className='text-caption-sm text-accent-ruby mt-1'>
-                                            {accountsError}
+                                            {providersError}
                                         </p>
                                     )}
                                 </div>
@@ -797,7 +727,7 @@ const AgentNew: FC = (): ReactNode => {
                                         {(sandboxes ?? []).map((s) => (
                                             <option key={s.id} value={s.id}>
                                                 {s.name} (
-                                                {s.spriteStatus ?? 'cold'},{' '}
+                                                {s.powerState ?? 'unknown'},{' '}
                                                 {s.agentsCount} agents)
                                             </option>
                                         ))}

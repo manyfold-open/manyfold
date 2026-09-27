@@ -59,14 +59,12 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'dify',
-        kind: 'external'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'pgtest-agent',
         framework: 'dify',
-        runtime: 'external',
         runtimeId,
         internalId: `internal-${agentId}`
     })

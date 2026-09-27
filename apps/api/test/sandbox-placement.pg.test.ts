@@ -10,7 +10,7 @@ import {
     createDb,
     plans,
     runtimeHosts,
-    spritesAccounts,
+    runtimeProviders,
     users,
     type Database,
     type NewAgentRuntimeRow
@@ -34,7 +34,7 @@ interface Harness {
     db: Database
     service: RuntimeAccessService
     userId: string
-    accountId: string
+    providerId: string
     oldHostId: string
     newHostId: string
     seed: (
@@ -73,7 +73,7 @@ const buildHarness = async (opts?: {
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
     const planId = `plan_pgtest_${suffix}`
-    const accountId = `spa_pgtest_${suffix}`
+    const providerId = `rtp_pgtest_${suffix}`
     const oldHostId = `sbx_pgtest_old_${suffix}`
     const newHostId = `sbx_pgtest_new_${suffix}`
 
@@ -92,38 +92,43 @@ const buildHarness = async (opts?: {
         planId,
         statefulSandboxLimit: sandboxLimit
     })
-    await db.insert(spritesAccounts).values({
-        id: accountId,
-        slug: `pgtest-${suffix}`,
-        orgSlug: 'pgtest-org',
-        orgId: `org-${suffix}`,
-        tokenId: `tok-${suffix}`,
-        tokenCiphertext: 'encrypted'
+    await db.insert(runtimeProviders).values({
+        id: providerId,
+        kind: 'sprites',
+        name: `pgtest-${suffix}`,
+        credentialCiphertext: 'encrypted',
+        config: { orgSlug: 'pgtest-org', orgId: `org-${suffix}`, tokenId: `tok-${suffix}` }
     })
-    // Two existing sandboxes, both healthy and published. Under explicit
+    // Two existing sandboxes, both ready and published. Under explicit
     // placement neither may be chosen unless a request names it.
     const now = Date.now()
     await db.insert(runtimeHosts).values([
         {
             id: oldHostId,
             userId,
-            kind: 'sandbox',
+            kind: 'hosted',
+            providerId,
+            providerRef: {
+                kind: 'sprites',
+                spriteName: oldHostId.replace(/_/g, '-'),
+                spriteId: `sprite-old-${suffix}`
+            },
             name: `pgtest-sandbox-old-${suffix}`,
-            accountId,
-            spriteName: oldHostId.replace(/_/g, '-'),
-            spriteId: `sprite-old-${suffix}`,
-            status: 'active',
+            status: 'ready',
             createdAt: new Date(now - 2 * HOUR_MS)
         },
         {
             id: newHostId,
             userId,
-            kind: 'sandbox',
+            kind: 'hosted',
+            providerId,
+            providerRef: {
+                kind: 'sprites',
+                spriteName: newHostId.replace(/_/g, '-'),
+                spriteId: `sprite-new-${suffix}`
+            },
             name: `pgtest-sandbox-new-${suffix}`,
-            accountId,
-            spriteName: newHostId.replace(/_/g, '-'),
-            spriteId: `sprite-new-${suffix}`,
-            status: 'active',
+            status: 'ready',
             createdAt: new Date(now - HOUR_MS)
         }
     ])
@@ -132,7 +137,7 @@ const buildHarness = async (opts?: {
         db,
         service: makeService(db),
         userId,
-        accountId,
+        providerId,
         oldHostId,
         newHostId,
         seed: async (hostId, framework, status = 'ready'): Promise<void> => {
@@ -142,10 +147,7 @@ const buildHarness = async (opts?: {
                 userId,
                 name: `${hostId}-${framework}-${randomBytes(3).toString('hex')}`,
                 framework,
-                kind: 'sprites',
                 status,
-                accountId,
-                spriteName: hostId.replace(/_/g, '-'),
                 hostId,
                 mountPath: '/home/sprite'
             })
@@ -155,8 +157,8 @@ const buildHarness = async (opts?: {
             await db.delete(users).where(eq(users.id, userId))
             await db.delete(plans).where(eq(plans.id, planId))
             await db
-                .delete(spritesAccounts)
-                .where(eq(spritesAccounts.id, accountId))
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, providerId))
             const client = (
                 db as unknown as { $client?: { end?: () => Promise<void> } }
             ).$client
@@ -176,7 +178,7 @@ const reserve = (
         id: `art_pgtest_${randomBytes(6).toString('hex')}`,
         userId: h.userId,
         framework: overrides?.framework ?? 'gemini-cli',
-        accountId: h.accountId,
+        providerId: h.providerId,
         hostId: overrides?.hostId,
         mountPath: '/home/sprite/.manyfold/workspaces/agt_pgtest'
     })
@@ -299,14 +301,14 @@ test(
     }
 )
 
-// A dead service runtime releases the port, so its sandbox can take another one.
+// A failed service runtime releases the port, so its sandbox can take another one.
 test(
-    'a stopped service framework does not hold the service slot',
+    'a failed service framework does not hold the service slot',
     { skip: !RUN },
     async () => {
         const h = await buildHarness()
         try {
-            await h.seed(h.oldHostId, 'openclaw', 'stopped')
+            await h.seed(h.oldHostId, 'openclaw', 'failed')
             const { runtime } = await reserve(h, {
                 hostId: h.oldHostId,
                 framework: 'hermes'
@@ -341,16 +343,17 @@ test(
     }
 )
 
-// The gate above reads `status not in ('failed','stopped')`; the unique index
-// carries the same predicate. If they ever diverge, the insert here throws a raw
-// constraint error instead of returning a row.
+// The gate above reads `status <> 'failed'`; the unique index on
+// (host_id, framework) has no status predicate, so a failed row is REUSED by
+// the upsert rather than duplicated. If the two ever diverge, the insert here
+// throws a raw constraint error instead of returning the existing row.
 test(
     'the partial unique index agrees with the framework-presence gate',
     { skip: !RUN },
     async () => {
         const h = await buildHarness()
         try {
-            await h.seed(h.oldHostId, 'codex', 'stopped')
+            await h.seed(h.oldHostId, 'codex', 'failed')
             const { runtime } = await reserve(h, {
                 hostId: h.oldHostId,
                 framework: 'codex'
@@ -358,8 +361,9 @@ test(
             assert.equal(
                 runtime.hostId,
                 h.oldHostId,
-                'a stopped instance frees the framework slot in both the query and the index'
+                'a failed instance frees the framework slot and its row is reused'
             )
+            assert.equal(runtime.status, 'installing')
         } finally {
             await h.close()
         }

@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { AgentRuntimesController } from './agent-runtimes.controller'
 import { AdminAgentRuntimesController } from './admin-agent-runtimes.controller'
+import { HostedHostLifecycleService } from './hosted-host-lifecycle.service'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
@@ -37,7 +39,8 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     imports: [
         RunnerModule,
         AuthModule,
-        SpritesAccountsModule,
+        HostsModule,
+        HostDaemonAccessModule,
         K8sModule,
         SecretsModule,
         SkillsModule,
@@ -51,6 +54,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     providers: [
         AdminGuard,
         AgentRuntimesService,
+        HostedHostLifecycleService,
         RuntimeDashboardService,
         SpritesProvisioner,
         K8sProvisioner,
@@ -72,6 +76,7 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
     ],
     exports: [
         AgentRuntimesService,
+        HostedHostLifecycleService,
         RuntimeAccountService,
         RuntimeDashboardService,
         SpritesProvisioner,

@@ -15,12 +15,15 @@ import { AuthGuard, type AuthPrincipal } from '../src/common/guards/auth.guard'
 import { AuthzService } from '../src/modules/auth/authz.service'
 import { RuntimeAccessController } from '../src/modules/runtime-access/runtime-access.controller'
 import { AgentDiagnosticsService } from '../src/modules/agents/agent-diagnostics.service'
-import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtimes.service'
 import {
     AgentsController,
     boundAgentIdFromUser
 } from '../src/modules/agents/agents.controller'
-import { agentRowToSummary } from '../src/modules/agents/agents.service'
+import {
+    agentRowToSummary,
+    summaryRowOf
+} from '../src/modules/agents/agents.service'
+import { RuntimeContextService } from '../src/modules/hosts/runtime-context.service'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { storageFixture, OLD } from './helpers/storage-fixture'
 
@@ -50,11 +53,11 @@ test(
         const peer = await h.addAgent({ name: 'private-peer' })
         await h.db
             .update(runtimeHosts)
-            .set({ spriteStatus: 'cold' })
+            .set({ powerState: 'stopped' })
             .where(eq(runtimeHosts.id, h.hostId))
         await h.addHost({
             name: 'Z-largest',
-            spriteStatus: 'warm',
+            powerState: 'suspended',
             storageBytes: 18000,
             storageMeasuredAt: OLD,
             storageBreakdown: {
@@ -107,19 +110,23 @@ test(
                             .limit(1)
                     )[0]
             } as never,
-            new AgentRuntimesService(h.db, { event() {} } as never),
             {
-                getById: async () => {
+                forRuntime: async () => {
                     providerReads++
                     throw new Error(
                         'sleeping diagnostic must not contact provider'
                     )
                 }
-            } as never,
-            {} as never,
-            {} as never,
-            {} as never
+            } as never
         )
+        const runtimeContext = new RuntimeContextService(h.db)
+        const summarize = async (
+            row: Parameters<typeof agentRowToSummary>[0]['agent']
+        ) => {
+            const ctx = await runtimeContext.forAgent(row.id)
+            assert(ctx)
+            return agentRowToSummary(summaryRowOf({ ...ctx, agent: row }))
+        }
         const consentRequests: unknown[] = []
         const consentUrl = 'https://fixture.invalid/owner-consent'
         let legacy = false
@@ -225,14 +232,12 @@ test(
                             )
                         )
                     send(
-                        emptyList
-                            ? []
-                            : rows.map((row) => agentRowToSummary(row, null))
+                        emptyList ? [] : await Promise.all(rows.map(summarize))
                     )
                 } else if (isGet) {
                     const [row] = await h.db.select().from(agents).where(and(eq(agents.id, own.id), eq(agents.userId, req.auth.userId))).limit(1)
                     assert(row)
-                    send(agentRowToSummary(row, null))
+                    send(await summarize(row))
                 }
                 else if (isDiagnostic)
                     send(

@@ -14,8 +14,11 @@ import type {
 import { Inject, Injectable } from '@nestjs/common'
 import { and, desc, eq, gte, isNotNull, lt, sql, type SQL } from 'drizzle-orm'
 import {
+    agentRuntimes,
     agentUsageEvents,
     agents,
+    runtimeHosts,
+    runtimeProviders,
     turnExecutions,
     users,
     type Database,
@@ -312,12 +315,15 @@ export class UsageRepository {
         if (userId) conds.push(eq(agentUsageEvents.userId, userId))
         const whereExpr = conds.length ? and(...conds) : undefined
 
+        // The agent's placement is derived through its runtime's host
+        // (placementOf), never stored on the agent.
+        const runtimeKind = sql<string | null>`case when ${agents.id} is null then null when ${runtimeHosts.id} is null then 'external' when ${runtimeHosts.kind} = 'local' then 'daemon' when ${runtimeProviders.kind} = 'k8s' then 'k8s' else 'sprites' end`
         const rows = await this.db
             .select({
                 agentId: agentUsageEvents.agentId,
                 name: agents.name,
                 framework: agents.framework,
-                runtimeKind: agents.runtime,
+                runtimeKind,
                 userId: agentUsageEvents.userId,
                 userEmail: users.email,
                 inputTokens: sql<string>`coalesce(sum(${agentUsageEvents.inputTokens}), 0)`,
@@ -327,13 +333,22 @@ export class UsageRepository {
             })
             .from(agentUsageEvents)
             .leftJoin(agents, eq(agents.id, agentUsageEvents.agentId))
+            .leftJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .leftJoin(users, eq(users.id, agentUsageEvents.userId))
             .where(whereExpr)
             .groupBy(
                 agentUsageEvents.agentId,
                 agents.name,
                 agents.framework,
-                agents.runtime,
+                agents.id,
+                runtimeHosts.id,
+                runtimeHosts.kind,
+                runtimeProviders.kind,
                 agentUsageEvents.userId,
                 users.email
             )

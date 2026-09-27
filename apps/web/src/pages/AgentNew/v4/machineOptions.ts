@@ -9,6 +9,7 @@ import type {
     SandboxSummary
 } from '@manyfold/shared'
 import { computeSpriteTargets } from '@/lib/agentCreate/spriteTargets'
+import { hostKey } from '@/lib/hostStatus'
 
 // What picking this row costs. Time alone is not the cost: a fresh sandbox is
 // two minutes AND a sign-in, while reusing a machine that already runs agents
@@ -52,6 +53,8 @@ export type MachineState =
     // (or still installing this framework), or failed to start.
     | 'unavailable'
 
+// One row per machine (ADR-0036): `id` is the host key, whatever the row
+// offers to do on it.
 export interface MachineOption {
     id: string
     title: string
@@ -94,7 +97,7 @@ const daemonHasFramework = (
     runtimes.find(
         (r) =>
             r.kind === 'daemon' &&
-            r.daemonId === hostId &&
+            r.hostId === hostId &&
             r.framework === framework &&
             r.status !== 'failed'
     )
@@ -115,10 +118,10 @@ export const buildMachineOptions = (args: {
         if (target.type === 'reuse') {
             const runtime = target.runtime
             rows.push({
-                id: 'runtime:' + runtime.id,
+                id: hostKey(target.hostId),
                 title:
                     sandboxes.find((s) => s.id === target.hostId)?.name ??
-                    runtime.spriteName ??
+                    runtime.hostName ??
                     runtime.name,
                 state: 'ready',
                 runtimeId: runtime.id,
@@ -135,8 +138,8 @@ export const buildMachineOptions = (args: {
         }
         if (target.type === 'attach') {
             rows.push({
-                id: 'sandbox:' + target.hostId,
-                title: target.name ?? target.spriteName ?? target.hostId,
+                id: hostKey(target.hostId),
+                title: target.name ?? target.hostId,
                 state: 'needs-install',
                 runtimeId: null,
                 sandboxId: target.hostId,
@@ -151,8 +154,8 @@ export const buildMachineOptions = (args: {
             continue
         }
         rows.push({
-            id: 'sandbox:' + target.hostId,
-            title: target.name ?? target.spriteName ?? target.hostId,
+            id: hostKey(target.hostId),
+            title: target.name ?? target.hostId,
             state: 'service-slot-taken',
             runtimeId: null,
             sandboxId: target.hostId,
@@ -175,7 +178,7 @@ export const buildMachineOptions = (args: {
         // "cannot install here".
         if (runtime === undefined) {
             rows.push({
-                id: 'daemon:' + host.id,
+                id: hostKey(host.id),
                 title: host.name,
                 state: 'not-installable',
                 runtimeId: null,
@@ -191,7 +194,7 @@ export const buildMachineOptions = (args: {
             continue
         }
         rows.push({
-            id: 'runtime:' + runtime.id,
+            id: hostKey(host.id),
             title: host.name,
             state: 'ready',
             runtimeId: runtime.id,
@@ -213,12 +216,10 @@ export const buildMachineOptions = (args: {
     const podInstallable = supportsRuntime(framework, 'k8s')
     for (const host of podHosts) {
         const runtime = host.runtimes.find(
-            (r) =>
-                r.framework === framework &&
-                r.status !== 'failed' &&
-                r.status !== 'stopped'
+            (r) => r.framework === framework && r.status !== 'failed'
         )
         const row = {
+            id: hostKey(host.id),
             title: host.name,
             sandboxId: null,
             hostKind: 'k8s' as const,
@@ -228,7 +229,6 @@ export const buildMachineOptions = (args: {
         if (runtime?.status === 'ready') {
             rows.push({
                 ...row,
-                id: 'runtime:' + runtime.id,
                 state: 'ready',
                 runtimeId: runtime.id,
                 podHostId: null,
@@ -246,7 +246,6 @@ export const buildMachineOptions = (args: {
                   : undefined
         rows.push({
             ...row,
-            id: 'podHost:' + host.id,
             state: !podInstallable
                 ? 'not-installable'
                 : unavailableReason !== undefined

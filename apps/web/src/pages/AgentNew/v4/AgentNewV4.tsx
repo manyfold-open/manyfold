@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { optionalWorkspace } from '@/lib/agentCreateDraft'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { hostKey } from '@/lib/hostStatus'
 import { lazyChunk } from '@/lib/lazyChunk'
 import {
     profileNeedsSignIn,
@@ -218,23 +219,22 @@ const AgentNewV4: FC = (): ReactNode => {
         [framework, onMachine, create.runtimeAccess]
     )
 
-    // A cold sandbox wakes before it can take the agent, which is the
+    // A sleeping sandbox wakes before it can take the agent, which is the
     // difference between "a few seconds" and "about a minute" — the button
     // should not promise the first when it owes the second.
     const machineAsleep = useMemo((): boolean => {
         const sandboxId =
             machines.find((row) => row.id === machinePick)?.sandboxId ?? null
         if (sandboxId === null) return false
-        return (
-            create.sandboxes.find((row) => row.id === sandboxId)
-                ?.spriteStatus === 'cold'
-        )
+        const power = create.sandboxes.find((row) => row.id === sandboxId)
+            ?.powerState
+        return power === 'suspended' || power === 'stopped'
     }, [machinePick, machines, create.sandboxes])
 
     // Where the agent's files land if step ④'s field is left empty. Null when
     // there is nothing to say: a connected service has no machine of ours, and
     // hermes has no project directory. The daemon case needs the machine's own
-    // home, which only the runtime row knows.
+    // home, which only the host row knows.
     const defaultWorkspace = useMemo((): string | null => {
         const machine = flow.runtime
         if (flow.framework === null || machine?.kind !== 'runtime') return null
@@ -242,12 +242,15 @@ const AgentNewV4: FC = (): ReactNode => {
         const row = create.runtimes.find(
             (item) => item.id === machine.runtimeId
         )
+        const host = create.daemonHosts.find(
+            (item) => item.id === row?.hostId
+        )
         return defaultWorkspacePath(
             flow.framework,
             machine.hostKind,
-            row?.workspaceBaseDir ?? row?.homeDir ?? null
+            host?.workspaceBaseDir ?? host?.homeDir ?? null
         )
-    }, [flow.framework, flow.runtime, create.runtimes])
+    }, [flow.framework, flow.runtime, create.runtimes, create.daemonHosts])
 
     const runtimeId =
         flow.runtime?.kind === 'runtime' ? flow.runtime.runtimeId : null
@@ -1151,7 +1154,7 @@ const AgentNewV4: FC = (): ReactNode => {
                             await create.refetchRuntimes()
                             // Highlighted, not advanced: decision O keeps
                             // every row waiting for the button.
-                            setMachinePick('daemon:' + host.id)
+                            setMachinePick(hostKey(host.id))
                         }}
                     />
                 </Suspense>

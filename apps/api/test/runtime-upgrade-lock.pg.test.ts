@@ -6,6 +6,12 @@ import { ConflictException } from '@nestjs/common'
 import { createDb } from '@manyfold/db'
 import { withRuntimeUpgradeLock } from '../src/common/runtime-upgrade-lock'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 test(
     'upgrade locks exclude another API connection, scope by installation, and release on failure',
@@ -21,11 +27,7 @@ test(
             await first.$client.end()
             await second.$client.end()
         })
-        const target = {
-            accountId: randomUUID(),
-            spriteName: 'same-sprite',
-            component: 'codex'
-        }
+        const target = { hostId: randomUUID(), component: 'codex' }
         let release!: () => void
         let entered!: () => void
         const gate = new Promise<void>((resolve) => {
@@ -50,8 +52,7 @@ test(
                     err instanceof ConflictException && err.getStatus() === 409
             )
             for (const other of [
-                { ...target, accountId: randomUUID() },
-                { ...target, spriteName: 'other-sprite' },
+                { ...target, hostId: randomUUID() },
                 { ...target, component: 'mf-cli' }
             ])
                 assert.equal(
@@ -93,7 +94,7 @@ test(
         t.after(async () => {
             await Promise.all(databases.map((db) => db.$client.end()))
         })
-        const accountId = randomUUID()
+        const hostId = randomUUID()
         let release!: () => void
         let entered!: () => void
         const gate = new Promise<void>((resolve) => {
@@ -102,41 +103,23 @@ test(
         const started = new Promise<void>((resolve) => {
             entered = resolve
         })
+        const host = spritesHostRow({ id: hostId, userId: 'owner' })
+        const runtime = runtimeRow({
+            id: 'runtime',
+            userId: 'owner',
+            framework: 'codex',
+            hostId,
+            frameworkVersion: '0.9.0'
+        })
         const services = databases.map(
             (db) =>
                 new FrameworkUpgradeService(
-                    {
-                        transaction: db.transaction.bind(db),
-                        select: () => ({
-                            from: () => ({
-                                where: () => ({
-                                    limit: async () => [
-                                        {
-                                            id: 'runtime',
-                                            kind: 'sprites',
-                                            accountId,
-                                            spriteName: 'shared',
-                                            frameworkVersion: '0.9.0'
-                                        }
-                                    ]
-                                })
-                            })
-                        })
-                    } as never,
-                    {
-                        getById: async () => {
-                            entered()
-                            await gate
-                            throw new Error('sprite boundary')
-                        }
-                    } as never,
+                    { transaction: db.transaction.bind(db) } as never,
                     {
                         findForCaller: async (id: string) => ({
                             id,
                             framework: 'codex',
-                            runtimeId: 'runtime',
-                            accountId,
-                            spriteName: 'shared'
+                            runtimeId: 'runtime'
                         })
                     } as never,
                     {
@@ -151,7 +134,16 @@ test(
                             minVersions: {},
                             allowDowngrade: {}
                         })
-                    } as never
+                    } as never,
+                    fakeRuntimeContext(contextOf({ runtime, host })) as never,
+                    {
+                        forRuntime: async () => {
+                            entered()
+                            await gate
+                            throw new Error('sprite boundary')
+                        }
+                    } as never,
+                    {} as never
                 )
         )
         const first = assert.rejects(

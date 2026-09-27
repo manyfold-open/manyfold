@@ -6,6 +6,7 @@ import { createObjectId, frameworkCapability } from '@manyfold/shared'
 import { trace, SpanStatusCode } from '@opentelemetry/api'
 import { suppressTracing } from '@sentry/opentelemetry'
 import {
+    agentRuntimes,
     agents,
     runtimeHosts,
     type Agent,
@@ -14,13 +15,10 @@ import {
     type RuntimeHostRow,
     type SandboxStorageBreakdown
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSpriteStream,
-    type SpritesClient
-} from '@manyfold/sprites'
+import { execSpriteStream, type SpritesClient } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { spritesRef } from '@/modules/agent-runtimes/host-ref'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { shellQuote } from '@/modules/agents/agent-diagnostics.service'
@@ -58,7 +56,7 @@ export class SpriteStorageService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
+        private readonly hostClients: HostProviderClients,
         private readonly telemetry: TelemetryService,
         @Optional() private readonly execHealth?: SpriteExecHealthService
     ) {}
@@ -68,15 +66,14 @@ export class SpriteStorageService {
         trigger: StorageMeasurementTrigger = 'unspecified'
     ): Promise<void> {
         return this.background(trigger, async () => {
-            const [agent] = await this.db
-                .select()
+            const [row] = await this.db
+                .select({ hostId: agentRuntimes.hostId })
                 .from(agents)
+                .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
                 .where(eq(agents.id, agentId))
                 .limit(1)
-            if (!agent) return
-            if (agent.runtime !== 'sprites') return
-            if (!agent.hostId) return
-            await this.measureHostInScope(agent.hostId, trigger)
+            if (!row?.hostId) return
+            await this.measureHostInScope(row.hostId, trigger)
         })
     }
 
@@ -151,10 +148,9 @@ export class SpriteStorageService {
             .where(eq(runtimeHosts.id, hostId))
             .limit(1)
         if (!host) return
-        if (host.kind !== 'sandbox') return
-        if (!host.accountId || !host.spriteName) return
-        const { accountId, spriteName } = host
-        if (host.spriteStatus !== 'running') return
+        if (host.kind !== 'hosted' || host.status !== 'ready') return
+        if (!spritesRef(host)) return
+        if (host.powerState !== 'running') return
 
         if (host.storageMeasuredAt) {
             const sinceMs = Date.now() - host.storageMeasuredAt.getTime()
@@ -193,11 +189,9 @@ export class SpriteStorageService {
                 .where(
                     and(
                         eq(runtimeHosts.id, host.id),
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        eq(runtimeHosts.spriteStatus, 'running'),
-                        eq(runtimeHosts.accountId, accountId),
-                        eq(runtimeHosts.spriteName, spriteName),
+                        eq(runtimeHosts.kind, 'hosted'),
+                        eq(runtimeHosts.status, 'ready'),
+                        eq(runtimeHosts.powerState, 'running'),
                         or(
                             isNull(runtimeHosts.storageMeasuredAt),
                             lte(
@@ -347,17 +341,17 @@ export class SpriteStorageService {
     private async targetFor(host: RuntimeHostRow): Promise<MeasureTarget> {
         const hostAgents = await this.withDbBudget(async (tx) =>
             tx
-                .select()
+                .select({ agent: agents })
                 .from(agents)
+                .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
                 .where(
                     and(
-                        eq(agents.hostId, host.id),
-                        eq(agents.runtime, 'sprites'),
+                        eq(agentRuntimes.hostId, host.id),
                         ne(agents.status, 'failed')
                     )
                 )
                 .orderBy(asc(agents.id))
-        )
+        ).then((rows) => rows.map((row) => row.agent))
         const homes = new Map<string, MeasureTarget['homes'][number]>()
         for (const agent of hostAgents) {
             const homeDir = frameworkHomeDir(agent)
@@ -410,7 +404,7 @@ export class SpriteStorageService {
         return suppressTracing(async () => {
             const stream = execSpriteStream(
                 client,
-                host.spriteName as string,
+                spritesRef(host)!.spriteName,
                 {
                     cmd: ['bash', '-lc', buildMeasureScript(target)],
                     stdin: '',
@@ -441,12 +435,12 @@ export class SpriteStorageService {
     }
 
     protected async clientFor(host: RuntimeHostRow): Promise<SpritesClient> {
-        const account = await this.accounts.getById(host.accountId as string)
-        if (!account) throw new StorageMeasurementError('permission')
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+        try {
+            const { client } = await this.hostClients.spritesClientForHost(host)
+            return client
+        } catch {
+            throw new StorageMeasurementError('permission')
+        }
     }
 
     private async persist(
@@ -522,12 +516,7 @@ export class SpriteStorageService {
                         storageBreakdown: agentBreakdown,
                         updatedAt: now
                     })
-                    .where(
-                        and(
-                            eq(agents.id, agent.id),
-                            eq(agents.hostId, target.host.id)
-                        )
-                    )
+                    .where(eq(agents.id, agent.id))
             }
             return true
         })

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import {
     createReconnectingStream,
     type StreamLifecycle
-} from '../src/lib/spriteStatusStream'
+} from '../src/lib/reconnectingStream'
 
 /**
  * Deterministic helpers to exercise createReconnectingStream without timers.

@@ -24,6 +24,7 @@ import { groupActiveSandboxes } from '@/lib/concurrencySlots'
 import { activeHoursSeverity, activeHoursStatus } from '@/lib/activeHoursStatus'
 import { formatDuration, formatShortDate } from '@/lib/usageFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { hostKey } from '@/lib/hostStatus'
 import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const SPRITES_RELEASE_SEC = 35
@@ -73,7 +74,7 @@ interface Props {
     activeHoursThisPeriod?: number | null
     activeHoursLimit?: number | null
     usagePeriodEnd?: string | null
-    onSetKeepAlive?: (runtimeId: string, enabled: boolean) => Promise<void>
+    onSetKeepAwake?: (hostId: string, enabled: boolean) => Promise<void>
     /* Collapsed rail: 58px cannot hold "0/10", and dropping the chip there is
        what made this indicator invisible whenever the sidebar was collapsed.
        The glyph keeps its tone, so the reading survives; the numbers come back
@@ -90,18 +91,14 @@ const ConcurrencyIndicator: FC<Props> = ({
     activeHoursThisPeriod,
     activeHoursLimit,
     usagePeriodEnd,
-    onSetKeepAlive,
+    onSetKeepAwake,
     compact = false
 }) => {
     const { t } = useI18n()
     const [open, setOpen] = useState(false)
-    const [expandedRuntimeId, setExpandedRuntimeId] = useState<string | null>(
-        null
-    )
-    const [pendingRuntimeId, setPendingRuntimeId] = useState<string | null>(
-        null
-    )
-    const [keepAliveError, setKeepAliveError] = useState<string | null>(null)
+    const [expandedHostId, setExpandedHostId] = useState<string | null>(null)
+    const [pendingHostId, setPendingHostId] = useState<string | null>(null)
+    const [keepAwakeError, setKeepAwakeError] = useState<string | null>(null)
     const btnRef = useRef<HTMLButtonElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
     const [pos, setPos] = useState<{
@@ -177,8 +174,8 @@ const ConcurrencyIndicator: FC<Props> = ({
 
     useEffect(() => {
         if (open) return
-        setExpandedRuntimeId(null)
-        setKeepAliveError(null)
+        setExpandedHostId(null)
+        setKeepAwakeError(null)
     }, [open])
 
     if (limit == null || limit <= 0) return null
@@ -200,17 +197,17 @@ const ConcurrencyIndicator: FC<Props> = ({
         severity === 2 ? 'error' : severity === 1 ? 'warning' : 'success'
     const hasReleasing = releasingCount > 0
 
-    const handleTurnOffKeepAlive = async (runtimeId: string): Promise<void> => {
-        if (!onSetKeepAlive || pendingRuntimeId) return
-        setPendingRuntimeId(runtimeId)
-        setKeepAliveError(null)
+    const handleTurnOffKeepAwake = async (hostId: string): Promise<void> => {
+        if (!onSetKeepAwake || pendingHostId) return
+        setPendingHostId(hostId)
+        setKeepAwakeError(null)
         try {
-            await onSetKeepAlive(runtimeId, false)
-            setExpandedRuntimeId(null)
+            await onSetKeepAwake(hostId, false)
+            setExpandedHostId(null)
         } catch (e) {
-            setKeepAliveError(apiErrorMessage(e))
+            setKeepAwakeError(apiErrorMessage(e))
         } finally {
-            setPendingRuntimeId(null)
+            setPendingHostId(null)
         }
     }
 
@@ -288,14 +285,11 @@ const ConcurrencyIndicator: FC<Props> = ({
                           </div>
                       ) : (
                           slots.map((slot) => {
-                              const keepAliveRuntimeId =
-                                  slot.keepAliveRuntimeIds[0]
-                              const hasKeepAlive =
-                                  !slot.releasing && !!keepAliveRuntimeId
+                              const hasKeepAwake =
+                                  !slot.releasing && slot.keepAwake
                               const isExpanded =
-                                  hasKeepAlive &&
-                                  expandedRuntimeId === keepAliveRuntimeId
-                              const keepAliveTagTone =
+                                  hasKeepAwake && expandedHostId === slot.hostId
+                              const keepAwakeTagTone =
                                   hours.status === 'low' ||
                                   hours.status === 'exhausted'
                                       ? 'tag-warning'
@@ -313,24 +307,21 @@ const ConcurrencyIndicator: FC<Props> = ({
                                               <span className='text-caption text-subtle shrink-0'>
                                                   {t('web.shell.slotReleasing')}
                                               </span>
-                                          ) : hasKeepAlive ? (
+                                          ) : hasKeepAwake ? (
                                               <button
                                                   type='button'
                                                   onClick={() =>
-                                                      setExpandedRuntimeId(
-                                                          (id) =>
-                                                              id ===
-                                                              keepAliveRuntimeId
-                                                                  ? null
-                                                                  : (keepAliveRuntimeId ??
-                                                                    null)
+                                                      setExpandedHostId((id) =>
+                                                          id === slot.hostId
+                                                              ? null
+                                                              : slot.hostId
                                                       )
                                                   }
                                                   aria-expanded={isExpanded}
-                                                  className={`tag ${keepAliveTagTone} shrink-0 transition-opacity hover:opacity-80`}
+                                                  className={`tag ${keepAwakeTagTone} shrink-0 transition-opacity hover:opacity-80`}
                                               >
                                                   <ZapIcon className='h-3 w-3' />
-                                                  {t('web.shell.keepAliveTag')}
+                                                  {t('web.shell.keepAwakeTag')}
                                                   <ChevronDownIcon
                                                       className={[
                                                           'h-3 w-3 transition-transform',
@@ -376,13 +367,13 @@ const ConcurrencyIndicator: FC<Props> = ({
                                               </div>
                                           ))
                                       )}
-                                      {isExpanded && keepAliveRuntimeId && (
+                                      {isExpanded && (
                                           <div className='bg-soft/60 mt-1.5 animate-[keep-alive-panel-rise_0.16s_ease-out] rounded-sm p-2.5'>
                                               <p className='text-caption text-fg'>
                                                   {slot.activeSecondsThisPeriod !=
                                                   null
                                                       ? t(
-                                                            'web.shell.keepAliveUsage',
+                                                            'web.shell.keepAwakeUsage',
                                                             {
                                                                 duration:
                                                                     formatDuration(
@@ -392,55 +383,55 @@ const ConcurrencyIndicator: FC<Props> = ({
                                                             }
                                                         )
                                                       : t(
-                                                            'web.shell.keepAliveDescription'
+                                                            'web.shell.keepAwakeDescription'
                                                         )}
                                               </p>
                                               <p className='text-caption text-muted mt-0.5'>
-                                                  {t('web.shell.keepAliveHint')}
+                                                  {t('web.shell.keepAwakeHint')}
                                               </p>
                                               <div className='mt-2 flex items-center gap-3'>
                                                   <button
                                                       type='button'
                                                       disabled={
-                                                          pendingRuntimeId ===
-                                                          keepAliveRuntimeId
+                                                          pendingHostId ===
+                                                          slot.hostId
                                                       }
                                                       onClick={() =>
-                                                          void handleTurnOffKeepAlive(
-                                                              keepAliveRuntimeId
+                                                          void handleTurnOffKeepAwake(
+                                                              slot.hostId
                                                           )
                                                       }
                                                       className='bg-surface hover:bg-surface-hover shadow-ring-light text-caption text-fg inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60'
                                                   >
-                                                      {pendingRuntimeId ===
-                                                          keepAliveRuntimeId && (
+                                                      {pendingHostId ===
+                                                          slot.hostId && (
                                                           <Spinner size={12} />
                                                       )}
-                                                      {pendingRuntimeId ===
-                                                      keepAliveRuntimeId
+                                                      {pendingHostId ===
+                                                      slot.hostId
                                                           ? t(
-                                                                'web.shell.keepAliveTurningOff'
+                                                                'web.shell.keepAwakeTurningOff'
                                                             )
                                                           : t(
-                                                                'web.shell.keepAliveTurnOff'
+                                                                'web.shell.keepAwakeTurnOff'
                                                             )}
                                                   </button>
                                                   <Link
-                                                      to={`/settings/runtimes/${keepAliveRuntimeId}`}
+                                                      to={`/settings/runtimes?host=${hostKey(slot.hostId)}`}
                                                       onClick={() =>
                                                           setOpen(false)
                                                       }
                                                       className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
                                                   >
                                                       {t(
-                                                          'web.shell.keepAliveViewRuntime'
+                                                          'web.shell.keepAwakeViewSandbox'
                                                       )}
                                                       <ExternalLinkIcon className='h-3 w-3' />
                                                   </Link>
                                               </div>
-                                              {keepAliveError && (
+                                              {keepAwakeError && (
                                                   <p className='text-caption text-error mt-1.5'>
-                                                      {keepAliveError}
+                                                      {keepAwakeError}
                                                   </p>
                                               )}
                                           </div>

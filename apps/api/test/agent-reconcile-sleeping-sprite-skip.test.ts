@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { agentRuntimes } from '@manyfold/db'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import { reconcilerFor } from './helpers/reconcile-fixture'
+import {
+    daemonRow,
+    k8sHostRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const WS = '/home/sprite/.nca/workspaces/agent-1'
 
@@ -39,8 +44,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
-    status: 'running',
-    spriteStatus: null,
+    status: 'ready',
     workspacePath: WS,
     mountPath: WS,
     spriteName: 'nca-user-abc-main',
@@ -116,7 +120,7 @@ const recordingRegistry = (live: Array<Record<string, unknown>>) => {
     }
 }
 
-// Scenario 1: every row is asleep (warm/cold/null) on a service-framework sprite.
+// Scenario 1: the service-framework sprite is asleep (its daemon is away).
 // WHY: listing a sleeping service-framework sprite wakes the VM (billing + the
 // exact #108 wake race), and stale pre-sleep misses must not combine with a
 // post-wake fresh-boot empty list.
@@ -124,26 +128,23 @@ test('reconcile skips sleeping service-framework sprite: no adapter call, no wri
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
-            internalId: 'agent-1',
-            spriteStatus: 'warm'
+            internalId: 'agent-1'
         }),
         fakeDbAgent({
             id: 'agent-2',
-            internalId: 'agent-2',
-            spriteStatus: 'cold'
+            internalId: 'agent-2'
         }),
         fakeDbAgent({
             id: 'agent-3',
-            internalId: 'agent-3',
-            spriteStatus: null
+            internalId: 'agent-3'
         })
     ]
     const db = makeDb(rows)
 
-    const svc = new AgentReconcileService(
-        db as never,
-        throwingRegistry as never
-    )
+    const svc = reconcilerFor(db, throwingRegistry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: null
+    })
     svc['pendingOrphans'].set('rt-1', new Map([['agent-1', 0]]))
 
     await svc.reconcileRuntime(fakeRuntime() as never)
@@ -165,19 +166,17 @@ test('reconcile skips sleeping service-framework sprite: no adapter call, no wri
     )
 })
 
-// Scenario 2: one row spriteStatus 'running' on the same runtime.
+// Scenario 2: the sprite is running with its daemon online.
 // WHY: an awake sprite is the only state where the gateway answer is meaningful.
 test('reconcile lists a service-framework sprite when any row is running', async () => {
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
-            internalId: 'agent-1',
-            spriteStatus: 'warm'
+            internalId: 'agent-1'
         }),
         fakeDbAgent({
             id: 'agent-2',
-            internalId: 'agent-2',
-            spriteStatus: 'running'
+            internalId: 'agent-2'
         })
     ]
     const db = makeDb(rows)
@@ -186,7 +185,7 @@ test('reconcile lists a service-framework sprite when any row is running', async
         { id: 'agent-2', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime() as never)
 
     assert.equal(
@@ -203,8 +202,7 @@ test('reconcile lists a service-framework sprite when any row is running', async
 test('reconcile never lists claude-code sprites (DB-backed fast path)', async () => {
     const rows = [
         fakeDbAgent({
-            framework: 'claude-code',
-            spriteStatus: 'warm'
+            framework: 'claude-code'
         })
     ]
     const db = makeDb(rows)
@@ -212,7 +210,7 @@ test('reconcile never lists claude-code sprites (DB-backed fast path)', async ()
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(
         fakeRuntime({ framework: 'claude-code' }) as never
     )
@@ -224,19 +222,17 @@ test('reconcile never lists claude-code sprites (DB-backed fast path)', async ()
     )
 })
 
-// Scenario 4: a service framework on k8s with spriteStatus null rows.
+// Scenario 4: a service framework on a cloud computer.
 // WHY: the gate is sprites-only; k8s/daemon must not regress.
-test('reconcile lists a service-framework k8s runtime regardless of spriteStatus', async () => {
+test('reconcile lists a service-framework k8s runtime', async () => {
     const rows = [fakeDbAgent({ runtime: 'k8s', spriteStatus: null })]
     const db = makeDb(rows)
     const registry = recordingRegistry([
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
-    await svc.reconcileRuntime(
-        fakeRuntime({ kind: 'k8s', namespace: 'nca-dev' }) as never
-    )
+    const svc = reconcilerFor(db, registry, { host: k8sHostRow() })
+    await svc.reconcileRuntime(fakeRuntime() as never)
 
     assert.equal(
         registry.calls.length,
@@ -248,12 +244,11 @@ test('reconcile lists a service-framework k8s runtime regardless of spriteStatus
 // Scenario 5: poisoned incident row heals once the sprite is awake and listed.
 // WHY: pins the defined heal path for incident rows under the skip rule —
 // a false-stopped row flips back to running on the first live match.
-test('reconcile heals poisoned stopped row when running sprite lists it', async () => {
+test('reconcile heals a poisoned failed row when the running sprite lists it', async () => {
     const rows = [
         fakeDbAgent({
-            status: 'stopped',
-            failureReason: 'not present in runtime',
-            spriteStatus: 'running'
+            status: 'failed',
+            failureReason: 'not present in runtime'
         })
     ]
     const db = makeDb(rows)
@@ -261,13 +256,13 @@ test('reconcile heals poisoned stopped row when running sprite lists it', async 
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime() as never)
 
     assert.equal(db.updates.length, 1, 'live match must update the row')
     assert.equal(
         db.updates[0].set.status,
-        'running',
+        'ready',
         'heal is instant and unconfirmed — the recovery path for #108-poisoned rows'
     )
     assert.equal(
@@ -286,13 +281,11 @@ test('reconcile with verifiedByReport lists a sleeping service-framework sprite'
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
-            internalId: 'agent-1',
-            spriteStatus: null
+            internalId: 'agent-1'
         }),
         fakeDbAgent({
             id: 'agent-2',
-            internalId: 'agent-2',
-            spriteStatus: 'warm'
+            internalId: 'agent-2'
         })
     ]
     const db = makeDb(rows)
@@ -301,7 +294,10 @@ test('reconcile with verifiedByReport lists a sleeping service-framework sprite'
         { id: 'agent-2', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: daemonRow()
+    })
     await svc.reconcileRuntime(fakeRuntime() as never, {
         verifiedByReport: true
     })
@@ -320,10 +316,10 @@ test('reconcile keeps the sleep skip when verifiedByReport is false', async () =
     const rows = [fakeDbAgent({ spriteStatus: 'warm' })]
     const db = makeDb(rows)
 
-    const svc = new AgentReconcileService(
-        db as never,
-        throwingRegistry as never
-    )
+    const svc = reconcilerFor(db, throwingRegistry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: daemonRow()
+    })
     await svc.reconcileRuntime(fakeRuntime() as never, {
         verifiedByReport: false
     })
@@ -350,7 +346,7 @@ test('second verifiedByReport touch within 15s is dropped', async () => {
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime, { verifiedByReport: true })
@@ -383,7 +379,7 @@ test('verifiedByReport touch is not dropped after a recent non-report sleep skip
     const registry = recordingRegistry([
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime)
@@ -433,7 +429,7 @@ test('verifiedByReport touch coalesces behind an inflight non-report reconcile',
             }
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime)
@@ -460,7 +456,7 @@ test('verifiedByReport touch still respects failure backoff', async () => {
             }
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime)

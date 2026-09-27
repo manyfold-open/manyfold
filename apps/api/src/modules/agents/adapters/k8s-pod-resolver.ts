@@ -1,4 +1,4 @@
-import type { AgentRuntimeRow } from '@manyfold/db'
+import type { RuntimeHostRow } from '@manyfold/db'
 import {
     KubernetesService,
     buildApisFromKubeConfig,
@@ -23,9 +23,9 @@ export const resolvePodHostPod = async (
     k8s: KubernetesService,
     host: {
         hostId: string
-        clusterId: string | null
+        providerId: string | null
         namespace: string | null
-        // The caller's client for this cluster, when it already has one.
+        // The caller's client for this provider, when it already has one.
         client?: K8sClient
     }
 ): Promise<ResolvedAgentPod> => {
@@ -33,7 +33,7 @@ export const resolvePodHostPod = async (
         throw new Error(
             `pod host ${host.hostId} has no k8s namespace; cannot resolve pod`
         )
-    const client = host.client ?? (await k8s.getClient(host.clusterId))
+    const client = host.client ?? (await k8s.getClient(host.providerId))
     const apis = buildApisFromKubeConfig(client.kubeConfig)
     const labelSelector = podHostSelector(host.hostId)
     const res = await apis.core.listNamespacedPod({
@@ -64,17 +64,20 @@ export const resolvePodHostPod = async (
     }
 }
 
-export const resolveAgentPod = async (
+// The host row carries the placement the adapter wrote (providerRef): the
+// namespace and the provider whose kubeconfig reaches it.
+export const resolveHostPod = async (
     k8s: KubernetesService,
-    runtime: AgentRuntimeRow
+    host: RuntimeHostRow,
+    client?: K8sClient
 ): Promise<ResolvedAgentPod> => {
-    if (!runtime.hostId)
-        throw new Error(
-            `runtime ${runtime.id} is not on a pod host; cannot resolve pod`
-        )
+    const ref = host.providerRef
+    if (!ref || ref.kind !== 'k8s')
+        throw new Error(`host ${host.id} is not a pod host; cannot resolve pod`)
     return resolvePodHostPod(k8s, {
-        hostId: runtime.hostId,
-        clusterId: runtime.clusterId,
-        namespace: runtime.namespace
+        hostId: host.id,
+        providerId: host.providerId,
+        namespace: ref.namespace,
+        client
     })
 }

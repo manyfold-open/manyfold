@@ -85,10 +85,9 @@ const coreNavGroups: NavGroup[] = [
         labelKey: 'admin.nav.infrastructure',
         icon: ServerCog,
         items: [
-            { to: adminRoutes.clusters, labelKey: 'admin.nav.clusters' },
             {
-                to: adminRoutes.sandboxAccounts,
-                labelKey: 'admin.nav.spritesAccounts'
+                to: adminRoutes.runtimeProviders,
+                labelKey: 'admin.nav.runtimeProviders'
             },
             {
                 to: adminRoutes.selfOwnedComputerMachines,

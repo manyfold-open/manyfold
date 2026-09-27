@@ -93,14 +93,12 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `fence-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'daemon'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'fence-agent',
         framework: 'claude-code',
-        runtime: 'daemon',
         runtimeId,
         internalId: `internal-${agentId}`
     })
@@ -116,7 +114,7 @@ const buildHarness = async (): Promise<Harness> => {
         sessionId,
         role: 'assistant',
         contentBlocksJson: [],
-        daemonId: `daemon-${suffix}`,
+        hostId: `daemon-${suffix}`,
         daemonExecRef: messageId
     })
 
@@ -175,7 +173,7 @@ const expire = async (h: Harness): Promise<void> => {
 const claimInput = (h: Harness, ownerId: string) => ({
     messageId: h.messageId,
     sessionId: h.sessionId,
-    daemonId: null as string | null,
+    hostId: null as string | null,
     daemonExecRef: h.messageId,
     ownerId,
     leaseSeconds: 90
@@ -183,11 +181,11 @@ const claimInput = (h: Harness, ownerId: string) => ({
 
 const liveClaimInput = async (h: Harness, ownerId: string) => {
     const [message] = await h.db
-        .select({ daemonId: chatMessages.daemonId })
+        .select({ hostId: chatMessages.hostId })
         .from(chatMessages)
         .where(eq(chatMessages.id, h.messageId))
-    assert.ok(message?.daemonId)
-    return { ...claimInput(h, ownerId), daemonId: message.daemonId }
+    assert.ok(message?.hostId)
+    return { ...claimInput(h, ownerId), hostId: message.hostId }
 }
 
 const sourceRow = (h: Harness, line: string, sourceSeq = 1) =>

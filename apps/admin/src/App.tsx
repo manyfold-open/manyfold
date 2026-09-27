@@ -12,10 +12,8 @@ import AgentRuntimeDetail from '@/pages/AgentRuntimes/AgentRuntimeDetail'
 import ChatSessionDetail from '@/pages/ChatSessions/ChatSessionDetail'
 import SandboxesList from '@/pages/Sandboxes/SandboxesList'
 import SandboxNew from '@/pages/Sandboxes/SandboxNew'
-import ClustersList from '@/pages/Clusters/ClustersList'
-import ClusterForm from '@/pages/Clusters/ClusterForm'
-import SpritesAccountsList from '@/pages/SpritesAccounts/SpritesAccountsList'
-import SpritesAccountForm from '@/pages/SpritesAccounts/SpritesAccountForm'
+import RuntimeProvidersList from '@/pages/RuntimeProviders/RuntimeProvidersList'
+import RuntimeProviderForm from '@/pages/RuntimeProviders/RuntimeProviderForm'
 import NotificationWebhooksList from '@/pages/NotificationWebhooks/NotificationWebhooksList'
 import NotificationWebhookForm from '@/pages/NotificationWebhooks/NotificationWebhookForm'
 import UserDetail from '@/pages/Users/UserDetail'
@@ -56,20 +54,33 @@ const legacyStaticRedirects: LegacyRedirect[] = [
     { from: '/agent-runtimes', to: adminRoutes.runtimes },
     { from: '/agent-runtimes/new', to: adminRoutes.agentNew },
     { from: '/providers', to: adminRoutes.modelProviders },
-    { from: '/settings/clusters', to: adminRoutes.clusters },
-    { from: '/settings/clusters/new', to: adminRoutes.clusterNew },
+    { from: '/settings/clusters', to: adminRoutes.runtimeProviders },
+    { from: '/settings/clusters/new', to: adminRoutes.runtimeProviderNew },
     {
         from: '/settings/stateful-sandbox-accounts',
-        to: adminRoutes.sandboxAccounts
+        to: adminRoutes.runtimeProviders
     },
     {
         from: '/settings/stateful-sandbox-accounts/new',
-        to: adminRoutes.sandboxAccountNew
+        to: adminRoutes.runtimeProviderNew
     },
-    { from: '/settings/sprites-accounts', to: adminRoutes.sandboxAccounts },
+    { from: '/settings/sprites-accounts', to: adminRoutes.runtimeProviders },
     {
         from: '/settings/sprites-accounts/new',
-        to: adminRoutes.sandboxAccountNew
+        to: adminRoutes.runtimeProviderNew
+    },
+    { from: '/infrastructure/clusters', to: adminRoutes.runtimeProviders },
+    {
+        from: '/infrastructure/clusters/new',
+        to: adminRoutes.runtimeProviderNew
+    },
+    {
+        from: '/infrastructure/sandbox-accounts',
+        to: adminRoutes.runtimeProviders
+    },
+    {
+        from: '/infrastructure/sandbox-accounts/new',
+        to: adminRoutes.runtimeProviderNew
     },
     {
         from: '/settings/notification-webhooks',
@@ -155,20 +166,16 @@ const legacyParamRedirects: LegacyParamRedirectDefinition[] = [
         name: 'id',
         to: adminRoutes.runtime
     },
+    // Migrated clusters keep their ids as runtime providers (ADR-0036).
     {
         from: '/settings/clusters/:id',
         name: 'id',
-        to: adminRoutes.cluster
+        to: adminRoutes.runtimeProvider
     },
     {
-        from: '/settings/stateful-sandbox-accounts/:slug',
-        name: 'slug',
-        to: adminRoutes.sandboxAccount
-    },
-    {
-        from: '/settings/sprites-accounts/:slug',
-        name: 'slug',
-        to: adminRoutes.sandboxAccount
+        from: '/infrastructure/clusters/:id',
+        name: 'id',
+        to: adminRoutes.runtimeProvider
     },
     {
         from: '/settings/notification-webhooks/:id',
@@ -363,28 +370,21 @@ const App: FC = (): ReactNode => {
 
                 <Route
                     path={adminRoutes.infrastructure}
-                    element={<Navigate replace to={adminRoutes.clusters} />}
-                />
-                <Route path={adminRoutes.clusters} element={<ClustersList />} />
-                <Route
-                    path={adminRoutes.clusterNew}
-                    element={<ClusterForm />}
+                    element={
+                        <Navigate replace to={adminRoutes.runtimeProviders} />
+                    }
                 />
                 <Route
-                    path={adminRoutes.clusterDetail}
-                    element={<ClusterForm />}
+                    path={adminRoutes.runtimeProviders}
+                    element={<RuntimeProvidersList />}
                 />
                 <Route
-                    path={adminRoutes.sandboxAccounts}
-                    element={<SpritesAccountsList />}
+                    path={adminRoutes.runtimeProviderNew}
+                    element={<RuntimeProviderForm />}
                 />
                 <Route
-                    path={adminRoutes.sandboxAccountNew}
-                    element={<SpritesAccountForm />}
-                />
-                <Route
-                    path={adminRoutes.sandboxAccountDetail}
-                    element={<SpritesAccountForm />}
+                    path={adminRoutes.runtimeProviderDetail}
+                    element={<RuntimeProviderForm />}
                 />
                 <Route
                     path={adminRoutes.selfOwnedComputers}

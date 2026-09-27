@@ -8,6 +8,7 @@ import {
     createDb,
     plans,
     runtimeHosts,
+    runtimeProviders,
     users,
     type Database
 } from '@manyfold/db'
@@ -113,27 +114,45 @@ const withHarness = async (
                 email: `${sfx}@pgtest.local`,
                 planId: ids.plan
             })
+            await db.insert(runtimeProviders).values({
+                id: `rtp_pgtest_${sfx}`,
+                kind: 'sprites',
+                name: `pgtest-${sfx}`,
+                credentialCiphertext: 'encrypted'
+            })
             await db.insert(runtimeHosts).values([
                 {
                     id: ids.sick,
                     userId: ids.user,
-                    kind: 'sandbox',
+                    kind: 'hosted',
+                    providerId: `rtp_pgtest_${sfx}`,
+                    providerRef: {
+                        kind: 'sprites',
+                        spriteName: `art-sick-${sfx}`,
+                        spriteId: 'sp'
+                    },
                     name: `pgtest-sick-${sfx}`,
-                    spriteName: `art-sick-${sfx}`
+                    status: 'ready'
                 },
                 {
                     id: ids.healthy,
                     userId: ids.user,
-                    kind: 'sandbox',
+                    kind: 'hosted',
+                    providerId: `rtp_pgtest_${sfx}`,
+                    providerRef: {
+                        kind: 'sprites',
+                        spriteName: `art-ok-${sfx}`,
+                        spriteId: 'sp'
+                    },
                     name: `pgtest-ok-${sfx}`,
-                    spriteName: `art-ok-${sfx}`
+                    status: 'ready'
                 },
                 {
                     id: ids.daemon,
                     userId: ids.user,
-                    kind: 'daemon',
+                    kind: 'local',
                     name: `pgtest-daemon-${sfx}`,
-                    daemonUuid: `uuid-${sfx}`
+                    status: 'ready'
                 }
             ])
             await body({
@@ -437,7 +456,7 @@ test(
             const stale = new Date(Date.now() + 60_000)
             await h.setCooldown(h.sick, newer)
 
-            await service.markSandboxHostExecCooldown(h.sick, stale)
+            await service.markHostExecCooldown(h.sick, stale)
 
             assert.equal(
                 (await h.cooldownUntil(h.sick))?.getTime(),
@@ -447,7 +466,7 @@ test(
 )
 
 test(
-    'a host that is not a sandbox is not this breaker to hold',
+    'a local host is not this breaker to hold',
     { skip: !RUN },
     async () =>
         withHarness(async (h) => {

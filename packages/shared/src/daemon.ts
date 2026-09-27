@@ -442,19 +442,19 @@ export type DaemonWsFrame =
           refId: string
       }
 
-// How stale `runtime_hosts.rpc_last_seen_at` may be before a daemon counts as
+// How stale `host_daemons.rpc_last_seen_at` may be before a daemon counts as
 // offline. Shared because turn arbitration now depends on it: the adoption
 // sweep skips a turn whose daemon is online (that daemon resumes it over the
 // reverse WS), so "online" has to mean the same thing there as it does in the
-// host API that renders the badge.
+// host API that renders the badge (DAEMON_PRESENCE_WINDOW_MS in host-model).
 export const DAEMON_ONLINE_THRESHOLD_MS = 45_000
 
-// Protocol baseline: scoped storage reports (4.0.0), Pi's ~/.pi home (4.4.0),
-// services.v1, the container startup method and Hermes turns that do not stall
-// under the compiled binary (4.6.0) are required. 4.6.1 is the stable release
-// that carries them all; isCliVersionTooOld drops the prerelease suffix, so
-// 4.6.1-dev builds pass too.
-export const DAEMON_MIN_CLI_VERSION = '4.6.1'
+// Protocol baseline: the host model (ADR-0036). A daemon registers onto one
+// host, the register response and welcome frame carry no runtimes, and the
+// local stores are scoped by the host id; 5.0.0 is the release that ships
+// them. isCliVersionTooOld drops the prerelease suffix, so 5.0.0-dev builds
+// pass too.
+export const DAEMON_MIN_CLI_VERSION = '5.0.0'
 
 // How often the daemon actually re-runs the `<bin> --version` probes behind
 // `detectedFrameworks`. The 15s heartbeat replays the cached result on the

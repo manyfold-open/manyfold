@@ -67,14 +67,12 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'sprites'
     })
     await db.insert(agents).values({
         id: exposedId,
         userId,
         name: `pgtest-${exposedId}`,
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId,
         internalId: `internal-${exposedId}`,
         extras: { a2aExposure: { enabled: true } }
@@ -84,7 +82,6 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-${unexposedId}`,
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId,
         internalId: `internal-${unexposedId}`
     })
@@ -93,7 +90,6 @@ const buildHarness = async (): Promise<Harness> => {
         userId: otherUserId,
         name: `pgtest-${otherAgentId}`,
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId,
         internalId: `internal-${otherAgentId}`
     })

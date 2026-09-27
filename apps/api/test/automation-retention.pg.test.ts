@@ -84,7 +84,6 @@ const buildHarness = async (): Promise<Harness> => {
         userId: ids.user,
         name: `pgtest-rt-${sfx}`,
         framework: 'codex',
-        kind: 'sprites',
         status: 'ready'
     })
     const agentRows: Array<typeof agents.$inferInsert> = [
@@ -93,8 +92,7 @@ const buildHarness = async (): Promise<Harness> => {
             userId: ids.user,
             name: `pgtest-agent-${sfx}`,
             framework: 'codex',
-            runtime: 'sprites',
-            status: 'running',
+            status: 'ready',
             runtimeId: ids.runtime,
             internalId: `int-${sfx}`
         },
@@ -103,8 +101,7 @@ const buildHarness = async (): Promise<Harness> => {
             userId: ids.user,
             name: `pgtest-agent-doom-${sfx}`,
             framework: 'codex',
-            runtime: 'sprites',
-            status: 'running',
+            status: 'ready',
             runtimeId: ids.runtime,
             internalId: `int-doom-${sfx}`
         }

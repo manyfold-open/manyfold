@@ -244,19 +244,34 @@ test('a service framework is provisioned onto a pod host', async () => {
 })
 
 test('installing onto a cloud computer passes a typed refusal through and wraps anything else', async () => {
-    const deletes: string[] = []
+    const failed: string[] = []
+    // The (host_id, framework) slot is claimed by an upsert and, on failure,
+    // kept as `failed` for the next try (ADR-0036) — never deleted.
     const db = {
-        insert: () => ({ values: async () => {} }),
-        delete: () => ({
-            where: async () => {
-                deletes.push('runtime')
-            }
+        insert: () => ({
+            values: () => ({
+                onConflictDoUpdate: () => ({
+                    returning: async () => [{ id: 'art_claw' }]
+                })
+            })
+        }),
+        update: () => ({
+            set: (patch: { status?: string }) => ({
+                where: async () => {
+                    failed.push(patch.status ?? '')
+                }
+            })
         })
     }
     const none = {} as never
     const provisioner = new K8sContainerProvisioner(
         db as never,
-        { getClient: async () => ({}) } as never,
+        none,
+        none,
+        { providerForHost: async () => ({ id: 'rtp_k8s', kind: 'k8s' }) } as never,
+        none,
+        none,
+        none,
         none,
         none,
         none,
@@ -269,11 +284,10 @@ test('installing onto a cloud computer passes a typed refusal through and wraps 
     const host = {
         id: 'pdh_1',
         userId: 'usr_1',
-        kind: 'pod',
-        podStatus: 'ready',
-        namespace: 'nca-user-1',
-        clusterId: 'clus_1',
-        ingressHost: null
+        kind: 'hosted',
+        providerId: 'rtp_k8s',
+        providerRef: { kind: 'k8s', namespace: 'nca-user-1', ingressHost: null, podPhase: 'Running' },
+        status: 'ready'
     }
     const install = (failure: Error) => {
         ;(
@@ -307,8 +321,8 @@ test('installing onto a cloud computer passes a typed refusal through and wraps 
             err instanceof InternalServerErrorException &&
             err.message === 'installing openclaw failed'
     )
-    // Neither leaves a runtime behind.
-    assert.deepEqual(deletes, ['runtime', 'runtime'])
+    // Neither leaves an installing runtime behind: the slot reads failed.
+    assert.deepEqual(failed, ['failed', 'failed'])
 })
 
 test('the cloud_computer master toggle blocks self-serve provisioning', async () => {

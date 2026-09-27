@@ -51,7 +51,8 @@ const buildHarness = async (accrualSince: Date | null): Promise<Harness> => {
         id: hostId,
         userId,
         name: `pgtest-sandbox-${suffix}`,
-        kind: 'sandbox',
+        kind: 'local',
+        status: 'ready',
         activeAccrualSince: accrualSince
     })
     return {

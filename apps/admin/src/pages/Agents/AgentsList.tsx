@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom'
 import { getLocale, t } from '@manyfold/i18n'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useApiClient } from '@/lib/apiClient'
+import { availabilityTone } from '@/lib/hostStatus'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { useTableSort, type SortAccessors } from '@/lib/useTableSort'
 import { adminRoutes } from '@/routes'
@@ -18,12 +19,11 @@ import { Badge, type BadgeTone, Button, Card, Heading, SortHeader } from '@/ui'
 
 const statusTone: Record<AgentStatus, BadgeTone> = {
     pending: 'warning',
-    running: 'success',
-    stopped: 'neutral',
+    ready: 'success',
     failed: 'error'
 }
 
-const ALL_STATUSES: AgentStatus[] = ['pending', 'running', 'stopped', 'failed']
+const ALL_STATUSES: AgentStatus[] = ['pending', 'ready', 'failed']
 
 type AgentsSortKey =
     | 'name'
@@ -307,7 +307,7 @@ const AgentsList: FC = (): ReactNode => {
                                                 {t('admin.agents.cols.model')}
                                             </SortHeader>
                                             <th className='px-2 py-1.5 font-normal'>
-                                                {t('admin.agents.cols.cluster')}
+                                                {t('admin.agents.cols.host')}
                                             </th>
                                             <th className='px-2 py-1.5 font-normal'>
                                                 {t('admin.agents.cols.runtime')}
@@ -320,6 +320,11 @@ const AgentsList: FC = (): ReactNode => {
                                             >
                                                 {t('admin.agents.cols.status')}
                                             </SortHeader>
+                                            <th className='px-2 py-1.5 font-normal'>
+                                                {t(
+                                                    'admin.agents.cols.availability'
+                                                )}
+                                            </th>
                                             <SortHeader
                                                 sortKey='createdAt'
                                                 activeKey={sortKey}
@@ -363,13 +368,15 @@ const AgentsList: FC = (): ReactNode => {
                                                 <td className='px-2 py-1.5 font-mono'>
                                                     {a.model ?? '—'}
                                                 </td>
-                                                <td className='px-2 py-1.5 font-mono'>
-                                                    {a.runtime === 'k8s'
-                                                        ? (a.clusterName ??
-                                                          (a.clusterId
-                                                              ? `${a.clusterId} (deleted)`
-                                                              : '—'))
-                                                        : '—'}
+                                                <td className='max-w-xs px-2 py-1.5'>
+                                                    <div className='truncate'>
+                                                        {a.hostName ?? '—'}
+                                                    </div>
+                                                    <div className='text-caption-sm text-body mt-1'>
+                                                        {t(
+                                                            `admin.agentRuntimes.kind.${a.runtime}`
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className='px-2 py-1.5 font-mono'>
                                                     {a.runtimeId ? (
@@ -402,6 +409,17 @@ const AgentsList: FC = (): ReactNode => {
                                                     >
                                                         {t(
                                                             `admin.agents.status.${a.status}`
+                                                        )}
+                                                    </Badge>
+                                                </td>
+                                                <td className='px-2 py-1.5'>
+                                                    <Badge
+                                                        tone={availabilityTone(
+                                                            a.availability
+                                                        )}
+                                                    >
+                                                        {t(
+                                                            `admin.hostStatus.availability.${a.availability}`
                                                         )}
                                                     </Badge>
                                                 </td>

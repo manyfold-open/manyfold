@@ -15,7 +15,6 @@ import { randomUUID } from 'node:crypto'
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { auditAction, createObjectId } from '@manyfold/shared'
 import {
-    agentRuntimes,
     auditLogs,
     automations,
     channels,
@@ -40,8 +39,7 @@ import {
     SUPPORT_EMAIL
 } from '@/modules/email/templates/email-content'
 import { renderEmail } from '@/modules/email/templates/render-email'
-import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
-import { K8sProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-provisioner'
+import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { ChannelsService } from '@/modules/channels/channels.service'
 import { DeletionTokenService } from './deletion-token.service'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
@@ -203,9 +201,9 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
         // Unattended activity sources stop with the flag; these two are
         // flipped durably so a restore does not silently resurrect them.
         await tx
-            .update(agentRuntimes)
-            .set({ keepAliveEnabled: false })
-            .where(eq(agentRuntimes.userId, userId))
+            .update(runtimeHosts)
+            .set({ keepAwake: false })
+            .where(eq(runtimeHosts.userId, userId))
         await tx
             .update(automations)
             .set({ status: 'paused' })
@@ -525,7 +523,7 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
             await this.lifecycle.beforeUserHardDelete(row.userId)
             step = 'delete'
             await this.db.transaction(async (tx) => {
-                await tx.delete(serviceLeases).where(inArray(serviceLeases.name, tx.select({ name: sql<string>`'daemon-config:' || ${runtimeHosts.id}` }).from(runtimeHosts).where(and(eq(runtimeHosts.userId, row.userId), eq(runtimeHosts.kind, 'daemon')))))
+                await tx.delete(serviceLeases).where(inArray(serviceLeases.name, tx.select({ name: sql<string>`'daemon-config:' || ${runtimeHosts.id}` }).from(runtimeHosts).where(and(eq(runtimeHosts.userId, row.userId), eq(runtimeHosts.kind, 'local')))))
                 await tx.delete(users).where(eq(users.id, row.userId))
                 await tx
                     .update(userDeletions)
@@ -560,34 +558,24 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
         )
     }
 
-    // The same teardown recipes the explicit delete endpoints use: sprites drop
-    // the VM when it empties, a pod host goes with every runtime on it
-    // (ADR-0035), daemon rows are derived state that cascades with the user
-    // (the machine is the user's own — only the tokens die).
+    // The same host delete path the explicit endpoints use (ADR-0036 R8),
+    // forced past the agents guard: a hosted host's machine is destroyed and
+    // its rows go; a local host is retired (tokens revoked) and then deleted
+    // — the machine is the user's own. External runtimes cascade with the
+    // user row.
     private async teardownRuntimes(userId: string): Promise<void> {
-        const rows = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.userId, userId))
-        for (const row of rows) {
-            if (row.kind === 'sprites') {
-                const sprites = this.moduleRef.get(SpritesProvisioner, {
-                    strict: false
-                })
-                await sprites.teardownRuntime(row, {
-                    reapImmediatelyIfEmpty: true
-                })
-            }
-        }
-        const pods = await this.db
+        const hosts = await this.db
             .select()
             .from(runtimeHosts)
-            .where(
-                and(eq(runtimeHosts.userId, userId), eq(runtimeHosts.kind, 'pod'))
-            )
-        if (pods.length === 0) return
-        const k8s = this.moduleRef.get(K8sProvisioner, { strict: false })
-        for (const host of pods) await k8s.teardownHost(host)
+            .where(eq(runtimeHosts.userId, userId))
+        if (hosts.length === 0) return
+        const lifecycle = this.moduleRef.get(HostedHostLifecycleService, {
+            strict: false
+        })
+        for (const host of hosts) {
+            if (host.kind === 'local') await lifecycle.retireLocalHost(host.id)
+            await lifecycle.deleteHost(host.id, { force: true })
+        }
     }
 
     private async teardownChannels(userId: string): Promise<void> {

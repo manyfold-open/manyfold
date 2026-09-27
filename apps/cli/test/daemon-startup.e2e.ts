@@ -72,8 +72,7 @@ wss.on('connection', (socket, request) => {
                 JSON.stringify({
                     type: 'welcome',
                     daemonId: 'ldh_fixture',
-                    serverTime: new Date().toISOString(),
-                    runtimeIds: []
+                    serverTime: new Date().toISOString()
                 })
             )
         }

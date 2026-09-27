@@ -12,6 +12,7 @@ import {
     chatSessions,
     chatStreamEvents,
     createDb,
+    hostDaemons,
     runtimeHosts,
     users,
     type Database
@@ -55,14 +56,12 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'daemon'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'pgtest-agent',
         framework: 'claude-code',
-        runtime: 'daemon',
         runtimeId,
         internalId: `internal-${agentId}`
     })
@@ -108,7 +107,14 @@ const insertHost = async (
     await h.db.insert(runtimeHosts).values({
         id,
         userId: h.userId,
+        kind: 'local',
         name: `host-${id}`,
+        status: 'ready'
+    })
+    await h.db.insert(hostDaemons).values({
+        hostId: id,
+        userId: h.userId,
+        daemonUuid: `uuid-${id}`,
         lastSeenAt: new Date(Date.now() - sinceMs)
     })
 }

@@ -1,3 +1,4 @@
+import { isRuntimeUsable } from '@manyfold/shared'
 import type {
     FileRootSdk,
     FsEntrySdk,
@@ -35,6 +36,7 @@ import {
     TerminalIcon,
     UploadIcon
 } from '@/components/icons'
+import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { Ghost, SheenText } from '@/components/Loading'
@@ -191,7 +193,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
 }): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
-    const available = agent.status === 'running'
+    const available = isRuntimeUsable(agent.availability)
     const [paths, setPaths] = useState<string[]>([])
     const [previewState, setPreviewState] = useState<PreviewState>({
         tabs: [],
@@ -853,7 +855,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
                         {!available ? (
                             <WorkspaceFilesState>
                                 {t('web.workspaceFiles.agentStatus', {
-                                    status: agent.status
+                                    status: agentStatusDotLabel(agent)
                                 })}
                             </WorkspaceFilesState>
                         ) : loading ? (

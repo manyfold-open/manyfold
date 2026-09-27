@@ -1,14 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DaemonRuntimeSyncService } from '../src/modules/daemon/daemon-runtime-sync.service'
+import {
+    DaemonRuntimeSyncService,
+    FRAMEWORK_NOT_DETECTED_REASON
+} from '../src/modules/daemon/daemon-runtime-sync.service'
 import type { Database, RuntimeHostRow, AgentRuntimeRow } from '@manyfold/db'
 
 interface Mutation {
     op: 'select' | 'insert' | 'update'
     setVals?: Record<string, unknown>
     insertVals?: Partial<AgentRuntimeRow>
+    // The ON CONFLICT (host_id, framework) DO UPDATE clause of an insert,
+    // recorded so a test can tell an upsert that updated from one that made
+    // a row.
+    conflictSet?: Record<string, unknown>
+    upserted?: boolean
 }
 
+// Predicates are opaque, so a select answers with every row it holds; the
+// two selects the service runs are "this host's runtimes" and "this user's
+// runtime names", which the fake answers from the same rows. The partial
+// unique index is modelled: an insert on a (hostId, framework) already held
+// applies the conflict SET to that row instead of adding one.
 class FakeDb {
     rows: AgentRuntimeRow[] = []
     mutations: Mutation[] = []
@@ -19,19 +32,54 @@ class FakeDb {
         })) as AgentRuntimeRow[]
     }
 
+    // The bare select is "this host's runtimes" (dh-1); the shaped one is
+    // "every runtime name this user holds".
+    select(shape?: Record<string, unknown>) {
+        return {
+            from: () => ({
+                where: () =>
+                    Promise.resolve(
+                        shape
+                            ? this.rows.slice()
+                            : this.rows.filter((r) => r.hostId === 'dh-1')
+                    )
+            })
+        }
+    }
+
     insert(_tbl: unknown) {
         return {
             values: (v: Partial<AgentRuntimeRow>) => {
-                const row = {
-                    ...defaults(),
-                    ...v,
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                } as AgentRuntimeRow
-                this.rows.push(row)
-                this.mutations.push({ op: 'insert', insertVals: v })
+                const mutation: Mutation = { op: 'insert', insertVals: v }
+                this.mutations.push(mutation)
                 return {
-                    returning: () => Promise.resolve([row])
+                    onConflictDoUpdate: (conflict: {
+                        set: Record<string, unknown>
+                    }) => {
+                        mutation.conflictSet = conflict.set
+                        return {
+                            returning: () => {
+                                const existing = this.rows.find(
+                                    (r) =>
+                                        r.hostId === v.hostId &&
+                                        r.framework === v.framework
+                                )
+                                if (existing) {
+                                    mutation.upserted = true
+                                    Object.assign(existing, conflict.set)
+                                    return Promise.resolve([existing])
+                                }
+                                const row = {
+                                    ...defaults(),
+                                    ...v,
+                                    createdAt: new Date(),
+                                    updatedAt: new Date()
+                                } as AgentRuntimeRow
+                                this.rows.push(row)
+                                return Promise.resolve([row])
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -42,84 +90,59 @@ class FakeDb {
             set: (v: Record<string, unknown>) => {
                 this.mutations.push({ op: 'update', setVals: v })
                 return {
-                    where: (_cond: unknown) => ({
-                        returning: () => {
-                            const updated = this.rows.map((r) => ({
-                                ...r,
-                                ...v
-                            }))
-                            if (this.rows.length > 0)
-                                Object.assign(this.rows[0], v)
-                            return Promise.resolve(updated)
-                        }
-                    })
+                    where: (_cond: unknown) => Promise.resolve()
                 }
             }
         }
     }
 }
 
-const fakeSelect = (db: FakeDb): Database['select'] => {
-    return (() => ({
-        from: () => ({
-            where: () => Promise.resolve(db.rows.slice())
-        })
-    })) as unknown as Database['select']
-}
-
 const defaults = (): Partial<AgentRuntimeRow> => ({
     status: 'ready',
-    namespace: null,
-    ingressHost: null,
-    accountId: null,
-    spriteName: null,
-    spriteId: null,
-    clusterId: null,
-    daemonId: null,
-    homeDir: null,
-    workspaceBaseDir: null,
+    hostId: 'dh-1',
     capabilitiesJson: {},
-    lastSeenAt: null,
     primaryAgentId: null,
+    defaultAuthProfileId: null,
     mountPath: '/workspace',
     controlUiEnabled: true,
     dashboardEnabled: false,
+    dashboardState: null,
+    serviceStatus: 'unknown',
+    serviceStatusAt: null,
     currentPhase: null,
     failureReason: null,
-    startedAt: null,
+    frameworkVersion: null,
+    frameworkVersionCheckedAt: null,
     lastBootstrappedAt: null
 })
 
-const wireDb = (db: FakeDb): Database => {
-    return {
-        select: fakeSelect(db),
-        insert: db.insert.bind(db),
-        update: db.update.bind(db)
-    } as unknown as Database
-}
+const wireDb = (db: FakeDb): Database => db as unknown as Database
 
 const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
     ({
         id: 'dh-1',
         userId: 'u1',
-        daemonUuid: 'uuid-1',
+        kind: 'local',
+        providerId: null,
+        providerRef: null,
         name: 'mac-laptop',
-        hostname: 'mac.local',
-        os: 'darwin',
-        arch: 'arm64',
-        cliVersion: '0.0.1',
+        status: 'ready',
+        failureReason: null,
+        generation: 0,
+        powerState: null,
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.nca/workspaces',
-        detectedFrameworks: [],
-        lastSeenAt: new Date(),
-        lastIp: null,
-        status: 'active',
+        skillsDir: null,
+        keepAwake: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides
     }) as RuntimeHostRow
 
-test('first sync inserts one runtime per detected framework', async () => {
+const inserts = (db: FakeDb) => db.mutations.filter((m) => m.op === 'insert')
+const updates = (db: FakeDb) => db.mutations.filter((m) => m.op === 'update')
+
+test('first sync inserts one runtime per detected framework on the host', async () => {
     const db = new FakeDb()
     db.setRows([])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
@@ -131,72 +154,68 @@ test('first sync inserts one runtime per detected framework', async () => {
         ]
     })
     assert.equal(result.length, 2)
-    const inserts = db.mutations.filter((m) => m.op === 'insert')
-    assert.equal(inserts.length, 2)
-    assert.equal(inserts[0].insertVals?.kind, 'daemon')
-    assert.equal(inserts[0].insertVals?.daemonId, 'dh-1')
+    assert.equal(inserts(db).length, 2)
+    assert.equal(inserts(db)[0].insertVals?.hostId, 'dh-1')
+    assert.equal(inserts(db)[0].insertVals?.status, 'ready')
+    assert.equal(
+        inserts(db)[0].insertVals?.mountPath,
+        '/Users/me/.nca/workspaces',
+        'coding runtimes mount the declared workspace root'
+    )
+    assert.ok(
+        !('kind' in (inserts(db)[0].insertVals ?? {})),
+        'nothing about the host is copied onto the runtime'
+    )
 })
 
-// A managed host is a sprite-runner: a daemon we start inside a sandbox VM to
-// dispatch coding-agent turns. Its openclaw/hermes are the same instance the
-// agent's kind='sprites' runtime already represents; materializing a daemon
-// runtime for them only gives reconcile a surface on which it adopts the
-// built-in 'main'/'default' profile as a phantom duplicate agent. Only coding
-// runtimes belong on a runner.
-test('a managed sprite-runner skips service frameworks, keeps coding ones', async () => {
+// R3: a hosted host's inventory lives on host_daemons and never becomes a
+// runtime row — those are made by an explicit install.
+test('a hosted host\'s inventory never creates or touches runtimes', async () => {
     const db = new FakeDb()
-    db.setRows([])
+    db.setRows([
+        { id: 'art-1', userId: 'u1', framework: 'openclaw', name: 'sandbox-001-openclaw', status: 'failed' }
+    ])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
     const result = await svc.syncForDaemon({
-        host: host({ managed: true }),
+        host: host({ kind: 'hosted', providerId: 'rtp-1' }),
         detectedFrameworks: [
             { framework: 'openclaw', version: '2026.7.1', path: '/x/openclaw' },
             { framework: 'codex', version: '0.5', path: '/x/codex' }
         ]
     })
-    const inserts = db.mutations.filter((m) => m.op === 'insert')
-    assert.equal(inserts.length, 1, 'only the coding framework is materialized')
-    assert.equal(inserts[0].insertVals?.framework, 'codex')
-    assert.equal(result.length, 1)
-    assert.ok(
-        !result.some((r) => r.framework === 'openclaw'),
-        'no openclaw daemon runtime on a runner host'
-    )
+    assert.deepEqual(result, [])
+    assert.deepEqual(db.mutations, [], 'not even a read')
+    assert.equal(db.rows[0].status, 'failed')
 })
 
-// The same detection on a user's OWN machine (unmanaged) is legitimate: they run
-// openclaw locally and manage its agents through Manyfold, so the guard must be
-// scoped to managed hosts, not to the framework alone.
-test('an unmanaged daemon still materializes service frameworks', async () => {
+test('a user\'s own machine materializes service frameworks too', async () => {
     const db = new FakeDb()
     db.setRows([])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
     await svc.syncForDaemon({
-        host: host({ managed: false }),
+        host: host(),
         detectedFrameworks: [
             { framework: 'openclaw', version: '2026.7.1', path: '/x/openclaw' },
             { framework: 'codex', version: '0.5', path: '/x/codex' }
         ]
     })
-    const frameworks = db.mutations
-        .filter((m) => m.op === 'insert')
-        .map((m) => m.insertVals?.framework)
-    assert.deepEqual(frameworks, ['openclaw', 'codex'])
+    assert.deepEqual(
+        inserts(db).map((m) => m.insertVals?.framework),
+        ['openclaw', 'codex']
+    )
+    assert.equal(inserts(db)[0].insertVals?.mountPath, '/Users/me/.openclaw')
 })
 
-test('a name held under another daemon gets a numeric suffix', async () => {
-    // The dev502 shape: the machine re-registered under a new daemon uuid, so
-    // the old runtime row (same user, other daemonId) still holds
-    // `<host>-<framework>`. fakeSelect returns every row regardless of
-    // predicate — which is exactly the user-scoped query the service runs.
+test('a name held under another host gets a numeric suffix', async () => {
+    // The machine re-registered under a new daemon uuid, so the old runtime
+    // row (same user, other host) still holds `<host>-<framework>`.
     const db = new FakeDb()
     db.setRows([
         {
             id: 'art-old',
             userId: 'u1',
             framework: 'claude-code',
-            kind: 'daemon',
-            daemonId: 'dh-old',
+            hostId: 'dh-old',
             name: 'mac-laptop-claude-code'
         }
     ])
@@ -208,61 +227,35 @@ test('a name held under another daemon gets a numeric suffix', async () => {
         ]
     })
     assert.equal(result.length, 1)
-    const insert = db.mutations.find((m) => m.op === 'insert')
+    const insert = inserts(db)[0]
     assert.equal(insert?.insertVals?.name, 'mac-laptop-claude-code-2')
-    assert.equal(insert?.insertVals?.daemonId, 'dh-1')
+    assert.equal(insert?.insertVals?.hostId, 'dh-1')
 })
 
-test('two inserts in one register never pick the same name', async () => {
-    // A daemon can report the same framework at two install paths; the second
-    // insert must see the name the first one just took, not re-derive from a
-    // stale snapshot.
+// The partial unique index on (host_id, framework): a second report of the
+// same framework in one register updates the row the first one made.
+test('the same framework reported twice is one row, upserted', async () => {
     const db = new FakeDb()
     db.setRows([])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
     await svc.syncForDaemon({
         host: host(),
         detectedFrameworks: [
-            {
-                framework: 'claude-code',
-                version: '1.0',
-                path: '/usr/local/bin/claude'
-            },
-            {
-                framework: 'claude-code',
-                version: '1.0',
-                path: '/opt/homebrew/bin/claude'
-            }
+            { framework: 'claude-code', version: '1.0', path: '/usr/local/bin/claude' },
+            { framework: 'claude-code', version: '1.0', path: '/opt/homebrew/bin/claude' }
         ]
     })
-    const names = db.mutations
-        .filter((m) => m.op === 'insert')
-        .map((m) => m.insertVals?.name)
-    assert.deepEqual(names, [
-        'mac-laptop-claude-code',
-        'mac-laptop-claude-code-2'
-    ])
+    assert.equal(inserts(db).length, 2)
+    assert.equal(inserts(db)[1].upserted, true)
+    assert.equal(inserts(db)[1].conflictSet?.status, 'ready')
+    assert.equal(db.rows.length, 1)
 })
 
-test('second sync with one framework removed marks the missing one stopped', async () => {
+test('a framework that left the inventory reads failed, and only once', async () => {
     const db = new FakeDb()
     db.setRows([
-        {
-            id: 'art-claude',
-            userId: 'u1',
-            framework: 'claude-code',
-            kind: 'daemon',
-            daemonId: 'dh-1',
-            name: 'mac-laptop-claude-code'
-        },
-        {
-            id: 'art-codex',
-            userId: 'u1',
-            framework: 'codex',
-            kind: 'daemon',
-            daemonId: 'dh-1',
-            name: 'mac-laptop-codex'
-        }
+        { id: 'art-claude', userId: 'u1', framework: 'claude-code', name: 'mac-laptop-claude-code' },
+        { id: 'art-codex', userId: 'u1', framework: 'codex', name: 'mac-laptop-codex' }
     ])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
     await svc.syncForDaemon({
@@ -271,64 +264,71 @@ test('second sync with one framework removed marks the missing one stopped', asy
             { framework: 'claude-code', version: '1.0', path: '/x/claude' }
         ]
     })
-    // We expect:
-    //  - one update of the existing claude-code runtime (status=ready)
-    //  - one update restoring stopped agents under the detected runtime
-    //  - one update on the stale codex runtime and its agents (status=stopped)
-    const updates = db.mutations.filter((m) => m.op === 'update')
-    const runningUpdate = updates.find((m) => m.setVals?.status === 'running')
-    const stoppedUpdate = updates.find((m) => m.setVals?.status === 'stopped')
-    assert.ok(
-        runningUpdate,
-        'expected a running update for detected daemon agents'
+    const failed = updates(db).find((m) => m.setVals?.status === 'failed')
+    assert.ok(failed, 'the missing framework\'s runtime is marked failed')
+    assert.equal(failed?.setVals?.failureReason, FRAMEWORK_NOT_DETECTED_REASON)
+    assert.equal(
+        updates(db).filter((m) => m.setVals?.status === 'ready').length,
+        0,
+        'a converged runtime is not rewritten'
     )
     assert.ok(
-        stoppedUpdate,
-        'expected a stopped update for the missing framework'
+        !db.mutations.some((m) => m.setVals && 'status' in m.setVals && m.setVals.status === 'stopped'),
+        'no status other than the install states is ever written'
     )
 })
 
-// agent_runtimes.framework_version has three writers: this one and the two
-// sprite paths. They must agree on the format, or the same installed build reads
-// as `2.1.220` on a daemon and `2.1.220-rc.1` on a sprite, and every precedence
-// comparison downstream (upgrade-available, install-needed, the minimum-version
-// floor) disagrees about which of the two is newer.
+test('a failed runtime whose framework is back reads ready again', async () => {
+    const db = new FakeDb()
+    db.setRows([
+        {
+            id: 'art-codex',
+            userId: 'u1',
+            framework: 'codex',
+            name: 'mac-laptop-codex',
+            status: 'failed',
+            failureReason: FRAMEWORK_NOT_DETECTED_REASON,
+            capabilitiesJson: { detectedVersion: '0.5' }
+        }
+    ])
+    const svc = new DaemonRuntimeSyncService(wireDb(db))
+    const result = await svc.syncForDaemon({
+        host: host(),
+        detectedFrameworks: [{ framework: 'codex', version: '0.5', path: '/x/codex' }]
+    })
+    assert.equal(result[0].status, 'ready')
+    const revive = updates(db).find((m) => m.setVals?.status === 'ready')
+    assert.ok(revive)
+    assert.equal(revive?.setVals?.failureReason, null)
+    assert.equal(inserts(db).length, 0)
+})
+
+// agent_runtimes.framework_version has more than one writer, and they must
+// agree on the format: `2.1.220-rc.1` here and on an install.
 test('a pre-release framework version is persisted in full, not truncated', async () => {
     const db = new FakeDb()
     db.setRows([])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
-
     await svc.syncForDaemon({
         host: host(),
         detectedFrameworks: [
-            {
-                framework: 'claude-code',
-                version: '2.1.220-rc.1 (Claude Code)',
-                path: '/x/claude'
-            }
+            { framework: 'claude-code', version: '2.1.220-rc.1 (Claude Code)', path: '/x/claude' }
         ]
     })
-
-    const inserts = db.mutations.filter((m) => m.op === 'insert')
-    assert.equal(inserts.length, 1)
-    assert.equal(inserts[0].insertVals?.frameworkVersion, '2.1.220-rc.1')
+    assert.equal(inserts(db).length, 1)
+    assert.equal(inserts(db)[0].insertVals?.frameworkVersion, '2.1.220-rc.1')
 })
 
-// Unchanged: a version the parser cannot read leaves the column alone rather
-// than storing a guess, so a transient probe miss never wipes a known value.
 test('an unparseable reported version leaves the column untouched', async () => {
     const db = new FakeDb()
     db.setRows([])
     const svc = new DaemonRuntimeSyncService(wireDb(db))
-
     await svc.syncForDaemon({
         host: host(),
         detectedFrameworks: [
             { framework: 'claude-code', version: 'unknown', path: '/x/claude' }
         ]
     })
-
-    const inserts = db.mutations.filter((m) => m.op === 'insert')
-    assert.equal(inserts.length, 1)
-    assert.equal(inserts[0].insertVals?.frameworkVersion ?? null, null)
+    assert.equal(inserts(db).length, 1)
+    assert.equal(inserts(db)[0].insertVals?.frameworkVersion ?? null, null)
 })

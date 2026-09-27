@@ -4,13 +4,13 @@ import { createServer, type Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { SpritesError, execSprite, type SpritesClient } from '@manyfold/sprites'
+import type { RuntimeHostRow } from '@manyfold/db'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 
 // #730. A sprite whose exec endpoint 502s the WebSocket UPGRADE fails the
-// runner inspect, and `runner_unavailable` — the reason for "no runner, use the
-// sprite exec instead" — is exactly the wrong conclusion: the transport the
-// fallback would use is the one that just died. The turn then paid the 60s
-// inspect budget twice (once here, once on the direct exec) before a terminal.
+// daemon inspect, and `runner_unavailable` — "no daemon, try later" — is
+// exactly the wrong conclusion: the transport that just died is the sprite's
+// own exec endpoint, and the caller has to quarantine the host on that fact.
 //
 // These drive the real RunnerManagerService against a real socket, because the
 // classification depends on how `ws` actually reports a pre-open failure, not on
@@ -103,81 +103,103 @@ const listen = async (
     }
 }
 
-// Byte-for-byte what ChatService.spriteExecFor hands the runner manager, so the
-// classification is proven against the transport the turn actually uses.
+// Byte-for-byte what the sprites adapter's bootstrap hands the socket, so the
+// classification is proven against the transport the bring-up actually uses.
 const spriteExecFor = (port: number) => {
     const client = {
         wsBaseUrl: `ws://127.0.0.1:${port}`,
         authHeaderForInternalUse: () => ({})
     } as unknown as SpritesClient
     return (a: { cmd: string[]; stdin?: string; timeoutMs: number }) =>
-        execSprite(client, 'art-abc', {
+        execSprite(client, 'sbx-1', {
             cmd: a.cmd,
             stdin: a.stdin ?? '',
             timeoutMs: a.timeoutMs
         })
 }
 
+type ExecFn = ReturnType<typeof spriteExecFor>
+
+const host = {
+    id: 'sbx_1',
+    userId: 'user-1',
+    kind: 'hosted',
+    providerId: 'rtp_1',
+    providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sprite-1' },
+    name: 'sandbox-001',
+    status: 'ready',
+    generation: 1,
+    workspaceBaseDir: '/home/sprite/.manyfold/workspaces'
+} as unknown as RuntimeHostRow
+
 const managerHarness = () => {
     let minted = 0
-    const db = {
-        select: () => ({
-            from: () => ({ where: () => ({ limit: async () => [] }) })
-        })
-    }
-    const hosts = {
-        isOnline: () => false,
-        findById: async () => null
-    }
-    const tokens = {
-        mint: async (a: { name: string }) => {
-            minted++
-            return {
-                tokenId: 't',
-                plaintext: 'ldt_secret_value',
-                name: a.name,
-                expiresAt: null,
-                createdAt: new Date()
-            }
-        },
-        deleteUnbound: async () => true
-    }
+    let generation = 1
     class TestRunnerManager extends RunnerManagerService {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }
     }
+    const adapterFor = (exec: ExecFn) => ({
+        kind: 'sprites',
+        capabilities: { suspend: true, publicService: true },
+        power: async () => 'running',
+        wake: async () => {},
+        bootstrap: (args: { script: string; stdin?: string; timeoutMs?: number }) =>
+            exec({
+                cmd: ['bash', '-lc', args.script],
+                stdin: args.stdin,
+                timeoutMs: args.timeoutMs ?? 60_000
+            })
+    })
+    let adapter: ReturnType<typeof adapterFor> | null = null
     const service = new TestRunnerManager(
-        db as never,
-        hosts as never,
-        tokens as never,
+        {
+            findById: async () => ({ ...host, generation }),
+            patch: async () => null,
+            bumpGeneration: async () => ++generation
+        } as never,
+        { findByHostId: async () => null } as never,
+        { for: () => adapter } as never,
+        { providerForHost: async () => ({ id: 'rtp_1', kind: 'sprites' }) } as never,
+        {
+            mint: async (a: { name: string }) => {
+                minted++
+                return {
+                    tokenId: 't',
+                    plaintext: 'ldt_secret_value',
+                    name: a.name,
+                    hostId: 'sbx_1',
+                    expiresAt: null,
+                    createdAt: new Date()
+                }
+            },
+            revoke: async () => 'sbx_1'
+        } as never,
         { rpc: async () => ({}) } as never
     )
-    const resolve = (exec: unknown) =>
-        service.ensureRunner({
+    const resolve = (exec: ExecFn) => {
+        adapter = adapterFor(exec)
+        return service.ensureHostDaemon({
             agentId: 'agt_1',
-            userId: 'user-1',
-            spriteName: 'art-abc',
-            exec: exec as never,
+            host,
             waitOnlineMs: 50
         })
+    }
     return { service, resolve, mintedCount: () => minted }
 }
 
-const throwingExec = (err: Error) => async () => {
+const throwingExec = (err: Error): ExecFn => async () => {
     throw err
 }
 
-test('a pre-open handshake 5xx is a classified exec failure, not a missing runner', async () => {
+test('a pre-open handshake 5xx is a classified exec failure, not a missing daemon', async () => {
     const server = await startRejectingServer(502)
     const h = managerHarness()
     try {
         const res = await h.resolve(spriteExecFor(server.port))
 
         assert.equal(res.handle, null)
-        // The distinction that matters: `runner_unavailable` invites the caller
-        // to fall back to a direct sprite exec, and the direct sprite exec is
-        // the thing that just failed.
         assert.equal(res.fallbackReason, 'sprite_exec_unavailable')
         assert.equal(res.execFailure?.failureClass, 'handshake_5xx')
         assert.equal(res.execFailure?.upstreamStatus, 502)
@@ -232,15 +254,13 @@ test('an inspect that burns its whole budget is classified as a timeout', async 
 // endpoint unhealthy takes it out of the turn path, so it must happen ONLY for
 // failures of that endpoint — never for a sprite that answered.
 
-test('a sprite that answers with a non-zero exit is a plain missing runner', async () => {
+test('a sprite that answers with a non-zero exit is a plain missing daemon', async () => {
     const server = await startExitingServer(127)
     const h = managerHarness()
     try {
         const res = await h.resolve(spriteExecFor(server.port))
 
         assert.equal(res.handle, null)
-        // The socket opened and the VM ran the command: the exec endpoint is
-        // healthy and the direct fallback is still the right move.
         assert.equal(res.fallbackReason, 'runner_unavailable')
         assert.equal(res.execFailure, undefined)
     } finally {
@@ -278,8 +298,6 @@ test('a session reaped after its process exited is not an endpoint failure', asy
         )
     )
 
-    // The endpoint worked well enough to start and reap a session; the failure
-    // is about that session, not the transport.
     assert.equal(res.fallbackReason, 'runner_unavailable')
     assert.equal(res.execFailure, undefined)
 })
@@ -296,8 +314,6 @@ test('a socket that opened and then died is not a pre-open failure', async () =>
         )
     )
 
-    // The upgrade succeeded, so the endpoint is not the proven-bad thing —
-    // a sprite suspending mid-inspect produces this, and it recovers by itself.
     assert.equal(res.fallbackReason, 'runner_unavailable')
     assert.equal(res.execFailure, undefined)
 })
@@ -321,7 +337,7 @@ test('a command timeout after WebSocket open is not an endpoint failure', async 
     assert.equal(res.execFailure, undefined)
 })
 
-test('concurrent turns on one sprite share a single classified failure', async () => {
+test('concurrent turns on one host share a single classified failure', async () => {
     const server = await startRejectingServer(502)
     const h = managerHarness()
     try {
@@ -333,8 +349,8 @@ test('concurrent turns on one sprite share a single classified failure', async (
         ])
 
         // The in-process single-flight must carry the classification to every
-        // waiter, not just the winner: a waiter that got a bare null would fall
-        // back onto the endpoint the winner just proved dead.
+        // waiter, not just the winner: a waiter that got a bare null would
+        // treat the endpoint the winner just proved dead as merely idle.
         for (const res of results) {
             assert.equal(res.fallbackReason, 'sprite_exec_unavailable')
             assert.equal(res.execFailure?.upstreamStatus, 502)

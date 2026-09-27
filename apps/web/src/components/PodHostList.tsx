@@ -9,11 +9,19 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
+import { runtimeStatusLabel } from '@/components/RuntimeDetailPanel'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { StatusTag, statusLabel, statusTone } from '@/components/Tag'
+import { StatusTag } from '@/components/Tag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
+import {
+    daemonPresenceLabel,
+    hostLifecycleLabel,
+    hostLifecycleTone,
+    powerStateLabel,
+    powerStateTone
+} from '@/lib/hostStatus'
 import { useI18n } from '@/lib/i18n'
 
 // The frameworks a cloud computer installs on demand (ADR-0035): the coding
@@ -129,11 +137,35 @@ const PodHostList: FC<{
                                         {host.name}
                                     </span>
                                     <StatusTag
-                                        tone={statusTone(host.status)}
-                                        label={statusLabel(host.status, t)}
+                                        tone={hostLifecycleTone(host.status)}
+                                        label={hostLifecycleLabel(host.status)}
+                                        pulse={host.status === 'provisioning'}
                                     />
+                                    {host.status === 'ready' && (
+                                        <StatusTag
+                                            tone={powerStateTone(
+                                                host.powerState
+                                            )}
+                                            label={powerStateLabel(
+                                                host.powerState
+                                            )}
+                                        />
+                                    )}
+                                    {host.status === 'ready' && (
+                                        <span className='text-caption text-subtle'>
+                                            {daemonPresenceLabel({
+                                                online: host.daemonOnline
+                                            })}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className='settings-card-copy'>
+                                    {host.providerName && (
+                                        <>
+                                            <span>{host.providerName}</span>
+                                            <span> · </span>
+                                        </>
+                                    )}
                                     {host.cpuMillicores !== null &&
                                         host.memoryMb !== null &&
                                         host.diskGb !== null && (
@@ -170,9 +202,7 @@ const PodHostList: FC<{
                                     {host.runtimes.length === 0 ? (
                                         <span>
                                             {host.status === 'provisioning'
-                                                ? t(
-                                                      'web.cloudComputers.starting'
-                                                  )
+                                                ? `${t('web.cloudComputers.starting')}${host.phase ? ` · ${host.phase}` : ''}`
                                                 : t(
                                                       'web.cloudComputers.noFrameworks'
                                                   )}
@@ -197,9 +227,8 @@ const PodHostList: FC<{
                                                     />
                                                     <span>
                                                         {runtime.frameworkVersion ??
-                                                            statusLabel(
-                                                                runtime.status,
-                                                                t
+                                                            runtimeStatusLabel(
+                                                                runtime.status
                                                             )}
                                                     </span>
                                                 </Link>

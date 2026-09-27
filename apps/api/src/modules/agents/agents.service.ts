@@ -1,21 +1,24 @@
 import {
-    AgentStopResponse,
     AgentSummary,
+    DAEMON_MIN_CLI_VERSION,
     UpdateAgentBody,
+    agentAvailability,
     agentBaseUrl,
-    auditAction,
     blockedVersionMessage,
+    daemonOnline,
     findBlockedVersionRange,
     frameworkMcpSupport,
     frameworkUpgradeAvailable,
     isCliUpdateAvailable,
+    isCliVersionTooOld,
     isModelConfigFramework,
     isKnownMcpScope,
     isVersionedFramework,
     normalizeAgentName,
-    parseEnvText
+    parseEnvText,
+    placementOf,
+    type RuntimeProviderKind
 } from '@manyfold/shared'
-import { randomUUID } from 'node:crypto'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
 import { workspaceReading } from './sprite-storage/workspace-reading'
 import {
@@ -23,50 +26,50 @@ import {
     ConflictException,
     Inject,
     Injectable,
-    Logger,
     NotFoundException,
     Optional
 } from '@nestjs/common'
-import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ne } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
-    auditLogs,
+    hostDaemons,
     jsonbMerge,
-    k8sClusters,
     runtimeHosts,
+    runtimeProviders,
     users,
     type Agent,
-    type Database
+    type AgentRuntimeRow,
+    type Database,
+    type HostDaemonRow,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
-import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonCliVersionService } from '@/modules/daemon/daemon-cli-version.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { McpConfigMaterializer } from '@/modules/agent-runtimes/mcp/mcp-config-materializer.service'
 import { validateMcpText } from '@/modules/agent-runtimes/mcp/mcp-config'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 
 export const SPRITES_AUTO_SLEEP_SEC = 35
 
-export interface AgentDashboardFlags {
-    controlUiEnabled: boolean
-    dashboardEnabled: boolean
-    dashboardState: string | null
-    keepAliveEnabled: boolean
-}
-
-const DEFAULT_DASHBOARD_FLAGS: AgentDashboardFlags = {
-    controlUiEnabled: false,
-    dashboardEnabled: false,
-    dashboardState: null,
-    keepAliveEnabled: false
+// One agent with everything its summary derives from: the runtime it runs
+// in, the machine that runtime sits on, the machine's daemon and the
+// provider kind (ADR-0036). Read with one join, never copied onto the agent.
+export interface AgentSummaryRow {
+    agent: Agent
+    runtime: AgentRuntimeRow
+    host: RuntimeHostRow | null
+    daemon: HostDaemonRow | null
+    providerKind: RuntimeProviderKind | null
 }
 
 export interface AgentFrameworkVersionInfo {
@@ -80,32 +83,19 @@ export interface AgentFrameworkVersionInfo {
     blockedReason: string | null
 }
 
-const DEFAULT_FRAMEWORK_VERSION_INFO: AgentFrameworkVersionInfo = {
-    installed: null,
-    latest: null,
-    upgradeAvailable: false,
-    blockedReason: null
-}
-
 // The mf CLI lives on the host machine, not on the agent — but the chat runner
 // and the manyfold-cli-usage skill both ride on it, so the agent's own settings
 // have to be able to say which version is there.
 export interface AgentCliVersionInfo {
-    installed: string | null
     latest: string | null
     updateAvailable: boolean
 }
 
-const DEFAULT_CLI_VERSION_INFO: AgentCliVersionInfo = {
-    installed: null,
-    latest: null,
-    updateAvailable: false
-}
-
-export interface AgentWithCluster {
-    agent: Agent
-    clusterName: string | null
-    dashboardFlags: AgentDashboardFlags
+export interface AgentSummaryOptions {
+    frameworkVersionInfo?: AgentFrameworkVersionInfo
+    cliVersionInfo?: AgentCliVersionInfo
+    // The admin-configured CLI floor, checked beside DAEMON_MIN_CLI_VERSION.
+    cliMinVersion?: string | null
 }
 
 const lastActiveAtFor = (row: Agent): Date | null => {
@@ -118,101 +108,125 @@ const lastActiveAtFor = (row: Agent): Date | null => {
     return candidates.reduce((acc, d) => (d > acc ? d : acc), candidates[0])
 }
 
+const endpointUrlFor = (host: RuntimeHostRow | null): string | null => {
+    const ref = host?.providerRef
+    if (!ref || ref.kind !== 'k8s' || !ref.ingressHost) return null
+    return agentBaseUrl(ref.ingressHost)
+}
+
 export const agentRowToSummary = (
-    row: Agent,
-    clusterName: string | null = null,
-    daemonNeedsUpgrade = false,
-    dashboardFlags: AgentDashboardFlags = DEFAULT_DASHBOARD_FLAGS,
-    frameworkVersionInfo: AgentFrameworkVersionInfo = DEFAULT_FRAMEWORK_VERSION_INFO,
-    cliVersionInfo: AgentCliVersionInfo = DEFAULT_CLI_VERSION_INFO
-): AgentSummary => ({
-    id: row.id,
-    userId: row.userId,
-    runtimeId: row.runtimeId,
-    daemonId: row.daemonId ?? null,
-    daemonNeedsUpgrade,
-    name: row.name,
-    framework: row.framework,
-    frameworkVersion: frameworkVersionInfo.installed,
-    frameworkLatestVersion: frameworkVersionInfo.latest,
-    frameworkUpgradeAvailable: frameworkVersionInfo.upgradeAvailable,
-    frameworkVersionBlockedReason: frameworkVersionInfo.blockedReason,
-    cliVersion: cliVersionInfo.installed,
-    cliLatestVersion: cliVersionInfo.latest,
-    cliUpdateAvailable: cliVersionInfo.updateAvailable,
-    runtime: row.runtime,
-    status: row.status,
-    spriteStatus: row.spriteStatus,
-    k8sPodPhase: row.k8sPodPhase,
-    accountSlug: null,
-    clusterId: row.clusterId,
-    clusterName,
-    spriteName: row.spriteName,
-    spriteId: row.spriteId,
-    mountPath: row.mountPath,
-    namespace: row.namespace,
-    ingressHost: row.ingressHost,
-    endpointUrl:
-        row.runtime === 'k8s' && row.ingressHost
-            ? agentBaseUrl(row.ingressHost)
-            : null,
-    controlUiEnabled: dashboardFlags.controlUiEnabled,
-    dashboardEnabled: dashboardFlags.dashboardEnabled,
-    dashboardState: dashboardFlags.dashboardState,
-    keepAliveEnabled: dashboardFlags.keepAliveEnabled,
-    currentPhase: row.currentPhase,
-    failureReason: row.failureReason,
-    internalId: row.internalId,
-    model: row.model,
-    extras: row.extras,
-    workspacePath: row.workspacePath,
-    ...workspaceReading(row),
-    startedAt: row.startedAt?.toISOString() ?? null,
-    lastActiveAt: lastActiveAtFor(row)?.toISOString() ?? null,
-    lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
-    lastBootstrappedAt: row.lastBootstrappedAt?.toISOString() ?? null,
-    lastReconciledAt: row.lastReconciledAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString()
+    row: AgentSummaryRow,
+    opts: AgentSummaryOptions = {}
+): AgentSummary => {
+    const { agent, runtime, host, daemon, providerKind } = row
+    const online = daemonOnline(daemon)
+    const versions = opts.frameworkVersionInfo
+    return {
+        id: agent.id,
+        userId: agent.userId,
+        runtimeId: agent.runtimeId,
+        hostId: host?.id ?? null,
+        hostName: host?.name ?? null,
+        hostKind: host?.kind ?? null,
+        providerKind,
+        powerState: host?.powerState ?? null,
+        daemonOnline: host ? online : null,
+        daemonNeedsUpgrade:
+            !!daemon &&
+            (isCliVersionTooOld(daemon.cliVersion, DAEMON_MIN_CLI_VERSION) ||
+                (!!opts.cliMinVersion &&
+                    isCliVersionTooOld(daemon.cliVersion, opts.cliMinVersion))),
+        keepAwake: host?.keepAwake ?? false,
+        name: agent.name,
+        framework: agent.framework,
+        frameworkVersion: versions?.installed ?? null,
+        frameworkLatestVersion: versions?.latest ?? null,
+        frameworkUpgradeAvailable: versions?.upgradeAvailable ?? false,
+        frameworkVersionBlockedReason: versions?.blockedReason ?? null,
+        cliVersion: daemon?.cliVersion ?? null,
+        cliLatestVersion: opts.cliVersionInfo?.latest ?? null,
+        cliUpdateAvailable: opts.cliVersionInfo?.updateAvailable ?? false,
+        runtime: placementOf(host ? { kind: host.kind, providerKind } : null),
+        status: agent.status,
+        availability: agentAvailability({
+            agent,
+            runtime,
+            host,
+            daemonOnline: online
+        }),
+        mountPath: agent.mountPath,
+        endpointUrl: endpointUrlFor(host),
+        controlUiEnabled: runtime.controlUiEnabled,
+        dashboardEnabled: runtime.dashboardEnabled,
+        dashboardState: runtime.dashboardState,
+        currentPhase: agent.currentPhase,
+        failureReason: agent.failureReason,
+        internalId: agent.internalId,
+        model: agent.model,
+        extras: agent.extras,
+        workspacePath: agent.workspacePath,
+        ...workspaceReading(agent),
+        startedAt: agent.startedAt?.toISOString() ?? null,
+        lastActiveAt: lastActiveAtFor(agent)?.toISOString() ?? null,
+        lastMessageAt: agent.lastMessageAt?.toISOString() ?? null,
+        lastBootstrappedAt: agent.lastBootstrappedAt?.toISOString() ?? null,
+        lastReconciledAt: agent.lastReconciledAt?.toISOString() ?? null,
+        createdAt: agent.createdAt.toISOString(),
+        updatedAt: agent.updatedAt.toISOString()
+    }
+}
+
+export const summaryRowOf = (ctx: RuntimeContext & { agent: Agent }): AgentSummaryRow => ({
+    agent: ctx.agent,
+    runtime: ctx.runtime,
+    host: ctx.host,
+    daemon: ctx.daemon,
+    providerKind: ctx.providerKind
 })
+
+const summaryColumns = {
+    agent: agents,
+    runtime: agentRuntimes,
+    host: runtimeHosts,
+    daemon: hostDaemons,
+    providerKind: runtimeProviders.kind
+}
 
 @Injectable()
 export class AgentsService {
-    private readonly log = new Logger(AgentsService.name)
-
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly reconcile: AgentReconcileService,
-        private readonly sessionRegistry: SpritesSessionRegistry,
-        private readonly daemonHosts: DaemonHostService,
-        private readonly keepAliveLease: SpriteKeepAliveLeaseService,
-        private readonly runtimes: AgentRuntimesService,
+        private readonly runtimeContext: RuntimeContextService,
         private readonly adapters: AgentAdapterRegistry,
         private readonly frameworkVersions: FrameworkVersionsService,
         private readonly connections: ConnectionsService,
         private readonly contextDoc: AgentContextDocManageService,
         private readonly mcp: McpConfigMaterializer,
         private readonly cliVersion: DaemonCliVersionService,
+        @Optional() private readonly adminSettings?: AdminSettingsService,
         @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
-    private async daemonNeedsUpgradeFor(row: Agent): Promise<boolean> {
-        if (!row.daemonId) return false
-        const map = await this.daemonHosts.resolveNeedsUpgradeMap([
-            row.daemonId
-        ])
-        return map.get(row.daemonId) ?? false
+    private async cliMinVersion(): Promise<string | null> {
+        if (!this.adminSettings) return null
+        try {
+            const { minVersion } =
+                await this.adminSettings.getCachedCliMinimumVersion()
+            return minVersion ?? null
+        } catch {
+            return null
+        }
     }
 
     private async frameworkVersionInfoFor(
-        row: Agent
-    ): Promise<AgentFrameworkVersionInfo> {
-        if (!isVersionedFramework(row.framework) || !row.runtimeId)
-            return DEFAULT_FRAMEWORK_VERSION_INFO
-        const [installed, latest, blocked] = await Promise.all([
-            this.loadRuntimeFrameworkVersion(row.runtimeId),
-            this.frameworkVersions.latestFor(row.framework),
-            this.frameworkVersions.blockedRangesFor(row.framework)
+        row: AgentSummaryRow
+    ): Promise<AgentFrameworkVersionInfo | undefined> {
+        if (!isVersionedFramework(row.agent.framework)) return undefined
+        const installed = row.runtime.frameworkVersion
+        const [latest, blocked] = await Promise.all([
+            this.frameworkVersions.latestFor(row.agent.framework),
+            this.frameworkVersions.blockedRangesFor(row.agent.framework)
         ])
         const blockedBy = findBlockedVersionRange(installed, blocked)
         return {
@@ -221,7 +235,7 @@ export class AgentsService {
             upgradeAvailable: frameworkUpgradeAvailable(installed, latest),
             blockedReason: blockedBy
                 ? blockedVersionMessage(
-                      row.framework,
+                      row.agent.framework,
                       installed ?? '',
                       blockedBy
                   )
@@ -229,53 +243,34 @@ export class AgentsService {
         }
     }
 
-    // Same detail-only budget as the framework version above: one join to the
-    // machine this agent's runtime sits on (sandbox VM or daemon host, both
-    // rows in runtime_hosts) plus the cached release catalog. A runtime with no
-    // host row reads as "not detected" rather than dropping the lookup.
-    private async cliVersionInfoFor(row: Agent): Promise<AgentCliVersionInfo> {
-        if (!row.runtimeId) return DEFAULT_CLI_VERSION_INFO
-        const [host] = await this.db
-            .select({ cliVersion: runtimeHosts.cliVersion })
-            .from(agentRuntimes)
-            // A sandbox runtime carries hostId; a daemon runtime is created with
-            // only daemonId (daemon-runtime-sync), and its hostId was a one-time
-            // 0094 backfill — so anything registered since then would miss the
-            // host entirely on hostId alone. Both columns point at runtime_hosts.
-            .leftJoin(
-                runtimeHosts,
-                eq(
-                    runtimeHosts.id,
-                    sql`coalesce(${agentRuntimes.hostId}, ${agentRuntimes.daemonId})`
-                )
-            )
-            .where(eq(agentRuntimes.id, row.runtimeId))
-            .limit(1)
-        const installed = host?.cliVersion ?? null
+    // Detail-only: the cached release catalog beside the daemon's reported
+    // CLI. isCliUpdateAvailable reads "nothing recorded" as "needs the CLI",
+    // which is what the host list's install button wants; here it would claim
+    // a pending upgrade for a version we never managed to read — so an
+    // unknown version is no upgrade, matching frameworkUpgradeAvailable.
+    private async cliVersionInfoFor(
+        row: AgentSummaryRow
+    ): Promise<AgentCliVersionInfo> {
+        const installed = row.daemon?.cliVersion ?? null
         const { version: latest, channel } =
             await this.cliVersion.getCachedLatest()
         return {
-            installed,
             latest,
-            // isCliUpdateAvailable reads "nothing recorded" as "needs the CLI",
-            // which is what the host list's install button wants. Here it would
-            // claim a pending upgrade for a version we never managed to read —
-            // so an unknown version is no upgrade, matching
-            // frameworkUpgradeAvailable.
             updateAvailable:
                 !!installed && isCliUpdateAvailable(channel, installed, latest)
         }
     }
 
-    private async loadRuntimeFrameworkVersion(
-        runtimeId: string
-    ): Promise<string | null> {
-        const [row] = await this.db
-            .select({ frameworkVersion: agentRuntimes.frameworkVersion })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, runtimeId))
-            .limit(1)
-        return row?.frameworkVersion ?? null
+    private async detailOptions(
+        row: AgentSummaryRow
+    ): Promise<AgentSummaryOptions> {
+        const [frameworkVersionInfo, cliVersionInfo, cliMinVersion] =
+            await Promise.all([
+                this.frameworkVersionInfoFor(row),
+                this.cliVersionInfoFor(row),
+                this.cliMinVersion()
+            ])
+        return { frameworkVersionInfo, cliVersionInfo, cliMinVersion }
     }
 
     // Pure read: no reconcile, no writes. Freshness comes from lifecycle
@@ -285,59 +280,40 @@ export class AgentsService {
     async listForUser(
         userId: string,
         opts: { boundAgentId?: string } = {}
-    ): Promise<AgentWithCluster[]> {
+    ): Promise<AgentSummaryRow[]> {
         const filters = [eq(agents.userId, userId)]
         if (opts.boundAgentId) filters.push(eq(agents.id, opts.boundAgentId))
-        const rows = await this.db
-            .select({
-                agent: agents,
-                clusterName: k8sClusters.name,
-                controlUiEnabled: agentRuntimes.controlUiEnabled,
-                dashboardEnabled: agentRuntimes.dashboardEnabled,
-                dashboardState: agentRuntimes.dashboardState,
-                keepAliveEnabled: agentRuntimes.keepAliveEnabled
-            })
+        return this.db
+            .select(summaryColumns)
             .from(agents)
-            .leftJoin(k8sClusters, eq(agents.clusterId, k8sClusters.id))
-            .leftJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(hostDaemons, eq(hostDaemons.hostId, runtimeHosts.id))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(filters.length === 1 ? filters[0] : and(...filters))
             .orderBy(desc(agents.createdAt), asc(agents.id))
-        return rows.map((row) => ({
-            agent: row.agent,
-            clusterName: row.clusterName,
-            dashboardFlags: {
-                controlUiEnabled: row.controlUiEnabled ?? false,
-                dashboardEnabled: row.dashboardEnabled ?? false,
-                dashboardState: row.dashboardState ?? null,
-                keepAliveEnabled: row.keepAliveEnabled ?? false
-            }
-        }))
     }
 
-    async listAll(): Promise<AgentWithCluster[]> {
-        const rows = await this.db
-            .select({
-                agent: agents,
-                clusterName: k8sClusters.name,
-                controlUiEnabled: agentRuntimes.controlUiEnabled,
-                dashboardEnabled: agentRuntimes.dashboardEnabled,
-                dashboardState: agentRuntimes.dashboardState,
-                keepAliveEnabled: agentRuntimes.keepAliveEnabled
-            })
+    async listAll(): Promise<AgentSummaryRow[]> {
+        return this.db
+            .select(summaryColumns)
             .from(agents)
-            .leftJoin(k8sClusters, eq(agents.clusterId, k8sClusters.id))
-            .leftJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(hostDaemons, eq(hostDaemons.hostId, runtimeHosts.id))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .orderBy(desc(agents.createdAt), asc(agents.id))
-        return rows.map((row) => ({
-            agent: row.agent,
-            clusterName: row.clusterName,
-            dashboardFlags: {
-                controlUiEnabled: row.controlUiEnabled ?? false,
-                dashboardEnabled: row.dashboardEnabled ?? false,
-                dashboardState: row.dashboardState ?? null,
-                keepAliveEnabled: row.keepAliveEnabled ?? false
-            }
-        }))
+    }
+
+    async summariesFor(rows: AgentSummaryRow[]): Promise<AgentSummary[]> {
+        const cliMinVersion = await this.cliMinVersion()
+        return rows.map((row) => agentRowToSummary(row, { cliMinVersion }))
     }
 
     async findForCaller(
@@ -352,11 +328,29 @@ export class AgentsService {
             .limit(1)
         if (!row) return null
         if (row.userId !== callerUserId && !isAdmin) return null
-        if (row.runtimeId) {
-            const runtime = await this.reconcile.loadRuntime(row.runtimeId)
-            if (runtime) this.reconcile.touchRuntime(runtime)
-        }
+        const runtime = await this.reconcile.loadRuntime(row.runtimeId)
+        if (runtime) this.reconcile.touchRuntime(runtime)
         return row
+    }
+
+    // The agent with its machine resolved (ADR-0036); null when it does not
+    // exist or the caller may not see it, so callers answer 404 either way.
+    async contextForCaller(
+        agentId: string,
+        callerUserId: string,
+        isAdmin: boolean
+    ): Promise<(RuntimeContext & { agent: Agent }) | null> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        if (!ctx?.agent) return null
+        if (ctx.agent.userId !== callerUserId && !isAdmin) return null
+        return ctx as RuntimeContext & { agent: Agent }
+    }
+
+    async summaryFor(agentId: string): Promise<AgentSummary> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        if (!ctx?.agent) throw new NotFoundException(`agent ${agentId} not found`)
+        const row = summaryRowOf(ctx as RuntimeContext & { agent: Agent })
+        return agentRowToSummary(row, await this.detailOptions(row))
     }
 
     async get(
@@ -364,21 +358,11 @@ export class AgentsService {
         callerUserId: string,
         isAdmin: boolean
     ): Promise<AgentSummary> {
-        const agent = await this.findForCaller(agentId, callerUserId, isAdmin)
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        const clusterName = await this.loadClusterName(agent.clusterId)
-        const needsUpgrade = await this.daemonNeedsUpgradeFor(agent)
-        const dashboardFlags = await this.loadDashboardFlags(agent.runtimeId)
-        const versionInfo = await this.frameworkVersionInfoFor(agent)
-        const cliInfo = await this.cliVersionInfoFor(agent)
-        return agentRowToSummary(
-            agent,
-            clusterName,
-            needsUpgrade,
-            dashboardFlags,
-            versionInfo,
-            cliInfo
-        )
+        const ctx = await this.contextForCaller(agentId, callerUserId, isAdmin)
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        this.reconcile.touchRuntime(ctx.runtime)
+        const row = summaryRowOf(ctx)
+        return agentRowToSummary(row, await this.detailOptions(row))
     }
 
     async update(
@@ -387,12 +371,9 @@ export class AgentsService {
         body: UpdateAgentBody,
         isAdmin: boolean
     ): Promise<AgentSummary> {
-        const existing = await this.findForCaller(
-            agentId,
-            callerUserId,
-            isAdmin
-        )
-        if (!existing) throw new NotFoundException(`agent ${agentId} not found`)
+        const ctx = await this.contextForCaller(agentId, callerUserId, isAdmin)
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        const existing = ctx.agent
         const patch: Partial<Agent> = {}
         let extrasMerge: ReturnType<typeof jsonbMerge> | undefined
         if (typeof body.name === 'string') {
@@ -493,8 +474,10 @@ export class AgentsService {
             }
             extrasPatch.mcp = body.mcp
         }
+        // MCP files reach the machine through its daemon; until that delivery
+        // lands the stored config is only saved, not live.
         if (
-            existing.runtime === 'daemon' &&
+            ctx.placement !== 'external' &&
             ('mcp' in extrasPatch || 'composioConnectionId' in extrasPatch)
         ) {
             extrasPatch.mcpDelivery = Object.fromEntries(
@@ -511,37 +494,17 @@ export class AgentsService {
         if (Object.keys(extrasPatch).length > 0)
             extrasMerge = jsonbMerge(agents.extras, extrasPatch)
         if (Object.keys(patch).length === 0 && !extrasMerge) {
-            const clusterName = await this.loadClusterName(existing.clusterId)
-            const needsUpgrade = await this.daemonNeedsUpgradeFor(existing)
-            const dashboardFlags = await this.loadDashboardFlags(
-                existing.runtimeId
-            )
-            const versionInfo = await this.frameworkVersionInfoFor(existing)
-            const cliInfo = await this.cliVersionInfoFor(existing)
-            return agentRowToSummary(
-                existing,
-                clusterName,
-                needsUpgrade,
-                dashboardFlags,
-                versionInfo,
-                cliInfo
-            )
+            const row = summaryRowOf(ctx)
+            return agentRowToSummary(row, await this.detailOptions(row))
         }
-        if (patch.name !== undefined && existing.runtimeId) {
+        if (patch.name !== undefined) {
             const adapter = this.adapters.get(existing.framework)
-            if (adapter.updateAgent) {
-                const [runtime] = await this.db
-                    .select()
-                    .from(agentRuntimes)
-                    .where(eq(agentRuntimes.id, existing.runtimeId))
-                    .limit(1)
-                if (runtime)
-                    await adapter.updateAgent({
-                        runtime,
-                        agent: existing,
-                        patch: { name: patch.name }
-                    })
-            }
+            if (adapter.updateAgent)
+                await adapter.updateAgent({
+                    ...ctx,
+                    agent: existing,
+                    patch: { name: patch.name }
+                })
         }
         const [updated] = await this.db
             .update(agents)
@@ -560,7 +523,7 @@ export class AgentsService {
                 resource: 'model-config', resourceId: updated.id, agentId: updated.id, reason: 'updated'
             })
         // Keep AGENTS.manyfold.md timely: a connection link/unlink changes what
-        // the agent should know. Best-effort push to the live sprite (never
+        // the agent should know. Best-effort push to the live machine (never
         // blocks the response); the doc otherwise refreshes at next bootstrap.
         if (
             'githubConnectionId' in extrasPatch ||
@@ -568,60 +531,14 @@ export class AgentsService {
             'composioConnectionId' in extrasPatch
         )
             void this.contextDoc.refreshOnChange(updated)
-        // MCP config is written into the sprite's per-scope config files; push it
-        // best-effort now, else it re-materializes at next bootstrap. Linking or
-        // unlinking a Composio connection also changes the managed `composio`
+        // MCP config is written into the machine's per-scope config files; push
+        // it best-effort now, else it re-materializes at next bootstrap. Linking
+        // or unlinking a Composio connection also changes the managed `composio`
         // server, so re-materialize on that too.
         if ('mcp' in extrasPatch || 'composioConnectionId' in extrasPatch)
             void this.mcp.refreshOnChange(updated)
-        const clusterName = await this.loadClusterName(updated.clusterId)
-        const needsUpgrade = await this.daemonNeedsUpgradeFor(updated)
-        const dashboardFlags = await this.loadDashboardFlags(updated.runtimeId)
-        const versionInfo = await this.frameworkVersionInfoFor(updated)
-        const cliInfo = await this.cliVersionInfoFor(updated)
-        return agentRowToSummary(
-            updated,
-            clusterName,
-            needsUpgrade,
-            dashboardFlags,
-            versionInfo,
-            cliInfo
-        )
-    }
-
-    private async loadClusterName(
-        clusterId: string | null
-    ): Promise<string | null> {
-        if (!clusterId) return null
-        const [row] = await this.db
-            .select({ name: k8sClusters.name })
-            .from(k8sClusters)
-            .where(eq(k8sClusters.id, clusterId))
-            .limit(1)
-        return row?.name ?? null
-    }
-
-    private async loadDashboardFlags(
-        runtimeId: string | null
-    ): Promise<AgentDashboardFlags> {
-        if (!runtimeId) return DEFAULT_DASHBOARD_FLAGS
-        const [row] = await this.db
-            .select({
-                controlUiEnabled: agentRuntimes.controlUiEnabled,
-                dashboardEnabled: agentRuntimes.dashboardEnabled,
-                dashboardState: agentRuntimes.dashboardState,
-                keepAliveEnabled: agentRuntimes.keepAliveEnabled
-            })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, runtimeId))
-            .limit(1)
-        if (!row) return DEFAULT_DASHBOARD_FLAGS
-        return {
-            controlUiEnabled: row.controlUiEnabled,
-            dashboardEnabled: row.dashboardEnabled,
-            dashboardState: row.dashboardState,
-            keepAliveEnabled: row.keepAliveEnabled
-        }
+        const row = summaryRowOf({ ...ctx, agent: updated })
+        return agentRowToSummary(row, await this.detailOptions(row))
     }
 
     async isUserAdmin(userId: string): Promise<boolean> {
@@ -631,85 +548,6 @@ export class AgentsService {
             .where(eq(users.id, userId))
             .limit(1)
         return row?.role === 'admin'
-    }
-
-    async stopSprite(
-        agentId: string,
-        callerUserId: string,
-        isAdmin: boolean
-    ): Promise<AgentStopResponse> {
-        const agent = await this.findForCaller(agentId, callerUserId, isAdmin)
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        if (agent.runtime !== 'sprites')
-            throw new BadRequestException(
-                `agent ${agentId} is not a sandbox runtime`
-            )
-
-        if (agent.spriteStatus !== 'running') {
-            return {
-                status: 'noop',
-                estimatedReadyInSec: 0,
-                closedSessions: 0
-            }
-        }
-
-        const closedSessions = this.sessionRegistry.closeForAgent(
-            agent.id,
-            'user-stop'
-        )
-
-        // Clear the keep-alive flag first — explicit stop beats the standing
-        // preference, so the reconcile loop can never resurrect a user-stopped
-        // sprite — then release. For service-kind frameworks stopAndRelease
-        // stops the sprite Service so the keep-alive task releases and the
-        // sprite can suspend; for exec-kind (claude/codex/gemini) it is a
-        // lease-only release (no service to stop), and a no-op when no lease
-        // was ever held.
-        let keepAliveRelease: AgentStopResponse['keepAliveRelease'] | undefined
-        if (agent.runtimeId) {
-            const runtime = await this.runtimes.findById(agent.runtimeId)
-            if (runtime) {
-                if (runtime.keepAliveEnabled)
-                    await this.runtimes.setKeepAliveEnabled(runtime.id, false)
-                keepAliveRelease = await this.keepAliveLease.stopAndRelease(
-                    runtime,
-                    'user-stop'
-                )
-            }
-        }
-
-        try {
-            await this.db.insert(auditLogs).values({
-                id: randomUUID(),
-                actorId: callerUserId,
-                action: auditAction.AGENT_SANDBOX_STOP,
-                subject: agent.id,
-                meta: {
-                    closedSessions,
-                    spriteName: agent.spriteName,
-                    onBehalfOf:
-                        isAdmin && agent.userId !== callerUserId
-                            ? agent.userId
-                            : null
-                }
-            })
-        } catch (err) {
-            this.log.warn(
-                `audit write failed for agent.sandbox.stop agent=${agent.id}: ${(err as Error).message}`
-            )
-        }
-
-        const estimatedReadyInSec =
-            keepAliveRelease && keepAliveRelease.state !== 'not_applicable'
-                ? keepAliveRelease.maxStaleSec
-                : SPRITES_AUTO_SLEEP_SEC
-
-        return {
-            status: 'pending',
-            estimatedReadyInSec,
-            closedSessions,
-            keepAliveRelease
-        }
     }
 
     async userExists(userId: string): Promise<boolean> {

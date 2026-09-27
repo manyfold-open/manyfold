@@ -361,7 +361,11 @@ export class UserExternalAgentProvidersService {
                         select 1 from ${agents}
                         where ${agents.id} = ${chatSessions.agentId}
                             and ${agents.userId} = ${input.userId}
-                            and ${agents.runtime} = ${'external'}
+                            and exists (
+                                select 1 from agent_runtimes r
+                                where r.id = ${agents.runtimeId}
+                                    and r.host_id is null
+                            )
                             and ${agents.framework} = ${input.provider}
                             and ${agents.extras}->'externalBinding'->>'providerId' = ${input.providerId}
                     )`

@@ -64,7 +64,6 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                         id: `art_${id}`,
                         userId: id,
                         name: id,
-                        kind: 'sprites',
                         framework: 'codex'
                     })
                 }
@@ -85,7 +84,6 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                         name: id,
                         runtimeId: `art_${userId}`,
                         framework: 'codex',
-                        runtime: 'sprites',
                         internalId: id
                     })
                 }

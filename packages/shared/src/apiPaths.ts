@@ -27,7 +27,6 @@ export const apiPaths = {
         `/connect/a2a/session/${encodeURIComponent(requestId)}/${encodeURIComponent(userCode)}`,
     AGENTS: '/agents',
     AGENT_BY_ID: (id: string) => `/agents/${id}`,
-    AGENT_STOP: (id: string) => `/agents/${id}/stop`,
     AGENT_RESTART: (id: string) => `/agents/${id}/restart`,
     AGENT_SESSIONS: (agentId: string) => `/agents/${agentId}/sessions`,
     AGENT_SESSION_BY_ID: (agentId: string, sessionId: string) =>
@@ -192,8 +191,6 @@ export const apiPaths = {
     AGENT_RUNTIME_CONTROL_UI_URL: (id: string) =>
         `/agent-runtimes/${id}/control-ui-url`,
     AGENT_RUNTIME_DASHBOARD: (id: string) => `/agent-runtimes/${id}/dashboard`,
-    AGENT_RUNTIME_KEEP_ALIVE: (id: string) =>
-        `/agent-runtimes/${id}/keep-alive`,
     AGENT_RUNTIME_RENAME: (id: string) => `/agent-runtimes/${id}/name`,
     AGENT_RUNTIME_ACCOUNT: (id: string) => `/agent-runtimes/${id}/account`,
     AGENT_RUNTIME_AUTH_PROFILES: (id: string) =>
@@ -221,6 +218,8 @@ export const apiPaths = {
     // Manyfold opened (ADR-0029 §3).
     TERMINAL_SESSION_HOOKS: '/terminal/session-hooks',
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,
+    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    SANDBOX_KEEP_AWAKE: (id: string) => `/sandboxes/${id}/keep-awake`,
     SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
         `/sandboxes/${id}/terminal-model-credentials`,
     SANDBOX_DETECT_FRAMEWORKS: (id: string) =>
@@ -259,8 +258,6 @@ export const apiPaths = {
         `/admin/agent-runtimes/${id}/control-ui-url`,
     ADMIN_AGENT_RUNTIME_DASHBOARD: (id: string) =>
         `/admin/agent-runtimes/${id}/dashboard`,
-    ADMIN_AGENT_RUNTIME_KEEP_ALIVE: (id: string) =>
-        `/admin/agent-runtimes/${id}/keep-alive`,
     ADMIN_USERS: '/admin/users',
     ADMIN_PLANS: '/admin/plans',
     ADMIN_SETTINGS_LOGIN_PROVIDER: '/admin/settings/login-provider',
@@ -298,7 +295,6 @@ export const apiPaths = {
         `/admin/users/${id}/deletion/execute`,
     ADMIN_AGENTS: '/admin/agents',
     ADMIN_AGENT_BY_ID: (id: string) => `/admin/agents/${id}`,
-    ADMIN_AGENT_STOP: (id: string) => `/admin/agents/${id}/stop`,
     ADMIN_AGENT_RESTART: (id: string) => `/admin/agents/${id}/restart`,
     ADMIN_SANDBOX_QUOTAS_OVERVIEW: '/admin/sandbox-quotas/overview',
     ADMIN_SANDBOX_QUOTAS_USERS: '/admin/sandbox-quotas/users',
@@ -331,6 +327,8 @@ export const apiPaths = {
     ADMIN_SANDBOXES: '/admin/sandboxes',
     ADMIN_SANDBOX_BY_ID: (id: string) => `/admin/sandboxes/${id}`,
     ADMIN_SANDBOX_TERMINAL: (id: string) => `/admin/sandboxes/${id}/terminal`,
+    ADMIN_SANDBOX_KEEP_AWAKE: (id: string) =>
+        `/admin/sandboxes/${id}/keep-awake`,
     ADMIN_SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
         `/admin/sandboxes/${id}/terminal-model-credentials`,
     ADMIN_SANDBOX_DETECT_FRAMEWORKS: (id: string) =>
@@ -471,6 +469,11 @@ export const apiPaths = {
     ADMIN_DAEMON_HOST_BY_ID: (id: string) => `/admin/daemon/hosts/${id}`,
     ADMIN_DAEMON_HOST_UPGRADE: (id: string) =>
         `/admin/daemon/hosts/${id}/upgrade`,
+    ADMIN_RUNTIME_PROVIDERS: '/admin/runtime-providers',
+    ADMIN_RUNTIME_PROVIDER_BY_ID: (id: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}`,
+    ADMIN_RUNTIME_PROVIDER_PROBE: (id: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/probe`,
     FRAMEWORK_CATALOG: (framework: string) => `/framework-catalog/${framework}`,
     ADMIN_FRAMEWORK_CATALOG: (framework: string) =>
         `/admin/framework-catalog/${framework}`,

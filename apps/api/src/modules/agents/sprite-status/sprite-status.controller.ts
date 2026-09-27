@@ -2,15 +2,23 @@ import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { Inject } from '@nestjs/common'
-import { agents, users, type Database } from '@manyfold/db'
+import { agentAvailability, daemonOnline } from '@manyfold/shared'
+import {
+    agentRuntimes,
+    agents,
+    hostDaemons,
+    runtimeHosts,
+    users,
+    type Database
+} from '@manyfold/db'
 import { corsHeadersForOrigin } from '@/common/cors-headers'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { DRIZZLE } from '@/db/tokens'
 import {
     SpriteStatusBroadcaster,
-    type SpriteStatusEvent,
-    type SpriteStatusUpdate
+    type AgentHostStatusUpdate,
+    type HostStatusEvent
 } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 
 @Controller('agents/sprite-status')
@@ -38,7 +46,7 @@ export class SpriteStatusController {
         })
 
         let seq = 0
-        const writeEvent = (event: SpriteStatusEvent): void => {
+        const writeEvent = (event: HostStatusEvent): void => {
             seq += 1
             try {
                 res.raw.write(`id: ${seq}\n`)
@@ -101,27 +109,33 @@ export class SpriteStatusController {
         return row?.role === 'admin'
     }
 
-    private async snapshotFor(userId: string): Promise<SpriteStatusUpdate[]> {
+    // Every agent with its derived availability: agent → runtime → host →
+    // host daemon in one join (ADR-0036); nothing is read off the agent row.
+    private async snapshotFor(userId: string): Promise<AgentHostStatusUpdate[]> {
         const rows = await this.db
             .select({
-                id: agents.id,
-                runtime: agents.runtime,
-                spriteName: agents.spriteName,
-                spriteStatus: agents.spriteStatus,
-                k8sPodPhase: agents.k8sPodPhase,
-                updatedAt: agents.updatedAt
+                agent: agents,
+                runtime: agentRuntimes,
+                host: runtimeHosts,
+                daemon: hostDaemons
             })
             .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(hostDaemons, eq(hostDaemons.hostId, runtimeHosts.id))
             .where(eq(agents.userId, userId))
-        const matching = rows.filter((r) =>
-            r.runtime === 'sprites' ? r.spriteName !== null : true
-        )
-        return matching.map((r) => ({
-            agentId: r.id,
-            spriteName: r.spriteName,
-            spriteStatus: r.spriteStatus,
-            k8sPodPhase: r.k8sPodPhase,
-            at: r.updatedAt.toISOString()
+        const now = Date.now()
+        return rows.map((r) => ({
+            agentId: r.agent.id,
+            hostId: r.host?.id ?? null,
+            powerState: r.host?.powerState ?? null,
+            availability: agentAvailability({
+                agent: r.agent,
+                runtime: r.runtime,
+                host: r.host,
+                daemonOnline: daemonOnline(r.daemon, now)
+            }),
+            at: (r.host?.updatedAt ?? r.agent.updatedAt).toISOString()
         }))
     }
 }

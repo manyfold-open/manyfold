@@ -56,36 +56,30 @@ const runtime = (
         frameworkVersion: null,
         kind: 'sprites',
         status: 'ready',
-        accountSlug: null,
-        clusterId: null,
-        clusterName: null,
-        spriteName: 'sprite',
-        spriteId: null,
+        availability: 'available',
         hostId: null,
-        podHostName: null,
+        hostName: null,
+        hostKind: 'hosted',
+        hostStatus: 'ready',
+        providerId: null,
+        providerKind: 'sprites',
+        providerName: null,
+        providerRefLabel: null,
+        powerState: 'running',
+        daemonOnline: true,
+        daemonCliVersion: null,
         mountPath: '/',
-        namespace: null,
-        ingressHost: null,
         endpointUrl: null,
         controlUiEnabled: false,
         dashboardEnabled: false,
         dashboardState: null,
-        keepAliveEnabled: false,
         currentPhase: null,
         failureReason: null,
         primaryAgentId: null,
-        startedAt: null,
         lastBootstrappedAt: null,
         createdAt: '',
         updatedAt: '',
         agentsCount: 0,
-        daemonId: null,
-        daemonName: null,
-        daemonOnline: null,
-        daemonCliVersion: null,
-        homeDir: null,
-        workspaceBaseDir: null,
-        lastSeenAt: null,
         serviceStatus: 'unknown',
         serviceStatusAt: null,
         ...over
@@ -297,11 +291,13 @@ test('a cloud computer runs whatever is installed on it', () => {
             })
         ]
     })
-    const joined = rows.find((r) => r.id === 'runtime:r1')
+    // One row per machine (ADR-0036): the host key, whatever the row does.
+    const joined = rows.find((r) => r.id === 'host:pdh_1')
     assert.equal(joined?.state, 'ready')
+    assert.equal(joined?.runtimeId, 'r1')
     assert.equal(joined?.hostKind, 'k8s')
     assert.equal(joined?.signInCost, 'none')
-    const install = rows.find((r) => r.id === 'podHost:pdh_2')
+    const install = rows.find((r) => r.id === 'host:pdh_2')
     assert.equal(install?.state, 'needs-install')
     assert.equal(install?.podHostId, 'pdh_2')
     assert.equal(install?.disabled, false)
@@ -542,10 +538,10 @@ test('a service framework installs at create, and its rows owe no sign-in', () =
         daemonHosts: [],
         podHosts: []
     })
-    assert.equal(rows.find((r) => r.id === 'sandbox:h2')?.signInCost, 'install-at-create')
+    assert.equal(rows.find((r) => r.id === 'host:h2')?.signInCost, 'install-at-create')
     // Joining the instance that already runs costs nothing more — and never
     // a sign-in, which this kind of framework does not have.
-    assert.equal(rows.find((r) => r.id === 'runtime:r1')?.signInCost, 'none')
+    assert.equal(rows.find((r) => r.id === 'host:h1')?.signInCost, 'none')
     const fresh = (fw: 'openclaw' | 'claude-code') =>
         buildNewMachineOptions({ framework: fw, access: access({}) }).find(
             (o) => o.kind === 'sandbox'

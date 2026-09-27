@@ -17,6 +17,12 @@ import type {
 } from '@manyfold/shared'
 import { WebSocketServer } from 'ws'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
 import { HermesSpriteBootstrap } from '../src/modules/agents/bootstrap/hermes-sprite'
@@ -351,12 +357,18 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         repoReads++
         return f.box.settings.sourceRepos[FIXTURE]!
     }
-    const runtime = {
+    const runtime = runtimeRow({
         id: 'art_fixture',
-        kind: 'sprites',
-        spriteName: 'fixture',
-        accountId: 'spa_fixture',
+        framework: FIXTURE as never,
+        hostId: 'rth_fixture',
         frameworkVersion: 'v9.0.0'
+    })
+    const hostClients = {
+        spritesClientForHost: async () => ({
+            client: sprite.client,
+            spriteName: 'fixture',
+            provider: {}
+        })
     }
     const service = new FrameworkUpgradeService(
         {
@@ -368,7 +380,6 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: true }] })
         } as never,
-        {} as never,
         {
             findForCaller: async () => ({
                 id: 'agt_fixture',
@@ -380,6 +391,11 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         f.versions,
         { probeAndPersist: async () => SHARED } as never,
         f.admin as never,
+        fakeRuntimeContext(
+            contextOf({ runtime, host: spritesHostRow({ id: 'rth_fixture' }) })
+        ) as never,
+        {} as never,
+        hostClients as never,
         extensionsWith({
             framework: FIXTURE,
             version: fixtureVersion,
@@ -387,8 +403,8 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
             spriteService: { supervision: { homeDir: FIXTURE_HOME } } as never
         }) as never
     )
-    Object.assign(service, { spriteClientFor: async () => sprite.client })
     return {
+        hostClients,
         ...sprite,
         f,
         service,
@@ -412,11 +428,11 @@ test(
         const entered = barrier()
         const release = barrier()
         t.after(() => release.open())
-        Object.assign(h.service, {
-            spriteClientFor: async () => {
+        Object.assign(h.hostClients, {
+            spritesClientForHost: async () => {
                 entered.open()
                 await release.reached
-                return h.client
+                return { client: h.client, spriteName: 'fixture', provider: {} }
             }
         })
         const running = h.run()

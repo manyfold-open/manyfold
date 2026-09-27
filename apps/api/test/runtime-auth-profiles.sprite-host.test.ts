@@ -1,66 +1,68 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ForbiddenException } from '@nestjs/common'
-import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
-import { runtimeHosts } from '@manyfold/db'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
+import type {
+    AgentRuntimeRow,
+    HostDaemonRow,
+    RuntimeHostRow
+} from '@manyfold/db'
 import {
     DAEMON_FEATURE_AUTH_PROFILES,
+    daemonOnline,
     RUNTIME_AUTH_ERROR
 } from '@manyfold/shared'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
+import {
+    contextOf,
+    daemonRow,
+    hostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
-// How the auth-profiles service decides whether a SPRITES runtime's runner
-// can be talked to, and when it may wake the sandbox to make that true. The
+// How the auth-profiles service decides whether a hosted machine's daemon
+// can be talked to, and when it may wake the machine to make that true. The
 // database and the daemon are fakes; the decision under test is the
 // service's own. Seen on staging [2026-09-10]: a runner frozen by sprite
 // suspension kept an "online" socket lease, `auth.create` went out on it and
 // timed out — the row said online, the VM said warm, and only the VM was
-// right.
+// right. The host row's power state is the authority (ADR-0036).
 
-const runtimeRow = (
-    overrides: Partial<AgentRuntimeRow> = {}
-): AgentRuntimeRow =>
-    ({
+const runtime = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
+    runtimeRow({
         id: 'art_1',
         userId: 'user-1',
         name: 'claude',
         framework: 'claude-code',
-        kind: 'sprites',
-        status: 'ready',
-        daemonId: null,
         hostId: 'sbx_1',
-        accountId: 'acct-1',
-        spriteName: 'sbx-1',
-        defaultAuthProfileId: null,
         ...overrides
-    }) as AgentRuntimeRow
+    })
 
+// The runtime's sandbox: running unless a test says otherwise.
 const sandboxRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
-    ({
+    spritesHostRow({
         id: 'sbx_1',
         userId: 'user-1',
-        kind: 'sandbox',
-        status: 'active',
-        spriteStatus: 'running',
-        spriteName: 'sbx-1',
-        accountId: 'acct-1',
-        clientFeatures: [],
+        providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: null },
         ...overrides
-    }) as RuntimeHostRow
+    })
 
-const runnerRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
-    ({
-        id: 'dh_runner',
+// The user's own computer.
+const localRow = (): RuntimeHostRow => hostRow({ id: 'dh_own', userId: 'user-1' })
+
+// The machine's daemon, advertising auth profiles.
+const runnerRow = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
+    daemonRow({
+        hostId: 'sbx_1',
         userId: 'user-1',
-        kind: 'daemon',
-        name: 'sprite-runner:sbx-1',
-        managed: true,
-        status: 'active',
         clientFeatures: [DAEMON_FEATURE_AUTH_PROFILES],
         ...overrides
-    }) as RuntimeHostRow
+    })
+
+// A daemon row whose socket lease has lapsed.
+const frozenRunner = (): HostDaemonRow =>
+    runnerRow({ lastSeenAt: new Date(0), rpcLastSeenAt: new Date(0) })
 
 const principal = {
     userId: 'user-1',
@@ -68,9 +70,9 @@ const principal = {
 } as unknown as AuthPrincipal
 
 const harness = (opts: {
-    sandbox: RuntimeHostRow | null
-    runner: RuntimeHostRow | null
-    runnerOnline?: boolean
+    // The runtime's machine and its daemon row (null = none registered).
+    host: RuntimeHostRow
+    daemon: HostDaemonRow | null
     // what the runner manager's wake hands back; null = it could not
     wakeResult?: { daemonId: string } | null
     // The plan's active-slot cap refuses the admission.
@@ -81,16 +83,14 @@ const harness = (opts: {
     otherRunning?: boolean
 }) => {
     const calls: string[] = []
-    let runner = opts.runner
+    let daemon = opts.daemon
     // A drizzle query is awaitable and also has .limit(); the fake mirrors
-    // that shape for the three tables the sprite branch touches.
-    const rowsFor = (table: unknown): unknown[] =>
-        table === runtimeHosts && runner ? [runner] : []
+    // that shape for the profile and operation tables.
     const query = (rows: unknown[]) =>
         Object.assign(Promise.resolve(rows), { limit: async () => rows })
     const db = {
         select: () => ({
-            from: (table: unknown) => ({ where: () => query(rowsFor(table)) })
+            from: () => ({ where: () => query([]) })
         }),
         insert: () => ({
             values: (values: Record<string, unknown>) => ({
@@ -116,32 +116,42 @@ const harness = (opts: {
         })
     }
     const runtimes = {
-        findById: async () => runtimeRow(),
-        findHostById: async (id: string) =>
-            opts.sandbox && opts.sandbox.id === id ? opts.sandbox : null,
-        // The user's other sandbox, when a test has one: awake, holding the
-        // plan's one slot only through an account wake's hold on its runtime.
-        listSandboxesForUser: async () => [
-            ...(opts.sandbox ? [{ host: opts.sandbox }] : []),
+        findById: async () => runtime({ hostId: opts.host.id }),
+        listRuntimesByHost: async (hostId: string) =>
+            hostId === 'sbx_other'
+                ? [runtime({ id: 'art_other', hostId: 'sbx_other' })]
+                : []
+    }
+    const runtimeContext = {
+        forRuntime: async () =>
+            contextOf({
+                runtime: runtime({ hostId: opts.host.id }),
+                host: opts.host,
+                daemon
+            })
+    }
+    // The user's other sandbox, when a test has one: awake, holding the
+    // plan's one slot only through an account wake's hold on its runtime.
+    const hosts = {
+        listForUser: async () => [
+            opts.host,
             ...(opts.otherRunning
                 ? [
-                      {
-                          host: sandboxRow({
-                              id: 'sbx_other',
+                      sandboxRow({
+                          id: 'sbx_other',
+                          providerRef: {
+                              kind: 'sprites',
                               spriteName: 'sbx-other',
-                              spriteStatus: 'running'
-                          })
-                      }
+                              spriteId: null
+                          }
+                      })
                   ]
                 : [])
-        ],
-        listRuntimesByHost: async (hostId: string) =>
-            hostId === 'sbx_other' ? [runtimeRow({ id: 'art_other' })] : []
+        ]
     }
-    const daemonHosts = {
-        findById: async (id: string) =>
-            runner && runner.id === id ? runner : null,
-        isOnline: () => opts.runnerOnline ?? true
+    const hostDaemons = {
+        findByHostId: async () => daemon,
+        isOnline: (row: HostDaemonRow | null) => daemonOnline(row)
     }
     const daemonRegistry = {
         rpc: async (args: { method: string }) => {
@@ -154,10 +164,6 @@ const harness = (opts: {
         }
     }
     const account = { fromProbe: () => null }
-    const accounts = {
-        getById: async (id: string) => ({ id, slug: 'acct', token: 'x' }),
-        decryptToken: () => 'token'
-    }
     const runtimeAccess = {
         reserveActiveSlot: async (input: { hostId: string }) => {
             calls.push(`reserveActiveSlot:${input.hostId}`)
@@ -176,6 +182,25 @@ const harness = (opts: {
             return { plan: null, activeCount: 0, wholesale: null }
         }
     }
+    // The runner manager's bring-up: the wake is what makes the daemon row
+    // exist and answer.
+    const hostAccess = {
+        ensure: async (args: { host: RuntimeHostRow }) => {
+            calls.push(`ensure:${args.host.id}`)
+            const result =
+                opts.wakeResult === undefined
+                    ? { daemonId: args.host.id }
+                    : opts.wakeResult
+            if (!result)
+                return {
+                    daemon: null,
+                    online: false,
+                    fallbackReason: 'runner_unavailable'
+                }
+            daemon = runnerRow({ hostId: result.daemonId })
+            return { daemon, online: true }
+        }
+    }
     const runnerManager = {
         holdSpriteAwake: async (args: { turnId: string; ttl: string }) => {
             calls.push(`holdAwake:${args.turnId}:${args.ttl}`)
@@ -183,62 +208,29 @@ const harness = (opts: {
         },
         releaseSpriteAwake: async (args: { turnId: string }) => {
             calls.push(`releaseAwake:${args.turnId}`)
-        },
-        wakeRunner: async (args: { spriteName: string }) => {
-            calls.push(`wakeRunner:${args.spriteName}`)
-            const result =
-                opts.wakeResult === undefined
-                    ? { daemonId: 'dh_runner' }
-                    : opts.wakeResult
-            if (result) {
-                // The wake is what makes the runner row exist and answer.
-                runner = runnerRow({ id: result.daemonId })
-                return {
-                    handle: {
-                        daemonId: result.daemonId,
-                        started: true,
-                        generation: null
-                    },
-                    outcome: 'restarted'
-                }
-            }
-            return { handle: null, outcome: 'not-online' }
         }
     }
-    class TestService extends RuntimeAuthProfilesService {
-        protected override spritesClientFor(): SpritesClient {
-            calls.push('spritesClientFor')
-            return {} as SpritesClient
-        }
-        protected override exec(
-            _client: SpritesClient,
-            spriteName: string,
-            _opts: ExecOptions
-        ): Promise<ExecResult> {
-            calls.push(`exec:${spriteName}`)
-            return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
-        }
-    }
-    const service = new TestService(
+    const service = new RuntimeAuthProfilesService(
         db as never,
         runtimes as never,
-        daemonHosts as never,
+        runtimeContext as never,
+        hosts as never,
+        hostDaemons as never,
         daemonRegistry as never,
         account as never,
-        accounts as never,
         runtimeAccess as never,
+        hostAccess as never,
         runnerManager as never
     )
     return { service, calls }
 }
 
 test('a runner that is "online" while the VM is warm is asleep, and a page open sends it nothing', async () => {
-    // The socket lease outlives the suspension by up to 45s; the sandbox row
+    // The socket lease outlives the suspension by up to 45s; the host row
     // does not. Trusting the lease is what produced the 20s timeouts.
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow(),
-        runnerOnline: true
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: runnerRow()
     })
     const list = await h.service.list('user-1', 'art_1')
     assert.equal(list.availability, 'sandbox-asleep')
@@ -247,25 +239,21 @@ test('a runner that is "online" while the VM is warm is asleep, and a page open 
 })
 
 test('a running VM with an online runner is listed over the RPC as before', async () => {
-    const h = harness({ sandbox: sandboxRow(), runner: runnerRow() })
+    const h = harness({ host: sandboxRow(), daemon: runnerRow() })
     const list = await h.service.list('user-1', 'art_1')
     assert.equal(list.availability, 'ok')
     assert.deepEqual(h.calls, ['rpc:auth.list'])
 })
 
 test('a running VM whose runner has no lease is asleep too — the runner, not the VM, is what answers', async () => {
-    const h = harness({
-        sandbox: sandboxRow(),
-        runner: runnerRow(),
-        runnerOnline: false
-    })
+    const h = harness({ host: sandboxRow(), daemon: frozenRunner() })
     const list = await h.service.list('user-1', 'art_1')
     assert.equal(list.availability, 'sandbox-asleep')
     assert.deepEqual(h.calls, [])
 })
 
 test('a sprite that never ran a turn has no runner row: host-unavailable without a wake', async () => {
-    const h = harness({ sandbox: sandboxRow(), runner: null })
+    const h = harness({ host: sandboxRow(), daemon: null })
     const list = await h.service.list('user-1', 'art_1')
     assert.equal(list.availability, 'host-unavailable')
     assert.deepEqual(h.calls, [])
@@ -273,16 +261,15 @@ test('a sprite that never ran a turn has no runner row: host-unavailable without
 
 test('wake=1 on the list admits the sandbox first, then wakes the runner, then lists over it', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: null
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: null
     })
     const list = await h.service.list('user-1', 'art_1', { wake: true })
     assert.equal(list.availability, 'ok')
     assert.equal(list.capabilities.manage, true)
     assert.deepEqual(h.calls, [
         'reserveActiveSlot:sbx_1',
-        'spritesClientFor',
-        'wakeRunner:sbx-1',
+        'ensure:sbx_1',
         // The woken runner is held awake for the operation that follows;
         // nothing else on this path would keep the VM from re-freezing it.
         'holdAwake:auth-art_1:5m',
@@ -292,8 +279,8 @@ test('wake=1 on the list admits the sandbox first, then wakes the runner, then l
 
 test('a wake refused by the active-slot cap lists as sandbox-limit, and nothing is sent', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: null,
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: null,
         refuseSlot: true
     })
     const list = await h.service.list('user-1', 'art_1', { wake: true })
@@ -304,9 +291,8 @@ test('a wake refused by the active-slot cap lists as sandbox-limit, and nothing 
 
 test('a wake that produces no runner is host-unavailable, and nothing is sent', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow(),
-        runnerOnline: true,
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: runnerRow(),
         wakeResult: null
     })
     const list = await h.service.list('user-1', 'art_1', { wake: true })
@@ -316,9 +302,8 @@ test('a wake that produces no runner is host-unavailable, and nothing is sent', 
 
 test('create without wake on an asleep sandbox is refused as host_unavailable; with wake it goes through', async () => {
     const refused = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow(),
-        runnerOnline: true
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: runnerRow()
     })
     await assert.rejects(
         refused.service.create(principal, 'art_1', {
@@ -330,9 +315,8 @@ test('create without wake on an asleep sandbox is refused as host_unavailable; w
     assert.deepEqual(refused.calls, [], 'no row minted, no RPC, no wake')
 
     const woken = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow(),
-        runnerOnline: true
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: runnerRow()
     })
     const created = await woken.service.create(principal, 'art_1', {
         authMethod: 'subscription',
@@ -341,8 +325,7 @@ test('create without wake on an asleep sandbox is refused as host_unavailable; w
     assert.equal(created.lifecycle, 'pending')
     assert.deepEqual(woken.calls, [
         'reserveActiveSlot:sbx_1',
-        'spritesClientFor',
-        'wakeRunner:sbx-1',
+        'ensure:sbx_1',
         'holdAwake:auth-art_1:5m',
         'rpc:auth.create'
     ])
@@ -361,8 +344,8 @@ const settle = async (
 // not spend another.
 test('prewarm wakes the runner once per window, off the request path', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: null
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: null
     })
     const first = await h.service.prewarm(principal, 'art_1')
     assert.equal(first.accepted, true)
@@ -373,26 +356,23 @@ test('prewarm wakes the runner once per window, off the request path', async () 
         // host is committed running).
         'reserveActiveSlot:sbx_1',
         'reserveActiveSlot:sbx_1',
-        'spritesClientFor',
-        'wakeRunner:sbx-1',
+        'ensure:sbx_1',
         // A prewarm's hold is the short one; the form renews it while picked.
         'holdAwake:auth-art_1:2m'
     ])
     const again = await h.service.prewarm(principal, 'art_1')
     assert.equal(again.accepted, false, 'debounced inside the window')
     await new Promise((resolve) => setTimeout(resolve, 5))
-    assert.equal(h.calls.length, 5, 'no second wake')
+    assert.equal(h.calls.length, 4, 'no second wake')
 })
 
-test('prewarm is a no-op for a daemon runtime and for an agent principal', async () => {
-    const h = harness({ sandbox: null, runner: runnerRow({ id: 'dh_own' }) })
-    const service = h.service as unknown as {
-        runtimes: { findById: () => Promise<AgentRuntimeRow> }
-    }
-    service.runtimes.findById = async () =>
-        runtimeRow({ kind: 'daemon', daemonId: 'dh_own', hostId: null })
-    const daemon = await h.service.prewarm(principal, 'art_1')
-    assert.equal(daemon.accepted, false)
+test('prewarm is a no-op for a local runtime and for an agent principal', async () => {
+    const h = harness({
+        host: localRow(),
+        daemon: runnerRow({ hostId: 'dh_own' })
+    })
+    const local = await h.service.prewarm(principal, 'art_1')
+    assert.equal(local.accepted, false)
     assert.deepEqual(h.calls, [])
     const agentPrincipal = {
         userId: 'user-1',
@@ -404,18 +384,11 @@ test('prewarm is a no-op for a daemon runtime and for an agent principal', async
     )
 })
 
-test('a daemon runtime is untouched by the sprite rules', async () => {
-    const h = harness({ sandbox: null, runner: runnerRow({ id: 'dh_own' }) })
-    const service = h.service as unknown as {
-        runtimes: { findById: () => Promise<AgentRuntimeRow> }
-    }
-    service.runtimes.findById = async () =>
-        runtimeRow({
-            kind: 'daemon',
-            daemonId: 'dh_own',
-            hostId: null,
-            spriteName: null
-        })
+test('a local runtime is untouched by the sandbox rules', async () => {
+    const h = harness({
+        host: localRow(),
+        daemon: runnerRow({ hostId: 'dh_own' })
+    })
     const list = await h.service.list('user-1', 'art_1')
     assert.equal(list.availability, 'ok')
     assert.deepEqual(h.calls, ['rpc:auth.list'])
@@ -425,10 +398,10 @@ test('a daemon runtime is untouched by the sprite rules', async () => {
 // while the runtime stays picked; moving the pick releases it, so the plan's
 // one active slot is not held by a sandbox the user only glanced at.
 test('a prewarm holds the sandbox for the short window; a release drops that hold', async () => {
-    const h = harness({ sandbox: sandboxRow(), runner: null })
+    const h = harness({ host: sandboxRow(), daemon: null })
     const accepted = await h.service.prewarm(principal, 'art_1')
     assert.equal(accepted.accepted, true)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settle(h.calls, (c) => c.some((x) => x.startsWith('holdAwake:')))
     assert.ok(h.calls.includes('holdAwake:auth-art_1:2m'), h.calls.join(','))
     const released = await h.service.release(principal, 'art_1')
     assert.equal(released.released, true)
@@ -437,20 +410,19 @@ test('a prewarm holds the sandbox for the short window; a release drops that hol
 
 test('a release leaves a sandbox that is not running alone: nothing holds it, and an exec would wake it', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow()
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: runnerRow()
     })
     const released = await h.service.release(principal, 'art_1')
     assert.equal(released.released, false)
-    assert.ok(!h.calls.some((c) => c.startsWith('exec:')), h.calls.join(','))
+    assert.ok(!h.calls.some((c) => c.startsWith('ensure:')), h.calls.join(','))
     assert.ok(!h.calls.some((c) => c.startsWith('releaseAwake:')))
 })
 
 test('a wake refused by the slot cap releases the account holds on the other sandbox, then reports the cap', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: runnerRow(),
-        runnerOnline: false,
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: frozenRunner(),
         refuseSlot: true,
         otherRunning: true
     })
@@ -461,22 +433,22 @@ test('a wake refused by the slot cap releases the account holds on the other san
         h.calls.join(',')
     )
     // Only the other sandbox's holds go; this one was never woken.
-    assert.ok(!h.calls.some((c) => c.startsWith('wakeRunner:')))
+    assert.ok(!h.calls.some((c) => c.startsWith('ensure:')))
 })
 
 // A prewarm the plan refuses is answered, not swallowed: the create form
 // stops waiting for a runner that nothing will start until the hours reset.
 test('a prewarm refused for used-up active hours answers with the refusal and wakes nothing', async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: null,
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: null,
         refuseHours: true
     })
     const view = await h.service.prewarm(principal, 'art_1')
     assert.equal(view.accepted, false)
     assert.equal(view.refused?.code, 'ACTIVE_HOURS_QUOTA_REACHED')
     assert.match(view.refused?.message ?? '', /active hours/)
-    assert.ok(!h.calls.some((c) => c.startsWith('wakeRunner:')))
+    assert.ok(!h.calls.some((c) => c.startsWith('ensure:')))
     // Not debounced: the next click may try again once hours reset.
     const again = await h.service.prewarm(principal, 'art_1')
     assert.equal(again.refused?.code, 'ACTIVE_HOURS_QUOTA_REACHED')
@@ -484,8 +456,8 @@ test('a prewarm refused for used-up active hours answers with the refusal and wa
 
 test("a prewarm refused by the slot cap reports the cap after releasing the other sandbox's holds", async () => {
     const h = harness({
-        sandbox: sandboxRow({ spriteStatus: 'warm' }),
-        runner: null,
+        host: sandboxRow({ powerState: 'suspended' }),
+        daemon: null,
         refuseSlot: true,
         otherRunning: true
     })

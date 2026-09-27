@@ -15,14 +15,8 @@ import {
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import postgres from 'postgres'
-import { and, eq, gt, sql } from 'drizzle-orm'
-import {
-    agentRuntimes,
-    agents,
-    runtimeHosts,
-    type RuntimeHostRow,
-    type Database
-} from '@manyfold/db'
+import { and, eq, gt } from 'drizzle-orm'
+import { hostDaemons, type HostDaemonRow, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { configString } from '@/common/config-alias'
 import { daemonClientProcessFields } from './daemon-client-process'
@@ -65,12 +59,12 @@ export interface DaemonHelloEvidence {
 }
 
 export const storedConfigConnectionToken = (
-    host: Pick<RuntimeHostRow, 'rpcInstanceId' | 'rpcConnectionToken'>
+    daemon: Pick<HostDaemonRow, 'rpcInstanceId' | 'rpcConnectionToken'>
 ): string | undefined => {
-    const token = host.rpcConnectionToken
-    if (!token || !host.rpcInstanceId) return undefined
+    const token = daemon.rpcConnectionToken
+    if (!token || !daemon.rpcInstanceId) return undefined
     const separator = token.lastIndexOf(':')
-    return token.slice(0, separator) === host.rpcInstanceId &&
+    return token.slice(0, separator) === daemon.rpcInstanceId &&
         /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(token.slice(separator + 1))
         ? token : undefined
 }
@@ -305,24 +299,19 @@ export class DaemonRegistryService
         if (!this.conns.has(daemonId)) return
         const now = new Date()
         await this.db
-            .update(runtimeHosts)
-            .set({
-                rpcLastSeenAt: now,
-                lastSeenAt: now,
-                status: 'active',
-                updatedAt: now
-            })
+            .update(hostDaemons)
+            .set({ rpcLastSeenAt: now, lastSeenAt: now })
             .where(
                 and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
+                    eq(hostDaemons.hostId, daemonId),
+                    eq(hostDaemons.rpcInstanceId, this.instanceId)
                 )
             )
     }
 
     // clearConnectionLease only runs on an orderly disconnect. A crash never
     // reaches it — `process.exit` on an unhandled rejection, OOM, SIGKILL — so
-    // runtime_hosts keeps naming the dead process as the holder of sockets it
+    // host_daemons keeps naming the dead process as the holder of sockets it
     // no longer has. That record is not self-healing: the broker inbox is
     // derived from the machine id, so the restarted process re-subscribes to
     // the SAME inbox and keeps answering relayed pushes with `is not connected`
@@ -337,14 +326,14 @@ export class DaemonRegistryService
     // lets any daemon reconnect, which is the only ordering that guarantees we
     // never serve a request against a lease we cannot honour.
     //
-    // rpc_* columns only: status / last_seen_at are the presence sweep's, and
-    // batch-flipping agents to stopped on every boot would fight it.
+    // rpc_* columns only: last_seen_at is the heartbeat's, and presence is
+    // derived from it (ADR-0036), so nothing else has to be repaired.
     private async releaseOwnRpcLeases(): Promise<void> {
         const released = await this.db
-            .update(runtimeHosts)
+            .update(hostDaemons)
             .set(RELEASED_RPC_LEASE())
-            .where(eq(runtimeHosts.rpcInstanceId, this.instanceId))
-            .returning({ id: runtimeHosts.id })
+            .where(eq(hostDaemons.rpcInstanceId, this.instanceId))
+            .returning({ id: hostDaemons.hostId })
         if (released.length > 0)
             this.log.log(
                 `daemon rpc released ${released.length} stale lease(s) left by instance=${this.instanceId}: ${released.map((r) => r.id).join(',')}`
@@ -355,12 +344,12 @@ export class DaemonRegistryService
         await this.mutateConnection(daemonId, async () => {
             if (this.conns.has(daemonId)) return
             await this.db
-                .update(runtimeHosts)
+                .update(hostDaemons)
                 .set(RELEASED_RPC_LEASE())
                 .where(
                     and(
-                        eq(runtimeHosts.id, daemonId),
-                        eq(runtimeHosts.rpcInstanceId, this.instanceId)
+                        eq(hostDaemons.hostId, daemonId),
+                        eq(hostDaemons.rpcInstanceId, this.instanceId)
                     )
                 )
         })
@@ -485,7 +474,7 @@ export class DaemonRegistryService
     }
 
     // Identity of the CURRENT local socket generation for a daemon, in the
-    // same shape the host row's rpc lease encodes (`instance:connectedAtMs`).
+    // same shape the host_daemons rpc lease encodes (`instance:connectedAtMs`).
     // Telemetry-only: lets a dispatch-recovery outcome be correlated with the
     // generation the runner resolution originally aimed at (#619).
     localConnectionGeneration(daemonId: string): string | null {
@@ -759,31 +748,30 @@ export class DaemonRegistryService
 
     private async resolveRemoteInbox(daemonId: string): Promise<string> {
         const cutoff = new Date(Date.now() - DAEMON_RPC_LEASE_MS)
-        const [host] = await this.db
+        const [daemon] = await this.db
             .select()
-            .from(runtimeHosts)
+            .from(hostDaemons)
             .where(
                 and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.status, 'active'),
-                    gt(runtimeHosts.rpcLastSeenAt, cutoff)
+                    eq(hostDaemons.hostId, daemonId),
+                    gt(hostDaemons.rpcLastSeenAt, cutoff)
                 )
             )
             .limit(1)
-        if (!host?.rpcInbox)
+        if (!daemon?.rpcInbox)
             throw new Error(
                 `daemon ${daemonId} is offline; no active websocket`
             )
-        if (host.rpcInbox === this.inbox && !this.conns.has(daemonId))
+        if (daemon.rpcInbox === this.inbox && !this.conns.has(daemonId))
             throw new Error(
                 `daemon ${daemonId} websocket lease is stale on this api instance`
             )
-        return host.rpcInbox
+        return daemon.rpcInbox
     }
 
     private async markConnected(daemonId: string, now = new Date(), clientFeatures?: string[], token?: string): Promise<void> {
         await this.db
-            .update(runtimeHosts)
+            .update(hostDaemons)
             .set({
                 rpcInstanceId: this.instanceId,
                 rpcConnectionToken: token ? `${this.instanceId}:${token}` : null,
@@ -792,10 +780,9 @@ export class DaemonRegistryService
                 ...(clientFeatures ? { clientFeatures } : {}),
                 rpcLastSeenAt: now,
                 lastSeenAt: now,
-                status: 'active',
                 updatedAt: now
             })
-            .where(eq(runtimeHosts.id, daemonId))
+            .where(eq(hostDaemons.hostId, daemonId))
     }
 
     private async mutateConnection(
@@ -816,44 +803,23 @@ export class DaemonRegistryService
         }
     }
 
+    // The lease is the only thing a disconnect writes: presence derives from
+    // the heartbeat, and no runtime or agent status follows a socket.
     private async clearConnectionLease(daemonId: string, token?: string): Promise<void> {
         await this.mutateConnection(daemonId, async () => {
             if (this.conns.has(daemonId)) return
-            await this.db.transaction(async (tx) => {
-                const now = new Date()
-                const [host] = await tx
-                    .update(runtimeHosts)
-                    .set({
-                        ...RELEASED_RPC_LEASE(),
-                        status: sql`case when ${runtimeHosts.status} = 'active' then 'offline' else ${runtimeHosts.status} end`,
-                        updatedAt: now
-                    })
-                    .where(
-                        and(
-                            eq(runtimeHosts.id, daemonId),
-                            eq(runtimeHosts.rpcInstanceId, this.instanceId),
-                            token
-                                ? eq(runtimeHosts.rpcConnectionToken, `${this.instanceId}:${token}`)
-                                : undefined
-                        )
+            await this.db
+                .update(hostDaemons)
+                .set(RELEASED_RPC_LEASE())
+                .where(
+                    and(
+                        eq(hostDaemons.hostId, daemonId),
+                        eq(hostDaemons.rpcInstanceId, this.instanceId),
+                        token
+                            ? eq(hostDaemons.rpcConnectionToken, `${this.instanceId}:${token}`)
+                            : undefined
                     )
-                    .returning({ id: runtimeHosts.id })
-                if (!host) return
-                // Keep the host row locked until its dependent status writes
-                // finish, so another API cannot take over between them.
-                await tx
-                    .update(agentRuntimes)
-                    .set({ status: 'stopped', updatedAt: now })
-                    .where(eq(agentRuntimes.daemonId, daemonId))
-                await tx
-                    .update(agents)
-                    .set({
-                        status: 'stopped',
-                        failureReason: 'daemon disconnected',
-                        updatedAt: now
-                    })
-                    .where(eq(agents.daemonId, daemonId))
-            })
+                )
         })
     }
 

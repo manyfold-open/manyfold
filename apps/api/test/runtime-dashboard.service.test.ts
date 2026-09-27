@@ -598,6 +598,9 @@ test('sweep marks stale in-flight toggles as interrupted, leaves fresh ones', as
 const serviceFor = (deps: {
     runtimes: unknown
     db?: unknown
+    context?: unknown
+    hostClients?: unknown
+    providers?: unknown
     crypto?: unknown
     hermesBootstrap?: unknown
     openclawBootstrap?: unknown
@@ -605,7 +608,9 @@ const serviceFor = (deps: {
     new RuntimeDashboardService(
         (deps.db ?? auditDb()) as never,
         deps.runtimes as never,
-        {} as never,
+        (deps.context ?? {}) as never,
+        (deps.hostClients ?? {}) as never,
+        (deps.providers ?? {}) as never,
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,
         (deps.openclawBootstrap ?? {}) as never,

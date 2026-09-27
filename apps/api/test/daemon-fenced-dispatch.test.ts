@@ -4,7 +4,7 @@ import test from 'node:test'
 import { randomUUID } from 'node:crypto'
 import type { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
-import type { Database, RuntimeHostRow } from '@manyfold/db'
+import type { Database, HostDaemonRow } from '@manyfold/db'
 import { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from '../src/modules/chat/adapters/daemon-fenced-dispatch.service'
 import type { TelemetryService } from '../src/common/telemetry/telemetry.service'
@@ -45,33 +45,36 @@ class FakeSocket {
     close(): void {}
 }
 
-const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
+const host = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
     ({
-        id: 'dh-1',
+        hostId: 'dh-1',
         userId: 'user-1',
         daemonUuid: 'daemon-uuid',
-        name: 'sprite-runner:sprite-1',
+        tokenId: null,
         hostname: 'sprite-1',
         os: 'linux',
         arch: 'x64',
         cliVersion: '0.22.3',
-        homeDir: '/home/sprite',
-        workspaceBaseDir: '/home/sprite/.manyfold/workspaces',
+        herdrVersion: null,
+        startupMethod: 'container',
+        clientFeatures: [],
+        terminalPty: null,
         detectedFrameworks: [],
+        registeredAt: new Date(),
         lastSeenAt: new Date(),
+        lastIp: null,
         rpcInstanceId: 'owner-instance',
+        rpcConnectionToken: 'owner-token',
         rpcInbox: 'owner-inbox',
         rpcConnectedAt: new Date(),
         rpcLastSeenAt: new Date(),
-        lastIp: null,
-        status: 'active',
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides
-    }) as RuntimeHostRow
+    }) as HostDaemonRow
 
 class RegistryDb {
-    constructor(private readonly row: RuntimeHostRow | null) {}
+    constructor(private readonly row: HostDaemonRow | null) {}
 
     select() {
         return {
@@ -112,7 +115,7 @@ class TestFencedDispatch extends DaemonFencedDispatchService {
     }
 }
 
-const makeHarness = (row: RuntimeHostRow | null = host()) => {
+const makeHarness = (row: HostDaemonRow | null = host()) => {
     const config = {
         get: (key: string) =>
             key === 'MF_API_INSTANCE_ID' ? 'this-instance' : undefined

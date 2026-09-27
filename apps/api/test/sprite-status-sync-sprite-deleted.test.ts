@@ -1,83 +1,60 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { agentRuntimes, agents } from '@manyfold/db'
+import { agents, runtimeHosts } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
-import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import {
+    SpriteStatusSyncService,
+    spriteGoneReason
+} from '../src/modules/agents/sprite-status/sprite-status-sync.service'
 
 const SPRITE = 'nca-user-abc-main'
-const GONE_REASON = `sprite ${SPRITE} not found on sprites.dev`
+const GONE_REASON = spriteGoneReason(SPRITE)
 
-const fakeRuntime = (over: Record<string, unknown> = {}) => ({
-    id: 'rt-1',
+const fakeHost = (over: Record<string, unknown> = {}) => ({
+    id: 'host-1',
     userId: 'u-1',
-    name: 'main',
-    framework: 'hermes',
-    kind: 'sprites',
+    kind: 'hosted',
+    providerId: 'acc-1',
+    providerRef: { kind: 'sprites', spriteName: SPRITE, spriteId: 'sp-1' },
+    name: 'sandbox-001',
     status: 'ready',
-    accountId: 'acc-1',
-    spriteName: SPRITE,
-    spriteId: 'sp-1',
-    primaryAgentId: 'agent-1',
-    namespace: null,
-    ingressHost: null,
-    clusterId: null,
-    currentPhase: null,
     failureReason: null,
-    startedAt: new Date('2026-04-01'),
-    lastBootstrappedAt: new Date('2026-04-01'),
+    powerState: 'running',
+    activeAccrualSince: null,
+    emptiedAt: null,
     createdAt: new Date('2026-04-01'),
     updatedAt: new Date('2026-04-01'),
     ...over
 })
 
-const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
-    id: 'agent-1',
-    userId: 'u-1',
-    runtimeId: 'rt-1',
-    framework: 'hermes',
-    runtime: 'sprites',
-    name: 'a1',
-    internalId: 'agent-1',
-    status: 'running',
-    spriteStatus: 'running',
-    k8sPodPhase: null,
-    workspacePath: null,
-    spriteName: SPRITE,
-    spriteId: 'sp-1',
-    accountId: 'acc-1',
-    fileRoots: [],
-    extras: {},
-    model: null,
-    namespace: null,
-    ingressHost: null,
-    clusterId: null,
-    failureReason: null,
-    startedAt: new Date('2026-04-01'),
-    lastBootstrappedAt: new Date('2026-04-01'),
-    createdAt: new Date('2026-04-01'),
-    updatedAt: new Date('2026-04-01'),
-    ...over
-})
-
+// Every select answers by table: host rows for runtime_hosts, an agent count
+// for the agents join, nothing for the broadcast join.
 const makeDb = (
-    agentRows: Array<Record<string, unknown>>,
-    runtimeRows: Array<Record<string, unknown>>
+    hostRows: Array<Record<string, unknown>>,
+    agentCount = 1
 ) => {
     const updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
+    const chain = (table: unknown) => {
+        const self = {
+            innerJoin: () => self,
+            leftJoin: () => self,
+            where: async () => {
+                if (table === runtimeHosts) return hostRows
+                if (table === agents) return [{ value: agentCount }]
+                return []
+            }
+        }
+        return self
+    }
     return {
         updates,
-        select: () => ({
-            from: (table: unknown) => ({
-                where: async () =>
-                    table === agentRuntimes ? runtimeRows : agentRows
-            })
-        }),
+        select: () => ({ from: (table: unknown) => chain(table) }),
         update: (table: unknown) => ({
             set: (s: Record<string, unknown>) => ({
                 where: () => {
                     updates.push({ table, set: s })
                     return {
-                        returning: async () => [{ id: 'rt-1' }],
+                        returning: async () => [{ id: 'host-1' }],
                         then: (
                             res: (v: unknown) => unknown,
                             rej: (e: unknown) => unknown
@@ -115,18 +92,28 @@ const makeService = (
     db: ReturnType<typeof makeDb>,
     client: ReturnType<typeof makeClient>
 ) => {
-    const emits: Array<{ userId: string; event: Record<string, unknown> }> = []
+    const hostEmits: Array<{ userId: string; update: Record<string, unknown> }> =
+        []
     const events: Array<{ name: string; payload: Record<string, unknown> }> =
         []
+    const deleted: string[] = []
+    const powerWrites: Array<{ id: string; state: string }> = []
     const svc = new SpriteStatusSyncService(
         db as never,
-        { getById: async () => ({ id: 'acc-1', slug: 'acct' }) } as never,
+        {
+            setPower: async (id: string, state: string) => {
+                powerWrites.push({ id, state })
+            }
+        } as never,
+        {
+            findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
+        } as never,
         {} as never,
         {
-            emit: (userId: string, event: Record<string, unknown>) => {
-                emits.push({ userId, event })
-            },
-            emitHostUpdate: () => {}
+            emit: () => {},
+            emitHostUpdate: (userId: string, update: Record<string, unknown>) => {
+                hostEmits.push({ userId, update })
+            }
         } as never,
         {
             event: (name: string, payload: Record<string, unknown>) => {
@@ -141,102 +128,122 @@ const makeService = (
             accrue: async () => {},
             settleHostNotRunning: async () => {},
             pruneOlderThan: async () => {}
+        } as never,
+        {
+            deleteHost: async (id: string) => {
+                deleted.push(id)
+            }
         } as never
     )
     svc['clientFor' as never] = (() => client) as never
-    return { svc, emits, events }
+    return { svc, hostEmits, events, deleted, powerWrites }
 }
 
 const sync = async (svc: SpriteStatusSyncService) =>
-    (svc['syncAccount' as never] as (id: string) => Promise<boolean>).call(
+    (svc['syncProvider' as never] as (id: string) => Promise<boolean>).call(
         svc,
         'acc-1'
     )
 
-const runtimeUpdates = (db: ReturnType<typeof makeDb>) =>
-    db.updates.filter((u) => u.table === agentRuntimes)
-const agentUpdates = (db: ReturnType<typeof makeDb>) =>
-    db.updates.filter((u) => u.table === agents)
+const hostUpdates = (db: ReturnType<typeof makeDb>) =>
+    db.updates.filter((u) => u.table === runtimeHosts)
 
-// Scenario 1: first listing miss only arms the window.
+const missingSince = (svc: SpriteStatusSyncService) =>
+    svc['hostSpriteMissingSince' as never] as Map<string, number>
+
 // WHY: one absent listing is indistinguishable from a transient control-plane
 // inconsistency — it must never trigger a confirmation call or a DB write.
 test('first missing listing arms the window without getSprite or writes', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
+    const db = makeDb([fakeHost()])
     const client = makeClient({ sprites: [] })
     const { svc } = makeService(db, client)
 
     await sync(svc)
 
     assert.ok(
-        svc['spriteMissingSince'].has('rt-1'),
+        missingSince(svc).has('host-1'),
         'absence must arm the confirmation window'
     )
     assert.equal(client.getSpriteCalls.length, 0)
     assert.equal(db.updates.length, 0)
 })
 
-// Scenario 2: confirmed deletion marks runtime + agents stopped.
-// WHY: this is the #107 self-heal path — a recycled sprite must stop the
-// reconcile HTTP polling (runtime leaves 'ready') and release the frozen
-// 'running' occupancy slot (spriteStatus null).
-test('elapsed window + getSprite not_found marks runtime and agents stopped', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
+// WHY: a recycled sprite under a host that still carries agents is the host
+// failing (R4: host lifecycle), not a stopped runtime or agent — the agents
+// read as unavailable through the host, and every one of them hears it.
+test('elapsed window + getSprite not_found fails a host that still has agents', async () => {
+    const db = makeDb([fakeHost()], 2)
     const client = makeClient({
         sprites: [],
         getSprite: async () => {
             throw new SpritesError('not_found', 'gone', 404)
         }
     })
-    const { svc, emits, events } = makeService(db, client)
-    svc['spriteMissingSince'].set('rt-1', Date.now() - 121_000)
+    const { svc, hostEmits, events, deleted } = makeService(db, client)
+    missingSince(svc).set('host-1', Date.now() - 121_000)
 
     await sync(svc)
 
     assert.deepEqual(client.getSpriteCalls, [SPRITE])
-    const [rt] = runtimeUpdates(db)
-    assert.equal(rt.set.status, 'stopped')
-    assert.equal(rt.set.failureReason, GONE_REASON)
-    const [ag] = agentUpdates(db)
-    assert.equal(ag.set.status, 'stopped')
-    assert.equal(ag.set.spriteStatus, null)
-    assert.equal(ag.set.failureReason, GONE_REASON)
-    assert.equal(emits.length, 1)
-    assert.equal(emits[0].event.spriteStatus, null)
+    const [host] = hostUpdates(db)
+    assert.equal(host.set.status, 'failed')
+    assert.equal(host.set.failureReason, GONE_REASON)
+    assert.equal(host.set.powerState, 'unknown')
+    assert.deepEqual(deleted, [], 'a host with agents is never deleted by the sync')
+    assert.equal(hostEmits.length, 1)
+    assert.equal(hostEmits[0].update.powerState, 'unknown')
     assert.deepEqual(
         events.map((e) => e.name),
-        ['agent.runtime.sprite_deleted']
+        ['host.sprite_deleted']
     )
     assert.equal(
-        svc['spriteMissingSince'].has('rt-1'),
+        missingSince(svc).has('host-1'),
         false,
         'tracking must be cleared after marking'
     )
 })
 
-// Scenario 3: getSprite succeeding clears the window without writes.
-// WHY: listing absence alone must never kill a runtime — the per-sprite 404
+// WHY: an empty host whose VM is gone has nothing left to protect — it goes
+// through the one host delete path (R8) rather than lingering as failed.
+test('elapsed window + getSprite not_found deletes an agent-less host', async () => {
+    const db = makeDb([fakeHost()], 0)
+    const client = makeClient({
+        sprites: [],
+        getSprite: async () => {
+            throw new SpritesError('not_found', 'gone', 404)
+        }
+    })
+    const { svc, deleted } = makeService(db, client)
+    missingSince(svc).set('host-1', Date.now() - 121_000)
+
+    await sync(svc)
+
+    assert.deepEqual(deleted, ['host-1'])
+    assert.equal(hostUpdates(db).length, 0)
+})
+
+// WHY: listing absence alone must never fail a host — the per-sprite 404
 // is the only definitive evidence of deletion.
 test('elapsed window + getSprite success clears tracking without writes', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
+    const db = makeDb([fakeHost()])
     const client = makeClient({
         sprites: [],
         getSprite: async () => ({ name: SPRITE, status: 'warm' })
     })
     const { svc } = makeService(db, client)
-    svc['spriteMissingSince'].set('rt-1', Date.now() - 121_000)
+    missingSince(svc).set('host-1', Date.now() - 121_000)
 
     await sync(svc)
 
+    assert.deepEqual(client.getSpriteCalls, [SPRITE])
+    assert.equal(missingSince(svc).has('host-1'), false)
     assert.equal(db.updates.length, 0)
-    assert.equal(svc['spriteMissingSince'].has('rt-1'), false)
 })
 
-// Scenario 4: transient confirmation error keeps the window armed.
-// WHY: a 5xx/timeout from the control plane is not evidence of deletion;
-// the next tick retries the confirmation.
+// WHY: a transient or auth failure on the confirm call says nothing about the
+// VM; the window stays armed and nothing is written.
 test('transient getSprite error keeps the window and writes nothing', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
+    const db = makeDb([fakeHost()])
     const client = makeClient({
         sprites: [],
         getSprite: async () => {
@@ -245,123 +252,57 @@ test('transient getSprite error keeps the window and writes nothing', async () =
     })
     const { svc } = makeService(db, client)
     const armedAt = Date.now() - 121_000
-    svc['spriteMissingSince'].set('rt-1', armedAt)
+    missingSince(svc).set('host-1', armedAt)
 
     await sync(svc)
 
+    assert.equal(missingSince(svc).get('host-1'), armedAt)
     assert.equal(db.updates.length, 0)
-    assert.equal(svc['spriteMissingSince'].get('rt-1'), armedAt)
 })
 
-// Scenario 5: sprite reappearing in the listing clears the window.
-// WHY: the tracker keys on continuous absence; one present listing resets
-// the evidence while the normal status sync keeps working.
-test('sprite present in listing clears tracking and syncs status normally', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
-    const client = makeClient({
-        sprites: [{ name: SPRITE, status: 'warm' }]
-    })
-    const { svc } = makeService(db, client)
-    svc['spriteMissingSince'].set('rt-1', Date.now() - 121_000)
-
-    await sync(svc)
-
-    assert.equal(svc['spriteMissingSince'].has('rt-1'), false)
-    assert.equal(client.getSpriteCalls.length, 0)
-    const [ag] = agentUpdates(db)
-    assert.equal(
-        ag.set.spriteStatus,
-        'warm',
-        'normal running→warm sync must keep working'
-    )
-    assert.equal(runtimeUpdates(db).length, 0)
-})
-
-// Scenario 6: pending runtimes are exempt.
-// WHY: the provisioner flips status to 'ready' only after sprite creation;
-// 'pending' absence is a provisioning race, not a deletion.
-test('pending runtime never arms the window', async () => {
-    const db = makeDb(
-        [fakeDbAgent()],
-        [fakeRuntime({ status: 'pending' })]
-    )
+// WHY: a host younger than the provisioning grace never enters the window —
+// createSprite → listing visibility lags.
+test('a host younger than the provisioning grace never arms the window', async () => {
+    const db = makeDb([fakeHost({ createdAt: new Date() })])
     const client = makeClient({ sprites: [] })
     const { svc } = makeService(db, client)
 
     await sync(svc)
 
-    assert.equal(svc['spriteMissingSince'].has('rt-1'), false)
-    assert.equal(client.getSpriteCalls.length, 0)
-    assert.equal(db.updates.length, 0)
+    assert.equal(missingSince(svc).has('host-1'), false)
 })
 
-// Scenario 7: freshly created runtimes are exempt.
-// WHY: createSprite → listing visibility can lag; the provisioning grace
-// keeps eventual consistency from ever feeding the window.
-test('runtime younger than the provisioning grace never arms the window', async () => {
-    const db = makeDb(
-        [fakeDbAgent()],
-        [fakeRuntime({ createdAt: new Date() })]
-    )
-    const client = makeClient({ sprites: [] })
-    const { svc } = makeService(db, client)
-
-    await sync(svc)
-
-    assert.equal(svc['spriteMissingSince'].has('rt-1'), false)
-    assert.equal(db.updates.length, 0)
-})
-
-// Scenario 8: stale absence evidence re-arms instead of confirming.
-// WHY: evidence older than the stale bound likely predates a sync blackout
-// (process pause / account backoff) — confirming against it would let a
-// single fresh listing kill a runtime.
+// WHY: absence evidence older than the stale bound likely predates a sync
+// blackout; it is re-armed rather than confirmed against one fresh listing.
 test('stale absence evidence re-arms the window without getSprite', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
+    const db = makeDb([fakeHost()])
     const client = makeClient({ sprites: [] })
     const { svc } = makeService(db, client)
-    const staleAt = Date.now() - 10 * 60_000
-    svc['spriteMissingSince'].set('rt-1', staleAt)
+    missingSince(svc).set('host-1', Date.now() - 20 * 60_000)
 
     await sync(svc)
 
-    const rearmedAt = svc['spriteMissingSince'].get('rt-1')
-    assert.ok(rearmedAt !== undefined && rearmedAt > staleAt)
+    assert.ok(Date.now() - missingSince(svc).get('host-1')! < 5_000)
     assert.equal(client.getSpriteCalls.length, 0)
-    assert.equal(db.updates.length, 0)
 })
 
-// Scenario 9: a failed listing never counts as a miss.
-// WHY: when listSprites throws there is no absence evidence at all — the
-// account backoff in tickSprites owns that failure, not the deletion tracker.
-test('listSprites failure rejects syncAccount and leaves tracking untouched', async () => {
-    const db = makeDb([fakeDbAgent()], [fakeRuntime()])
-    const client = makeClient({ listError: new Error('control plane down') })
+// WHY: a listing failure must not be mistaken for absence.
+test('listSprites failure rejects syncProvider and leaves tracking untouched', async () => {
+    const db = makeDb([fakeHost()])
+    const client = makeClient({ listError: new Error('vendor 500') })
     const { svc } = makeService(db, client)
-    const armedAt = Date.now() - 60_000
-    svc['spriteMissingSince'].set('rt-1', armedAt)
 
-    await assert.rejects(sync(svc))
-
-    assert.equal(svc['spriteMissingSince'].get('rt-1'), armedAt)
+    await assert.rejects(() => sync(svc), /vendor 500/)
+    assert.equal(missingSince(svc).has('host-1'), false)
     assert.equal(db.updates.length, 0)
 })
 
-// Scenario 10: symmetric revive when the sprite reappears.
-// WHY: a false positive (control-plane incident) must not lock the user out
-// forever — exactly what markSpriteDeleted stopped gets un-stopped, scoped
-// by the failureReason marker so unrelated stops are never touched.
-test('sprite reappearing revives a runtime stopped by the gone marker', async () => {
-    const db = makeDb(
-        [
-            fakeDbAgent({
-                status: 'stopped',
-                spriteStatus: null,
-                failureReason: GONE_REASON
-            })
-        ],
-        [fakeRuntime({ status: 'stopped', failureReason: GONE_REASON })]
-    )
+// WHY: symmetric recovery — a control-plane incident or a false positive that
+// hid the VM must not leave the host failed once it is listed again.
+test('a sprite reappearing revives a host failed by the gone marker', async () => {
+    const db = makeDb([
+        fakeHost({ status: 'failed', failureReason: GONE_REASON })
+    ])
     const client = makeClient({
         sprites: [{ name: SPRITE, status: 'warm' }]
     })
@@ -369,28 +310,21 @@ test('sprite reappearing revives a runtime stopped by the gone marker', async ()
 
     await sync(svc)
 
-    const rt = runtimeUpdates(db).find((u) => u.set.status === 'ready')
-    assert.ok(rt, 'runtime must be flipped back to ready')
-    assert.equal(rt.set.failureReason, null)
-    const ag = agentUpdates(db).find((u) => u.set.status === 'running')
-    assert.ok(ag, 'marker-stopped agents must be flipped back to running')
-    assert.equal(ag.set.failureReason, null)
-    assert.ok(events.some((e) => e.name === 'agent.runtime.sprite_restored'))
+    const [host] = hostUpdates(db)
+    assert.equal(host.set.status, 'ready')
+    assert.equal(host.set.failureReason, null)
+    assert.deepEqual(
+        events.map((e) => e.name),
+        ['host.sprite_restored']
+    )
 })
 
-// Scenario 10b: stops with other reasons are never revived.
-// WHY: the marker is the scope — an admin/teardown stop must stay stopped.
-test('stopped runtime with an unrelated failureReason is not revived', async () => {
-    const db = makeDb(
-        [
-            fakeDbAgent({
-                status: 'stopped',
-                spriteStatus: null,
-                failureReason: 'manually stopped'
-            })
-        ],
-        [fakeRuntime({ status: 'stopped', failureReason: 'manually stopped' })]
-    )
+// WHY: only our own marker scopes revival; a host failed for any other
+// reason stays failed even with its VM listed.
+test('a failed host with an unrelated failureReason is not revived', async () => {
+    const db = makeDb([
+        fakeHost({ status: 'failed', failureReason: 'bootstrap exited 1' })
+    ])
     const client = makeClient({
         sprites: [{ name: SPRITE, status: 'warm' }]
     })
@@ -398,10 +332,6 @@ test('stopped runtime with an unrelated failureReason is not revived', async () 
 
     await sync(svc)
 
-    assert.equal(
-        runtimeUpdates(db).length,
-        0,
-        'no runtime write without the gone marker'
-    )
-    assert.equal(events.length, 0)
+    assert.equal(hostUpdates(db).length, 0)
+    assert.deepEqual(events, [])
 })

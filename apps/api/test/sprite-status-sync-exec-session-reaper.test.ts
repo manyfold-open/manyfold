@@ -96,8 +96,9 @@ test('a session with no usable timestamp is never reaped', () => {
 interface HostRow {
     id: string
     userId: string
-    accountId: string | null
-    spriteName: string | null
+    kind: string
+    providerId: string | null
+    providerRef: { kind: 'sprites'; spriteName: string; spriteId: string | null } | null
 }
 
 const makeDb = (hosts: HostRow[]) => ({
@@ -122,8 +123,17 @@ const makeService = (hosts: HostRow[], spec: ClientSpec = {}) => {
     const warnings: string[] = []
     const svc = new SpriteStatusSyncService(
         makeDb(hosts) as never,
-        { getById: async () => ({ id: 'acc-1', slug: 'acct' }) } as never,
         {} as never,
+        {
+            findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
+        } as never,
+        {
+            providerForHost: async () => ({
+                id: 'acc-1',
+                kind: 'sprites',
+                name: 'acct'
+            })
+        } as never,
         { emit: () => {}, emitHostUpdate: () => {} } as never,
         {
             event: (name: string, attrs: Record<string, unknown>) => {
@@ -141,7 +151,8 @@ const makeService = (hosts: HostRow[], spec: ClientSpec = {}) => {
             accrue: async () => {},
             settleHostNotRunning: async () => {},
             pruneOlderThan: async () => {}
-        } as never
+        } as never,
+        {} as never
     )
     svc['clientFor' as never] = (() => ({
         listExecSessions: async (spriteName: string) => {
@@ -166,8 +177,9 @@ const reap = async (svc: SpriteStatusSyncService) =>
 const host = (over: Partial<HostRow> = {}): HostRow => ({
     id: 'sbx_1',
     userId: 'usr_1',
-    accountId: 'acc-1',
-    spriteName: 'sbx-1',
+    kind: 'hosted',
+    providerId: 'acc-1',
+    providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sp-1' },
     ...over
 })
 
@@ -257,10 +269,9 @@ test('a deleted sprite is skipped quietly, other failures are logged', async () 
 
 // WHY: a sandbox row without an account or sprite name has nothing to call
 // against; reaching the client with either missing would throw per tick.
-test('hosts with no account or sprite name are skipped', async () => {
+test('hosts with no sprite yet are skipped', async () => {
     const { svc, listed } = makeService([
-        host({ id: 'sbx_no_acct', accountId: null }),
-        host({ id: 'sbx_no_name', spriteName: null })
+        host({ id: 'sbx_no_ref', providerRef: null })
     ])
 
     await reap(svc)

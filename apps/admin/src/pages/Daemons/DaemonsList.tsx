@@ -14,13 +14,21 @@ type DaemonsSortKey = 'name' | 'owner' | 'status' | 'lastSeenAt' | 'createdAt'
 const sortAccessors: SortAccessors<AdminDaemonHostSummary, DaemonsSortKey> = {
     name: (r) => r.name,
     owner: (r) => r.userEmail ?? r.userId,
-    status: (r) => (r.online ? 'online' : r.status),
+    status: (r) => presenceLabel(r),
     lastSeenAt: (r) => r.lastSeenAt,
     createdAt: (r) => r.createdAt
 }
 
 const statusTone = (online: boolean): BadgeTone =>
     online ? 'success' : 'neutral'
+
+// The host's lifecycle, its daemon's registration and its presence are three
+// separate facts (ADR-0036); one badge reads them in that order.
+const presenceLabel = (r: AdminDaemonHostSummary): string => {
+    if (r.status !== 'ready') return r.status
+    if (!r.registered) return 'not registered'
+    return r.online ? 'online' : 'offline'
+}
 
 const REFRESH_INTERVAL_MS = 30_000
 
@@ -413,9 +421,7 @@ const DaemonsList: FC = (): ReactNode => {
                                                 <Badge
                                                     tone={statusTone(r.online)}
                                                 >
-                                                    {r.online
-                                                        ? 'online'
-                                                        : r.status}
+                                                    {presenceLabel(r)}
                                                 </Badge>
                                             </td>
                                             <td className='text-caption-sm text-body px-2 py-1.5'>
@@ -431,7 +437,7 @@ const DaemonsList: FC = (): ReactNode => {
                                                 ).toLocaleString()}
                                             </td>
                                             <td className='px-2 py-1.5'>
-                                                {r.status === 'revoked' && (
+                                                {r.status === 'retired' && (
                                                     <Button
                                                         variant='neutral'
                                                         size='sm'

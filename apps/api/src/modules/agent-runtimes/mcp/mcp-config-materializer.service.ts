@@ -5,22 +5,16 @@ import {
     mcpConfigFromExtras
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
 import {
-    createClient as createSpritesClient,
     spriteReadFile,
     spriteWriteFile,
     type SpritesClient,
     type SpritesLogger
 } from '@manyfold/sprites'
-import {
-    agentRuntimes,
-    type Agent,
-    type Database
-} from '@manyfold/db'
+import { type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     daemonConfigRead,
@@ -41,8 +35,9 @@ import {
     type McpScopeTarget
 } from '@/modules/agent-runtimes/mcp/mcp-config'
 
-// One read-modify-write surface per runtime kind. The sprite impl wraps the
-// sprites fs client; the daemon impl drives the CLI's fs RPCs (#781).
+// One read-modify-write surface per transport. The daemon impl drives the
+// host daemon's fs RPCs (#781); the sprite impl wraps the sprites fs client
+// for the provisioner's bootstrap, before the machine's daemon is up.
 export interface ScopeFileIo {
     read(absPath: string): Promise<string | null>
     write(absPath: string, text: string): Promise<void>
@@ -98,7 +93,7 @@ export class McpConfigMaterializer {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
+        private readonly context: RuntimeContextService,
         private readonly crypto: CryptoService,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly delivery: DaemonConfigDeliveryService
@@ -168,10 +163,11 @@ export class McpConfigMaterializer {
     }
 
     // Synchronous push for one agent, shared by the explicit materialize
-    // endpoint and the on-change refresh. Throws for shapes that cannot take a
-    // push at all; per-scope outcomes never throw. Daemon outcomes persist to
-    // extras.mcpDelivery — a daemon has no bootstrap to re-materialize at, so
-    // an offline save must leave a durable stale marker (#781).
+    // endpoint and the on-change refresh. Every machine is reached through
+    // its host daemon (ADR-0036 R6); an external-API agent has no files to
+    // write. Throws for shapes that cannot take a push at all; per-scope
+    // outcomes never throw and persist to extras.mcpDelivery so an offline
+    // save leaves a durable stale marker (#781).
     async materializeForAgent(
         agent: Agent,
         options: DaemonConfigDeliveryOptions = {}
@@ -180,62 +176,26 @@ export class McpConfigMaterializer {
             throw new Error(
                 `${agent.framework} agents do not support MCP servers`
             )
-        if (agent.runtime === 'sprites')
-            return this.materializeSprite(agent)
-        if (agent.runtime === 'daemon') return this.materializeDaemon(agent, options)
-        throw new Error(
-            `MCP config cannot be pushed to a ${agent.runtime} runtime`
-        )
+        const ctx = await this.context.forAgent(agent.id)
+        if (!ctx?.host)
+            throw new Error(
+                'MCP config cannot be pushed to an external runtime'
+            )
+        return this.materializeDaemon(agent, options)
     }
 
     // Best-effort push after the user edits MCP or links Composio. Never
-    // throws — the caller uses `void`; sprites re-materialize at next
-    // bootstrap, daemons keep the persisted per-scope outcome instead.
+    // throws — the caller uses `void`; the persisted per-scope outcome says
+    // what still needs delivering.
     async refreshOnChange(agent: Agent): Promise<void> {
         try {
-            if (agent.runtime !== 'sprites' && agent.runtime !== 'daemon')
-                return
             if (!frameworkMcpSupport(agent.framework)) return
+            const ctx = await this.context.forAgent(agent.id)
+            if (!ctx?.host) return
             await this.materializeForAgent(agent)
-        } catch (err) {
-            if (agent.runtime === 'daemon') { this.log.warn('daemon configuration mcp refresh deferred'); return }
-            this.log.warn(
-                `mcp refresh failed for ${agent.id}: ${(err as Error).message}`
-            )
+        } catch {
+            this.log.warn('daemon configuration mcp refresh deferred')
         }
-    }
-
-    private async materializeSprite(
-        agent: Agent
-    ): Promise<AgentMcpDeliveryScopeResult[]> {
-        if (!agent.spriteName || !agent.accountId || !agent.runtimeId)
-            throw new Error(`agent ${agent.id} is missing its sprite identity`)
-        const homeDir = await this.runtimeHomeDir(agent.runtimeId)
-        if (!homeDir)
-            throw new Error(
-                `runtime home dir unknown for ${agent.id} (not bootstrapped yet)`
-            )
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new Error(`sprites account ${agent.accountId} not found`)
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
-        return this.materialize({
-            io: spriteScopeIo(
-                client,
-                agent.spriteName,
-                spritesLoggerFrom(this.log)
-            ),
-            targetLabel: agent.spriteName,
-            framework: agent.framework,
-            homeDir,
-            workspacePath: agent.workspacePath ?? agent.mountPath,
-            mcp: mcpConfigFromExtras(agent.extras),
-            userId: agent.userId,
-            composioConnectionId: composioConnectionIdOf(agent)
-        })
     }
 
     private async materializeDaemon(
@@ -246,7 +206,7 @@ export class McpConfigMaterializer {
             agent,
             async (snapshot, attempt) => {
                 const current = snapshot.agent
-                const daemonId = current.daemonId!
+                const daemonId = snapshot.host.id
                 const revision = snapshot.revision('mcp')
                 if (options.automatic && this.delivered(snapshot)) return []
                 const support = frameworkMcpSupport(current.framework)
@@ -259,7 +219,7 @@ export class McpConfigMaterializer {
                         message:
                             'Upgrade the daemon CLI for automatic configuration delivery.'
                     }))
-                else if (!snapshot.runtime.homeDir)
+                else if (!snapshot.homeDir)
                     results = support.scopes.map((scope) => ({
                         scopeId: scope.id,
                         status: 'failed',
@@ -319,7 +279,7 @@ export class McpConfigMaterializer {
                             },
                             targetLabel: 'daemon configuration',
                             framework: current.framework,
-                            homeDir: snapshot.runtime.homeDir,
+                            homeDir: snapshot.homeDir,
                             workspacePath:
                                 current.workspacePath ?? current.mountPath,
                             mcp: mcpConfigFromExtras(current.extras),
@@ -376,15 +336,6 @@ export class McpConfigMaterializer {
         )
     }
 
-    private async runtimeHomeDir(runtimeId: string): Promise<string | null> {
-        const [runtime] = await this.db
-            .select({ homeDir: agentRuntimes.homeDir })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, runtimeId))
-            .limit(1)
-        return runtime?.homeDir ?? null
-    }
-
     private async writeScope(
         io: ScopeFileIo,
         target: McpScopeTarget,
@@ -399,10 +350,6 @@ export class McpConfigMaterializer {
         return 'delivered'
     }
 }
-
-const composioConnectionIdOf = (agent: Agent): string | null | undefined =>
-    (agent.extras as { composioConnectionId?: string | null })
-        .composioConnectionId
 
 const isComposioJsonFramework = (
     framework: AgentFramework

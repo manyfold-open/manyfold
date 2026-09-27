@@ -13,6 +13,7 @@ import {
     Param,
     Patch,
     Post,
+    Query,
     UseGuards
 } from '@nestjs/common'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
@@ -21,7 +22,9 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { SandboxesService } from './sandboxes.service'
 import {
     CliUpgradeDto,
+    CreateSandboxDto,
     RenameSandboxDto,
+    SetSandboxKeepAwakeDto,
     SetSandboxTerminalDto,
     SetSandboxTerminalModelCredentialsDto
 } from './dto/sandbox.dto'
@@ -42,6 +45,26 @@ export class AdminSandboxesController {
         @Param('id') id: string
     ): Promise<SandboxSummary> {
         return this.sandboxes.get(user.userId, id, true)
+    }
+
+    // An admin may pin the sprites provider; the sandbox belongs to
+    // `?userId=` (default: the admin).
+    @Post()
+    create(
+        @CurrentUser() user: AuthPrincipal,
+        @Body() body: CreateSandboxDto,
+        @Query('userId') userId?: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.create(userId || user.userId, body, true)
+    }
+
+    @Patch(':id/keep-awake')
+    setKeepAwake(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Body() body: SetSandboxKeepAwakeDto
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.setKeepAwake(user.userId, id, !!body.enabled, true)
     }
 
     @Delete(':id')

@@ -8,39 +8,56 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { eq, and, inArray, isNull, sql } from 'drizzle-orm'
+import { eq, and, inArray, sql } from 'drizzle-orm'
 import {
     schema,
     users,
-    k8sClusters,
+    runtimeProviders,
     agentRuntimes,
     agents,
     daemonTokens,
+    hostDaemons,
     runtimeHosts,
     chatSessions,
     serviceLeases,
     type Database,
-    type AgentRuntimeRow
+    type AgentRuntimeRow,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import { createObjectId, podRunnerHostName } from '@manyfold/shared'
+import { createObjectId } from '@manyfold/shared'
 import type { ConfigService } from '@nestjs/config'
-import { GatewayTimeoutException, Logger } from '@nestjs/common'
+import {
+    ForbiddenException,
+    GatewayTimeoutException,
+    Logger,
+    NotFoundException,
+    UnauthorizedException
+} from '@nestjs/common'
 import { CryptoService } from '../src/modules/secrets/crypto.service'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import { DaemonTokenService } from '../src/modules/daemon/daemon-token.service'
 import { KubernetesService } from '../src/modules/k8s/kubernetes.service'
+import { PodExecFactory } from '../src/modules/k8s/pod-exec'
+import { GatewayExecClient } from '../src/modules/k8s/gateway-exec.client'
+import { HostsService } from '../src/modules/hosts/hosts.service'
+import { HostDaemonsService } from '../src/modules/hosts/host-daemons.service'
+import { RuntimeContextService } from '../src/modules/hosts/runtime-context.service'
+import { RuntimeProvidersService } from '../src/modules/hosts/runtime-providers.service'
+import { SandboxProviderRegistry } from '../src/modules/hosts/providers/sandbox-provider'
+import { HostProviderClients } from '../src/modules/hosts/providers/host-provider-clients.service'
+import { HostPlacementService } from '../src/modules/hosts/providers/host-placement.service'
+import { K8sProvider } from '../src/modules/hosts/providers/k8s.provider'
 import { K8sContainerProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { K8sCreateCleanupService } from '../src/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { k8sCreateLeaseName } from '../src/modules/agent-runtimes/provisioning/k8s-create-ownership'
 import { K8sProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-provisioner'
-import { AgentRuntimesController } from '../src/modules/agent-runtimes/agent-runtimes.controller'
-import { AdminAgentRuntimesController } from '../src/modules/agent-runtimes/admin-agent-runtimes.controller'
+import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
+import { podHostResourceName } from '../src/modules/agent-runtimes/provisioning/pod-host-resources'
+import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 import { ChatService } from '../src/modules/chat/chat.service'
 import { ChatRepository } from '../src/modules/chat/chat.repository'
-import {
-    RuntimeAgentsController,
-    AdminRuntimeAgentsController
-} from '../src/modules/agents/runtime-agents.controller'
+import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
 import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
@@ -48,6 +65,17 @@ import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import { K8sLifecycleFixture } from './helpers/k8s-lifecycle-fixture'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
+// A self-serve k8s create (ADR-0035, ADR-0036): a hosted host on a k8s runtime
+// provider, made by the k8s adapter, whose pod registers the host's daemon
+// with the token minted bound to it; the framework is installed through that
+// daemon and the fresh agent published last. Every failure between those
+// steps has to leave nothing behind — no rows, no remote objects, no
+// credential — or a visible recovery row that an explicit DELETE finishes.
+//
+// Real Postgres and a real HTTP fixture for the Kubernetes API, because the
+// invariants are lock order, FK fences and which remote requests happen.
+//   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
+//     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
 
 const fixture = async (t: TestContext) => {
@@ -58,8 +86,8 @@ const fixture = async (t: TestContext) => {
     const api = new K8sLifecycleFixture()
     await api.start()
     const userId = createObjectId('user')
-    const clusterId = createObjectId('k8sCluster')
-    const clusterIds = [clusterId]
+    const providerId = createObjectId('runtimeProvider')
+    const providerIds = [providerId]
     const apis = [api]
     t.after(async () => {
         for (const server of apis) await server.close()
@@ -75,10 +103,17 @@ const fixture = async (t: TestContext) => {
                         runtimeRows.map((row) => k8sCreateLeaseName(row.id))
                     )
                 )
+            // Runtimes RESTRICT their host, and hosts RESTRICT their provider.
+            await db
+                .delete(agentRuntimes)
+                .where(eq(agentRuntimes.userId, userId))
+            await db
+                .delete(runtimeHosts)
+                .where(eq(runtimeHosts.userId, userId))
             await db.delete(users).where(eq(users.id, userId))
             await db
-                .delete(k8sClusters)
-                .where(inArray(k8sClusters.id, clusterIds))
+                .delete(runtimeProviders)
+                .where(inArray(runtimeProviders.id, providerIds))
         } finally {
             await client.end({ timeout: 5 })
         }
@@ -86,7 +121,8 @@ const fixture = async (t: TestContext) => {
     const configValues: Record<string, string> = {
         API_CRYPTO_KEY: randomBytes(32).toString('base64'),
         K8S_CONTAINER_PROVISION_TIMEOUT_MS: '2000',
-        K8S_RUNTIME_IMAGE: 'fixture-only'
+        K8S_RUNTIME_IMAGE: 'fixture-only',
+        PUBLIC_API_BASE_URL: 'https://api.fixture.invalid'
     }
     const config = { get: (key: string) => configValues[key] } as ConfigService
     const crypto = new CryptoService(config)
@@ -94,47 +130,57 @@ const fixture = async (t: TestContext) => {
     await db
         .insert(users)
         .values({ id: userId, email: `${userId}@fixture.invalid` })
-    await db.insert(k8sClusters).values({
-        id: clusterId,
-        name: `fixture-${clusterId}`,
+    await db.insert(runtimeProviders).values({
+        id: providerId,
+        kind: 'k8s',
+        name: `fixture-${providerId}`,
         lastHealthStatus: 'ok',
-        kubeconfigCiphertext: kubeconfig.ciphertext,
-        kubeconfigKeyVersion: kubeconfig.keyVersion,
-        hostSuffix: 'fixture.invalid'
+        credentialCiphertext: kubeconfig.ciphertext,
+        credentialKeyVersion: kubeconfig.keyVersion,
+        config: { hostSuffix: 'fixture.invalid' }
     })
     const k8s = new KubernetesService(config, db, crypto)
-    const cleanup = new K8sCreateCleanupService(db, k8s)
+    const hosts = new HostsService(db)
+    const hostDaemonsService = new HostDaemonsService(db)
+    const runtimeContext = new RuntimeContextService(db)
+    const podExec = new PodExecFactory(new GatewayExecClient(config))
+    const clients = new HostProviderClients(
+        new RuntimeProvidersService(db),
+        hosts,
+        crypto,
+        k8s,
+        podExec
+    )
+    const providers = new SandboxProviderRegistry()
+    new K8sProvider(providers, hosts, config, k8s, podExec, clients)
+    const cleanup = new K8sCreateCleanupService(db, hosts, clients, providers)
     const runtimes = new AgentRuntimesService(db, { event() {} } as never)
-    // pod host id -> the runner token minted for it
-    const minted = new Map<string, string>()
-    const registered = new Set<string>()
-    const podRunner = {
-        mint: async (
-            input: { podHostId: string },
-            store: Pick<Database, 'insert'> = db
-        ) => {
-            const tokenId = `ldt_${randomUUID()}`
-            await store.insert(daemonTokens).values({
-                id: tokenId,
-                userId,
-                name: podRunnerHostName(input.podHostId),
-                tokenHash: `fixture-${tokenId}`,
-                purpose: 'pod_runner'
-            })
-            minted.set(input.podHostId, tokenId)
-            return { env: { MF_DAEMON_TOKEN: 'fixture-only' }, tokenId }
-        },
-        discardUnbound: async (_userId: string, tokenId: string) => {
-            await db
-                .delete(daemonTokens)
-                .where(
-                    and(
-                        eq(daemonTokens.id, tokenId),
-                        isNull(daemonTokens.daemonId)
-                    )
-                )
+    const tokens = new DaemonTokenService(db)
+    const podRunner = new PodRunnerProvisioner(tokens, config)
+    // Everything inside the pod goes through its daemon: the fixture's daemon
+    // answers every exec as a host that already runs the requested version.
+    const daemonRegistry = {
+        isOnline: () => true,
+        rpc: async () => ({}),
+        streamRpc: (args: {
+            onEvent?: (kind: string, data: string) => void
+        }) => {
+            args.onEvent?.('stdout', '1.0.0\n')
+            return {
+                refId: randomUUID(),
+                result: Promise.resolve({ exitCode: 0 }),
+                cancel() {}
+            }
         }
     }
+    const runnerManager = new RunnerManagerService(
+        hosts,
+        hostDaemonsService,
+        providers,
+        clients,
+        tokens,
+        daemonRegistry as never
+    )
     const failure = new Error('owned fixture attach timeout')
     const behavior: {
         failAttach: boolean
@@ -142,84 +188,93 @@ const fixture = async (t: TestContext) => {
         failDefaults: boolean
         // The host's daemon registering the moment its pod runs; the
         // provisioner waits for it before installing anything.
-        registerRunner: boolean
+        registerDaemon: boolean
         beforeAttach?: (runtime: AgentRuntimeRow) => Promise<void>
-        afterRunner?: () => Promise<void>
+        afterDaemon?: (host: RuntimeHostRow) => Promise<void>
         beforeDefaults?: () => Promise<void>
     } = {
         failAttach: true,
         failConfig: false,
         failDefaults: false,
-        registerRunner: true
+        registerDaemon: true
     }
-    const registerRunner = async (podHostId: string): Promise<void> => {
-        const hostId = createObjectId('daemonHost')
-        await db.insert(runtimeHosts).values({
-            id: hostId,
+    const registered = new Set<string>()
+    // What the pod's boot loop does with the bound token in its Secret: the
+    // host's one daemon row, online.
+    const registerDaemon = async (host: RuntimeHostRow): Promise<void> => {
+        const [token] = await db
+            .select({ id: daemonTokens.id })
+            .from(daemonTokens)
+            .where(eq(daemonTokens.hostId, host.id))
+        const now = new Date()
+        await hostDaemonsService.upsert(host.id, {
             userId,
-            kind: 'daemon',
-            managed: true,
             daemonUuid: randomUUID(),
-            name: podRunnerHostName(podHostId),
-            status: 'active',
-            rpcConnectedAt: new Date()
-        })
-        await db
-            .update(daemonTokens)
-            .set({ daemonId: hostId })
-            .where(eq(daemonTokens.id, minted.get(podHostId)!))
-        await db.insert(agentRuntimes).values({
-            id: createObjectId('agentRuntime'),
-            userId,
-            name: 'fixture runner',
-            kind: 'daemon',
-            framework: 'codex',
-            daemonId: hostId
+            tokenId: token?.id ?? null,
+            cliVersion: CLI_AT_FLOOR,
+            startupMethod: 'container',
+            clientFeatures: [],
+            detectedFrameworks: [],
+            lastSeenAt: now,
+            rpcInstanceId: 'fixture-api',
+            rpcInbox: 'fixture-inbox',
+            rpcConnectedAt: now,
+            rpcLastSeenAt: now
         })
     }
+    const hostByResourceName = async (
+        name: string
+    ): Promise<RuntimeHostRow | undefined> =>
+        (
+            await db
+                .select()
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.userId, userId))
+        ).find((host) => podHostResourceName(host.id) === name)
     const hooks: {
         afterCreate?: (collection: string, name: string) => Promise<void>
     } = {}
     api.afterCreate = async (collection, name) => {
         await hooks.afterCreate?.(collection, name)
-        if (collection !== 'deployments' || !behavior.registerRunner) return
-        for (const podHostId of minted.keys()) {
-            if (registered.has(podHostId)) continue
-            registered.add(podHostId)
-            await registerRunner(podHostId)
-            await behavior.afterRunner?.()
-        }
-    }
-    // Every install step answers as a host that already runs the requested
-    // version, so a create reaches its attach without touching npm.
-    const podExec = {
-        forClient: () => ({
-            run: async () => ({ exitCode: 0, stdout: '1.0.0', stderr: '' })
-        })
+        if (collection !== 'deployments' || !behavior.registerDaemon) return
+        const host = await hostByResourceName(name)
+        if (!host || registered.has(host.id)) return
+        registered.add(host.id)
+        await registerDaemon(host)
+        await behavior.afterDaemon?.(host)
     }
     const frameworkVersions = {
         resolveInstallVersion: async () => ({
             selection: { version: '1.0.0', source: 'latest' },
-            repo: null
+            repo: null,
+            artifacts: null
         })
     }
     // Coding frameworks only: nothing here runs as a host service.
     const podServices = {} as never
     const k8sProvisioner = new K8sProvisioner(
         db,
-        k8s,
+        hosts,
+        clients,
+        providers,
+        tokens,
         runtimes,
         cleanup,
         podServices
     )
     const provisioner = new K8sContainerProvisioner(
         db,
-        k8s,
+        hosts,
+        hostDaemonsService,
+        clients,
+        new HostPlacementService(db),
+        providers,
+        runnerManager,
+        daemonRegistry as never,
         config,
         crypto,
-        podRunner as never,
+        podRunner,
         cleanup,
-        podExec as never,
         frameworkVersions as never,
         k8sProvisioner,
         podServices
@@ -254,7 +309,8 @@ const fixture = async (t: TestContext) => {
                 await behavior.beforeDefaults?.()
                 if (behavior.failDefaults) throw failure
             }
-        } as never
+        } as never,
+        runtimeContext
     )
     const orchestrator = Object.assign(
         Object.create(AgentOrchestratorService.prototype),
@@ -262,6 +318,7 @@ const fixture = async (t: TestContext) => {
             db,
             runtimes,
             attach,
+            runtimeContext,
             k8sProvisioner: provisioner,
             cloudComputer: openCloudComputerPort,
             adminSettings: {
@@ -298,7 +355,7 @@ const fixture = async (t: TestContext) => {
                     name: 'owned fixture',
                     framework,
                     runtime: 'k8s',
-                    clusterId,
+                    providerId,
                     ...(runtimeId ? { runtimeId } : {}),
                     ...(behavior.failConfig
                         ? { modelConfigSource: 'runtime-local' }
@@ -308,95 +365,20 @@ const fixture = async (t: TestContext) => {
             },
             { step() {} }
         )
-    const controller = Object.assign(
-        Object.create(AgentRuntimesController.prototype),
-        { db, runtimes, k8sProvisioner }
-    ) as AgentRuntimesController
-    const remove = (runtimeId: string) =>
-        controller.delete({ userId } as never, runtimeId)
-    const addCluster = async () => {
-        const nextApi = new K8sLifecycleFixture()
-        await nextApi.start()
-        nextApi.afterCreate = api.afterCreate
-        apis.push(nextApi)
-        const id = createObjectId('k8sCluster')
-        clusterIds.push(id)
-        const encrypted = crypto.encrypt(nextApi.kubeconfig())
-        await db.insert(k8sClusters).values({
-            id,
-            name: `fixture-${id}`,
-            lastHealthStatus: 'ok',
-            hostSuffix: 'fixture.invalid',
-            kubeconfigCiphertext: encrypted.ciphertext,
-            kubeconfigKeyVersion: encrypted.keyVersion
-        })
-        return { id, api: nextApi }
+    // What the runtime DELETE route ends in: the provisioner's teardown, which
+    // finishes a pending create cleanup or refuses while its owner is alive.
+    const remove = async (runtimeId: string): Promise<void> => {
+        const runtime = await runtimes.findById(runtimeId)
+        if (!runtime)
+            throw new NotFoundException(`agent runtime ${runtimeId} not found`)
+        await k8sProvisioner.teardownRuntime(runtime)
     }
-    return {
-        db,
-        client,
-        api,
-        hooks,
-        userId,
-        clusterId,
-        create,
-        failure,
-        behavior,
-        provisioner,
-        k8sProvisioner,
-        runtimes,
-        attach,
-        k8s,
-        cleanup,
-        remove,
-        controller,
-        credentials,
-        addCluster
-    }
-}
-
-test(
-    'failed self-serve creates leave no runtime or remote resources across retries',
-    { skip: !RUN, timeout: 30_000 },
-    async (t) => {
-        const h = await fixture(t)
-        for (let attempt = 0; attempt < 2; attempt++)
-            await assert.rejects(h.create(), (error) => error === h.failure)
-        assert.deepEqual(
-            await h.db
-                .select({ id: agentRuntimes.id })
-                .from(agentRuntimes)
-                .where(eq(agentRuntimes.userId, h.userId)),
-            []
-        )
-        assert.deepEqual(
-            await h.db
-                .select({ id: runtimeHosts.id })
-                .from(runtimeHosts)
-                .where(eq(runtimeHosts.userId, h.userId)),
-            []
-        )
-        assert.deepEqual(
-            await h.db
-                .select({ id: daemonTokens.id })
-                .from(daemonTokens)
-                .where(eq(daemonTokens.userId, h.userId)),
-            []
-        )
-        assert.deepEqual(h.api.runtimeResources(), [])
-    }
-)
-
-test(
-    'an attach failure on an existing runtime does not destroy its resources',
-    { skip: !RUN, timeout: 30_000 },
-    async (t) => {
-        const h = await fixture(t)
-        const { runtime } = await h.provisioner.provision({
-            userId: h.userId,
+    const provision = () =>
+        provisioner.provision({
+            userId,
             name: 'existing fixture',
             credentials: {},
-            clusterId: h.clusterId,
+            providerId,
             framework: 'codex',
             sku: {
                 id: null,
@@ -406,12 +388,108 @@ test(
                 diskGb: 10
             }
         })
+    const hostOf = async (runtime: AgentRuntimeRow): Promise<RuntimeHostRow> => {
+        const host = runtime.hostId ? await hosts.findById(runtime.hostId) : null
+        assert(host, `runtime ${runtime.id} has no host`)
+        return host
+    }
+    const userRows = async () => ({
+        runtimes: await db
+            .select({ id: agentRuntimes.id })
+            .from(agentRuntimes)
+            .where(eq(agentRuntimes.userId, userId)),
+        hosts: await db
+            .select({ id: runtimeHosts.id })
+            .from(runtimeHosts)
+            .where(eq(runtimeHosts.userId, userId)),
+        daemons: await db
+            .select({ hostId: hostDaemons.hostId })
+            .from(hostDaemons)
+            .where(eq(hostDaemons.userId, userId)),
+        tokens: await db
+            .select({ id: daemonTokens.id })
+            .from(daemonTokens)
+            .where(eq(daemonTokens.userId, userId))
+    })
+    const addProvider = async () => {
+        const nextApi = new K8sLifecycleFixture()
+        await nextApi.start()
+        nextApi.afterCreate = api.afterCreate
+        apis.push(nextApi)
+        const id = createObjectId('runtimeProvider')
+        providerIds.push(id)
+        const encrypted = crypto.encrypt(nextApi.kubeconfig())
+        await db.insert(runtimeProviders).values({
+            id,
+            kind: 'k8s',
+            name: `fixture-${id}`,
+            lastHealthStatus: 'ok',
+            credentialCiphertext: encrypted.ciphertext,
+            credentialKeyVersion: encrypted.keyVersion,
+            config: { hostSuffix: 'fixture.invalid' }
+        })
+        return { id, api: nextApi }
+    }
+    return {
+        db,
+        client,
+        api,
+        hooks,
+        userId,
+        providerId,
+        config,
+        create,
+        failure,
+        behavior,
+        provisioner,
+        k8sProvisioner,
+        runtimes,
+        attach,
+        hosts,
+        hostDaemons: hostDaemonsService,
+        tokens,
+        runtimeContext,
+        k8s,
+        cleanup,
+        remove,
+        provision,
+        hostOf,
+        userRows,
+        credentials,
+        addProvider
+    }
+}
+
+test(
+    'failed self-serve creates leave no runtime, host, credential or remote resources across retries',
+    { skip: !RUN, timeout: 30_000 },
+    async (t) => {
+        const h = await fixture(t)
+        for (let attempt = 0; attempt < 2; attempt++)
+            await assert.rejects(h.create(), (error) => error === h.failure)
+        assert.deepEqual(await h.userRows(), {
+            runtimes: [],
+            hosts: [],
+            daemons: [],
+            tokens: []
+        })
+        assert.deepEqual(h.api.runtimeResources(), [])
+    }
+)
+
+test(
+    'an attach failure on an existing runtime does not destroy its resources',
+    { skip: !RUN, timeout: 30_000 },
+    async (t) => {
+        const h = await fixture(t)
+        const { runtime } = await h.provision()
         const resourcesBefore = h.api.runtimeResources()
         await assert.rejects(
             h.create(runtime.id),
             (error) => error === h.failure
         )
         assert.equal((await h.runtimes.findById(runtime.id))?.status, 'ready')
+        assert.equal((await h.hostOf(runtime)).status, 'ready')
         assert.deepEqual(h.api.runtimeResources(), resourcesBefore)
         assert.equal(
             h.api.requests.filter((request) => request.method === 'DELETE')
@@ -430,20 +508,16 @@ test(
         h.behavior.beforeAttach = async (runtime) => {
             assert.equal(
                 (await h.runtimes.findById(runtime.id))?.status,
-                'pending'
+                'installing'
             )
         }
         const summary = (await h.create()) as { id: string; runtimeId: string }
         const [row] = await h.db
             .select()
             .from(agentRuntimes)
-            .where(
-                and(
-                    eq(agentRuntimes.userId, h.userId),
-                    eq(agentRuntimes.kind, 'k8s')
-                )
-            )
+            .where(eq(agentRuntimes.userId, h.userId))
         assert.equal(row.status, 'ready')
+        assert.equal((await h.hostOf(row)).status, 'ready')
         assert.deepEqual(
             await h.db
                 .select()
@@ -453,64 +527,54 @@ test(
         )
         assert.equal(row.currentPhase, null)
         assert.equal(row.primaryAgentId, summary.id)
-        assert.equal(
-            (await h.db.select().from(agents).where(eq(agents.id, summary.id)))
-                .length,
-            1
-        )
+        const [agent] = await h.db
+            .select()
+            .from(agents)
+            .where(eq(agents.id, summary.id))
+        assert.equal(agent.status, 'ready')
         assert(h.api.runtimeResources().length > 0)
     }
 )
 
 for (const phase of ['failConfig', 'failDefaults'] as const)
     test(
-        `a ${phase} after agent insertion rolls back only the fresh runtime`,
+        `a ${phase} after agent insertion rolls back the fresh runtime and its host`,
         { skip: !RUN, timeout: 30_000 },
         async (t) => {
             const h = await fixture(t)
             h.behavior.failAttach = false
             h.behavior[phase] = true
             await assert.rejects(h.create(), (error) => error === h.failure)
-            assert.deepEqual(await h.runtimes.listByUser(h.userId), [])
-            assert.equal(
-                (
-                    await h.db
-                        .select()
-                        .from(agents)
-                        .where(eq(agents.userId, h.userId))
-                ).length,
-                0
-            )
-            assert.equal(
-                (
-                    await h.db
-                        .select()
-                        .from(runtimeHosts)
-                        .where(eq(runtimeHosts.userId, h.userId))
-                ).length,
-                0
+            assert.deepEqual(await h.userRows(), {
+                runtimes: [],
+                hosts: [],
+                daemons: [],
+                tokens: []
+            })
+            assert.deepEqual(
+                await h.db
+                    .select()
+                    .from(agents)
+                    .where(eq(agents.userId, h.userId)),
+                []
             )
             assert.deepEqual(h.api.runtimeResources(), [])
         }
     )
 
 test(
-    'provision failure cleans partial resources and its unbound runner token',
+    'provision failure cleans partial resources and the bound credential',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
         h.api.failCreate = 'deployments'
         await assert.rejects(h.create(), /container provisioning failed/)
-        assert.deepEqual(await h.runtimes.listByUser(h.userId), [])
-        assert.equal(
-            (
-                await h.db
-                    .select()
-                    .from(daemonTokens)
-                    .where(eq(daemonTokens.userId, h.userId))
-            ).length,
-            0
-        )
+        assert.deepEqual(await h.userRows(), {
+            runtimes: [],
+            hosts: [],
+            daemons: [],
+            tokens: []
+        })
         assert.deepEqual(h.api.runtimeResources(), [])
     }
 )
@@ -529,32 +593,19 @@ for (const failedStage of ['provision', 'attach'] as const)
                     error.getResponse?.().code ===
                     'RUNTIME_CREATE_CLEANUP_PENDING'
             )
-            const rows = await h.runtimes.listByUser(h.userId)
-            const runtime = rows.find((row) => row.kind === 'k8s')!
+            const [runtime] = await h.runtimes.listByUser(h.userId)
             assert.equal(runtime.status, 'failed')
             assert.equal(runtime.currentPhase, 'create_cleanup_pending')
             assert.match(runtime.failureReason ?? '', /cleanup/)
-            const summary = await h.controller.get(
-                { userId: h.userId } as never,
-                runtime.id
-            )
-            assert.equal(summary.status, 'failed')
-            assert.equal(summary.failureReason, runtime.failureReason)
+            // The host stays as the retry record, with its bound credential.
+            assert.equal((await h.userRows()).hosts.length, 1)
+            assert.equal((await h.userRows()).tokens.length, 1)
             assert(
                 h.api
                     .runtimeResources()
                     .some(
                         (resource) => resource.kind === 'PersistentVolumeClaim'
                     )
-            )
-            assert.equal(
-                (
-                    await h.db
-                        .select()
-                        .from(daemonTokens)
-                        .where(eq(daemonTokens.userId, h.userId))
-                ).length,
-                1
             )
             const requestsBefore = h.api.requests.length
             await assert.rejects(h.create(), (error: any) => {
@@ -566,33 +617,16 @@ for (const failedStage of ['provision', 'attach'] as const)
                 )
             })
             assert.equal(h.api.requests.length, requestsBefore)
-            assert.equal(
-                (await h.runtimes.listByUser(h.userId)).filter(
-                    (row) => row.kind === 'k8s'
-                ).length,
-                1
-            )
+            assert.equal((await h.runtimes.listByUser(h.userId)).length, 1)
             h.api.failDelete = null
             await h.remove(runtime.id)
             assert.deepEqual(await h.runtimes.listByUser(h.userId), [])
-            assert.equal(
-                (
-                    await h.db
-                        .select()
-                        .from(runtimeHosts)
-                        .where(eq(runtimeHosts.userId, h.userId))
-                ).length,
-                0
-            )
-            assert.equal(
-                (
-                    await h.db
-                        .select()
-                        .from(daemonTokens)
-                        .where(eq(daemonTokens.userId, h.userId))
-                ).length,
-                0
-            )
+            assert.deepEqual(await h.userRows(), {
+                runtimes: [],
+                hosts: [],
+                daemons: [],
+                tokens: []
+            })
             assert.deepEqual(h.api.runtimeResources(), [])
         }
     )
@@ -606,18 +640,18 @@ const barrier = () => {
     const released = new Promise<void>((resolve) => {
         release = resolve
     })
-    return { enter, release, entered, released }
+    return { enter, entered, release, released }
 }
 
 const bounded = async <T>(promise: Promise<T>): Promise<T> => {
-    let timer!: ReturnType<typeof setTimeout>
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
         return await Promise.race([
             promise,
             new Promise<never>((_, reject) => {
                 timer = setTimeout(
-                    () => reject(new Error('fixture barrier timed out')),
-                    5000
+                    () => reject(new Error('owned fixture barrier timed out')),
+                    15_000
                 )
             })
         ])
@@ -631,20 +665,7 @@ test(
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
-        const { runtime } = await h.provisioner.provision({
-            userId: h.userId,
-            name: 'interrupted fixture',
-            credentials: {},
-            clusterId: h.clusterId,
-            framework: 'codex',
-            sku: {
-                id: null,
-                region: null,
-                cpuMillicores: 1000,
-                memoryMb: 2048,
-                diskGb: 10
-            }
-        })
+        const { runtime } = await h.provision()
         const child = fork(
             join(__dirname, 'helpers/k8s-create-owner-child.ts'),
             [runtime.id, createObjectId('agent')],
@@ -741,6 +762,8 @@ test(
             gate.release()
         }
         assert(await bounded(creating))
+        // The owner's fence stamps every create with its deadline, and a
+        // lost owner makes no further one.
         assert.deepEqual(
             h.api.requests
                 .filter(
@@ -796,111 +819,93 @@ test(
     }
 )
 
-for (const role of ['user', 'admin'] as const)
-    test(
-        `${role} DELETE cannot remove ownership while a Kubernetes create request is in flight`,
-        { skip: !RUN, timeout: 30_000 },
-        async (t) => {
-            const gate = barrier()
-            const h = await fixture(t)
-            const collection = role === 'user' ? 'secrets' : 'deployments'
-            h.api.beforeCreate = async (creating) => {
-                if (creating !== collection) return
-                gate.enter()
-                await bounded(gate.released)
-            }
-            const creating = h.create().then(
+test(
+    'DELETE cannot remove ownership while a Kubernetes create request is in flight',
+    { skip: !RUN, timeout: 30_000 },
+    async (t) => {
+        const gate = barrier()
+        const h = await fixture(t)
+        h.api.beforeCreate = async (creating) => {
+            if (creating !== 'secrets') return
+            gate.enter()
+            await bounded(gate.released)
+        }
+        const creating = h.create().then(
+            () => null,
+            (error: unknown) => error
+        )
+        let deletionError: unknown
+        try {
+            await bounded(gate.entered)
+            const [runtime] = await h.runtimes.listByUser(h.userId)
+            deletionError = await h.remove(runtime.id).then(
                 () => null,
                 (error: unknown) => error
             )
-            let deletionError: unknown
-            try {
-                await bounded(gate.entered)
-                const [runtime] = await h.runtimes.listByUser(h.userId)
-                const admin = Object.assign(
-                    Object.create(AdminAgentRuntimesController.prototype),
-                    {
-                        db: h.db,
-                        runtimes: h.runtimes,
-                        k8sProvisioner: h.k8sProvisioner
-                    }
-                ) as AdminAgentRuntimesController
-                deletionError = await (
-                    role === 'user'
-                        ? h.remove(runtime.id)
-                        : admin.delete(runtime.id)
-                ).then(
-                    () => null,
-                    (error: unknown) => error
-                )
-            } finally {
-                gate.release()
-                await bounded(creating)
-            }
-            const rows = await h.runtimes.listByUser(h.userId)
-            const witness = {
-                deleteStatus:
-                    (
-                        deletionError as { getStatus?(): number } | null
-                    )?.getStatus?.() ?? null,
-                runtimes: rows.length,
-                resources: h.api.runtimeResources().length
-            }
-            t.diagnostic(JSON.stringify(witness))
-            assert.deepEqual(witness, {
-                deleteStatus: 409,
-                runtimes: 0,
-                resources: 0
-            })
-            assert.equal(await creating, h.failure)
+        } finally {
+            gate.release()
+            await bounded(creating)
         }
-    )
+        const rows = await h.runtimes.listByUser(h.userId)
+        const witness = {
+            deleteStatus:
+                (
+                    deletionError as { getStatus?(): number } | null
+                )?.getStatus?.() ?? null,
+            runtimes: rows.length,
+            resources: h.api.runtimeResources().length
+        }
+        t.diagnostic(JSON.stringify(witness))
+        assert.deepEqual(witness, {
+            deleteStatus: 409,
+            runtimes: 0,
+            resources: 0
+        })
+        assert.equal(await creating, h.failure)
+    }
+)
 
 test(
-    'cleanup fences a pod runner registration already holding its token lock',
+    'a registration racing the cleanup of its host waits for it and is refused; nothing is left behind',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
-        // The daemon registers just as the create gives up waiting for it:
-        // cleanup must neither miss the runner nor delete anything remote
-        // before that registration commits.
-        const gate = barrier()
+        // The pod's daemon registers just as the create gives up waiting for
+        // it. Cleanup holds the host row; the registration (bound token →
+        // that host) queues behind it and, once the host is gone, is refused
+        // rather than resurrecting a daemon row for a deleted machine.
         const h = await fixture(t)
-        h.behavior.registerRunner = false
-        let registrationPid = 0
-        const daemonHosts = Object.assign(
-            Object.create(DaemonHostService.prototype),
-            {
-                db: h.db,
-                runtimeAccess: {
-                    lockDaemonHostRegistrationInTx: async (tx: Database) => {
-                        const [connection] = await tx.execute(
-                            sql`select pg_backend_pid() as pid`
-                        )
-                        registrationPid = Number(connection.pid)
-                        gate.enter()
-                        await bounded(gate.released)
-                    }
-                }
-            }
-        ) as DaemonHostService
+        h.behavior.registerDaemon = false
+        const daemonHosts = new DaemonHostService(
+            h.db,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            {} as never,
+            h.config,
+            h.hosts,
+            h.hostDaemons,
+            h.tokens
+        )
         let registering: Promise<unknown> | undefined
-        h.hooks.afterCreate = async (collection) => {
-            if (collection !== 'deployments') return
+        let deletesBeforeRegistrationQueued = -1
+        h.api.beforeDelete = async (collection) => {
+            if (collection !== 'deployments' || registering) return
+            const [host] = await h.db
+                .select()
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.userId, h.userId))
             const [token] = await h.db
                 .select()
                 .from(daemonTokens)
-                .where(
-                    and(
-                        eq(daemonTokens.userId, h.userId),
-                        eq(daemonTokens.purpose, 'pod_runner')
-                    )
-                )
+                .where(eq(daemonTokens.hostId, host.id))
             registering = daemonHosts.upsertOnRegister({
                 tokenId: token.id,
                 lastIp: null,
                 request: {
                     daemonUuid: randomUUID(),
-                    name: token.name,
+                    name: 'whatever the pod says',
                     hostname: null,
                     os: 'linux',
                     arch: 'x64',
@@ -911,58 +916,61 @@ test(
                 }
             })
             void registering.catch(() => undefined)
-            await bounded(gate.entered)
-        }
-        const failed = assert.rejects(
-            h.create(),
-            (error) => error instanceof GatewayTimeoutException
-        )
-        void failed.catch(() => undefined)
-        let deletesBeforeRegistrationCommitted = -1
-        try {
-            await bounded(gate.entered)
+            // Until the registration is queued behind the cleanup's host lock.
             await bounded(
                 (async () => {
                     while (true) {
                         const [blocked] =
-                            await h.client`select pid from pg_stat_activity where ${registrationPid} = any(pg_blocking_pids(pid))`
+                            await h.client`select pid from pg_stat_activity where wait_event_type = 'Lock' and query ilike '%"runtime_hosts"%for update%'`
                         if (blocked) return
                         await new Promise((resolve) => setTimeout(resolve, 10))
                     }
                 })()
             )
-            deletesBeforeRegistrationCommitted = h.api.requests.filter(
+            deletesBeforeRegistrationQueued = h.api.requests.filter(
                 (request) => request.method === 'DELETE'
             ).length
-        } finally {
-            gate.release()
-            await bounded(Promise.all([failed, registering]))
         }
-        const hosts = await h.db
-            .select({ id: runtimeHosts.id })
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.userId, h.userId))
-        const tokens = await h.db
-            .select({ id: daemonTokens.id })
-            .from(daemonTokens)
-            .where(eq(daemonTokens.userId, h.userId))
-        const runtimes = await h.db
-            .select({ id: agentRuntimes.id })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.userId, h.userId))
+        await assert.rejects(
+            h.create(),
+            (error) => error instanceof GatewayTimeoutException
+        )
+        assert(registering, 'the cleanup reached the deployment delete')
+        const registration = await bounded(
+            registering.then(
+                () => null,
+                (error: unknown) => error
+            )
+        )
+        // Refused either way: the host is gone by the time the registration
+        // gets its lock, and with it the token (403 if the host row went
+        // first, 401 once its tokens cascaded).
         const witness = {
-            deletesBeforeRegistrationCommitted,
-            hosts: hosts.length,
-            tokens: tokens.length,
-            runtimes: runtimes.length,
+            registration:
+                registration instanceof ForbiddenException ||
+                registration instanceof UnauthorizedException
+                    ? 'refused'
+                    : String(registration),
+            deletesBeforeRegistrationQueued,
+            ...Object.fromEntries(
+                Object.entries(await h.userRows()).map(([key, rows]) => [
+                    key,
+                    rows.length
+                ])
+            ),
             resources: h.api.runtimeResources().length
         }
         t.diagnostic(JSON.stringify(witness))
+        // The one DELETE counted is the deployment's own, the request the
+        // hook is answering: nothing else had gone before the registration
+        // was queued behind the host lock.
         assert.deepEqual(witness, {
-            deletesBeforeRegistrationCommitted: 0,
-            hosts: 0,
-            tokens: 0,
+            registration: 'refused',
+            deletesBeforeRegistrationQueued: 1,
             runtimes: 0,
+            hosts: 0,
+            daemons: 0,
+            tokens: 0,
             resources: 0
         })
     }
@@ -990,14 +998,18 @@ test(
             /container is not ready/
         )
         let listed = false
-        const reconcile = new AgentReconcileService(h.db, {
-            get: () => ({
-                listAgents: async () => {
-                    listed = true
-                    return []
-                }
-            })
-        } as never)
+        const reconcile = new AgentReconcileService(
+            h.db,
+            {
+                get: () => ({
+                    listAgents: async () => {
+                        listed = true
+                        return []
+                    }
+                })
+            } as never,
+            h.runtimeContext
+        )
         await reconcile.reconcileRuntime(stale)
         assert.equal(listed, false)
         assert.equal(
@@ -1030,13 +1042,12 @@ test(
                 name: 'foreign fixture',
                 internalId: 'foreign-fixture',
                 framework: 'codex',
-                runtime: 'k8s'
+                status: 'ready'
             })
         }
         await assert.rejects(h.create(), (error: any) =>
             /another agent attached/.test(error.getResponse?.().cleanupError)
         )
-        assert(await h.runtimes.findById(runtimeId))
         assert.equal(
             (await h.db.select().from(agents).where(eq(agents.id, foreignId)))
                 .length,
@@ -1051,7 +1062,7 @@ test(
     }
 )
 
-for (const target of ['parent', 'runner', 'host', 'pod host'] as const)
+for (const target of ['parent', 'pod host'] as const)
     test(
         `runtime row locks fence a concurrent ${target} FK insert through remote deletion and commit`,
         { skip: !RUN, timeout: 30_000 },
@@ -1071,22 +1082,7 @@ for (const target of ['parent', 'runner', 'host', 'pod host'] as const)
                 (error) => error === h.failure
             )
             await bounded(gate.entered)
-            const [runtime] = (await h.runtimes.listByUser(h.userId)).filter(
-                (row) => row.kind === 'k8s'
-            )
-            const [child] = await h.db
-                .select({
-                    id: agentRuntimes.id,
-                    daemonId: agentRuntimes.daemonId
-                })
-                .from(agentRuntimes)
-                .where(
-                    and(
-                        eq(agentRuntimes.userId, h.userId),
-                        eq(agentRuntimes.kind, 'daemon')
-                    )
-                )
-            const targetId = target === 'runner' ? child.id : runtime.id
+            const [runtime] = await h.runtimes.listByUser(h.userId)
             assert.equal(
                 runtime.currentPhase,
                 'create_cleanup_pending',
@@ -1104,26 +1100,15 @@ for (const target of ['parent', 'runner', 'host', 'pod host'] as const)
                           userId: h.userId,
                           name: 'late framework runtime',
                           framework: 'claude-code',
-                          kind: 'k8s',
                           hostId: runtime.hostId
-                      })
-                    : target === 'host'
-                    ? writerDb.insert(agentRuntimes).values({
-                          id: createObjectId('agentRuntime'),
-                          userId: h.userId,
-                          name: 'late runner runtime',
-                          framework: 'codex',
-                          kind: 'daemon',
-                          daemonId: child.daemonId
                       })
                     : writerDb.insert(agents).values({
                           id: createObjectId('agent'),
                           userId: h.userId,
-                          runtimeId: targetId,
+                          runtimeId: runtime.id,
                           name: 'racing fixture',
                           internalId: 'racing-fixture',
-                          framework: 'codex',
-                          runtime: target === 'runner' ? 'daemon' : 'k8s'
+                          framework: 'codex'
                       })
             const inserted = Promise.resolve(insertion).then(
                 () => null,
@@ -1172,99 +1157,31 @@ test(
 )
 
 test(
-    'user and admin attach cannot create independent agents on the owned managed runner',
+    'a framework added to the fresh host meanwhile keeps the host through the failed create',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
-        const h = await fixture(t)
-        let executions = 0
-        const registry = {
-            get: () => ({
-                addAgent: async (input: { agentId: string }) => {
-                    executions++
-                    return {
-                        internalId: input.agentId,
-                        workspace: '/workspace/foreign',
-                        model: null,
-                        extras: {}
-                    }
-                }
-            })
-        }
-        const attacher = new RuntimeAgentAttachService(
-            h.db,
-            registry as never,
-            { touchAfterWrite() {} } as never,
-            h.credentials as never,
-            { installDefaults: async () => {} } as never
-        )
-        const userController = new RuntimeAgentsController(
-            h.runtimes,
-            registry as never,
-            attacher,
-            { recordFirstAgentCreated: async () => {} } as never
-        )
-        const adminController = new AdminRuntimeAgentsController(
-            h.runtimes,
-            registry as never,
-            attacher
-        )
-        h.behavior.afterRunner = async () => {
-            const [runner] = await h.db
-                .select()
-                .from(agentRuntimes)
-                .where(
-                    and(
-                        eq(agentRuntimes.userId, h.userId),
-                        eq(agentRuntimes.kind, 'daemon')
-                    )
-                )
-            const denied = (error: any): boolean =>
-                error.getResponse?.().code === 'MANAGED_RUNNER_RUNTIME'
-            await assert.rejects(
-                userController.addAgent(
-                    { userId: h.userId } as never,
-                    runner.id,
-                    { name: 'foreign-user' } as never
-                ),
-                denied
-            )
-            await assert.rejects(
-                adminController.addAgent(runner.id, {
-                    name: 'foreign-admin'
-                } as never),
-                denied
-            )
-        }
-        await assert.rejects(h.create(), (error) => error === h.failure)
-        assert.equal(executions, 0)
-    }
-)
-
-test(
-    'a pre-existing independent agent on the runner prevents automatic capacity deletion',
-    { skip: !RUN, timeout: 30_000 },
-    async (t) => {
+        // Another (host, framework) slot with an agent of its own means the
+        // machine is in use: the failed create takes only its own runtime.
         const h = await fixture(t)
         const foreignId = createObjectId('agent')
-        h.behavior.afterRunner = async () => {
-            const [child] = await h.db
-                .select()
-                .from(agentRuntimes)
-                .where(
-                    and(
-                        eq(agentRuntimes.userId, h.userId),
-                        eq(agentRuntimes.kind, 'daemon')
-                    )
-                )
+        const siblingId = createObjectId('agentRuntime')
+        h.behavior.afterDaemon = async (host) => {
+            await h.db.insert(agentRuntimes).values({
+                id: siblingId,
+                userId: h.userId,
+                name: 'sibling framework',
+                framework: 'claude-code',
+                hostId: host.id,
+                status: 'ready'
+            })
             await h.db.insert(agents).values({
                 id: foreignId,
                 userId: h.userId,
-                runtimeId: child.id,
-                name: 'foreign runner fixture',
-                internalId: 'foreign-runner',
-                framework: 'codex',
-                runtime: 'daemon',
-                daemonId: child.daemonId
+                runtimeId: siblingId,
+                name: 'foreign sibling fixture',
+                internalId: 'foreign-sibling',
+                framework: 'claude-code',
+                status: 'ready'
             })
         }
         await assert.rejects(h.create(), (error: any) =>
@@ -1275,27 +1192,29 @@ test(
                 .length,
             0
         )
+        const [parent] = (await h.runtimes.listByUser(h.userId)).filter(
+            (row) => row.id !== siblingId
+        )
+        assert.equal(parent.currentPhase, 'create_cleanup_pending')
+        await h.remove(parent.id)
+        assert.equal(await h.runtimes.findById(parent.id), null)
+        assert.equal(
+            (await h.runtimes.findById(siblingId))?.status,
+            'ready',
+            'the sibling keeps the host'
+        )
         assert.equal(
             (await h.db.select().from(agents).where(eq(agents.id, foreignId)))
                 .length,
             1
         )
-        const [parent] = (await h.runtimes.listByUser(h.userId)).filter(
-            (row) => row.kind === 'k8s'
-        )
-        assert.equal(parent.currentPhase, 'create_cleanup_pending')
-        await h.remove(parent.id)
-        assert.deepEqual(h.api.runtimeResources(), [])
-        assert.equal(
-            (await h.db.select().from(agents).where(eq(agents.id, foreignId)))
-                .length,
-            0
-        )
+        assert.equal((await h.userRows()).hosts.length, 1)
+        assert(h.api.runtimeResources().length > 0)
     }
 )
 
 test(
-    'unmanaged daemon and ready parent capacity still accept agents',
+    'agents can be added to a published runtime and to a self-owned computer alike',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
@@ -1306,6 +1225,7 @@ test(
             h.runtimes,
             {} as never,
             h.attach,
+            h.runtimeContext,
             { recordFirstAgentCreated: async () => {} } as never
         )
         await controller.addAgent({ userId: h.userId } as never, parent.id, {
@@ -1326,17 +1246,16 @@ test(
             id: hostId,
             userId: h.userId,
             name: 'owned standalone daemon',
-            kind: 'daemon',
-            managed: false
+            kind: 'local',
+            status: 'ready'
         })
         await h.db.insert(agentRuntimes).values({
             id: runtimeId,
             userId: h.userId,
             name: 'standalone',
-            kind: 'daemon',
             framework: 'codex',
             status: 'ready',
-            daemonId: hostId
+            hostId
         })
         await controller.addAgent({ userId: h.userId } as never, runtimeId, {
             name: 'standalone agent'
@@ -1354,7 +1273,7 @@ test(
 )
 
 test(
-    'cleanup guard uses the one selected default cluster and leaves other clusters available',
+    'cleanup guard uses the one selected provider and leaves other providers available',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
@@ -1365,40 +1284,41 @@ test(
                 error.getResponse?.().code === 'RUNTIME_CREATE_CLEANUP_PENDING'
         )
         const [pending] = await h.runtimes.listByUser(h.userId)
-        const other = await h.addCluster()
+        const other = await h.addProvider()
         await h.db
-            .update(k8sClusters)
+            .update(runtimeProviders)
             .set({ priority: 10 })
-            .where(eq(k8sClusters.id, h.clusterId))
-        const check = h.cleanup.assertClusterAvailable.bind(h.cleanup)
+            .where(eq(runtimeProviders.id, h.providerId))
+        const check = h.cleanup.assertProviderAvailable.bind(h.cleanup)
         let selected: string | undefined
-        h.cleanup.assertClusterAvailable = async (userId, clusterId) => {
-            selected = clusterId
+        h.cleanup.assertProviderAvailable = async (userId, providerId) => {
+            selected = providerId
             await h.db
-                .update(k8sClusters)
+                .update(runtimeProviders)
                 .set({ priority: 20 })
-                .where(eq(k8sClusters.id, other.id))
-            await check(userId, clusterId)
+                .where(eq(runtimeProviders.id, other.id))
+            await check(userId, providerId)
         }
         await assert.rejects(
-            h.create(undefined, { clusterId: null }),
+            h.create(undefined, { providerId: null }),
             (error: any) => error.getResponse?.().runtimeId === pending.id
         )
-        assert.equal(selected, h.clusterId)
+        assert.equal(selected, h.providerId)
         assert.equal(other.api.requests.length, 0)
-        h.cleanup.assertClusterAvailable = check
+        h.cleanup.assertProviderAvailable = check
         h.behavior.failAttach = false
-        await h.create(undefined, { clusterId: null })
+        await h.create(undefined, { providerId: null })
         const rows = await h.runtimes.listByUser(h.userId)
+        const providerOf = async (row: AgentRuntimeRow) =>
+            (await h.hostOf(row)).providerId
+        const byProvider = new Map<string | null, AgentRuntimeRow>()
+        for (const row of rows) byProvider.set(await providerOf(row), row)
+        assert.equal(byProvider.get(other.id)?.status, 'ready')
         assert.equal(
-            rows.find((row) => row.clusterId === other.id)?.status,
-            'ready'
-        )
-        assert.equal(
-            rows.find((row) => row.clusterId === h.clusterId)?.currentPhase,
+            byProvider.get(h.providerId)?.currentPhase,
             'create_cleanup_pending'
         )
-        await check(createObjectId('user'), h.clusterId)
+        await check(createObjectId('user'), h.providerId)
         h.api.failDelete = null
         await h.remove(pending.id)
         assert.deepEqual(h.api.runtimeResources(), [])
@@ -1443,11 +1363,12 @@ test(
     }
 )
 
-const creationChat = (db: Database) => {
+const creationChat = (db: Database, runtimeContext: RuntimeContextService) => {
     const repo = new ChatRepository(db)
     const chat = Object.assign(Object.create(ChatService.prototype), {
         db,
         repo,
+        runtimeContext,
         telemetry: { event() {} },
         adapters: { get: () => ({}) },
         resolveTurnConfig: async () => ({}),
@@ -1482,7 +1403,7 @@ test(
             .select()
             .from(agents)
             .where(eq(agents.userId, h.userId))
-        const { chat, repo } = creationChat(h.db)
+        const { chat, repo } = creationChat(h.db, h.runtimeContext)
         const sessionId = createObjectId('chatSession')
         await h.db.insert(chatSessions).values({
             id: sessionId,
@@ -1495,7 +1416,7 @@ test(
             // A report or another status writer cannot bypass the runtime fence.
             await h.db
                 .update(agents)
-                .set({ status: 'running' })
+                .set({ status: 'ready' })
                 .where(eq(agents.id, agent.id))
             const sent = await chat
                 .sendMessage(
@@ -1544,8 +1465,8 @@ test(
         const h = await fixture(t)
         h.behavior.failAttach = false
         const summary = (await h.create()) as { id: string; status: string }
-        assert.equal(summary.status, 'running')
-        const { chat, repo } = creationChat(h.db)
+        assert.equal(summary.status, 'ready')
+        const { chat, repo } = creationChat(h.db, h.runtimeContext)
         const session = await chat.createSession(
             h.userId,
             summary.id,
@@ -1563,7 +1484,7 @@ test(
 )
 
 test(
-    'cleanup-pending parent rejects Chat even if the agent appears running',
+    'cleanup-pending parent rejects Chat even if the agent appears ready',
     { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await fixture(t)
@@ -1581,9 +1502,9 @@ test(
             .where(eq(agents.userId, h.userId))
         await h.db
             .update(agents)
-            .set({ status: 'running' })
+            .set({ status: 'ready' })
             .where(eq(agents.id, agent.id))
-        const { chat } = creationChat(h.db)
+        const { chat } = creationChat(h.db, h.runtimeContext)
         await assert.rejects(
             chat.createSession(h.userId, agent.id),
             (error: any) => error.getResponse?.().code === 'AGENT_NOT_READY'
@@ -1600,48 +1521,6 @@ test(
     }
 )
 
-for (const kind of ['daemon', 'sprites'] as const)
-    test(
-        `${kind} Chat admission is unchanged by the K8s create fence`,
-        { skip: !RUN, timeout: 30_000 },
-        async (t) => {
-            const h = await fixture(t)
-            const runtimeId = createObjectId('agentRuntime')
-            const agentId = createObjectId('agent')
-            await h.db.insert(agentRuntimes).values({
-                id: runtimeId,
-                userId: h.userId,
-                name: 'other runtime',
-                framework: 'codex',
-                kind,
-                status: 'pending'
-            })
-            await h.db.insert(agents).values({
-                id: agentId,
-                userId: h.userId,
-                runtimeId,
-                name: 'existing agent',
-                internalId: 'existing-fixture',
-                framework: 'codex',
-                runtime: kind,
-                status: 'running'
-            })
-            const { chat, repo } = creationChat(h.db)
-            const session = await chat.createSession(
-                h.userId,
-                agentId,
-                'other runtime'
-            )
-            await chat.sendMessage(
-                h.userId,
-                agentId,
-                session.id,
-                'owned fixture message'
-            )
-            assert.equal((await repo.listMessages(session.id)).length, 1)
-        }
-    )
-
 test(
     'agent publication failure rolls back the runtime ready transition before cleanup',
     { skip: !RUN, timeout: 30_000 },
@@ -1652,7 +1531,7 @@ test(
             `create function fixture_k8s_publish_fail() returns trigger language plpgsql as $$ begin raise exception 'fixture publish failure'; end; $$`
         )
         await h.client.unsafe(
-            `create trigger fixture_k8s_publish_fail before update on agents for each row when (old.status = 'pending' and new.status = 'running') execute function fixture_k8s_publish_fail()`
+            `create trigger fixture_k8s_publish_fail before update on agents for each row when (old.status = 'pending' and new.status = 'ready') execute function fixture_k8s_publish_fail()`
         )
         try {
             await assert.rejects(h.create(), /fixture publish failure/)
@@ -1697,16 +1576,20 @@ for (const provisionStage of ['secrets', 'deployments'] as const)
             await bounded(gate.entered)
             const [runtime] = await h.runtimes.listByUser(h.userId)
             assert.equal(runtime.currentPhase, 'creating_initial_agent')
-            assert.equal(runtime.status, 'pending')
+            assert.equal(runtime.status, 'installing')
             let listed = false
-            const reconcile = new AgentReconcileService(h.db, {
-                get: () => ({
-                    listAgents: async () => {
-                        listed = true
-                        return []
-                    }
-                })
-            } as never)
+            const reconcile = new AgentReconcileService(
+                h.db,
+                {
+                    get: () => ({
+                        listAgents: async () => {
+                            listed = true
+                            return []
+                        }
+                    })
+                } as never,
+                h.runtimeContext
+            )
             await reconcile.reconcileRuntime({
                 ...runtime,
                 currentPhase: null,
@@ -1738,53 +1621,6 @@ for (const provisionStage of ['secrets', 'deployments'] as const)
             assert.deepEqual(h.api.runtimeResources(), [])
         }
     )
-
-test(
-    'coding reconcile retains its single-write fence when a stale ready snapshot sees a fresh create',
-    { skip: !RUN, timeout: 30_000 },
-    async (t) => {
-        const gate = barrier()
-        t.after(() => gate.release())
-        const h = await fixture(t)
-        h.behavior.failAttach = false
-        h.behavior.failDefaults = true
-        h.behavior.beforeDefaults = async () => {
-            gate.enter()
-            await gate.released
-        }
-        const failed = assert.rejects(
-            h.create(),
-            (error) => error === h.failure
-        )
-        await bounded(gate.entered)
-        const [runtime] = await h.runtimes.listByUser(h.userId)
-        const [agent] = await h.db
-            .select()
-            .from(agents)
-            .where(eq(agents.runtimeId, runtime.id))
-        await h.db
-            .update(agents)
-            .set({ status: 'stopped' })
-            .where(eq(agents.id, agent.id))
-        const reconcile = new AgentReconcileService(h.db, {
-            get: () => {
-                throw new Error('coding reconcile must not list the adapter')
-            }
-        } as never)
-        await reconcile.reconcileRuntime({
-            ...runtime,
-            status: 'ready',
-            currentPhase: null
-        })
-        assert.equal(
-            (await h.db.select().from(agents).where(eq(agents.id, agent.id)))[0]
-                .status,
-            'stopped'
-        )
-        gate.release()
-        await bounded(failed)
-    }
-)
 
 test(
     'cleanup deadline aborts an actual pending Kubernetes HTTP request and keeps ownership',
@@ -1833,3 +1669,32 @@ test(
         gate.release()
     }
 )
+
+// The fence the old managed-runner model needed between a pod host and the
+// separate host row its daemon registered as no longer has a subject: the
+// pod's daemon IS the host's, and its bound token cascades with the host.
+test('a pod host and its daemon share one row set', { skip: !RUN }, async (t) => {
+    const h = await fixture(t)
+    const { runtime } = await h.provision()
+    const host = await h.hostOf(runtime)
+    assert.equal(host.kind, 'hosted')
+    assert.equal(host.providerId, h.providerId)
+    const [daemon] = await h.db
+        .select()
+        .from(hostDaemons)
+        .where(eq(hostDaemons.hostId, host.id))
+    const [token] = await h.db
+        .select()
+        .from(daemonTokens)
+        .where(and(eq(daemonTokens.userId, h.userId), eq(daemonTokens.hostId, host.id)))
+    assert.equal(daemon.tokenId, token.id)
+    await h.k8sProvisioner.teardownRuntime(runtime)
+    await h.k8sProvisioner.teardownHost(host)
+    assert.deepEqual(await h.userRows(), {
+        runtimes: [],
+        hosts: [],
+        daemons: [],
+        tokens: []
+    })
+    assert.deepEqual(h.api.runtimeResources(), [])
+})

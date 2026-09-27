@@ -388,8 +388,9 @@ const AgentNewBInline: FC = (): ReactNode => {
     const { refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
-    const initialDaemonId = params.get('daemonId') ?? ''
-    const initialSandboxId = params.get('sandboxId') ?? ''
+    // One machine is one host (ADR-0036): the link names it whether it is a
+    // self-owned computer or a sandbox, and the effects below work out which.
+    const initialHostId = params.get('hostId') ?? ''
     const initialFramework = params.get('framework') ?? ''
     const initialVersion = params.get('version') ?? ''
 
@@ -422,7 +423,7 @@ const AgentNewBInline: FC = (): ReactNode => {
             : 'claude-code'
     )
     const [frameworkSelected, setFrameworkSelected] = useState(
-        initialRuntimeId.length > 0 || initialSandboxId.length > 0
+        initialRuntimeId.length > 0 || initialHostId.length > 0
     )
     const [name, setName] = useState<string>('')
     const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
@@ -543,10 +544,12 @@ const AgentNewBInline: FC = (): ReactNode => {
     const daemonPreselectedRef = useRef(false)
     useEffect(() => {
         if (daemonPreselectedRef.current) return
-        if (!initialDaemonId) return
+        if (!initialHostId) return
         if (initialRuntimeId) return
         if (runtimes.length === 0) return
-        const onDaemon = runtimes.filter((r) => r.daemonId === initialDaemonId)
+        const onDaemon = runtimes.filter(
+            (r) => r.kind === 'daemon' && r.hostId === initialHostId
+        )
         if (onDaemon.length === 0) {
             daemonPreselectedRef.current = true
             return
@@ -564,7 +567,7 @@ const AgentNewBInline: FC = (): ReactNode => {
         }
         setFrameworkSelected(true)
         daemonPreselectedRef.current = true
-    }, [initialDaemonId, initialRuntimeId, runtimes, framework])
+    }, [initialHostId, initialRuntimeId, runtimes, framework])
 
     const onFrameworkChange = (next: AgentFramework): void => {
         if (!isCreateableFramework(next)) return
@@ -662,9 +665,9 @@ const AgentNewBInline: FC = (): ReactNode => {
     const sandboxPreselectedRef = useRef(false)
     useEffect(() => {
         if (sandboxPreselectedRef.current) return
-        if (!initialSandboxId) return
+        if (!initialHostId) return
         const target = spriteAttachTargets.find(
-            (t) => t.hostId === initialSandboxId
+            (t) => t.hostId === initialHostId
         )
         if (!target) {
             if (runtimes.length > 0 || sandboxes.length > 0)
@@ -676,7 +679,7 @@ const AgentNewBInline: FC = (): ReactNode => {
         setRuntimePicked(true)
         setAttachSandboxHostId(target.hostId)
         setPickedRuntimeId('')
-    }, [initialSandboxId, spriteAttachTargets, runtimes, sandboxes])
+    }, [initialHostId, spriteAttachTargets, runtimes, sandboxes])
 
     const pickedRuntime = useMemo(
         () => reusableRuntimes.find((r) => r.id === pickedRuntimeId) ?? null,
@@ -1131,7 +1134,6 @@ const AgentNewBInline: FC = (): ReactNode => {
                                                                     </span>
                                                                     <span className='text-ui text-fg min-w-0 truncate font-medium'>
                                                                         {target.name ??
-                                                                            target.spriteName ??
                                                                             target.hostId}
                                                                     </span>
                                                                 </div>

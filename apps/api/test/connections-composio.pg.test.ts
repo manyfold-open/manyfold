@@ -190,15 +190,13 @@ test('deleting a composio connection re-materializes bound agents', { skip: !RUN
             id: runtimeId,
             userId: h.userId,
             name: `pgtest-runtime-${suffix}`,
-            framework: 'claude-code',
-            kind: 'sprites'
+            framework: 'claude-code'
         })
         await h.db.insert(agents).values({
             id: agentId,
             userId: h.userId,
             name: 'pgtest-agent',
             framework: 'claude-code',
-            runtime: 'sprites',
             runtimeId,
             internalId: `internal-${agentId}`,
             extras: { composioConnectionId: conn.id }

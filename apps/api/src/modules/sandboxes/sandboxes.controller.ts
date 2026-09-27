@@ -25,6 +25,7 @@ import {
     CreateSandboxDto,
     InstallSandboxFrameworkDto,
     RenameSandboxDto,
+    SetSandboxKeepAwakeDto,
     SetSandboxTerminalDto,
     SetSandboxTerminalModelCredentialsDto
 } from './dto/sandbox.dto'
@@ -76,6 +77,17 @@ export class SandboxesController {
         @Body() body: SetSandboxTerminalDto
     ): Promise<SandboxSummary> {
         return this.sandboxes.setTerminal(user.userId, id, body)
+    }
+
+    // The host's keep-awake switch (ADR-0036 R7): keeps the machine running.
+    @Patch(':id/keep-awake')
+    @RequireApiTokenScope('sandboxes:edit')
+    async setKeepAwake(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Body() body: SetSandboxKeepAwakeDto
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.setKeepAwake(user.userId, id, !!body.enabled)
     }
 
     @Patch(':id/terminal-model-credentials')

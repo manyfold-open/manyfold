@@ -1691,3 +1691,23 @@ test(
         })
     }
 )
+
+test('the auth store scopes by any host id a daemon can register onto', async () => {
+    const { scopeDir } = await import('../src/daemon/runtime-auth/paths')
+    const runtimeId = createObjectId('agentRuntime')
+    for (const kind of ['daemonHost', 'sandboxHost', 'podHost'] as const) {
+        const hostId = createObjectId(kind)
+        assert.equal(
+            scopeDir({ daemonId: hostId, runtimeId }).endsWith(
+                join(hostId, runtimeId)
+            ),
+            true,
+            kind
+        )
+    }
+    assert.throws(
+        () =>
+            scopeDir({ daemonId: createObjectId('agent'), runtimeId }),
+        /invalid host id/
+    )
+})

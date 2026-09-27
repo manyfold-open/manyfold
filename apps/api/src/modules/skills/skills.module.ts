@@ -3,7 +3,7 @@ import { ResourceEventsModule } from '@/modules/resource-events/resource-events.
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { AuthModule } from '@/modules/auth/auth.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { AdminSkillsCatalogController } from './admin-skills-catalog.controller'
 import { LibrarySkillSharesService } from './library-skill-shares.service'
@@ -17,7 +17,7 @@ import { SkillsController } from './skills.controller'
 import { SkillsService } from './skills.service'
 
 @Module({
-    imports: [AuthModule, SpritesAccountsModule, DaemonModule, AdminSettingsModule, ResourceEventsModule],
+    imports: [AuthModule, HostsModule, DaemonModule, AdminSettingsModule, ResourceEventsModule],
     controllers: [
         SkillsController,
         LibrarySkillsController,

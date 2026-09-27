@@ -1,4 +1,4 @@
-import { DAEMON_ONLINE_THRESHOLD_MS, type TerminalClient } from '@manyfold/shared'
+import { DAEMON_ONLINE_THRESHOLD_MS, type TerminalClient, placementOf } from '@manyfold/shared'
 import type {
     ChannelProviderName,
     ChatContentBlock
@@ -39,9 +39,12 @@ import {
     chatSessionShares,
     chatStreamEvents,
     jsonbMerge,
-    runtimeHosts,
+    hostDaemons,
     turnExecutions,
     users,
+    agentRuntimes,
+    runtimeHosts,
+    runtimeProviders,
     type AgentUsageEventRow,
     type ChatMessage as DbChatMessage,
     type ChatMessageSource as DbChatMessageSource,
@@ -1153,24 +1156,24 @@ export class ChatRepository {
         return row?.value ?? 0
     }
 
-    // Was this daemon seen within the window? Used where "online right now" is
-    // the wrong question — immediately after an api restart nothing is online,
-    // yet the daemon is about to re-dial and resume its turn.
+    // Was this host's daemon seen within the window? Used where "online right
+    // now" is the wrong question — immediately after an api restart nothing is
+    // online, yet the daemon is about to re-dial and resume its turn.
     async daemonSeenWithin(
-        daemonId: string | null,
+        hostId: string | null,
         withinMs: number
     ): Promise<boolean> {
-        if (!daemonId) return false
+        if (!hostId) return false
         const cutoff = new Date(Date.now() - withinMs)
         const [row] = await this.db
-            .select({ id: runtimeHosts.id })
-            .from(runtimeHosts)
+            .select({ hostId: hostDaemons.hostId })
+            .from(hostDaemons)
             .where(
                 and(
-                    eq(runtimeHosts.id, daemonId),
+                    eq(hostDaemons.hostId, hostId),
                     or(
-                        gt(runtimeHosts.rpcLastSeenAt, cutoff),
-                        gt(runtimeHosts.lastSeenAt, cutoff)
+                        gt(hostDaemons.rpcLastSeenAt, cutoff),
+                        gt(hostDaemons.lastSeenAt, cutoff)
                     )
                 )
             )
@@ -1528,18 +1531,25 @@ export class ChatRepository {
         idEquals: string | null
         titleQuery: string | null
     }): Promise<AdminSessionRow[]> {
-        return this.db
+        const rows = await this.db
             .select({
                 session: chatSessions,
                 userEmail: users.email,
                 userDisplayName: users.displayName,
                 agentName: agents.name,
                 agentFramework: agents.framework,
-                agentRuntime: agents.runtime
+                hostKind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
             })
             .from(chatSessions)
             .leftJoin(users, eq(chatSessions.userId, users.id))
             .leftJoin(agents, eq(chatSessions.agentId, agents.id))
+            .leftJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(
                 and(
                     opts.agentId
@@ -1592,6 +1602,14 @@ export class ChatRepository {
             )
             .orderBy(desc(chatSessions.updatedAt), desc(chatSessions.id))
             .limit(opts.limit)
+        return rows.map(({ hostKind, providerKind, ...row }) => ({
+            ...row,
+            agentRuntime: row.agentName
+                ? placementOf(
+                      hostKind ? { kind: hostKind, providerKind } : null
+                  )
+                : null
+        }))
     }
 
     async sessionMessageStats(
@@ -2633,8 +2651,8 @@ export class ChatRepository {
                             .select({ one: sql`1` })
                             .from(chatMessages)
                             .innerJoin(
-                                runtimeHosts,
-                                eq(runtimeHosts.id, chatMessages.daemonId)
+                                hostDaemons,
+                                eq(hostDaemons.hostId, chatMessages.hostId)
                             )
                             .where(
                                 and(
@@ -2643,7 +2661,7 @@ export class ChatRepository {
                                         turnExecutions.messageId
                                     ),
                                     isNotNull(chatMessages.daemonExecRef),
-                                    gt(runtimeHosts.rpcLastSeenAt, onlineCutoff)
+                                    gt(hostDaemons.rpcLastSeenAt, onlineCutoff)
                                 )
                             )
                     ),
@@ -2752,7 +2770,7 @@ export class ChatRepository {
     async claimTurnForResume(input: {
         messageId: string
         sessionId: string
-        daemonId: string
+        hostId: string
         daemonExecRef: string
         ownerId: string
         leaseSeconds: number
@@ -2778,7 +2796,7 @@ export class ChatRepository {
                     and(
                         eq(chatMessages.id, input.messageId),
                         eq(chatMessages.sessionId, input.sessionId),
-                        eq(chatMessages.daemonId, input.daemonId),
+                        eq(chatMessages.hostId, input.hostId),
                         eq(chatMessages.daemonExecRef, input.daemonExecRef)
                     )
                 )
@@ -3095,9 +3113,9 @@ export class ChatRepository {
     // can't drift between the three dead-turn queries that share it.
     private notResumableByLiveDaemon(graceCutoff: Date): SQL {
         return sql`(${chatMessages.daemonExecRef} is null or not exists (
-                        select 1 from ${runtimeHosts}
-                        where ${runtimeHosts.id} = ${chatMessages.daemonId}
-                          and ${runtimeHosts.lastSeenAt} > ${graceCutoff.toISOString()}::timestamptz
+                        select 1 from ${hostDaemons}
+                        where ${hostDaemons.hostId} = ${chatMessages.hostId}
+                          and ${hostDaemons.lastSeenAt} > ${graceCutoff.toISOString()}::timestamptz
                     ))`
     }
 

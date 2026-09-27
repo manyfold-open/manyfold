@@ -2,9 +2,9 @@ import {
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
     PLATFORM_TASK_PREFIX,
+    SPRITE_HOME_BASE,
     UnknownFrameworkError,
-    frameworkDefinition,
-    isExternal
+    frameworkDefinition
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -13,13 +13,14 @@ import type {
 import { randomUUID } from 'node:crypto'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull, ne, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
-    agents,
+    runtimeHosts,
     type AgentRuntimeRow,
     type Database,
-    type SpritesAccount
+    type KeepAwakeLease,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import {
     buildKeepAliveCleanupScript,
@@ -27,7 +28,6 @@ import {
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
     buildServiceStartScript,
-    createClient,
     execSprite,
     spriteWriteFile,
     SpritesError,
@@ -38,9 +38,11 @@ import {
     type SpritesLogger
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ensureRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-report-token'
@@ -52,8 +54,7 @@ const KEEPALIVE_TTL = '5m'
 const KEEPALIVE_TTL_SEC = 300
 const KEEPALIVE_REFRESH_SEC = 60
 const RELEASE_READY_SEC = 90
-// Per-pass action caps: bound the deploy-moment exec storm (Pass A over a
-// large un-converged legacy fleet) and background wakes (Pass B).
+// Per-pass action caps: bound the exec storm a sweep can raise.
 const RECONCILE_MAX_ACTIONS_PER_TICK = 5
 // +120s after ANY ensure attempt — covers the ≤30s slow-cadence status-sync
 // visibility lag plus spin-up, preventing double-wakes before the running
@@ -61,6 +62,9 @@ const RECONCILE_MAX_ACTIONS_PER_TICK = 5
 const ENSURE_RETRY_AFTER_MS = 120_000
 const ENSURE_MAX_BACKOFF_MS = 5 * 60_000
 const REPORT_PROBE_BUDGET_SEC = 120
+// The host's lease state lives on the machine under the sprite user's home,
+// beside nothing framework-specific: one lease per host (ADR-0036 R7).
+const HOST_LEASE_STATE_DIR = `${SPRITE_HOME_BASE}/.nca/keepalive`
 
 const ensureBackoffMs = (failures: number): number =>
     Math.min(60_000 * 2 ** Math.min(failures, 5), ENSURE_MAX_BACKOFF_MS)
@@ -74,9 +78,13 @@ const sleep = (ms: number): Promise<void> =>
 type ServiceFramework = AgentFramework
 type DesiredState = 'running' | 'stopped'
 
+// A framework service's start/report assets on the sprite (start.sh,
+// report.env, report.sh) and their fence: per runtime, because the report
+// fence and the service topology are the framework's. The host's lease is
+// separate (KeepAwakeLease on the host row).
 export interface SpriteKeepAliveMetadata {
-    // Set only for service-kind frameworks; exec-kind (coding) sprites run a
-    // lease-only keep-alive with no framework service to name.
+    // Set only for service-kind frameworks; exec-kind (coding) sprites hold
+    // no framework service to name.
     serviceName?: ServiceFramework
     taskPrefix: string
     taskName: string
@@ -118,15 +126,39 @@ interface InstallInput {
     logger?: SpritesLogger
 }
 
+// Either row names the machine: a host directly, a runtime through its host.
+export type LeaseSubject = RuntimeHostRow | AgentRuntimeRow
+
+const isRuntimeRow = (subject: LeaseSubject): subject is AgentRuntimeRow =>
+    'framework' in subject
+
+const hostUnique = (hostId: string): string =>
+    hostId.includes('_') ? hostId.split('_').slice(1).join('_') : hostId
+
+// The task names one host's lease may use; cleanup matches the prefix so a
+// renewer from any earlier generation is found without stored metadata.
+const hostTaskPrefix = (hostId: string): string =>
+    `${PLATFORM_TASK_PREFIX}host-${hostUnique(hostId)}-`
+
+const emptyLease = (): KeepAwakeLease => ({
+    generation: 0,
+    taskName: null,
+    desiredStateAt: null,
+    lastVerifiedAt: null,
+    lastError: null
+})
+
 @Injectable()
 export class SpriteKeepAliveLeaseService {
     private readonly log = new Logger(SpriteKeepAliveLeaseService.name)
     private readonly ensureNextEligibleAt = new Map<string, number>()
     private readonly ensureFailures = new Map<string, number>()
+    private readonly releaseNextEligibleAt = new Map<string, number>()
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
+        private readonly hosts: HostsService,
+        private readonly hostClients: HostProviderClients,
         private readonly runtimes: AgentRuntimesService,
         private readonly telemetry: TelemetryService,
         private readonly runtimeAccess: RuntimeAccessService,
@@ -154,31 +186,24 @@ export class SpriteKeepAliveLeaseService {
             metadata,
             { reportToken: input.reportToken, logger: input.logger }
         )
-        // A fresh sprite is verified-leaseless by construction; the shared
-        // clock reading in patchMetadata stamps lastVerifiedAt at-or-after
-        // desiredStateAt, which keeps reconcile Pass A from ever exec'ing
-        // fresh runtimes.
         await this.patchMetadata(input.runtimeId, metadata, { verified: true })
         return metadata
     }
 
     /**
      * Wake the framework service if it is not running. Never touches the
-     * lease and never writes desiredState — traffic wake must not resurrect
-     * a lease the user turned off. The pre-start FULL cleanup preserves
-     * today's straggler/port clearing (and deletes tasks — which is why
-     * `wakeSpriteRuntime` re-leases on started:true for enabled runtimes).
+     * host's lease — traffic wake must not resurrect a lease the user turned
+     * off. The pre-start FULL cleanup preserves straggler/port clearing.
      */
     async ensureServiceRunning(
         runtime: AgentRuntimeRow
     ): Promise<{ started: boolean }> {
-        if (
-            runtime.kind !== 'sprites' ||
-            !this.isServiceFramework(runtime.framework)
-        ) {
+        if (!this.isServiceFramework(runtime.framework)) {
             return { started: false }
         }
-        const ctx = await this.clientFor(runtime)
+        const host = await this.hostOf(runtime)
+        if (!host) return { started: false }
+        const ctx = await this.clientFor(host)
         if (!ctx) return { started: false }
 
         // With the hermes dashboard enabled the public route lives on the
@@ -194,14 +219,12 @@ export class SpriteKeepAliveLeaseService {
                 )
                 if (service.state.status !== 'running') notRunning.push(name)
             } catch (err) {
-                if (isSpritesNotFound(err)) {
-                    notRunning.push(name)
-                } else {
+                if (!isSpritesNotFound(err)) {
                     this.log.warn(
                         `getService ${name} on ${ctx.spriteName} failed before start: ${(err as Error).message}`
                     )
-                    notRunning.push(name)
                 }
+                notRunning.push(name)
             }
         }
         if (notRunning.length === 0) return { started: false }
@@ -241,251 +264,19 @@ export class SpriteKeepAliveLeaseService {
         return { started: true }
     }
 
-    /**
-     * Establish (or re-establish) the keep-alive lease loop. Never starts or
-     * stops the framework service — toggling on must not restart a mid-turn
-     * agent. The pre-spawn lease-only cleanup kills any existing renewer
-     * (legacy fused subshell via the shared renew.pid, or a stale loop) so
-     * exactly one canonical renewer survives.
-     */
-    async ensureLease(runtime: AgentRuntimeRow): Promise<void> {
-        if (!this.isLeaseEligible(runtime)) return
-        const ctx = await this.clientFor(runtime)
-        if (!ctx) return
-
-        const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
-        const next = this.nextMetadata({
-            runtimeId: runtime.id,
-            framework: runtime.framework,
-            serviceName: this.isServiceFramework(runtime.framework)
-                ? runtime.framework
-                : undefined,
-            homeDir: this.homeDirFor(runtime, base),
-            exec: base.exec,
-            desiredState: 'running'
-        })
-        // Cleanup runs against the STORED metadata: the old renewer's
-        // renew.pid/taskName live wherever the previous generation put them,
-        // and `next` would diverge if the stateDir derivation ever changes.
-        await this.runCleanup(ctx.client, ctx.spriteName, base, {
-            killAppProcesses: false,
-            killStartScriptProcesses: false
-        })
-        const leaseScript = buildKeepAliveLeaseScript({
-            taskName: next.taskName,
-            taskPrefix: next.taskPrefix,
-            ttl: KEEPALIVE_TTL,
-            refreshIntervalSeconds: next.refreshSec,
-            stateDir: next.stateDir
-        })
-        await this.writeFile(ctx.client, ctx.spriteName, {
-            absPath: `${next.stateDir}/keepalive.sh`,
-            body: Buffer.from(leaseScript, 'utf8'),
-            mode: '755',
-            timeoutMs: 30_000
-        })
-        await this.exec(ctx.client, ctx.spriteName, {
-            cmd: [
-                'bash',
-                '-lc',
-                `setsid nohup bash '${next.stateDir}/keepalive.sh' </dev/null >/dev/null 2>&1 & echo ok`
-            ],
-            stdin: '',
-            timeoutMs: 30_000,
-            keepAliveMs: 5_000,
-            livenessTimeoutMs: 15_000
-        })
-        // The spawn is detached; task_create lands ~100ms-1s later.
-        let observed = await this.matchingTasks(
-            ctx.client,
-            ctx.spriteName,
-            next
-        )
-        for (
-            let attempt = 1;
-            attempt < 3 && (observed.tasks.length === 0 || observed.error);
-            attempt++
-        ) {
-            await sleep(1_000)
-            observed = await this.matchingTasks(ctx.client, ctx.spriteName, next)
-        }
-        const verified = observed.tasks.length > 0 && !observed.error
-        await this.patchMetadata(
-            runtime.id,
-            {
-                ...next,
-                lastError: verified
-                    ? undefined
-                    : observed.error
-                      ? `keep-alive task verification failed: ${observed.error}`
-                      : `keep-alive task ${next.taskName} not observed after spawn`
-            },
-            { verified }
-        )
-        // A disable racing this ensure may have run its lease-only cleanup
-        // BEFORE the spawn above, leaving a renewing loop on a runtime whose
-        // column already reads false. Re-check and release deterministically.
-        const fresh = await this.runtimes.findById(runtime.id)
-        if (fresh && fresh.keepAliveEnabled === false) {
-            await this.releaseLease(fresh, 'ensure-raced-disable')
-        }
-    }
-
-    /**
-     * Lease-only release: kills the renewer pid, deletes tasks and patches
-     * desiredState 'stopped'.
-     * NEVER calls stopService — this is the no-restart toggle-off and the
-     * reconcile loop's only action.
-     */
-    async releaseLease(
-        runtime: AgentRuntimeRow,
-        reason: string
-    ): Promise<{ verified: boolean }> {
-        if (!this.isLeaseEligible(runtime)) {
-            return { verified: false }
-        }
-        const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
-        const ctx = await this.clientFor(runtime)
-        if (!ctx) {
-            await this.patchMetadata(runtime.id, {
-                ...base,
-                desiredState: 'stopped',
-                lastError: 'sprites account or sprite name missing'
-            })
-            return { verified: false }
-        }
-
-        const cleanup = await this.runCleanup(ctx.client, ctx.spriteName, base, {
-            killAppProcesses: false,
-            killStartScriptProcesses: false
-        })
-        const remaining = await this.matchingTasks(
-            ctx.client,
-            ctx.spriteName,
-            base
-        )
-        const verified = remaining.tasks.length === 0 && !remaining.error
-        const message = verified
-            ? undefined
-            : remaining.error
-              ? `keep-alive task verification failed: ${remaining.error}`
-              : `keep-alive tasks still present: ${remaining.tasks.join(', ')}`
-        await this.patchMetadata(
-            runtime.id,
-            {
-                ...base,
-                desiredState: 'stopped',
-                lastError:
-                    message ??
-                    (cleanup.errors.length > 0
-                        ? `cleanup errors: ${JSON.stringify(cleanup.errors).slice(0, 512)}`
-                        : undefined)
-            },
-            { verified }
-        )
-        if (!verified) {
-            this.telemetry.event('sprite_keepalive_release_degraded', {
-                runtimeId: runtime.id,
-                framework: runtime.framework,
-                spriteName: runtime.spriteName,
-                reason,
-                remainingTasks: remaining.tasks.length
-            })
-        }
-        return { verified }
-    }
-
-    async stopAndRelease(
-        runtime: AgentRuntimeRow,
-        reason: string
-    ): Promise<AgentKeepAliveRelease> {
-        if (!this.isLeaseEligible(runtime)) {
-            return { state: 'not_applicable', maxStaleSec: 0 }
-        }
-        // Exec-kind (coding) sprites have no framework service to stop —
-        // releasing the lease deletes the renewing task, after which the
-        // sprite suspends on its own once idle. No stopService, so an
-        // in-flight chat exec is never interrupted.
-        if (!this.isServiceFramework(runtime.framework)) {
-            // Nothing to release if this sprite never held a lease: skip the
-            // sprite exec round-trips (and the false 'degraded' telemetry a
-            // transient task-list read could otherwise emit) for the common
-            // case of stopping a coding agent that never enabled keep-alive.
-            if (!runtime.keepAliveEnabled && !this.metadataFor(runtime)) {
-                return { state: 'not_applicable', maxStaleSec: 0 }
-            }
-            const { verified } = await this.releaseLease(runtime, reason)
-            return {
-                state: verified ? 'verified' : 'degraded',
-                maxStaleSec: verified
-                    ? RELEASE_READY_SEC
-                    : KEEPALIVE_TTL_SEC + RELEASE_READY_SEC
-            }
-        }
-        const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
-        try {
-            return await this.runStopAndRelease(runtime, reason, base)
-        } catch (err) {
-            const message = `stopAndRelease error: ${(err as Error).message}`
-            this.log.warn(
-                `stopAndRelease ${runtime.framework} on ${runtime.spriteName} threw: ${(err as Error).message}`
-            )
-            await this.patchMetadata(runtime.id, {
-                ...base,
-                desiredState: 'stopped',
-                lastError: message
-            })
-            this.telemetry.event('sprite_keepalive_release_degraded', {
-                runtimeId: runtime.id,
-                framework: runtime.framework,
-                spriteName: runtime.spriteName,
-                reason,
-                error: (err as Error).message
-            })
-            return {
-                state: 'degraded',
-                maxStaleSec: base.ttlSec + RELEASE_READY_SEC,
-                message
-            }
-        }
-    }
-
-    private async runStopAndRelease(
-        runtime: AgentRuntimeRow,
-        reason: string,
-        base: SpriteKeepAliveMetadata
-    ): Promise<AgentKeepAliveRelease> {
-        const ctx = await this.clientFor(runtime)
-        if (!ctx) {
-            const degraded = {
-                ...base,
-                desiredState: 'stopped' as const,
-                lastError: 'sprites account or sprite name missing'
-            }
-            await this.patchMetadata(runtime.id, degraded)
-            return {
-                state: 'degraded',
-                maxStaleSec: base.ttlSec + RELEASE_READY_SEC,
-                message: degraded.lastError
-            }
-        }
-
+    // Stop a framework's services on the sprite (reverse topology order) and
+    // record it. The only downward writer of service_status — report-driven
+    // paths are structurally unable to produce 'stopped'.
+    async stopService(runtime: AgentRuntimeRow): Promise<string | undefined> {
+        if (!this.isServiceFramework(runtime.framework)) return undefined
+        const host = await this.hostOf(runtime)
+        if (!host) return 'host not found'
+        const ctx = await this.clientFor(host)
+        if (!ctx) return 'sprites provider or sprite name missing'
         // Clear the report fence BEFORE stopService so in-flight reports
         // from the dying boot 409 even before the stopped guards land.
         await this.patchServiceReportFence(runtime.id, null)
-
-        // Kill the renewer while renew.pid is still valid: a legacy fused
-        // start.sh's EXIT trap rm's renew.pid when stopService TERMs the
-        // parent shell, which would orphan a v2 lease loop past the FULL
-        // cleanup below (the loop re-creates its task forever, the sprite
-        // never sleeps).
-        await this.runCleanup(ctx.client, ctx.spriteName, base, {
-            killAppProcesses: false,
-            killStartScriptProcesses: false
-        })
-
         let serviceMessage: string | undefined
-        // Reverse order: drop the public route (proxy) before its upstreams.
         for (const name of [...this.serviceNamesFor(runtime)].reverse()) {
             try {
                 const service = await ctx.client.stopService(
@@ -507,20 +298,11 @@ export class SpriteKeepAliveLeaseService {
                 }
             }
         }
-
-        const cleanup = await this.runCleanup(
-            ctx.client,
-            ctx.spriteName,
-            base,
-            {
-                killAppProcesses: true,
-                killStartScriptProcesses: true
-            }
-        )
-        // The only downward writer of service_status — platform-initiated
-        // stop. Report-driven paths are structurally unable to produce
-        // 'stopped' (see the daemon-divergence note in
-        // runtime-reports.service.ts).
+        const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
+        await this.runCleanup(ctx.client, ctx.spriteName, base, {
+            killAppProcesses: true,
+            killStartScriptProcesses: true
+        })
         try {
             await this.runtimes.applyServiceReportPatch(runtime.id, {
                 serviceStatus: 'stopped',
@@ -531,51 +313,202 @@ export class SpriteKeepAliveLeaseService {
                 `service status patch failed for ${runtime.id}: ${(err as Error).message}`
             )
         }
+        await this.patchMetadata(runtime.id, {
+            ...base,
+            desiredState: 'stopped',
+            lastError: serviceMessage
+        })
+        return serviceMessage
+    }
+
+    /**
+     * Establish (or re-establish) the host's keep-awake lease loop: the
+     * renewing /v1/tasks task that holds the VM running. Never starts or
+     * stops a framework service — that is the daemon's job. The pre-spawn
+     * lease-only cleanup kills any existing renewer so exactly one survives.
+     */
+    async ensureLease(subject: LeaseSubject): Promise<void> {
+        const host = await this.hostOf(subject)
+        if (!host || !this.isLeaseEligible(host)) return
+        const ctx = await this.clientFor(host)
+        if (!ctx) return
+
+        const previous = host.keepAwakeLease ?? emptyLease()
+        const generation = previous.generation + 1
+        const taskPrefix = hostTaskPrefix(host.id)
+        const taskName = `${taskPrefix}${generation}-${createGeneration()}`
+        // Cleanup runs against the prefix: the old renewer's renew.pid lives
+        // wherever the previous generation put it, under the same state dir.
+        await this.runCleanup(
+            ctx.client,
+            ctx.spriteName,
+            this.hostLeaseCleanupTarget(host.id, previous),
+            { killAppProcesses: false, killStartScriptProcesses: false }
+        )
+        const leaseScript = buildKeepAliveLeaseScript({
+            taskName,
+            taskPrefix,
+            ttl: KEEPALIVE_TTL,
+            refreshIntervalSeconds: KEEPALIVE_REFRESH_SEC,
+            stateDir: HOST_LEASE_STATE_DIR
+        })
+        await this.writeFile(ctx.client, ctx.spriteName, {
+            absPath: `${HOST_LEASE_STATE_DIR}/keepalive.sh`,
+            body: Buffer.from(leaseScript, 'utf8'),
+            mode: '755',
+            timeoutMs: 30_000
+        })
+        await this.exec(ctx.client, ctx.spriteName, {
+            cmd: [
+                'bash',
+                '-lc',
+                `setsid nohup bash '${HOST_LEASE_STATE_DIR}/keepalive.sh' </dev/null >/dev/null 2>&1 & echo ok`
+            ],
+            stdin: '',
+            timeoutMs: 30_000,
+            keepAliveMs: 5_000,
+            livenessTimeoutMs: 15_000
+        })
+        // The spawn is detached; task_create lands ~100ms-1s later.
+        let observed = await this.matchingTasks(ctx.client, ctx.spriteName, {
+            taskName,
+            taskPrefix
+        })
+        for (
+            let attempt = 1;
+            attempt < 3 && (observed.tasks.length === 0 || observed.error);
+            attempt++
+        ) {
+            await sleep(1_000)
+            observed = await this.matchingTasks(ctx.client, ctx.spriteName, {
+                taskName,
+                taskPrefix
+            })
+        }
+        const verified = observed.tasks.length > 0 && !observed.error
+        const stampedAt = new Date().toISOString()
+        await this.saveLease(host.id, {
+            generation,
+            taskName,
+            desiredStateAt: stampedAt,
+            lastVerifiedAt: verified ? stampedAt : previous.lastVerifiedAt,
+            lastError: verified
+                ? null
+                : observed.error
+                  ? `keep-alive task verification failed: ${observed.error}`
+                  : `keep-alive task ${taskName} not observed after spawn`
+        })
+        // A disable racing this ensure may have run its lease-only cleanup
+        // BEFORE the spawn above, leaving a renewing loop on a host whose
+        // switch already reads false. Re-check and release deterministically.
+        const fresh = await this.hosts.findById(host.id)
+        if (fresh && fresh.keepAwake === false) {
+            await this.releaseLease(fresh, 'ensure-raced-disable')
+        }
+    }
+
+    /**
+     * Lease-only release: kills the renewer, deletes the host's tasks and
+     * records the verified (or degraded) outcome on the host row. NEVER
+     * touches a framework service — this is the no-restart toggle-off and
+     * the sweep's only action.
+     */
+    async releaseLease(
+        subject: LeaseSubject,
+        reason: string
+    ): Promise<{ verified: boolean }> {
+        const host = await this.hostOf(subject)
+        if (!host || !this.isLeaseEligible(host)) {
+            return { verified: false }
+        }
+        const previous = host.keepAwakeLease ?? emptyLease()
+        const stampedAt = new Date().toISOString()
+        const ctx = await this.clientFor(host)
+        if (!ctx) {
+            await this.saveLease(host.id, {
+                ...previous,
+                desiredStateAt: stampedAt,
+                lastError: 'sprites provider or sprite name missing'
+            })
+            return { verified: false }
+        }
+        const target = this.hostLeaseCleanupTarget(host.id, previous)
+        const cleanup = await this.runCleanup(ctx.client, ctx.spriteName, target, {
+            killAppProcesses: false,
+            killStartScriptProcesses: false
+        })
         const remaining = await this.matchingTasks(
             ctx.client,
             ctx.spriteName,
-            base
+            target
         )
         const verified = remaining.tasks.length === 0 && !remaining.error
         const message = verified
-            ? undefined
+            ? null
             : remaining.error
               ? `keep-alive task verification failed: ${remaining.error}`
               : `keep-alive tasks still present: ${remaining.tasks.join(', ')}`
-        const lastError =
-            message ??
-            (cleanup.errors.length > 0
-                ? `cleanup errors: ${JSON.stringify(cleanup.errors).slice(0, 512)}`
-                : serviceMessage)
-
-        await this.patchMetadata(
-            runtime.id,
-            {
-                ...base,
-                desiredState: 'stopped',
-                lastError
-            },
-            { verified }
-        )
-
-        if (verified) {
-            return {
-                state: 'verified',
-                maxStaleSec: RELEASE_READY_SEC,
-                message: serviceMessage
-            }
-        }
-        this.telemetry.event('sprite_keepalive_release_degraded', {
-            runtimeId: runtime.id,
-            framework: runtime.framework,
-            spriteName: runtime.spriteName,
-            reason,
-            remainingTasks: remaining.tasks.length
+        await this.saveLease(host.id, {
+            generation: previous.generation,
+            taskName: verified ? null : previous.taskName,
+            desiredStateAt: stampedAt,
+            lastVerifiedAt: verified ? stampedAt : previous.lastVerifiedAt,
+            lastError:
+                message ??
+                (cleanup.errors.length > 0
+                    ? `cleanup errors: ${JSON.stringify(cleanup.errors).slice(0, 512)}`
+                    : null)
         })
-        return {
-            state: 'degraded',
-            maxStaleSec: base.ttlSec + RELEASE_READY_SEC,
-            message
+        if (!verified) {
+            this.telemetry.event('sprite_keepalive_release_degraded', {
+                hostId: host.id,
+                spriteName: ctx.spriteName,
+                reason,
+                remainingTasks: remaining.tasks.length
+            })
+        }
+        return { verified }
+    }
+
+    // Release the host's lease and say how long the VM may still read as
+    // running: the sandbox stop path's keep-alive half.
+    async stopAndRelease(
+        subject: LeaseSubject,
+        reason: string
+    ): Promise<AgentKeepAliveRelease> {
+        const host = await this.hostOf(subject)
+        if (!host || !this.isLeaseEligible(host)) {
+            return { state: 'not_applicable', maxStaleSec: 0 }
+        }
+        // Nothing to release if this host never held a lease: skip the
+        // sprite exec round-trips (and the false 'degraded' telemetry a
+        // transient task-list read could otherwise emit).
+        if (!host.keepAwake && !host.keepAwakeLease?.taskName) {
+            return { state: 'not_applicable', maxStaleSec: 0 }
+        }
+        try {
+            const { verified } = await this.releaseLease(host, reason)
+            return {
+                state: verified ? 'verified' : 'degraded',
+                maxStaleSec: verified
+                    ? RELEASE_READY_SEC
+                    : KEEPALIVE_TTL_SEC + RELEASE_READY_SEC
+            }
+        } catch (err) {
+            const message = `release error: ${(err as Error).message}`
+            this.log.warn(
+                `stopAndRelease host=${host.id} threw: ${(err as Error).message}`
+            )
+            this.telemetry.event('sprite_keepalive_release_degraded', {
+                hostId: host.id,
+                reason,
+                error: (err as Error).message
+            })
+            return {
+                state: 'degraded',
+                maxStaleSec: KEEPALIVE_TTL_SEC + RELEASE_READY_SEC,
+                message
+            }
         }
     }
 
@@ -585,133 +518,76 @@ export class SpriteKeepAliveLeaseService {
     }
 
     /**
-     * Pass A — converge disabled-but-leased runtimes to default-off: the
-     * un-converged legacy fleet (desiredState 'running') and degraded-release
-     * retries. Acts via releaseLease, never stopService — under default-off
-     * every chat-woken disabled sprite is desiredState 'stopped' +
-     * spriteStatus 'running', and stopping its service would kill the
-     * framework mid-conversation every ~90s.
+     * Pass A — converge switched-off hosts whose release never verified:
+     * keep_awake false with a lease task still recorded. Acts via
+     * releaseLease, never a service stop — a chat-woken host with the switch
+     * off is running legitimately, and only the lease is ours to remove.
      */
     private async reconcileReleasePass(): Promise<void> {
         const rows = await this.db
-            .select({
-                runtime: agentRuntimes,
-                spriteStatus: agents.spriteStatus
-            })
-            .from(agentRuntimes)
-            .innerJoin(agents, eq(agents.runtimeId, agentRuntimes.id))
+            .select()
+            .from(runtimeHosts)
             .where(
                 and(
-                    // All sprite frameworks — kind='sprites' excludes external
-                    // by construction, so coding-agent leases converge here too.
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agentRuntimes.keepAliveEnabled, false),
-                    eq(agents.spriteStatus, 'running')
+                    liveHostedHosts('sprites'),
+                    eq(runtimeHosts.keepAwake, false),
+                    // A sleeping VM holds no live task (the TTL expired with
+                    // its renewer), and the release exec would wake it — the
+                    // one thing a release must never do.
+                    eq(runtimeHosts.powerState, 'running'),
+                    isNotNull(runtimeHosts.keepAwakeLease),
+                    sql`${runtimeHosts.keepAwakeLease}->>'taskName' is not null`
                 )
             )
-
-        const seen = new Set<string>()
         const now = Date.now()
         let released = 0
-        for (const row of rows) {
-            const runtime = row.runtime
-            if (seen.has(runtime.id)) continue
-            seen.add(runtime.id)
-            const metadata = this.metadataFor(runtime)
-            if (!metadata) continue
-            if (metadata.desiredState === 'stopped') {
-                const anchor = metadata.desiredStateAt ?? runtime.updatedAt
-                // lastVerifiedAt >= desiredStateAt = the release landed; this
-                // gate is what stops the loop from exec-spamming every
-                // legitimately chat-active disabled sprite.
-                if (
-                    metadata.lastVerifiedAt &&
-                    new Date(metadata.lastVerifiedAt).getTime() >=
-                        new Date(anchor).getTime()
-                ) {
-                    continue
-                }
-                if (
-                    metadata.lastVerifiedAt &&
-                    now - new Date(metadata.lastVerifiedAt).getTime() <
-                        RELEASE_READY_SEC * 1000
-                ) {
-                    continue
-                }
-                const ageSec = Math.floor(
-                    (now - new Date(anchor).getTime()) / 1000
-                )
-                if (ageSec < RELEASE_READY_SEC) continue
-                if (ageSec > metadata.ttlSec + RELEASE_READY_SEC) {
-                    this.telemetry.event('sprite_keepalive_release_stale', {
-                        runtimeId: runtime.id,
-                        framework: runtime.framework,
-                        spriteName: runtime.spriteName,
-                        ageSec
-                    })
-                }
+        for (const host of rows) {
+            const lease = host.keepAwakeLease
+            if (!lease?.taskName) continue
+            const anchor = Date.parse(
+                lease.desiredStateAt ?? host.updatedAt.toISOString()
+            )
+            const ageSec = Math.floor((now - anchor) / 1000)
+            if (ageSec < RELEASE_READY_SEC) continue
+            if (now < (this.releaseNextEligibleAt.get(host.id) ?? 0)) continue
+            if (ageSec > KEEPALIVE_TTL_SEC + RELEASE_READY_SEC) {
+                this.telemetry.event('sprite_keepalive_release_stale', {
+                    hostId: host.id,
+                    ageSec
+                })
             }
             if (released >= RECONCILE_MAX_ACTIONS_PER_TICK) break
             released++
+            this.releaseNextEligibleAt.set(host.id, now + RELEASE_READY_SEC * 1000)
             try {
-                await this.releaseLease(runtime, 'reconcile')
+                await this.releaseLease(host, 'reconcile')
             } catch (err) {
                 this.log.warn(
-                    `reconcile releaseLease failed for ${runtime.id}: ${(err as Error).message}`
+                    `reconcile releaseLease failed for host ${host.id}: ${(err as Error).message}`
                 )
             }
         }
     }
 
     /**
-     * Pass B — re-wake enabled runtimes that slept anyway (SIGKILLed loop,
+     * Pass B — re-lease kept-awake hosts that slept anyway (SIGKILLed loop,
      * host eviction, TTL expiry). Admission control happened at enable time;
-     * re-waking restores previously-admitted state, so there is no per-user
-     * quota re-check here (a lowered cap must not leave the toggle ON with a
-     * silently dead agent). The org wholesale hard cap IS observed. No
-     * agents-table writes and no touchRuntime — the wake makes the sprite
-     * listable again and Phase 1's two-miss confirmation handles the rest.
-     *
-     * Runtimes whose agents are ALL status 'stopped' are skipped: re-waking
-     * restores admitted state, but a sprite with no startable agent serves
-     * nobody and the wake loop bills forever (#107). A falsely-stopped row
-     * still heals — chat traffic wakes the sprite and the post-boot listing
-     * (or a fence-valid #108 ready report) flips it back to running, which
-     * re-admits the runtime here on the next tick.
+     * re-leasing restores previously-admitted state, so there is no per-user
+     * quota re-check here (a lowered cap must not leave the switch ON with a
+     * silently sleeping machine). The org wholesale hard cap IS observed.
      */
     private async reconcileEnsurePass(): Promise<void> {
-        const rows = await this.db
-            .select({
-                runtime: agentRuntimes,
-                agentStatus: agents.status,
-                spriteStatus: agents.spriteStatus
-            })
-            .from(agentRuntimes)
-            .innerJoin(agents, eq(agents.runtimeId, agentRuntimes.id))
+        const candidates = await this.db
+            .select()
+            .from(runtimeHosts)
             .where(
                 and(
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agentRuntimes.keepAliveEnabled, true),
-                    eq(agentRuntimes.status, 'ready')
+                    liveHostedHosts('sprites'),
+                    eq(runtimeHosts.status, 'ready'),
+                    eq(runtimeHosts.keepAwake, true),
+                    ne(runtimeHosts.powerState, 'running')
                 )
             )
-        const byRuntime = new Map<
-            string,
-            { runtime: AgentRuntimeRow; awake: boolean; serveable: boolean }
-        >()
-        for (const row of rows) {
-            const entry = byRuntime.get(row.runtime.id) ?? {
-                runtime: row.runtime,
-                awake: false,
-                serveable: false
-            }
-            if (row.spriteStatus === 'running') entry.awake = true
-            if (row.agentStatus !== 'stopped') entry.serveable = true
-            byRuntime.set(row.runtime.id, entry)
-        }
-        const candidates = [...byRuntime.values()]
-            .filter((entry) => !entry.awake && entry.serveable)
-            .map((entry) => entry.runtime)
         if (candidates.length === 0) return
 
         const headroom = await this.runtimeAccess.spritesWholesaleHeadroom()
@@ -726,34 +602,29 @@ export class SpriteKeepAliveLeaseService {
 
         const now = Date.now()
         let woken = 0
-        for (const runtime of candidates) {
+        for (const host of candidates) {
             if (woken >= RECONCILE_MAX_ACTIONS_PER_TICK) break
-            if (now < (this.ensureNextEligibleAt.get(runtime.id) ?? 0)) continue
+            if (now < (this.ensureNextEligibleAt.get(host.id) ?? 0)) continue
             woken++
             try {
-                await this.ensureServiceRunning(runtime)
-                await this.ensureLease(runtime)
-                this.ensureFailures.delete(runtime.id)
+                await this.ensureLease(host)
+                this.ensureFailures.delete(host.id)
                 this.ensureNextEligibleAt.set(
-                    runtime.id,
+                    host.id,
                     now + ENSURE_RETRY_AFTER_MS
                 )
                 this.telemetry.event('sprite_keepalive_ensure_wake', {
-                    runtimeId: runtime.id,
-                    framework: runtime.framework,
-                    spriteName: runtime.spriteName
+                    hostId: host.id
                 })
             } catch (err) {
-                const failures = (this.ensureFailures.get(runtime.id) ?? 0) + 1
-                this.ensureFailures.set(runtime.id, failures)
+                const failures = (this.ensureFailures.get(host.id) ?? 0) + 1
+                this.ensureFailures.set(host.id, failures)
                 this.ensureNextEligibleAt.set(
-                    runtime.id,
+                    host.id,
                     now + ensureBackoffMs(failures)
                 )
                 this.telemetry.event('sprite_keepalive_ensure_failed', {
-                    runtimeId: runtime.id,
-                    framework: runtime.framework,
-                    spriteName: runtime.spriteName,
+                    hostId: host.id,
                     error: (err as Error).message
                 })
             }
@@ -780,7 +651,7 @@ export class SpriteKeepAliveLeaseService {
         // for reportHealthUrlFor below.
         if (!apiBaseUrl || !reportToken || !metadata.serviceName) {
             // Reporting must never break a wake: degrade to the plain
-            // Phase 2 start.sh when the token or base URL is unavailable.
+            // start.sh when the token or base URL is unavailable.
             this.log.warn(
                 `runtime report assets skipped for ${runtimeId}: ${apiBaseUrl ? 'report token unavailable' : 'PUBLIC_API_BASE_URL unset'}`
             )
@@ -913,10 +784,29 @@ export class SpriteKeepAliveLeaseService {
         return supervision
     }
 
+    private hostLeaseCleanupTarget(
+        hostId: string,
+        lease: KeepAwakeLease
+    ): Pick<
+        SpriteKeepAliveMetadata,
+        'taskName' | 'taskPrefix' | 'stateDir' | 'startScriptPath'
+    > {
+        const taskPrefix = hostTaskPrefix(hostId)
+        return {
+            taskName: lease.taskName ?? `${taskPrefix}${lease.generation}`,
+            taskPrefix,
+            stateDir: HOST_LEASE_STATE_DIR,
+            startScriptPath: `${HOST_LEASE_STATE_DIR}/start.sh`
+        }
+    }
+
     private async runCleanup(
         client: SpritesClient,
         spriteName: string,
-        metadata: SpriteKeepAliveMetadata,
+        metadata: Pick<
+            SpriteKeepAliveMetadata,
+            'taskName' | 'taskPrefix' | 'stateDir' | 'startScriptPath'
+        >,
         opts: {
             killAppProcesses: boolean
             killStartScriptProcesses: boolean
@@ -975,7 +865,7 @@ export class SpriteKeepAliveLeaseService {
     private async matchingTasks(
         client: SpritesClient,
         spriteName: string,
-        metadata: SpriteKeepAliveMetadata
+        metadata: Pick<SpriteKeepAliveMetadata, 'taskName' | 'taskPrefix'>
     ): Promise<MatchingTasksResult> {
         try {
             const result = await this.exec(client, spriteName, {
@@ -1034,7 +924,7 @@ export class SpriteKeepAliveLeaseService {
             ttlSec: KEEPALIVE_TTL_SEC,
             refreshSec: KEEPALIVE_REFRESH_SEC,
             desiredState: input.desiredState,
-            // Persisted state location shared by the lease and cleanup paths.
+            // Persisted state location shared by the service and cleanup paths.
             stateDir: `${input.homeDir}/.nca/keepalive`,
             startScriptPath: `${input.homeDir}/start.sh`,
             exec: input.exec
@@ -1046,8 +936,6 @@ export class SpriteKeepAliveLeaseService {
     ): SpriteKeepAliveMetadata {
         const framework = runtime.framework
         const homeDir = this.homeDirFor(runtime, null)
-        // exec/serviceName are service-supervision concepts;
-        // an exec-kind sprite runs a lease-only keep-alive with none of them.
         if (!this.isServiceFramework(framework)) {
             return this.nextMetadata({
                 runtimeId: runtime.id,
@@ -1073,8 +961,6 @@ export class SpriteKeepAliveLeaseService {
         const raw = runtime.capabilitiesJson?.keepAlive
         if (!raw || typeof raw !== 'object') return null
         const meta = raw as Partial<SpriteKeepAliveMetadata>
-        // serviceName is intentionally not required: exec-kind (coding) sprites
-        // persist lease-only metadata with no service to name.
         if (
             !meta.taskPrefix ||
             !meta.taskName ||
@@ -1111,10 +997,6 @@ export class SpriteKeepAliveLeaseService {
             const runtime = await this.runtimes.findById(runtimeId)
             if (!runtime) return
             const existing = this.metadataFor(runtime)
-            // One clock reading stamps BOTH fields: a verified patch that
-            // flips desiredState must land with lastVerifiedAt >=
-            // desiredStateAt, or reconcile Pass A re-releases the
-            // already-converged runtime once per flip.
             const stampedAt = new Date().toISOString()
             const desiredStateAt =
                 !existing || existing.desiredState !== metadata.desiredState
@@ -1141,25 +1023,43 @@ export class SpriteKeepAliveLeaseService {
         }
     }
 
+    private async saveLease(hostId: string, lease: KeepAwakeLease): Promise<void> {
+        try {
+            await this.hosts.patch(hostId, { keepAwakeLease: lease })
+        } catch (err) {
+            this.log.warn(
+                `keep-awake lease patch failed for host ${hostId}: ${(err as Error).message}`
+            )
+        }
+    }
+
+    // The host a subject names, re-read so the switch and lease are current.
+    protected async hostOf(subject: LeaseSubject): Promise<RuntimeHostRow | null> {
+        if (isRuntimeRow(subject)) {
+            if (!subject.hostId) return null
+            return this.hosts.findById(subject.hostId)
+        }
+        return subject
+    }
+
+    // Seam so tests can fake the sprites.dev control-plane client.
     protected async clientFor(
-        runtime: AgentRuntimeRow
-    ): Promise<{
-        account: SpritesAccount
-        client: SpritesClient
-        spriteName: string
-    } | null> {
-        if (!runtime.accountId || !runtime.spriteName) return null
-        const account = await this.accounts.getById(runtime.accountId)
-        if (!account) return null
-        const token = this.accounts.decryptToken(account)
-        return {
-            account,
-            spriteName: runtime.spriteName,
-            client: createClient({
-                token,
-                accountSlug: account.slug,
-                logger: spritesLoggerFor(this.log)
-            })
+        host: RuntimeHostRow
+    ): Promise<{ client: SpritesClient; spriteName: string } | null> {
+        if (host.kind !== 'hosted' || host.providerRef?.kind !== 'sprites')
+            return null
+        try {
+            const { client, spriteName } =
+                await this.hostClients.spritesClientForHost(
+                    host,
+                    spritesLoggerFor(this.log)
+                )
+            return { client, spriteName }
+        } catch (err) {
+            this.log.warn(
+                `sprites client unavailable for host ${host.id}: ${(err as Error).message}`
+            )
+            return null
         }
     }
 
@@ -1210,20 +1110,22 @@ export class SpriteKeepAliveLeaseService {
         return [runtime.framework]
     }
 
-    // Any sprite runtime can hold a keep-alive lease (the renewing /v1/tasks
-    // loop that keeps the VM awake). Service-kind frameworks layer service
-    // supervision on top; exec-kind (coding) sprites run the lease alone.
-    // kind==='sprites' already excludes external frameworks by construction.
-    private isLeaseEligible(runtime: AgentRuntimeRow): boolean {
-        return runtime.kind === 'sprites' && !isExternal(runtime.framework)
+    // Only a hosted sprites machine holds a keep-awake lease (the renewing
+    // /v1/tasks loop that keeps the VM awake).
+    private isLeaseEligible(host: RuntimeHostRow): boolean {
+        return (
+            host.kind === 'hosted' &&
+            host.providerRef?.kind === 'sprites' &&
+            host.status !== 'retired'
+        )
     }
 
     private defaultHomeDir(framework: AgentFramework): string {
-        if (framework === 'hermes') return '/home/sprite/.hermes'
-        if (framework === 'openclaw') return '/home/sprite/.openclaw'
+        if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
+        if (framework === 'openclaw') return `${SPRITE_HOME_BASE}/.openclaw`
         return (
             this.extensions.get(framework)?.spriteService?.supervision
-                .homeDir ?? '/home/sprite'
+                .homeDir ?? SPRITE_HOME_BASE
         )
     }
 
@@ -1232,7 +1134,6 @@ export class SpriteKeepAliveLeaseService {
         metadata: SpriteKeepAliveMetadata | null
     ): string {
         return (
-            runtime.homeDir ??
             metadata?.stateDir.replace(/\/\.(?:manyfold|nca)\/keepalive$/, '') ??
             this.defaultHomeDir(runtime.framework)
         )

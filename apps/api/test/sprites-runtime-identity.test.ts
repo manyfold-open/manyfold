@@ -228,7 +228,14 @@ const provisionerWith = (opts: {
 }): SpritesProvisioner =>
     new SpritesProvisioner(
         {} as never, // db
-        {} as never, // accounts
+        {} as never, // hosts
+        {} as never, // hostDaemons
+        {} as never, // clients
+        {} as never, // placement
+        {} as never, // providers
+        {} as never, // runnerManager
+        {} as never, // registry
+        {} as never, // tokens
         {} as never, // runtimes
         {} as never, // claudeBootstrap
         {} as never, // codexBootstrap
@@ -396,8 +403,6 @@ class FakeCreateAgentDb {
         if (table === agents) {
             const row = {
                 ...values,
-                spriteStatus: null,
-                k8sPodPhase: null,
                 storageBytes: null,
                 storageMeasuredAt: null,
                 createdAt: now,
