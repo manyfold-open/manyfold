@@ -282,6 +282,8 @@ export interface PiAgentModelConfig {
 export interface AntigravityCliAgentModelConfig {
     framework: 'antigravity-cli'
     model?: string | null
+    // Resolved by the API from the selected provider's enabled model list.
+    providerModel?: string | null
 }
 
 // Gemini CLI routing alias: with no explicit model the CLI defaults to its

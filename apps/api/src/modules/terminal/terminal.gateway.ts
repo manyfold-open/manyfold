@@ -316,6 +316,7 @@ export class TerminalGateway implements OnModuleInit {
             resumeSessionId && resumeSupported && !herdrViewer
                 ? await this.resume.resolve({
                       agentId: agent.id,
+                      userId: agent.userId,
                       runtimeId: agent.runtimeId,
                       framework: agent.framework,
                       chatSessionId: resumeSessionId,

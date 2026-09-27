@@ -2220,7 +2220,7 @@ test('AgentModelConfigService saves a pi platform model and resolves it for the 
 
 // agy's API-key mode runs only the slugs it lists and fails the turn on any
 // other, so an unknown platform model is refused when it is saved.
-test('AgentModelConfigService takes only the slugs agy offers as an Antigravity CLI platform model', async () => {
+test('AgentModelConfigService validates Antigravity platform selection against the provider', async () => {
     const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'antigravity-cli', model: null })
     db.credentialPayload = { googleApiKey: 'test-key' }
     const service = makeService(db, ['gemini-3.8-flash'])
@@ -2235,7 +2235,7 @@ test('AgentModelConfigService takes only the slugs agy offers as an Antigravity 
     )
     assert.deepEqual(view.config, { framework: 'antigravity-cli', model: 'gemini-3.8-flash-high' })
     assert.deepEqual(view.validation, { valid: true, messages: [] })
-    assert.ok(view.options.some((o) => o.value === 'gemini-3.1-pro-low'))
+    assert.ok(view.options.some((o) => o.value === 'gemini-3.8-flash-high'))
     assert.equal(db.agent.model, 'gemini-3.8-flash-high')
     await assert.rejects(
         service.updateForAgent(
@@ -2247,7 +2247,7 @@ test('AgentModelConfigService takes only the slugs agy offers as an Antigravity 
             },
             false
         ),
-        /not one its Gemini API-key mode offers/
+        /enabled provider model list/
     )
 })
 
@@ -2308,10 +2308,23 @@ for (const scenario of [
         valid: true
     },
     {
-        name: 'default unavailable',
+        name: 'default falls back to an available model',
         models: ['gemini-3.8-flash'],
         model: null,
-        valid: false
+        defaultModel: 'gemini-3.8-flash-high',
+        valid: true
+    },
+    {
+        name: 'provider namespaced ID via custom model',
+        models: ['google/gemini-3.8-flash'],
+        model: 'google/gemini-3.8-flash',
+        valid: true
+    },
+    {
+        name: 'provider ID matching a built-in slug',
+        models: ['gemini-3.6-flash-medium'],
+        model: 'gemini-3.6-flash-medium',
+        valid: true
     },
     {
         name: 'customtools unavailable',
@@ -2349,8 +2362,8 @@ for (const scenario of [
         assert.equal(view.validation.valid, scenario.valid)
         assert.equal(
             view.options.find(
-                (o) => o.value === (scenario.model ?? 'gemini-3.1-pro-low')
-            )?.enabled,
+                (o) => o.value === (scenario.model ?? scenario.defaultModel ?? 'gemini-3.1-pro-low')
+            )?.enabled === true,
             scenario.valid
         )
         const save = () =>
@@ -2368,10 +2381,14 @@ for (const scenario of [
             })
         if (scenario.valid) {
             assert.equal((await save()).validation.valid, true)
+            const resolved = await turn()
             assert.equal(
-                (await turn()).model,
-                scenario.model ?? 'gemini-3.1-pro-low'
+                resolved.model,
+                scenario.model ?? scenario.defaultModel ?? 'gemini-3.1-pro-low'
             )
+            assert.equal(resolved.modelConfig?.framework, 'antigravity-cli')
+            if (resolved.modelConfig?.framework === 'antigravity-cli')
+                assert.ok(scenario.models?.includes(resolved.modelConfig.providerModel!))
         } else {
             assert.ok(view.validation.messages.length)
             await assert.rejects(save, /provider|upstream/i)
@@ -2421,6 +2438,17 @@ for (const models of [
             /provider/i
         )
     })
+
+test('Antigravity ignores caller-supplied routing and resolves the enabled provider ID', async () => {
+    const db = new FakeDb({ ...baseAgent, framework: 'antigravity-cli' })
+    db.credentialPayload = { googleApiKey: 'fixture-key' }
+    const service = makeService(db, ['gemini-3.6-flash-medium'])
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1', agentId: 'agent-1',
+        modelConfig: { framework: 'antigravity-cli', model: 'gemini-3.6-flash-medium', providerModel: 'unapproved-model' }
+    })
+    assert.deepEqual(turn.modelConfig, { framework: 'antigravity-cli', model: 'gemini-3.6-flash-medium', providerModel: 'gemini-3.6-flash-medium' })
+})
 
 test('Antigravity official Google credentials require discovery and refresh makes matching models available', async () => {
     const db = new FakeDb({

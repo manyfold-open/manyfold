@@ -6,6 +6,7 @@ import { chromium, type Page } from 'playwright'
 import { build } from 'vite'
 import type { SdkAgent } from '@manyfold/sdk'
 import type { AgentStorageUsageResponse } from '@manyfold/shared'
+import { resolveAntigravityModelOptions } from '@manyfold/shared'
 
 const root = resolve(import.meta.dirname, '../../..')
 const origin = 'http://settings.test'
@@ -232,6 +233,155 @@ const fixture = async (agents: Record<string, SdkAgent>) => {
         }
     }
 }
+
+test('Antigravity provider dialog selects and saves the visible model for NetMind and Managed providers', async () => {
+    const f = await fixture({ a: agent('a', 'sprites') })
+    f.page.setDefaultTimeout(5000)
+    const providers = [
+        {
+            id: 'netmind',
+            label: 'NetMind API',
+            providerName: 'NetMind API',
+            source: 'user',
+            models: ['google/gemini-3.8-flash', 'google/gemini-3.7-flash']
+        },
+        {
+            id: 'managed',
+            label: 'Managed Antigravity',
+            providerName: 'Managed Antigravity',
+            source: 'managed',
+            models: ['gemini-3.8-flash-high', 'gemini-3.6-flash-medium']
+        }
+    ].map((provider) => ({
+        ...provider,
+        inferenceProtocol: 'google_generate_content',
+        builtInId: null,
+        managedBrand: provider.source === 'managed' ? 'antigravity' : null,
+        lastTestModels: { google_generate_content: provider.models },
+        enabledModels: null,
+        lastTestStatus: 'ok'
+    }))
+    let savedProvider = providers[0]
+    let selectedModel = 'gemini-3.8-flash-high'
+    const mutations: Array<{
+        path: string
+        body: {
+            antigravityCliCredentials?: { providerId: string; model: string }
+            modelConfig?: { model: string }
+        }
+    }> = []
+    const credentialView = () => ({
+        ...credentials,
+        framework: 'antigravity-cli',
+        provider: 'google',
+        savedProvider,
+        extras: { model: selectedModel }
+    })
+    const modelView = () => ({
+        ...model('a'),
+        framework: 'antigravity-cli',
+        provider: 'google',
+        config: { framework: 'antigravity-cli', model: selectedModel },
+        providerModels: savedProvider.models,
+        options: resolveAntigravityModelOptions(savedProvider.models),
+        validation: { valid: false, messages: ['Old model is unavailable'] }
+    })
+    await f.page.route('**/api/me/model-providers', (route) =>
+        route.fulfill({ json: providers })
+    )
+    await f.page.route('**/api/agents/a/credentials', async (route) => {
+        if (route.request().method() !== 'GET') {
+            const body = route.request().postDataJSON()
+            mutations.push({ path: 'credentials', body })
+            savedProvider = providers.find(
+                (provider) =>
+                    provider.id === body.antigravityCliCredentials.providerId
+            )!
+        }
+        await route.fulfill({ json: credentialView() })
+    })
+    await f.page.route('**/api/agents/a/model-config**', async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (path.endsWith('/refresh-models')) {
+            await route.fulfill({
+                json: {
+                    ok: true,
+                    view: modelView(),
+                    models: savedProvider.models
+                }
+            })
+            return
+        }
+        if (route.request().method() !== 'GET') {
+            const body = route.request().postDataJSON()
+            mutations.push({ path: 'model-config', body })
+            selectedModel = body.modelConfig.model
+            assert.ok(savedProvider.models.includes(selectedModel))
+        }
+        await route.fulfill({ json: modelView() })
+    })
+    try {
+        await f.page.goto(`${origin}/provider-dialog`)
+        await f.page
+            .getByRole('heading', { name: 'Model provider', exact: true })
+            .waitFor()
+        await f.page.getByRole('button', { name: 'Model', exact: true }).click()
+        await f.page
+            .getByRole('option', {
+                name: 'google/gemini-3.7-flash',
+                exact: true
+            })
+            .click()
+        assert.equal(
+            await f.page
+                .getByRole('button', { name: 'Save', exact: true })
+                .isEnabled(),
+            true
+        )
+        await f.page.getByRole('button', { name: 'Save', exact: true }).click()
+        await f.page.getByText(/default model updated/i).waitFor()
+        assert.equal(selectedModel, 'google/gemini-3.7-flash')
+        await f.page
+            .getByRole('button', { name: 'Change', exact: true })
+            .click()
+        await f.page
+            .getByRole('option', { name: /Managed Antigravity/ })
+            .click()
+        await f.page.getByRole('button', { name: 'Model', exact: true }).click()
+        await f.page
+            .getByRole('option', {
+                name: 'gemini-3.6-flash-medium',
+                exact: true
+            })
+            .click()
+        const screenshots = process.env.AGY_PROVIDER_SCREENSHOTS
+        if (screenshots) {
+            await mkdir(screenshots, { recursive: true })
+            for (const [name, width, height] of [['desktop', 1365, 900], ['mobile', 390, 844]] as const) {
+                await f.page.setViewportSize({ width, height })
+                await renderSettled(f.page)
+                assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+                await f.page.screenshot({ path: resolve(screenshots, `${name}.png`), fullPage: true })
+            }
+        }
+        await f.page.getByRole('button', { name: 'Save', exact: true }).click()
+        await f.page.getByText(/default model updated/i).waitFor()
+        assert.equal(selectedModel, 'gemini-3.6-flash-medium')
+        assert.equal(
+            mutations.find((call) => call.path === 'credentials')?.body
+                .antigravityCliCredentials?.model,
+            selectedModel
+        )
+        assert.deepEqual(
+            mutations
+                .filter((call) => call.path === 'model-config')
+                .map((call) => call.body.modelConfig?.model),
+            ['google/gemini-3.7-flash', 'gemini-3.6-flash-medium']
+        )
+    } finally {
+        await f.close()
+    }
+})
 
 test('A2A outbound grants use the peer endpoint and revoke the target durably', async () => {
     const caller = agent('caller', 'sprites')

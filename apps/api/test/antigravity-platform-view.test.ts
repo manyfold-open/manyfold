@@ -75,6 +75,62 @@ const viewSettings = (dir: string) =>
 const viewOf = (l: ReturnType<typeof lab>, id = 'art_1') =>
     join(l.home, '.manyfold', 'antigravity-cli', id, 'app')
 
+test('custom provider models get isolated native agy registrations without touching sign-in', () => {
+    const l = lab()
+    try {
+        const runs = ['google/gemini-3.8-flash', 'gemini-3.6-flash-medium'].map(
+            (model) =>
+                antigravityPlatformExec({
+                    agyArgs: [],
+                    runtimeId: 'art_1',
+                    apiKey: 'fixture-key',
+                    managedHost: true,
+                    model,
+                    providerModel: model
+                })
+        )
+        assert.notEqual(runs[0].env.MF_AGY_VIEW, runs[1].env.MF_AGY_VIEW)
+        for (const [index, exec] of runs.entries()) {
+            assert.equal(run(l, exec.env, exec.cmd.slice(4)).status, 0)
+            const settings = JSON.parse(
+                readFileSync(
+                    join(viewOf(l, exec.env.MF_AGY_VIEW), 'settings.json'),
+                    'utf8'
+                )
+            )
+            assert.equal(settings.modelProvider, 'gemini')
+            assert.equal(
+                settings.customModelsConfig.customModels[
+                    'manyfold-provider-model'
+                ].modelName,
+                index === 0
+                    ? 'google/gemini-3.8-flash'
+                    : 'gemini-3.6-flash-medium'
+            )
+            assert.deepEqual(exec.cmd.slice(-2), [
+                '--model',
+                'manyfold-provider-model'
+            ])
+            const prepare = antigravityPlatformViewPrepare(exec.env)
+            assert.equal(
+                prepare.env.MF_AGY_CUSTOM_MODELS_JSON,
+                exec.env.MF_AGY_CUSTOM_MODELS_JSON
+            )
+        }
+        assert.equal(
+            readFileSync(join(l.native, 'settings.json'), 'utf8'),
+            '{"colorScheme":"dark"}'
+        )
+        assert.ok(
+            existsSync(
+                join(viewOf(l, runs[0].env.MF_AGY_VIEW), 'settings.json')
+            )
+        )
+    } finally {
+        rmSync(l.root, { recursive: true, force: true })
+    }
+})
+
 test('agy runs on the view, pointed at it relative to its ~/.gemini', () => {
     const l = lab()
     try {

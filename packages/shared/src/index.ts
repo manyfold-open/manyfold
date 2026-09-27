@@ -596,6 +596,7 @@ export {
     antigravityUpstreamModel,
     antigravityProviderModelIds,
     resolveAntigravityModelOptions,
+    defaultAntigravityModel,
     isAntigravityConversationId,
     parseAntigravityModelList
 } from './antigravity-cli'
