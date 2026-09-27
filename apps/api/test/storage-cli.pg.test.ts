@@ -94,21 +94,19 @@ test(
             { getUserEmail: async () => null } as never
         )
         let providerReads = 0
+        const runtimeContext = new RuntimeContextService(h.db)
         const diagnostics = new AgentDiagnosticsService(
             {
-                findForCaller: async (id: string, userId: string) =>
-                    (
-                        await h.db
-                            .select()
-                            .from(agents)
-                            .where(
-                                and(
-                                    eq(agents.id, id),
-                                    eq(agents.userId, userId)
-                                )
-                            )
-                            .limit(1)
-                    )[0]
+                contextForCaller: async (
+                    id: string,
+                    userId: string,
+                    isAdmin: boolean
+                ) => {
+                    const ctx = await runtimeContext.forAgent(id)
+                    if (!ctx?.agent) return null
+                    if (ctx.agent.userId !== userId && !isAdmin) return null
+                    return ctx
+                }
             } as never,
             {
                 forRuntime: async () => {
@@ -119,7 +117,6 @@ test(
                 }
             } as never
         )
-        const runtimeContext = new RuntimeContextService(h.db)
         const summarize = async (
             row: Parameters<typeof agentRowToSummary>[0]['agent']
         ) => {

@@ -60,12 +60,7 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                 for (const id of ['owner', 'other']) {
                     // This fixture intentionally stops before later user columns.
                     await db.$client`insert into users (id, email) values (${id}, ${`${id}@example.test`})`
-                    await db.insert(agentRuntimes).values({
-                        id: `art_${id}`,
-                        userId: id,
-                        name: id,
-                        framework: 'codex'
-                    })
+                    await db.$client`insert into agent_runtimes (id, user_id, name, framework, kind) values (${`art_${id}`}, ${id}, ${id}, 'codex', 'sprites')`
                 }
                 for (const id of [
                     'live',
@@ -78,14 +73,7 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                     'foreign'
                 ]) {
                     const userId = id === 'foreign' ? 'other' : 'owner'
-                    await db.insert(agents).values({
-                        id,
-                        userId,
-                        name: id,
-                        runtimeId: `art_${userId}`,
-                        framework: 'codex',
-                        internalId: id
-                    })
+                    await db.$client`insert into agents (id, user_id, name, runtime_id, framework, runtime, internal_id) values (${id}, ${userId}, ${id}, ${`art_${userId}`}, 'codex', 'sprites', ${id})`
                 }
                 await body({
                     db,

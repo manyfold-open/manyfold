@@ -12,6 +12,7 @@ import {
     daemonTokens,
     hostDaemons,
     runtimeHosts,
+    serviceLeases,
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
@@ -22,6 +23,7 @@ import { RuntimeProvidersService } from '@/modules/hosts/runtime-providers.servi
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { providerRefLabel } from './host-ref'
+import { daemonConfigLeaseName } from '@/modules/daemon/daemon-config-delivery.service'
 
 export const HOST_NOT_EMPTY_CODE = 'HOST_NOT_EMPTY'
 
@@ -132,6 +134,9 @@ export class HostedHostLifecycleService {
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.hostId, host.id))
             await tx.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id))
+            await tx
+                .delete(serviceLeases)
+                .where(eq(serviceLeases.name, daemonConfigLeaseName(host.id)))
             await tx.delete(runtimeHosts).where(eq(runtimeHosts.id, host.id))
         })
         this.telemetry.event('host.deleted', {
@@ -215,6 +220,9 @@ export class HostedHostLifecycleService {
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.hostId, host.id))
             await tx.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id))
+            await tx
+                .delete(serviceLeases)
+                .where(eq(serviceLeases.name, daemonConfigLeaseName(host.id)))
             await tx.delete(runtimeHosts).where(eq(runtimeHosts.id, host.id))
         })
     }

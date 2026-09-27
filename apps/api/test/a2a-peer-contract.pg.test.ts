@@ -57,25 +57,9 @@ const withDatabase = (
                 })
                 // Seed the historical contract without current ORM defaults.
                 await db.$client`insert into users (id, email) values ('owner', 'contract@example.test')`
-                await db
-                    .insert(agentRuntimes)
-                    .values({
-                        id: 'runtime',
-                        userId: 'owner',
-                        name: 'contract',
-                        framework: 'codex',
-                    })
+                await db.$client`insert into agent_runtimes (id, user_id, name, framework, kind) values ('runtime', 'owner', 'contract', 'codex', 'sprites')`
                 for (const id of ['caller', 'target'])
-                    await db
-                        .insert(agents)
-                        .values({
-                            id,
-                            userId: 'owner',
-                            runtimeId: 'runtime',
-                            framework: 'codex',
-                            internalId: id,
-                            name: id
-                        })
+                    await db.$client`insert into agents (id, user_id, runtime_id, framework, runtime, internal_id, name) values (${id}, 'owner', 'runtime', 'codex', 'sprites', ${id}, ${id})`
                 await body(db, async () => {
                     await db.$client.begin(async (sql) => {
                         for (const statement of contract)
