@@ -412,6 +412,53 @@ test('a platform agent with no provider bound is refused before any exec', async
     assert.equal(seam.streams.length, 0)
 })
 
+test('a runtime-local override ignores the saved platform key and endpoint', async () => {
+    const seam = buildSeam({
+        fixture: 'resume-turn-1',
+        source: 'platform',
+        creds: {
+            googleApiKey: 'gk-marker',
+            googleGeminiBaseUrl: 'https://gw.example/antigravity',
+            model: null
+        }
+    })
+    const events = await drain(
+        seam.adapter.sendMessage(ctx({ runtimeLocalTuning: {} }), message)
+    )
+    assert.equal(errorOf(events), null)
+    assert.equal(seam.streams.length, 1)
+    assert.equal(seam.streams[0].env?.GEMINI_API_KEY, undefined)
+    assert.equal(seam.streams[0].env?.GOOGLE_GEMINI_BASE_URL, undefined)
+    assert.equal(seam.streams[0].env?.MF_AGY_VIEW, undefined)
+    assert.ok(!seam.streams[0].cmd.includes(AGY_PLATFORM_VIEW_SCRIPT))
+})
+
+test('a platform override outranks local tuning and the saved runtime-local source', async () => {
+    const seam = buildSeam({
+        fixture: 'resume-turn-1',
+        source: 'runtime-local',
+        creds: {
+            googleApiKey: 'gk-marker',
+            googleGeminiBaseUrl: null,
+            model: null
+        }
+    })
+    await drain(
+        seam.adapter.sendMessage(
+            ctx({
+                modelConfig: {
+                    framework: 'antigravity-cli',
+                    model: 'gemini-3.8-flash-high'
+                },
+                runtimeLocalTuning: {}
+            }),
+            message
+        )
+    )
+    assert.equal(seam.streams[0].env?.GEMINI_API_KEY, 'gk-marker')
+    assert.ok(seam.streams[0].cmd.includes(AGY_PLATFORM_VIEW_SCRIPT))
+})
+
 test('an agent without a workspace is refused before any exec', async () => {
     const seam = buildSeam({ fixture: 'resume-turn-1', workspacePath: null })
     const err = errorOf(await drain(seam.adapter.sendMessage(ctx(), message)))!

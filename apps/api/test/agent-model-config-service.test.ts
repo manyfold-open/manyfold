@@ -1917,7 +1917,8 @@ const makeService = (
     models: string[] | null,
     daemonRegistry?: { rpc: () => Promise<Record<string, unknown>> },
     execDrivers?: { resolveRunner: () => Promise<unknown> },
-    enabledModels: ProtocolModelMap | null = null
+    enabledModels: ProtocolModelMap | null = null,
+    protocolModels?: ProtocolModelMap
 ): AgentModelConfigService =>
     new AgentModelConfigService(
         db as never,
@@ -1929,7 +1930,7 @@ const makeService = (
                 const provider =
                     db.agent.framework === 'claude-code'
                         ? 'anthropic'
-                        : db.agent.framework === 'gemini-cli'
+                        : db.agent.framework === 'gemini-cli' || db.agent.framework === 'antigravity-cli'
                           ? 'google'
                           : 'openai'
                 const protocol =
@@ -1954,7 +1955,7 @@ const makeService = (
                     lastTestStatus: 'ok',
                     lastTestMessage: null,
                     lastTestModels:
-                        models === null ? null : { [protocol]: models },
+                        protocolModels ?? (models === null ? null : { [protocol]: models }),
                     enabledModels,
                     createdAt: date.toISOString(),
                     updatedAt: date.toISOString()
@@ -2221,7 +2222,8 @@ test('AgentModelConfigService saves a pi platform model and resolves it for the 
 // other, so an unknown platform model is refused when it is saved.
 test('AgentModelConfigService takes only the slugs agy offers as an Antigravity CLI platform model', async () => {
     const db = new FakeDb({ ...baseAgent, runtime: 'daemon', framework: 'antigravity-cli', model: null })
-    const service = makeService(db, null)
+    db.credentialPayload = { googleApiKey: 'test-key' }
+    const service = makeService(db, ['gemini-3.8-flash'])
     const view = await service.updateForAgent(
         'user-1',
         'agent-1',
@@ -2246,6 +2248,210 @@ test('AgentModelConfigService takes only the slugs agy offers as an Antigravity 
             false
         ),
         /not one its Gemini API-key mode offers/
+    )
+})
+
+for (const scenario of [
+    {
+        name: 'bare upstream ID',
+        models: ['gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-high',
+        valid: true
+    },
+    {
+        name: 'medium effort',
+        models: ['gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-medium',
+        valid: true
+    },
+    {
+        name: 'low effort',
+        models: ['gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-low',
+        valid: true
+    },
+    {
+        name: 'namespaced upstream ID',
+        models: ['google/gemini-3.8-flash'],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'disabled upstream ID',
+        models: ['gemini-3.8-flash'],
+        enabled: [],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'unknown directory',
+        models: null,
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'empty directory',
+        models: [],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'old provider model',
+        models: ['gemini-3.7-flash'],
+        model: 'gemini-3.8-flash-high',
+        valid: false
+    },
+    {
+        name: 'default available',
+        models: ['gemini-3.1-pro-preview'],
+        model: null,
+        valid: true
+    },
+    {
+        name: 'default unavailable',
+        models: ['gemini-3.8-flash'],
+        model: null,
+        valid: false
+    },
+    {
+        name: 'customtools unavailable',
+        models: ['gemini-3.1-pro-preview'],
+        model: 'gemini-3.1-pro-high',
+        valid: false
+    },
+    {
+        name: 'customtools available',
+        models: ['gemini-3.1-pro-preview-customtools'],
+        model: 'gemini-3.1-pro-high',
+        valid: true
+    }
+])
+    test(`Antigravity platform compatibility agrees on view, save and turn: ${scenario.name}`, async () => {
+        const db = new FakeDb({
+            ...baseAgent,
+            framework: 'antigravity-cli',
+            model: scenario.model
+        })
+        db.credentialPayload = {
+            googleApiKey: 'test-key',
+            googleGeminiBaseUrl: 'https://gateway.example.test'
+        }
+        const service = makeService(
+            db,
+            scenario.models,
+            undefined,
+            undefined,
+            scenario.enabled
+                ? { google_generate_content: scenario.enabled }
+                : null
+        )
+        const view = await service.getForAgent('user-1', 'agent-1', false)
+        assert.equal(view.validation.valid, scenario.valid)
+        assert.equal(
+            view.options.find(
+                (o) => o.value === (scenario.model ?? 'gemini-3.1-pro-low')
+            )?.enabled,
+            scenario.valid
+        )
+        const save = () =>
+            service.updateForAgent(
+                'user-1',
+                'agent-1',
+                { modelConfigSource: 'platform' },
+                false
+            )
+        const turn = () =>
+            service.resolveTurnConfig({
+                callerUserId: 'user-1',
+                agentId: 'agent-1',
+                modelConfigSource: 'platform'
+            })
+        if (scenario.valid) {
+            assert.equal((await save()).validation.valid, true)
+            assert.equal(
+                (await turn()).model,
+                scenario.model ?? 'gemini-3.1-pro-low'
+            )
+        } else {
+            assert.ok(view.validation.messages.length)
+            await assert.rejects(save, /provider|upstream/i)
+            await assert.rejects(turn, /provider|upstream/i)
+        }
+    })
+
+for (const models of [
+    null,
+    [],
+    { openai_chat_completions: ['gemini-3.8-flash'] }
+] as const)
+    test(`Antigravity does not trust stale cached models over provider directory ${JSON.stringify(models)}`, async () => {
+        const db = new FakeDb({
+            ...baseAgent,
+            framework: 'antigravity-cli',
+            model: 'gemini-3.8-flash-high',
+            extras: {
+                modelProviderModels: {
+                    provider: 'google',
+                    baseUrl: null,
+                    models: ['gemini-3.8-flash'],
+                    testedAt: date.toISOString(),
+                    source: 'agent-refresh'
+                }
+            }
+        })
+        db.credentialPayload = { googleApiKey: 'test-key' }
+        const service = makeService(
+            db,
+            Array.isArray(models) ? [] : null,
+            undefined,
+            undefined,
+            null,
+            models && !Array.isArray(models)
+                ? (models as unknown as ProtocolModelMap)
+                : undefined
+        )
+        const view = await service.getForAgent('user-1', 'agent-1', false)
+        assert.equal(view.validation.valid, false)
+        assert.deepEqual(view.providerModels, [])
+        await assert.rejects(
+            service.resolveTurnConfig({
+                callerUserId: 'user-1',
+                agentId: 'agent-1'
+            }),
+            /provider/i
+        )
+    })
+
+test('Antigravity official Google credentials require discovery and refresh makes matching models available', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        framework: 'antigravity-cli',
+        model: null
+    })
+    db.credentialPayload = { googleApiKey: 'test-key' }
+    const models: string[] = []
+    const service = makeService(db, models)
+    assert.equal(
+        (await service.getForAgent('user-1', 'agent-1', false)).validation
+            .valid,
+        false
+    )
+    models.push('gemini-3.1-pro-preview')
+    const refreshed = await service.refreshProviderModels(
+        'user-1',
+        'agent-1',
+        false,
+        'platform'
+    )
+    assert.equal(refreshed.view.validation.valid, true)
+    assert.equal(
+        (
+            await service.resolveTurnConfig({
+                callerUserId: 'user-1',
+                agentId: 'agent-1'
+            })
+        ).modelConfig?.framework,
+        'antigravity-cli'
     )
 })
 
