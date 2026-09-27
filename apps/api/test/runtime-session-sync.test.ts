@@ -4,6 +4,13 @@ import test from 'node:test'
 import { terminalSessions } from '@manyfold/db'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
 import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    hostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import type { RecoveredMessage } from '../src/modules/chat/recovery/readers'
 
 interface DbMsg {
@@ -253,7 +260,23 @@ const makeHarness = (
                 healthChecks.push(hostId)
                 return execUnavailable
             }
-        } as never
+        } as never,
+        undefined,
+        // The agent's machine: a sandbox or the user's own computer.
+        fakeRuntimeContext(
+            contextOf({
+                agent: agent as never,
+                runtime: runtimeRow({
+                    id: 'runtime-1',
+                    userId: 'user-1',
+                    hostId: 'host-1'
+                }),
+                host:
+                    (options.runtime ?? 'daemon') === 'sprites'
+                        ? spritesHostRow({ id: 'host-1', userId: 'user-1' })
+                        : hostRow({ id: 'host-1', userId: 'user-1' })
+            })
+        ) as never
     )
     return {
         service,

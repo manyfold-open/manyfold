@@ -52,19 +52,25 @@ const buildHarness = (script: {
             }
         }
     }
+    // The agent row joined to its host: a sandbox.
     const db = {
         select: () => ({
-            from: () => ({
-                where: () => ({
+            from: () => {
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
                     limit: async () => [
                         {
-                            runtime: 'sprites',
                             internalId: 'main',
-                            daemonId: null
+                            hostId: 'rth_1',
+                            hostKind: 'hosted',
+                            providerKind: 'sprites'
                         }
                     ]
-                })
-            })
+                }
+                return chain
+            }
         })
     }
     const pricing = {

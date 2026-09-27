@@ -60,7 +60,6 @@ import {
     isRuntimeLocalCredentialUsable,
     parseRuntimeLocalCredentialFacts,
     runtimeLocalCredentialStatus,
-    placementOf,
     type CodexIntelligence,
     type RuntimeLocalTuning,
     type RuntimeLocalCredentialContext,
@@ -80,13 +79,10 @@ import {
 import { and, eq } from 'drizzle-orm'
 import {
     runtimeAuthProfiles,
-    runtimeHosts,
     agentCredentials,
-    agentRuntimes,
     agents,
     jsonbMerge,
     hostDaemons,
-    runtimeProviders,
     type Agent,
     type Database
 } from '@manyfold/db'
@@ -95,6 +91,7 @@ import { ResourceChangesService } from '@/modules/resource-events/resource-chang
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
@@ -166,7 +163,11 @@ export class AgentModelConfigService {
         // runner unavailable instead of waking it.
         @Optional()
         _runtimeAuth?: RuntimeAuthProfilesService,
-        @Optional() private readonly changes?: ResourceChangesService
+        @Optional() private readonly changes?: ResourceChangesService,
+        // Same rule. The agent's machine (ADR-0036): placement and host id.
+        // Absent = the agent is read as having no machine.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {}
 
     async getForAgent(
@@ -937,31 +938,17 @@ export class AgentModelConfigService {
     // (ADR-0036): the placement, which decides the default source and how
     // credentials are judged, and the host id, which routes to its daemon.
     private async loadPlacedAgent(agentId: string): Promise<PlacedAgent | null> {
-        const [row] = await this.db
-            .select({
-                agent: agents,
-                hostId: runtimeHosts.id,
-                hostKind: runtimeHosts.kind,
-                providerKind: runtimeProviders.kind
-            })
+        const [agent] = await this.db
+            .select()
             .from(agents)
-            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
-            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
-            .leftJoin(
-                runtimeProviders,
-                eq(runtimeProviders.id, runtimeHosts.providerId)
-            )
             .where(eq(agents.id, agentId))
             .limit(1)
-        if (!row) return null
+        if (!agent) return null
+        const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
         return {
-            ...row.agent,
-            placement: placementOf(
-                row.hostId && row.hostKind
-                    ? { kind: row.hostKind, providerKind: row.providerKind }
-                    : null
-            ),
-            hostId: row.hostId ?? null
+            ...agent,
+            placement: machine?.placement ?? 'external',
+            hostId: machine?.host?.id ?? null
         }
     }
 

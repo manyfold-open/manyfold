@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ConflictException, InternalServerErrorException } from '@nestjs/common'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    hostRow
+} from './helpers/runtime-context-fixture'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { OpenclawAgentAdapter } from '../src/modules/agents/adapters/openclaw-agent.adapter'
 import { HermesAgentAdapter } from '../src/modules/agents/adapters/hermes-agent.adapter'
@@ -16,9 +21,8 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     userId: 'u-1',
     name: 'laptop-openclaw',
     framework: 'openclaw',
-    kind: 'daemon',
-    status: 'stopped',
-    daemonId: 'dh-1',
+    status: 'ready',
+    hostId: 'dh-1',
     primaryAgentId: null,
     accountId: null,
     spriteName: null,
@@ -34,10 +38,9 @@ const fakeAgent = (over: Record<string, unknown> = {}) => ({
     userId: 'u-1',
     runtimeId: 'rt-1',
     framework: 'openclaw',
-    runtime: 'daemon',
     name: 'main',
     internalId: 'main',
-    status: 'stopped',
+    status: 'ready',
     workspacePath: '/home/user/.openclaw/workspace',
     mountPath: '/home/user/.openclaw',
     fileRoots: [],
@@ -100,6 +103,13 @@ const makeSvc = (args: {
     }> = []
     const ctor = new Array(19).fill({}) as never[]
     ctor[0] = args.db as never
+    ctor[2] = fakeRuntimeContext(
+        contextOf({
+            agent: fakeAgent() as never,
+            runtime: (args.runtime ?? fakeRuntime()) as never,
+            host: hostRow({ id: 'dh-1', userId: 'u-1', name: 'laptop' })
+        })
+    ) as never
     ctor[4] = {
         findById: async () => args.runtime ?? fakeRuntime()
     } as never
@@ -148,9 +158,9 @@ test('daemon offline at rpc lookup: typed retryable 409, row and pointer untouch
     assert.equal(body.details.retryable, true)
     assert.equal(body.details.agentId, 'agent-1')
     assert.equal(body.details.runtimeId, 'rt-1')
-    assert.equal(body.details.daemonId, 'dh-1')
+    assert.equal(body.details.hostId, 'dh-1')
     assert.match(String(body.details.reason), /offline; no active websocket/)
-    assert.match(body.message, /revoke and permanently delete/)
+    assert.match(body.message, /retire and permanently delete/)
 
     assert.equal(db.deletes.length, 0, 'agent row must survive')
     assert.equal(db.updates.length, 0, 'primary pointer must not move')
@@ -159,7 +169,7 @@ test('daemon offline at rpc lookup: typed retryable 409, row and pointer untouch
         'agent.delete.failed'
     ])
     assert.equal(db.audits[1].meta.failureClass, 'daemon_unavailable')
-    assert.equal(db.audits[1].meta.daemonId, 'dh-1')
+    assert.equal(db.audits[1].meta.hostId, 'dh-1')
 
     assert.equal(telemetryEvents.length, 1)
     assert.equal(telemetryEvents[0].name, 'agent.delete.detach_failed')
@@ -222,7 +232,7 @@ test('daemon answered and refused: 500 keeps the sanitized reason and identifier
     assert.equal(body.code, 'agent.daemon_detach_failed')
     assert.equal(body.details.retryable, false)
     assert.match(String(body.details.reason), /exit 1.*agent is busy/)
-    assert.equal(body.details.daemonId, 'dh-1')
+    assert.equal(body.details.hostId, 'dh-1')
     assert.equal(db.deletes.length, 0)
     assert.equal(db.audits[1].meta.failureClass, 'detach_failed')
     assert.equal(telemetryEvents[0].attrs.failureClass, 'detach_failed')

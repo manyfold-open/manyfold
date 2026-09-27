@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agents, agentRuntimes } from '@manyfold/db'
+import { agents } from '@manyfold/db'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    hostRow,
+    runtimeRow
+} from './helpers/runtime-context-fixture'
 import { AgentContextDocManageService } from '../src/modules/agents/agent-context-doc-manage.service'
 import { AgentContextDocService } from '../src/modules/agent-self/agent-context-doc.service'
 import { readJsonbMergePatch } from './jsonb-merge'
@@ -13,11 +19,9 @@ import { legacyConfigDelivery } from './helpers/legacy-config-delivery'
 const agentRow = (over: Record<string, unknown> = {}) => ({
     id: 'agent-1',
     userId: 'user-1',
-    runtime: 'daemon',
     framework: 'claude-code',
-    daemonId: 'dh-1',
     runtimeId: 'art-1',
-    status: 'running',
+    status: 'ready',
     workspacePath: '/home/cy/ws',
     mountPath: '/home/cy/ws',
     extras: {},
@@ -28,9 +32,10 @@ const fakeDb = (row: Record<string, unknown>) => {
     const updates: Array<Record<string, unknown>> = []
     return {
         updates,
+        row,
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => ({ limit: async () => table === agentRuntimes ? [{ id: 'art-1', userId: 'user-1', daemonId: 'dh-1', kind: 'daemon', homeDir: '/home/cy' }] : [row] })
+            from: () => ({
+                where: () => ({ limit: async () => [row] })
             })
         }),
         update: (table: unknown) => ({
@@ -79,7 +84,17 @@ const build = (
     )
     return new AgentContextDocManageService(
         db as never,
-        {} as never,
+        fakeRuntimeContext(
+            contextOf({
+                agent: db.row as never,
+                runtime: runtimeRow({
+                    id: 'art-1',
+                    userId: 'user-1',
+                    hostId: 'dh-1'
+                }),
+                host: hostRow({ id: 'dh-1', userId: 'user-1', homeDir: '/home/cy' })
+            })
+        ) as never,
         contextDoc,
         registry as never,
         legacyConfigDelivery(db as never) as never

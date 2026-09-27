@@ -278,7 +278,11 @@ export class HermesAdapter implements ApiChatAdapter {
                 ? ctx.hermesPermissionMode
                 : null
 
-        const daemonId = ctx.runnerDaemonId ?? agentRow.hostId
+        // A local computer's own daemon carries its turns whatever runner
+        // id rides the context; a hosted machine's daemon is the runner
+        // ChatService brought up for this turn, and without one there is no
+        // transport.
+        const daemonId = localMachine ? agentRow.hostId : ctx.runnerDaemonId
         if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
         try {
             if (!await this.requireTurnHermes(daemonId)) {

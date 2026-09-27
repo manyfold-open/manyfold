@@ -17,6 +17,7 @@ import {
 import { RUNTIME_AUTH_ERROR } from '@manyfold/shared'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { seedHostDaemon, seedLocalHost } from './helpers/host-fixture'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 
 // The binding CAS is a WHERE predicate (id AND binding version), which the
@@ -89,7 +90,12 @@ const buildHarness = async (): Promise<Harness> => {
         db,
         {} as never,
         {} as never,
-        {} as never
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        new RuntimeContextService(db)
     )
     ;(
         service as unknown as {

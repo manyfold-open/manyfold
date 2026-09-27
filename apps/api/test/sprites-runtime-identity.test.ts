@@ -10,6 +10,18 @@ import {
 } from '@manyfold/db'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
+
+// The sandbox the provisioner hands back.
+const HOST = spritesHostRow({
+    id: 'rth_1',
+    userId: 'user-1',
+    providerRef: { kind: 'sprites', spriteName: 'agt-core-agent', spriteId: 'sprite-1' }
+})
 
 // B1 — the runtime identity token is minted from an agent_runtime_tokens row
 // whose agent_id FK references agents.id. The mint therefore MUST run AFTER the
@@ -70,10 +82,21 @@ const buildOrchestrator = (opts: {
     }> = []
     const teardownCalls: string[] = []
 
+    // The created agent with its machine, as the orchestrator reads it back.
+    const runtimeContext = fakeRuntimeContext((id: string) => {
+        const agent = db.agentRows.find((row) => row.id === id)
+        return agent
+            ? contextOf({
+                  agent: agent as never,
+                  runtime: provisionedRuntime as never,
+                  host: HOST
+              })
+            : null
+    })
     const service = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        runtimeContext as never,
         {
             encrypt: (plain: string) => ({
                 ciphertext: `enc:${plain}`,
@@ -93,7 +116,8 @@ const buildOrchestrator = (opts: {
                 db.runtimeRows.push(provisionedRuntime)
                 return {
                     runtime: provisionedRuntime,
-                    account: { id: 'spa_1', slug: 'default' },
+                    host: HOST,
+                    provider: { id: 'rtp_1', name: 'default' },
                     spritesClient: fakeSpritesClient,
                     homeDir: '/home/sprite'
                 }
@@ -178,7 +202,7 @@ test('createSprites mints the runtime identity only AFTER the agents row exists 
         dto: createDto
     })
 
-    assert.equal(result.status, 'running')
+    assert.equal(result.status, 'ready')
     assert.equal(identityCalls.length, 1)
     // The agents row must already be inserted when the mint runs, otherwise the
     // agent_runtime_tokens.agent_id FK would be violated.

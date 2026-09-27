@@ -1,8 +1,7 @@
 import {
     auditAction,
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
-    createObjectId,
-    placementOf
+    createObjectId
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -38,10 +37,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { desc, eq, or } from 'drizzle-orm'
 import {
-    agentRuntimes,
     agents,
-    runtimeHosts,
-    runtimeProviders,
     auditLogs,
     terminalSessionRefs,
     terminalSessions,
@@ -55,6 +51,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
@@ -139,7 +136,11 @@ export class SessionRecoveryService {
         @Optional()
         private readonly execHealth?: SpriteExecHealthService,
         @Optional()
-        private readonly telemetry?: TelemetryService
+        private readonly telemetry?: TelemetryService,
+        // The agent's machine (ADR-0036): placement and host id. Absent =
+        // the agent is read as having no machine.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -1416,31 +1417,17 @@ export class SessionRecoveryService {
     // placement, which decides which transcript reader and source shape
     // apply, and the host id the exec-health cooldown is keyed on.
     private async loadAgentRow(agentId: string): Promise<RecoveryAgent | null> {
-        const [row] = await this.db
-            .select({
-                agent: agents,
-                hostId: runtimeHosts.id,
-                hostKind: runtimeHosts.kind,
-                providerKind: runtimeProviders.kind
-            })
+        const [agent] = await this.db
+            .select()
             .from(agents)
-            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
-            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
-            .leftJoin(
-                runtimeProviders,
-                eq(runtimeProviders.id, runtimeHosts.providerId)
-            )
             .where(eq(agents.id, agentId))
             .limit(1)
-        if (!row) return null
+        if (!agent) return null
+        const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
         return {
-            ...row.agent,
-            runtime: placementOf(
-                row.hostId && row.hostKind
-                    ? { kind: row.hostKind, providerKind: row.providerKind }
-                    : null
-            ),
-            hostId: row.hostId ?? null
+            ...agent,
+            runtime: machine?.placement ?? 'external',
+            hostId: machine?.host?.id ?? null
         }
     }
 
