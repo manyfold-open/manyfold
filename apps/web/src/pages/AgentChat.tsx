@@ -1,18 +1,19 @@
-import {
+import type {
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
-    CHAT_ATTACHMENT_MAX_COUNT,
-    CHAT_MESSAGE_SOFT_LIMIT,
-    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
-    CHAT_SESSION_IMPORT_PENDING_CODE,
     ChatCapabilities,
     ChatMessage,
     ChatMessagesPage,
     CodexPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
-    CreateMessageUploadInput,
+    CreateMessageUploadInput} from '@manyfold/shared';
+import {
+    CHAT_ATTACHMENT_MAX_COUNT,
+    CHAT_MESSAGE_SOFT_LIMIT,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE,
     chatCapabilitiesFor,
     isRuntimeUsable
 } from '@manyfold/shared'

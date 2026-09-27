@@ -1,8 +1,9 @@
-import {
+import type {
     AgentCreateStep,
     AgentRuntimeSummary,
     AgentStatus,
-    SdkUserSummary,
+    SdkUserSummary} from '@manyfold/shared';
+import {
     frameworkUpgradeMode,
     isUpgradeableFramework,
     isVersionedFramework,

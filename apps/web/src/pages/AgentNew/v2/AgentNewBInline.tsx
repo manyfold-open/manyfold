@@ -1,11 +1,12 @@
-import {
+import type {
     AgentFramework,
     AgentRuntimeSummary,
     CreateAgentBody,
+    UserModelProvider} from '@manyfold/shared';
+import {
     K8S_HOME_BASE,
     OFFICIAL_PROVIDER_BASE_URL,
     SPRITE_HOME_BASE,
-    UserModelProvider,
     externalSteps,
     isModelConfigFramework,
     normalizeAgentName,

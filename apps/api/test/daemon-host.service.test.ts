@@ -55,21 +55,20 @@ class HostDb {
     async execute(): Promise<void> {}
 
     select(shape?: Record<string, unknown>) {
-        const db = this
         let table: unknown
         let joined = false
         const rows = (): unknown[] => {
-            if (shape && 'value' in shape) return [{ value: db.agentCount }]
-            if (table === daemonTokens) return db.tokens.slice()
-            if (table === runtimeHosts) return db.hosts.slice()
+            if (shape && 'value' in shape) return [{ value: this.agentCount }]
+            if (table === daemonTokens) return this.tokens.slice()
+            if (table === runtimeHosts) return this.hosts.slice()
             if (table === hostDaemons && joined)
-                return db.daemons
+                return this.daemons
                     .map((daemon) => ({
-                        host: db.hosts.find((h) => h.id === daemon.hostId),
+                        host: this.hosts.find((h) => h.id === daemon.hostId),
                         daemon
                     }))
                     .filter((r) => r.host)
-            if (table === hostDaemons) return db.daemons.slice()
+            if (table === hostDaemons) return this.daemons.slice()
             return []
         }
         const builder = {

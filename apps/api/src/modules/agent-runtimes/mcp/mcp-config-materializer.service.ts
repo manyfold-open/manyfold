@@ -387,9 +387,3 @@ export const readFileText = async (
     return Buffer.concat(chunks).toString('utf8')
 }
 
-export const spritesLoggerFrom = (log: Logger): SpritesLogger => ({
-    debug: () => {},
-    info: (m, meta) => log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    warn: (m, meta) => log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    error: (m, meta) => log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
-})

@@ -1,17 +1,21 @@
-import {
+import type {
     AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
     AgentRuntime,
     AgentStatus,
+    CodexIntelligence,
+    CodexSpeed,
+    CreateMessageContextRefInput,
+    RuntimeAccountView,
+    RuntimeAuthListView
+} from '@manyfold/shared';
+import {
     CHAT_ATTACHMENT_ACCEPT,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
-    CodexIntelligence,
-    CodexSpeed,
-    CreateMessageContextRefInput,
     claudeCodeModelAliasMapKey,
     claudeCodeEfforts,
     codexCanonicalModelId,
@@ -22,9 +26,7 @@ import {
     isClaudeCodeOneMillionModelAlias,
     isModelConfigFramework,
     resolveClaudeCodeModelOptions,
-    runtimeAuthSupported,
-    RuntimeAccountView,
-    RuntimeAuthListView
+    runtimeAuthSupported
 } from '@manyfold/shared'
 import type {
     ClipboardEvent,

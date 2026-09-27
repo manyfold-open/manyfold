@@ -1,8 +1,9 @@
-import {
+import type {
     AgentFramework,
     AgentRuntimeSummary,
     UserModelProvider,
-    UserModelProviderSummary,
+    UserModelProviderSummary} from '@manyfold/shared';
+import {
     brandFor,
     frameworkSupportsProtocol,
     isManagedProtocolAllowedForFramework,

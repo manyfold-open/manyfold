@@ -1,4 +1,4 @@
-import {
+import type {
     AgentCreateStep,
     AgentRuntime,
     CreateAgentBody,
@@ -6,7 +6,8 @@ import {
     RuntimeProviderSummary,
     SandboxSummary,
     SdkUserSummary,
-    UserExternalAgentProviderSummary,
+    UserExternalAgentProviderSummary} from '@manyfold/shared';
+import {
     externalSteps,
     isExternal,
     k8sCliSteps,

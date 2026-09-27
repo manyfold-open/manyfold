@@ -59,8 +59,6 @@ import {
 } from '@/modules/hosts/runtime-context.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 
-export const SPRITES_AUTO_SLEEP_SEC = 35
-
 // One agent with everything its summary derives from: the runtime it runs
 // in, the machine that runtime sits on, the machine's daemon and the
 // provider kind (ADR-0036). Read with one join, never copied onto the agent.
