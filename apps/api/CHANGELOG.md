@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 8.1.1
+
+### Patch Changes
+
+- [#574](https://github.com/manyfold-open/manyfold/pull/574) [`92f736a`](https://github.com/manyfold-open/manyfold/commit/92f736aefda4ebddb79b0c6093a14a41ffb586d4) Thanks [@yingca1](https://github.com/yingca1)! - Keep runtime-local turns independent of saved Managed provider capacity. Validate Antigravity API-key models, including its default, against the provider's enabled upstream IDs in model settings and before dispatch. Show unverified or incompatible models as unavailable and refresh compatibility when switching providers.
+
+- [#573](https://github.com/manyfold-open/manyfold/pull/573) [`2fb0b15`](https://github.com/manyfold-open/manyfold/commit/2fb0b1563bce38df7e21754d21412e3734d00946) Thanks [@yingca1](https://github.com/yingca1)! - Allow hosted agents without an initial provider binding to open the credentials picker and save their first model provider.
+
 ## 8.1.0
 
 ### Minor Changes

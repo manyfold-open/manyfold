@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.11.1
+
+### Patch Changes
+
+- [#574](https://github.com/manyfold-open/manyfold/pull/574) [`92f736a`](https://github.com/manyfold-open/manyfold/commit/92f736aefda4ebddb79b0c6093a14a41ffb586d4) Thanks [@yingca1](https://github.com/yingca1)! - Keep runtime-local turns independent of saved Managed provider capacity. Validate Antigravity API-key models, including its default, against the provider's enabled upstream IDs in model settings and before dispatch. Show unverified or incompatible models as unavailable and refresh compatibility when switching providers.
+
 ## 2.11.0
 
 ### Minor Changes
