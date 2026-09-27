@@ -164,6 +164,7 @@ export class DaemonRegistryService
         (daemonId: string, connectionToken: string) => void
     >()
     private readonly retiredConnections = new WeakSet<DaemonConnection>()
+    private readonly connectedListeners = new Set<(daemonId: string) => void>()
     private readonly helloListeners = new Set<
         (daemonId: string, userId: string, evidence: DaemonHelloEvidence) => void
     >()
@@ -266,6 +267,7 @@ export class DaemonRegistryService
                 connection.token
             )
         })
+        this.notifyConnected(args.daemonId)
         const replacementKind = !existing
             ? 'none'
             : existing.clientProcess && args.clientProcess
@@ -385,6 +387,28 @@ export class DaemonRegistryService
 
     isOnline(daemonId: string): boolean {
         return this.conns.has(daemonId)
+    }
+
+    // Fires once this instance holds a fresh socket for the daemon. A waiter
+    // on another instance still sees the lease in host_daemons; this only
+    // shortens the wait where the socket lands locally.
+    onConnected(listener: (daemonId: string) => void): () => void {
+        this.connectedListeners.add(listener)
+        return () => {
+            this.connectedListeners.delete(listener)
+        }
+    }
+
+    private notifyConnected(daemonId: string): void {
+        for (const listener of this.connectedListeners) {
+            try {
+                listener(daemonId)
+            } catch (error) {
+                this.log.warn(
+                    `daemon connected listener failed: ${(error as Error).message}`
+                )
+            }
+        }
     }
 
     onConnectionRetired(

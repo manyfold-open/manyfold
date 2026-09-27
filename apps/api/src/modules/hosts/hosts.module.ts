@@ -8,6 +8,7 @@ import { HostProviderClients } from './providers/host-provider-clients.service'
 import { HostPlacementService } from './providers/host-placement.service'
 import { SpritesProvider } from './providers/sprites.provider'
 import { K8sProvider } from './providers/k8s.provider'
+import { HostAwakeService } from './host-awake.service'
 
 // Dependency-free on purpose: every module that needs a host, its daemon or
 // the runtime context imports this one, so it must import none of them.
@@ -24,7 +25,8 @@ import { K8sProvider } from './providers/k8s.provider'
         HostProviderClients,
         HostPlacementService,
         SpritesProvider,
-        K8sProvider
+        K8sProvider,
+        HostAwakeService
     ],
     exports: [
         HostsService,
@@ -33,7 +35,8 @@ import { K8sProvider } from './providers/k8s.provider'
         RuntimeProvidersService,
         SandboxProviderRegistry,
         HostProviderClients,
-        HostPlacementService
+        HostPlacementService,
+        HostAwakeService
     ]
 })
 export class HostsModule {}

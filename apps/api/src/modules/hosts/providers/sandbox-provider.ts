@@ -80,6 +80,18 @@ export interface SandboxProvider {
             timeoutMs?: number
         }
     ): Promise<ProviderExecResult>
+    // The provider's activity lease (ADR-0037): while it is held the machine is
+    // not suspended, and acquiring it resumes a suspended machine. Create or
+    // renew, so a retry is not a failure. Providers whose machines never sleep
+    // leave both out and the core holds nothing.
+    holdAwake?(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string; ttl: string }
+    ): Promise<void>
+    releaseAwake?(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string }
+    ): Promise<void>
     publicUrl?(
         args: Omit<ProviderCall, 'generation'> & {
             framework: string

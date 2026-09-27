@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import {
     MF_ENV_AGENT_ID,
     MF_ENV_API_TOKEN,
@@ -53,9 +52,9 @@ import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-sto
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import {
     RunnerManagerService,
-    type SpriteAwakeHold,
     type SpriteExecFn
 } from '@/modules/chat/runner/runner-manager.service'
+import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { execSprite } from '@manyfold/sprites'
@@ -91,7 +90,7 @@ export interface RecoveryFsHandle {
     fs: RecoveryFs
     runtime: ExecPlacement
     agent: Agent
-    awakeHold?: SpriteAwakeHold
+    awakeHold?: AwakeHold
     // Sprite bootstrap/health only; transcript access always uses the daemon.
     spritesClient?: SpritesClient
 }
@@ -382,10 +381,10 @@ export class ExecDriverFactory {
             agent: ctx.agent,
             ...(sprite && this.runnerManager
                 ? {
-                      awakeHold: this.runnerManager.keepSpriteAwake({
-                          host: ctx.host,
-                          turnId: `recovery-${ctx.agent.id}-${randomUUID()}`
-                      })
+                      awakeHold: this.runnerManager.holdAwake(
+                          ctx.host,
+                          `recovery-${ctx.agent.id}`
+                      )
                   }
                 : {}),
             spritesClient: sprite?.client
