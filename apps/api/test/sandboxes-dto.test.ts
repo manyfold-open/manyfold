@@ -11,17 +11,17 @@ import {
 test('sandbox create DTO normalizes and validates display names', async () => {
     const dto = plainToInstance(CreateSandboxDto, {
         name: '  研究 sandbox  ',
-        accountId: 'spa_1'
+        providerId: 'rtp_1'
     })
 
     assert.deepEqual(await validate(dto), [])
     assert.equal(dto.name, '研究 sandbox')
 })
 
-test('sandbox DTOs reject invalid name, account, and terminal shapes', async () => {
+test('sandbox DTOs reject invalid name, provider, and terminal shapes', async () => {
     const invalidCreate = plainToInstance(CreateSandboxDto, {
         name: 'sandbox\nbad',
-        accountId: ''
+        providerId: ''
     })
     const invalidTerminal = plainToInstance(SetSandboxTerminalDto, {
         enabled: 'true'

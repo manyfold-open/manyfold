@@ -6,6 +6,7 @@ import {
     agentRuntimes,
     type AgentRuntimeRow,
     type Database,
+    type HostDaemonRow,
     type RuntimeHostRow
 } from '@manyfold/db'
 import { DaemonController } from '../src/modules/daemon/daemon.controller'
@@ -14,12 +15,11 @@ import { DaemonRuntimeSyncService } from '../src/modules/daemon/daemon-runtime-s
 import { CLI_ABOVE_FLOOR, CLI_AT_FLOOR } from './helpers/cli-floor'
 
 // #629: the 15s daemon heartbeat drove syncForDaemon, which rewrote EVERY
-// matched runtime row and then issued one stopped->running agents UPDATE per
-// runtime — 2F statements per heartbeat (production/staging measured 47,711
-// runtime UPDATEs paired with 47,711 agents statements over 13,834 heartbeats,
-// 3.45 pairs each). The reconcile must diff before writing and batch what is
-// left, so a same-value heartbeat costs zero runtime UPDATEs and the cost stops
-// scaling with the detected framework count.
+// matched runtime row — production/staging measured 47,711 runtime UPDATEs
+// over 13,834 heartbeats. The reconcile must diff before writing and batch
+// what is left, so a same-value heartbeat costs zero runtime UPDATEs and the
+// cost stops scaling with the detected framework count. ADR-0036 also took
+// the agents statements away: nothing about an agent follows a heartbeat.
 
 const HOST_HOME = '/Users/me'
 const HOST_WORKSPACES = '/Users/me/.manyfold/workspaces'
@@ -51,7 +51,7 @@ const chain = (rows: unknown[]) => {
         string,
         unknown
     >
-    for (const method of ['from', 'where', 'limit', 'orderBy', 'returning'])
+    for (const method of ['from', 'where', 'limit', 'orderBy', 'returning', 'onConflictDoUpdate'])
         b[method] = () => b
     return b
 }
@@ -97,24 +97,49 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
     ({
         id: 'dh-1',
         userId: 'u1',
-        kind: 'daemon',
-        daemonUuid: 'uuid-1',
+        kind: 'local',
+        providerId: null,
+        providerRef: null,
         name: 'mac-laptop',
-        hostname: 'mac.local',
-        os: 'darwin',
-        arch: 'arm64',
-        cliVersion: CLI_AT_FLOOR,
+        status: 'ready',
+        failureReason: null,
+        generation: 0,
         homeDir: HOST_HOME,
         workspaceBaseDir: HOST_WORKSPACES,
-        detectedFrameworks: [],
-        clientFeatures: [],
-        lastSeenAt: new Date(),
-        lastIp: null,
-        status: 'active',
+        skillsDir: null,
+        keepAwake: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...overrides
     }) as RuntimeHostRow
+
+const daemon = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
+    ({
+        hostId: 'dh-1',
+        userId: 'u1',
+        daemonUuid: 'uuid-1',
+        tokenId: 'ldt-1',
+        hostname: 'mac.local',
+        os: 'darwin',
+        arch: 'arm64',
+        cliVersion: CLI_AT_FLOOR,
+        herdrVersion: null,
+        startupMethod: 'launchd-user',
+        clientFeatures: [],
+        terminalPty: null,
+        detectedFrameworks: [],
+        registeredAt: new Date(),
+        lastSeenAt: new Date(),
+        lastIp: null,
+        rpcInstanceId: null,
+        rpcConnectionToken: null,
+        rpcInbox: null,
+        rpcConnectedAt: null,
+        rpcLastSeenAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides
+    }) as HostDaemonRow
 
 const mountPathFor = (framework: string): string => {
     if (framework === 'openclaw') return `${HOST_HOME}/.openclaw`
@@ -129,8 +154,8 @@ const detected = (count: number): DetectedFramework[] =>
         path: `/usr/local/bin/${framework}`
     }))
 
-// A row already carrying exactly what this heartbeat reports: same host dirs,
-// same mount path, same parsed version, same detection payload, and timestamps
+// A row already carrying exactly what this heartbeat reports: same mount
+// path, same parsed version, same detection payload, and a probe timestamp
 // fresh enough that no freshness touch is due.
 const convergedRow = (
     framework: string,
@@ -141,16 +166,13 @@ const convergedRow = (
         userId: 'u1',
         name: `mac-laptop-${framework}`,
         framework,
-        kind: 'daemon',
         status: 'ready',
-        daemonId: 'dh-1',
-        homeDir: HOST_HOME,
-        workspaceBaseDir: HOST_WORKSPACES,
+        hostId: 'dh-1',
         mountPath: mountPathFor(framework),
         capabilitiesJson: { detectedVersion: '1.2.3' },
         frameworkVersion: '1.2.3',
         frameworkVersionCheckedAt: new Date(),
-        lastSeenAt: new Date(),
+        failureReason: null,
         serviceStatus: 'unknown',
         serviceStatusAt: null,
         createdAt: new Date(),
@@ -172,19 +194,19 @@ const syncWith = async (
     return db
 }
 
-test('a same-value heartbeat writes no runtime row', async () => {
+test('a same-value heartbeat writes no runtime row and never touches agents', async () => {
     const db = await syncWith(convergedRows(4), detected(4))
 
     assert.deepEqual(
-        db.of('update', 'agent_runtimes'),
+        db.of('update', 'agent_runtimes').filter((s) => s.set?.status !== 'failed'),
         [],
         'unchanged runtimes must not be rewritten every 15s'
     )
     assert.deepEqual(db.of('insert', 'agent_runtimes'), [])
-    assert.equal(
-        db.of('update', 'agents').length,
-        1,
-        'the stopped->running recovery must be one set-based statement'
+    assert.deepEqual(
+        db.of('update', 'agents'),
+        [],
+        'presence never flips an agent (ADR-0036)'
     )
 })
 
@@ -201,13 +223,24 @@ test('heartbeat write cost does not grow with the framework count', async () => 
     )
 })
 
+test('a hosted host\'s heartbeat costs no runtime statement at all', async () => {
+    const db = await syncWith(
+        convergedRows(3),
+        detected(3),
+        host({ kind: 'hosted', providerId: 'rtp-1' })
+    )
+    assert.deepEqual(db.statements, [])
+})
+
 test('one changed runtime costs exactly one batched runtime UPDATE', async () => {
     const rows = convergedRows(4)
     rows[2] = convergedRow(rows[2].framework, { frameworkVersion: '1.0.0' })
 
     const db = await syncWith(rows, detected(4))
 
-    const updates = db.of('update', 'agent_runtimes')
+    const updates = db
+        .of('update', 'agent_runtimes')
+        .filter((s) => s.set?.status !== 'failed')
     assert.equal(updates.length, 1, 'only the diverging runtime is written')
     assert.equal(updates[0].set?.frameworkVersion, '1.2.3')
     assert.ok(
@@ -232,24 +265,23 @@ test('a cached detection payload does not restamp frameworkVersionCheckedAt', as
     )
 })
 
-test('the runtime freshness touch is a single batched statement', async () => {
+test('the version freshness touch is a single batched statement', async () => {
     const stale = new Date(Date.now() - 60 * 60_000)
     const rows = FRAMEWORKS.slice(0, 4).map((f) =>
-        convergedRow(f, {
-            lastSeenAt: stale,
-            frameworkVersionCheckedAt: stale
-        })
+        convergedRow(f, { frameworkVersionCheckedAt: stale })
     )
 
     const db = await syncWith(rows, detected(4))
 
-    const updates = db.of('update', 'agent_runtimes')
+    const updates = db
+        .of('update', 'agent_runtimes')
+        .filter((s) => s.set?.status !== 'failed')
     assert.equal(
         updates.length,
         1,
-        'presence/freshness must be one statement for every runtime of the host'
+        'freshness must be one statement for every runtime of the host'
     )
-    assert.ok(updates[0].set?.lastSeenAt instanceof Date)
+    assert.ok(updates[0].set?.frameworkVersionCheckedAt instanceof Date)
     assert.equal(
         updates[0].set?.status,
         undefined,
@@ -258,80 +290,28 @@ test('the runtime freshness touch is a single batched statement', async () => {
     assert.equal(updates[0].set?.capabilitiesJson, undefined)
 })
 
-test('a stale runtime already stopped is not rewritten', async () => {
-    const rows = [
-        ...convergedRows(2),
-        convergedRow('openclaw', { status: 'stopped' })
-    ]
-
-    const db = await syncWith(rows, detected(2))
-
-    assert.deepEqual(
-        db.of('update', 'agent_runtimes'),
-        [],
-        'an already-stopped stale runtime must not be re-stopped every 15s'
-    )
-})
-
-test('a newly missing framework still stops its runtime and its agents', async () => {
+test('a newly missing framework fails its runtime in one statement, agents untouched', async () => {
     const db = await syncWith(convergedRows(3), detected(2))
 
-    const runtimeUpdates = db.of('update', 'agent_runtimes')
-    assert.equal(runtimeUpdates.length, 1)
-    assert.equal(runtimeUpdates[0].set?.status, 'stopped')
-    const stopAgents = db
-        .of('update', 'agents')
-        .find((s) => s.set?.status === 'stopped')
-    assert.ok(stopAgents, 'agents on the missing framework are stopped')
-    assert.equal(
-        stopAgents?.set?.failureReason,
-        'framework not detected by daemon'
-    )
+    const failed = db
+        .of('update', 'agent_runtimes')
+        .filter((s) => s.set?.status === 'failed')
+    assert.equal(failed.length, 1)
+    assert.equal(failed[0].set?.failureReason, 'framework not detected')
+    assert.deepEqual(db.of('update', 'agents'), [])
 })
 
-test('offline -> active with an identical inventory restores runtime and agents', async () => {
-    const rows = convergedRows(3).map((r) => ({ ...r, status: 'stopped' }))
+test('a failed inventory that is back again is revived in one batched statement', async () => {
+    const rows = convergedRows(3).map((r) => ({ ...r, status: 'failed' }))
 
     const db = await syncWith(rows as AgentRuntimeRow[], detected(3))
 
-    const updates = db.of('update', 'agent_runtimes')
+    const updates = db
+        .of('update', 'agent_runtimes')
+        .filter((s) => s.set?.status === 'ready')
     assert.equal(updates.length, 1, 'one batched revive for the whole host')
-    assert.equal(updates[0].set?.status, 'ready')
-    assert.equal(
-        db.of('update', 'agents').filter((s) => s.set?.status === 'running')
-            .length,
-        1,
-        'agents come back in one set-based statement'
-    )
+    assert.deepEqual(db.of('update', 'agents'), [])
 })
-
-class HostDb {
-    readonly patches: Array<Partial<RuntimeHostRow>> = []
-    reads = 0
-
-    constructor(private readonly row: RuntimeHostRow) {}
-
-    select() {
-        this.reads += 1
-        return {
-            from: () => ({
-                where: () => ({ limit: async () => [this.row] })
-            })
-        }
-    }
-
-    update() {
-        return {
-            set: (patch: Partial<RuntimeHostRow>) => ({
-                where: () => {
-                    this.patches.push(patch)
-                    Object.assign(this.row, patch)
-                    return { returning: async () => [this.row] }
-                }
-            })
-        }
-    }
-}
 
 const heartbeatArgs = {
     daemonId: 'dh-1',
@@ -341,54 +321,74 @@ const heartbeatArgs = {
     clientFeatures: ['exec.resume']
 }
 
-const hostService = (db: Database): DaemonHostService =>
-    new DaemonHostService(
-        db,
+// The heartbeat's own write goes to host_daemons through the daemons
+// service, and the host row is read once and never written.
+const hostService = (row: HostDaemonRow) => {
+    const patches: Array<Partial<HostDaemonRow>> = []
+    const hostReads = { count: 0 }
+    const service = new DaemonHostService(
         {} as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
-        { get: () => undefined } as never
+        {} as never,
+        { get: () => undefined } as never,
+        {
+            findById: async () => {
+                hostReads.count += 1
+                return host()
+            }
+        } as never,
+        {
+            findByHostId: async () => row,
+            patch: async (_hostId: string, patch: Partial<HostDaemonRow>) => {
+                patches.push(patch)
+                Object.assign(row, patch)
+                return row
+            }
+        } as never,
+        {} as never
     )
+    return { service, patches, hostReads }
+}
 
-test('a same-value host heartbeat writes only the presence column', async () => {
-    const db = new HostDb(
-        host({
+test('a same-value daemon heartbeat writes only the presence column', async () => {
+    const { service, patches } = hostService(
+        daemon({
             detectedFrameworks: detected(3),
             startupMethod: 'launchd-user',
             clientFeatures: ['exec.resume'],
             terminalPty: null
         })
     )
-    const service = hostService(db as unknown as Database)
 
     await service.heartbeat(heartbeatArgs)
 
     assert.deepEqual(
-        Object.keys(db.patches[0]),
+        Object.keys(patches[0]),
         ['lastSeenAt'],
         'unchanged metadata (including the detectedFrameworks JSONB) is not rewritten'
     )
 })
 
-test('changed host metadata is written alongside the presence column', async () => {
-    const db = new HostDb(
-        host({
+test('changed daemon metadata is written alongside the presence column', async () => {
+    const { service, patches, hostReads } = hostService(
+        daemon({
             detectedFrameworks: detected(3),
             startupMethod: 'launchd-user',
             clientFeatures: ['exec.resume'],
             terminalPty: null
         })
     )
-    const service = hostService(db as unknown as Database)
 
     await service.heartbeat({ ...heartbeatArgs, cliVersion: CLI_ABOVE_FLOOR })
 
-    assert.equal(db.patches[0].cliVersion, CLI_ABOVE_FLOOR)
-    assert.ok(db.patches[0].updatedAt instanceof Date)
-    assert.ok(db.patches[0].lastSeenAt instanceof Date)
+    assert.equal(patches[0].cliVersion, CLI_ABOVE_FLOOR)
+    assert.ok(patches[0].updatedAt instanceof Date)
+    assert.ok(patches[0].lastSeenAt instanceof Date)
+    assert.equal(hostReads.count, 1)
 })
 
 test('the heartbeat route resolves its host with a single read', async () => {
@@ -400,25 +400,26 @@ test('the heartbeat route resolves its host with a single read', async () => {
         {
             heartbeat: async () => {
                 reads.push('heartbeat')
-                return hostRow
+                return { host: hostRow, daemon: daemon() }
             },
             findById: async () => {
                 reads.push('findById')
                 return hostRow
             }
         } as never,
+        undefined as never,
         { syncForDaemon: async () => [] } as never,
         { consume: () => {} } as never,
         undefined as never
     )
 
     await controller.heartbeat(
-        { tokenId: 'ldt-1', daemonId: 'dh-1' } as never,
+        { tokenId: 'ldt-1', userId: 'u1', hostId: 'dh-1' },
         {
             detectedFrameworks: detected(3),
             cliVersion: CLI_AT_FLOOR,
-            startupMethod: 'launchd'
-        } as never
+            startupMethod: 'launchd-user'
+        }
     )
 
     assert.deepEqual(

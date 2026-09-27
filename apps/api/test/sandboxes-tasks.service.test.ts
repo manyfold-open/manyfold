@@ -38,27 +38,31 @@ class TestSandboxes extends SandboxesService {
 const baseHost = (over: Record<string, unknown> = {}) => ({
     id: 'sbx_1',
     userId: 'u1',
-    spriteId: 'spr_1',
-    spriteName: 'sbx-sprite',
-    accountId: 'spa_1',
-    spriteStatus: 'running',
+    kind: 'hosted',
+    providerId: 'rtp_1',
+    providerRef: { kind: 'sprites', spriteName: 'sbx-sprite', spriteId: 'spr_1' },
+    status: 'ready',
+    powerState: 'running',
     ...over
 })
 
 const makeService = (host: Record<string, unknown> = baseHost()) => {
     const runtimes = {
-        listRunnerHosts: async () => [],
-        getSandboxForUser: async () => ({ host }),
-        getSandboxById: async () => ({ host })
+        getSandboxForUser: async () => ({ host, provider: null, daemon: null, agentsCount: 0 }),
+        getSandboxById: async () => ({ host, provider: null, daemon: null, agentsCount: 0 })
     }
-    const accounts = {
-        getById: async () => ({ id: 'spa_1', slug: 'acct' }),
-        decryptToken: () => 'tok'
+    const hostClients = {
+        spritesClientForHost: async () => ({ client: {}, spriteName: 'sbx-sprite' })
     }
     return new TestSandboxes(
         runtimes as never,
         {} as never,
-        accounts as never,
+        {} as never,
+        hostClients as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,
@@ -85,7 +89,7 @@ test('deleteTask refuses platform keep-alive leases before touching the sprite',
 })
 
 test('deleteTask refuses when the sandbox is not running (never wakes it)', async () => {
-    const svc = makeService(baseHost({ spriteStatus: 'warm' }))
+    const svc = makeService(baseHost({ powerState: 'suspended' }))
 
     await assert.rejects(
         svc.deleteTask('u1', 'sbx_1', 'my-task'),

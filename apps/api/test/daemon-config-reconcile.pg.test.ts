@@ -3,6 +3,7 @@ import test from 'node:test'
 import { eq, sql } from 'drizzle-orm'
 import {
     agents,
+    hostDaemons,
     serviceLeases,
     runtimeHosts,
     userConnections,
@@ -21,6 +22,9 @@ import {
 } from '../src/modules/daemon/daemon-config-delivery.service'
 import { configFixture, until } from './helpers/daemon-config-fixture'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import { DaemonTokenService } from '../src/modules/daemon/daemon-token.service'
+import { HostsService } from '../src/modules/hosts/hosts.service'
+import { HostDaemonsService } from '../src/modules/hosts/host-daemons.service'
 import {
     MANYFOLD_CONTEXT_START,
     MANYFOLD_CONTEXT_END
@@ -45,7 +49,7 @@ const blockNextHostUpdate = async (
             end if;
             return null;
         end $$;
-        create trigger ${name} before update on runtime_hosts
+        create trigger ${name} before update on host_daemons
             for each statement execute function ${name}();
     `))
     let released = false
@@ -67,7 +71,7 @@ const blockNextHostUpdate = async (
         close: async () => {
             await release()
             await h.db.execute(sql.raw(`
-                drop trigger ${name} on runtime_hosts;
+                drop trigger ${name} on host_daemons;
                 drop function ${name}();
                 drop sequence ${name};
             `))
@@ -117,7 +121,7 @@ test(
             await gate.release()
             await connecting
             await Promise.all(registrations)
-            const [host] = await h.db.select().from(runtimeHosts).where(eq(runtimeHosts.id, h.daemonId))
+            const [host] = await h.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, h.daemonId))
             assert.equal(host.rpcConnectionToken, api.registry.localConfigConnectionToken(h.daemonId))
             await until(async () => (await h.readAgent()).extras.contextDocDelivery?.status === 'delivered', 8000)
             assert.equal(JSON.parse(await h.readProject()).mcpServers.fixture.command, 'offline-desired')
@@ -153,9 +157,9 @@ for (const remote of [false, true]) test(
             await gate.release()
             await connecting
             await cleared
-            const [host] = await h.db.select().from(runtimeHosts).where(eq(runtimeHosts.id, h.daemonId))
+            const [host] = await h.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, h.daemonId))
             assert.equal(host.rpcConnectionToken, current.registry.localConfigConnectionToken(h.daemonId))
-            if (remote) assert.equal((await h.readAgent()).status, 'running')
+            if (remote) assert.equal((await h.readAgent()).status, 'ready')
             await current.mcp.materializeForAgent(await h.readAgent())
             assert.equal(JSON.parse(await h.readProject()).mcpServers.fixture.command, 'offline-desired')
         } finally {
@@ -281,8 +285,8 @@ test(
                 !(
                     await h.db
                         .select()
-                        .from(runtimeHosts)
-                        .where(eq(runtimeHosts.id, h.daemonId))
+                        .from(hostDaemons)
+                        .where(eq(hostDaemons.hostId, h.daemonId))
                 )[0].rpcInstanceId
         )
         const connectionId = createObjectId('userConnection')
@@ -454,7 +458,7 @@ test(
             .where(eq(agents.id, h.agentId))
         await h.db
             .update(runtimeHosts)
-            .set({ status: 'revoked' })
+            .set({ status: 'retired' })
             .where(eq(runtimeHosts.id, h.daemonId))
         await assert.rejects(
             api.mcp.materializeForAgent(await h.readAgent()),
@@ -543,8 +547,10 @@ test(
         await until(() => !api.registry.isOnline(h.daemonId))
         await h.db
             .update(runtimeHosts)
-            .set({ status: 'revoked' })
+            .set({ status: 'retired' })
             .where(eq(runtimeHosts.id, h.daemonId))
+        // A host is deleted only once its agents are gone (ADR-0036 R8).
+        await h.db.delete(agents).where(eq(agents.id, h.agentId))
         const hosts = new DaemonHostService(
             h.db,
             {} as never,
@@ -553,9 +559,12 @@ test(
             {} as never,
             {} as never,
             {} as never,
-            {} as never
+            {} as never,
+            new HostsService(h.db),
+            new HostDaemonsService(h.db),
+            new DaemonTokenService(h.db)
         )
-        await hosts.deleteRevoked({
+        await hosts.deleteRetired({
             id: h.daemonId,
             actorId: h.userId,
             userId: h.userId
@@ -873,8 +882,8 @@ test(
         const first = api.registry.currentHelloEvidence(h.daemonId)!
         const [hostBefore] = await h.db
             .select()
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, h.daemonId))
+            .from(hostDaemons)
+            .where(eq(hostDaemons.hostId, h.daemonId))
         let entered = false
         let release!: () => void
         const wait = new Promise<void>((resolve) => {
@@ -908,8 +917,8 @@ test(
             await h.connect(api.url)
             const [hostAfter] = await h.db
                 .select()
-                .from(runtimeHosts)
-                .where(eq(runtimeHosts.id, h.daemonId))
+                .from(hostDaemons)
+                .where(eq(hostDaemons.hostId, h.daemonId))
             assert.equal(
                 hostBefore.rpcConnectedAt?.getTime(),
                 hostAfter.rpcConnectedAt?.getTime()
@@ -1014,9 +1023,9 @@ test(
             (event) => event.type === 'rpc'
         ).length
         await h.db
-            .update(runtimeHosts)
+            .update(hostDaemons)
             .set({ rpcInstanceId: 'legacy-api-owner' })
-            .where(eq(runtimeHosts.id, h.daemonId))
+            .where(eq(hostDaemons.hostId, h.daemonId))
         await assert.rejects(
             caller.mcp.materializeForAgent(await h.readAgent()),
             /unsupported/

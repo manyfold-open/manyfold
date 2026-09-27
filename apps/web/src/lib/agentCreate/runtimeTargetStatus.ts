@@ -1,17 +1,28 @@
-import type { RuntimeAuthAvailability, SpriteStatus } from '@manyfold/shared'
-import { spriteStatusLabel, spriteStatusTone } from '@/lib/spriteStatus'
+import type {
+    RuntimeAuthAvailability,
+    RuntimeHostPowerState,
+    RuntimeHostStatus
+} from '@manyfold/shared'
+import type { TagTone } from '@/components/Tag'
+import {
+    hostLifecycleLabel,
+    hostLifecycleTone,
+    powerStateLabel,
+    powerStateTone
+} from '@/lib/hostStatus'
 
 // What a sandbox card's status line says. The picked sandbox reports the
-// runner the form is bringing up for it (starting, then answering); every
-// other sandbox reports the VM's own lifecycle (active / warm / cold), the
-// same words the runtime list uses, instead of a flat "Ready".
+// daemon the form is bringing up for it (starting, then answering); every
+// other sandbox reports the machine itself — its lifecycle until it is ready,
+// then its power state — in the same words the runtime list uses.
 export type SandboxTargetStatus =
     | { kind: 'starting-runner' }
     | { kind: 'runner-online' }
-    | { kind: 'sprite'; label: string; tone: 'success' | 'warning' | 'idle' }
+    | { kind: 'host'; label: string; tone: TagTone }
 
 export const sandboxTargetStatus = (input: {
-    spriteStatus: SpriteStatus | null
+    hostStatus: RuntimeHostStatus | null
+    powerState: RuntimeHostPowerState | null
     picked: boolean
     prewarming: boolean
     availability: RuntimeAuthAvailability | null
@@ -19,9 +30,15 @@ export const sandboxTargetStatus = (input: {
     if (input.picked && input.prewarming) return { kind: 'starting-runner' }
     if (input.picked && input.availability === 'ok')
         return { kind: 'runner-online' }
+    if (input.hostStatus !== null && input.hostStatus !== 'ready')
+        return {
+            kind: 'host',
+            label: hostLifecycleLabel(input.hostStatus),
+            tone: hostLifecycleTone(input.hostStatus)
+        }
     return {
-        kind: 'sprite',
-        label: spriteStatusLabel(input.spriteStatus),
-        tone: spriteStatusTone(input.spriteStatus)
+        kind: 'host',
+        label: powerStateLabel(input.powerState),
+        tone: powerStateTone(input.powerState)
     }
 }

@@ -9,6 +9,7 @@ import {
     createDb,
     plans,
     runtimeHosts,
+    runtimeProviders,
     sandboxActiveDurationDays,
     users,
     type Database
@@ -64,6 +65,7 @@ const buildHarness = async (): Promise<Harness> => {
     const userId = `user_pgtest_${suffix}`
     const planId = `plan_pgtest_${suffix}`
     const hostId = `rt_pgtest_${suffix}`
+    const providerId = `rtp_pgtest_${suffix}`
 
     await db.insert(plans).values({
         id: planId,
@@ -79,12 +81,21 @@ const buildHarness = async (): Promise<Harness> => {
         email: `${suffix}@pgtest.local`,
         planId
     })
+    await db.insert(runtimeProviders).values({
+        id: providerId,
+        kind: 'sprites',
+        name: `pgtest-${suffix}`,
+        credentialCiphertext: 'encrypted'
+    })
     await db.insert(runtimeHosts).values({
         id: hostId,
         userId,
-        kind: 'sandbox',
+        kind: 'hosted',
+        providerId,
+        providerRef: { kind: 'sprites', spriteName: hostId, spriteId: 'sp' },
         name: `pgtest-sandbox-${suffix}`,
-        spriteStatus: 'cold',
+        status: 'ready',
+        powerState: 'stopped',
         activeAccrualSince: null
     })
     // 1h of metered activity today: exactly the plan's included hour, so the
@@ -107,6 +118,9 @@ const buildHarness = async (): Promise<Harness> => {
             // cascade on user delete.
             await db.delete(users).where(eq(users.id, userId))
             await db.delete(plans).where(eq(plans.id, planId))
+            await db
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, providerId))
             const client = (
                 db as unknown as { $client?: { end?: () => Promise<void> } }
             ).$client
@@ -118,7 +132,7 @@ const buildHarness = async (): Promise<Harness> => {
 const resetHostCold = async (h: Harness): Promise<void> => {
     await h.db
         .update(runtimeHosts)
-        .set({ spriteStatus: 'cold', activeAccrualSince: null })
+        .set({ powerState: 'stopped', activeAccrualSince: null })
         .where(eq(runtimeHosts.id, h.hostId))
 }
 

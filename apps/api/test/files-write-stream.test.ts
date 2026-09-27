@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
+import type { AgentRuntime } from '@manyfold/shared'
 import type { Agent, FileRoot } from '@manyfold/db'
 import { FilesController } from '../src/modules/agents/files/files.controller'
 import type { FilesContext } from '../src/modules/agents/files/files-context'
@@ -15,10 +16,7 @@ const agent = (overrides: Partial<Agent> = {}): Agent =>
         id: 'agent-1',
         userId: 'user-1',
         framework: 'claude-code',
-        runtime: 'sprites',
-        status: 'running',
-        spriteName: 'sprite-1',
-        accountId: 'spa-1',
+        status: 'ready',
         mountPath: WORKSPACE,
         fileRoots: [],
         ...overrides
@@ -38,10 +36,15 @@ interface Harness {
     writes: Array<{ absPath: string; body: unknown }>
 }
 
-const harness = (target: Agent, fileRoot: FileRoot = root()): Harness => {
+const harness = (
+    target: Agent,
+    fileRoot: FileRoot = root(),
+    placement: AgentRuntime = 'sprites'
+): Harness => {
     const writes: Array<{ absPath: string; body: unknown }> = []
     const ctx: FilesContext = {
         agent: target,
+        placement,
         root: fileRoot,
         mountPath: fileRoot.path,
         list: async () => [],
@@ -55,7 +58,13 @@ const harness = (target: Agent, fileRoot: FileRoot = root()): Harness => {
         rm: async () => {}
     }
     const controller = new FilesController(
-        { findForCaller: async () => target } as never,
+        {
+            contextForCaller: async () => ({
+                agent: target,
+                placement,
+                availability: 'available'
+            })
+        } as never,
         { build: async () => ctx, resolveRootsForSdk: async () => [] } as never
     )
     return { controller, writes }
@@ -112,8 +121,9 @@ test('write treats a missing body as an empty file', async () => {
 // single byte instead of failing deep in the runtime
 test('write rejects an over-limit upload from the declared length alone', async () => {
     const { controller, writes } = harness(
-        agent({ runtime: 'k8s', namespace: 'ns-1' }),
-        root({ transport: 'pod-exec' })
+        agent(),
+        root({ transport: 'pod-exec' }),
+        'k8s'
     )
 
     await assert.rejects(
@@ -133,8 +143,9 @@ test('write rejects an over-limit upload from the declared length alone', async 
 
 test('write accepts an upload at exactly the declared limit', async () => {
     const { controller, writes } = harness(
-        agent({ runtime: 'k8s', namespace: 'ns-1' }),
-        root({ transport: 'pod-exec' })
+        agent(),
+        root({ transport: 'pod-exec' }),
+        'k8s'
     )
 
     await controller.write(

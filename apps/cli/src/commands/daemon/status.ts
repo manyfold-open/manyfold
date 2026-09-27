@@ -85,15 +85,27 @@ export const registerDaemonStatus = (program: Command): void => {
             },
             () => {
                 if (daemon) {
-                    console.log(`daemonId:    ${kleur.cyan(daemon.id)}`)
+                    console.log(`hostId:      ${kleur.cyan(daemon.id)}`)
                     console.log(`name:        ${daemon.name}`)
                     console.log(
-                        `status:      ${daemon.online ? kleur.green('online') : kleur.gray('offline')}`
+                        `kind:        ${daemon.kind === 'local' ? 'self-owned computer' : 'hosted'}`
+                    )
+                    console.log(
+                        `host:        ${
+                            daemon.status === 'ready'
+                                ? kleur.green(daemon.status)
+                                : kleur.yellow(daemon.status)
+                        }${daemon.registered ? '' : kleur.gray('  (never registered)')}`
+                    )
+                    console.log(
+                        `daemon:      ${daemon.online ? kleur.green('online') : kleur.gray('offline')}`
                     )
                     console.log(`lastSeenAt:  ${daemon.lastSeenAt ?? '-'}`)
                     console.log(`runtimes:    ${daemon.runtimes.length}`)
                     for (const r of daemon.runtimes)
-                        console.log(`  · ${r.framework}  (${r.runtimeId})`)
+                        console.log(
+                            `  · ${r.framework}  ${r.status}/${r.availability}  (${r.runtimeId})`
+                        )
                 } else {
                     console.log(
                         kleur.yellow(`api status check failed: ${apiError}`)

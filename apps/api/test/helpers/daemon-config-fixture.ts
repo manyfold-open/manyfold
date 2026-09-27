@@ -15,6 +15,7 @@ import {
     createDb,
     users,
     runtimeHosts,
+    hostDaemons,
     agentRuntimes,
     agents,
     serviceLeases,
@@ -31,6 +32,7 @@ import {
     daemonConfigLeaseName
 } from '../../src/modules/daemon/daemon-config-delivery.service'
 import { DaemonConfigReconciler } from '../../src/modules/agents/daemon-config-reconciler.service'
+import { RuntimeContextService } from '../../src/modules/hosts/runtime-context.service'
 import { CLI_AT_FLOOR } from './cli-floor'
 
 export const until = async (
@@ -125,29 +127,33 @@ export const configFixture = async (t: TestContext) => {
     await db
         .insert(users)
         .values({ id: userId, email: `${userId}@fixture.invalid` })
+    // A local host (ADR-0036) whose daemon registered once and is offline
+    // until the peer connects; the runtime is its claude-code slot.
     await db
         .insert(runtimeHosts)
         .values({
             id: daemonId,
             userId,
-            kind: 'daemon',
+            kind: 'local',
             name: 'owned daemon',
-            daemonUuid: daemonId,
-            status: 'offline',
-            cliVersion: CLI_AT_FLOOR,
+            status: 'ready',
             homeDir: home
         })
+    await db.insert(hostDaemons).values({
+        hostId: daemonId,
+        userId,
+        daemonUuid: daemonId,
+        cliVersion: CLI_AT_FLOOR
+    })
     await db
         .insert(agentRuntimes)
         .values({
             id: runtimeId,
             userId,
-            kind: 'daemon',
-            daemonId,
+            hostId: daemonId,
             name: 'owned runtime',
             framework: 'claude-code',
             status: 'ready',
-            homeDir: home,
             mountPath: workspace
         })
     await db
@@ -156,12 +162,10 @@ export const configFixture = async (t: TestContext) => {
             id: agentId,
             userId,
             framework: 'claude-code',
-            runtime: 'daemon',
-            daemonId,
             runtimeId,
             name: 'owned agent',
             internalId: agentId,
-            status: 'running',
+            status: 'ready',
             workspacePath: workspace,
             mountPath: workspace,
             extras: {
@@ -205,7 +209,7 @@ export const configFixture = async (t: TestContext) => {
             {
                 verify: async (token: string) => {
                     assert.equal(token, 'fixture-only')
-                    return { userId, daemonId }
+                    return { tokenId: 'fixture', userId, hostId: daemonId }
                 }
             } as never,
             {
@@ -216,6 +220,13 @@ export const configFixture = async (t: TestContext) => {
                             .from(runtimeHosts)
                             .where(eq(runtimeHosts.id, daemonId))
                     )[0],
+                findDaemon: async () =>
+                    (
+                        await db
+                            .select()
+                            .from(hostDaemons)
+                            .where(eq(hostDaemons.hostId, daemonId))
+                    )[0] ?? null,
                 touchLastSeen: async () => {}
             } as never,
             registry,
@@ -224,16 +235,17 @@ export const configFixture = async (t: TestContext) => {
         gateway.onModuleInit()
         const origin = await fastify.listen({ host: '127.0.0.1', port: 0 })
         const delivery = new DaemonConfigDeliveryService(db, registry)
+        const runtimeContext = new RuntimeContextService(db)
         const mcp = new McpConfigMaterializer(
             db,
-            {} as never,
+            runtimeContext,
             {} as never,
             registry,
             delivery
         )
         const context = new AgentContextDocManageService(
             db,
-            {} as never,
+            runtimeContext,
             new AgentContextDocService(db, {
                 resolveAgentConnectionsById: async () => []
             } as never),

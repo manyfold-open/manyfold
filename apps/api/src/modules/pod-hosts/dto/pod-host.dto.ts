@@ -19,7 +19,7 @@ export class CreatePodHostDto implements CreatePodHostBody {
     @IsOptional()
     @IsString()
     @Length(1, 64)
-    clusterId?: string
+    providerId?: string
 }
 
 export class RenamePodHostDto implements RenameBody {

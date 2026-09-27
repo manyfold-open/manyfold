@@ -15,6 +15,12 @@ import { UpdateAgentDto } from '../src/modules/agents/dto/update-agent.dto'
 import { AddRuntimeAgentDto } from '../src/modules/agents/dto/add-runtime-agent.dto'
 import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    k8sHostRow,
+    runtimeRow as fixtureRuntime
+} from './helpers/runtime-context-fixture'
 
 test('agent name helper accepts Unicode display names', () => {
     for (const name of ['中文助手', '研发助手 🚀', 'Agent 1', 'my-agent.v2']) {
@@ -236,12 +242,16 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
         adapterRegistry as never,
         { touchAfterWrite: (id: string) => (touchedRuntimeId = id) } as never,
         { assertManagedChannelBindable: async () => undefined } as never,
-        { installDefaults: async () => {} } as never
+        { installDefaults: async () => {} } as never,
+        fakeRuntimeContext(
+            contextOf({ runtime, host: k8sHostRow({ id: 'pdh_test' }) })
+        ) as never
     )
     const controller = new RuntimeAgentsController(
         { findById: async () => runtime } as never,
         adapterRegistry as never,
         attach,
+        {} as never,
         { recordFirstAgentCreated: async () => {} } as never
     )
     const dto = plainToInstance(AddRuntimeAgentDto, {
@@ -273,32 +283,14 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
 })
 
 const runtimeRow = (): AgentRuntimeRow =>
-    ({
+    fixtureRuntime({
         id: 'art_test',
         userId: 'user-1',
         name: 'openclaw-runtime',
         framework: 'openclaw',
-        kind: 'k8s',
-        status: 'ready',
-        accountId: null,
-        spriteName: null,
-        spriteId: null,
-        clusterId: 'clus_test',
-        daemonId: null,
-        homeDir: null,
-        workspaceBaseDir: null,
-        capabilitiesJson: {},
-        lastSeenAt: null,
-        namespace: 'nca-dev',
-        ingressHost: 'openclaw.example.test',
+        hostId: 'pdh_test',
         mountPath: '/workspace',
         primaryAgentId: 'agt_primary',
-        controlUiEnabled: true,
-        dashboardEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        startedAt: new Date('2026-05-06T00:00:00.000Z'),
-        lastBootstrappedAt: new Date('2026-05-06T00:00:00.000Z'),
         createdAt: new Date('2026-05-06T00:00:00.000Z'),
         updatedAt: new Date('2026-05-06T00:00:00.000Z')
-    }) as AgentRuntimeRow
+    })

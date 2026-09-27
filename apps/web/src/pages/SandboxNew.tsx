@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { hostKey } from '@/lib/hostStatus'
 import { useI18n } from '@/lib/i18n'
 
 const SandboxNew: FC = (): ReactNode => {
@@ -36,7 +37,7 @@ const SandboxNew: FC = (): ReactNode => {
                 nameValidation.valid ? { name: nameValidation.value } : {}
             )
             navigate(
-                `/settings/runtimes?host=${encodeURIComponent(`sprite:${created.id}`)}`
+                `/settings/runtimes?host=${encodeURIComponent(hostKey(created.id))}`
             )
         } catch (err) {
             setError(apiErrorMessage(err))

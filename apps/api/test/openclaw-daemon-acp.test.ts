@@ -77,15 +77,18 @@ const buildRig = (script: {
     }
     const db = {
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => ({
+            from: (table: unknown) => {
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
                     limit: async () => {
                         const name = String(
                             (table as { [k: string]: unknown } | undefined)?.[
                                 Symbol.for('drizzle:Name') as unknown as string
                             ] ?? ''
                         )
-                        if (name === 'runtime_hosts')
+                        if (name === 'host_daemons')
                             return [
                                 {
                                     clientFeatures: script.clientFeatures ?? [
@@ -96,19 +99,30 @@ const buildRig = (script: {
                                         REACHABLE_GATEWAY
                                 }
                             ]
-                        // agents row
+                        // The agent row joined to its host: a local computer
+                        // unless the script places it on a provider's machine.
+                        const placement =
+                            (script.agent as { runtime?: string } | undefined)
+                                ?.runtime ?? 'daemon'
                         return [
                             {
-                                runtime: 'daemon',
                                 internalId: 'oc1',
-                                daemonId: 'dh_byod',
+                                hostId: 'dh_byod',
+                                hostKind: placement === 'daemon' ? 'local' : 'hosted',
+                                providerKind:
+                                    placement === 'k8s'
+                                        ? 'k8s'
+                                        : placement === 'sprites'
+                                          ? 'sprites'
+                                          : null,
                                 workspacePath: '/not-yet-created/workspace',
                                 ...script.agent
                             }
                         ]
                     }
-                })
-            })
+                }
+                return chain
+            }
         })
     }
     const chatRepo = {
@@ -490,31 +504,36 @@ test('a failed admission lookup is retryable, never the upgrade demand', async (
         lines: [],
         result: { ok: finalWithUsage('end_turn') }
     })
-    // Only the runtime_hosts read fails: the agents row still resolves, so the
+    // Only the host_daemons read fails: the agents row still resolves, so the
     // turn reaches the admission gate rather than dying before it.
     const adapter = rig.adapter as unknown as { db: unknown }
     adapter.db = {
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => ({
+            from: (table: unknown) => {
+                const chain = {
+                    innerJoin: () => chain,
+                    leftJoin: () => chain,
+                    where: () => chain,
                     limit: async () => {
                         const name = String(
                             (table as { [k: string]: unknown } | undefined)?.[
                                 Symbol.for('drizzle:Name') as unknown as string
                             ] ?? ''
                         )
-                        if (name === 'runtime_hosts')
+                        if (name === 'host_daemons')
                             throw new Error('connection terminated')
                         return [
                             {
-                                runtime: 'daemon',
                                 internalId: 'oc1',
-                                daemonId: 'dh_byod'
+                                hostId: 'dh_byod',
+                                hostKind: 'local',
+                                providerKind: null
                             }
                         ]
                     }
-                })
-            })
+                }
+                return chain
+            }
         })
     }
     const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))

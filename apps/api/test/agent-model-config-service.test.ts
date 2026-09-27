@@ -5,7 +5,16 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentCredentials, agents, runtimeHosts } from '@manyfold/db'
+import { agentCredentials, agents, hostDaemons } from '@manyfold/db'
+import {
+    contextOf,
+    daemonRow,
+    fakeRuntimeContext,
+    hostRow,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { AgentModelConfigService } from '../src/modules/agents/model-config/agent-model-config.service'
 import { readJsonbMergePatch } from './jsonb-merge'
 
@@ -1968,14 +1977,42 @@ const makeService = (
         } as never,
         makeFakeCatalog() as never,
         daemonRegistry as never,
-        execDrivers as never
+        execDrivers as never,
+        undefined,
+        undefined,
+        // The agent's machine, read afresh on every lookup: the fixture's
+        // `runtime` names the placement, hostFeatures the daemon's features.
+        fakeRuntimeContext(() => {
+            const placement = String(db.agent.runtime ?? 'sprites')
+            const host =
+                placement === 'daemon'
+                    ? hostRow({ id: 'rth-1', userId: 'user-1' })
+                    : placement === 'k8s'
+                      ? k8sHostRow({ id: 'rth-1', userId: 'user-1' })
+                      : spritesHostRow({ id: 'rth-1', userId: 'user-1' })
+            return contextOf({
+                agent: db.agent as never,
+                runtime: runtimeRow({
+                    id: 'runtime-1',
+                    userId: 'user-1',
+                    framework: String(db.agent.framework),
+                    hostId: host.id
+                }),
+                host,
+                daemon: daemonRow({
+                    hostId: host.id,
+                    userId: 'user-1',
+                    clientFeatures: db.hostFeatures ?? []
+                })
+            })
+        }) as never
     )
 
 
 
 class FakeDb {
     credentialPayload: Record<string, unknown> = {}
-    // The runtime host row's client features, when a test needs one.
+    // The host daemon's client features, when a test needs one.
     hostFeatures: string[] | null = null
     lastAgentPatch:
         | (Record<string, unknown> & { extras?: Record<string, unknown> })
@@ -2073,7 +2110,7 @@ class FakeQuery implements PromiseLike<unknown[]> {
                             keyVersion: 1
                         }
                     ]
-                  : this.table === runtimeHosts && this.db.hostFeatures
+                  : this.table === hostDaemons && this.db.hostFeatures
                     ? [{ clientFeatures: this.db.hostFeatures }]
                     : []
         return Promise.resolve(value).then(onfulfilled, onrejected)

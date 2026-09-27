@@ -13,7 +13,7 @@ const isServiceFramework = (framework: AgentFramework): boolean =>
 
 export interface SpriteReuseTarget {
     type: 'reuse'
-    hostId: string | null
+    hostId: string
     runtime: AgentRuntimeSummary
 }
 
@@ -21,8 +21,6 @@ export interface SpriteAttachTarget {
     type: 'attach'
     hostId: string
     name: string | null
-    spriteName: string | null
-    accountSlug: string | null
     frameworks: AgentFramework[]
     runtimeCount: number
 }
@@ -33,7 +31,6 @@ export interface SpriteBlockedTarget {
     type: 'blocked'
     hostId: string
     name: string | null
-    spriteName: string | null
     frameworks: AgentFramework[]
     reason: 'service-slot-taken'
     blockedBy: AgentFramework
@@ -44,8 +41,7 @@ export type SpriteTarget =
     | SpriteAttachTarget
     | SpriteBlockedTarget
 
-const isLive = (r: AgentRuntimeSummary): boolean =>
-    r.status !== 'failed' && r.status !== 'stopped'
+const isLive = (r: AgentRuntimeSummary): boolean => r.status !== 'failed'
 
 // From the user's sprite runtimes, derive the existing-sandbox targets for the
 // selected framework. Every sandbox is a target — placement no longer filters by
@@ -66,18 +62,13 @@ export const computeSpriteTargets = (
     sandboxes: SandboxSummary[] = []
 ): SpriteTarget[] => {
     const sprites = runtimes.filter((r) => r.kind === 'sprites')
-    // The friendly sandbox name lives only on SandboxSummary; runtimes carry the
-    // technical spriteName. Look it up by host id so both attach branches can
-    // lead with the name.
+    // The sandbox list is the freshest source of a host's name (a rename
+    // lands there first); a runtime carries its host's name as well.
     const nameByHostId = new Map(sandboxes.map((s) => [s.id, s.name]))
     const reuse: SpriteReuseTarget[] = []
     const byHost = new Map<string, AgentRuntimeSummary[]>()
     for (const r of sprites) {
-        if (!r.hostId) {
-            if (r.framework === framework && r.status === 'ready')
-                reuse.push({ type: 'reuse', hostId: null, runtime: r })
-            continue
-        }
+        if (!r.hostId) continue
         const group = byHost.get(r.hostId) ?? []
         group.push(r)
         byHost.set(r.hostId, group)
@@ -100,8 +91,7 @@ export const computeSpriteTargets = (
         const occupant = liveFrameworks.find(isServiceFramework)
         const base = {
             hostId,
-            name: nameByHostId.get(hostId) ?? null,
-            spriteName: group[0].spriteName,
+            name: nameByHostId.get(hostId) ?? group[0].hostName,
             frameworks: liveFrameworks
         }
         if (isServiceFramework(framework) && occupant !== undefined)
@@ -115,7 +105,6 @@ export const computeSpriteTargets = (
             attach.push({
                 ...base,
                 type: 'attach',
-                accountSlug: group[0].accountSlug,
                 runtimeCount: live.length
             })
     }
@@ -128,8 +117,6 @@ export const computeSpriteTargets = (
             type: 'attach',
             hostId: sandbox.id,
             name: sandbox.name,
-            spriteName: sandbox.spriteName,
-            accountSlug: sandbox.accountSlug,
             frameworks: [],
             runtimeCount: 0
         })

@@ -3,80 +3,72 @@ import type { SdkAgent } from '@manyfold/sdk'
 
 export interface ActiveSandbox {
     key: string
+    hostId: string
     name: string
     agents: SdkAgent[]
     releasing: boolean
-    keepAliveRuntimeIds: string[]
+    keepAwake: boolean
     activeSecondsThisPeriod: number | null
 }
 
-// Mirrors the API's activeSandboxUsageFor: one slot per running sandbox VM —
+// Mirrors the API's activeSandboxUsageFor: one slot per running sandbox host —
 // co-resident agents share one slot and a bare sandbox (terminal only, no
-// agents) still occupies one. Agents carry SSE-fresh spriteStatus, so they
-// are authoritative for any VM they sit on; the polled sandbox rows only
-// contribute VMs no agent claims.
+// agents) still occupies one. Agents carry SSE-fresh powerState, so they are
+// authoritative for any host they sit on; the polled sandbox rows only
+// contribute hosts no agent claims.
 export const groupActiveSandboxes = (
     agents: SdkAgent[],
     sandboxes: SandboxSummary[],
     releasingIds: ReadonlySet<string>
 ): ActiveSandbox[] => {
-    const byVm = new Map<string, SdkAgent[]>()
+    const byHost = new Map<string, SdkAgent[]>()
     for (const agent of agents) {
-        if (agent.runtime !== 'sprites' || agent.spriteStatus !== 'running')
+        if (
+            agent.runtime !== 'sprites' ||
+            agent.powerState !== 'running' ||
+            !agent.hostId
+        )
             continue
-        const key = agent.spriteName ?? agent.runtimeId
-        if (!key) continue
-        const group = byVm.get(key) ?? []
+        const group = byHost.get(agent.hostId) ?? []
         group.push(agent)
-        byVm.set(key, group)
+        byHost.set(agent.hostId, group)
     }
 
-    const rowBySpriteName = new Map<string, SandboxSummary>()
-    for (const sandbox of sandboxes)
-        if (sandbox.spriteName) rowBySpriteName.set(sandbox.spriteName, sandbox)
-    const agentSpriteNames = new Set<string>()
+    const rowByHostId = new Map<string, SandboxSummary>()
+    for (const sandbox of sandboxes) rowByHostId.set(sandbox.id, sandbox)
+    const agentHostIds = new Set<string>()
     for (const agent of agents)
-        if (agent.spriteName) agentSpriteNames.add(agent.spriteName)
+        if (agent.hostId) agentHostIds.add(agent.hostId)
 
     const slots: ActiveSandbox[] = []
-    for (const [key, group] of byVm) {
-        const spriteName = group[0].spriteName
-        const row = spriteName ? rowBySpriteName.get(spriteName) : undefined
-        const keepAliveRuntimeIds = Array.from(
-            new Set(
-                group
-                    .filter(
-                        (agent) => agent.keepAliveEnabled && agent.runtimeId
-                    )
-                    .map((agent) => agent.runtimeId as string)
-            )
-        )
+    for (const [hostId, group] of byHost) {
+        const row = rowByHostId.get(hostId)
         slots.push({
-            key,
-            name: row?.name ?? spriteName ?? group[0].name,
+            key: hostId,
+            hostId,
+            name: row?.name ?? group[0].hostName ?? group[0].name,
             agents: group,
             // A sandbox only counts as releasing once every agent holding it
             // is stopping — one still-running agent keeps the slot occupied.
             releasing: group.every((agent) => releasingIds.has(agent.id)),
-            keepAliveRuntimeIds,
+            keepAwake: row?.keepAwake ?? group.some((agent) => agent.keepAwake),
             activeSecondsThisPeriod: row?.activeSecondsThisPeriod ?? null
         })
     }
 
     for (const sandbox of sandboxes) {
-        if (sandbox.spriteStatus !== 'running') continue
-        // Any agent claiming this VM makes the SSE agent state authoritative:
+        if (sandbox.powerState !== 'running') continue
+        // Any agent claiming this host makes the SSE agent state authoritative:
         // running agents were already grouped above, and a stale polled row
-        // must not resurrect a VM the stream has already seen stop.
-        if (sandbox.spriteName) {
-            if (agentSpriteNames.has(sandbox.spriteName)) continue
-        } else if (sandbox.agentsCount > 0) continue
+        // must not resurrect a host the stream has already seen stop.
+        if (agentHostIds.has(sandbox.id)) continue
         slots.push({
             key: sandbox.id,
+            hostId: sandbox.id,
             name: sandbox.name,
             agents: [],
             releasing: false,
-            keepAliveRuntimeIds: [],
+            keepAwake: sandbox.keepAwake,
             activeSecondsThisPeriod: sandbox.activeSecondsThisPeriod
         })
     }

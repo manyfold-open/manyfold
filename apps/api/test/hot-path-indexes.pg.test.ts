@@ -21,10 +21,10 @@ import { ChatRepository } from '../src/modules/chat/chat.repository'
 const RUN = process.env.RUN_PG_E2E === '1'
 
 const EXPECTED: Array<[table: string, index: string]> = [
-    ['agents', 'agents_daemon_id_idx'],
-    ['agents', 'agents_host_id_idx'],
-    ['agent_runtimes', 'agent_runtimes_daemon_id_idx'],
-    ['daemon_tokens', 'daemon_tokens_daemon_id_idx'],
+    ['agents', 'agents_runtime_id_idx'],
+    ['agent_runtimes', 'agent_runtimes_host_id_idx'],
+    ['runtime_hosts', 'runtime_hosts_user_kind_idx'],
+    ['daemon_tokens', 'daemon_tokens_host_id_idx'],
     ['daemon_tokens', 'daemon_tokens_user_id_idx']
 ]
 

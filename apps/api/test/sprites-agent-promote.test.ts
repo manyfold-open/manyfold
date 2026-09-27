@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     id: 'rt-1',
@@ -36,7 +41,7 @@ const fakeAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
-    status: 'running',
+    status: 'ready',
     workspacePath: '/home/sprite/.nca/workspaces/agent-1',
     mountPath: '/home/sprite/.nca/workspaces/agent-1',
     spriteName: 'nca-user-abc-main',
@@ -48,6 +53,19 @@ const fakeAgent = (over: Record<string, unknown> = {}) => ({
     updatedAt: new Date('2026-04-01'),
     ...over
 })
+
+// The agent on its sandbox, as the orchestrator reads it.
+const contextFor = (db: { rows: ReturnType<typeof fakeAgent>[] }) =>
+    fakeRuntimeContext((id: string) => {
+        const agent = db.rows.find((row) => row.id === id)
+        return agent
+            ? contextOf({
+                  agent: agent as never,
+                  runtime: fakeRuntime() as never,
+                  host: spritesHostRow({ id: 'rth-1', userId: 'u-1' })
+              })
+            : null
+    })
 
 const makeFakeDb = (rows: ReturnType<typeof fakeAgent>[]) => {
     const updates: Array<{
@@ -134,7 +152,7 @@ test('delete primary with secondary present promotes oldest secondary then delet
     const svc = new AgentOrchestratorService(
         db as never, // 1: DRIZZLE
         {} as never, // 2: agentsService
-        {} as never, // 3: accounts
+        contextFor(db) as never,
         {} as never, // 4: crypto
         runtimes as never, // 5: runtimes
         {} as never, // 6: spritesProvisioner
@@ -190,7 +208,7 @@ test('delete primary with no secondary tears down the runtime, preserving the sa
     const svc = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        contextFor(db) as never,
         {} as never,
         runtimes as never,
         spritesProvisioner as never,
@@ -240,7 +258,7 @@ test('delete secondary detaches and removes the row, leaves runtime alone', asyn
     const svc = new AgentOrchestratorService(
         db as never,
         {} as never,
-        {} as never,
+        contextFor(db) as never,
         {} as never,
         runtimes as never,
         {} as never,

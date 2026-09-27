@@ -39,11 +39,23 @@ type TimelineEvent =
 const baseRuntime = (over: Record<string, unknown> = {}) => ({
     id: 'art_x',
     framework: 'hermes',
-    kind: 'sprites',
-    accountId: 'acc_1',
-    spriteName: 'sprite-x',
-    homeDir: '/home/sprite/.hermes',
+    hostId: 'sbx_x',
+    dashboardEnabled: false,
     capabilitiesJson: null as Record<string, unknown> | null,
+    updatedAt: new Date('2026-06-11T00:00:00.000Z'),
+    ...over
+})
+
+const baseHost = (over: Record<string, unknown> = {}) => ({
+    id: 'sbx_x',
+    userId: 'u_1',
+    kind: 'hosted',
+    providerId: 'rtp_1',
+    providerRef: { kind: 'sprites', spriteName: 'sprite-x', spriteId: 'sp_x' },
+    status: 'ready',
+    powerState: 'running',
+    keepAwake: false,
+    keepAwakeLease: null,
     updatedAt: new Date('2026-06-11T00:00:00.000Z'),
     ...over
 })
@@ -67,14 +79,17 @@ class TestLease extends SpriteKeepAliveLeaseService {
     timeline: TimelineEvent[] = []
     taskList: ExecResult = ok('{"tasks":[]}')
     spriteClient: Record<string, unknown> = {}
+    host = baseHost()
+
+    protected async hostOf(): Promise<never> {
+        return this.host as never
+    }
 
     protected async clientFor(): Promise<{
-        account: never
         client: never
         spriteName: string
     } | null> {
         return {
-            account: {} as never,
             client: this.spriteClient as never,
             spriteName: 'sprite-x'
         }
@@ -204,8 +219,17 @@ const makeHarness = (
         get: (key: string) =>
             key === 'PUBLIC_API_BASE_URL' ? apiBaseUrl : undefined
     }
+    const hostPatches: Array<Record<string, unknown>> = []
     const lease = new TestLease(
         db as never,
+        {
+            findById: async () => lease.host,
+            patch: async (_id: string, values: Record<string, unknown>) => {
+                hostPatches.push(values)
+                Object.assign(lease.host, values)
+                return lease.host
+            }
+        } as never,
         {} as never,
         runtimes as never,
         { event: () => undefined } as never,
@@ -222,7 +246,7 @@ const makeHarness = (
             return { state: { status: 'stopped' } }
         }
     }
-    return { lease, store, timeline, servicePatches }
+    return { lease, store, timeline, servicePatches, hostPatches }
 }
 
 const installInput = () => ({
@@ -376,18 +400,18 @@ test('unset PUBLIC_API_BASE_URL degrades to the plain start.sh even when a token
 })
 
 test('ensureLease preserves the running service report fence and assets', async () => {
-    const { lease, store, timeline } = makeHarness({
+    const { lease, store, timeline, hostPatches } = makeHarness({
         credentialsToken: 'tok-stored',
         runtime: {
-            keepAliveEnabled: true,
             capabilitiesJson: {
                 keepAlive: keepAlive(),
                 serviceReport: { generation: 'gen0' }
             }
         }
     })
+    lease.host = baseHost({ keepAwake: true })
     lease.taskList = ok(
-        JSON.stringify({ tasks: [{ name: 'nca-hermes-x-live' }] })
+        JSON.stringify({ tasks: [{ name: 'nca-host-x-1-live' }] })
     )
 
     await lease.ensureLease(store as never)
@@ -396,13 +420,10 @@ test('ensureLease preserves the running service report fence and assets', async 
         keepAlive: { generation: string }
         serviceReport: { generation: string }
     }
-    assert.notEqual(
-        caps.keepAlive.generation,
-        'gen0',
-        'ensureLease mints a fresh generation'
-    )
-    // Lease generations and service boot generations have separate lifetimes.
-    // A lease update must leave both sides of the report contract unchanged.
+    assert.equal(hostPatches.length, 1, 'the lease is recorded on the host')
+    // Host leases and service boot generations have separate lifetimes. A
+    // lease update must leave both sides of the report contract unchanged.
+    assert.equal(caps.keepAlive.generation, 'gen0')
     assert.equal(
         caps.serviceReport.generation,
         'gen0',
@@ -418,17 +439,17 @@ test('ensureLease preserves the running service report fence and assets', async 
 })
 
 test('each service wake gets a new report fence without changing the lease generation', async () => {
-    for (const keepAliveEnabled of [false, true]) {
+    for (const keepAwake of [false, true]) {
         const { lease, store, timeline } = makeHarness({
             credentialsToken: 'tok-stored',
             runtime: {
-                keepAliveEnabled,
                 capabilitiesJson: {
                     keepAlive: keepAlive(),
                     serviceReport: { generation: 'previous-boot' }
                 }
             }
         })
+        lease.host = baseHost({ keepAwake })
         const generations: string[] = []
         for (let attempt = 0; attempt < 2; attempt++) {
             const result = await lease.ensureServiceRunning(store as never)
@@ -493,7 +514,7 @@ test('ensureServiceRunning sets serviceStatus starting only when it actually sta
     )
 })
 
-test('runStopAndRelease clears the fence BEFORE stopService and writes stopped after', async () => {
+test('stopService clears the fence BEFORE stopService and writes stopped after', async () => {
     const { lease, store, timeline, servicePatches } = makeHarness({
         credentialsToken: 'tok-stored',
         runtime: {
@@ -504,9 +525,9 @@ test('runStopAndRelease clears the fence BEFORE stopService and writes stopped a
         }
     })
 
-    const res = await lease.stopAndRelease(store as never, 'user-stop')
+    const message = await lease.stopService(store as never)
 
-    assert.equal(res.state, 'verified')
+    assert.equal(message, undefined)
     const clearIdx = timeline.findIndex(
         (event) =>
             event.kind === 'runtime-update' && event.fenceChangedTo === null

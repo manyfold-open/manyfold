@@ -1,4 +1,4 @@
-import type { SpriteStatusEvent } from '@manyfold/shared'
+import type { HostStatusEvent } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
 import {
     Inject,
@@ -21,14 +21,14 @@ export interface SpriteStatusDeliveryOpts {
 
 type SpriteStatusBusHandler = (
     userId: string,
-    event: SpriteStatusEvent,
+    event: HostStatusEvent,
     opts: SpriteStatusDeliveryOpts
 ) => void
 
 interface BusPayload {
     o?: string
     u?: string
-    e?: SpriteStatusEvent
+    e?: HostStatusEvent
     a?: boolean
 }
 
@@ -72,7 +72,7 @@ export class SpriteStatusBus
 
     publish(
         userId: string,
-        event: SpriteStatusEvent,
+        event: HostStatusEvent,
         opts: SpriteStatusDeliveryOpts = {}
     ): void {
         const payload = JSON.stringify({

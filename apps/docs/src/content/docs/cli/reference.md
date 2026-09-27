@@ -24,7 +24,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf files`](/docs/cli/reference/files/) | Read/write files on an agent runtime |
 | [`mf connections`](/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/docs/cli/reference/model-config/) | Read/update agent model configuration |
-| [`mf runtime`](/docs/cli/reference/runtime/) | Manage agent runtimes (the sprite/pod shell) |
+| [`mf runtime`](/docs/cli/reference/runtime/) | Manage agent runtimes (a framework on one of your computers) |
 | [`mf sandbox`](/docs/cli/reference/sandbox/) | Inspect sandbox storage |
 | [`mf skills`](/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/docs/cli/reference/usage/) | Read token + cost usage statistics |

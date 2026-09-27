@@ -2,7 +2,6 @@ import {
     AgentCreateEvent,
     AgentCreateStep,
     AgentModelConfigView,
-    AgentStopResponse,
     AgentStorageUsageResponse,
     AgentSummary,
     FrameworkUpgradeEvent,
@@ -32,10 +31,7 @@ import { AdminGuard } from '@/common/guards/admin.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { UsersService } from '@/modules/users/users.service'
-import {
-    AgentsService,
-    agentRowToSummary
-} from '@/modules/agents/agents.service'
+import { AgentsService } from '@/modules/agents/agents.service'
 import {
     AgentOrchestratorService,
     resolveRuntime,
@@ -78,14 +74,7 @@ export class AdminAgentsController {
     @Get()
     async list(): Promise<AgentSummary[]> {
         const rows = await this.agents.listAll()
-        return rows.map((r) =>
-            agentRowToSummary(
-                r.agent,
-                r.clusterName,
-                false,
-                r.dashboardFlags
-            )
-        )
+        return this.agents.summariesFor(rows)
     }
 
     @Post()
@@ -190,15 +179,6 @@ export class AdminAgentsController {
         @Param('id') id: string
     ): Promise<void> {
         await this.orchestrator.delete(id, user.userId, true)
-    }
-
-    @Post(':id/stop')
-    @HttpCode(200)
-    async stop(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<AgentStopResponse> {
-        return this.agents.stopSprite(id, user.userId, true)
     }
 
     @Post(':id/restart')

@@ -79,8 +79,7 @@ const buildHarness = async (): Promise<Harness> => {
         id: runtimeId,
         userId,
         name: `pgtest-runtime-${suffix}`,
-        framework: 'claude-code',
-        kind: 'sprites'
+        framework: 'claude-code'
     })
 
     return {
@@ -121,7 +120,6 @@ const insertAgent = async (h: Harness): Promise<void> => {
         userId: h.userId,
         name: 'pgtest-agent',
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId: h.runtimeId,
         internalId: `internal-${h.agentId}`
     })

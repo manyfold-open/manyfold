@@ -3,12 +3,13 @@ import test from 'node:test'
 import { sandboxTargetStatus } from '../src/lib/agentCreate/runtimeTargetStatus'
 
 // WHY: the sandbox cards used to say "Ready" whatever the VM was doing; the
-// status line now follows the runner the form is starting for the picked
-// sandbox and the VM lifecycle for the rest.
-test('the picked sandbox reports the runner being started, then answering', () => {
+// status line now follows the daemon the form is starting for the picked
+// sandbox and the machine itself for the rest.
+test('the picked sandbox reports the daemon being started, then answering', () => {
     assert.deepEqual(
         sandboxTargetStatus({
-            spriteStatus: 'cold',
+            hostStatus: 'ready',
+            powerState: 'stopped',
             picked: true,
             prewarming: true,
             availability: 'sandbox-asleep'
@@ -17,7 +18,8 @@ test('the picked sandbox reports the runner being started, then answering', () =
     )
     assert.deepEqual(
         sandboxTargetStatus({
-            spriteStatus: 'running',
+            hostStatus: 'ready',
+            powerState: 'running',
             picked: true,
             prewarming: false,
             availability: 'ok'
@@ -26,32 +28,37 @@ test('the picked sandbox reports the runner being started, then answering', () =
     )
 })
 
-test("every other sandbox reports the VM lifecycle in the runtime list's words", () => {
+test("every other sandbox reports the machine in the runtime list's words", () => {
     assert.deepEqual(
         sandboxTargetStatus({
-            spriteStatus: 'running',
+            hostStatus: 'ready',
+            powerState: 'running',
             picked: false,
             prewarming: true,
             availability: 'ok'
         }),
-        { kind: 'sprite', label: 'Active', tone: 'success' }
+        { kind: 'host', label: 'Running', tone: 'success' }
     )
     assert.deepEqual(
         sandboxTargetStatus({
-            spriteStatus: 'warm',
+            hostStatus: 'ready',
+            powerState: 'suspended',
             picked: false,
             prewarming: false,
             availability: null
         }),
-        { kind: 'sprite', label: 'Warm', tone: 'warning' }
+        { kind: 'host', label: 'Suspended', tone: 'warning' }
     )
+    // A machine still being set up says so before its power state means
+    // anything.
     assert.deepEqual(
         sandboxTargetStatus({
-            spriteStatus: null,
+            hostStatus: 'provisioning',
+            powerState: 'unknown',
             picked: true,
             prewarming: false,
             availability: 'sandbox-asleep'
         }),
-        { kind: 'sprite', label: 'Provisioning', tone: 'idle' }
+        { kind: 'host', label: 'Provisioning', tone: 'info' }
     )
 })

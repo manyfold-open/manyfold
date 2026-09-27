@@ -6,19 +6,23 @@ import test from 'node:test'
 import { FIXTURE } from './helpers/fixture-framework'
 import assert from 'node:assert/strict'
 import { PayloadTooLargeException } from '@nestjs/common'
-import type { Agent, FileRoot } from '@manyfold/db'
+import type { AgentRuntime } from '@manyfold/shared'
+import type { FileRoot } from '@manyfold/db'
 import {
     assertUploadWithinLimit,
     rootCapabilities
 } from '../src/modules/agents/files/files-capabilities'
 
-const agent = (overrides: Partial<Agent> = {}): Agent =>
-    ({
-        id: 'agent-1',
-        framework: 'claude-code',
-        runtime: 'sprites',
-        ...overrides
-    }) as Agent
+interface Placed {
+    framework: string
+    placement: AgentRuntime
+}
+
+const agent = (overrides: Partial<Placed> = {}): Placed => ({
+    framework: 'claude-code',
+    placement: 'sprites',
+    ...overrides
+})
 
 const root = (overrides: Partial<FileRoot> = {}): FileRoot =>
     ({
@@ -29,13 +33,18 @@ const root = (overrides: Partial<FileRoot> = {}): FileRoot =>
         ...overrides
     }) as FileRoot
 
-const caps = (a: Agent, r: FileRoot = root(), binaryWriteSafe = true) =>
-    rootCapabilities({ agent: a, root: r, binaryWriteSafe })
+const caps = (a: Placed, r: FileRoot = root(), binaryWriteSafe = true) =>
+    rootCapabilities({
+        framework: a.framework,
+        placement: a.placement,
+        root: r,
+        binaryWriteSafe
+    })
 
 // clients had no way to learn the real limit before transferring: the API
 // accepted 200 MiB and the transport failed afterwards
 test('pod-exec advertises its hard 5 MiB / 50 MiB caps', () => {
-    const c = caps(agent({ runtime: 'k8s' }), root({ transport: 'pod-exec' }))
+    const c = caps(agent({ placement: 'k8s' }), root({ transport: 'pod-exec' }))
     assert.equal(c.maxUploadBytes, 5 * 1024 * 1024)
     assert.equal(c.maxDownloadBytes, 50 * 1024 * 1024)
     assert.equal(c.streamRead, false)
@@ -45,7 +54,7 @@ test('pod-exec advertises its hard 5 MiB / 50 MiB caps', () => {
 // a daemon upload rides one WebSocket frame as base64, so the frame limit —
 // not the API's octet-stream parser limit — is what actually bounds it
 test('daemon advertises the base64 frame budget as its upload cap', () => {
-    const c = caps(agent({ runtime: 'daemon', daemonId: 'dh-1' }))
+    const c = caps(agent({ placement: 'daemon' }))
     assert.equal(c.maxUploadBytes, DAEMON_FS_WRITE_MAX_BYTES)
     assert.ok(c.maxUploadBytes && c.maxUploadBytes < 10 * 1024 * 1024)
     // downloads arrive as 64 KiB chunks, so no frame-driven cap applies
@@ -56,7 +65,7 @@ test('daemon advertises the base64 frame budget as its upload cap', () => {
 // binarySafe is a property of the host's CLI version, not of the runtime, so it
 // has to be resolved per request
 test('daemon binarySafe follows the host feature flag', () => {
-    const online = agent({ runtime: 'daemon', daemonId: 'dh-1' })
+    const online = agent({ placement: 'daemon' })
     assert.equal(caps(online, root(), true).binarySafe, true)
     assert.equal(caps(online, root(), false).binarySafe, false)
 })
@@ -72,7 +81,7 @@ test('sprites reports the global ceiling and a streaming atomic write', () => {
 
 // both stream the body through and rename into place
 test('managed k8s reports a streaming atomic write', () => {
-    const c = caps(agent({ runtime: 'k8s' }))
+    const c = caps(agent({ placement: 'k8s' }))
     assert.equal(c.streamWrite, true)
     assert.equal(c.atomicWrite, true)
 })
@@ -101,7 +110,7 @@ test('assertUploadWithinLimit enforces the global ceiling on capless transports'
 })
 
 test('assertUploadWithinLimit names the limit it rejected against', () => {
-    const c = caps(agent({ runtime: 'k8s' }), root({ transport: 'pod-exec' }))
+    const c = caps(agent({ placement: 'k8s' }), root({ transport: 'pod-exec' }))
     assert.throws(
         () =>
             assertUploadWithinLimit(c, 6 * 1024 * 1024, {

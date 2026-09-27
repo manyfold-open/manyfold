@@ -28,16 +28,11 @@ export const adminRoutes = {
     modelProviderModels: '/model-providers/models',
     modelProviderBuiltInPrices: '/model-providers/built-in-prices',
     infrastructure: '/infrastructure',
-    clusters: '/infrastructure/clusters',
-    clusterNew: '/infrastructure/clusters/new',
-    clusterDetail: '/infrastructure/clusters/:id',
-    cluster: (id: string): string =>
-        `/infrastructure/clusters/${encodePathSegment(id)}`,
-    sandboxAccounts: '/infrastructure/sandbox-accounts',
-    sandboxAccountNew: '/infrastructure/sandbox-accounts/new',
-    sandboxAccountDetail: '/infrastructure/sandbox-accounts/:slug',
-    sandboxAccount: (slug: string): string =>
-        `/infrastructure/sandbox-accounts/${encodePathSegment(slug)}`,
+    runtimeProviders: '/infrastructure/runtime-providers',
+    runtimeProviderNew: '/infrastructure/runtime-providers/new',
+    runtimeProviderDetail: '/infrastructure/runtime-providers/:id',
+    runtimeProvider: (id: string): string =>
+        `/infrastructure/runtime-providers/${encodePathSegment(id)}`,
     selfOwnedComputers: '/infrastructure/self-owned-computers',
     selfOwnedComputerMachines:
         '/infrastructure/self-owned-computers/machines',

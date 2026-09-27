@@ -2,13 +2,11 @@ import {
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
     DetectedFramework,
     createObjectId,
-    frameworkCapability,
     parseProbedSemver
 } from '@manyfold/shared'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm'
+import { and, eq, inArray, ne, notInArray, sql } from 'drizzle-orm'
 import {
-    agents,
     agentRuntimes,
     type Database,
     type RuntimeHostRow,
@@ -17,19 +15,17 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { nextFreeLabel } from '@/modules/agent-runtimes/runtime-label'
 
-const STALE_FAILURE_REASON = 'framework not detected by daemon'
+export const FRAMEWORK_NOT_DETECTED_REASON = 'framework not detected'
 
 type RuntimePatch = Partial<
     Pick<
         AgentRuntimeRow,
         | 'status'
-        | 'homeDir'
-        | 'workspaceBaseDir'
+        | 'failureReason'
         | 'mountPath'
         | 'frameworkVersion'
         | 'frameworkVersionCheckedAt'
         | 'capabilitiesJson'
-        | 'lastSeenAt'
         | 'updatedAt'
     >
 >
@@ -81,6 +77,11 @@ const patchKey = (patch: RuntimePatch): string =>
         v instanceof Date ? v.toISOString() : v
     )
 
+// A local host's runtimes are its daemon's software inventory (ADR-0036 R3):
+// one runtime per detected framework, upserted on (host_id, framework) so a
+// restart updates rows instead of adding them, and a framework that vanished
+// from the inventory reads `failed` — the row stays for the agents on it.
+// A hosted host's inventory only lives on host_daemons and creates nothing.
 @Injectable()
 export class DaemonRuntimeSyncService {
     constructor(@Inject(DRIZZLE) private readonly db: Database) {}
@@ -95,52 +96,33 @@ export class DaemonRuntimeSyncService {
         detectedFrameworks: DetectedFramework[]
     }): Promise<AgentRuntimeRow[]> {
         const { host, detectedFrameworks } = args
-        // User-scoped on purpose: a machine re-registers under a fresh daemon
-        // uuid (new host row) while its old rows keep their names, so the
-        // insert below must see EVERY name this user holds, not just the ones
-        // under the current host row.
-        const userRuntimes = await this.db
+        if (host.kind !== 'local') return []
+        const existing = await this.db
             .select()
             .from(agentRuntimes)
-            .where(eq(agentRuntimes.userId, host.userId))
-        const existing = userRuntimes.filter((r) => r.daemonId === host.id)
-        const taken = new Set(userRuntimes.map((r) => r.name))
+            .where(eq(agentRuntimes.hostId, host.id))
 
         const detectedFw = new Set<string>(
             detectedFrameworks.map((d) => d.framework)
         )
         const now = new Date()
         // Per-runtime freshness follows the daemon's real probe cadence, not
-        // the heartbeat's: host presence stays 15s-fresh on runtime_hosts, and
-        // these columns are only advanced once the reported inventory could
-        // possibly have been re-probed.
+        // the heartbeat's: these columns are only advanced once the reported
+        // inventory could possibly have been re-probed.
         const freshnessCutoff = new Date(
             now.getTime() - DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
         )
 
         const result: AgentRuntimeRow[] = []
-        const matchedIds: string[] = []
         const grouped = new Map<
             string,
             { patch: RuntimePatch; ids: string[] }
         >()
+        // The user's runtime names, read only when a row has to be made:
+        // labels are `<host>-<framework>` and must not repeat what the user
+        // already has, but the steady state makes nothing.
+        let taken: Set<string> | null = null
         for (const det of detectedFrameworks) {
-            // A managed host is a sprite-runner: a daemon we start inside a
-            // sandbox VM purely to dispatch coding-agent turns over the daemon
-            // protocol. Its service frameworks (openclaw/hermes) are the SAME
-            // instance already represented by the agent's kind='sprites' runtime,
-            // reached over the public ingress / by sprite name — never through a
-            // runtime row here. Materializing a daemon runtime for them only
-            // gives reconcile a surface on which it adopts the framework's
-            // built-in profile ('main'/'default') as a phantom duplicate agent
-            // (the runner runtime has no primaryAgentId, so the primary-alias
-            // suppression never fires). A sprite-runner carries coding runtimes
-            // only.
-            if (
-                host.managed &&
-                frameworkCapability(det.framework).kind !== 'coding'
-            )
-                continue
             const found = existing.find((r) => r.framework === det.framework)
             const mountPath = daemonMountPathFor(det.framework, host)
             // The daemon reports the raw `<bin> --version` output (e.g.
@@ -149,20 +131,15 @@ export class DaemonRuntimeSyncService {
             // when unparseable so a transient probe miss doesn't wipe a known
             // version.
             //
-            // parseProbedSemver, not parseProbedVersion: this is one of three
-            // writers of agent_runtimes.framework_version, and the sprite ones
-            // keep the prerelease suffix. Truncating here would make the same
-            // installed build read as `1.15.1` on a daemon and `1.15.1-rc.1` on
-            // a sprite, which every precedence comparison downstream would then
-            // disagree about.
+            // parseProbedSemver, not parseProbedVersion: the hosted install
+            // path keeps the prerelease suffix, and the same build must not
+            // read as `1.15.1` here and `1.15.1-rc.1` there.
             const frameworkVersion = det.version
                 ? parseProbedSemver(det.version)
                 : null
             if (found) {
-                matchedIds.push(found.id)
                 const patch = this.diff({
                     found,
-                    host,
                     det,
                     mountPath,
                     frameworkVersion,
@@ -176,35 +153,53 @@ export class DaemonRuntimeSyncService {
                     else grouped.set(key, { patch, ids: [found.id] })
                 }
                 result.push({ ...found, ...patch })
-            } else {
-                const name = nextFreeLabel(
-                    `${host.name}-${det.framework}`,
-                    taken
-                )
-                taken.add(name)
-                const [inserted] = await this.db
-                    .insert(agentRuntimes)
-                    .values({
-                        id: createObjectId('agentRuntime'),
-                        userId: host.userId,
-                        name,
-                        framework: det.framework,
-                        kind: 'daemon',
-                        status: 'ready',
-                        daemonId: host.id,
-                        homeDir: host.homeDir,
-                        workspaceBaseDir: host.workspaceBaseDir,
-                        ...(mountPath ? { mountPath } : {}),
-                        ...(frameworkVersion
-                            ? { frameworkVersion, frameworkVersionCheckedAt: now }
-                            : {}),
-                        capabilitiesJson: { detectedVersion: det.version },
-                        lastSeenAt: now,
-                        startedAt: now
-                    })
-                    .returning()
-                result.push(inserted)
+                continue
             }
+            if (!taken) {
+                const rows = await this.db
+                    .select({ name: agentRuntimes.name })
+                    .from(agentRuntimes)
+                    .where(eq(agentRuntimes.userId, host.userId))
+                taken = new Set(rows.map((r) => r.name))
+            }
+            const name = nextFreeLabel(`${host.name}-${det.framework}`, taken)
+            taken.add(name)
+            const versionColumns = frameworkVersion
+                ? { frameworkVersion, frameworkVersionCheckedAt: now }
+                : {}
+            // Two registers of the same machine racing each other both land
+            // here for a framework neither has a row for; the partial unique
+            // index makes the second one an update of the first.
+            const [row] = await this.db
+                .insert(agentRuntimes)
+                .values({
+                    id: createObjectId('agentRuntime'),
+                    userId: host.userId,
+                    name,
+                    framework: det.framework,
+                    hostId: host.id,
+                    status: 'ready',
+                    failureReason: null,
+                    currentPhase: null,
+                    ...(mountPath ? { mountPath } : {}),
+                    ...versionColumns,
+                    capabilitiesJson: { detectedVersion: det.version },
+                    lastBootstrappedAt: now
+                })
+                .onConflictDoUpdate({
+                    target: [agentRuntimes.hostId, agentRuntimes.framework],
+                    targetWhere: sql`${agentRuntimes.hostId} is not null`,
+                    set: {
+                        status: 'ready',
+                        failureReason: null,
+                        ...(mountPath ? { mountPath } : {}),
+                        ...versionColumns,
+                        capabilitiesJson: { detectedVersion: det.version },
+                        updatedAt: now
+                    }
+                })
+                .returning()
+            result.push(row)
         }
 
         for (const { patch, ids } of grouped.values())
@@ -213,86 +208,44 @@ export class DaemonRuntimeSyncService {
                 .set(patch)
                 .where(inArray(agentRuntimes.id, ids))
 
-        // One set-based recovery instead of one statement per runtime. Kept
-        // unconditional: agents can be stopped by paths that never touch the
-        // runtime row, so the runtime diff above is not evidence that no agent
-        // needs reviving.
-        if (matchedIds.length > 0)
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'running',
-                    failureReason: null,
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        inArray(agents.runtimeId, matchedIds),
-                        eq(agents.status, 'stopped')
-                    )
+        // Frameworks that left the inventory: their runtimes read failed
+        // (the row keeps its slot and the agents on it), and the set-based
+        // predicate stops it rewriting rows that already say this.
+        await this.db
+            .update(agentRuntimes)
+            .set({
+                status: 'failed',
+                failureReason: FRAMEWORK_NOT_DETECTED_REASON,
+                updatedAt: now
+            })
+            .where(
+                and(
+                    eq(agentRuntimes.hostId, host.id),
+                    detectedFw.size > 0
+                        ? notInArray(agentRuntimes.framework, [...detectedFw])
+                        : undefined,
+                    ne(agentRuntimes.status, 'failed')
                 )
-
-        const stale = existing.filter((r) => !detectedFw.has(r.framework))
-        if (stale.length > 0) {
-            const transitioning = stale
-                .filter((s) => s.status !== 'stopped')
-                .map((s) => s.id)
-            if (transitioning.length > 0)
-                await this.db
-                    .update(agentRuntimes)
-                    .set({ status: 'stopped', updatedAt: now })
-                    .where(inArray(agentRuntimes.id, transitioning))
-            // Agents keep the wider id set as a safety net (a runtime can be
-            // stopped while an agent under it is later revived elsewhere), but
-            // the predicate stops it rewriting rows that already say this.
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'stopped',
-                    failureReason: STALE_FAILURE_REASON,
-                    updatedAt: now
-                })
-                .where(
-                    and(
-                        inArray(
-                            agents.runtimeId,
-                            stale.map((s) => s.id)
-                        ),
-                        or(
-                            ne(agents.status, 'stopped'),
-                            isNull(agents.failureReason),
-                            ne(agents.failureReason, STALE_FAILURE_REASON)
-                        )
-                    )
-                )
-        }
+            )
 
         return result
     }
 
     private diff(args: {
         found: AgentRuntimeRow
-        host: RuntimeHostRow
         det: DetectedFramework
         mountPath: string | undefined
         frameworkVersion: string | null
         now: Date
         freshnessCutoff: Date
     }): RuntimePatch {
-        const {
-            found,
-            host,
-            det,
-            mountPath,
-            frameworkVersion,
-            now,
-            freshnessCutoff
-        } = args
+        const { found, det, mountPath, frameworkVersion, now, freshnessCutoff } =
+            args
         const patch: RuntimePatch = {}
-        if (found.status !== 'ready') patch.status = 'ready'
-        if (found.homeDir !== host.homeDir) patch.homeDir = host.homeDir
-        if (found.workspaceBaseDir !== host.workspaceBaseDir)
-            patch.workspaceBaseDir = host.workspaceBaseDir
+        if (found.status !== 'ready') {
+            patch.status = 'ready'
+            patch.failureReason = null
+        }
         if (mountPath && found.mountPath !== mountPath)
             patch.mountPath = mountPath
         if (frameworkVersion && found.frameworkVersion !== frameworkVersion) {
@@ -306,7 +259,6 @@ export class DaemonRuntimeSyncService {
         // Content changes are an audit event; the freshness touch below is not,
         // so it deliberately leaves updatedAt alone.
         if (Object.keys(patch).length > 0) patch.updatedAt = now
-        if (isStale(found.lastSeenAt, freshnessCutoff)) patch.lastSeenAt = now
         if (
             frameworkVersion &&
             patch.frameworkVersionCheckedAt === undefined &&
@@ -314,26 +266,5 @@ export class DaemonRuntimeSyncService {
         )
             patch.frameworkVersionCheckedAt = now
         return patch
-    }
-
-    async markRuntimesStopped(daemonId: string): Promise<void> {
-        const runtimes = await this.db
-            .select({ id: agentRuntimes.id })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.daemonId, daemonId))
-        const runtimeIds = runtimes.map((r) => r.id)
-        await this.db
-            .update(agentRuntimes)
-            .set({ status: 'stopped', updatedAt: new Date() })
-            .where(eq(agentRuntimes.daemonId, daemonId))
-        if (runtimeIds.length > 0)
-            await this.db
-                .update(agents)
-                .set({
-                    status: 'stopped',
-                    failureReason: 'daemon stopped',
-                    updatedAt: new Date()
-                })
-                .where(inArray(agents.runtimeId, runtimeIds))
     }
 }

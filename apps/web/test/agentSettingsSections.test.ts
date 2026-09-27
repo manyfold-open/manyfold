@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { SdkAgent } from '@manyfold/sdk'
+import { makeAgentSummary, makeDaemonAgentSummary } from './hostModelFixtures'
 import { agentRuntime, listFrameworks } from '@manyfold/shared'
 import type { AgentSettingsSectionId } from '../src/lib/agentSettingsSections'
 import {
@@ -13,59 +13,7 @@ import {
 } from '../src/lib/agentSettingsSections'
 import { FIXTURE_FRAMEWORK } from './fixture-framework'
 
-let seq = 0
-const makeAgent = (over: Partial<SdkAgent> = {}): SdkAgent => {
-    seq += 1
-    return {
-        id: `agt_${seq}`,
-        userId: 'usr_1',
-        runtimeId: 'rt_1',
-        daemonId: null,
-        daemonNeedsUpgrade: false,
-        name: `Agent ${seq}`,
-        framework: 'claude-code',
-        frameworkVersion: null,
-        frameworkLatestVersion: null,
-        frameworkUpgradeAvailable: false,
-        frameworkVersionBlockedReason: null,
-        cliVersion: null,
-        cliLatestVersion: null,
-        cliUpdateAvailable: false,
-        runtime: 'sprites',
-        status: 'running',
-        spriteStatus: null,
-        k8sPodPhase: null,
-        accountSlug: null,
-        clusterId: null,
-        clusterName: null,
-        spriteName: null,
-        spriteId: null,
-        mountPath: '/',
-        namespace: null,
-        ingressHost: null,
-        endpointUrl: null,
-        controlUiEnabled: false,
-        dashboardEnabled: false,
-        dashboardState: null,
-        keepAliveEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        internalId: 'int',
-        model: null,
-        extras: {},
-        workspacePath: null,
-    workspaceBytes: null,
-    workspaceMeasuredAt: null,
-        startedAt: null,
-        lastActiveAt: null,
-        lastMessageAt: null,
-        lastBootstrappedAt: null,
-        lastReconciledAt: null,
-        createdAt: '2026-08-01T00:00:00.000Z',
-        updatedAt: '2026-08-01T00:00:00.000Z',
-        ...over
-    }
-}
+const makeAgent = makeAgentSummary
 
 test('a sandbox coding agent gets the full set of sections', () => {
     const ids = sectionsFor(makeAgent()).map((section) => section.id)
@@ -88,7 +36,7 @@ test('a daemon coding agent gains what the platform delivers (#781)', () => {
     // Env text and connection env ride every turn, context docs go over the
     // daemon exec channel and MCP config over its fs RPCs — a daemon coding
     // agent now carries the full section set.
-    const agent = makeAgent({ runtime: 'daemon', daemonId: 'dmn_1' })
+    const agent = makeDaemonAgentSummary({ hostId: 'dh_1' })
     const ids = sectionsFor(agent).map((section) => section.id)
     assert.deepEqual(ids, [
         'overview',
@@ -126,9 +74,8 @@ test('a k8s agent still drops what nothing provisions into the pod', () => {
 test('a daemon openclaw agent has no per-turn env channel', () => {
     // Its turn payload carries no env field, so showing Environment would be a
     // lie; the precondition names openclaw rather than the runtime.
-    const agent = makeAgent({
-        runtime: 'daemon',
-        daemonId: 'dmn_1',
+    const agent = makeDaemonAgentSummary({
+        hostId: 'dh_1',
         framework: 'openclaw'
     })
     assert.equal(supportsSection(agent, 'environment'), false)
@@ -144,9 +91,8 @@ test('a daemon openclaw agent has no per-turn env channel', () => {
 })
 
 test('a daemon hermes agent keeps environment but not connections', () => {
-    const agent = makeAgent({
-        runtime: 'daemon',
-        daemonId: 'dmn_1',
+    const agent = makeDaemonAgentSummary({
+        hostId: 'dh_1',
         framework: 'hermes'
     })
     assert.equal(supportsSection(agent, 'environment'), true)
@@ -187,7 +133,7 @@ test('collapsing never reorders what is left', () => {
     // entries — every shape must stay a subsequence of the full order.
     const full = sectionsFor(makeAgent()).map((section) => section.id)
     for (const agent of [
-        makeAgent({ runtime: 'daemon', daemonId: 'dmn_1' }),
+        makeDaemonAgentSummary({ hostId: 'dh_1' }),
         makeAgent({ runtime: 'external', runtimeId: null, framework: 'dify' }),
         makeAgent({ runtimeId: null }),
         makeAgent({ framework: FIXTURE_FRAMEWORK })

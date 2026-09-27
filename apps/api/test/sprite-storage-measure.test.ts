@@ -16,11 +16,11 @@ const hostRow = (over: Record<string, unknown> = {}): RuntimeHostRow =>
     ({
         id: 'sbx-1',
         userId: 'u-1',
-        kind: 'sandbox',
-        accountId: 'acc-1',
-        spriteName: 'nca-user-abc-main',
-        spriteStatus: 'running',
-        status: 'active',
+        kind: 'hosted',
+        providerId: 'rtp-1',
+        providerRef: { kind: 'sprites', spriteName: 'nca-user-abc-main', spriteId: 'sp-1' },
+        powerState: 'running',
+        status: 'ready',
         storageBytes: null,
         storageMeasuredAt: null,
         storageBreakdown: null,
@@ -42,16 +42,21 @@ const makeDb = (host: RuntimeHostRow | null, hostAgents: Agent[] = []) => {
         updates,
         execute: async () => [],
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => {
+            from: (table: unknown) => {
+                const where = () => {
                     const rows =
-                        table === runtimeHosts ? (host ? [host] : []) : hostAgents
+                        table === runtimeHosts
+                            ? host
+                                ? [host]
+                                : []
+                            : hostAgents.map((agent) => ({ agent }))
                     return Object.assign(Promise.resolve(rows), {
                         limit: async () => rows,
                         orderBy: async () => rows
                     })
                 }
-            })
+                return { where, innerJoin: () => ({ where }) }
+            }
         }),
         update: (table: unknown) => ({
             set: (s: Record<string, unknown>) => ({

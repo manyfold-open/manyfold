@@ -53,7 +53,7 @@ test('the authenticated status stream dispatches resource changes', async () => 
             )
         }
     })
-    const handle = client.agents.streamSpriteStatus({
+    const handle = client.agents.streamHostStatus({
         onResourceChanged: (value) => received.push(value),
         onClose: closed,
         onError: (error) => {

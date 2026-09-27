@@ -19,9 +19,9 @@ import { updatesPath, type UpdateKind } from '@/lib/updateCenter'
 //
 // Toned but dot-less (DESIGN.md §8.3): a released version is a fixed property
 // of the world, not something happening on this machine right now. It is a
-// press target wearing the tag anatomy for the same reason SpriteStatusRefresh
-// is — the tag IS the thing the press acts on — and like that one it adds only
-// hover opacity: no shadow, no new shape.
+// press target wearing the tag anatomy for the same reason the runtime list's
+// power badge is — the tag IS the thing the press acts on — and like that one
+// it adds only hover opacity: no shadow, no new shape.
 export const VersionTag: FC<{
     // What the pill says: the installed version, or whatever the surface puts
     // in its place when nothing was reported.

@@ -134,7 +134,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             ctx.runnerDaemonId ?? undefined
         )
         const runtimeLocal =
-            (turnSource ?? effectiveModelConfigSource(agent)) ===
+            (turnSource ?? effectiveModelConfigSource(agent, runtime)) ===
             'runtime-local'
         const stored = runtimeLocal
             ? null

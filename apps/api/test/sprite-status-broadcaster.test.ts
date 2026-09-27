@@ -1,7 +1,7 @@
 import type {
-    ResourceChangedEvent,
-    SpriteStatusEvent,
-    SpriteStatusUpdate
+    AgentHostStatusUpdate,
+    HostStatusEvent,
+    ResourceChangedEvent
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -11,11 +11,11 @@ import {
     type SpriteStatusDeliveryOpts
 } from '../src/modules/agents/sprite-status/sprite-status-bus'
 
-const update = (agentId: string): SpriteStatusUpdate => ({
+const update = (agentId: string): AgentHostStatusUpdate => ({
     agentId,
-    spriteName: 'nca-u-1-main',
-    spriteStatus: 'running',
-    k8sPodPhase: null,
+    hostId: 'host-1',
+    powerState: 'running',
+    availability: 'available',
     at: '2026-06-12T00:00:00.000Z'
 })
 
@@ -39,7 +39,7 @@ const sessionsChanged = {
 test('emit reaches a local subscriber', () => {
     const net = makeNetwork()
     const a = makeNode(net)
-    const events: SpriteStatusEvent[] = []
+    const events: HostStatusEvent[] = []
 
     a.subscribe('u-1', {
         send: (event) => events.push(event),
@@ -55,7 +55,7 @@ test('emit on one instance reaches a subscriber on another instance', () => {
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const events: SpriteStatusEvent[] = []
+    const events: HostStatusEvent[] = []
 
     receiver.subscribe('u-1', {
         send: (event) => events.push(event),
@@ -72,8 +72,8 @@ test('subscribers on both instances each receive the event exactly once', () => 
     const net = makeNetwork()
     const a = makeNode(net)
     const b = makeNode(net)
-    const eventsA: SpriteStatusEvent[] = []
-    const eventsB: SpriteStatusEvent[] = []
+    const eventsA: HostStatusEvent[] = []
+    const eventsB: HostStatusEvent[] = []
 
     a.subscribe('u-1', {
         send: (event) => eventsA.push(event),
@@ -96,8 +96,8 @@ test('emitHostUpdate reaches local and remote subscribers as host-update', () =>
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const localEvents: SpriteStatusEvent[] = []
-    const remoteEvents: SpriteStatusEvent[] = []
+    const localEvents: HostStatusEvent[] = []
+    const remoteEvents: HostStatusEvent[] = []
 
     emitter.subscribe('u-1', {
         send: (event) => localEvents.push(event),
@@ -109,7 +109,8 @@ test('emitHostUpdate reaches local and remote subscribers as host-update', () =>
     })
     emitter.emitHostUpdate('u-1', {
         hostId: 'host-1',
-        spriteStatus: 'running',
+        powerState: 'running',
+        daemonOnline: true,
         at: '2026-06-12T00:00:00.000Z'
     })
 
@@ -130,8 +131,8 @@ test('emitSessionsChanged reaches local and remote subscribers', () => {
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const localEvents: SpriteStatusEvent[] = []
-    const remoteEvents: SpriteStatusEvent[] = []
+    const localEvents: HostStatusEvent[] = []
+    const remoteEvents: HostStatusEvent[] = []
 
     emitter.subscribe('u-1', {
         send: (event) => localEvents.push(event),
@@ -174,7 +175,7 @@ test('emitSessionsChanged only reaches subscribers of the same user', () => {
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const events: SpriteStatusEvent[] = []
+    const events: HostStatusEvent[] = []
 
     receiver.subscribe('u-2', {
         send: (event) => events.push(event),
@@ -189,7 +190,7 @@ test('emit only reaches subscribers of the same user', () => {
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const events: SpriteStatusEvent[] = []
+    const events: HostStatusEvent[] = []
 
     receiver.subscribe('u-2', {
         send: (event) => events.push(event),
@@ -204,9 +205,9 @@ test('resource changes fan out once across instances and remain account-scoped',
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const local: SpriteStatusEvent[] = []
-    const remote: SpriteStatusEvent[] = []
-    const other: SpriteStatusEvent[] = []
+    const local: HostStatusEvent[] = []
+    const remote: HostStatusEvent[] = []
+    const other: HostStatusEvent[] = []
     emitter.subscribe('u-1', { send: (event) => local.push(event), close: () => {} })
     receiver.subscribe('u-1', { send: (event) => remote.push(event), close: () => {} })
     receiver.subscribe('u-2', { send: (event) => other.push(event), close: () => {} })
@@ -243,8 +244,8 @@ test('adminOnly quota warning skips non-admin subscribers on every instance', ()
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const adminEvents: SpriteStatusEvent[] = []
-    const memberEvents: SpriteStatusEvent[] = []
+    const adminEvents: HostStatusEvent[] = []
+    const memberEvents: HostStatusEvent[] = []
 
     receiver.subscribe('u-1', {
         send: (event) => adminEvents.push(event),
@@ -266,7 +267,7 @@ test('unsubscribe stops delivery from remote emits', () => {
     const net = makeNetwork()
     const emitter = makeNode(net)
     const receiver = makeNode(net)
-    const events: SpriteStatusEvent[] = []
+    const events: HostStatusEvent[] = []
 
     const unsubscribe = receiver.subscribe('u-1', {
         send: (event) => events.push(event),
@@ -298,7 +299,7 @@ test('bus skips self-origin notifications and forwards foreign ones', async () =
 
     const got: Array<{
         userId: string
-        event: SpriteStatusEvent
+        event: HostStatusEvent
         opts: SpriteStatusDeliveryOpts
     }> = []
     bus.onEvent((userId, event, opts) => got.push({ userId, event, opts }))
@@ -361,7 +362,7 @@ test('bus carries the adminOnly flag across instances', async () => {
 
 type BusHandler = (
     userId: string,
-    event: SpriteStatusEvent,
+    event: HostStatusEvent,
     opts: SpriteStatusDeliveryOpts
 ) => void
 
@@ -380,7 +381,7 @@ class FakeBus {
 
     publish(
         userId: string,
-        event: SpriteStatusEvent,
+        event: HostStatusEvent,
         opts: SpriteStatusDeliveryOpts = {}
     ): void {
         for (const node of this.net) {
@@ -391,7 +392,7 @@ class FakeBus {
 
     deliver(
         userId: string,
-        event: SpriteStatusEvent,
+        event: HostStatusEvent,
         opts: SpriteStatusDeliveryOpts
     ): void {
         for (const handler of this.handlers) handler(userId, event, opts)

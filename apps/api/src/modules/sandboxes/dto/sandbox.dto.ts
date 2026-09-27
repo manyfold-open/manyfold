@@ -3,6 +3,7 @@ import type {
     CreateSandboxBody,
     InstallSandboxFrameworkBody,
     RenameBody,
+    SetKeepAliveBody,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody
 } from '@manyfold/shared'
@@ -22,7 +23,12 @@ export class CreateSandboxDto implements CreateSandboxBody {
     @IsOptional()
     @IsString()
     @Length(1, 64)
-    accountId?: string
+    providerId?: string
+}
+
+export class SetSandboxKeepAwakeDto implements SetKeepAliveBody {
+    @IsBoolean()
+    enabled!: boolean
 }
 
 export class SetSandboxTerminalDto implements SetSandboxTerminalBody {

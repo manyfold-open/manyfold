@@ -542,15 +542,12 @@ export class CreateAgentDto {
     @IsRuntimeFrameworkCompatible()
     runtime?: AgentRuntimeInput
 
+    // The runtime provider a NEW hosted machine is placed on (admin only);
+    // omit to let placement choose.
     @IsOptional()
     @IsString()
     @Length(1, 64)
-    accountId?: string
-
-    @IsOptional()
-    @IsString()
-    @Length(1, 64)
-    clusterId?: string
+    providerId?: string
 
     // For k8s framework: ID of an existing purchased container (agentRuntime)
     // to attach this new agent to. Required for k8s under the purchase model.
@@ -568,8 +565,8 @@ export class CreateAgentDto {
     @Length(1, 64)
     sandboxId?: string
 
-    // ID of an existing pod host (runtime_hosts row, kind 'pod') to place this
-    // k8s agent on (ADR-0035). The framework is installed on it if the host
+    // ID of an existing pod host (a hosted runtime_hosts row on a k8s
+    // provider) to place this k8s agent on (ADR-0035). The framework is installed on it if the host
     // does not run it yet; if it does, the agent joins that runtime. Omit to
     // get a fresh pod host.
     @IsOptional()

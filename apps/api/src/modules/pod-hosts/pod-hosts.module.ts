@@ -3,6 +3,7 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
 import { PodHostsController } from './pod-hosts.controller'
@@ -14,6 +15,7 @@ import { PodHostsService } from './pod-hosts.service'
         AgentRuntimesModule,
         AgentsModule,
         AdminSettingsModule,
+        HostsModule,
         DaemonModule,
         RunnerModule
     ],

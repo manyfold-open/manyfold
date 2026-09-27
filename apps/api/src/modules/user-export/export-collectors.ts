@@ -1,4 +1,5 @@
 import type { Writable } from 'node:stream'
+import { placementOf } from '@manyfold/shared'
 import { and, asc, eq, gt, or } from 'drizzle-orm'
 import {
     agentRuntimes,
@@ -10,6 +11,8 @@ import {
     chatSessions,
     librarySkillFiles,
     librarySkills,
+    runtimeHosts,
+    runtimeProviders,
     sandboxActiveDurationDays,
     skillRepos,
     userApiUsageDays,
@@ -116,15 +119,31 @@ async function collectAgents(
             id: agentRuntimes.id,
             name: agentRuntimes.name,
             framework: agentRuntimes.framework,
-            kind: agentRuntimes.kind,
+            hostId: agentRuntimes.hostId,
+            hostKind: runtimeHosts.kind,
+            providerKind: runtimeProviders.kind,
             status: agentRuntimes.status,
             createdAt: agentRuntimes.createdAt,
             updatedAt: agentRuntimes.updatedAt
         })
         .from(agentRuntimes)
+        .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+        .leftJoin(
+            runtimeProviders,
+            eq(runtimeProviders.id, runtimeHosts.providerId)
+        )
         .where(eq(agentRuntimes.userId, userId))
         .orderBy(asc(agentRuntimes.createdAt), asc(agentRuntimes.id))
-    for (const row of runtimes) await runtimeEntry.write(row)
+    // The placement is a fact of the host (ADR-0036), exported under the
+    // runtime's historical `kind` and the agent's `runtime` keys.
+    const placementByRuntime = new Map<string, string>()
+    for (const { hostKind, providerKind, ...row } of runtimes) {
+        const kind = placementOf(
+            row.hostId && hostKind ? { kind: hostKind, providerKind } : null
+        )
+        placementByRuntime.set(row.id, kind)
+        await runtimeEntry.write({ ...row, kind })
+    }
     await runtimeEntry.end()
 
     const agentEntry = bundle.entry('agents.ndjson')
@@ -134,7 +153,6 @@ async function collectAgents(
             runtimeId: agents.runtimeId,
             name: agents.name,
             framework: agents.framework,
-            runtime: agents.runtime,
             status: agents.status,
             model: agents.model,
             workspacePath: agents.workspacePath,
@@ -153,6 +171,7 @@ async function collectAgents(
         // server env/header maps — exactly the credential material §9.2 bans.
         await agentEntry.write({
             ...row,
+            runtime: placementByRuntime.get(row.runtimeId) ?? 'external',
             extras: redactExportValue(row.extras)
         })
     }

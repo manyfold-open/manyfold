@@ -4,6 +4,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
     agents,
     agentRuntimes,
+    hostDaemons,
     runtimeHosts,
     serviceLeases,
     userConnections,
@@ -11,6 +12,8 @@ import {
     type Agent,
     type Database,
     type AgentRuntimeRow,
+    type HostDaemonRow,
+    type RuntimeHostRow,
     type UserConnectionRow
 } from '@manyfold/db'
 import {
@@ -28,8 +31,8 @@ import {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 type Reader = Pick<Database, 'select'>
 export const DAEMON_CONFIG_LEASE_MS = 120_000
-export const daemonConfigLeaseName = (daemonId: string): string =>
-    `daemon-config:${daemonId}`
+export const daemonConfigLeaseName = (hostId: string): string =>
+    `daemon-config:${hostId}`
 export const configDigest = (value: unknown): string =>
     createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export class DaemonConfigDeliveryError extends Error {
@@ -51,9 +54,16 @@ export class DaemonConfigDeliveryError extends Error {
 export interface DaemonConfigSnapshot {
     agent: Agent
     runtime: AgentRuntimeRow
+    // The machine the agent's runtime lives on (ADR-0036): its daemon is
+    // the delivery target and its declared home is where config lands.
+    host: RuntimeHostRow
+    homeDir: string | null
     connections: UserConnectionRow[]
     revision(kind: 'mcp' | 'context', version?: number): string
 }
+
+const isDeliverableHost = (host: RuntimeHostRow): boolean =>
+    host.status !== 'retired' && host.status !== 'deleting'
 
 export const readDaemonConfigSnapshot = async (
     db: Reader,
@@ -66,27 +76,32 @@ export const readDaemonConfigSnapshot = async (
         .where(eq(agents.id, agentId))
         .limit(1)
     const [agent] = await (lock ? query.for('update') : query)
-    if (
-        !agent ||
-        agent.runtime !== 'daemon' ||
-        !agent.daemonId ||
-        !agent.runtimeId
-    )
-        throw new DaemonConfigDeliveryError('unsupported')
+    if (!agent) throw new DaemonConfigDeliveryError('unsupported')
     const runtimeQuery = db
         .select()
         .from(agentRuntimes)
         .where(
             and(
                 eq(agentRuntimes.id, agent.runtimeId),
-                eq(agentRuntimes.userId, agent.userId),
-                eq(agentRuntimes.daemonId, agent.daemonId)
+                eq(agentRuntimes.userId, agent.userId)
             )
         )
         .limit(1)
     const [runtime] = await (lock ? runtimeQuery.for('share') : runtimeQuery)
-    if (!runtime || runtime.kind !== 'daemon')
-        throw new DaemonConfigDeliveryError('unsupported')
+    // An external runtime has no machine and nothing to deliver to.
+    if (!runtime?.hostId) throw new DaemonConfigDeliveryError('unsupported')
+    const hostQuery = db
+        .select()
+        .from(runtimeHosts)
+        .where(
+            and(
+                eq(runtimeHosts.id, runtime.hostId),
+                eq(runtimeHosts.userId, agent.userId)
+            )
+        )
+        .limit(1)
+    const [host] = await (lock ? hostQuery.for('share') : hostQuery)
+    if (!host) throw new DaemonConfigDeliveryError('unsupported')
     const refs = [
         'githubConnectionId',
         'cloudflareConnectionId',
@@ -121,14 +136,16 @@ export const readDaemonConfigSnapshot = async (
         agent.id,
         agent.userId,
         agent.framework,
-        agent.daemonId,
+        host.id,
         agent.runtimeId,
-        runtime.homeDir,
+        host.homeDir,
         agent.workspacePath ?? agent.mountPath
     ]
     return {
         agent,
         runtime,
+        host,
+        homeDir: host.homeDir,
         connections,
         revision: (kind, version) => {
             const included =
@@ -217,6 +234,22 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         })
     }
 
+    // The agent's host through its runtime: the routing key for every
+    // delivery (ADR-0036 R9).
+    private async hostIdFor(agent: Agent): Promise<string | null> {
+        const [row] = await this.db
+            .select({ hostId: agentRuntimes.hostId })
+            .from(agentRuntimes)
+            .where(
+                and(
+                    eq(agentRuntimes.id, agent.runtimeId),
+                    eq(agentRuntimes.userId, agent.userId)
+                )
+            )
+            .limit(1)
+        return row?.hostId ?? null
+    }
+
     async deliver<T>(
         agent: Agent,
         work: (
@@ -226,15 +259,15 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         options: DaemonConfigDeliveryOptions = {}
     ): Promise<T> {
         if (this.stopping) throw new DaemonConfigDeliveryError('cancelled')
-        const daemonId = agent.daemonId
-        if (!daemonId) throw new DaemonConfigDeliveryError('unsupported')
+        const hostId = await this.hostIdFor(agent)
+        if (!hostId) throw new DaemonConfigDeliveryError('unsupported')
         const holderId = createObjectId('daemonConfigAttempt')
         const abort = new AbortController()
         const cancel = () => abort.abort()
         if (options.signal?.aborted)
             throw new DaemonConfigDeliveryError('cancelled')
         options.signal?.addEventListener('abort', cancel, { once: true })
-        const run = this.run(agent, daemonId, holderId, abort, work, options)
+        const run = this.run(agent, hostId, holderId, abort, work, options)
         this.active.set(holderId, { abort, done: run })
         try {
             return await run
@@ -244,9 +277,32 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         }
     }
 
+    // The host row and its daemon connection, locked for share so a retire
+    // or a lease change waits on the delivery's writes.
+    private async lockHost(
+        tx: Tx,
+        hostId: string,
+        userId: string
+    ): Promise<{ host: RuntimeHostRow; daemon: HostDaemonRow | null } | null> {
+        const [host] = await tx
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(eq(runtimeHosts.id, hostId), eq(runtimeHosts.userId, userId))
+            )
+            .for('share')
+        if (!host) return null
+        const [daemon] = await tx
+            .select()
+            .from(hostDaemons)
+            .where(eq(hostDaemons.hostId, hostId))
+            .for('share')
+        return { host, daemon: daemon ?? null }
+    }
+
     private async run<T>(
         agent: Agent,
-        daemonId: string,
+        hostId: string,
         holderId: string,
         abort: AbortController,
         work: (
@@ -255,38 +311,25 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         ) => Promise<T>,
         options: DaemonConfigDeliveryOptions
     ): Promise<T> {
-        const name = daemonConfigLeaseName(daemonId)
+        const name = daemonConfigLeaseName(hostId)
         const claimed = await this.transaction(async (tx) => {
-            const [host] = await tx
-                .select()
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.id, daemonId),
-                        eq(runtimeHosts.userId, agent.userId),
-                        eq(runtimeHosts.kind, 'daemon')
-                    )
-                )
-                .for('share')
-            if (!host) throw new DaemonConfigDeliveryError('unsupported')
-            if (host.status === 'revoked' || abort.signal.aborted)
+            const locked = await this.lockHost(tx, hostId, agent.userId)
+            if (!locked) throw new DaemonConfigDeliveryError('unsupported')
+            const { host, daemon } = locked
+            if (!isDeliverableHost(host) || abort.signal.aborted)
                 throw new DaemonConfigDeliveryError('cancelled')
             if (
                 options.evidence &&
-                !this.registry.isCurrentHelloEvidence(
-                    daemonId,
-                    options.evidence
-                )
+                !this.registry.isCurrentHelloEvidence(hostId, options.evidence)
             )
                 throw new DaemonConfigDeliveryError('superseded')
-            const token = storedConfigConnectionToken(host)
-            if (host.rpcInstanceId && !token)
+            const token = daemon ? storedConfigConnectionToken(daemon) : undefined
+            if (daemon?.rpcInstanceId && !token)
                 throw new DaemonConfigDeliveryError('unsupported')
             if (
                 options.automatic &&
                 (!token ||
-                    this.registry.localConfigConnectionToken(daemonId) !==
-                        token)
+                    this.registry.localConfigConnectionToken(hostId) !== token)
             )
                 throw new DaemonConfigDeliveryError('superseded')
             const [row] = await tx
@@ -312,16 +355,18 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
                     generation: sql<string>`(extract(epoch from ${serviceLeases.acquiredAt}) * 1000000)::numeric(30,0)::text`
                 })
             if (!row) throw new DaemonConfigDeliveryError('busy')
-            return { ...row, host }
+            return { ...row, host, daemon }
         })
-        const expectedConnection = storedConfigConnectionToken(claimed.host)
+        const expectedConnection = claimed.daemon
+            ? storedConfigConnectionToken(claimed.daemon)
+            : undefined
         const liveFeatures = this.registry.currentHelloFeatures(
-            daemonId,
+            hostId,
             options.evidence
         )
         const protectedWrites = (
             liveFeatures ??
-            claimed.host.clientFeatures ??
+            claimed.daemon?.clientFeatures ??
             []
         ).includes(DAEMON_FEATURE_FS_CONFIG_COMMIT)
         const assertCurrent = async () => {
@@ -330,36 +375,27 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
             if (!expectedConnection) throw new DaemonConfigDeliveryError('offline')
             if (
                 options.evidence &&
-                !this.registry.isCurrentHelloEvidence(
-                    daemonId,
-                    options.evidence
-                )
+                !this.registry.isCurrentHelloEvidence(hostId, options.evidence)
             )
                 throw new DaemonConfigDeliveryError('superseded')
             const [row] = await this.transaction(async (tx) =>
                 tx
                     .select({ name: serviceLeases.name })
                     .from(serviceLeases)
-                    .innerJoin(runtimeHosts, eq(runtimeHosts.id, daemonId))
+                    .innerJoin(runtimeHosts, eq(runtimeHosts.id, hostId))
+                    .innerJoin(hostDaemons, eq(hostDaemons.hostId, hostId))
                     .where(
                         and(
                             eq(serviceLeases.name, name),
                             eq(serviceLeases.holderId, holderId),
                             sql`${serviceLeases.expiresAt} > clock_timestamp()`,
                             eq(runtimeHosts.userId, agent.userId),
-                            sql`${runtimeHosts.status} <> 'revoked'`,
-                            expectedConnection
-                                ? and(
-                                      eq(
-                                          runtimeHosts.rpcInstanceId,
-                                          claimed.host.rpcInstanceId!
-                                      ),
-                                      eq(
-                                          runtimeHosts.rpcConnectionToken,
-                                          expectedConnection
-                                      )
-                                  )
-                                : sql`${runtimeHosts.rpcInstanceId} is null`
+                            sql`${runtimeHosts.status} not in ('retired', 'deleting')`,
+                            eq(
+                                hostDaemons.rpcInstanceId,
+                                claimed.daemon!.rpcInstanceId!
+                            ),
+                            eq(hostDaemons.rpcConnectionToken, expectedConnection)
                         )
                     )
             )
@@ -373,7 +409,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         const stopRetirement = this.registry.onConnectionRetired(
             (id, token) => {
                 if (
-                    id === daemonId &&
+                    id === hostId &&
                     options.evidence?.connectionToken === token
                 )
                     abort.abort()
@@ -385,7 +421,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
             )
             if (
                 snapshot.agent.userId !== agent.userId ||
-                snapshot.agent.daemonId !== daemonId
+                snapshot.host.id !== hostId
             )
                 throw new DaemonConfigDeliveryError('changed')
             return await work(snapshot, {
@@ -398,23 +434,19 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
                 publish: (source, kind, patch, version) =>
                     this.transaction(async (tx) => {
                         // Match admission's host-before-lease lock order.
-                        const [host] = await tx
-                            .select()
-                            .from(runtimeHosts)
-                            .where(
-                                and(
-                                    eq(runtimeHosts.id, daemonId),
-                                    eq(runtimeHosts.userId, agent.userId),
-                                    eq(runtimeHosts.kind, 'daemon')
-                                )
-                            )
-                            .for('share')
+                        const locked = await this.lockHost(
+                            tx,
+                            hostId,
+                            agent.userId
+                        )
                         if (
-                            !host ||
-                            host.status === 'revoked' ||
-                            host.rpcInstanceId !== claimed.host.rpcInstanceId ||
-                            storedConfigConnectionToken(host) !==
-                                expectedConnection
+                            !locked ||
+                            !isDeliverableHost(locked.host) ||
+                            locked.daemon?.rpcInstanceId !==
+                                claimed.daemon?.rpcInstanceId ||
+                            (locked.daemon
+                                ? storedConfigConnectionToken(locked.daemon)
+                                : undefined) !== expectedConnection
                         )
                             return false
                         const [lease] = await tx
@@ -433,7 +465,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
                             abort.signal.aborted ||
                             (options.evidence &&
                                 !this.registry.isCurrentHelloEvidence(
-                                    daemonId,
+                                    hostId,
                                     options.evidence
                                 ))
                         )

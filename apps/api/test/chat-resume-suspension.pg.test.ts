@@ -118,14 +118,12 @@ test(
                 userId,
                 name: `runtime-${suffix}`,
                 framework: 'claude-code',
-                kind: 'daemon'
             })
             await db.insert(agents).values({
                 id: agentId,
                 userId,
                 name: 'suspension-fixture',
                 framework: 'claude-code',
-                runtime: 'daemon',
                 runtimeId,
                 internalId: agentId
             })
@@ -136,7 +134,7 @@ test(
                 id: messageId,
                 sessionId,
                 role: 'assistant',
-                daemonId: 'daemon-fixture',
+                hostId: 'daemon-fixture',
                 daemonExecRef: 'exec-fixture',
                 contentBlocksJson: [{ type: 'text', text: 'prefix' }]
             })

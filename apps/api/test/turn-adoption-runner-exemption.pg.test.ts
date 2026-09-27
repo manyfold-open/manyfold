@@ -11,6 +11,7 @@ import {
     chatMessages,
     chatSessions,
     createDb,
+    hostDaemons,
     runtimeHosts,
     turnExecutions,
     users,
@@ -69,14 +70,12 @@ const buildHarness = async (): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'sprites'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'pgtest-agent',
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId,
         internalId: `internal-${agentId}`
     })
@@ -112,7 +111,7 @@ const insertLapsedTurn = async (
         role: 'assistant',
         contentBlocksJson: [],
         ...(carrier
-            ? { daemonId: carrier.hostId, daemonExecRef: carrier.execRef }
+            ? { hostId: carrier.hostId, daemonExecRef: carrier.execRef }
             : {})
     })
     await h.db.insert(turnExecutions).values({
@@ -137,7 +136,14 @@ const insertRunnerHost = async (
     await h.db.insert(runtimeHosts).values({
         id,
         userId: h.userId,
+        kind: 'local',
         name: `sprite-runner:art-${id}`,
+        status: 'ready'
+    })
+    await h.db.insert(hostDaemons).values({
+        hostId: id,
+        userId: h.userId,
+        daemonUuid: `uuid-${id}`,
         lastSeenAt: new Date(),
         rpcLastSeenAt: new Date(Date.now() - rpcSeenMsAgo)
     })

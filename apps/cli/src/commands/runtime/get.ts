@@ -17,12 +17,17 @@ export const registerRuntimeGet = (cmd: Command, program: Command): void => {
                 `${kleur.bold(rt.id)}  ${kleur.cyan(rt.name)}  ${kleur.yellow(rt.framework)}/${rt.kind}  ${rt.status}`
             )
             console.log(kleur.dim(`  agents:   ${rt.agentsCount}`))
-            if (rt.spriteName)
-                console.log(kleur.dim(`  sprite:   ${rt.spriteName}`))
-            if (rt.namespace)
-                console.log(kleur.dim(`  ns:       ${rt.namespace}`))
-            if (rt.ingressHost)
-                console.log(kleur.dim(`  ingress:  ${rt.ingressHost}`))
+            console.log(kleur.dim(`  available: ${rt.availability}`))
+            if (rt.hostName)
+                console.log(kleur.dim(`  host:     ${rt.hostName}`))
+            if (rt.providerName)
+                console.log(
+                    kleur.dim(
+                        `  provider: ${rt.providerName}${rt.providerRefLabel ? ` (${rt.providerRefLabel})` : ''}`
+                    )
+                )
+            if (rt.powerState)
+                console.log(kleur.dim(`  power:    ${rt.powerState}`))
             console.log(kleur.dim(`  created:  ${rt.createdAt}`))
         })
     })

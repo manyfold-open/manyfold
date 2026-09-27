@@ -216,7 +216,6 @@ const seedFixtureUser = async (db: ReturnType<typeof createDb>) => {
         userId: 'usr_v6',
         name: 'main-runtime',
         framework: 'claude-code',
-        kind: 'daemon'
     })
     await db.insert(agentCredentials).values({
         id: 'acr_v6',
@@ -229,7 +228,6 @@ const seedFixtureUser = async (db: ReturnType<typeof createDb>) => {
         userId: 'usr_v6',
         name: 'main-agent',
         framework: 'claude-code',
-        runtime: 'daemon',
         runtimeId: 'art_v6',
         internalId: 'ia_v6',
         extras: {

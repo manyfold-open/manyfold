@@ -18,7 +18,9 @@ export const legacyConfigDelivery = (db: Pick<Database, 'update'>) => ({
         work(
             {
                 agent,
-                runtime: { homeDir: '/home/cy' } as never,
+                runtime: {} as never,
+                host: { id: 'rth_fixture', homeDir: '/home/cy' } as never,
+                homeDir: '/home/cy',
                 connections: [],
                 revision: () => 'fixture-revision'
             },

@@ -64,7 +64,7 @@ test(
             .where(eq(runtimeHosts.id, h.hostId))
         const large = await h.addHost({
             name: 'Z-large',
-            spriteStatus: 'cold',
+            powerState: 'stopped',
             storageBytes: 18000,
             storageMeasuredAt: OLD,
             storageBreakdown: {

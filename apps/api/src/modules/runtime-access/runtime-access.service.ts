@@ -9,7 +9,10 @@ import {
     isObjectId,
     frameworkCapability,
     listFrameworks,
-    runtimeKindLabel
+    placementOf,
+    runtimeKindLabel,
+    type AgentRuntime,
+    type RuntimeProviderKind
 } from '@manyfold/shared'
 import {
     ConflictException,
@@ -23,6 +26,7 @@ import {
     count,
     eq,
     gte,
+    isNotNull,
     isNull,
     lt,
     ne,
@@ -36,6 +40,7 @@ import {
     automations,
     channels,
     runtimeHosts,
+    runtimeProviders,
     plans,
     userApiUsageDays,
     users,
@@ -68,12 +73,14 @@ import {
 } from '@/common/ports/usage-period.ports'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { nextFreeLabel } from '@/modules/agent-runtimes/runtime-label'
+import { spriteNameForHost } from '@/modules/hosts/providers/sprites.provider'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { buildSandboxUsageBreakdown } from './sandbox-usage-breakdown'
 import {
     alwaysOnlineUsageInTx,
     emptyUsage,
+    liveHostedHosts,
     usageCountsForUsers as computeUsageCountsForUsers,
     type RuntimeUsageCounts
 } from './runtime-usage-counts'
@@ -95,7 +102,7 @@ export const isConcurrentActiveLimitError = (err: unknown): boolean =>
 //   2 — reserveActiveSlot + enableKeepAlive (per-user concurrent active
 //       sprite cap; SAME namespace on purpose so keep-alive enables
 //       serialize against chat/terminal admissions)
-//   3 — reserveAlwaysOnlineRuntimeSlot (per-user always-online runtime registration cap: daemon host or k8s container)
+//   3 — reserveAlwaysOnlineRuntimeSlot (per-user always-online runtime registration cap: local host or cloud computer)
 //   4 — reserveChannel    (per-user channels cap)
 //   5 — reserveAutomation (per-user automation definitions cap)
 //   6 — reserveAutomationRun (per-user monthly automation run quota)
@@ -112,6 +119,10 @@ const serviceFrameworks = (): string[] =>
     listFrameworks().filter(
         (framework) => frameworkCapability(framework).kind === 'service'
     )
+
+// A running sandbox VM: hosted on a sprites provider and observed `running`.
+const runningSpritesHosts = () =>
+    and(liveHostedHosts('sprites'), eq(runtimeHosts.powerState, 'running'))
 
 @Injectable()
 export class RuntimeAccessService {
@@ -203,8 +214,25 @@ export class RuntimeAccessService {
                 )
                 const [ownAgent] = agentId
                     ? await tx
-                          .select()
+                          .select({
+                              id: agents.id,
+                              runtimeId: agents.runtimeId,
+                              hostId: agentRuntimes.hostId,
+                              providerKind: runtimeProviders.kind
+                          })
                           .from(agents)
+                          .innerJoin(
+                              agentRuntimes,
+                              eq(agentRuntimes.id, agents.runtimeId)
+                          )
+                          .leftJoin(
+                              runtimeHosts,
+                              eq(runtimeHosts.id, agentRuntimes.hostId)
+                          )
+                          .leftJoin(
+                              runtimeProviders,
+                              eq(runtimeProviders.id, runtimeHosts.providerId)
+                          )
                           .where(
                               and(
                                   eq(agents.id, agentId),
@@ -216,7 +244,7 @@ export class RuntimeAccessService {
                 if (
                     agentId &&
                     (!ownAgent ||
-                        ownAgent.runtime !== 'sprites' ||
+                        ownAgent.providerKind !== 'sprites' ||
                         !ownAgent.hostId)
                 )
                     throw new NotFoundException(
@@ -227,7 +255,7 @@ export class RuntimeAccessService {
                         .select({
                             id: runtimeHosts.id,
                             name: runtimeHosts.name,
-                            spriteStatus: runtimeHosts.spriteStatus,
+                            powerState: runtimeHosts.powerState,
                             storageBytes: runtimeHosts.storageBytes,
                             storageMeasuredAt: runtimeHosts.storageMeasuredAt,
                             storageBreakdown: runtimeHosts.storageBreakdown
@@ -236,8 +264,7 @@ export class RuntimeAccessService {
                         .where(
                             and(
                                 eq(runtimeHosts.userId, userId),
-                                eq(runtimeHosts.kind, 'sandbox'),
-                                eq(runtimeHosts.status, 'active'),
+                                liveHostedHosts('sprites'),
                                 ownAgent
                                     ? eq(runtimeHosts.id, ownAgent.hostId!)
                                     : undefined
@@ -248,14 +275,18 @@ export class RuntimeAccessService {
                             id: agents.id,
                             name: agents.name,
                             framework: agents.framework,
-                            hostId: agents.hostId
+                            hostId: agentRuntimes.hostId
                         })
                         .from(agents)
+                        .innerJoin(
+                            agentRuntimes,
+                            eq(agentRuntimes.id, agents.runtimeId)
+                        )
                         .where(
                             and(
                                 eq(agents.userId, userId),
-                                eq(agents.runtime, 'sprites'),
                                 ne(agents.status, 'failed'),
+                                isNotNull(agentRuntimes.hostId),
                                 ownAgent
                                     ? eq(agents.id, ownAgent.id)
                                     : undefined
@@ -272,12 +303,9 @@ export class RuntimeAccessService {
                         .where(
                             and(
                                 eq(agentRuntimes.userId, userId),
-                                eq(agentRuntimes.kind, 'sprites'),
+                                isNotNull(agentRuntimes.hostId),
                                 ownAgent
-                                    ? eq(
-                                          agentRuntimes.id,
-                                          ownAgent.runtimeId ?? ''
-                                      )
+                                    ? eq(agentRuntimes.id, ownAgent.runtimeId)
                                     : undefined
                             )
                         )
@@ -410,11 +438,7 @@ export class RuntimeAccessService {
             .select({ value: sum(runtimeHosts.storageBytes) })
             .from(runtimeHosts)
             .where(
-                and(
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
+                and(eq(runtimeHosts.userId, userId), liveHostedHosts('sprites'))
             )
         return Number(row?.value ?? 0)
     }
@@ -557,8 +581,7 @@ export class RuntimeAccessService {
             .where(
                 and(
                     eq(runtimeHosts.userId, input.userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
+                    liveHostedHosts('sprites')
                 )
             )
         const current = Number(row?.value ?? 0)
@@ -793,20 +816,13 @@ export class RuntimeAccessService {
     }
 
     private async activeSandboxUsageFor(userId: string): Promise<number> {
-        // Per running sandbox VM (host-level sprite_status), so a bare sandbox
+        // Per running sandbox VM (host-level power state), so a bare sandbox
         // with an open terminal (no agent) still counts toward the cap.
         // Co-resident agents share one host and count once.
         const [row] = await this.db
             .select({ value: count() })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active'),
-                    eq(runtimeHosts.spriteStatus, 'running')
-                )
-            )
+            .where(and(eq(runtimeHosts.userId, userId), runningSpritesHosts()))
         return Number(row?.value ?? 0)
     }
 
@@ -816,9 +832,40 @@ export class RuntimeAccessService {
         return computeUsageCountsForUsers(this.db, userIds)
     }
 
+    // The placement a runtime row is being created for: its host's kind and
+    // provider kind, or external when it has no host.
+    private async placementFor(
+        hostId: string | null | undefined,
+        db: Pick<Database, 'select'> = this.db
+    ): Promise<AgentRuntime> {
+        if (!hostId) return 'external'
+        const [row] = await db
+            .select({
+                kind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
+            })
+            .from(runtimeHosts)
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
+            .where(eq(runtimeHosts.id, hostId))
+            .limit(1)
+        if (!row)
+            throw new NotFoundException({
+                message: `host ${hostId} not found`,
+                code: 'HOST_NOT_FOUND'
+            })
+        return placementOf({
+            kind: row.kind,
+            providerKind: (row.providerKind ?? null) as RuntimeProviderKind | null
+        })
+    }
+
     async reserveRuntime(input: NewAgentRuntimeRow): Promise<AgentRuntimeRow> {
+        const placement = await this.placementFor(input.hostId)
         if (
-            input.kind === 'k8s' &&
+            placement === 'k8s' &&
             !(await this.adminSettings.isFeatureEnabled(
                 FEATURE_TOGGLE_KEYS.CLOUD_COMPUTER
             ))
@@ -832,7 +879,7 @@ export class RuntimeAccessService {
             await tx.execute(
                 sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`
             )
-            if (input.kind === 'k8s') {
+            if (placement === 'k8s') {
                 await tx.execute(
                     sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 3))`
                 )
@@ -853,13 +900,10 @@ export class RuntimeAccessService {
                 .limit(1)
             if (!row) throw new NotFoundException('user not found')
 
-            // 'sprites' never reaches here — those go through
+            // A sandbox runtime never reaches here — those go through
             // reserveSpriteRuntime / reserveStandaloneSandbox, which meter per
-            // sandbox VM. A branch counting agent_runtimes used to sit here and
-            // was unreachable; with co-residence (4 runtimes per VM) it also
-            // disagreed with the live path by up to 4x, so it was the wrong
-            // thing to copy from and is gone.
-            if (input.kind === 'external') {
+            // sandbox VM.
+            if (placement === 'external') {
                 await this.assertProvisionedQuotaAvailable(tx, {
                     userId: input.userId,
                     statefulSandboxLimit: row.statefulSandboxLimit,
@@ -867,7 +911,7 @@ export class RuntimeAccessService {
                     planName: row.planName,
                     kind: 'external'
                 })
-            } else if (input.kind === 'daemon' || input.kind === 'k8s') {
+            } else if (placement === 'daemon' || placement === 'k8s') {
                 const usage = await alwaysOnlineUsageInTx(tx, input.userId)
                 const agentsLimit =
                     row.maxAlwaysOnlineAgents + row.alwaysOnlineRuntimeBonus
@@ -875,12 +919,12 @@ export class RuntimeAccessService {
                     throw new ForbiddenException({
                         message: `always-online agent limit reached (${agentsLimit} for ${row.planName} plan)`,
                         code: 'ALWAYS_ONLINE_AGENT_LIMIT_REACHED',
-                        kind: input.kind,
+                        kind: placement,
                         current: usage.agentsUsed,
                         limit: agentsLimit,
                         planName: row.planName
                     })
-                if (input.kind === 'k8s') {
+                if (placement === 'k8s') {
                     const runtimesLimit =
                         row.maxAlwaysOnlineRuntimes +
                         row.alwaysOnlineRuntimeBonus
@@ -906,17 +950,10 @@ export class RuntimeAccessService {
 
     // plans.maxAgentsProvisioned is documented as the user's TOTAL agent count,
     // so it covers both things a user can provision without a wake: sandbox VMs
-    // and external-provider runtimes (Dify / Langflow / A2A). External runtimes
-    // were previously counted by nothing at all — reserveRuntime had no branch
-    // for them — which left them unbounded on every plan.
-    //
-    // One shared count rather than a second cap: a dedicated
-    // plans.maxExternalRuntimes column would be a migration plus four pricing
-    // numbers to invent, and sharing matches the field's stated meaning. If
-    // product wants external agents priced separately, that column is the
-    // follow-up. Verified against prod before shipping: the heaviest user sits
-    // at 17 sandboxes + 3 external against a cap of 75, so nothing goes
-    // retroactively over.
+    // and external-provider runtimes (Dify / Langflow / A2A). One shared count
+    // rather than a second cap: a dedicated plans.maxExternalRuntimes column
+    // would be a migration plus four pricing numbers to invent, and sharing
+    // matches the field's stated meaning.
     private async provisionedUnitsInTx(
         tx: Tx,
         userId: string
@@ -925,11 +962,7 @@ export class RuntimeAccessService {
             .select({ value: count() })
             .from(runtimeHosts)
             .where(
-                and(
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
-                )
+                and(eq(runtimeHosts.userId, userId), liveHostedHosts('sprites'))
             )
         const [external] = await tx
             .select({ value: count() })
@@ -937,7 +970,7 @@ export class RuntimeAccessService {
             .where(
                 and(
                     eq(agentRuntimes.userId, userId),
-                    eq(agentRuntimes.kind, 'external'),
+                    isNull(agentRuntimes.hostId),
                     ne(agentRuntimes.status, 'failed')
                 )
             )
@@ -980,7 +1013,7 @@ export class RuntimeAccessService {
                 0
             ) as max
             from runtime_hosts
-            where user_id = ${userId} and kind = 'sandbox'
+            where user_id = ${userId} and kind = 'hosted'
         `)) as unknown as Array<{ max: number | string | null }>
         const next = Number(rows[0]?.max ?? 0) + 1
         return `sandbox-${String(next).padStart(3, '0')}`
@@ -1005,10 +1038,46 @@ export class RuntimeAccessService {
         )
     }
 
+    // The host row a new sandbox starts as (ADR-0036): hosted on the chosen
+    // sprites provider, `provisioning` until the adapter has created the VM
+    // and its daemon has registered. The sprite is named after the host so a
+    // retry under the same generation finds the machine it already made; the
+    // adapter fills in spriteId.
+    private async insertSandboxHost(
+        tx: Tx,
+        input: {
+            userId: string
+            name: string
+            providerId: string
+            emptiedAt: Date | null
+        }
+    ): Promise<RuntimeHostRow> {
+        const hostId = createObjectId('sandboxHost')
+        const [inserted] = await tx
+            .insert(runtimeHosts)
+            .values({
+                id: hostId,
+                userId: input.userId,
+                kind: 'hosted',
+                providerId: input.providerId,
+                providerRef: {
+                    kind: 'sprites',
+                    spriteName: spriteNameForHost(hostId),
+                    spriteId: null
+                },
+                name: input.name,
+                status: 'provisioning',
+                generation: 1,
+                emptiedAt: input.emptiedAt
+            })
+            .returning()
+        return inserted
+    }
+
     async reserveStandaloneSandbox(input: {
         userId: string
         name?: string
-        accountId: string
+        providerId: string
     }): Promise<RuntimeHostRow> {
         return this.db.transaction(async (tx) => {
             await tx.execute(
@@ -1039,22 +1108,12 @@ export class RuntimeAccessService {
                 planName: row.planName,
                 kind: 'sprites'
             })
-
-            const hostId = createObjectId('sandboxHost')
-            const [inserted] = await tx
-                .insert(runtimeHosts)
-                .values({
-                    id: hostId,
-                    userId: input.userId,
-                    kind: 'sandbox',
-                    name: input.name ?? (await this.nextSandboxName(tx, input.userId)),
-                    accountId: input.accountId,
-                    spriteName: hostId.replace(/_/g, '-'),
-                    status: 'active',
-                    emptiedAt: new Date()
-                })
-                .returning()
-            return inserted
+            return this.insertSandboxHost(tx, {
+                userId: input.userId,
+                name: input.name ?? (await this.nextSandboxName(tx, input.userId)),
+                providerId: input.providerId,
+                emptiedAt: new Date()
+            })
         })
     }
 
@@ -1065,12 +1124,17 @@ export class RuntimeAccessService {
     // implicit reuse of whatever VM happened to be free. Provisioned quota is
     // metered per sandbox VM (distinct host_id), not per runtime, so attaching
     // to an existing sandbox consumes no extra slot.
+    //
+    // The runtime row is one per (host, framework): a `failed` install keeps
+    // its slot and a retry reuses the row (upsert to `installing`), so the
+    // returned runtime's id may differ from `input.id`; callers use what comes
+    // back.
     async reserveSpriteRuntime(input: {
         id: string
         userId: string
         framework: NewAgentRuntimeRow['framework']
-        accountId: string
-        hostId?: string
+        providerId: string | null
+        hostId?: string | null
         mountPath: string
         currentPhase?: AgentRuntimeRow['currentPhase']
     }): Promise<{ runtime: AgentRuntimeRow; hostCreated: boolean }> {
@@ -1106,13 +1170,11 @@ export class RuntimeAccessService {
                 const target = (
                     (await tx.execute(sql`
                         select h.name as host_name,
-                               h.sprite_name as sprite_name,
-                               h.sprite_id as sprite_id,
                                exists(
                                    select 1 from agent_runtimes r
                                    where r.host_id = h.id
                                      and r.framework = ${input.framework}
-                                     and r.status not in ('failed', 'stopped')
+                                     and r.status <> 'failed'
                                ) as framework_present,
                                (
                                    select r.framework from agent_runtimes r
@@ -1124,20 +1186,19 @@ export class RuntimeAccessService {
                                          ),
                                          sql`, `
                                      )})
-                                     and r.status not in ('failed', 'stopped')
+                                     and r.status <> 'failed'
                                    limit 1
                                ) as service_framework
                         from runtime_hosts h
+                        join runtime_providers p on p.id = h.provider_id
                         where h.id = ${input.hostId}
                           and h.user_id = ${input.userId}
-                          and h.kind = 'sandbox'
-                          and h.status = 'active'
-                          and h.account_id = ${input.accountId}
-                          and h.sprite_id is not null
+                          and h.kind = 'hosted'
+                          and h.status = 'ready'
+                          and p.kind = 'sprites'
+                          and h.provider_ref->>'spriteId' is not null
                     `)) as unknown as Array<{
                         host_name: string
-                        sprite_name: string | null
-                        sprite_id: string | null
                         framework_present: boolean
                         service_framework: string | null
                     }>
@@ -1172,23 +1233,15 @@ export class RuntimeAccessService {
                     target.host_name,
                     input.framework
                 )
-                const [attached] = await tx
-                    .insert(agentRuntimes)
-                    .values({
-                        id: input.id,
-                        userId: input.userId,
-                        name: runtimeName,
-                        framework: input.framework,
-                        kind: 'sprites',
-                        status: 'pending',
-                        accountId: input.accountId,
-                        spriteName: target.sprite_name,
-                        spriteId: target.sprite_id,
-                        hostId: input.hostId,
-                        mountPath: input.mountPath,
-                        currentPhase: input.currentPhase ?? null
-                    })
-                    .returning()
+                const attached = await this.upsertInstallingRuntime(tx, {
+                    id: input.id,
+                    userId: input.userId,
+                    name: runtimeName,
+                    framework: input.framework,
+                    hostId: input.hostId,
+                    mountPath: input.mountPath,
+                    currentPhase: input.currentPhase ?? null
+                })
                 return { runtime: attached, hostCreated: false }
             }
 
@@ -1196,6 +1249,11 @@ export class RuntimeAccessService {
             // the caller (and the user) can tell where the agent will land — a new
             // VM counts against the per-user provisioned quota, metered per
             // distinct sandbox host (not per runtime).
+            if (!input.providerId)
+                throw new ServiceUnavailableException({
+                    message: 'no sprites provider selected for the new sandbox',
+                    code: 'RUNTIME_PROVIDER_UNAVAILABLE'
+                })
             await this.assertProvisionedQuotaAvailable(tx, {
                 userId: input.userId,
                 statefulSandboxLimit: row.statefulSandboxLimit,
@@ -1203,44 +1261,66 @@ export class RuntimeAccessService {
                 planName: row.planName,
                 kind: 'sprites'
             })
-            const hostId = createObjectId('sandboxHost')
-            const hostName = await this.nextSandboxName(tx, input.userId)
-            const spriteName = hostId.replace(/_/g, '-')
-            await tx.insert(runtimeHosts).values({
-                id: hostId,
+            const host = await this.insertSandboxHost(tx, {
                 userId: input.userId,
-                kind: 'sandbox',
-                name: hostName,
-                accountId: input.accountId,
-                spriteName,
-                status: 'active'
+                name: await this.nextSandboxName(tx, input.userId),
+                providerId: input.providerId,
+                emptiedAt: null
             })
-
             const runtimeName = await this.nextRuntimeName(
                 tx,
                 input.userId,
-                hostName,
+                host.name,
                 input.framework
             )
-            const [inserted] = await tx
-                .insert(agentRuntimes)
-                .values({
-                    id: input.id,
-                    userId: input.userId,
-                    name: runtimeName,
-                    framework: input.framework,
-                    kind: 'sprites',
-                    status: 'pending',
-                    accountId: input.accountId,
-                    spriteName,
-                    spriteId: null,
-                    hostId,
-                    mountPath: input.mountPath,
-                    currentPhase: input.currentPhase ?? null
-                })
-                .returning()
+            const inserted = await this.upsertInstallingRuntime(tx, {
+                id: input.id,
+                userId: input.userId,
+                name: runtimeName,
+                framework: input.framework,
+                hostId: host.id,
+                mountPath: input.mountPath,
+                currentPhase: input.currentPhase ?? null
+            })
             return { runtime: inserted, hostCreated: true }
         })
+    }
+
+    // INSERT … ON CONFLICT (host_id, framework): the one runtime a framework
+    // has on a host is claimed as `installing`; a `failed` row is reused.
+    private async upsertInstallingRuntime(
+        tx: Tx,
+        values: {
+            id: string
+            userId: string
+            name: string
+            framework: string
+            hostId: string
+            mountPath: string
+            currentPhase: string | null
+        }
+    ): Promise<AgentRuntimeRow> {
+        const now = new Date()
+        const [row] = await tx
+            .insert(agentRuntimes)
+            .values({
+                ...values,
+                status: 'installing',
+                failureReason: null
+            })
+            .onConflictDoUpdate({
+                target: [agentRuntimes.hostId, agentRuntimes.framework],
+                targetWhere: sql`${agentRuntimes.hostId} is not null`,
+                set: {
+                    status: 'installing',
+                    failureReason: null,
+                    currentPhase: values.currentPhase,
+                    mountPath: values.mountPath,
+                    updatedAt: now
+                }
+            })
+            .returning()
+        return row
     }
 
     async reserveChannelSlot(userId: string): Promise<void> {
@@ -1418,23 +1498,23 @@ export class RuntimeAccessService {
         // lock transaction (~5 statements) to one indexed read plus the hours
         // check below. Trade-off: a plan downgrade mid-conversation is not
         // re-checked while the VM stays running — the slot is already held, and
-        // the next admission after the sync loop settles the host back to warm
-        // re-checks everything.
+        // the next admission after the sync loop settles the host back to
+        // suspended re-checks everything.
         const [existing] = await this.db
             .select({
-                spriteStatus: runtimeHosts.spriteStatus,
+                powerState: runtimeHosts.powerState,
                 activeAccrualSince: runtimeHosts.activeAccrualSince
             })
             .from(runtimeHosts)
             .where(
                 and(
                     eq(runtimeHosts.id, input.hostId),
-                    eq(runtimeHosts.kind, 'sandbox')
+                    eq(runtimeHosts.kind, 'hosted')
                 )
             )
             .limit(1)
         if (
-            existing?.spriteStatus === 'running' &&
+            existing?.powerState === 'running' &&
             existing.activeAccrualSince
         ) {
             await this.assertActiveHoursOnRunningHost(input.userId)
@@ -1473,20 +1553,17 @@ export class RuntimeAccessService {
                 activeHoursBonus: row.activeHoursBonus
             })
 
-            // Only live hosts hold a slot. A revoked row whose sprites.dev
-            // delete failed keeps its last sprite_status as that delete's retry
-            // record (the status sync no longer touches it) and must not count
-            // against the user for a VM they asked to remove. Same rule at
-            // every other running-sandbox count below and in summary().
+            // Only live hosts hold a slot: a host whose destroy has been
+            // requested and confirmed is gone, and a failed one never got its
+            // VM. Same rule at every other running-sandbox count below and in
+            // summary().
             const [usage] = await tx
                 .select({ value: count() })
                 .from(runtimeHosts)
                 .where(
                     and(
                         eq(runtimeHosts.userId, input.userId),
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        eq(runtimeHosts.spriteStatus, 'running'),
+                        runningSpritesHosts(),
                         ne(runtimeHosts.id, input.hostId)
                     )
                 )
@@ -1506,9 +1583,7 @@ export class RuntimeAccessService {
                 .from(runtimeHosts)
                 .where(
                     and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        eq(runtimeHosts.spriteStatus, 'running'),
+                        runningSpritesHosts(),
                         // Exclude the target host: it ends up running either way,
                         // so the cap applies to the OTHER running VMs. Starting a
                         // 2nd framework on an already running VM adds no VM and
@@ -1553,29 +1628,31 @@ export class RuntimeAccessService {
 
             // B2: commit the target host as running under the same lock so a
             // concurrent admission counts it. A cold bare-sandbox terminal has
-            // no agent/publishStatus to flip it; sync reconciles it back to
-            // warm/cold when the VM actually goes idle.
+            // no agent to flip it; sync reconciles it back to suspended /
+            // stopped when the VM actually goes idle.
             const now = new Date()
             await tx
                 .update(runtimeHosts)
                 .set({
-                    spriteStatus: 'running',
+                    powerState: 'running',
+                    powerChangedAt: sql`case when ${runtimeHosts.powerState} is distinct from 'running' then ${now.toISOString()}::timestamptz else ${runtimeHosts.powerChangedAt} end`,
                     // Open the active-duration watermark in the same admission
                     // write so a chat/terminal session is metered from the moment
                     // its slot is reserved — the periodic sync only observes the
-                    // later running→warm release. coalesce keeps an open interval.
-                    // ms-precision ISO string, NOT a raw Date: postgres-js binds a
-                    // JS Date interpolated into a sql`` fragment as text and crashes
-                    // in Buffer.byteLength. The ::timestamptz cast keeps ms precision
-                    // — the accrue/settle CAS compares this column to a ms value, and
-                    // SQL now() (µs) would wedge it.
+                    // later running→suspended release. coalesce keeps an open
+                    // interval. ms-precision ISO string, NOT a raw Date:
+                    // postgres-js binds a JS Date interpolated into a sql``
+                    // fragment as text and crashes in Buffer.byteLength. The
+                    // ::timestamptz cast keeps ms precision — the accrue/settle
+                    // CAS compares this column to a ms value, and SQL now() (µs)
+                    // would wedge it.
                     activeAccrualSince: sql`coalesce(${runtimeHosts.activeAccrualSince}, ${now.toISOString()}::timestamptz)`,
                     updatedAt: now
                 })
                 .where(
                     and(
                         eq(runtimeHosts.id, input.hostId),
-                        eq(runtimeHosts.kind, 'sandbox')
+                        eq(runtimeHosts.kind, 'hosted')
                     )
                 )
 
@@ -1591,9 +1668,11 @@ export class RuntimeAccessService {
         })
     }
 
+    // The host's keep-awake switch (ADR-0036 R7), quota-gated: enabling
+    // commits a running VM, so it takes a concurrent-active slot at enable
+    // time and is written in the same transaction as the cap checks.
     async enableKeepAlive(input: {
         userId: string
-        runtimeId: string
         hostId: string
     }): Promise<void> {
         const cap = await this.adminSettings.getCachedSpritesEffectiveCap()
@@ -1621,26 +1700,30 @@ export class RuntimeAccessService {
                 activeHoursBonus: row.activeHoursBonus
             })
 
-            // Committed capacity = running sprites UNION enabled runtimes
+            // Committed capacity = running sandboxes UNION kept-awake ones
             // (excluding the target so enabling an in-use sprite doesn't
             // double-charge its own slot). Counting only running rows would
             // let two concurrent enables on two COLD sprites both pass with
             // one slot left.
             const usageRows = (await tx.execute(sql`
                 select count(*)::int as value from (
-                    select id as host_id from runtime_hosts
-                    where user_id = ${input.userId}
-                      and kind = 'sandbox'
-                      and status = 'active'
-                      and sprite_status = 'running'
-                      and id != ${input.hostId}
+                    select h.id as host_id from runtime_hosts h
+                    join runtime_providers p on p.id = h.provider_id
+                    where h.user_id = ${input.userId}
+                      and h.kind = 'hosted'
+                      and p.kind = 'sprites'
+                      and h.status in ('provisioning', 'ready', 'deleting')
+                      and h.power_state = 'running'
+                      and h.id != ${input.hostId}
                     union
-                    select distinct host_id from agent_runtimes
-                    where user_id = ${input.userId}
-                      and kind = 'sprites'
-                      and keep_alive_enabled = true
-                      and host_id is not null
-                      and host_id != ${input.hostId}
+                    select h.id as host_id from runtime_hosts h
+                    join runtime_providers p on p.id = h.provider_id
+                    where h.user_id = ${input.userId}
+                      and h.kind = 'hosted'
+                      and p.kind = 'sprites'
+                      and h.status in ('provisioning', 'ready', 'deleting')
+                      and h.keep_awake = true
+                      and h.id != ${input.hostId}
                 ) committed
             `)) as unknown as Array<{ value?: unknown }>
             const current = Number(usageRows[0]?.value ?? 0)
@@ -1659,13 +1742,9 @@ export class RuntimeAccessService {
                 .from(runtimeHosts)
                 .where(
                     and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active'),
-                        eq(runtimeHosts.spriteStatus, 'running'),
+                        runningSpritesHosts(),
                         // Exclude the target host: it ends up running either way,
-                        // so the cap applies to the OTHER running VMs. Starting a
-                        // 2nd framework on an already running VM adds no VM and
-                        // must not trip the org cap.
+                        // so the cap applies to the OTHER running VMs.
                         ne(runtimeHosts.id, input.hostId)
                     )
                 )
@@ -1706,11 +1785,17 @@ export class RuntimeAccessService {
 
             // Same tx as the cap checks — admission and commitment are
             // atomic, so a crash mid-toggle leaves either nothing or a
-            // committed flag the reconcile loop converges on.
+            // committed flag the lease sweep converges on.
             await tx
-                .update(agentRuntimes)
-                .set({ keepAliveEnabled: true, updatedAt: new Date() })
-                .where(eq(agentRuntimes.id, input.runtimeId))
+                .update(runtimeHosts)
+                .set({ keepAwake: true, updatedAt: new Date() })
+                .where(
+                    and(
+                        eq(runtimeHosts.id, input.hostId),
+                        eq(runtimeHosts.userId, input.userId),
+                        eq(runtimeHosts.kind, 'hosted')
+                    )
+                )
         })
     }
 
@@ -1726,13 +1811,7 @@ export class RuntimeAccessService {
         const [row] = await this.db
             .select({ value: count() })
             .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active'),
-                    eq(runtimeHosts.spriteStatus, 'running')
-                )
-            )
+            .where(runningSpritesHosts())
         return {
             orgActive: Number(row?.value ?? 0),
             activeCap: cap.activeCap

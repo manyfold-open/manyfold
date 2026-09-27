@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { CapabilitiesRegistry } from '@/common/capabilities/capabilities.registry'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AdminDaemonController } from './admin-daemon.controller'
@@ -22,7 +23,7 @@ import { DaemonExecResumeService } from './daemon-exec-resume.service'
 import { DaemonConfigDeliveryService } from './daemon-config-delivery.service'
 
 @Module({
-    imports: [AuthModule, AdminSettingsModule, RuntimeAccessModule],
+    imports: [AuthModule, AdminSettingsModule, HostsModule, RuntimeAccessModule],
     controllers: [
         DaemonController,
         AdminDaemonController,

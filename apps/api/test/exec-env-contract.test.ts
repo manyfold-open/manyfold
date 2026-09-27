@@ -10,8 +10,7 @@ import test from 'node:test'
 import {
     agentCredentials,
     agentRuntimeTokens,
-    agents,
-    runtimeHosts
+    type RuntimeHostRow
 } from '@manyfold/db'
 import {
     execEnvSurfaceKey,
@@ -30,7 +29,16 @@ import {
     EXTRAS_MARKERS,
     withEnv
 } from './exec-env-harness'
-import { CLI_AT_FLOOR } from './helpers/cli-floor'
+import {
+    contextOf,
+    daemonRow,
+    fakeHostAccess,
+    fakeRuntimeContext,
+    hostRow,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const ALL_FRAMEWORKS: readonly AgentFramework[] = listFrameworks()
 
@@ -178,11 +186,7 @@ test('every framework with an exec surface is registered in the chat adapter reg
 
 const IDENTITY_TOKEN = 'mfr_factory_token'
 
-const factoryDb = (
-    runtime: string,
-    framework: string,
-    identityRows?: unknown[]
-) => ({
+const factoryDb = (identityRows?: unknown[]) => ({
     select: (): unknown => ({
         from: (table: unknown): unknown => ({
             where: (): unknown => ({
@@ -198,38 +202,19 @@ const factoryDb = (
                                 }
                             ]
                         )
-                    if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw'] }]
-                    if (table === agents)
-                        return [
-                            {
-                                id: 'agt_factory',
-                                userId: 'user_factory',
-                                runtime,
-                                framework,
-                                runtimeId: 'art_factory',
-                                accountId: 'sac_factory',
-                                spriteName: 'sprite-factory',
-                                hostId: 'rth_factory',
-                                daemonId:
-                                    runtime === 'daemon' ? 'dh_byod' : null,
-                                namespace:
-                                    runtime === 'k8s' ? 'ns-factory' : null,
-                                clusterId:
-                                    runtime === 'k8s' ? 'clus_factory' : null,
-                                workspacePath: '/workspace',
-                                extras: {
-                                    envText: `${Object.entries(EXTRAS_MARKERS)
-                                        .map(([k, v]) => `${k}=${v}`)
-                                        .join('\n')}`
-                                }
-                            }
-                        ]
                     return []
                 }
             })
         })
     })
 })
+
+const hostFor = (runtime: string): RuntimeHostRow =>
+    runtime === 'daemon'
+        ? hostRow({ id: 'rth_factory', userId: 'user_factory' })
+        : runtime === 'k8s'
+          ? k8sHostRow({ id: 'rth_factory', userId: 'user_factory' })
+          : spritesHostRow({ id: 'rth_factory', userId: 'user_factory' })
 
 const buildFactory = (
     runtime: string,
@@ -239,13 +224,40 @@ const buildFactory = (
         runtimeTokens?: unknown
         onConnectionEnv?: () => void
     } = {}
-): ExecDriverFactory =>
-    new ExecDriverFactory(
-        factoryDb(runtime, framework, opts.identityRows) as never,
-        {
-            getById: async () => ({ slug: 'acct', id: 'sac_factory' }),
-            decryptToken: () => 'sprites-token'
-        } as never,
+): ExecDriverFactory => {
+    const host = hostFor(runtime)
+    const daemon = daemonRow({
+        hostId: host.id,
+        userId: host.userId,
+        clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw']
+    })
+    const agent = {
+        id: 'agt_factory',
+        userId: 'user_factory',
+        framework,
+        status: 'ready',
+        runtimeId: 'art_factory',
+        workspacePath: '/workspace',
+        extras: {
+            envText: `${Object.entries(EXTRAS_MARKERS)
+                .map(([k, v]) => `${k}=${v}`)
+                .join('\n')}`
+        }
+    } as never
+    const context = contextOf({
+        agent,
+        runtime: runtimeRow({
+            id: 'art_factory',
+            userId: 'user_factory',
+            framework,
+            hostId: host.id
+        }),
+        host,
+        daemon
+    })
+    return new ExecDriverFactory(
+        factoryDb(opts.identityRows) as never,
+        fakeRuntimeContext(context) as never,
         {
             decrypt: ({ ciphertext }: { ciphertext: string }) =>
                 ciphertext === 'identity-cipher'
@@ -261,6 +273,15 @@ const buildFactory = (
                 return CONNECTION_MARKERS
             }
         } as never,
+        { findByHostId: async () => daemon } as never,
+        {
+            spritesClientForHost: async () => ({
+                client: {},
+                spriteName: 'sprite-factory',
+                provider: {}
+            })
+        } as never,
+        fakeHostAccess() as never,
         {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL'
@@ -269,11 +290,9 @@ const buildFactory = (
         } as never,
         undefined,
         opts.runtimeTokens as never,
-        {
-            ensureRunner: async () => ({ handle: { daemonId: 'dh_runner' }, workspace: { outcome: 'base' } }),
-            resolvePodRunner: async () => ({ handle: { daemonId: 'dh_runner' }, workspace: { outcome: 'base' } })
-        } as never
+        undefined
     )
+}
 
 test('a sprites agent gets the full per-exec base env, exposed for transport swaps', async () => {
     // The #581 root cause in one assertion: this base env is what a runner turn

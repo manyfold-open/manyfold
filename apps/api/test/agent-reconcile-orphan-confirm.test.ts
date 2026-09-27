@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import type { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import { reconcilerFor } from './helpers/reconcile-fixture'
 
 const WS = '/home/sprite/.nca/workspaces/agent-1'
 
@@ -38,8 +39,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
-    status: 'running',
-    spriteStatus: 'running',
+    status: 'ready',
     workspacePath: WS,
     mountPath: WS,
     spriteName: 'nca-user-abc-main',
@@ -95,7 +95,7 @@ const liveAgent = () => ({
 })
 
 const stoppedUpdates = (db: ReturnType<typeof makeDb>) =>
-    db.updates.filter((u) => u.set.status === 'stopped')
+    db.updates.filter((u) => u.set.status === 'failed')
 
 const pendingFor = (svc: AgentReconcileService, runtimeId: string) =>
     svc['pendingOrphans'].get(runtimeId)
@@ -109,7 +109,7 @@ test('first confirmed-empty listing records a pending entry and writes no stoppe
             listAgents: async () => []
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(fakeRuntime() as never)
 
@@ -133,7 +133,7 @@ test('second back-to-back reconcile (<60s) writes no stopped update and preserve
             listAgents: async () => []
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(fakeRuntime() as never)
     const firstMissedAt = pendingFor(svc, 'rt-1')?.get('agent-1')
@@ -162,7 +162,7 @@ test('pending entry older than 60s is confirmed stopped by the next empty listin
             listAgents: async () => []
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     svc['pendingOrphans'].set(
         'rt-1',
         new Map([['agent-1', Date.now() - 61_000]])
@@ -175,7 +175,7 @@ test('pending entry older than 60s is confirmed stopped by the next empty listin
         1,
         'real out-of-band deletions still converge — exactly one stop-mark update'
     )
-    assert.equal(db.updates[0].set.status, 'stopped')
+    assert.equal(db.updates[0].set.status, 'failed')
     assert.equal(db.updates[0].set.failureReason, 'not present in runtime')
     assert.equal(
         pendingFor(svc, 'rt-1')?.get('agent-1'),
@@ -195,7 +195,7 @@ test('pending entry older than the stale TTL re-arms instead of confirming', asy
             listAgents: async () => []
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     svc['pendingOrphans'].set(
         'rt-1',
         new Map([['agent-1', Date.now() - 6 * 60_000]])
@@ -227,7 +227,7 @@ test('miss then hit prunes the pending entry and never writes stopped', async ()
             listAgents: async () => live
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(fakeRuntime() as never)
     assert.ok(
@@ -255,7 +255,7 @@ test('miss then hit prunes the pending entry and never writes stopped', async ()
 test('poisoned stopped row flips back to running on the FIRST live match', async () => {
     const db = makeDb([
         fakeDbAgent({
-            status: 'stopped',
+            status: 'failed',
             failureReason: 'not present in runtime'
         })
     ])
@@ -264,14 +264,14 @@ test('poisoned stopped row flips back to running on the FIRST live match', async
             listAgents: async () => [liveAgent()]
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(fakeRuntime() as never)
 
     assert.equal(db.updates.length, 1, 'the live match must update the row')
     assert.equal(
         db.updates[0].set.status,
-        'running',
+        'ready',
         'heal is instant and unconfirmed (kill slow, heal fast) — first live match flips status back'
     )
     assert.equal(
@@ -289,13 +289,13 @@ test('reconciling a stopped runtime clears its pending orphan entries', async ()
             throw new Error('stopped runtime must not query the adapter')
         }
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     svc['pendingOrphans'].set(
         'rt-1',
         new Map([['agent-1', Date.now() - 61_000]])
     )
 
-    await svc.reconcileRuntime(fakeRuntime({ status: 'stopped' }) as never)
+    await svc.reconcileRuntime(fakeRuntime({ status: 'failed' }) as never)
 
     assert.equal(
         svc['pendingOrphans'].has('rt-1'),

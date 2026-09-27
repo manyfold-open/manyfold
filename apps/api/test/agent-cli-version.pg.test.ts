@@ -10,19 +10,24 @@ import {
     agents,
     createDb,
     runtimeHosts,
+    runtimeProviders,
     users,
     type Agent,
     type Database
 } from '@manyfold/db'
 import { AgentsService } from '@/modules/agents/agents.service'
+import {
+    seedHostDaemon,
+    seedLocalHost,
+    seedSpritesHost,
+    seedSpritesProvider
+} from './helpers/host-fixture'
 
 // Real-Postgres proof that an agent's mf CLI version resolves for BOTH host
-// shapes. A sandbox runtime carries hostId; a daemon runtime is created with
-// daemonId only (daemon-runtime-sync never writes hostId, and the 0094 backfill
-// was one-time), so a join on hostId alone silently reports "not detected" for
-// exactly the host where the CLI is certainly installed. tsc cannot see that and
-// a fake db cannot either — only a real row can. Env-gated like the other
-// *.pg.test.ts:
+// shapes through the one join agents → runtime → host → host_daemons
+// (ADR-0036), and that a runtime without a host degrades to "not detected".
+// tsc cannot see that and a fake db cannot either — only a real row can.
+// Env-gated like the other *.pg.test.ts:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
 //     pnpm --filter @manyfold/api test
 // against a migrated DB (`just db-migrate`).
@@ -49,9 +54,6 @@ const serviceFor = (db: Database): AgentsService =>
         null as never,
         null as never,
         null as never,
-        null as never,
-        null as never,
-        null as never,
         {
             getCachedLatest: async () => ({
                 version: LATEST,
@@ -66,12 +68,16 @@ const buildHarness = async (): Promise<Harness> => {
     const db = createDb(url)
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
+    const providerId = `rtp_pgtest_${suffix}`
     const rows: Record<string, Agent> = {}
 
     await db
         .insert(users)
         .values({ id: userId, email: `${suffix}@pgtest.local` })
+    await seedSpritesProvider(db, providerId)
 
+    // The daemon's CLI version lives on host_daemons for every host shape:
+    // a local machine's own daemon and a sandbox's runner alike.
     const seed = async (
         kind: 'daemon' | 'sandbox' | 'hostless',
         cliVersion: string | null
@@ -79,24 +85,20 @@ const buildHarness = async (): Promise<Harness> => {
         const hostId = `rhs_pgtest_${kind}_${suffix}`
         const runtimeId = `art_pgtest_${kind}_${suffix}`
         const agentId = `agt_pgtest_${kind}_${suffix}`
-        if (kind !== 'hostless')
-            await db.insert(runtimeHosts).values({
-                id: hostId,
-                userId,
-                name: `pgtest-host-${kind}-${suffix}`,
-                kind: kind === 'daemon' ? 'daemon' : 'sandbox',
-                cliVersion
-            })
+        if (kind === 'daemon') {
+            await seedLocalHost(db, { id: hostId, userId })
+            await seedHostDaemon(db, { hostId, userId, cliVersion })
+        }
+        if (kind === 'sandbox') {
+            await seedSpritesHost(db, { id: hostId, userId, providerId })
+            await seedHostDaemon(db, { hostId, userId, cliVersion })
+        }
         await db.insert(agentRuntimes).values({
             id: runtimeId,
             userId,
             name: `pgtest-runtime-${kind}-${suffix}`,
             framework: 'claude-code',
-            kind: kind === 'daemon' ? 'daemon' : 'sprites',
-            // This is the shape each writer actually produces: a daemon runtime
-            // gets daemonId (daemon-runtime-sync), a sandbox runtime gets hostId.
-            ...(kind === 'daemon' ? { daemonId: hostId } : {}),
-            ...(kind === 'sandbox' ? { hostId } : {})
+            hostId: kind === 'hostless' ? null : hostId
         })
         const [agent] = await db
             .insert(agents)
@@ -105,7 +107,6 @@ const buildHarness = async (): Promise<Harness> => {
                 userId,
                 name: `pgtest-agent-${kind}`,
                 framework: 'claude-code',
-                runtime: kind === 'daemon' ? 'daemon' : 'sprites',
                 runtimeId,
                 internalId: `internal-${agentId}`
             })
@@ -123,6 +124,12 @@ const buildHarness = async (): Promise<Harness> => {
         agentOn: (kind) => rows[kind]!,
         close: async (): Promise<void> => {
             await db.delete(users).where(eq(users.id, userId))
+            await db
+                .delete(runtimeHosts)
+                .where(eq(runtimeHosts.userId, userId))
+            await db
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, providerId))
             const client = (
                 db as unknown as { $client?: { end?: () => Promise<void> } }
             ).$client
@@ -138,16 +145,22 @@ const cliInfoFor = async (
     installed: string | null
     latest: string | null
     updateAvailable: boolean
-}> =>
-    (
+}> => {
+    const agent = h.agentOn(kind)
+    const row = (await h.service.listForUser(agent.userId)).find(
+        (candidate) => candidate.agent.id === agent.id
+    )
+    if (!row) throw new Error(`agent ${agent.id} not listed`)
+    const info = await (
         h.service as unknown as {
-            cliVersionInfoFor: (row: Agent) => Promise<{
-                installed: string | null
+            cliVersionInfoFor: (row: unknown) => Promise<{
                 latest: string | null
                 updateAvailable: boolean
             }>
         }
-    ).cliVersionInfoFor(h.agentOn(kind))
+    ).cliVersionInfoFor(row)
+    return { installed: row.daemon?.cliVersion ?? null, ...info }
+}
 
 test(
     'an agent on your own machine reports the CLI version its daemon recorded',

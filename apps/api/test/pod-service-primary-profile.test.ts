@@ -1,8 +1,15 @@
 import type { NewAgent } from '@manyfold/db'
 import assert from 'node:assert/strict'
+import type { AgentRuntimeRow } from '@manyfold/db'
 import test from 'node:test'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import { reconcilerFor } from './helpers/reconcile-fixture'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    k8sHostRow,
+    runtimeRow
+} from './helpers/runtime-context-fixture'
 
 // A service framework's first agent on a cloud computer is its gateway's
 // built-in profile (openclaw's `main`), as on a sandbox: the host's service is
@@ -13,27 +20,28 @@ import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-rec
 
 const OPENCLAW_WS = '/home/node/.openclaw/workspace'
 
-const podRuntime = (overrides: Record<string, unknown> = {}) => ({
-    id: 'art_1',
+const POD_HOST = k8sHostRow({
+    id: 'pdh_1',
     userId: 'user-1',
-    name: 'openclaw',
-    framework: 'openclaw',
-    kind: 'k8s',
-    status: 'ready',
-    currentPhase: null,
-    hostId: 'pdh_1',
-    namespace: 'nca-user-1',
-    spriteName: null,
-    spriteId: null,
-    accountId: null,
-    daemonId: null,
-    clusterId: null,
-    ingressHost: 'openclaw-host-pdh-1.example.test',
-    mountPath: '/home/node/.openclaw',
-    homeDir: null,
-    primaryAgentId: null,
-    ...overrides
+    providerRef: {
+        kind: 'k8s',
+        namespace: 'nca-user-1',
+        ingressHost: 'openclaw-host-pdh-1.example.test',
+        podPhase: 'Running'
+    }
 })
+
+const podRuntime = (overrides: Record<string, unknown> = {}) =>
+    runtimeRow({
+        id: 'art_1',
+        userId: 'user-1',
+        name: 'openclaw',
+        framework: 'openclaw',
+        hostId: 'pdh_1',
+        mountPath: '/home/node/.openclaw',
+        primaryAgentId: null,
+        ...(overrides as Partial<AgentRuntimeRow>)
+    })
 
 const tableName = (table: unknown): string =>
     String(
@@ -93,7 +101,10 @@ const attachRig = (runtimeRow: ReturnType<typeof podRuntime>) => {
         { get: () => adapter } as never,
         { touchAfterWrite: () => {} } as never,
         { assertManagedChannelBindable: async () => {} } as never,
-        { installDefaults: async () => {} } as never
+        { installDefaults: async () => {} } as never,
+        fakeRuntimeContext(
+            contextOf({ runtime: runtimeRow, host: POD_HOST })
+        ) as never
     )
     return { attach, inserted, added }
 }
@@ -141,12 +152,10 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
         userId: 'user-1',
         runtimeId: 'art_1',
         framework: 'openclaw',
-        runtime: 'k8s',
         name: 'Research',
         internalId: 'agt_first',
-        status: 'running',
+        status: 'ready',
         failureReason: null,
-        spriteStatus: null,
         workspacePath: OPENCLAW_WS,
         mountPath: '/home/node/.openclaw',
         fileRoots: [],
@@ -192,10 +201,10 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
             ]
         })
     }
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry, { host: POD_HOST })
     await svc.reconcileRuntime(runtime as never, { verifiedByReport: true })
     assert.equal(inserts.length, 0, 'main is not adopted as a second agent')
     assert.equal(updates.length, 1)
-    assert.equal(updates[0].status, 'running')
+    assert.equal('status' in updates[0], false, 'presence is never mirrored')
     assert.equal('name' in updates[0], false, 'the primary keeps its name')
 })

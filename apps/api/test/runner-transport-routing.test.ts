@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { Agent, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
-    agents,
-    agentCredentials,
-    runtimeHosts,
-    type Agent
-} from '@manyfold/db'
-import {
+    daemonOnline,
     frameworkCapability,
     listFrameworks,
     type AgentFramework,
@@ -16,6 +12,15 @@ import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-fact
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
 import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
+import {
+    contextOf,
+    daemonRow,
+    fakeRuntimeContext,
+    hostRow,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const features = [
     'turn.hermes',
@@ -23,6 +28,13 @@ const features = [
     'turn.openclaw.acp',
     'auth-context.v1'
 ]
+const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
+    runtime === 'daemon'
+        ? hostRow({ id: 'dh_one', userId: 'usr_one' })
+        : runtime === 'k8s'
+          ? k8sHostRow({ id: 'dh_one', userId: 'usr_one' })
+          : spritesHostRow({ id: 'dh_one', userId: 'usr_one' })
+
 const rig = (
     runtime: AgentRuntime,
     framework: AgentFramework,
@@ -40,67 +52,73 @@ const rig = (
     const agent = {
         id: 'agt_one',
         userId: 'usr_one',
-        runtime,
         framework,
+        status: 'ready',
         runtimeId: 'art_one',
-        daemonId: runtime === 'daemon' ? 'dh_one' : null,
-        accountId: 'sac_one',
-        hostId: 'rth_one',
-        spriteName: 'sprite-one',
         workspacePath: '/workspace/agt_one',
         extras: { envText: 'EXTRA=value' }
     } as unknown as Agent
+    const host = hostFor(runtime)
+    const daemon = options.missing
+        ? null
+        : daemonRow({
+              hostId: host.id,
+              userId: host.userId,
+              cliVersion: options.version ?? CLI_AT_FLOOR,
+              clientFeatures: [...(options.features ?? features)],
+              ...(options.offline
+                  ? { lastSeenAt: new Date(Date.now() - 120_000) }
+                  : {})
+          })
+    const context = contextOf({
+        agent,
+        runtime: runtimeRow({
+            id: 'art_one',
+            userId: 'usr_one',
+            framework,
+            hostId: host.id
+        }),
+        host,
+        daemon
+    })
     const db = {
         select: () => ({
-            from: (table: unknown) => ({
-                where: () => ({
-                    limit: async () => {
-                        if (table === agents) return [agent]
-                        if (table === agentCredentials) return []
-                        if (table === runtimeHosts)
-                            return options.missing
-                                ? []
-                                : [
-                                      {
-                                          id: 'dh_one',
-                                          userId: agent.userId,
-                                          kind: 'daemon',
-                                          status: 'active',
-                                          cliVersion:
-                                              options.version ?? CLI_AT_FLOOR,
-                                          rpcLastSeenAt: new Date(
-                                              Date.now() -
-                                                  (options.offline
-                                                      ? 120_000
-                                                      : 0)
-                                          ),
-                                          clientFeatures:
-                                              options.features ?? features
-                                      }
-                                  ]
-                        return []
-                    }
-                })
+            from: () => ({
+                where: () => ({ limit: async () => [] })
             })
         })
     }
-    const resolution = async (args: { workspacePath?: string | null }) => {
-        workspaces.push(args.workspacePath)
-        calls.push('resolve')
-        return options.reason
-            ? {
-                  handle: null,
-                  fallbackReason: options.reason,
-                  workspace: { outcome: 'failed' }
-              }
-            : { handle: { daemonId: 'dh_one' }, workspace: { outcome: 'base' } }
+    // The runner manager's answer, recorded: what workspace it was asked to
+    // ensure and whether the daemon came up.
+    const hostAccess = {
+        ensure: async (args: {
+            daemon: HostDaemonRow | null
+            workspacePath?: string | null
+        }) => {
+            workspaces.push(args.workspacePath)
+            calls.push('resolve')
+            if (options.reason)
+                return {
+                    daemon: null,
+                    online: false,
+                    fallbackReason: options.reason,
+                    workspace: { outcome: 'failed' }
+                }
+            const online = daemonOnline(args.daemon)
+            return {
+                daemon: args.daemon,
+                online,
+                fallbackReason: online
+                    ? undefined
+                    : args.daemon
+                      ? 'runner_unavailable'
+                      : 'runner_missing'
+            }
+        }
     }
     const factory = new ExecDriverFactory(
         db as never,
-        {
-            getById: async () => { calls.push('account'); return { slug: 'account' } },
-            decryptToken: () => 'fixture'
-        } as never,
+        fakeRuntimeContext(context) as never,
         {} as never,
         {
             streamRpc: () => {
@@ -115,12 +133,18 @@ const rig = (
         { reserveActiveSlot: async () => { calls.push('reserve') } } as never,
         { measureIfDue: () => {} } as never,
         { resolveAgentEnv: async () => ({ CONNECTION: 'value' }) } as never,
+        { findByHostId: async () => daemon } as never,
+        {
+            spritesClientForHost: async () => {
+                calls.push('account')
+                return { client: {}, spriteName: 'sprite-one', provider: {} }
+            }
+        } as never,
+        hostAccess as never,
         { get: () => 'https://api.example.test' } as never,
         undefined,
         undefined,
         {
-            ensureRunner: resolution,
-            resolvePodRunner: resolution,
             keepSpriteAwake: () => ({
                 release: async () => {
                     awakeReleases++
@@ -221,7 +245,7 @@ test('Sprite recovery reserves a slot and reads its account only once', async ()
     const handle = await factory.recoveryFsForAgent(agent.id)
     assert.ok(handle.spritesClient)
     assert.ok(handle.awakeHold)
-    assert.deepEqual(calls, ['reserve', 'account', 'resolve'])
+    assert.deepEqual(calls, ['reserve', 'resolve', 'account'])
     await handle.awakeHold?.release()
     assert.equal(awakeReleases(), 1)
 })
@@ -236,5 +260,5 @@ test('OpenClaw history reuses the filesystem carrier without a second Sprite wak
     const { factory, agent, calls } = rig('sprites', 'openclaw')
     const handle = await factory.recoveryFsForAgent(agent.id)
     assert.ok(await factory.openclawRpcForAgent(agent.id, handle.daemonId))
-    assert.deepEqual(calls, ['reserve', 'account', 'resolve'])
+    assert.deepEqual(calls, ['reserve', 'resolve', 'account'])
 })

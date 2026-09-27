@@ -18,7 +18,9 @@ import {
     UpdateSkillCurationBody,
     UpdateSkillRepoBody,
     createObjectId,
-    isObjectId
+    isObjectId,
+    placementOf,
+    type AgentRuntime
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
@@ -51,6 +53,8 @@ import {
     skillRepos,
     skills,
     userSkills,
+    runtimeProviders,
+    runtimeHosts,
     type Agent,
     type AgentRuntimeRow,
     type Database,
@@ -99,6 +103,8 @@ import {
 interface SkillTarget {
     agent: Agent
     runtime: AgentRuntimeRow
+    // The product placement of the runtime's host (placementOf, ADR-0036).
+    placement: AgentRuntime
     framework: SkillFramework
 }
 
@@ -173,8 +179,9 @@ export class SkillsService {
     // existing intents (including disabled/failed ones) belong to the user and
     // are retried through the normal install/reconcile path, not recreated here.
     async installDefaults(
-        input: Pick<Agent, 'userId' | 'framework' | 'runtime'> & {
+        input: Pick<Agent, 'userId' | 'framework'> & {
             agentId: string
+            runtime: AgentRuntime
         }
     ): Promise<void> {
         if (
@@ -1253,9 +1260,19 @@ export class SkillsService {
 
     private async listTargets(userId: string): Promise<SkillTarget[]> {
         const rows = await this.db
-            .select({ agent: agents, runtime: agentRuntimes })
+            .select({
+                agent: agents,
+                runtime: agentRuntimes,
+                hostKind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
+            })
             .from(agents)
             .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(
                 and(
                     eq(agents.userId, userId),
@@ -1263,8 +1280,16 @@ export class SkillsService {
                 )
             )
             .orderBy(desc(agents.updatedAt))
-        return rows.map(({ agent, runtime }) =>
-            this.normalizeTarget(agent, runtime)
+        return rows.map((row) =>
+            this.normalizeTarget(
+                row.agent,
+                row.runtime,
+                placementOf(
+                    row.hostKind
+                        ? { kind: row.hostKind, providerKind: row.providerKind }
+                        : null
+                )
+            )
         )
     }
 
@@ -1273,18 +1298,37 @@ export class SkillsService {
         agentId: string
     ): Promise<SkillTarget> {
         const [row] = await this.db
-            .select({ agent: agents, runtime: agentRuntimes })
+            .select({
+                agent: agents,
+                runtime: agentRuntimes,
+                hostKind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
+            })
             .from(agents)
             .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(and(eq(agents.id, agentId), eq(agents.userId, userId)))
             .limit(1)
         if (!row) throw new NotFoundException(`agent ${agentId}`)
-        return this.normalizeTarget(row.agent, row.runtime)
+        return this.normalizeTarget(
+            row.agent,
+            row.runtime,
+            placementOf(
+                row.hostKind
+                    ? { kind: row.hostKind, providerKind: row.providerKind }
+                    : null
+            )
+        )
     }
 
     private normalizeTarget(
         agent: Agent,
-        runtime: AgentRuntimeRow
+        runtime: AgentRuntimeRow,
+        placement: AgentRuntime
     ): SkillTarget {
         const framework = this.assertFramework(
             agent.framework as SkillFramework
@@ -1295,7 +1339,7 @@ export class SkillsService {
             throw new BadRequestException(
                 `agent ${agent.id} framework does not match runtime ${runtime.id}`
             )
-        return { agent, runtime, framework }
+        return { agent, runtime, placement, framework }
     }
 
     private async installedMap(
@@ -1530,10 +1574,10 @@ const targetSummary = (target: SkillTarget): SkillTargetAgentSummary => ({
     name: target.agent.name,
     framework: target.framework,
     status: target.agent.status,
-    runtime: target.agent.runtime,
+    runtime: target.placement,
     runtimeId: target.runtime.id,
     runtimeName: target.runtime.name,
-    runtimeKind: target.runtime.kind,
+    runtimeKind: target.placement,
     runtimeStatus: target.runtime.status
 })
 

@@ -1,7 +1,8 @@
 import {
     agentBaseUrl,
     auditAction,
-    envTextFromExtras
+    envTextFromExtras,
+    type AgentFramework
 } from '@manyfold/shared'
 import type { AgentRuntimeSummary } from '@manyfold/shared'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -24,15 +25,18 @@ import {
     agents,
     auditLogs,
     type AgentRuntimeRow,
-    type Database
+    type Database,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
+import type { SpritesLogger } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
@@ -44,9 +48,8 @@ import type {
 } from '@/modules/agents/credentials/resolved-credentials'
 import { mergeGeneratedCredentials } from '@/modules/agents/credentials/credential-merge'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
+import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
+import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
 import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
 import { podScriptRunner } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
@@ -65,10 +68,10 @@ interface SpriteToggleTarget {
     creds: Record<string, unknown>
 }
 
-// Runtime-kind dispatcher for the dashboard/control-UI surface: sprite rows
-// get the sprite service choreography, and a pod host's rewrites the config
-// and has the host's daemon restart the service (ADR-0035). The hermes
-// dashboard is sprite-only —
+// Placement dispatcher for the dashboard/control-UI surface: a runtime on a
+// sprites host gets the sprite service choreography, and one on a pod host
+// rewrites the config and has the host's daemon restart the service
+// (ADR-0035). The hermes dashboard is sprite-only —
 // the k8s host shape (cookie-authed `-dashboard` ingress sidecar) was
 // retired with zero enabled rows measured on prod and staging [2026-08-28].
 // Deliberately does NOT depend on AgentsService — AgentsModule imports this
@@ -81,15 +84,15 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
-        private readonly accounts: SpritesAccountsService,
+        private readonly context: RuntimeContextService,
+        private readonly hostClients: HostProviderClients,
+        private readonly providers: SandboxProviderRegistry,
         private readonly crypto: CryptoService,
         private readonly hermesBootstrap: HermesSpriteBootstrap,
         private readonly openclawBootstrap: OpenClawSpriteBootstrap,
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
         // Same convention; absent, a pod host's toggle is refused.
-        @Optional() private readonly k8s?: KubernetesService,
-        @Optional() private readonly podExec?: PodExecFactory,
         @Optional() private readonly podServices?: PodHostServices
     ) {}
 
@@ -110,12 +113,13 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         enabled: boolean,
         isAdmin: boolean
     ): Promise<AgentRuntimeSummary> {
-        const runtime = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const ctx = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const runtime = ctx.runtime
         if (runtime.framework !== 'openclaw')
             throw new BadRequestException(
                 'control UI toggle only supported for openclaw runtimes'
             )
-        if (runtime.kind !== 'sprites' && runtime.kind !== 'k8s')
+        if (ctx.placement !== 'sprites' && ctx.placement !== 'k8s')
             throw new BadRequestException(
                 'control UI toggle only supported for sandboxes and cloud computers'
             )
@@ -124,10 +128,10 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
 
         await this.claimOrConflict(runtime.id, enabled)
         try {
-            if (runtime.kind === 'k8s')
-                await this.reconfigurePodService(runtime, enabled)
+            if (ctx.placement === 'k8s')
+                await this.reconfigurePodService(runtime, ctx.host!, enabled)
             else {
-                const target = await this.buildSpriteTarget(runtime)
+                const target = await this.buildSpriteTarget(ctx)
                 await this.openclawBootstrap.setControlUi(
                     target.ctx,
                     target.creds,
@@ -182,12 +186,13 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         enabled: boolean,
         isAdmin: boolean
     ): Promise<AgentRuntimeSummary> {
-        const runtime = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const ctx = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const runtime = ctx.runtime
         if (runtime.framework !== 'hermes')
             throw new BadRequestException(
                 'dashboard toggle only supported for hermes runtimes'
             )
-        if (runtime.kind !== 'sprites')
+        if (ctx.placement !== 'sprites')
             throw new BadRequestException(
                 'dashboard toggle only supported for sprites runtimes'
             )
@@ -202,7 +207,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         // minutes, longer than any proxy timeout. Claim, kick the work into
         // the background, and return immediately; dashboardState carries
         // progress and the flag flips only on success.
-        void this.runDashboardToggle(callerUserId, runtime, enabled).catch(
+        void this.runDashboardToggle(callerUserId, ctx, enabled).catch(
             (err) =>
                 this.log.error(
                     `dashboard toggle job crashed runtimeId=${runtime.id}: ${(err as Error).message}`
@@ -217,7 +222,8 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         isAdmin: boolean,
         agentId?: string
     ): Promise<{ url: string }> {
-        const runtime = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const ctx = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const runtime = ctx.runtime
         const controlUi = this.extensions.get(runtime.framework)?.controlUi
         if (
             runtime.framework !== 'openclaw' &&
@@ -235,7 +241,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 'dashboard is disabled for this runtime'
             )
-        if (runtime.framework === 'hermes' && runtime.kind !== 'sprites')
+        if (runtime.framework === 'hermes' && ctx.placement !== 'sprites')
             // The legacy k8s dashboard host (cookie-authed `-dashboard`
             // ingress sidecar) was removed; only a pre-removal row could
             // still carry dashboardEnabled here, and falling through would
@@ -244,7 +250,8 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 'the hermes dashboard is sprite-only; k8s dashboard hosting was removed'
             )
-        if (!runtime.ingressHost)
+        const ingressHost = await this.ingressHostFor(ctx)
+        if (!ingressHost)
             throw new BadRequestException('runtime has no ingress host')
 
         // The URL we hand back is per-agent only for an agent-scoped control
@@ -278,7 +285,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 )
             return {
                 url: agentBaseUrl(
-                    runtime.ingressHost,
+                    ingressHost,
                     `/?token=${encodeURIComponent(parsed.dashboardToken)}`
                 )
             }
@@ -296,7 +303,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             }
             return {
                 url: controlUi.mint({
-                    runtime: { ...runtime, ingressHost: runtime.ingressHost },
+                    runtime: { ...runtime, ingressHost },
                     credentials: credsPlain as Record<string, unknown>,
                     agentInternalId
                 })
@@ -310,22 +317,62 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             )
         return {
             url: agentBaseUrl(
-                runtime.ingressHost,
+                ingressHost,
                 `/#token=${encodeURIComponent(creds.gatewayToken)}`
             )
         }
+    }
+
+    // A service framework's public entry is the host's provider adapter's to
+    // derive from the machine's provider ref (ADR-0036); nothing on the
+    // runtime row.
+    private async ingressHostFor(ctx: RuntimeContext): Promise<string | null> {
+        if (!ctx.host || !ctx.providerKind) return null
+        const provider = await this.hostClients.providerForHost(ctx.host)
+        const url = this.providers.for(ctx.providerKind).publicUrl?.({
+            host: ctx.host,
+            provider,
+            framework: ctx.runtime.framework,
+            port: this.servicePortFor(ctx.runtime.framework)
+        })
+        if (!url) return null
+        try {
+            return new URL(url).host || null
+        } catch {
+            return null
+        }
+    }
+
+    // The port the framework's UI is served on inside the machine: the
+    // built-in gateways' own, an edition framework's from its health URL,
+    // else the public https port (both providers route by name, not port).
+    private servicePortFor(framework: AgentFramework): number {
+        if (framework === 'hermes') return HERMES_PORT
+        if (framework === 'openclaw') return OPENCLAW_PORT
+        const healthUrl =
+            this.extensions.get(framework)?.spriteService?.supervision.healthUrl
+        if (healthUrl) {
+            try {
+                const port = Number(new URL(healthUrl).port)
+                if (port > 0) return port
+            } catch {
+                // not a URL: fall through to the public port
+            }
+        }
+        return 443
     }
 
     // Background half of the async hermes toggle: persists the dashboard
     // token, runs the service choreography, then resolves dashboard_state.
     private async runDashboardToggle(
         callerUserId: string,
-        runtime: AgentRuntimeRow,
+        ctx: RuntimeContext,
         enabled: boolean
     ): Promise<void> {
+        const runtime = ctx.runtime
         try {
             if (enabled) await this.ensureDashboardToken(runtime.id)
-            const target = await this.buildSpriteTarget(runtime)
+            const target = await this.buildSpriteTarget(ctx)
             if (enabled)
                 await this.hermesBootstrap.enableDashboard(
                     target.ctx,
@@ -418,8 +465,9 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     }
 
     private async buildSpriteTarget(
-        runtime: AgentRuntimeRow
+        ctx: RuntimeContext
     ): Promise<SpriteToggleTarget> {
+        const runtime = ctx.runtime
         if (!runtime.primaryAgentId)
             throw new InternalServerErrorException(
                 `runtime ${runtime.id} has no primaryAgentId`
@@ -433,23 +481,16 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new NotFoundException(
                 `agent ${runtime.primaryAgentId} not found for runtime ${runtime.id}`
             )
-        if (!agent.accountId || !agent.spriteName)
+        if (!ctx.host || ctx.host.providerRef?.kind !== 'sprites')
             throw new BadRequestException('agent has no sprite')
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new InternalServerErrorException(
-                `sprites account ${agent.accountId} not found`
-            )
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(ctx.host)
         const creds = await this.decryptCreds(runtime.id)
-        const ctx: BootstrapContext = {
+        const bootstrap: BootstrapContext = {
             agentId: agent.id,
             runtimeId: runtime.id,
             userId: agent.userId,
-            spriteName: agent.spriteName,
+            spriteName,
             mountPath: agent.mountPath,
             client,
             logger: this.spritesLogger(),
@@ -457,33 +498,22 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             controlUiEnabled: runtime.controlUiEnabled,
             dashboardEnabled: runtime.dashboardEnabled
         }
-        return { ctx, creds }
+        return { ctx: bootstrap, creds }
     }
 
     // The config and service of a framework on a pod host, rewritten for
     // this control UI setting and restarted by the host's daemon.
     private async reconfigurePodService(
         runtime: AgentRuntimeRow,
+        host: RuntimeHostRow,
         controlUiEnabled: boolean
     ): Promise<void> {
         const recipe = podServiceRecipe(runtime.framework)
-        if (
-            !recipe ||
-            !runtime.hostId ||
-            !this.k8s ||
-            !this.podExec ||
-            !this.podServices
-        )
+        if (!recipe || !this.podServices)
             throw new BadRequestException(
                 `${runtime.framework} has no service on this cloud computer`
             )
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        const exec = this.podExec.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const exec = await this.hostClients.podExecForHost(host)
         // The service's env carries the runtime's agent env, as on a sprite.
         const [agent] = runtime.primaryAgentId
             ? await this.db
@@ -502,11 +532,11 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 controlUiEnabled
             }
         )
-        const host = { id: runtime.hostId, userId: runtime.userId }
-        await this.podServices.upsert(host, setup.spec)
-        await this.podServices.restart(host, setup.spec.name)
+        const target = { id: host.id, userId: host.userId }
+        await this.podServices.upsert(target, setup.spec)
+        await this.podServices.restart(target, setup.spec.name)
         await this.podServices.waitHealthy(
-            host,
+            target,
             setup.spec.name,
             POD_SERVICE_READY_TIMEOUT_MS
         )
@@ -536,11 +566,11 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         runtimeId: string,
         callerUserId: string,
         isAdmin: boolean
-    ): Promise<AgentRuntimeRow> {
-        const row = await this.runtimes.findById(runtimeId)
-        if (!row || (!isAdmin && row.userId !== callerUserId))
+    ): Promise<RuntimeContext> {
+        const ctx = await this.context.forRuntime(runtimeId)
+        if (!ctx || (!isAdmin && ctx.runtime.userId !== callerUserId))
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
-        return row
+        return ctx
     }
 
     private async refreshedSummary(

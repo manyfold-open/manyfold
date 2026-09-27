@@ -1,9 +1,15 @@
 import type {
+    RuntimeAvailability,
+    RuntimeHostKind,
+    RuntimeHostPowerState,
+    RuntimeHostStatus,
+    RuntimeProviderKind
+} from './host-model'
+import type {
     AgentFramework,
     AgentRuntime,
     AgentRuntimeStatus,
     AgentStatus,
-    SpritesAccountStatus,
     UserRole
 } from './constants'
 import type { TokenCreatedVia } from './api-tokens'
@@ -319,7 +325,7 @@ export interface SandboxUsageHomeRow {
 export interface SandboxUsageHost {
     hostId: string
     name: string
-    spriteStatus: SpriteStatus | null
+    powerState: RuntimeHostPowerState | null
     activeSecondsThisPeriod: number
     // The whole-VM reading that feeds the storage meter (host sum); null until
     // first measured. workspace/home rows are the drill-down and generally sum
@@ -737,16 +743,55 @@ export interface AuthOkResponse {
 
 export type ExperimentAssignments = Record<string, string>
 
-export interface SdkSpritesAccountSummary {
+export type RuntimeProviderStatus = 'enabled' | 'disabled'
+export type RuntimeProviderHealthStatus = 'unknown' | 'ok' | 'failed'
+
+// One Admin-registered source of hosted capacity (ADR-0036). `config` carries
+// the provider-specific, non-secret settings (sprites: orgSlug, orgId,
+// tokenId, notes; k8s: description, hostSuffix); the credential never leaves
+// the server.
+export interface RuntimeProviderSummary {
     id: string
-    slug: string
-    orgSlug: string
-    status: SpritesAccountStatus
+    kind: RuntimeProviderKind
+    name: string
+    status: RuntimeProviderStatus
     priority: number
-    notes: string | null
-    activeSprites: number
+    region: string | null
+    config: Record<string, unknown>
+    lastHealthStatus: RuntimeProviderHealthStatus
+    lastHealthMessage: string | null
+    lastHealthCheckedAt: string | null
+    // Hosts currently placed on this provider.
+    hostCount: number
     createdAt: string
     updatedAt: string
+}
+
+export interface CreateRuntimeProviderBody {
+    kind: RuntimeProviderKind
+    name: string
+    // The secret: a sprites `<orgSlug>/<orgId>/<tokenId>/<tokenValue>`
+    // credential or a kubeconfig, encrypted server-side.
+    credential: string
+    region?: string
+    priority?: number
+    config?: Record<string, unknown>
+}
+
+export interface UpdateRuntimeProviderBody {
+    name?: string
+    status?: RuntimeProviderStatus
+    priority?: number
+    region?: string | null
+    config?: Record<string, unknown>
+    // Rotate the secret.
+    credential?: string
+}
+
+export interface RuntimeProviderProbeResult {
+    ok: boolean
+    message: string
+    checkedAt: string
 }
 
 
@@ -1227,12 +1272,13 @@ export interface CreateAgentBody {
     name: string
     framework: AgentFramework
     runtime?: AgentRuntime
-    accountId?: string
+    // The runtime provider to place a NEW hosted machine on; omit to let
+    // placement choose.
+    providerId?: string
     sandboxId?: string
     // An existing pod host (ADR-0035) for a k8s agent; omit for a new one.
     podHostId?: string
     frameworkVersion?: string
-    clusterId?: string
     targetUserId?: string
     restoreBackupId?: string
     workspace?: string
@@ -1255,41 +1301,6 @@ export interface CreateAgentBody {
     runtimeAuthProfileId?: string | null
 }
 
-export type K8sClusterHealthStatus = 'unknown' | 'ok' | 'failed'
-
-export interface K8sClusterSummary {
-    id: string
-    name: string
-    description: string | null
-    hostSuffix: string | null
-    region: string | null
-    lastHealthStatus: K8sClusterHealthStatus
-    lastHealthMessage: string | null
-    lastHealthCheckedAt: string | null
-    priority: number
-    createdAt: string
-    updatedAt: string
-}
-
-export interface UpsertK8sClusterBody {
-    name: string
-    description?: string
-    hostSuffix?: string
-    region?: string
-    kubeconfig?: string
-    priority?: number
-}
-
-export interface UpdateSpritesAccountBody {
-    notes?: string | null
-    priority?: number
-}
-
-export interface K8sClusterProbeResult {
-    ok: boolean
-    message: string
-    checkedAt: string
-}
 
 export type AgentBackupStatus = 'running' | 'succeeded' | 'failed' | 'deleted'
 
@@ -1982,20 +1993,22 @@ export interface FsRootsResponse {
 
 export type SpriteStatus = 'cold' | 'warm' | 'running'
 
-export interface SpriteStatusUpdate {
+// An agent's host changed power state or presence; carries the derived
+// availability so no client re-derives it.
+export interface AgentHostStatusUpdate {
     agentId: string
-    spriteName: string | null
-    spriteStatus: SpriteStatus | null
-    k8sPodPhase: string | null
+    hostId: string | null
+    powerState: RuntimeHostPowerState | null
+    availability: RuntimeAvailability
     at: string
 }
 
-// Host-level (sandbox VM) sprite lifecycle change. Agent-level updates only
-// cover agent-bearing sprites; the sandbox detail panel keys on the host row,
-// so it needs its own event to drop status polling.
-export interface SpriteHostStatusUpdate {
+// Host-level power change. Agent-level updates only cover agent-bearing hosts;
+// the host detail panel keys on the host row, so it needs its own event.
+export interface HostPowerStatusUpdate {
     hostId: string
-    spriteStatus: SpriteStatus | null
+    powerState: RuntimeHostPowerState | null
+    daemonOnline: boolean
     at: string
 }
 
@@ -2139,14 +2152,14 @@ export interface ResourceChangedEvent {
     at: string
 }
 
-export type SpriteStatusEvent =
+export type HostStatusEvent =
     | {
           type: 'snapshot'
-          agents: SpriteStatusUpdate[]
+          agents: AgentHostStatusUpdate[]
           at: string
       }
-    | ({ type: 'update' } & SpriteStatusUpdate)
-    | ({ type: 'host-update' } & SpriteHostStatusUpdate)
+    | ({ type: 'update' } & AgentHostStatusUpdate)
+    | ({ type: 'host-update' } & HostPowerStatusUpdate)
     | QuotaWarningEvent
     | ChatSessionsChangedEvent
     | ResourceChangedEvent
@@ -2155,8 +2168,17 @@ export interface AgentSummary {
     id: string
     userId: string
     runtimeId: string | null
-    daemonId: string | null
+    // The machine the agent's runtime lives on; null for an external-API
+    // agent. Everything about the machine is one hop away, never copied.
+    hostId: string | null
+    hostName: string | null
+    hostKind: RuntimeHostKind | null
+    providerKind: RuntimeProviderKind | null
+    powerState: RuntimeHostPowerState | null
+    daemonOnline: boolean | null
     daemonNeedsUpgrade: boolean
+    // The host's keep-awake switch (ADR-0036); false without a hosted host.
+    keepAwake: boolean
     name: string
     framework: AgentFramework
     // Installed agent-framework CLI version, null until probed. latest +
@@ -2176,18 +2198,12 @@ export interface AgentSummary {
     cliVersion: string | null
     cliLatestVersion: string | null
     cliUpdateAvailable: boolean
+    // Product placement, derived from the host (placementOf); never stored.
     runtime: AgentRuntime
+    // The agent's own lifecycle. Whether it can run now is `availability`.
     status: AgentStatus
-    spriteStatus: SpriteStatus | null
-    k8sPodPhase: string | null
-    accountSlug: string | null
-    clusterId: string | null
-    clusterName: string | null
-    spriteName: string | null
-    spriteId: string | null
+    availability: RuntimeAvailability
     mountPath: string
-    namespace: string | null
-    ingressHost: string | null
     endpointUrl: string | null
     controlUiEnabled: boolean
     dashboardEnabled: boolean
@@ -2195,7 +2211,6 @@ export interface AgentSummary {
     // 'error:<reason>' | null (steady). Sprite hermes toggles run async;
     // clients poll until this clears.
     dashboardState: string | null
-    keepAliveEnabled: boolean
     currentPhase: string | null
     failureReason: string | null
     internalId: string
@@ -2320,40 +2335,37 @@ export interface AgentRuntimeSummary {
     name: string
     framework: AgentFramework
     frameworkVersion: string | null
+    // Product placement, derived from the host (placementOf); never stored.
     kind: AgentRuntime
+    // Install state; whether a turn can start now is `availability`.
     status: AgentRuntimeStatus
-    accountSlug: string | null
-    clusterId: string | null
-    clusterName: string | null
-    spriteName: string | null
-    spriteId: string | null
+    availability: RuntimeAvailability
+    // The machine; null for an external-API runtime.
     hostId: string | null
-    // The cloud computer a k8s runtime is installed on (ADR-0035); null for
-    // every other kind.
-    podHostName: string | null
+    hostName: string | null
+    hostKind: RuntimeHostKind | null
+    hostStatus: RuntimeHostStatus | null
+    providerId: string | null
+    providerKind: RuntimeProviderKind | null
+    providerName: string | null
+    // The provider's own name for the machine (a sprite name, a namespace),
+    // for operators; null when the provider has not created it yet.
+    providerRefLabel: string | null
+    powerState: RuntimeHostPowerState | null
+    daemonOnline: boolean | null
+    daemonCliVersion: string | null
     mountPath: string
-    namespace: string | null
-    ingressHost: string | null
     endpointUrl: string | null
     controlUiEnabled: boolean
     dashboardEnabled: boolean
     dashboardState: string | null
-    keepAliveEnabled: boolean
     currentPhase: string | null
     failureReason: string | null
     primaryAgentId: string | null
-    startedAt: string | null
     lastBootstrappedAt: string | null
     createdAt: string
     updatedAt: string
     agentsCount: number
-    daemonId: string | null
-    daemonName: string | null
-    daemonOnline: boolean | null
-    daemonCliVersion: string | null
-    homeDir: string | null
-    workspaceBaseDir: string | null
-    lastSeenAt: string | null
     serviceStatus: RuntimeServiceStatus
     serviceStatusAt: string | null
 }
@@ -2362,9 +2374,16 @@ export interface SandboxSummary {
     id: string
     userId: string
     name: string
-    accountSlug: string | null
-    spriteName: string | null
-    spriteStatus: SpriteStatus | null
+    status: RuntimeHostStatus
+    failureReason: string | null
+    providerId: string | null
+    providerName: string | null
+    providerRefLabel: string | null
+    powerState: RuntimeHostPowerState | null
+    // False until the platform's daemon has registered onto the machine.
+    registered: boolean
+    daemonOnline: boolean
+    keepAwake: boolean
     terminalEnabled: boolean
     // Second, separate consent: may a terminal session carry this agent's
     // model-provider credentials so a framework TUI can resume a chat
@@ -2380,12 +2399,12 @@ export interface SandboxSummary {
     herdrVersion: string | null
     latestHerdrVersion: string | null
     herdrUpdateAvailable: boolean
-    // herdr is installed and the sandbox's runner (if it has one yet) can
-    // drive it (ADR-0031); false with herdr installed means the runner's
-    // Manyfold CLI predates the handoff and the Update Center has the fix.
+    // herdr is installed and the sandbox's daemon can drive it (ADR-0031);
+    // false with herdr installed means the daemon's Manyfold CLI predates the
+    // handoff and the Update Center has the fix.
     canOpenInHerdr: boolean
-    // The frameworks its runner can start in herdr (herdrFrameworksFor); a
-    // sandbox with no runner yet gets one that starts them all.
+    // The frameworks its daemon can start in herdr (herdrFrameworksFor); a
+    // sandbox with no daemon yet gets one that starts them all.
     herdrFrameworks: DaemonHerdrFramework[]
     // Accrued `running` seconds for this sandbox in the OWNER's current usage
     // period (subscription billing period, or UTC calendar month for free
@@ -2464,13 +2483,14 @@ export interface InstallSandboxFrameworkBody {
 
 export interface CreateSandboxBody {
     name?: string
-    accountId?: string
+    // The sprites provider to place it on; omit to let placement choose.
+    providerId?: string
 }
 
 // A cloud computer: a Kubernetes pod host (ADR-0035) whose home directory is a
 // persistent volume. Frameworks are installed on it on demand, one runtime
 // each, and its own daemon carries every turn.
-export type PodHostStatus = 'provisioning' | 'ready' | 'failed'
+export type PodHostStatus = RuntimeHostStatus
 
 export interface PodHostSummary {
     id: string
@@ -2480,7 +2500,10 @@ export interface PodHostSummary {
     // The provisioning step while provisioning; the pod's phase once ready.
     phase: string | null
     failureReason: string | null
-    clusterId: string | null
+    providerId: string | null
+    providerName: string | null
+    powerState: RuntimeHostPowerState | null
+    daemonOnline: boolean
     region: string | null
     cpuMillicores: number | null
     memoryMb: number | null
@@ -2498,7 +2521,8 @@ export interface PodHostSummary {
 
 export interface CreatePodHostBody {
     name?: string
-    clusterId?: string
+    // The k8s provider to place it on; omit to let placement choose.
+    providerId?: string
 }
 
 export interface SetSandboxTerminalBody {

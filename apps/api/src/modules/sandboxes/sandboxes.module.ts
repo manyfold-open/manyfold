@@ -2,10 +2,11 @@ import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
+import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
 import { FrameworkVersionsModule } from '@/modules/framework-versions/framework-versions.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
@@ -21,10 +22,11 @@ import { ActiveHoursEnforcementService } from './active-hours-enforcement.servic
         AuthModule,
         AgentRuntimesModule,
         AgentsModule,
-        SpritesAccountsModule,
+        HostsModule,
         DaemonModule,
         SandboxActiveDurationModule,
         AdminSettingsModule,
+        RuntimeAccessModule,
         RunnerModule,
         FrameworkVersionsModule,
         SecretsModule

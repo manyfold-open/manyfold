@@ -1,9 +1,6 @@
 import type {
-    AgentFramework,
-    AgentRuntime,
-    AgentStatus,
+    AgentSummary,
     ExperimentAssignments,
-    SpriteStatus,
     UserRole
 } from '@manyfold/shared'
 
@@ -17,54 +14,9 @@ export interface SdkUser {
     experiments: ExperimentAssignments
 }
 
-export interface SdkAgent {
-    id: string
-    userId: string
-    runtimeId: string | null
-    daemonId: string | null
-    daemonNeedsUpgrade: boolean
-    name: string
-    framework: AgentFramework
-    frameworkVersion: string | null
-    frameworkLatestVersion: string | null
-    frameworkUpgradeAvailable: boolean
-    frameworkVersionBlockedReason: string | null
-    cliVersion: string | null
-    cliLatestVersion: string | null
-    cliUpdateAvailable: boolean
-    runtime: AgentRuntime
-    status: AgentStatus
-    spriteStatus: SpriteStatus | null
-    k8sPodPhase: string | null
-    accountSlug: string | null
-    clusterId: string | null
-    clusterName: string | null
-    spriteName: string | null
-    spriteId: string | null
-    mountPath: string
-    namespace: string | null
-    ingressHost: string | null
-    endpointUrl: string | null
-    controlUiEnabled: boolean
-    dashboardEnabled: boolean
-    dashboardState: string | null
-    keepAliveEnabled: boolean
-    currentPhase: string | null
-    failureReason: string | null
-    internalId: string
-    model: string | null
-    extras: Record<string, unknown>
-    workspacePath: string | null
-    workspaceBytes: number | null
-    workspaceMeasuredAt: string | null
-    startedAt: string | null
-    lastActiveAt: string | null
-    lastMessageAt: string | null
-    lastBootstrappedAt: string | null
-    lastReconciledAt: string | null
-    createdAt: string
-    updatedAt: string
-}
+// The agent as every surface reads it (ADR-0036): placement, host and
+// availability are derived server-side and shipped on the summary.
+export type SdkAgent = AgentSummary
 
 export interface ClientOptions {
     baseUrl: string

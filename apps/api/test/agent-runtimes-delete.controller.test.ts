@@ -3,16 +3,17 @@ import test from 'node:test'
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import type { AgentRuntimeRow } from '@manyfold/db'
 import type { AuthPrincipal } from '../src/common/guards/auth.guard'
-import { AgentRuntimesController } from '../src/modules/agent-runtimes/agent-runtimes.controller'
+import {
+    AgentRuntimesController,
+    RUNTIME_AGENTS_BOUND_CODE
+} from '../src/modules/agent-runtimes/agent-runtimes.controller'
+import { AdminAgentRuntimesController } from '../src/modules/agent-runtimes/admin-agent-runtimes.controller'
 
-// DELETE /agent-runtimes/:id used to handle only the sprites and k8s kinds and
-// fall through to InternalServerErrorException for everything else — so both
-// remaining kinds returned a 500 for a routine request: daemon runtimes (one is
-// auto-created per framework at `mf daemon register`) and external runtimes
-// (created per Dify/Langflow/A2A agent). Neither is deletable through this
-// route by design, and for external it MUST NOT be: agents.runtime_id cascades,
-// so dropping the row would silently delete the agent. These pin the contract
-// per kind — a 500 is reserved for a kind nobody taught this route about.
+// DELETE /agent-runtimes/:id (ADR-0036 R8): one rule for every placement. A
+// runtime with agents bound is refused — agents.runtime_id cascades, so
+// dropping the row would silently delete every agent on it — and an empty one
+// is just a row to delete. No kind switch, no 500, and the admin route applies
+// the same rule over every user.
 
 const user = { userId: 'user-1' } as AuthPrincipal
 
@@ -22,54 +23,36 @@ const runtimeRow = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =
         userId: 'user-1',
         name: 'main',
         framework: 'claude-code',
-        kind: 'daemon',
         status: 'ready',
-        daemonId: 'dh_test',
+        hostId: 'sbx_test',
         createdAt: new Date('2026-07-01T00:00:00.000Z'),
         updatedAt: new Date('2026-07-01T00:00:00.000Z'),
         ...overrides
     }) as AgentRuntimeRow
 
-const buildHarness = (opts: {
-    row: AgentRuntimeRow | null
-    boundAgentId?: string | null
-}) => {
+const buildHarness = (opts: { row: AgentRuntimeRow | null; agents?: number }) => {
     const calls: string[] = []
     const runtimes = {
         findById: async (id: string) =>
             opts.row && opts.row.id === id ? opts.row : null,
+        agentsCount: async () => opts.agents ?? 0,
         delete: async (id: string) => {
             calls.push(`delete:${id}`)
         }
     }
-    // Minimal drizzle shape for `select({id}).from(agents).where(...).limit(1)`.
-    const db = {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () =>
-                        opts.boundAgentId ? [{ id: opts.boundAgentId }] : []
-                })
-            })
-        })
-    }
-    const spritesProvisioner = {
-        teardownRuntime: async () => {
-            calls.push('sprites:teardownRuntime')
-        }
-    }
     const controller = new AgentRuntimesController(
-        db as never,
         runtimes as never,
-        spritesProvisioner as never,
-        {} as never,
         {} as never
     )
-    return { controller, calls }
+    const admin = new AdminAgentRuntimesController(
+        runtimes as never,
+        {} as never
+    )
+    return { controller, admin, calls }
 }
 
-test('deleting a daemon runtime is refused with a typed conflict, not a 500', async () => {
-    const { controller, calls } = buildHarness({ row: runtimeRow() })
+test('a runtime with agents bound is refused with a typed conflict, not deleted', async () => {
+    const { controller, calls } = buildHarness({ row: runtimeRow(), agents: 2 })
 
     await assert.rejects(
         () => controller.delete(user, 'art_test'),
@@ -82,41 +65,18 @@ test('deleting a daemon runtime is refused with a typed conflict, not a 500', as
                 code?: string
                 message?: string
             }
-            assert.equal(body.code, 'runtime.daemon_managed')
-            // The message has to point at the ONE lifecycle that removes them.
-            assert.match(String(body.message), /revoke/i)
+            assert.equal(body.code, RUNTIME_AGENTS_BOUND_CODE)
+            assert.match(String(body.message), /2 agent/)
             return true
         }
     )
-    assert.deepEqual(calls, [], 'nothing may be torn down')
+    assert.deepEqual(calls, [], 'the row must survive so the agents survive')
 })
 
-test('deleting an external runtime with an agent bound is refused (the FK would cascade the agent away)', async () => {
+test('an external runtime with no agent left is deletable — same rule, no kind switch', async () => {
     const { controller, calls } = buildHarness({
-        row: runtimeRow({ kind: 'external', framework: 'dify' }),
-        boundAgentId: 'agt_dify_1'
-    })
-
-    await assert.rejects(
-        () => controller.delete(user, 'art_test'),
-        (err: unknown) => {
-            assert.ok(err instanceof ConflictException)
-            const body = (err as ConflictException).getResponse() as {
-                code?: string
-                message?: string
-            }
-            assert.equal(body.code, 'runtime.external_agent_bound')
-            assert.match(String(body.message), /agt_dify_1/)
-            return true
-        }
-    )
-    assert.deepEqual(calls, [], 'the row must survive so the agent survives')
-})
-
-test('an external runtime with no agent left is deletable', async () => {
-    const { controller, calls } = buildHarness({
-        row: runtimeRow({ kind: 'external', framework: 'dify' }),
-        boundAgentId: null
+        row: runtimeRow({ framework: 'dify', hostId: null }),
+        agents: 0
     })
 
     await controller.delete(user, 'art_test')
@@ -124,17 +84,17 @@ test('an external runtime with no agent left is deletable', async () => {
     assert.deepEqual(calls, ['delete:art_test'])
 })
 
-test('a sprites runtime still tears down the VM (unchanged path)', async () => {
+test('a runtime on a local host is deletable once empty', async () => {
     const { controller, calls } = buildHarness({
-        row: runtimeRow({ kind: 'sprites', daemonId: null })
+        row: runtimeRow({ hostId: 'dh_test' })
     })
 
     await controller.delete(user, 'art_test')
 
-    assert.deepEqual(calls, ['sprites:teardownRuntime'])
+    assert.deepEqual(calls, ['delete:art_test'])
 })
 
-test('another user cannot reach the kind branches at all', async () => {
+test('another user cannot reach the rule at all', async () => {
     const { controller, calls } = buildHarness({
         row: runtimeRow({ userId: 'user-2' })
     })
@@ -144,4 +104,24 @@ test('another user cannot reach the kind branches at all', async () => {
         NotFoundException
     )
     assert.deepEqual(calls, [])
+})
+
+test('the admin route answers 404 for a missing id and applies the same 409', async () => {
+    const missing = buildHarness({ row: null })
+    await assert.rejects(() => missing.admin.get('art_nope'), NotFoundException)
+    await assert.rejects(() => missing.admin.delete('art_nope'), NotFoundException)
+
+    const bound = buildHarness({ row: runtimeRow({ userId: 'user-2' }), agents: 1 })
+    await assert.rejects(
+        () => bound.admin.delete('art_test'),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                RUNTIME_AGENTS_BOUND_CODE
+    )
+    assert.deepEqual(bound.calls, [])
+
+    const empty = buildHarness({ row: runtimeRow({ userId: 'user-2' }) })
+    await empty.admin.delete('art_test')
+    assert.deepEqual(empty.calls, ['delete:art_test'])
 })

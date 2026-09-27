@@ -89,7 +89,7 @@ Create a new agent on sprites.dev
 | `--pi-base-url <url>` | Vendor base URL override for pi (pi only; sandbox runtimes only) |
 | `--pi-model <model>` | pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only) |
 | `--agy-model <model>` | Antigravity CLI model as `agy models` names it, e.g. gemini-3.1-pro-low (antigravity-cli only) |
-| `--account-id <id>` | Admin only: pin to a specific sprites.dev account id |
+| `--provider-id <id>` | Admin only: place the new sandbox on a specific runtime provider |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 

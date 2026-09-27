@@ -1,11 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 import { AgentAdapterRegistry } from '../src/modules/agents/adapters/adapter-registry'
 import { HermesAgentAdapter } from '../src/modules/agents/adapters/hermes-agent.adapter'
 import { OpenclawAgentAdapter } from '../src/modules/agents/adapters/openclaw-agent.adapter'
-import { FrameworkExecResolver } from '../src/modules/agents/adapters/framework-exec'
+import {
+    FrameworkExecResolver,
+    type FrameworkExec,
+    type FrameworkExecRunResult
+} from '../src/modules/agents/adapters/framework-exec'
+import { reconcilerFor } from './helpers/reconcile-fixture'
+import { spritesHostRow } from './helpers/runtime-context-fixture'
 
 // #405 regression: report-driven reconcile for Hermes/OpenClaw sprites died in
 // FrameworkExecResolver before reaching the framework CLI. These tests run the
@@ -55,9 +59,8 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'Primary Display',
     internalId: 'agent-1',
-    status: 'stopped',
+    status: 'failed',
     failureReason: 'not present in runtime',
-    spriteStatus: null,
     workspacePath: `${HERMES_HOME}/profiles/agent-1`,
     mountPath: HERMES_HOME,
     spriteName: 'nca-user-abc-main',
@@ -127,29 +130,34 @@ const OPENCLAW_AGENTS_JSON = JSON.stringify([
     }
 ])
 
+// The host daemon's exec, recorded: every command the adapters run on the
+// sprite goes through it (ADR-0036 R6).
 class FakeTransportResolver extends FrameworkExecResolver {
-    readonly execs: Array<{ spriteName: string; opts: ExecOptions }> = []
-    behavior: (line: string) => ExecResult | null = () => null
+    readonly execs: Array<{ opts: { cmd: string[] } }> = []
+    behavior: (cmd: string[]) => FrameworkExecRunResult | null = () => null
 
-    protected override async execSprite(
-        _client: SpritesClient,
-        spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        this.execs.push({ spriteName, opts })
-        return (
-            this.behavior(opts.cmd[2] ?? '') ?? {
-                exitCode: 1,
-                stdout: '',
-                stderr: 'command not stubbed'
+    private exec(): FrameworkExec {
+        return {
+            run: async (req) => {
+                this.execs.push({ opts: { cmd: req.cmd } })
+                return (
+                    this.behavior(req.cmd) ?? {
+                        exitCode: 1,
+                        stdout: '',
+                        stderr: 'command not stubbed'
+                    }
+                )
             }
-        )
+        }
     }
-}
 
-const accountsStub = {
-    getById: async () => ({ id: 'acc-1', slug: 'acct' }),
-    decryptToken: () => 'tok-decrypted'
+    override async forRuntime(): Promise<FrameworkExec> {
+        return this.exec()
+    }
+
+    override async forHost(): Promise<FrameworkExec> {
+        return this.exec()
+    }
 }
 
 const frameworkStub = (framework: string) => ({ framework })
@@ -158,8 +166,7 @@ const makeHarness = () => {
     const resolver = new FakeTransportResolver(
         {} as never,
         {} as never,
-        {} as never,
-        accountsStub as never
+        {} as never
     )
     const registry = new AgentAdapterRegistry(
         frameworkStub('claude-code') as never,
@@ -177,18 +184,18 @@ const makeHarness = () => {
 }
 
 // The #405 headline scenario: a fence-valid ready report reaches a hermes
-// sprite whose agent row was poisoned to 'stopped'. The real adapter must
-// exec through the sprites channel (bash -lc, venv python resolved from the
-// runtime's persisted homeDir — NOT mountPath, which diverges on
+// sprite whose agent row was poisoned to 'failed'. The real adapter must
+// exec through the host daemon (bash -lc, venv python resolved from the
+// host's declared homeDir — NOT mountPath, which diverges on
 // custom-workspace runtimes) and heal the row.
-test('verifiedByReport reconcile heals a false-stopped hermes sprites agent through the real adapter chain', async () => {
+test('verifiedByReport reconcile heals a false-failed hermes sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line.includes(`'${HERMES_VENV_PYTHON}'`)
+    resolver.behavior = (cmd) =>
+        cmd[0] === HERMES_VENV_PYTHON
             ? { exitCode: 0, stdout: HERMES_PROFILES_JSON, stderr: '' }
             : null
     const db = makeDb([fakeDbAgent()])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(
         fakeRuntime({ mountPath: '/home/sprite/custom-ws' }) as never,
@@ -196,12 +203,11 @@ test('verifiedByReport reconcile heals a false-stopped hermes sprites agent thro
     )
 
     assert.equal(resolver.execs.length, 1, 'first venv candidate must hit')
-    assert.equal(resolver.execs[0].spriteName, 'nca-user-abc-main')
-    assert.equal(resolver.execs[0].opts.cmd[0], 'bash')
-    assert.equal(resolver.execs[0].opts.cmd[1], '-lc')
+    assert.equal(resolver.execs[0].opts.cmd[0], HERMES_VENV_PYTHON)
+    assert.equal(resolver.execs[0].opts.cmd[1], '-c')
     assert.equal(db.inserts.length, 0)
     assert.equal(db.updates.length, 1)
-    assert.equal(db.updates[0].set.status, 'running')
+    assert.equal(db.updates[0].set.status, 'ready')
     assert.equal(
         db.updates[0].set.failureReason,
         null,
@@ -214,10 +220,10 @@ test('verifiedByReport reconcile heals a false-stopped hermes sprites agent thro
     )
 })
 
-test('verifiedByReport reconcile heals a false-stopped openclaw sprites agent through the real adapter chain', async () => {
+test('verifiedByReport reconcile heals a false-failed openclaw sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line === `'openclaw' 'agents' 'list' '--json'`
+    resolver.behavior = (cmd) =>
+        cmd.join(' ') === 'openclaw agents list --json'
             ? { exitCode: 0, stdout: OPENCLAW_AGENTS_JSON, stderr: '' }
             : null
     const db = makeDb([
@@ -227,7 +233,7 @@ test('verifiedByReport reconcile heals a false-stopped openclaw sprites agent th
             mountPath: OPENCLAW_WS
         })
     ])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(
         fakeRuntime({
@@ -239,12 +245,14 @@ test('verifiedByReport reconcile heals a false-stopped openclaw sprites agent th
     )
 
     assert.equal(resolver.execs.length, 1)
-    assert.equal(
-        resolver.execs[0].opts.cmd[2],
-        `'openclaw' 'agents' 'list' '--json'`
-    )
+    assert.deepEqual(resolver.execs[0].opts.cmd, [
+        'openclaw',
+        'agents',
+        'list',
+        '--json'
+    ])
     assert.equal(db.updates.length, 1)
-    assert.equal(db.updates[0].set.status, 'running')
+    assert.equal(db.updates[0].set.status, 'ready')
     assert.equal(db.updates[0].set.failureReason, null)
     assert.equal('name' in db.updates[0].set, false)
 })
@@ -255,8 +263,8 @@ test('verifiedByReport reconcile heals a false-stopped openclaw sprites agent th
 // aliased onto the same row or inserted as a phantom agent.
 test('sprites reconcile ignores the built-in profile when the promoted primary has an exact live profile', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line === `'openclaw' 'agents' 'list' '--json'`
+    resolver.behavior = (cmd) =>
+        cmd.join(' ') === 'openclaw agents list --json'
             ? {
                   exitCode: 0,
                   stdout: JSON.stringify([
@@ -277,13 +285,13 @@ test('sprites reconcile ignores the built-in profile when the promoted primary h
     const db = makeDb([
         fakeDbAgent({
             framework: 'openclaw',
-            status: 'running',
+            status: 'ready',
             failureReason: null,
             workspacePath: '/workspace/promoted',
             mountPath: '/workspace/promoted'
         })
     ])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(
         fakeRuntime({
@@ -304,8 +312,11 @@ test('sprites reconcile ignores the built-in profile when the promoted primary h
 // the VM is never woken for billing.
 test('non-report reconcile on a sleeping hermes sprite still skips without any exec', async () => {
     const { resolver, registry } = makeHarness()
-    const db = makeDb([fakeDbAgent({ spriteStatus: 'warm', status: 'running' })])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const db = makeDb([fakeDbAgent({ status: 'ready' })])
+    const svc = reconcilerFor(db, registry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: null
+    })
 
     await svc.reconcileRuntime(fakeRuntime() as never)
 
@@ -324,7 +335,7 @@ test('reconcile records a failure when the openclaw listing exits non-zero', asy
         stderr: 'gateway not running'
     })
     const db = makeDb([fakeDbAgent({ framework: 'openclaw' })])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await assert.rejects(
         svc.reconcileRuntime(fakeRuntime({ framework: 'openclaw' }) as never, {
@@ -340,7 +351,7 @@ test('hermes discovery failure on every python candidate throws instead of retur
     const { resolver, registry } = makeHarness()
     resolver.behavior = () => null
     const db = makeDb([fakeDbAgent()])
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
 
     await assert.rejects(
         svc.reconcileRuntime(fakeRuntime() as never, {

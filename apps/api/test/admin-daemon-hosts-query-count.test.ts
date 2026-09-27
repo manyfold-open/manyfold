@@ -10,36 +10,48 @@ import { AdminDaemonController } from '../src/modules/daemon/admin-daemon.contro
 const hostRow = (i: number) => ({
     id: `dh-${i}`,
     userId: `u-${i % 2}`,
-    kind: 'daemon',
+    kind: 'local',
+    providerId: null,
+    providerRef: null,
     name: `machine-${i}`,
-    daemonUuid: `uuid-${i}`,
-    hostname: `host-${i}`,
-    os: 'darwin',
-    arch: 'arm64',
-    cliVersion: '0.22.4',
-    startupMethod: null,
+    status: 'ready',
+    failureReason: null,
+    generation: 0,
+    powerState: null,
+    powerChangedAt: null,
     homeDir: null,
     workspaceBaseDir: null,
-    detectedFrameworks: [],
-    clientFeatures: [],
-    status: 'active',
-    lastSeenAt: null,
-    rpcLastSeenAt: null,
+    skillsDir: null,
+    keepAwake: false,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z')
+})
+
+const daemonRow = (hostId: string) => ({
+    hostId,
+    daemonUuid: `uuid-${hostId}`,
+    hostname: `host-${hostId}`,
+    os: 'darwin',
+    arch: 'arm64',
+    cliVersion: '5.0.0',
+    clientFeatures: [],
+    detectedFrameworks: [],
+    lastSeenAt: null,
+    rpcLastSeenAt: null
 })
 
 interface FakeDataset {
     hosts: ReturnType<typeof hostRow>[]
     runtimes: Array<{
         id: string
-        daemonId: string
+        hostId: string
         framework: string
         name: string
+        status: string
     }>
     users: Array<{ id: string; email: string | null }>
-    tokenCounts: Array<{ daemonId: string; count: number }>
-    agentCounts: Array<{ daemonId: string | null; count: number }>
+    tokenCounts: Array<{ hostId: string; count: number }>
+    agentCounts: Array<{ hostId: string | null; count: number }>
 }
 
 const dataset = (hostCount: number): FakeDataset => {
@@ -48,16 +60,17 @@ const dataset = (hostCount: number): FakeDataset => {
         hosts,
         runtimes: hosts.map((h) => ({
             id: `rt-${h.id}`,
-            daemonId: h.id,
+            hostId: h.id,
             framework: 'claude-code',
-            name: `runtime-${h.id}`
+            name: `runtime-${h.id}`,
+            status: 'ready'
         })),
         users: [
             { id: 'u-0', email: 'owner0@example.com' },
             { id: 'u-1', email: null }
         ],
-        tokenCounts: hosts.map((h) => ({ daemonId: h.id, count: 2 })),
-        agentCounts: hosts.map((h) => ({ daemonId: h.id, count: 3 }))
+        tokenCounts: hosts.map((h) => ({ hostId: h.id, count: 2 })),
+        agentCounts: hosts.map((h) => ({ hostId: h.id, count: 3 }))
     }
 }
 
@@ -76,6 +89,7 @@ const makeDb = (data: FakeDataset) => {
     const chain = (rows: unknown[]) => {
         const b = Object.assign(Promise.resolve(rows), {
             from: () => b,
+            innerJoin: () => b,
             where: () => b,
             groupBy: () => b,
             orderBy: () => b,
@@ -108,13 +122,31 @@ const makeDb = (data: FakeDataset) => {
 const fakeHostService = {
     toSummary: (
         host: { id: string },
+        daemon: { hostId: string } | null,
         runtimes: unknown[],
         agentCount: number
-    ) => Promise.resolve({ id: host.id, runtimes, agentCount })
+    ) =>
+        Promise.resolve({
+            id: host.id,
+            registered: daemon !== null,
+            runtimes,
+            agentCount
+        })
+}
+
+// host_daemons is read through its own service, never through the db under
+// test, so the presence batch is the one SELECT the listing does not pay for.
+const fakeHostDaemons = {
+    findByHostIds: async (hostIds: string[]) =>
+        new Map(hostIds.map((id) => [id, daemonRow(id)]))
 }
 
 const makeController = (db: ReturnType<typeof makeDb>) =>
-    new AdminDaemonController(db as never, fakeHostService as never)
+    new AdminDaemonController(
+        db as never,
+        fakeHostService as never,
+        fakeHostDaemons as never
+    )
 
 test('listHosts uses a bounded query count: 1 host query + 4 batches', async () => {
     const db = makeDb(dataset(3))
@@ -160,13 +192,14 @@ test('listHosts assembles batched rows onto the right hosts', async () => {
     data.runtimes = [
         {
             id: 'rt-a',
-            daemonId: 'dh-1',
+            hostId: 'dh-1',
             framework: 'claude-code',
-            name: 'only-on-host-1'
+            name: 'only-on-host-1',
+            status: 'ready'
         }
     ]
-    data.tokenCounts = [{ daemonId: 'dh-1', count: 7 }]
-    data.agentCounts = [{ daemonId: 'dh-0', count: 4 }]
+    data.tokenCounts = [{ hostId: 'dh-1', count: 7 }]
+    data.agentCounts = [{ hostId: 'dh-0', count: 4 }]
     const db = makeDb(data)
 
     const rows = await makeController(db).listHosts()

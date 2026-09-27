@@ -34,6 +34,7 @@ const makeHarness = (opts: { due?: Array<Record<string, unknown>> } = {}) => {
         db as never,
         {} as never,
         {} as never,
+        {} as never,
         {
             emitQuotaWarning: (userId: string, event: Record<string, unknown>) => {
                 emitted.push({ userId, event })
@@ -53,6 +54,7 @@ const makeHarness = (opts: { due?: Array<Record<string, unknown>> } = {}) => {
                 softThresholdPct: 90
             })
         } as never,
+        {} as never,
         {} as never,
         {} as never
     )

@@ -10,28 +10,26 @@ import {
 import { eq } from 'drizzle-orm'
 import {
     agentCredentials,
-    agentRuntimes,
     agents,
-    type Database
+    type Agent,
+    type Database,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
+import type { SpritesLogger } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-bootstrap'
 import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
 import { podScriptRunner } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 
 const POD_SERVICE_READY_TIMEOUT_MS = 180_000
+
+type HostedAgent = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
 
 // Restarting a framework's long-lived service to pick up edited environment
 // variables or credentials. Sprite env only propagates via delete→upsert→start
@@ -46,14 +44,12 @@ export class AgentServiceRestartService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
         private readonly agents: AgentsService,
         private readonly crypto: CryptoService,
         private readonly serviceBootstraps: SpriteServiceBootstraps,
+        private readonly hostClients: HostProviderClients,
         // Appended last + @Optional so positional test construction keeps
         // working; absent, pod hosts are refused.
-        @Optional() private readonly k8s?: KubernetesService,
-        @Optional() private readonly podExec?: PodExecFactory,
         @Optional() private readonly podServices?: PodHostServices
     ) {}
 
@@ -62,62 +58,51 @@ export class AgentServiceRestartService {
         callerUserId: string,
         isAdmin: boolean
     ): Promise<AgentSummary> {
-        const agent = await this.agents.findForCaller(
+        const ctx = await this.agents.contextForCaller(
             agentId,
             callerUserId,
             isAdmin
         )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        const { agent } = ctx
         const bootstrap = this.serviceBootstraps.get(agent.framework)
         if (!bootstrap)
             throw new BadRequestException(
                 `${agent.framework} agents don't run a restartable service; environment variables apply on the next command`
             )
-        if (agent.runtime === 'k8s') {
-            await this.restartOnPod(agent)
-            return this.recordStart(agentId, callerUserId, isAdmin)
-        }
-        if (agent.runtime !== 'sprites')
+        if (!ctx.host)
             throw new BadRequestException(
                 'service restart is only supported on sandboxes and cloud computers'
             )
-        if (!agent.runtimeId)
-            throw new BadRequestException('agent has no runtime')
-        if (!agent.accountId || !agent.spriteName)
-            throw new BadRequestException('agent has no sprite')
+        const hosted = ctx as HostedAgent
+        if (ctx.placement === 'k8s') {
+            await this.restartOnPod(hosted)
+            return this.recordStart(agentId, callerUserId, isAdmin)
+        }
+        if (ctx.placement !== 'sprites')
+            throw new BadRequestException(
+                'service restart is only supported on sandboxes and cloud computers'
+            )
 
         const creds = await this.decryptCreds(agent.runtimeId)
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account)
-            throw new Error(`sprites account ${agent.accountId} not found`)
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
-        const [runtimeRow] = await this.db
-            .select({
-                controlUiEnabled: agentRuntimes.controlUiEnabled,
-                dashboardEnabled: agentRuntimes.dashboardEnabled
-            })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, agent.runtimeId))
-            .limit(1)
-        const ctx: BootstrapContext = {
+        const { client, spriteName } =
+            await this.hostClients.spritesClientForHost(hosted.host)
+        const bootstrapCtx: BootstrapContext = {
             agentId: agent.id,
             runtimeId: agent.runtimeId,
             userId: agent.userId,
-            spriteName: agent.spriteName,
+            spriteName,
             mountPath: agent.mountPath,
             client,
             logger: this.spritesLogger(),
             envText: envTextFromExtras(agent.extras) ?? null,
-            controlUiEnabled: runtimeRow?.controlUiEnabled,
-            dashboardEnabled: runtimeRow?.dashboardEnabled
+            controlUiEnabled: ctx.runtime.controlUiEnabled,
+            dashboardEnabled: ctx.runtime.dashboardEnabled
         }
         this.log.log(
             `restarting ${agent.framework} service for agent ${agent.id} to apply env`
         )
-        await bootstrap.restart(ctx, creds)
+        await bootstrap.restart(bootstrapCtx, creds)
         return this.recordStart(agentId, callerUserId, isAdmin)
     }
 
@@ -138,29 +123,15 @@ export class AgentServiceRestartService {
         return this.agents.get(agentId, callerUserId, isAdmin)
     }
 
-    private async restartOnPod(
-        agent: NonNullable<Awaited<ReturnType<AgentsService['findForCaller']>>>
-    ): Promise<void> {
+    private async restartOnPod(ctx: HostedAgent): Promise<void> {
+        const { agent, runtime, host } = ctx
         const recipe = podServiceRecipe(agent.framework)
-        if (!recipe || !this.k8s || !this.podExec || !this.podServices)
+        if (!recipe || !this.podServices)
             throw new BadRequestException(
                 `${agent.framework} has no service to restart on a cloud computer`
             )
-        const [runtime] = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, agent.runtimeId))
-            .limit(1)
-        if (!runtime?.hostId)
-            throw new BadRequestException('agent is not on a cloud computer')
         const creds = await this.decryptCreds(runtime.id)
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        const exec = this.podExec.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const exec = await this.hostClients.podExecForHost(host)
         const setup = await recipe.configure(
             podScriptRunner(exec, (event, fields) =>
                 this.log.warn(`${event} ${JSON.stringify(fields)}`)
@@ -171,9 +142,8 @@ export class AgentServiceRestartService {
                 controlUiEnabled: runtime.controlUiEnabled
             }
         )
-        const host = { id: runtime.hostId, userId: runtime.userId }
         this.log.log(
-            `restarting ${agent.framework} service on pod host ${runtime.hostId} for agent ${agent.id}`
+            `restarting ${agent.framework} service on pod host ${host.id} for agent ${agent.id}`
         )
         await this.podServices.upsert(host, setup.spec)
         await this.podServices.restart(host, setup.spec.name)

@@ -3,29 +3,18 @@ import assert from 'node:assert/strict'
 import { DaemonController } from '../src/modules/daemon/daemon.controller'
 
 // #607: GET /api/daemon/hosts loaded runtimes with one query per host after
-// a single batched agents count — 1 + host_count DB round trips per response,
-// each a seq scan on an unindexed daemon_id. The listing must use a bounded
-// number of queries independent of the host count (the #539 admin twin
-// already enforces this for /api/admin/daemon/hosts).
+// a single batched agents count — 1 + host_count DB round trips per response.
+// The listing must use a bounded number of queries independent of the host
+// count (the #539 admin twin already enforces this for /api/admin/daemon/hosts).
 
 const hostRow = (i: number) => ({
     id: `dh-${i}`,
     userId: 'u-0',
-    kind: 'daemon',
+    kind: 'local',
     name: `machine-${i}`,
-    daemonUuid: `uuid-${i}`,
-    hostname: `host-${i}`,
-    os: 'darwin',
-    arch: 'arm64',
-    cliVersion: '0.22.4',
-    startupMethod: null,
+    status: 'ready',
     homeDir: null,
     workspaceBaseDir: null,
-    detectedFrameworks: [],
-    clientFeatures: [],
-    status: 'active',
-    lastSeenAt: null,
-    rpcLastSeenAt: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z')
 })
@@ -34,11 +23,12 @@ interface FakeDataset {
     hosts: ReturnType<typeof hostRow>[]
     runtimes: Array<{
         id: string
-        daemonId: string | null
+        hostId: string | null
         framework: string
         name: string
+        status: string
     }>
-    agentCounts: Array<{ daemonId: string | null; count: number }>
+    agentCounts: Array<{ hostId: string | null; count: number }>
 }
 
 const dataset = (hostCount: number): FakeDataset => {
@@ -47,15 +37,17 @@ const dataset = (hostCount: number): FakeDataset => {
         hosts,
         runtimes: hosts.map((h) => ({
             id: `rt-${h.id}`,
-            daemonId: h.id,
+            hostId: h.id,
             framework: 'claude-code',
-            name: `runtime-${h.id}`
+            name: `runtime-${h.id}`,
+            status: 'ready'
         })),
-        agentCounts: hosts.map((h) => ({ daemonId: h.id, count: 3 }))
+        agentCounts: hosts.map((h) => ({ hostId: h.id, count: 3 }))
     }
 }
 
-// Hosts come from DaemonHostService.listForUser (not this.db), so the queue
+// Hosts come from DaemonHostService.listForUser and the daemon rows from
+// HostDaemonsService.findByHostIds (neither through this.db), so the queue
 // holds only the two batches. Order matters: Promise.all's array literal
 // constructs the agents-count builder first, then the runtimes builder — a
 // reorder in the controller must update this queue. A per-host implementation
@@ -66,6 +58,7 @@ const makeDb = (data: FakeDataset) => {
     const chain = (rows: unknown[]) => {
         const b = Object.assign(Promise.resolve(rows), {
             from: () => b,
+            innerJoin: () => b,
             where: () => b,
             groupBy: () => b,
             orderBy: () => b,
@@ -99,16 +92,20 @@ const fakeHostService = (hosts: unknown[]) => ({
     listForUser: () => Promise.resolve(hosts),
     toSummary: (
         host: { id: string },
+        daemon: unknown,
         runtimes: unknown[],
         agentCount: number
-    ) => Promise.resolve({ id: host.id, runtimes, agentCount })
+    ) => Promise.resolve({ id: host.id, daemon, runtimes, agentCount })
 })
+
+const fakeHostDaemons = { findByHostIds: async () => new Map() }
 
 const makeController = (db: ReturnType<typeof makeDb>, hosts: unknown[]) =>
     new DaemonController(
         db as never,
         undefined as never,
         fakeHostService(hosts) as never,
+        fakeHostDaemons as never,
         undefined as never,
         undefined as never,
         undefined as never
@@ -149,8 +146,6 @@ test('listHosts with no hosts issues no queries', async () => {
     const rows = await makeController(db, []).listHosts(principal)
 
     assert.deepEqual(rows, [])
-    // Unlike the admin twin (which loads hosts through this.db and so counts
-    // one select), hosts come from the host service here: zero DB selects.
     assert.equal(db.counters.selects, 0, 'no queries without hosts')
 })
 
@@ -159,13 +154,14 @@ test('listHosts assembles batched rows onto the right hosts in order', async () 
     data.runtimes = [
         {
             id: 'rt-a',
-            daemonId: 'dh-1',
+            hostId: 'dh-1',
             framework: 'claude-code',
-            name: 'only-on-host-1'
+            name: 'only-on-host-1',
+            status: 'ready'
         },
-        { id: 'rt-orphan', daemonId: null, framework: 'codex', name: 'orphan' }
+        { id: 'rt-orphan', hostId: null, framework: 'codex', name: 'orphan', status: 'ready' }
     ]
-    data.agentCounts = [{ daemonId: 'dh-0', count: 4 }]
+    data.agentCounts = [{ hostId: 'dh-0', count: 4 }]
     const db = makeDb(data)
 
     const rows = await makeController(db, data.hosts).listHosts(principal)

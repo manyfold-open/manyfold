@@ -40,7 +40,8 @@ import {
 } from '@manyfold/shared'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import {
-    GatewayHttpChatAdapter
+    GatewayHttpChatAdapter,
+    type GatewayAgentRow
 } from './gateway-http-chat.adapter'
 import { openclawCancelledEvent as cancelledEvent } from './openclaw-turn-shared'
 
@@ -208,13 +209,9 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     protected async *dispatchTurn(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        agentRow: {
-            runtime: string
-            internalId: string | null
-            daemonId: string | null
-        }
+        agentRow: GatewayAgentRow
     ): AsyncIterable<EmittedChatEvent> {
-        const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
+        const daemonId = ctx.runnerDaemonId ?? agentRow.hostId
         if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
         const refusal = await this.daemonAdmissionRefusal(daemonId, {
             // Only a BYOD daemon's gateway is discovered. A sprite's or cloud
@@ -225,7 +222,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             // before dialling. Seen on prod sprites [2026-09-26]: a runner's
             // first probe ran 3-6s before the gateway it thawed alongside
             // answered, and the turn was refused as unreachable.
-            platformGateway: agentRow.runtime !== 'daemon'
+            platformGateway: agentRow.placement !== 'daemon'
         })
         if (refusal) {
             yield refusal

@@ -10,27 +10,22 @@ import {
     frameworkDefinition,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_MIN_CLI_VERSION,
-    DAEMON_ONLINE_THRESHOLD_MS,
     isCliVersionTooOld,
-    DAEMON_FEATURE_EXEC_RESOURCES
+    DAEMON_FEATURE_EXEC_RESOURCES,
+    type AgentRuntime
 } from '@manyfold/shared'
 import type { AgentModelConfigSource } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import {
-    runtimeHosts,
-    agents,
     agentCredentials,
     userModelProviders,
     type Agent,
-    type Database
+    type Database,
+    type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
+import type { SpritesClient, SpritesLogger } from '@manyfold/sprites'
 import type { DaemonAuthContextRef } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import {
@@ -38,7 +33,6 @@ import {
     authContextRefFor,
     effectiveModelConfigSource
 } from '@/modules/agents/model-config/runtime-auth-selection'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     RuntimeTokenService,
@@ -59,8 +53,8 @@ import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-sto
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import {
     RunnerManagerService,
-    type RunnerResolution,
-    type SpriteAwakeHold
+    type SpriteAwakeHold,
+    type SpriteExecFn
 } from '@/modules/chat/runner/runner-manager.service'
 import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
@@ -68,14 +62,24 @@ import { execSprite } from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import { UNKNOWN_PRICE_SCOPE, verifiedCodingPriceScope, type ServedPriceScope } from '@/modules/usage/served-price-scope'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
+
+export type ExecPlacement = Exclude<AgentRuntime, 'external'>
 
 export interface ExecDriverHandle {
     driver: ExecDriver
+    // The host id: the routing key of the daemon that carries the turn.
     daemonId: string
     creds: unknown
     resolvePriceScope?: () => Promise<ServedPriceScope>
     supportsExecResources?: () => Promise<boolean>
-    runtime: 'sprites' | 'k8s' | 'daemon'
+    runtime: ExecPlacement
     agent: Agent
     // Already included in the daemon driver's environment.
     baseEnv?: Record<string, string>
@@ -85,25 +89,34 @@ export interface ExecDriverHandle {
 export interface RecoveryFsHandle {
     daemonId: string
     fs: RecoveryFs
-    runtime: 'sprites' | 'k8s' | 'daemon'
+    runtime: ExecPlacement
     agent: Agent
     awakeHold?: SpriteAwakeHold
     // Sprite bootstrap/health only; transcript access always uses the daemon.
     spritesClient?: SpritesClient
 }
 
+type AgentContext = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
+
+// Every turn reaches its machine the same way (ADR-0036): agent → runtime →
+// host → the host's one daemon. The placement only decides what rides along
+// (credentials, identity token, sprite awake holds); the transport is always
+// the daemon RPC keyed by the host id.
 @Injectable()
 export class ExecDriverFactory {
     private readonly log = new Logger(ExecDriverFactory.name)
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
+        private readonly runtimeContext: RuntimeContextService,
         private readonly crypto: CryptoService,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly spriteStorage: SpriteStorageService,
         private readonly connections: ConnectionsService,
+        private readonly hostDaemons: HostDaemonsService,
+        private readonly hostClients: HostProviderClients,
+        private readonly hostAccess: HostDaemonAccess,
         @Optional() private readonly config?: ConfigService,
         // Appended LAST and @Optional so positional test construction keeps
         // working; absent, daemon drivers dispatch unfenced as before.
@@ -116,45 +129,50 @@ export class ExecDriverFactory {
         @Optional() private readonly runnerManager?: RunnerManagerService
     ) {}
 
+    // The agent with its machine, for every path below; an external agent
+    // has no machine and is refused by the callers' own words.
+    private async contextFor(agentId: string): Promise<RuntimeContext & { agent: Agent }> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        if (!ctx?.agent) throw new Error(`agent ${agentId} not found`)
+        return ctx as RuntimeContext & { agent: Agent }
+    }
+
+    private requireMachine(
+        ctx: RuntimeContext & { agent: Agent },
+        what: string
+    ): AgentContext {
+        if (ctx.placement === 'external' || !ctx.host)
+            throw new Error(`external agents have no ${what}`)
+        return ctx as AgentContext
+    }
+
     async forAgent(
         agentId: string,
         preloaded?: Agent,
         turnSource?: AgentModelConfigSource,
         carryingDaemonId?: string
     ): Promise<ExecDriverHandle> {
-        const agent =
-            preloaded?.id === agentId
-                ? preloaded
-                : (
-                      await this.db
-                          .select()
-                          .from(agents)
-                          .where(eq(agents.id, agentId))
-                          .limit(1)
-                  )[0]
-        if (!agent) throw new Error(`agent ${agentId} not found`)
-
-        if (!agent.runtimeId)
-            throw new Error(`agent ${agentId} has no linked runtime`)
+        const ctx = this.requireMachine(await this.contextFor(agentId), 'exec driver')
+        const agent = preloaded?.id === agentId ? preloaded : ctx.agent
+        const placement = ctx.placement as ExecPlacement
         // Per-turn platform/local selection can differ from the saved default.
         // The driver and the injected credentials must use that same selection.
         const selectedAuthContext = authContextRefFor(
             turnSource
                 ? { ...agent, extras: { modelConfig: { source: turnSource } } }
-                : agent
+                : agent,
+            placement
         )
 
-        if (agent.runtime === 'external')
-            throw new Error('external agents have no exec driver')
         const daemonId =
-            carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
+            carryingDaemonId ?? (await this.resolveRunner(ctx)).daemonId
         const coding = frameworkCapability(agent.framework).kind === 'coding'
         // A turn on the CLI's own sign-in needs no stored credential, and a
         // sandbox runtime prepared bare has none until a provider is bound —
-        // so only a platform turn off a daemon insists on the row.
+        // so only a platform turn off a local machine insists on the row.
         const credentialOptional =
-            agent.runtime === 'daemon' ||
-            (turnSource ?? effectiveModelConfigSource(agent)) ===
+            placement === 'daemon' ||
+            (turnSource ?? effectiveModelConfigSource(agent, placement)) ===
                 'runtime-local'
         const [creds, connectionEnv, identityToken] = await Promise.all([
             credentialOptional
@@ -164,7 +182,7 @@ export class ExecDriverFactory {
             // A pod host bakes no identity into its Secret (ADR-0035), so a
             // k8s turn gets the same lazily minted, rotatable token as a
             // sprite or daemon turn.
-            coding ? this.lazyIdentityToken(agent, agent.runtime) : null
+            coding ? this.lazyIdentityToken(agent, placement) : null
         ])
         const baseEnv = coding
             ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
@@ -175,7 +193,7 @@ export class ExecDriverFactory {
                 await this.hostFeatures(daemonId),
                 'this runner'
             )
-        if (agent.runtime === 'sprites')
+        if (placement === 'sprites')
             void this.spriteStorage.measureIfDue(agent.id, 'chat')
         return {
             driver: this.daemonDriverFor(
@@ -191,140 +209,124 @@ export class ExecDriverFactory {
                 (await this.hostFeatures(daemonId))?.clientFeatures.includes(
                     DAEMON_FEATURE_EXEC_RESOURCES
                 ) ?? false,
-            runtime: agent.runtime,
+            runtime: placement,
             agent,
             baseEnv,
             authContext: selectedAuthContext
         }
     }
 
-    async resolveRunner(input: Agent | string): Promise<ChatRunner> {
-        const agent =
+    // The daemon that will carry a turn for this agent, brought up when the
+    // host is hosted and asleep (R11). The handle's daemonId is the host id.
+    async resolveRunner(
+        input: Agent | string | (RuntimeContext & { agent: Agent })
+    ): Promise<ChatRunner> {
+        const loaded =
             typeof input === 'string'
-                ? (
-                      await this.db
-                          .select()
-                          .from(agents)
-                          .where(eq(agents.id, input))
-                          .limit(1)
-                  )[0]
-                : input
-        if (!agent) throw new Error('agent not found')
-        if (agent.runtime === 'external')
-            throw new Error('external agents have no runner')
-        let daemonId = agent.daemonId
-        let exec: ChatRunner['exec'] = null
-        let spritesClient: SpritesClient | undefined
+                ? await this.contextFor(input)
+                : 'runtime' in input && 'placement' in input
+                  ? input
+                  : await this.contextFor(input.id)
+        const ctx = this.requireMachine(loaded, 'runner')
+        const { agent, host, placement } = ctx
+        // The machine is its owner's: an agent never inherits another
+        // user's runtime, whatever row points at it.
+        if (host.userId !== agent.userId)
+            throw new ChatRunnerError(placement, 'runtime owner mismatch')
+        if (ctx.availability === 'unavailable')
+            throw new ChatRunnerError(placement, 'runtime unavailable')
         const runnerFacts = frameworkDefinition(agent.framework)?.runner
         // Gateway-backed frameworks create/resolve their own workspace on the
         // first turn; admission must not require that lazy path to exist yet.
         const workspacePath = runnerFacts?.lazyWorkspace
             ? null
             : (agent.workspacePath ?? agent.mountPath)
-        const extraRoots = runnerFacts?.homeRoots?.[agent.runtime] ?? []
-        if (agent.runtime !== 'daemon') {
-            if (!this.runnerManager)
-                throw new ChatRunnerError(
-                    agent.runtime,
-                    'runner manager unavailable'
-                )
-            let resolution: RunnerResolution
-            if (agent.runtime === 'sprites') {
-                const client = await this.spritesClientForAgent(agent)
-                spritesClient = client
-                exec = (args) =>
-                    execSprite(client, agent.spriteName!, {
-                        ...args,
-                        stdin: args.stdin ?? ''
-                    })
-                resolution = await this.runnerManager.ensureRunner({
-                    agentId: agent.id,
-                    userId: agent.userId,
-                    spriteName: agent.spriteName!,
-                    workspacePath,
-                    extraRoots,
-                    firstExecTimeoutMs:
-                        spriteExecHealthConfig().firstExecTimeoutMs,
-                    exec
-                })
-            } else {
-                if (!agent.hostId)
-                    throw new ChatRunnerError(agent.runtime, 'pod host missing')
-                resolution = await this.runnerManager.resolvePodRunner({
-                    userId: agent.userId,
-                    podHostId: agent.hostId,
-                    workspacePath,
-                    extraRoots
-                })
-            }
-            if (!resolution.handle)
-                throw new ChatRunnerError(
-                    agent.runtime,
-                    resolution.fallbackReason ?? 'runner unavailable',
-                    resolution.fallbackReason === 'runner_cli_too_old' ||
-                        resolution.fallbackReason === 'runner_missing_turn_rpc',
-                    resolution.execFailure
-                )
-            daemonId = resolution.handle.daemonId
-        }
-        if (!daemonId)
-            throw new ChatRunnerError(agent.runtime, 'runner missing')
-        const [host] = await this.db
-            .select()
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.userId, agent.userId)
-                )
-            )
-            .limit(1)
-        if (!host || host.kind !== 'daemon')
-            throw new ChatRunnerError(agent.runtime, 'runner missing')
+        const extraRoots = runnerFacts?.homeRoots?.[placement] ?? []
         const required = [
-            ...(authContextRefFor(agent) ? [DAEMON_FEATURE_AUTH_CONTEXT] : []),
+            ...(authContextRefFor(agent, placement)
+                ? [DAEMON_FEATURE_AUTH_CONTEXT]
+                : []),
             ...(runnerFacts?.requiredFeatures ?? [])
         ]
+        // A sandbox turn is metered from its admission: the active slot is
+        // reserved before the machine is woken for it.
+        if (placement === 'sprites')
+            await this.runtimeAccess.reserveActiveSlot({
+                userId: agent.userId,
+                hostId: host.id
+            })
+        const ensured = await this.hostAccess.ensure({
+            host,
+            daemon: ctx.daemon,
+            placement,
+            agentId: agent.id,
+            workspacePath,
+            extraRoots,
+            requiredFeatures: required,
+            firstExecTimeoutMs: spriteExecHealthConfig().firstExecTimeoutMs
+        })
+        if (!ensured.online || !ensured.daemon)
+            throw new ChatRunnerError(
+                placement,
+                ensured.fallbackReason ?? 'runner unavailable',
+                ensured.fallbackReason === 'runner_cli_too_old' ||
+                    ensured.fallbackReason === 'runner_missing_turn_rpc',
+                ensured.execFailure
+            )
+        const daemon = ensured.daemon
         if (
-            isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION) ||
+            isCliVersionTooOld(daemon.cliVersion, DAEMON_MIN_CLI_VERSION) ||
             required.some(
-                (feature) => !(host.clientFeatures ?? []).includes(feature)
+                (feature) => !(daemon.clientFeatures ?? []).includes(feature)
             )
         )
             throw new ChatRunnerError(
-                agent.runtime,
+                placement,
                 'runner version or capability',
                 true
             )
-        if (
-            host.status !== 'active' ||
-            !host.rpcLastSeenAt ||
-            Date.now() - host.rpcLastSeenAt.getTime() >=
-                DAEMON_ONLINE_THRESHOLD_MS
-        )
-            throw new ChatRunnerError(agent.runtime, 'runner offline')
-        return { daemonId, exec, spritesClient }
+        return { daemonId: host.id }
     }
 
-    async spritesClientForAgent(agent: Agent): Promise<SpritesClient> {
-        if (
-            agent.runtime !== 'sprites' ||
-            !agent.accountId ||
-            !agent.spriteName ||
-            !agent.hostId
+    // The agent's machine, for the sprite awake holds a turn places.
+    async hostForAgent(agentId: string): Promise<RuntimeHostRow | null> {
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        return ctx?.host ?? null
+    }
+
+    // The sprite behind a hosted sprites host: the provider-native exec is
+    // what the exec-health probe rides on (the turn itself goes through the
+    // daemon). Admission is the caller's.
+    private async spriteFor(ctx: AgentContext): Promise<{
+        client: SpritesClient
+        spriteName: string
+        exec: SpriteExecFn
+    }> {
+        const { client, spriteName } = await this.hostClients.spritesClientForHost(
+            ctx.host,
+            spritesLoggerFor(this.log, ctx.agent.id)
         )
-            throw new Error('agent has no sprite host')
+        return {
+            client,
+            spriteName,
+            exec: (args) =>
+                execSprite(client, spriteName, {
+                    ...args,
+                    stdin: args.stdin ?? ''
+                })
+        }
+    }
+
+    // Run a command on an agent's sprite; null for an agent that is not on
+    // one. The exec-health probe rides on it.
+    async spriteExecForAgent(agentId: string): Promise<SpriteExecFn | null> {
+        const ctx = await this.contextFor(agentId)
+        if (ctx.placement !== 'sprites' || !ctx.host) return null
         await this.runtimeAccess.reserveActiveSlot({
-            userId: agent.userId,
-            hostId: agent.hostId
+            userId: ctx.agent.userId,
+            hostId: ctx.host.id
         })
-        const account = await this.accounts.getById(agent.accountId)
-        if (!account) throw new Error('sprite account not found')
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug,
-            logger: spritesLoggerFor(this.log, agent.id)
-        })
+        return (await this.spriteFor(ctx as AgentContext)).exec
     }
 
     private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
@@ -341,16 +343,12 @@ export class ExecDriverFactory {
         })
     }
 
-    // Capability lookup for the auth-context gate: the registration row is
+    // Capability lookup for the auth-context gate: the host's daemon row is
     // the only place a daemon's advertised features live.
     private async hostFeatures(
-        daemonId: string
+        hostId: string
     ): Promise<{ clientFeatures: string[] } | null> {
-        const [row] = await this.db
-            .select({ clientFeatures: runtimeHosts.clientFeatures })
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, daemonId))
-            .limit(1)
+        const row = await this.hostDaemons.findByHostId(hostId)
         return row ? { clientFeatures: row.clientFeatures ?? [] } : null
     }
 
@@ -370,29 +368,27 @@ export class ExecDriverFactory {
     }
 
     async recoveryFsForAgent(agentId: string): Promise<RecoveryFsHandle> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        if (!agent) throw new Error(`agent ${agentId} not found`)
-
-        if (agent.runtime === 'external') throw new Error('external agents have no recovery filesystem')
-        const runner = await this.resolveRunner(agent)
+        const ctx = this.requireMachine(
+            await this.contextFor(agentId),
+            'recovery filesystem'
+        )
+        const runner = await this.resolveRunner(ctx)
+        const sprite =
+            ctx.placement === 'sprites' ? await this.spriteFor(ctx) : null
         return {
             daemonId: runner.daemonId,
             fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
-            runtime: agent.runtime,
-            agent,
-            ...(runner.exec && this.runnerManager
+            runtime: ctx.placement as ExecPlacement,
+            agent: ctx.agent,
+            ...(sprite && this.runnerManager
                 ? {
                       awakeHold: this.runnerManager.keepSpriteAwake({
-                          exec: runner.exec,
-                          turnId: `recovery-${agent.id}-${randomUUID()}`
+                          host: ctx.host,
+                          turnId: `recovery-${ctx.agent.id}-${randomUUID()}`
                       })
                   }
                 : {}),
-            spritesClient: runner.spritesClient
+            spritesClient: sprite?.client
         }
     }
 
@@ -400,14 +396,12 @@ export class ExecDriverFactory {
         agentId: string,
         carryingDaemonId?: string
     ): Promise<OpenclawRpcClient | null> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        if (!agent) return null
-        if (agent.framework !== 'openclaw') return null
-        const daemonId = carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
+        const ctx = await this.runtimeContext.forAgent(agentId)
+        if (!ctx?.agent) return null
+        if (ctx.agent.framework !== 'openclaw') return null
+        const daemonId =
+            carryingDaemonId ??
+            (await this.resolveRunner(ctx as RuntimeContext & { agent: Agent })).daemonId
         return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
     }
 
@@ -469,8 +463,6 @@ export class ExecDriverFactory {
             })
         )
     }
-
-
 }
 
 export const manyfoldRuntimeEnv = (

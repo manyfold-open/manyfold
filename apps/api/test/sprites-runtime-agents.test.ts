@@ -1,76 +1,71 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { AgentRuntimeRow, Agent } from '@manyfold/db'
+import type { Agent, RuntimeHostRow } from '@manyfold/db'
 import { ClaudeCodeAgentAdapter } from '../src/modules/agents/adapters/claude-code-agent.adapter'
-import type { SpritesAgentAttacher } from '../src/modules/agents/adapters/sprites-agent-attacher'
-import type { K8sAgentAttacher } from '../src/modules/agents/adapters/k8s-agent-attacher'
+import type { DaemonAgentAttacher } from '../src/modules/agents/adapters/daemon-agent-attacher'
+import {
+    NotSupportedError,
+    type RuntimeTarget
+} from '../src/modules/agents/adapters/agent-adapter'
+import {
+    contextOf,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
-const baseRuntime = (
-    overrides: Partial<AgentRuntimeRow> = {}
-): AgentRuntimeRow =>
-    ({
-        id: 'rt-1',
-        userId: 'u-1',
-        name: 'main',
-        framework: 'claude-code',
-        kind: 'sprites',
-        status: 'ready',
-        accountId: 'acc-1',
-        spriteName: 'nca-user-abc-main',
-        spriteId: 'sp-1',
-        primaryAgentId: 'agent-1',
-        mountPath: '/home/sprite/.nca/workspaces/agent-1',
-        namespace: null,
-        ingressHost: null,
-        clusterId: null,
-        spriteUrl: null,
-        currentPhase: null,
-        failureReason: null,
-        startedAt: new Date(),
-        lastBootstrappedAt: new Date(),
-        lastReconciledAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ...overrides
-    }) as unknown as AgentRuntimeRow
+// A coding agent's workspace lives on its machine and is reached through
+// the host's one daemon, whichever provider made the machine (ADR-0036 R6):
+// the adapter hands every add and remove to the daemon attacher with the
+// runtime's target.
 
-const noopSpritesAttacher = {
+const targetOn = (host: RuntimeHostRow = spritesHostRow()): RuntimeTarget =>
+    contextOf({
+        runtime: runtimeRow({
+            id: 'rt-1',
+            userId: 'u-1',
+            name: 'main',
+            framework: 'claude-code',
+            hostId: host.id,
+            mountPath: '/home/sprite/.nca/workspaces/agent-1',
+            primaryAgentId: 'agent-1'
+        }),
+        host
+    })
+
+const noopAttacher = {
     attach: async () => ({ workspacePath: '', internalId: '' }),
     detach: async () => {}
-} as unknown as SpritesAgentAttacher
+} as unknown as DaemonAgentAttacher
 
-const noopK8sAttacher = {
-    attach: async () => ({ workspacePath: '', internalId: '' }),
-    detach: async () => {}
-} as unknown as K8sAgentAttacher
-
-test('ClaudeCodeAgentAdapter.addAgent on sprites attaches workspace and returns id', async () => {
+test('ClaudeCodeAgentAdapter.addAgent on a sandbox attaches the workspace through the host daemon', async () => {
+    const attachCalls: Array<{
+        hostId: string | undefined
+        agentId: string
+        workspace?: string
+    }> = []
     const attacher = {
         attach: async (args: {
-            runtime: AgentRuntimeRow
+            target: RuntimeTarget
             agentId: string
-        }) => ({
-            workspacePath: `/home/sprite/.nca/workspaces/${args.agentId}`,
-            internalId: args.agentId
-        }),
-        detach: async () => {}
-    } as unknown as SpritesAgentAttacher
-    const fakeDb = {
-        select: () => ({
-            from: () => ({
-                where: async () => []
+            workspace?: string
+        }) => {
+            attachCalls.push({
+                hostId: args.target.host?.id,
+                agentId: args.agentId,
+                workspace: args.workspace
             })
-        })
-    }
-    const adapter = new ClaudeCodeAgentAdapter(
-        fakeDb as never,
-        attacher,
-        noopK8sAttacher,
-        {} as never
-    )
+            return {
+                workspacePath: `/home/sprite/.nca/workspaces/${args.agentId}`,
+                internalId: args.agentId
+            }
+        },
+        detach: async () => {}
+    } as unknown as DaemonAgentAttacher
+    const adapter = new ClaudeCodeAgentAdapter({} as never, attacher)
 
     const result = await adapter.addAgent({
-        runtime: baseRuntime(),
+        ...targetOn(),
         primaryAgentId: 'agent-1',
         agentId: 'agent-2',
         internalId: 'agent-2',
@@ -78,54 +73,58 @@ test('ClaudeCodeAgentAdapter.addAgent on sprites attaches workspace and returns 
         model: 'claude-sonnet-4-6'
     })
 
+    assert.deepEqual(attachCalls, [
+        { hostId: 'rth_fixture', agentId: 'agent-2', workspace: undefined }
+    ])
     assert.equal(result.internalId, 'agent-2')
     assert.equal(result.workspace, '/home/sprite/.nca/workspaces/agent-2')
     assert.equal(result.model, 'claude-sonnet-4-6')
 })
 
-test('ClaudeCodeAgentAdapter.addAgent on k8s routes to K8sAgentAttacher', async () => {
-    const k8sCalls: Array<{ agentId: string; primaryAgentId: string | null }> =
-        []
-    const k8sAttacher = {
-        attach: async (args: {
-            runtime: AgentRuntimeRow
-            agentId: string
-            primaryAgentId: string | null
-        }) => {
-            k8sCalls.push({
-                agentId: args.agentId,
-                primaryAgentId: args.primaryAgentId
-            })
+test('ClaudeCodeAgentAdapter.addAgent on a cloud computer goes through the same attacher', async () => {
+    const targets: RuntimeTarget[] = []
+    const attacher = {
+        attach: async (args: { target: RuntimeTarget; agentId: string }) => {
+            targets.push(args.target)
             return {
                 workspacePath: `/home/node/.nca/workspaces/${args.agentId}`,
                 internalId: args.agentId
             }
         },
         detach: async () => {}
-    } as unknown as K8sAgentAttacher
-    const adapter = new ClaudeCodeAgentAdapter(
-        {} as never,
-        noopSpritesAttacher,
-        k8sAttacher,
-        {} as never
-    )
+    } as unknown as DaemonAgentAttacher
+    const adapter = new ClaudeCodeAgentAdapter({} as never, attacher)
 
     const result = await adapter.addAgent({
-        runtime: baseRuntime({ kind: 'k8s', namespace: 'nca-dev' }),
+        ...targetOn(k8sHostRow({ id: 'pdh_1' })),
         primaryAgentId: 'agent-1',
         agentId: 'agent-2',
         internalId: 'agent-2',
         name: 'second'
     })
 
-    assert.equal(k8sCalls.length, 1)
-    assert.equal(k8sCalls[0].agentId, 'agent-2')
-    assert.equal(k8sCalls[0].primaryAgentId, 'agent-1')
+    assert.equal(targets.length, 1)
+    assert.equal(targets[0].placement, 'k8s')
+    assert.equal(targets[0].host?.id, 'pdh_1')
     assert.equal(result.internalId, 'agent-2')
     assert.equal(result.workspace, '/home/node/.nca/workspaces/agent-2')
 })
 
-test('ClaudeCodeAgentAdapter.listAgents returns all rows for runtime (sprites or k8s)', async () => {
+test('ClaudeCodeAgentAdapter.addAgent refuses a runtime without a machine', async () => {
+    const adapter = new ClaudeCodeAgentAdapter({} as never, noopAttacher)
+    await assert.rejects(
+        adapter.addAgent({
+            ...contextOf({ runtime: runtimeRow({ hostId: null }), host: null }),
+            primaryAgentId: null,
+            agentId: 'agent-2',
+            internalId: 'agent-2',
+            name: 'second'
+        }),
+        (err: unknown) => err instanceof NotSupportedError
+    )
+})
+
+test('ClaudeCodeAgentAdapter.listAgents returns all rows for the runtime', async () => {
     const rows = [
         {
             id: 'agent-1',
@@ -147,15 +146,10 @@ test('ClaudeCodeAgentAdapter.listAgents returns all rows for runtime (sprites or
             })
         })
     }
-    const adapter = new ClaudeCodeAgentAdapter(
-        fakeDb as never,
-        noopSpritesAttacher,
-        noopK8sAttacher,
-        {} as never
-    )
+    const adapter = new ClaudeCodeAgentAdapter(fakeDb as never, noopAttacher)
 
     const live = await adapter.listAgents({
-        runtime: baseRuntime(),
+        ...targetOn(),
         primaryAgentId: 'agent-1'
     })
 
@@ -166,31 +160,27 @@ test('ClaudeCodeAgentAdapter.listAgents returns all rows for runtime (sprites or
     assert.equal(live[1].model, 'claude-sonnet-4-6')
 })
 
-test('ClaudeCodeAgentAdapter.removeAgent on sprites delegates to attacher.detach', async () => {
-    let detached: { runtime: AgentRuntimeRow; agent: Agent } | null = null
+test('ClaudeCodeAgentAdapter.removeAgent delegates to the attacher with the target', async () => {
+    let detached: { target: RuntimeTarget; agent: Agent } | null = null
     const attacher = {
         attach: async () => ({ workspacePath: '', internalId: '' }),
-        detach: async (args: { runtime: AgentRuntimeRow; agent: Agent }) => {
+        detach: async (args: { target: RuntimeTarget; agent: Agent }) => {
             detached = args
         }
-    } as unknown as SpritesAgentAttacher
-    const adapter = new ClaudeCodeAgentAdapter(
-        {} as never,
-        attacher,
-        noopK8sAttacher,
-        {} as never
-    )
+    } as unknown as DaemonAgentAttacher
+    const adapter = new ClaudeCodeAgentAdapter({} as never, attacher)
     const agent = {
         id: 'agent-2',
         workspacePath: '/home/sprite/.nca/workspaces/agent-2'
     } as unknown as Agent
 
     await adapter.removeAgent({
-        runtime: baseRuntime(),
+        ...targetOn(),
         agent,
         primaryAgentId: 'agent-1'
     })
 
-    const capturedDetached = detached as { agent: Agent } | null
-    assert.equal(capturedDetached?.agent.id, 'agent-2')
+    const captured = detached as { target: RuntimeTarget; agent: Agent } | null
+    assert.equal(captured?.agent.id, 'agent-2')
+    assert.equal(captured?.target.host?.id, 'rth_fixture')
 })

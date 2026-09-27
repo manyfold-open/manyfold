@@ -1,7 +1,8 @@
+import { isRuntimeUsable } from '@manyfold/shared'
 import type { NcaClient, SdkAgent } from '@manyfold/sdk'
 import type { TFn } from '@/lib/i18n'
 
-export type TerminalBlockedReason = 'external-runtime' | 'agent-not-running'
+export type TerminalBlockedReason = 'external-runtime' | 'agent-unavailable'
 
 export interface TerminalAvailability {
     available: boolean
@@ -14,12 +15,12 @@ export interface TerminalAvailability {
    at activation by ensureSandboxTerminalEnabled instead of hiding the
    control. */
 export const terminalAvailabilityForAgent = (
-    agent: Pick<SdkAgent, 'runtime' | 'status'>
+    agent: Pick<SdkAgent, 'runtime' | 'availability'>
 ): TerminalAvailability => {
     if (agent.runtime === 'external')
         return { available: false, reason: 'external-runtime' }
-    if (agent.status !== 'running')
-        return { available: false, reason: 'agent-not-running' }
+    if (!isRuntimeUsable(agent.availability))
+        return { available: false, reason: 'agent-unavailable' }
     return { available: true, reason: null }
 }
 
@@ -29,7 +30,7 @@ export const terminalBlockedLabel = (
 ): string =>
     reason === 'external-runtime'
         ? t('web.terminal.unavailableExternal')
-        : t('web.terminal.unavailableStopped')
+        : t('web.terminal.unavailableAgent')
 
 interface ConfirmOptions {
     title: string
@@ -56,14 +57,11 @@ export const ensureSandboxTerminalEnabled = async ({
     confirm,
     t
 }: EnsureTerminalParams): Promise<boolean> => {
-    if (agent.runtime !== 'sprites') return true
+    if (agent.runtime !== 'sprites' || !agent.hostId) return true
 
     let sandbox = null
     try {
-        const sandboxes = await client.sandboxes.list()
-        sandbox = agent.spriteName
-            ? (sandboxes.find((s) => s.spriteName === agent.spriteName) ?? null)
-            : null
+        sandbox = await client.sandboxes.get(agent.hostId)
     } catch {
         sandbox = null
     }

@@ -113,14 +113,12 @@ const buildHarness = async (tail: EmittedChatEvent[]): Promise<Harness> => {
         userId,
         name: `pgtest-runtime-${suffix}`,
         framework: 'claude-code',
-        kind: 'sprites'
     })
     await db.insert(agents).values({
         id: agentId,
         userId,
         name: 'pgtest-agent',
         framework: 'claude-code',
-        runtime: 'sprites',
         runtimeId,
         internalId: `internal-${agentId}`
     })

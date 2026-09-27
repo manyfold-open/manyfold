@@ -2,10 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { DaemonAuthContextRef } from '@manyfold/shared'
 import { DAEMON_FEATURE_AUTH_CONTEXT } from '@manyfold/shared'
-import { agentCredentials, runtimeHosts, userModelProviders, type Agent } from '@manyfold/db'
+import { agentCredentials, userModelProviders, type Agent } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
-import { CLI_AT_FLOOR } from './helpers/cli-floor'
+import {
+    contextOf,
+    daemonRow,
+    fakeHostAccess,
+    fakeRuntimeContext,
+    hostRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const ref: DaemonAuthContextRef = {
     framework: 'codex',
@@ -19,14 +26,15 @@ test('per-turn auth selection controls the actual driver, and local/profile oper
     const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
         if (table === userModelProviders) { providerReads++; throw new Error('stale provider cannot be decrypted') }
         if (table === agentCredentials) return []
-        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
-    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never, {} as never, {} as never, {} as never,
-        { resolveAgentEnv: async () => ({}) } as never)
-    const agent = { id: 'agent', userId: 'user', framework: 'codex', runtime: 'daemon', runtimeId: 'runtime',
-        daemonId: 'daemon', modelProviderId: 'old-provider', runtimeAuthProfileId: ref.profileId, runtimeAuthBindingVersion: 4,
+    const agent = { id: 'agent', userId: 'user', framework: 'codex', runtimeId: 'runtime', status: 'ready',
+        modelProviderId: 'old-provider', runtimeAuthProfileId: ref.profileId, runtimeAuthBindingVersion: 4,
         extras: { modelConfig: { source: 'runtime-local' } } } as unknown as Agent
+    const daemon = daemonRow({ hostId: 'daemon', clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] })
+    const ctx = contextOf({ agent, host: hostRow({ id: 'daemon', userId: 'user' }), daemon })
+    const factory = new ExecDriverFactory(db as never, fakeRuntimeContext(ctx) as never, { decrypt: () => { throw new Error('unused stale provider') } } as never, {} as never, {} as never, {} as never,
+        { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, {} as never, fakeHostAccess() as never)
     const local = await factory.forAgent(agent.id, agent, 'runtime-local')
     assert.equal(local.authContext?.profileId, ref.profileId)
     const platform = await factory.forAgent(agent.id, agent, 'platform')
@@ -96,14 +104,15 @@ test('the codex HOME relocation no longer re-pins CODEX_HOME over a daemon-injec
 test('a runtime-local sandbox turn needs no stored credential; a platform one still does', async () => {
     const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
         if (table === agentCredentials) return []
-        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: CLI_AT_FLOOR, rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
-    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => '{}' } as never, {} as never, {} as never,
-        { measureIfDue: async () => {} } as never, { resolveAgentEnv: async () => ({}) } as never)
-    const agent = { id: 'agent', userId: 'user', framework: 'pi', runtime: 'sprites', runtimeId: 'runtime',
-        spriteName: 'sprite', hostId: 'host', modelProviderId: null, runtimeAuthProfileId: null, runtimeAuthBindingVersion: 0,
+    const agent = { id: 'agent', userId: 'user', framework: 'pi', runtimeId: 'runtime', status: 'ready',
+        modelProviderId: null, runtimeAuthProfileId: null, runtimeAuthBindingVersion: 0,
         extras: { modelConfig: { source: 'runtime-local' } } } as unknown as Agent
+    const daemon = daemonRow({ hostId: 'host', clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] })
+    const ctx = contextOf({ agent, host: spritesHostRow({ id: 'host', userId: 'user' }), daemon })
+    const factory = new ExecDriverFactory(db as never, fakeRuntimeContext(ctx) as never, { decrypt: () => '{}' } as never, {} as never, {} as never,
+        { measureIfDue: async () => {} } as never, { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, {} as never, fakeHostAccess() as never)
     const local = await factory.forAgent(agent.id, agent, undefined, 'dh_runner')
     assert.equal(local.creds, null)
     await assert.rejects(

@@ -1,6 +1,6 @@
 ---
 title: "mf runtime"
-description: "Manage agent runtimes (the sprite/pod shell)"
+description: "Manage agent runtimes (a framework on one of your computers)"
 order: 12
 ---
 **用法:** `mf runtime [command]`
@@ -19,7 +19,7 @@ order: 12
 | --- | --- |
 | [`mf runtime list`](#mf-runtime-list) | List your agent runtimes |
 | [`mf runtime get`](#mf-runtime-get) | Show detail for an agent runtime |
-| [`mf runtime delete`](#mf-runtime-delete) | Delete an agent runtime (tears down sprite/pod and cascades to agents) |
+| [`mf runtime delete`](#mf-runtime-delete) | Delete an agent runtime (refused while agents still use it) |
 | [`mf runtime control-ui`](#mf-runtime-control-ui) | Manage the runtime control UI sidecar |
 | [`mf runtime dashboard`](#mf-runtime-dashboard) | Manage the runtime dashboard (Hermes only) |
 | [`mf runtime agents`](#mf-runtime-agents) | Manage framework agents hosted on a runtime |
@@ -60,7 +60,7 @@ Show detail for an agent runtime
 
 ## `mf runtime delete`
 
-Delete an agent runtime (tears down sprite/pod and cascades to agents)
+Delete an agent runtime (refused while agents still use it)
 
 **用法:** `mf runtime delete [options] <id>`
 

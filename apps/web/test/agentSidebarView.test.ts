@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { SdkAgent } from '@manyfold/sdk'
+import { makeAgentSummary } from './hostModelFixtures'
 import {
     applyAgentsView,
     availableFrameworkOptions,
@@ -22,135 +23,80 @@ const startOfToday = (): number => {
 
 const iso = (ms: number): string => new Date(ms).toISOString()
 
-let seq = 0
-const makeAgent = (over: Partial<SdkAgent> = {}): SdkAgent => {
-    seq += 1
-    return {
-        id: `agt_${seq}`,
-        userId: 'usr_1',
+const makeAgent = (over: Partial<SdkAgent> = {}): SdkAgent =>
+    makeAgentSummary({
         runtimeId: null,
-        daemonId: null,
-        daemonNeedsUpgrade: false,
-        name: `Agent ${seq}`,
-        framework: 'claude-code',
-        frameworkVersion: null,
-        frameworkLatestVersion: null,
-        frameworkUpgradeAvailable: false,
-        frameworkVersionBlockedReason: null,
-        cliVersion: null,
-        cliLatestVersion: null,
-        cliUpdateAvailable: false,
-        runtime: 'sprites',
-        status: 'running',
-        spriteStatus: null,
-        k8sPodPhase: null,
-        accountSlug: null,
-        clusterId: null,
-        clusterName: null,
-        spriteName: null,
-        spriteId: null,
-        mountPath: '/',
-        namespace: null,
-        ingressHost: null,
-        endpointUrl: null,
-        controlUiEnabled: false,
-        dashboardEnabled: false,
-        dashboardState: null,
-        keepAliveEnabled: false,
-        currentPhase: null,
-        failureReason: null,
-        internalId: 'int',
-        model: null,
-        extras: {},
-        workspacePath: null,
-    workspaceBytes: null,
-    workspaceMeasuredAt: null,
-        startedAt: null,
-        lastActiveAt: null,
-        lastMessageAt: null,
-        lastBootstrappedAt: null,
-        lastReconciledAt: null,
+        hostId: null,
+        hostName: null,
         createdAt: iso(NOW),
         updatedAt: iso(NOW),
         ...over
-    }
-}
+    })
 
 const ctx = (hostNames: Map<string, string> = new Map()) => ({
     now: NOW,
     hostNames
 })
 
-test('runtimeHostRef names a daemon by its host record, falling back to the kind label', () => {
-    const named = makeAgent({ runtime: 'daemon', daemonId: 'rh_1' })
-    const unnamed = makeAgent({ runtime: 'daemon', daemonId: 'rh_2' })
-    const hostNames = new Map([['rh_1', 'Ying-MacBook']])
+test('runtimeHostRef names a self-owned computer by its host record, falling back to the placement', () => {
+    const named = makeAgent({ runtime: 'daemon', hostId: 'dh_1' })
+    const unnamed = makeAgent({ runtime: 'daemon', hostId: 'dh_2' })
+    const hostNames = new Map([['dh_1', 'Ying-MacBook']])
     assert.deepEqual(runtimeHostRef(named, hostNames), {
-        key: 'daemon:rh_1',
+        key: 'host:dh_1',
         label: 'Ying-MacBook'
     })
     assert.deepEqual(runtimeHostRef(unnamed, hostNames), {
-        key: 'daemon:rh_2',
+        key: 'host:dh_2',
         label: 'Self-owned computer'
     })
 })
 
-test('runtimeHostRef collapses agents that share a sprite VM onto one host key', () => {
-    const a = makeAgent({
-        runtime: 'sprites',
-        spriteId: 'sp_1',
-        spriteName: 'sandbox-a'
-    })
-    const b = makeAgent({
-        runtime: 'sprites',
-        spriteId: 'sp_1',
-        spriteName: 'sandbox-a'
-    })
+test('runtimeHostRef collapses agents that share a host onto one key', () => {
+    const a = makeAgent({ hostId: 'sbx_1', hostName: 'sandbox-a' })
+    const b = makeAgent({ hostId: 'sbx_1', hostName: 'sandbox-a' })
     const refA = runtimeHostRef(a, new Map())
     const refB = runtimeHostRef(b, new Map())
-    assert.equal(refA.key, 'sprite:sp_1')
+    assert.equal(refA.key, 'host:sbx_1')
     assert.equal(refA.key, refB.key)
 })
 
-test('runtimeHostRef labels a sprite by its sandbox name when mapped, else the raw VM id', () => {
-    const agent = makeAgent({
-        runtime: 'sprites',
-        spriteId: 'sp_1',
-        spriteName: 'sbx-rawvmid'
-    })
+test("runtimeHostRef labels a host by the shell's freshest name, else the agent's own", () => {
+    const agent = makeAgent({ hostId: 'sbx_1', hostName: 'sandbox-002' })
     assert.deepEqual(
-        runtimeHostRef(agent, new Map([['sbx-rawvmid', 'sandbox-002']])),
-        { key: 'sprite:sp_1', label: 'sandbox-002' }
+        runtimeHostRef(agent, new Map([['sbx_1', 'sandbox-renamed']])),
+        { key: 'host:sbx_1', label: 'sandbox-renamed' }
     )
     assert.deepEqual(runtimeHostRef(agent, new Map()), {
-        key: 'sprite:sp_1',
-        label: 'sbx-rawvmid'
+        key: 'host:sbx_1',
+        label: 'sandbox-002'
     })
+    assert.deepEqual(
+        runtimeHostRef(makeAgent({ hostId: 'sbx_2' }), new Map()),
+        { key: 'host:sbx_2', label: 'Stateful sandbox' }
+    )
 })
 
-test('group by host shows the sandbox name for a sprite host', () => {
-    const a = makeAgent({
-        runtime: 'sprites',
-        spriteId: 'sp_x',
-        spriteName: 'sbx-rawvmid'
-    })
+test('group by host shows the sandbox name for a sandbox host', () => {
+    const a = makeAgent({ hostId: 'sbx_x', hostName: 'sandbox-002' })
     const result = applyAgentsView(
         [a],
         { ...defaultAgentsViewConfig, groupBy: 'host' },
-        ctx(new Map([['sbx-rawvmid', 'sandbox-007']]))
+        ctx(new Map([['sbx_x', 'sandbox-007']]))
     )
     assert.equal(result.groups[0].hostLabel, 'sandbox-007')
 })
 
-test('runtimeHostRef keys k8s by cluster and external by a single bucket', () => {
+test('runtimeHostRef keys a cloud computer by its host and external by a single bucket', () => {
     const k8s = makeAgent({
         runtime: 'k8s',
-        clusterId: 'cl_1',
-        clusterName: 'lhr-prod'
+        providerKind: 'k8s',
+        hostId: 'pdh_1',
+        hostName: 'lhr-prod'
     })
     const external = makeAgent({ runtime: 'external' })
     assert.deepEqual(runtimeHostRef(k8s, new Map()), {
-        key: 'k8s:cl_1',
+        key: 'host:pdh_1',
         label: 'lhr-prod'
     })
     assert.deepEqual(runtimeHostRef(external, new Map()), {
@@ -160,11 +106,11 @@ test('runtimeHostRef keys k8s by cluster and external by a single bucket', () =>
 })
 
 test('host filter keeps only agents on the selected hosts', () => {
-    const onA = makeAgent({ runtime: 'sprites', spriteId: 'sp_a' })
-    const onB = makeAgent({ runtime: 'sprites', spriteId: 'sp_b' })
+    const onA = makeAgent({ hostId: 'sbx_a' })
+    const onB = makeAgent({ hostId: 'sbx_b' })
     const result = applyAgentsView(
         [onA, onB],
-        { ...defaultAgentsViewConfig, hosts: ['sprite:sp_a'] },
+        { ...defaultAgentsViewConfig, hosts: ['host:sbx_a'] },
         ctx()
     )
     assert.equal(result.visibleCount, 1)
@@ -286,24 +232,23 @@ test('sort by created and by recency order the list differently', () => {
 test('group by host returns one group per host carrying the display label', () => {
     const a1 = makeAgent({
         runtime: 'daemon',
-        daemonId: 'rh_1',
+        hostId: 'dh_1',
         createdAt: iso(NOW - 1 * HOUR)
     })
     const a2 = makeAgent({
         runtime: 'daemon',
-        daemonId: 'rh_1',
+        hostId: 'dh_1',
         createdAt: iso(NOW - 2 * HOUR)
     })
     const b1 = makeAgent({
-        runtime: 'sprites',
-        spriteId: 'sp_x',
-        spriteName: 'cloud-x',
+        hostId: 'sbx_x',
+        hostName: 'cloud-x',
         createdAt: iso(NOW - 3 * HOUR)
     })
     const result = applyAgentsView(
         [a1, a2, b1],
         { ...defaultAgentsViewConfig, groupBy: 'host' },
-        ctx(new Map([['rh_1', 'Ying-MacBook']]))
+        ctx(new Map([['dh_1', 'Ying-MacBook']]))
     )
     assert.equal(result.groups.length, 2)
     assert.equal(result.groups[0].hostLabel, 'Ying-MacBook')
@@ -350,14 +295,14 @@ test('group by none yields a single unlabeled group and no empty group when filt
 
 test('availableHostOptions counts agents per host, busiest first', () => {
     const agents = [
-        makeAgent({ runtime: 'sprites', spriteId: 'sp_a', spriteName: 'a' }),
-        makeAgent({ runtime: 'sprites', spriteId: 'sp_a', spriteName: 'a' }),
-        makeAgent({ runtime: 'daemon', daemonId: 'rh_1' })
+        makeAgent({ hostId: 'sbx_a', hostName: 'a' }),
+        makeAgent({ hostId: 'sbx_a', hostName: 'a' }),
+        makeAgent({ runtime: 'daemon', hostId: 'dh_1' })
     ]
-    const options = availableHostOptions(agents, new Map([['rh_1', 'mac']]))
+    const options = availableHostOptions(agents, new Map([['dh_1', 'mac']]))
     assert.deepEqual(options, [
-        { key: 'sprite:sp_a', label: 'a', count: 2 },
-        { key: 'daemon:rh_1', label: 'mac', count: 1 }
+        { key: 'host:sbx_a', label: 'a', count: 2 },
+        { key: 'host:dh_1', label: 'mac', count: 1 }
     ])
 })
 
@@ -388,14 +333,14 @@ test('activeFilterCount reported via applyAgentsView reflects engaged filter dim
 test('normalizeAgentsViewConfig drops unknown enum values and non-framework strings', () => {
     assert.deepEqual(
         normalizeAgentsViewConfig({
-            hosts: ['sprite:sp_a', 5],
+            hosts: ['host:sbx_a', 5],
             frameworks: ['codex', 'not-a-framework'],
             activity: '14d',
             groupBy: 'host',
             sortBy: 'wat'
         }),
         {
-            hosts: ['sprite:sp_a'],
+            hosts: ['host:sbx_a'],
             frameworks: ['codex'],
             activity: 'all',
             groupBy: 'host',

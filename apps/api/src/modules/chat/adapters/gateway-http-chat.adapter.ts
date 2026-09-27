@@ -1,5 +1,9 @@
 import { ChatRunnerError } from '../runner/chat-runner'
-import { DAEMON_FEATURE_TURN_OPENCLAW } from '@manyfold/shared'
+import {
+    DAEMON_FEATURE_TURN_OPENCLAW,
+    placementOf,
+    type AgentRuntime
+} from '@manyfold/shared'
 import type {
     AgentFramework,
     ChatCapabilities,
@@ -8,7 +12,13 @@ import type {
 } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agents, type Database } from '@manyfold/db'
+import {
+    agentRuntimes,
+    agents,
+    runtimeHosts,
+    runtimeProviders,
+    type Database
+} from '@manyfold/db'
 import { buildOpenAiUsage, type OpenAIUsage } from './openai-usage'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
@@ -102,6 +112,14 @@ interface OpenAIError {
 //
 // Abstract because `framework` decides the wire model id, the readiness code
 // and whether the channel fields ride the body.
+// The agent's placement (derived from its host, ADR-0036) and the host id
+// that routes to its daemon.
+export interface GatewayAgentRow {
+    placement: AgentRuntime
+    internalId: string | null
+    hostId: string | null
+}
+
 export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
     abstract readonly framework: AgentFramework
     readonly resumeReplaysFromStart = true
@@ -133,15 +151,30 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const [agentRow] = await this.db
             .select({
-                runtime: agents.runtime,
                 internalId: agents.internalId,
-                daemonId: agents.daemonId
+                hostId: runtimeHosts.id,
+                hostKind: runtimeHosts.kind,
+                providerKind: runtimeProviders.kind
             })
             .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+            .leftJoin(
+                runtimeProviders,
+                eq(runtimeProviders.id, runtimeHosts.providerId)
+            )
             .where(eq(agents.id, ctx.agentId))
             .limit(1)
         if (!agentRow) throw new Error(`agent ${ctx.agentId} not found`)
-        yield* this.dispatchTurn(ctx, userMessage, agentRow)
+        yield* this.dispatchTurn(ctx, userMessage, {
+            placement: placementOf(
+                agentRow.hostId && agentRow.hostKind
+                    ? { kind: agentRow.hostKind, providerKind: agentRow.providerKind }
+                    : null
+            ),
+            internalId: agentRow.internalId,
+            hostId: agentRow.hostId ?? null
+        })
     }
 
     // The transport choice, split out of sendMessage so a subclass can route a
@@ -150,11 +183,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
     protected async *dispatchTurn(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        _agentRow: {
-            runtime: string
-            internalId: string | null
-            daemonId: string | null
-        }
+        _agentRow: GatewayAgentRow
     ): AsyncIterable<EmittedChatEvent> {
         const runtime = await this.resolveRuntime(ctx.agentId)
         if (!ctx.runnerDaemonId || !this.daemonRegistry)

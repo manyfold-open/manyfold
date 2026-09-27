@@ -1,33 +1,36 @@
+import type { RuntimeProviderKind } from '@manyfold/shared'
 import {
     agentRuntimes,
     runtimeHosts,
     type Database
 } from '@manyfold/db'
-import { and, count, eq, inArray, ne, notExists, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, ne, or, sql } from 'drizzle-orm'
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 
-// A platform-managed host and the per-framework runtimes `daemon register`
-// creates inside it are the platform's own bring-up, not capacity the user
-// asked for — they are already hidden from the user's lists, and counting them
-// against the always-online limit is what deadlocks a full Free account (#804).
-// Runtimes on a normal daemon host, and every k8s runtime, still count.
-//
-// A pod host (ADR-0035) is metered like a daemon host: the host is the
-// always-online runtime and the persistent container, and each framework
-// runtime on it takes an always-online agent slot.
-const notOnManagedHost = (db: Database | Tx) =>
-    notExists(
-        db
-            .select({ one: sql`1` })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, agentRuntimes.daemonId),
-                    eq(runtimeHosts.managed, true)
-                )
-            )
+// A hosted host that still occupies provider capacity: being created, usable,
+// or waiting for its destroy to be confirmed. `failed` never got (or has
+// already lost) its machine; `retired` is a local-host state.
+export const HOSTED_LIVE_STATUSES = ['provisioning', 'ready', 'deleting'] as const
+
+// Composable predicates over runtime_hosts (ADR-0036 R1): a host's placement
+// is its kind plus its provider's kind, never a column of its own.
+export const hostedOnProviderKind = (kind: RuntimeProviderKind) =>
+    sql`exists (select 1 from runtime_providers p where p.id = ${runtimeHosts.providerId} and p.kind = ${kind})`
+
+export const liveHostedHosts = (kind: RuntimeProviderKind) =>
+    and(
+        eq(runtimeHosts.kind, 'hosted'),
+        inArray(runtimeHosts.status, [...HOSTED_LIVE_STATUSES]),
+        hostedOnProviderKind(kind)
     )
+
+export const liveLocalHosts = () =>
+    and(eq(runtimeHosts.kind, 'local'), ne(runtimeHosts.status, 'retired'))
+
+// The hosts whose runtimes take always-online agent slots: the user's own
+// computers and their cloud computers.
+const alwaysOnlineHosts = () => or(liveLocalHosts(), liveHostedHosts('k8s'))
 
 export interface RuntimeUsageCounts {
     statefulSandboxUsage: number
@@ -45,6 +48,9 @@ export const emptyUsage = (): RuntimeUsageCounts => ({
     localDaemonsUsed: 0
 })
 
+// A local host is the always-online runtime and each framework on it an
+// always-online agent slot; a pod host (ADR-0035) is metered the same way and
+// is also the persistent container. A sandbox is metered per VM.
 export const usageCountsForUsers = async (
     db: Database,
     userIds: string[]
@@ -52,65 +58,48 @@ export const usageCountsForUsers = async (
     const result = new Map<string, RuntimeUsageCounts>()
     if (userIds.length === 0) return result
 
-    const [runtimeRows, daemonHostRows, spriteHostRows, podHostRows] = await Promise.all([
-        db
-            .select({
-                userId: agentRuntimes.userId,
-                kind: agentRuntimes.kind,
-                value: count()
-            })
-            .from(agentRuntimes)
-            .where(
-                and(
-                    inArray(agentRuntimes.userId, userIds),
-                    ne(agentRuntimes.status, 'failed'),
-                    notOnManagedHost(db)
+    const [localHostRows, spriteHostRows, podHostRows, runtimeRows] =
+        await Promise.all([
+            db
+                .select({ userId: runtimeHosts.userId, value: count() })
+                .from(runtimeHosts)
+                .where(
+                    and(inArray(runtimeHosts.userId, userIds), liveLocalHosts())
                 )
-            )
-            .groupBy(agentRuntimes.userId, agentRuntimes.kind),
-        db
-            .select({
-                userId: runtimeHosts.userId,
-                value: count()
-            })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.kind, 'daemon'),
-                    inArray(runtimeHosts.userId, userIds),
-                    ne(runtimeHosts.status, 'revoked'),
-                    eq(runtimeHosts.managed, false)
+                .groupBy(runtimeHosts.userId),
+            db
+                .select({ userId: runtimeHosts.userId, value: count() })
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        inArray(runtimeHosts.userId, userIds),
+                        liveHostedHosts('sprites')
+                    )
                 )
-            )
-            .groupBy(runtimeHosts.userId),
-        db
-            .select({
-                userId: runtimeHosts.userId,
-                value: count()
-            })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    inArray(runtimeHosts.userId, userIds),
-                    eq(runtimeHosts.kind, 'sandbox'),
-                    eq(runtimeHosts.status, 'active')
+                .groupBy(runtimeHosts.userId),
+            db
+                .select({ userId: runtimeHosts.userId, value: count() })
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        inArray(runtimeHosts.userId, userIds),
+                        liveHostedHosts('k8s')
+                    )
                 )
-            )
-            .groupBy(runtimeHosts.userId),
-        db
-            .select({
-                userId: runtimeHosts.userId,
-                value: count()
-            })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    inArray(runtimeHosts.userId, userIds),
-                    eq(runtimeHosts.kind, 'pod')
+                .groupBy(runtimeHosts.userId),
+            db
+                .select({ userId: agentRuntimes.userId, value: count() })
+                .from(agentRuntimes)
+                .innerJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
+                .where(
+                    and(
+                        inArray(agentRuntimes.userId, userIds),
+                        ne(agentRuntimes.status, 'failed'),
+                        alwaysOnlineHosts()
+                    )
                 )
-            )
-            .groupBy(runtimeHosts.userId)
-    ])
+                .groupBy(agentRuntimes.userId)
+        ])
 
     const ensure = (userId: string): RuntimeUsageCounts => {
         let current = result.get(userId)
@@ -121,33 +110,16 @@ export const usageCountsForUsers = async (
         return current
     }
 
-    for (const row of runtimeRows) {
-        const usage = ensure(row.userId)
-        const n = Number(row.value ?? 0)
-        switch (row.kind) {
-            case 'sprites':
-                // counted per sandbox host in spriteHostRows below
-                break
-            case 'k8s':
-                // the host is counted in podHostRows below
-                usage.alwaysOnlineAgentsUsed += n
-                break
-            case 'daemon':
-                usage.alwaysOnlineAgentsUsed += n
-                break
-            case 'external':
-                break
-        }
-    }
-    for (const row of daemonHostRows) {
+    for (const row of runtimeRows)
+        ensure(row.userId).alwaysOnlineAgentsUsed += Number(row.value ?? 0)
+    for (const row of localHostRows) {
         const usage = ensure(row.userId)
         const n = Number(row.value ?? 0)
         usage.alwaysOnlineRuntimesUsed += n
         usage.localDaemonsUsed += n
     }
-    for (const row of spriteHostRows) {
+    for (const row of spriteHostRows)
         ensure(row.userId).statefulSandboxUsage = Number(row.value ?? 0)
-    }
     for (const row of podHostRows) {
         const usage = ensure(row.userId)
         const n = Number(row.value ?? 0)
@@ -166,32 +138,23 @@ export const alwaysOnlineUsageInTx = async (
         .from(runtimeHosts)
         .where(
             and(
-                eq(runtimeHosts.kind, 'daemon'),
                 eq(runtimeHosts.userId, userId),
-                ne(runtimeHosts.status, 'revoked'),
-                eq(runtimeHosts.managed, false)
+                or(liveLocalHosts(), liveHostedHosts('k8s'))
             )
-        )
-    const [podHostRow] = await tx
-        .select({ value: count() })
-        .from(runtimeHosts)
-        .where(
-            and(eq(runtimeHosts.kind, 'pod'), eq(runtimeHosts.userId, userId))
         )
     const [agentsRow] = await tx
         .select({ value: count() })
         .from(agentRuntimes)
+        .innerJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
         .where(
             and(
                 eq(agentRuntimes.userId, userId),
                 ne(agentRuntimes.status, 'failed'),
-                sql`${agentRuntimes.kind} IN ('daemon','k8s')`,
-                notOnManagedHost(tx)
+                alwaysOnlineHosts()
             )
         )
     return {
-        runtimesUsed:
-            Number(hostRow?.value ?? 0) + Number(podHostRow?.value ?? 0),
+        runtimesUsed: Number(hostRow?.value ?? 0),
         agentsUsed: Number(agentsRow?.value ?? 0)
     }
 }

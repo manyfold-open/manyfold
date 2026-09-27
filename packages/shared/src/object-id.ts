@@ -38,6 +38,7 @@ export const objectIdPrefixes = Object.freeze({
     frameworkEnumCatalogEntry: 'fec',
     frameworkModelCatalogEntry: 'fmc',
     k8sCluster: 'clus',
+    runtimeProvider: 'rtp',
     librarySkill: 'skl',
     librarySkillFile: 'skf',
     librarySkillShare: 'lss',

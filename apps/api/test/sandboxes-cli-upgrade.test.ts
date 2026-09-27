@@ -1,208 +1,147 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ConflictException } from '@nestjs/common'
-import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
-import type { RunnerRestartOutcome } from '../src/modules/chat/runner/runner-manager.service'
+import {
+    BadRequestException,
+    ConflictException,
+    ServiceUnavailableException
+} from '@nestjs/common'
+import { DAEMON_FEATURE_MANUAL_UPDATE } from '@manyfold/shared'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
-// The sandbox CLI upgrade swaps ~/.local/bin/mf, but a sprite runner that is up
-// keeps running — and heartbeating — the build it was started with, so every
-// capability gate kept reading the old daemon while the sandbox row said the
-// upgrade landed (staging 2026-09-10). These pin that the upgrade hands the
-// installed version to the runner restart over the same exec seam, and that no
-// restart outcome can fail an upgrade that already landed on disk.
+// The mf CLI on a sandbox is updated by the machine's own daemon (ADR-0029 §5,
+// ADR-0036 R6): `daemon.update` over the host's RPC, nothing installed over
+// it from outside and nothing restarted. The version it lands on reaches
+// host_daemons through the daemon's next heartbeat, so the API records
+// nothing itself.
 
 const OLD = '0.31.2-dev.202609091242.909c84a'
 const NEW = '0.33.1-dev.202609100748.ab03120'
 
-class TestSandboxes extends SandboxesService {
-    execCalls: ExecOptions[] = []
-    execResults: ExecResult[] = []
-
-    protected exec(
-        _client: SpritesClient,
-        _spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        this.execCalls.push(opts)
-        return Promise.resolve(
-            this.execResults.shift() ?? { exitCode: 0, stdout: '', stderr: '' }
-        )
-    }
-
-    protected spritesClientFor(): SpritesClient {
-        return {} as SpritesClient
-    }
-}
-
-interface RestartCall {
-    userId: string
-    spriteName: string
-    installedVersion: string
-    exec: (a: {
-        cmd: string[]
-        stdin?: string
-        timeoutMs: number
-    }) => Promise<ExecResult>
-}
-
 const buildHarness = (opts: {
-    restartOutcome?: RunnerRestartOutcome
-    installExit?: number
-    installStdout?: string
+    online?: boolean
+    features?: string[]
     upgradeInProgress?: boolean
-    viaDaemon?:
-        | { kind: 'not-capable' }
-        | { kind: 'dispatched'; toVersion: string | null; deferred: boolean }
-        | { kind: 'failed'; error: string }
+    rpcError?: Error
+    installable?: boolean
 }) => {
     const host = {
         id: 'sbx_1',
         userId: 'user_1',
+        kind: 'hosted',
+        providerId: 'rtp_1',
+        providerRef: { kind: 'sprites', spriteName: 'art-1', spriteId: 'sprite-1' },
         name: 'sandbox-1',
-        spriteId: 'sprite-1',
-        spriteName: 'art-1',
-        accountId: 'spa_1',
-        cliVersion: OLD,
-        detectedFrameworks: [],
-        spriteStatus: 'warm',
+        status: 'ready',
+        powerState: 'suspended',
+        keepAwake: false,
         terminalEnabled: false,
-        terminalModelCredentials: null,
+        terminalModelCredentials: false,
         emptiedAt: null,
         createdAt: new Date('2026-06-19T14:31:53Z'),
         updatedAt: new Date('2026-09-10T09:11:27Z')
     }
-    const setVersions: string[] = []
-    const restartCalls: RestartCall[] = []
-    const runtimes = {
-        listRunnerHosts: async () => [],
-        getSandboxForUser: async () => ({
-            host,
-            accountSlug: 'acct',
-            agentsCount: 0
-        }),
-        setSandboxCliVersion: async (
-            _userId: string,
-            _hostId: string,
-            version: string
-        ) => {
-            setVersions.push(version)
-            host.cliVersion = version
-        }
+    const daemon = {
+        hostId: 'sbx_1',
+        cliVersion: OLD,
+        herdrVersion: null,
+        clientFeatures: opts.features ?? [DAEMON_FEATURE_MANUAL_UPDATE],
+        detectedFrameworks: [],
+        lastSeenAt: new Date()
     }
-    const daemonUpgrades: Array<Record<string, unknown>> = []
-    const runnerManager = {
-        upgradeViaDaemon: async (call: Record<string, unknown>) => {
-            daemonUpgrades.push(call)
-            return opts.viaDaemon ?? { kind: 'not-capable' }
-        },
-        restartForInstalledCli: async (
-            call: RestartCall
-        ): Promise<RunnerRestartOutcome> => {
-            restartCalls.push(call)
-            return opts.restartOutcome ?? 'restarted'
-        }
-    }
-    const svc = new TestSandboxes(
-        runtimes as never,
-        { migrateLegacySpriteIdentities: async () => true } as never,
+    const view = { host, provider: { id: 'rtp_1', kind: 'sprites', name: 'acct' }, daemon, agentsCount: 0 }
+    const rpcs: Array<Record<string, unknown>> = []
+    const svc = new SandboxesService(
+        { getSandboxForUser: async () => view, getSandboxById: async () => view } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        { isOnline: () => opts.online !== false } as never,
         {
-            getById: async () => ({ id: 'spa_1', slug: 'acct' }),
-            decryptToken: () => 'tok'
+            rpc: async (args: Record<string, unknown>) => {
+                rpcs.push(args)
+                if (opts.rpcError) throw opts.rpcError
+                return { toVersion: NEW, deferred: false }
+            }
         } as never,
         {
             getCachedLatest: async () => ({ channel: 'dev', version: NEW })
         } as never,
-        { isInstallableVersion: async () => true } as never,
+        { isInstallableVersion: async () => opts.installable !== false } as never,
         {} as never,
         { activeSecondsInPeriodByHost: async () => new Map() } as never,
+        {} as never,
+        {} as never,
         {} as never,
         {} as never,
         {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
-        } as never,
-        runnerManager as never
+        } as never
     )
-    svc.execResults.push({
-        exitCode: opts.installExit ?? 0,
-        stdout: opts.installStdout ?? `MF_DEV_CLI_OK\nmf-upgraded=${NEW}\n`,
-        stderr: ''
-    })
-    return { svc, restartCalls, setVersions, daemonUpgrades }
+    return { svc, rpcs }
 }
 
-test('a landed install hands the installed version to the runner restart, over the same exec seam', async () => {
+test('the daemon is asked to update itself, on the deploy channel when no target is named', async () => {
     const h = buildHarness({})
     const summary = await h.svc.upgradeCli('user_1', 'sbx_1')
 
-    assert.equal(h.svc.execCalls.length, 1)
-    const install = h.svc.execCalls[0].cmd.join(' ')
-    assert.match(install, /install\.sh/)
-    assert.match(install, /MF_CHANNEL=dev/)
-
-    assert.deepEqual(h.setVersions, [NEW])
-    assert.equal(h.restartCalls.length, 1)
-    const call = h.restartCalls[0]
-    assert.equal(call.userId, 'user_1')
-    assert.equal(call.spriteName, 'art-1')
-    assert.equal(call.installedVersion, NEW)
-    // The exec the restart gets is this service's own seam, not a second
-    // sprites client: what the restart runs shows up on the same call log.
-    await call.exec({ cmd: ['true'], timeoutMs: 1 })
-    assert.equal(h.svc.execCalls.length, 2)
-    assert.deepEqual(h.svc.execCalls[1].cmd, ['true'])
-
-    assert.equal(summary.cliVersion, NEW)
+    assert.equal(h.rpcs.length, 1)
+    assert.equal(h.rpcs[0].daemonId, 'sbx_1', 'the routing key is the host id')
+    assert.equal(h.rpcs[0].method, 'daemon.update')
+    assert.deepEqual(h.rpcs[0].payload, { channel: 'dev' })
+    assert.equal(summary.cliVersion, OLD, 'the row learns the new version from the heartbeat, not from here')
 })
 
-test('a competing CLI upgrade returns 409 before touching the sprite or runner', async () => {
-    const h = buildHarness({ upgradeInProgress: true })
-    await assert.rejects(h.svc.upgradeCli('user_1', 'sbx_1'),
-        (err: unknown) => err instanceof ConflictException && err.getStatus() === 409)
-    assert.equal(h.svc.execCalls.length, 0)
-    assert.equal(h.restartCalls.length, 0)
-})
+test('a pinned target must be installable and picks its channel from the version string', async () => {
+    const h = buildHarness({})
+    await h.svc.upgradeCli('user_1', 'sbx_1', '0.33.0')
+    assert.deepEqual(h.rpcs[0].payload, { channel: 'stable', targetVersion: '0.33.0' })
 
-test('a failed install throws and never touches the runner', async () => {
-    const h = buildHarness({ installExit: 1, installStdout: '' })
+    const unknown = buildHarness({ installable: false })
     await assert.rejects(
-        () => h.svc.upgradeCli('user_1', 'sbx_1'),
-        /did not complete/
+        unknown.svc.upgradeCli('user_1', 'sbx_1', '9.9.9'),
+        BadRequestException
     )
-    assert.equal(h.restartCalls.length, 0)
-    assert.deepEqual(h.setVersions, [])
+    assert.equal(unknown.rpcs.length, 0)
 })
 
-test('a restart that leaves the old process running does not fail the upgrade', async () => {
-    for (const outcome of ['busy', 'restart-timeout', 'failed'] as const) {
-        const h = buildHarness({ restartOutcome: outcome })
-        const summary = await h.svc.upgradeCli('user_1', 'sbx_1')
-        assert.equal(summary.cliVersion, NEW, outcome)
-        assert.equal(h.restartCalls.length, 1, outcome)
-    }
+test('a competing CLI upgrade returns 409 before touching the daemon', async () => {
+    const h = buildHarness({ upgradeInProgress: true })
+    await assert.rejects(
+        h.svc.upgradeCli('user_1', 'sbx_1'),
+        (err: unknown) => err instanceof ConflictException && err.getStatus() === 409
+    )
+    assert.equal(h.rpcs.length, 0)
 })
 
-// ADR-0029 §5: a runner that advertises daemon.update.manual is upgraded by
-// its own daemon — nothing is installed over it and nothing restarts it.
-test('a runner that can update itself is asked to, and the sprite is left alone', async () => {
-    const h = buildHarness({
-        viaDaemon: { kind: 'dispatched', toVersion: NEW, deferred: false }
-    })
-    await h.svc.upgradeCli('user_1', 'sbx_1')
-    assert.equal(h.daemonUpgrades.length, 1)
-    assert.deepEqual(h.restartCalls, [])
-    assert.deepEqual(h.setVersions, [NEW])
-    assert.equal(h.svc.execResults.length, 1, 'the install script never ran')
+test('a sandbox whose daemon is offline cannot be upgraded until it is back', async () => {
+    const h = buildHarness({ online: false })
+    await assert.rejects(
+        h.svc.upgradeCli('user_1', 'sbx_1'),
+        (err: unknown) =>
+            err instanceof ServiceUnavailableException &&
+            (err.getResponse() as { code?: string }).code === 'SANDBOX_DAEMON_OFFLINE'
+    )
+    assert.equal(h.rpcs.length, 0)
 })
 
-test('a daemon that refuses the update sends the upgrade down the install path', async () => {
-    const h = buildHarness({
-        viaDaemon: { kind: 'failed', error: 'daemon is applying an update' }
-    })
-    await h.svc.upgradeCli('user_1', 'sbx_1')
-    assert.equal(h.daemonUpgrades.length, 1)
-    assert.equal(h.restartCalls.length, 1)
-    assert.equal(h.svc.execResults.length, 0, 'the install script ran')
+test('a daemon below the self-update floor is refused rather than installed over', async () => {
+    const h = buildHarness({ features: [] })
+    await assert.rejects(
+        h.svc.upgradeCli('user_1', 'sbx_1'),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code === 'SANDBOX_DAEMON_TOO_OLD'
+    )
 })
 
+test('a failed daemon.update surfaces as 503', async () => {
+    const h = buildHarness({ rpcError: new Error('daemon is applying an update') })
+    await assert.rejects(
+        h.svc.upgradeCli('user_1', 'sbx_1'),
+        (err: unknown) =>
+            err instanceof ServiceUnavailableException &&
+            /daemon is applying an update/.test((err as Error).message)
+    )
+})

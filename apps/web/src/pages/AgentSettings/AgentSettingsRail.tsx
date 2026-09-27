@@ -6,7 +6,7 @@ import AreaBackLink from '@/components/AreaBackLink'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
-import { agentStatusDotClass } from '@/lib/agentStatusDot'
+import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
 import type { AgentSettingsSectionId } from '@/lib/agentSettingsSections'
 import { sectionsFor } from '@/lib/agentSettingsSections'
 import { readLastChatLocationRecord } from '@/lib/chatNavigation'
@@ -132,14 +132,12 @@ const AgentSettingsRail: FC<{
                             aria-hidden='true'
                             className={
                                 'h-1.5 w-1.5 shrink-0 rounded-full ' +
-                                agentStatusDotClass(
-                                    agent.status,
-                                    agent.spriteStatus,
-                                    agent.k8sPodPhase
-                                )
+                                agentStatusDotClass(agent)
                             }
                         />
-                        <span className='truncate'>{agent.status}</span>
+                        <span className='truncate'>
+                            {agentStatusDotLabel(agent)}
+                        </span>
                     </div>
                 </div>
             </div>

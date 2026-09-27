@@ -70,14 +70,12 @@ const buildHarness = async (): Promise<Harness> => {
             userId,
             name: `pgtest-runtime-${runtimeId}`,
             framework: 'gemini-cli',
-            kind: 'sprites'
         })
         await db.insert(agents).values({
             id: agentId,
             userId,
             name: 'pgtest-agent',
             framework: 'gemini-cli',
-            runtime: 'sprites',
             runtimeId,
             internalId: `internal-${agentId}`
         })

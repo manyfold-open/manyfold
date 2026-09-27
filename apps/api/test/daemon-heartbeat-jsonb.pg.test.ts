@@ -7,14 +7,19 @@ import test from 'node:test'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { runtimeHosts, schema, users } from '@manyfold/db'
+import { hostDaemons, runtimeHosts, schema, users } from '@manyfold/db'
 import { createObjectId, type DetectedFramework } from '@manyfold/shared'
 import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
+import { HostsService } from '../src/modules/hosts/hosts.service'
+import { HostDaemonsService } from '../src/modules/hosts/host-daemons.service'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 const old = new Date('2020-01-01T00:00:00Z')
 
+// The heartbeat's steady state is one UPDATE of host_daemons.last_seen_at
+// (ADR-0036: the host row never sees a heartbeat), and a JSONB
+// round-trip — which reorders object keys — must not read as a change.
 test(
     'JSONB-round-tripped heartbeat metadata converges without losing real changes',
     { skip: !RUN },
@@ -37,7 +42,10 @@ test(
             {} as never,
             {} as never,
             {} as never,
-            { get: () => undefined } as never
+            { get: () => undefined } as never,
+            new HostsService(db),
+            new HostDaemonsService(db),
+            {} as never
         )
         const detectedFrameworks: DetectedFramework[] = [
             { framework: 'codex', version: '0.1.0', path: '/fixture/codex' },
@@ -68,18 +76,19 @@ test(
             const updated = await service.heartbeat(reported)
             assert.ok(updated)
             assert.equal(
-                updated.updatedAt.getTime(),
+                updated.daemon.updatedAt.getTime(),
                 expectedUpdatedAt.getTime()
             )
-            assert.ok(updated.lastSeenAt && updated.lastSeenAt > old)
+            assert.ok(updated.daemon.lastSeenAt && updated.daemon.lastSeenAt > old)
             const writes = queries.filter((q) => q.startsWith('update '))
             assert.equal(writes.length, 1)
             assert.match(
                 writes[0],
-                /^update "runtime_hosts" set "last_seen_at" =/
+                /^update "host_daemons" set "last_seen_at" =/
             )
             assert.ok(!writes[0].includes('"detected_frameworks" ='))
             assert.ok(!writes[0].includes('"updated_at" ='))
+            assert.ok(!queries.some((q) => q.startsWith('update "runtime_hosts"')))
         }
         try {
             await db.insert(users).values({
@@ -89,22 +98,27 @@ test(
             await db.insert(runtimeHosts).values({
                 id: hostId,
                 userId,
+                kind: 'local',
                 name: 'heartbeat-jsonb-fixture',
-                kind: 'daemon',
+                status: 'ready',
+                updatedAt: old
+            })
+            await db.insert(hostDaemons).values({
+                hostId,
+                userId,
                 daemonUuid: randomUUID(),
                 detectedFrameworks,
                 cliVersion: args.cliVersion,
                 startupMethod: args.startupMethod,
                 terminalPty: args.terminalPty,
                 clientFeatures: args.clientFeatures,
-                status: 'active',
                 updatedAt: old,
                 lastSeenAt: old
             })
             const [stored] = await db
                 .select()
-                .from(runtimeHosts)
-                .where(eq(runtimeHosts.id, hostId))
+                .from(hostDaemons)
+                .where(eq(hostDaemons.hostId, hostId))
             assert.deepEqual(stored.detectedFrameworks, detectedFrameworks)
             assert.notEqual(
                 JSON.stringify(stored.detectedFrameworks),
@@ -129,25 +143,25 @@ test(
                 [featuresChanged, 'client_features']
             ] as const) {
                 await db
-                    .update(runtimeHosts)
+                    .update(hostDaemons)
                     .set({ updatedAt: old })
-                    .where(eq(runtimeHosts.id, hostId))
+                    .where(eq(hostDaemons.hostId, hostId))
                 queries.length = 0
                 const updated = await service.heartbeat(reported)
-                assert.ok(updated && updated.updatedAt > old)
+                assert.ok(updated && updated.daemon.updatedAt > old)
                 assert.deepEqual(
-                    updated.detectedFrameworks,
+                    updated.daemon.detectedFrameworks,
                     reported.detectedFrameworks
                 )
                 assert.deepEqual(
-                    updated.clientFeatures,
+                    updated.daemon.clientFeatures,
                     reported.clientFeatures
                 )
                 const writes = queries.filter((q) => q.startsWith('update '))
                 assert.equal(writes.length, 1)
                 assert.ok(writes[0].includes(`"${column}" =`))
                 assert.ok(writes[0].includes('"updated_at" ='))
-                await onlyPresence(reported, updated.updatedAt)
+                await onlyPresence(reported, updated.daemon.updatedAt)
             }
         } finally {
             await db.delete(users).where(eq(users.id, userId))

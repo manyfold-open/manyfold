@@ -5,6 +5,12 @@ import type {
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException } from '@nestjs/common'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
 import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
 import type {
@@ -340,7 +346,7 @@ const makeHarness = (
         id: 'agent-1',
         userId: 'user-1',
         framework: 'claude-code',
-        runtime: 'sprites',
+        status: 'ready',
         runtimeId: 'runtime-1'
     }
     const sessions = [session]
@@ -599,7 +605,22 @@ const makeHarness = (
         repo as never,
         drivers as never,
         readers as never,
-        new CandidateScanCache()
+        new CandidateScanCache(),
+        undefined,
+        undefined,
+        undefined,
+        // The agent's sandbox.
+        fakeRuntimeContext(
+            contextOf({
+                agent: agent as never,
+                runtime: runtimeRow({
+                    id: 'runtime-1',
+                    userId: 'user-1',
+                    hostId: 'host-1'
+                }),
+                host: spritesHostRow({ id: 'host-1', userId: 'user-1' })
+            })
+        ) as never
     )
     return {
         service,

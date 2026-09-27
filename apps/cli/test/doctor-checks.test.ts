@@ -168,7 +168,9 @@ const hostSummary = (overrides: Record<string, unknown> = {}): HttpFact => ({
     kind: 'ok',
     status: 200,
     body: {
-        status: 'active',
+        kind: 'local',
+        registered: true,
+        status: 'ready',
         online: true,
         lastSeenAt: '2026-09-23T11:59:50Z',
         cliVersion: '4.2.0',
@@ -625,7 +627,7 @@ test('an offline daemon is explained by its last disconnect', () => {
 
 test('a dead registration fails whether or not the daemon runs', () => {
     const revoked = find(
-        run(registered({ daemonMe: hostSummary({ status: 'revoked' }) })),
+        run(registered({ daemonMe: hostSummary({ status: 'retired' }) })),
         'daemon.connection'
     )
     assert.equal(revoked.status, 'fail')

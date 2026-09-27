@@ -1,8 +1,9 @@
-import {
+import type {
     AgentFramework,
     AgentRuntimeSummary,
     UserModelProvider,
-    UserModelProviderSummary,
+    UserModelProviderSummary} from '@manyfold/shared';
+import {
     brandFor,
     frameworkSupportsProtocol,
     isManagedProtocolAllowedForFramework,
@@ -84,13 +85,17 @@ export const collapseManagedChannels = (
     )
 }
 
+// `homeDir` is the machine's home when the caller has the daemon host at
+// hand; a self-owned computer keeps OpenClaw under it rather than under the
+// runtime's mount path.
 export const openclawWorkspaceFor = (
     runtime: AgentRuntimeSummary,
-    agentName: string
+    agentName: string,
+    homeDir: string | null = null
 ): string => {
     const daemonBase =
-        runtime.kind === 'daemon' && runtime.homeDir
-            ? `${runtime.homeDir.replace(/\/+$/, '')}/.openclaw`
+        runtime.kind === 'daemon' && homeDir
+            ? `${homeDir.replace(/\/+$/, '')}/.openclaw`
             : null
     const base = (
         daemonBase ??

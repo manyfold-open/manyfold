@@ -19,12 +19,14 @@ import type { TelemetryService } from '../src/common/telemetry/telemetry.service
 
 // Regression for the `mf setup` 500 (Axiom trace
 // 493568c70d90636e9e5ac1b5ac77527f): a machine re-registers under a fresh
-// daemon uuid — ADR-0014 profile move, or revoke + re-register — which creates
+// daemon uuid — ADR-0014 profile move, or retire + re-register — which creates
 // a new runtime_hosts row while the old rows keep their names. The sync
-// service dedupes by daemonId only, so inserting `<host>-<framework>` hit the
-// (user_id, name) unique index: a permanent 23505 dressed up as 'Internal
-// server error'. Real Postgres because the FakeDb unit suite structurally
-// cannot fail on constraints — it was green against this bug.
+// service scopes existing rows to the host, so inserting `<host>-<framework>`
+// once hit the (user_id, name) unique index: a permanent 23505 dressed up as
+// 'Internal server error'. Names are labels now (no unique index), but the
+// suffix still keeps two same-named rows apart for the user. Real Postgres
+// because the FakeDb unit suite structurally cannot fail on constraints —
+// and the (host_id, framework) partial unique index is what the upsert rides.
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
 //     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
@@ -58,10 +60,10 @@ const buildHarness = async (): Promise<Harness> => {
                 .values({
                     id: `dh_pgtest_${uuid}_${suffix}`,
                     userId,
-                    daemonUuid: `${uuid}-${suffix}`,
+                    kind: 'local',
                     name,
                     homeDir: '/home/dev',
-                    status: 'active'
+                    status: 'ready'
                 })
                 .returning()
             return row
@@ -88,9 +90,8 @@ test(
                 userId: h.userId,
                 name: `${h.hostName}-claude-code`,
                 framework: 'claude-code',
-                kind: 'daemon',
                 status: 'ready',
-                daemonId: oldHost.id
+                hostId: oldHost.id
             })
             const newHost = await h.addHost(h.hostName, 'uuid-new')
 
@@ -108,9 +109,26 @@ test(
             })
 
             assert.equal(result.length, 1)
-            assert.equal(result[0].daemonId, newHost.id)
+            assert.equal(result[0].hostId, newHost.id)
             assert.equal(result[0].status, 'ready')
             assert.equal(result[0].name, `${h.hostName}-claude-code-2`)
+
+            // The same host reporting again UPDATES its row (ADR-0036 R3):
+            // the (host_id, framework) upsert never makes a second one.
+            const again = await new DaemonRuntimeSyncService(
+                h.db
+            ).syncForDaemon({
+                host: newHost,
+                detectedFrameworks: [
+                    {
+                        framework: 'claude-code',
+                        version: '1.0.1',
+                        path: '/usr/local/bin/claude'
+                    }
+                ]
+            })
+            assert.equal(again[0].id, result[0].id)
+            assert.equal(again[0].frameworkVersion, '1.0.1')
 
             const rows = await h.db
                 .select()
@@ -139,10 +157,9 @@ test(
                     id,
                     userId: h.userId,
                     name,
-                    framework: 'claude-code',
-                    kind: 'daemon',
+                    framework: id === h.id('art_a') ? 'claude-code' : 'codex',
                     status: 'ready',
-                    daemonId: host.id
+                    hostId: host.id
                 })
             }
             const service = new AgentRuntimesService(

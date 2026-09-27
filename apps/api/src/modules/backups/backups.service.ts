@@ -28,15 +28,11 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
-import { assertAgentReady } from '@/modules/agents/files/files-context'
 import {
     BackupStorageService,
     meteredStream
 } from '@/modules/backups/backup-storage.service'
-import {
-    WorkspaceRuntimeService,
-    workspaceOperationKey
-} from '@/modules/backups/workspace-runtime.service'
+import { WorkspaceRuntimeService } from '@/modules/backups/workspace-runtime.service'
 import {
     BackupOperationsService,
     type BackupOperationClaim
@@ -130,7 +126,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
         agent: Agent,
         operationId: string
     ): Promise<BackupOperationClaim> {
-        const key = workspaceOperationKey(agent)
+        const key = (await this.runtime.operationKey(agent))
         const claim = await this.operations.claim(key, operationId)
         if (!claim)
             throw new ConflictException(
@@ -208,7 +204,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                 }
                 const targetId = row.targetId
                 const agent = targetId ? await this.getAgentRow(targetId) : null
-                if (!agent || workspaceOperationKey(agent) !== key)
+                if (!agent || (await this.runtime.operationKey(agent)) !== key)
                     throw new ConflictException(
                         'the interrupted workspace location needs reconciliation'
                     )
@@ -266,7 +262,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
     ): Promise<CreateAgentBackupResponse> {
         this.storage.assertConfigured()
         const agent = await this.loadAgent(callerUserId, agentId, isAdmin)
-        assertAgentReady(agent)
+        const placement = await this.runtime.admit(agent)
         const backupId = createObjectId('agentBackup')
         const objectKey = this.storage.objectKey({
             userId: agent.userId,
@@ -285,10 +281,10 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                     sourceAgentId: agent.id,
                     sourceAgentName: agent.name,
                     framework: agent.framework,
-                    runtimeKind: agent.runtime,
+                    runtimeKind: placement,
                     status: 'running',
                     objectKey,
-                    operationKey: workspaceOperationKey(agent),
+                    operationKey: await this.runtime.operationKey(agent),
                     startedAt: now,
                     createdAt: now,
                     updatedAt: now
@@ -336,7 +332,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
     ): Promise<AgentBackupRestoreSummary> {
         this.storage.assertConfigured()
         const agent = await this.loadAgent(callerUserId, agentId, isAdmin)
-        assertAgentReady(agent)
+        await this.runtime.admit(agent)
         const backup = await this.loadUsableBackupForAgent(
             callerUserId,
             backupId,
@@ -412,7 +408,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             await claim.assertOwned()
             if (
                 backup.operationKey &&
-                workspaceOperationKey(agent) !== backup.operationKey
+                (await this.runtime.operationKey(agent)) !== backup.operationKey
             )
                 throw new Error(
                     'workspace location changed after backup admission'
@@ -502,7 +498,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             if (!agent) throw new Error('target agent no longer exists')
             if (
                 restore.operationKey &&
-                workspaceOperationKey(agent) !== restore.operationKey
+                (await this.runtime.operationKey(agent)) !== restore.operationKey
             )
                 throw new Error(
                     'workspace location changed after restore admission'
@@ -686,7 +682,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
                 targetAgentId: agent.id,
                 status: 'running',
                 mode: 'replace',
-                operationKey: workspaceOperationKey(agent),
+                operationKey: (await this.runtime.operationKey(agent)),
                 startedAt: now,
                 createdAt: now,
                 updatedAt: now

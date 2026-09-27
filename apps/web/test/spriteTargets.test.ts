@@ -18,36 +18,30 @@ const runtime = (
     frameworkVersion: null,
     kind: 'sprites',
     status: 'ready',
-    accountSlug: 'acct',
-    clusterId: null,
-    clusterName: null,
-    spriteName: 'sprite-a',
-    spriteId: 'spr_a',
+    availability: 'available',
     hostId: 'host_a',
-    podHostName: null,
+    hostName: null,
+    hostKind: 'hosted',
+    hostStatus: 'ready',
+    providerId: 'rtp_1',
+    providerKind: 'sprites',
+    providerName: 'sprites.dev',
+    providerRefLabel: 'sprite-a',
+    powerState: 'running',
+    daemonOnline: true,
+    daemonCliVersion: null,
     mountPath: '/work',
-    namespace: null,
-    ingressHost: null,
     endpointUrl: null,
     controlUiEnabled: false,
     dashboardEnabled: false,
     dashboardState: null,
-    keepAliveEnabled: false,
     currentPhase: null,
     failureReason: null,
     primaryAgentId: null,
-    startedAt: null,
     lastBootstrappedAt: null,
     createdAt: '2026-06-20T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     agentsCount: 1,
-    daemonId: null,
-    daemonName: null,
-    daemonOnline: null,
-    daemonCliVersion: null,
-    homeDir: null,
-    workspaceBaseDir: null,
-    lastSeenAt: null,
     serviceStatus: 'ready',
     serviceStatusAt: null,
     ...patch
@@ -57,9 +51,15 @@ const sandbox = (patch: Partial<SandboxSummary> = {}): SandboxSummary => ({
     id: 'sbx_1',
     userId: 'usr_1',
     name: 'sandbox',
-    accountSlug: 'acct',
-    spriteName: 'sprite-1',
-    spriteStatus: 'running',
+    status: 'ready',
+    failureReason: null,
+    providerId: 'rtp_1',
+    providerName: 'sprites.dev',
+    providerRefLabel: 'sprite-1',
+    powerState: 'running',
+    registered: true,
+    daemonOnline: true,
+    keepAwake: false,
     terminalEnabled: false,
     terminalModelCredentials: false,
     activeSecondsThisPeriod: 0,
@@ -119,20 +119,38 @@ test('a sandbox running a different coding framework is an attach target', () =>
     assert.equal(targets.length, 1)
     assert.equal(targets[0].type, 'attach')
     assert.equal(targets[0].type === 'attach' ? targets[0].hostId : '', 'host_a')
-    // No sandbox list supplied, so the friendly name is unknown -> null. The UI
-    // falls back to spriteName/hostId; it must never surface a stale wrong name.
+    // No sandbox list supplied and the runtime carries no host name, so the
+    // name is unknown -> null. The UI falls back to the host id; it must never
+    // surface a stale wrong name.
     assert.equal(targets[0].type === 'attach' ? targets[0].name : '', null)
 })
 
 test('attach target for a sandbox-with-runtimes resolves its friendly name', () => {
-    // The name lives on SandboxSummary, not the runtime; it must be joined in by
-    // host id so the picker leads with "prod-box" instead of the sprite/host id.
+    // The sandbox list is the freshest copy of the host's name; it must be
+    // joined in by host id so the picker leads with "prod-box".
     const targets = attachTargets(
         [runtime({ id: 'rt_cc', framework: 'claude-code', hostId: 'host_a' })],
         'codex',
         [sandbox({ id: 'host_a', name: 'prod-box' })]
     )
     assert.equal(targets.length, 1)
+    assert.equal(targets[0].name, 'prod-box')
+})
+
+test('without the sandbox list, an attach target is named by its host', () => {
+    // A runtime carries its host's name (one hop from the host row); it
+    // stands in until the sandbox list arrives.
+    const targets = attachTargets(
+        [
+            runtime({
+                id: 'rt_cc',
+                framework: 'claude-code',
+                hostId: 'host_a',
+                hostName: 'prod-box'
+            })
+        ],
+        'codex'
+    )
     assert.equal(targets[0].name, 'prod-box')
 })
 
@@ -190,7 +208,7 @@ test('a coding framework is unaffected by a service occupant', () => {
     )
 })
 
-test('a stopped service instance releases the service slot', () => {
+test('a failed service instance releases the service slot', () => {
     assert.equal(
         attachTargets(
             [
@@ -198,7 +216,7 @@ test('a stopped service instance releases the service slot', () => {
                     id: 'rt_oc',
                     framework: 'openclaw',
                     hostId: 'host_a',
-                    status: 'stopped'
+                    status: 'failed'
                 })
             ],
             'hermes'
@@ -214,8 +232,7 @@ test('a sandbox running four frameworks still accepts a fifth', () => {
             runtime({
                 id: `rt_${i}`,
                 framework: framework as AgentRuntimeSummary['framework'],
-                hostId: 'host_full',
-                spriteId: `spr_${i}`
+                hostId: 'host_full'
             })
     )
     const targets = attachTargets(runtimes, 'gemini-cli')
@@ -223,7 +240,7 @@ test('a sandbox running four frameworks still accepts a fifth', () => {
     assert.equal(targets[0].runtimeCount, 4)
 })
 
-test('failed/stopped runtimes do not count toward capacity or presence', () => {
+test('failed runtimes do not count toward capacity or presence', () => {
     const runtimes = [
         runtime({ id: 'rt_dead', framework: 'codex', status: 'failed' }),
         runtime({ id: 'rt_cc', framework: 'claude-code', status: 'ready' })
@@ -235,10 +252,10 @@ test('failed/stopped runtimes do not count toward capacity or presence', () => {
     assert.deepEqual(targets[0].frameworks, ['claude-code'])
 })
 
-test('non-ready matching runtime is neither reuse nor attach (pending)', () => {
-    // codex pending on host_a: not ready (no reuse) and present (no attach).
+test('non-ready matching runtime is neither reuse nor attach (installing)', () => {
+    // codex installing on host_a: not ready (no reuse) and present (no attach).
     const runtimes = [
-        runtime({ id: 'rt_cx', framework: 'codex', status: 'pending' })
+        runtime({ id: 'rt_cx', framework: 'codex', status: 'installing' })
     ]
     assert.equal(computeSpriteTargets(runtimes, 'codex').length, 0)
 })

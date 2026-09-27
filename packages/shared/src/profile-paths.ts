@@ -19,45 +19,28 @@ export const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 export const isValidProfileName = (name: string): boolean =>
     PROFILE_NAME_RE.test(name)
 
-// Reserved profile for the resident runner daemon inside a sprite; the API
-// probes and registers it by this exact name.
+// Reserved profile for the host daemon the platform runs inside a sprite; the
+// API probes and starts it by this exact name.
 export const RUNNER_PROFILE = 'spriterunner'
 
-// The runner registers as a daemon host under a name derived from the sprite it
-// lives on, so the API resolves "this sprite's runner" by (userId, kind=daemon,
-// name) and a host on any other sprite can never be mistaken for it. This is the
-// authoritative name the platform sets at register time (`daemon register
-// --name`), so any consumer that must find or tear down a sprite's runner keys
-// off this single source rather than the sprite-self-reported hostname.
-export const runnerHostName = (spriteName: string): string =>
-    `sprite-runner:${spriteName}`
-
-// Reserved profile for the daemon a Kubernetes pod host runs (ADR-0035). A pod
-// is the third managed-runner host: the image's boot loop registers and starts
-// it, so the API installs nothing to bring it up and only looks the host up. It
-// gets its own profile name so a pod and a sprite runner can never collide on
-// the daemon state dir if the image is ever run somewhere unexpected.
+// Reserved profile for the daemon a Kubernetes pod host runs (ADR-0035): the
+// image's boot loop registers and starts it, so the API installs nothing to
+// bring it up. It gets its own profile name so a pod and a sprite daemon can
+// never collide on the daemon state dir if the image is ever run somewhere
+// unexpected.
 export const POD_RUNNER_PROFILE = 'podrunner'
-
-// A pod runner registers under a name derived from the pod HOST it runs in,
-// which carries every framework runtime on the pod (ADR-0035) and exists before
-// any of them. Same contract as runnerHostName — this is the authoritative name
-// the platform bakes into the pod's Secret and the only key lookup and teardown
-// use.
-export const podRunnerHostName = (podHostId: string): string =>
-    `pod-runner:${podHostId}`
 
 // The env a pod host image's boot loop reads to enrol its daemon. These names
 // are a cross-repo contract — the API writes them into the pod's Secret, the
-// image's boot script reads them — so they live here beside the profile and host
-// name rather than being re-typed on either side.
+// image's boot script reads them — so they live here beside the profile name
+// rather than being re-typed on either side.
 //
-// MF_DAEMON_TOKEN is the one-time `ldt_` registration credential; the boot loop
-// consumes it into the daemon config on first boot and every later boot starts
-// from that config instead, so a later boot does not need it: the registration
-// already lives on the PVC.
+// MF_DAEMON_TOKEN is the one-time `ldt_` registration credential, bound to the
+// pod host it registers onto (ADR-0036); the boot loop consumes it into the
+// daemon config on first boot and every later boot starts from that config
+// instead, so a later boot does not need it: the registration already lives on
+// the PVC.
 const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
-const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
 const MF_ENV_PROFILE = 'MF_PROFILE'
 const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
 
@@ -65,7 +48,6 @@ interface PodRunnerEnvInput {
     // Already `/api`-suffixed: the same base the agent's own MF_API_URL uses.
     apiBaseUrl: string
     daemonToken: string
-    podHostId: string
     // The daemon's manyfold home root on the pod's PVC. Two things have to land
     // inside it, and both are why this is passed rather than defaulted:
     //   - the daemon's control plane (`profiles/podrunner/daemon/`), including
@@ -87,7 +69,6 @@ export const buildPodRunnerEnv = (
 ): Record<string, string> => ({
     [MF_ENV_API_URL]: input.apiBaseUrl,
     [MF_ENV_DAEMON_TOKEN]: input.daemonToken,
-    [MF_ENV_DAEMON_HOST_NAME]: podRunnerHostName(input.podHostId),
     [MF_ENV_PROFILE]: POD_RUNNER_PROFILE,
     [MF_ENV_CONFIG_DIR]: input.homeRoot.replace(/\/+$/, '')
 })
@@ -126,7 +107,7 @@ export const machineSkillsDir = (configRoot: string): string =>
     `${configRoot}/skills`
 
 // Host-local auth store (runtime auth profiles): machine-scoped like the
-// workspaces root, namespaced below by the daemon registration id so two
-// control planes on one machine never read each other's credentials.
+// workspaces root, namespaced below by the host id the daemon registered onto
+// so two control planes on one machine never read each other's credentials.
 export const runtimeAuthRoot = (configRoot: string): string =>
     `${configRoot}/runtime-auth`

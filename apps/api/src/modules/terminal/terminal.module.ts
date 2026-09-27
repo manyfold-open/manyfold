@@ -3,7 +3,7 @@ import { AgentsModule } from '@/modules/agents/agents.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { AuthModule } from '@/modules/auth/auth.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { TerminalGateway } from '@/modules/terminal/terminal.gateway'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
@@ -34,7 +34,7 @@ import { TerminalHerdrController } from '@/modules/terminal/terminal-herdr.contr
         AgentsModule,
         AgentRuntimesModule,
         RuntimeAuthModule,
-        SpritesAccountsModule,
+        HostsModule,
         DaemonModule,
         FilesModule,
         RuntimeAccessModule,

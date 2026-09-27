@@ -7,7 +7,7 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql, isNotNull } from 'drizzle-orm'
 import {
     agents,
     agentRuntimes,
@@ -19,10 +19,10 @@ import {
     userSkills,
     type Agent,
     type AgentRuntimeRow,
-    type Database
+    type Database,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import {
-    createClient,
     execSprite,
     spriteReadFile,
     spriteRm,
@@ -40,10 +40,12 @@ import type {
     SpriteWriteFileArgs
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory, type PodExec } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import type { PodExec } from '@/modules/k8s/pod-exec'
+import {
+    RuntimeContextService,
+    type RuntimeContext
+} from '@/modules/hosts/runtime-context.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     assertSkillFramework,
@@ -227,9 +229,8 @@ export class SkillMaterializerService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly accounts: SpritesAccountsService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
+        private readonly runtimeContext: RuntimeContextService,
+        private readonly hostClients: HostProviderClients,
         private readonly daemonRegistry: DaemonRegistryService,
         @Optional() private readonly changes?: ResourceChangesService
     ) {}
@@ -246,7 +247,7 @@ export class SkillMaterializerService {
                 and(
                     eq(agentRuntimes.userId, userId),
                     eq(agentRuntimes.framework, safeFramework),
-                    inArray(agentRuntimes.kind, ['sprites', 'k8s', 'daemon']),
+                    isNotNull(agentRuntimes.hostId),
                     eq(agentRuntimes.status, 'ready')
                 )
             )
@@ -279,13 +280,7 @@ export class SkillMaterializerService {
     private async materializeRuntimeRow(
         runtime: AgentRuntimeRow
     ): Promise<void> {
-        if (runtime.status !== 'ready') return
-        if (
-            runtime.kind !== 'sprites' &&
-            runtime.kind !== 'k8s' &&
-            runtime.kind !== 'daemon'
-        )
-            return
+        if (runtime.status !== 'ready' || !runtime.hostId) return
         let framework: SkillFramework
         try {
             framework = assertSkillFramework(runtime.framework)
@@ -307,17 +302,18 @@ export class SkillMaterializerService {
         )
     }
 
+    // Where the skills land is a fact of the runtime's host (ADR-0036): a
+    // hosted sandbox or pod is written through the provider's own channel
+    // (which wakes it), a local machine through its daemon while online.
     private async materializeAgentRow(
         agent: Agent,
         runtime: AgentRuntimeRow
     ): Promise<SkillOutcome[]> {
-        if (runtime.status !== 'ready') return []
-        if (
-            runtime.kind !== 'sprites' &&
-            runtime.kind !== 'k8s' &&
-            runtime.kind !== 'daemon'
-        )
-            return []
+        if (runtime.status !== 'ready' || !runtime.hostId) return []
+        const ctx = await this.runtimeContext.forRuntime(runtime.id)
+        if (!ctx?.host || ctx.host.status !== 'ready') return []
+        if (ctx.host.kind === 'local' && !ctx.daemonOnline) return []
+        const target = ctx as RuntimeContext & { host: RuntimeHostRow }
         let framework: SkillFramework
         try {
             framework = assertSkillFramework(agent.framework)
@@ -337,52 +333,41 @@ export class SkillMaterializerService {
                 // a managed workspace) or the legacy home-clone, and owns its own
                 // locking (host-store lock then per-agent lock). Daemon/k8s keep
                 // the single per-agent lock below.
-                if (runtime.kind === 'sprites') {
-                    if (!runtime.spriteName || !runtime.accountId) return []
-                    const account = await this.accounts.getById(
-                        runtime.accountId
-                    )
-                    if (!account) throw new Error('sprites account missing')
-                    const token = this.accounts.decryptToken(account)
-                    const client = createClient({
-                        token,
-                        accountSlug: account.slug,
-                        logger: spritesLoggerFor(this.log)
-                    })
+                if (target.placement === 'sprites') {
+                    const logger = spritesLoggerFor(this.log)
+                    const { client, spriteName } =
+                        await this.hostClients.spritesClientForHost(
+                            target.host,
+                            logger
+                        )
                     return this.materializeSprite({
                         agentId: agent.id,
                         runtimeId: runtime.id,
                         userId: runtime.userId,
                         framework,
-                        spriteName: runtime.spriteName,
+                        spriteName,
                         client,
-                        logger: spritesLoggerFor(this.log),
-                        homeDir: runtime.homeDir ?? undefined,
+                        logger,
+                        homeDir: target.host.homeDir ?? undefined,
                         workspacePath: agent.workspacePath ?? undefined
                     })
                 }
                 // Daemon also owns its two-phase locking via materializeDaemon
-                // (host-store lock keyed on daemonId, then per-agent lock).
-                if (runtime.kind === 'daemon') {
-                    if (!runtime.daemonId) return []
+                // (host-store lock keyed on the host, then per-agent lock).
+                if (target.placement === 'daemon')
                     return this.materializeDaemon({
                         agentId: agent.id,
                         runtimeId: runtime.id,
                         userId: runtime.userId,
                         framework,
-                        daemonId: runtime.daemonId,
-                        homeDir: runtime.homeDir,
+                        daemonId: target.host.id,
+                        homeDir: target.host.homeDir,
                         workspacePath: agent.workspacePath ?? undefined
                     })
-                }
                 const key = materializationLockKey(runtime.userId, agent.id)
                 return this.withLock(key, async () => {
-                    const pod = await resolveAgentPod(this.k8s, runtime)
-                    const exec = this.podExecFactory.forClient(
-                        pod.client,
-                        pod.namespace,
-                        pod.podName,
-                        pod.containerName
+                    const exec = await this.hostClients.podExecForHost(
+                        target.host
                     )
                     return this.materializeForK8sPodUnlocked({
                         agentId: agent.id,
@@ -406,7 +391,7 @@ export class SkillMaterializerService {
                 {
                     agentId: agent.id,
                     runtimeId: runtime.id,
-                    spriteName: runtime.spriteName,
+                    hostId: runtime.hostId,
                     message
                 }
             )
@@ -528,16 +513,10 @@ export class SkillMaterializerService {
     }): Promise<RuntimeSkillInventoryItem[]> {
         if (input.agent.framework !== 'hermes') return []
         if (input.runtime.framework !== 'hermes') return []
-        if (input.runtime.kind !== 'k8s') return []
         if (input.runtime.status !== 'ready') return []
-        if (!input.runtime.namespace || !input.runtime.hostId) return []
-        const pod = await resolveAgentPod(this.k8s, input.runtime)
-        const exec = this.podExecFactory.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const ctx = await this.runtimeContext.forRuntime(input.runtime.id)
+        if (!ctx?.host || ctx.placement !== 'k8s') return []
+        const exec = await this.hostClients.podExecForHost(ctx.host)
         const profileHome = hermesProfileHome(
             input.runtime.mountPath || DEFAULT_HERMES_HOME,
             input.agent.internalId

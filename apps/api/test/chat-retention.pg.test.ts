@@ -119,7 +119,6 @@ const seedRetentionFixture = async (db: Database): Promise<Fixture> => {
         userId: ids.userFree,
         name: `pgtest-rt-${sfx}`,
         framework: 'codex',
-        kind: 'sprites',
         status: 'ready'
     })
     const agentRows: Array<typeof agents.$inferInsert> = [
@@ -128,8 +127,7 @@ const seedRetentionFixture = async (db: Database): Promise<Fixture> => {
             userId: ids.userFree,
             name: `pgtest-agent-free-${sfx}`,
             framework: 'codex',
-            runtime: 'sprites',
-            status: 'running',
+            status: 'ready',
             runtimeId: ids.runtime,
             internalId: `int-free-${sfx}`
         },
@@ -138,8 +136,7 @@ const seedRetentionFixture = async (db: Database): Promise<Fixture> => {
             userId: ids.userPro,
             name: `pgtest-agent-pro-${sfx}`,
             framework: 'codex',
-            runtime: 'sprites',
-            status: 'running',
+            status: 'ready',
             runtimeId: ids.runtime,
             internalId: `int-pro-${sfx}`
         }

@@ -4,6 +4,9 @@ export type SpriteSessionKind = 'chat-exec' | 'terminal'
 
 export interface SpriteSessionHandle {
     kind: SpriteSessionKind
+    // The machine the session runs on, so a host-level stop can close every
+    // session on it whichever agent opened it.
+    hostId?: string | null
     close: (reason: string) => void
 }
 
@@ -43,6 +46,28 @@ export class SpritesSessionRegistry {
             }
         }
         return handles.length
+    }
+
+    closeForHost(hostId: string, reason: string): number {
+        let closed = 0
+        for (const [agentId, set] of this.sessions) {
+            for (const handle of [...set]) {
+                if (handle.hostId !== hostId) continue
+                try {
+                    handle.close(reason)
+                    closed++
+                } catch (err) {
+                    this.log.warn(
+                        `close failed for host=${hostId} agent=${agentId} kind=${handle.kind}: ${(err as Error).message}`
+                    )
+                }
+            }
+        }
+        if (closed > 0)
+            this.log.log(
+                `closed ${closed} active session(s) on host=${hostId} reason=${reason}`
+            )
+        return closed
     }
 
     activeCount(agentId: string): number {

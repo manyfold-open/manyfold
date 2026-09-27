@@ -1,61 +1,46 @@
-import { isExternal } from '@manyfold/shared'
 import type {
     AgentControlUiUrlResponse,
     AgentRuntimeSummary,
     SetControlUiBody,
-    SetDashboardBody,
-    SetKeepAliveBody
+    SetDashboardBody
 } from '@manyfold/shared'
 import {
-    BadRequestException,
     Body,
+    ConflictException,
     Controller,
     Delete,
     Get,
     HttpCode,
-    Inject,
-    InternalServerErrorException,
     NotFoundException,
     Param,
     Patch,
     Query,
     UseGuards
 } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
-import { agentRuntimes, type Database } from '@manyfold/db'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
-import { DRIZZLE } from '@/db/tokens'
+import { RUNTIME_AGENTS_BOUND_CODE } from './agent-runtimes.controller'
 import { AgentRuntimesService } from './agent-runtimes.service'
-import { SpritesProvisioner } from './provisioning/sprites-provisioner'
-import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 
+// Same DTO and the same delete rule as the user route (R8), over every user.
 @Controller('admin/agent-runtimes')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminAgentRuntimesController {
     constructor(
-        @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
-        private readonly spritesProvisioner: SpritesProvisioner,
-        private readonly k8sProvisioner: K8sProvisioner,
         private readonly dashboard: RuntimeDashboardService
     ) {}
 
     @Get()
     async list(): Promise<AgentRuntimeSummary[]> {
-        const rows = await this.db.select().from(agentRuntimes)
-        return this.runtimes.toSummaries(rows)
+        return this.runtimes.toSummaries(await this.runtimes.listAll())
     }
 
     @Get(':id')
     async get(@Param('id') id: string): Promise<AgentRuntimeSummary> {
-        const [row] = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, id))
-            .limit(1)
+        const row = await this.runtimes.findById(id)
         if (!row) throw new NotFoundException(`agent runtime ${id} not found`)
         return this.runtimes.toSummary(row)
     }
@@ -63,25 +48,15 @@ export class AdminAgentRuntimesController {
     @Delete(':id')
     @HttpCode(204)
     async delete(@Param('id') id: string): Promise<void> {
-        const [row] = await this.db
-            .select()
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, id))
-            .limit(1)
+        const row = await this.runtimes.findById(id)
         if (!row) throw new NotFoundException(`agent runtime ${id} not found`)
-        if (row.kind === 'sprites') {
-            await this.spritesProvisioner.teardownRuntime(row, {
-                reapImmediatelyIfEmpty: true
+        const bound = await this.runtimes.agentsCount(row.id)
+        if (bound > 0)
+            throw new ConflictException({
+                code: RUNTIME_AGENTS_BOUND_CODE,
+                message: `runtime ${row.id} still has ${bound} agent(s); delete them first`
             })
-            return
-        }
-        if (row.kind === 'k8s') {
-            await this.k8sProvisioner.teardownRuntime(row)
-            return
-        }
-        throw new InternalServerErrorException(
-            `unknown runtime kind: ${row.kind}`
-        )
+        await this.runtimes.delete(row.id)
     }
 
     @Patch(':id/control-ui')
@@ -112,27 +87,5 @@ export class AdminAgentRuntimesController {
         @Body() body: SetDashboardBody
     ): Promise<AgentRuntimeSummary> {
         return this.dashboard.setDashboard(user.userId, id, !!body.enabled, true)
-    }
-
-    @Patch(':id/keep-alive')
-    @HttpCode(200)
-    async setKeepAlive(
-        @Param('id') id: string,
-        @Body() body: SetKeepAliveBody
-    ): Promise<AgentRuntimeSummary> {
-        const row = await this.runtimes.findById(id)
-        if (!row) throw new NotFoundException(`agent runtime ${id} not found`)
-        if (row.kind !== 'sprites' || isExternal(row.framework))
-            throw new BadRequestException({
-                message: 'keep-alive is not supported for this runtime',
-                code: 'KEEP_ALIVE_UNSUPPORTED'
-            })
-        // Drive caps + lease against the runtime OWNER, not the admin caller.
-        const next = await this.spritesProvisioner.setKeepAlive(
-            row.userId,
-            row,
-            !!body.enabled
-        )
-        return this.runtimes.toSummary(next)
     }
 }

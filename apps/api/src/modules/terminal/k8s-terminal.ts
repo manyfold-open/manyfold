@@ -7,13 +7,13 @@ import {
 } from '@nestjs/common'
 import { Exec } from '@kubernetes/client-node'
 import type { WebSocket as WsClient } from 'ws'
-import type { Agent } from '@manyfold/db'
+import type { Agent, RuntimeHostRow } from '@manyfold/db'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
+import { resolveHostPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 
 export interface K8sTerminalRequest {
     agent: Agent
+    host: RuntimeHostRow
     cols: number
     cwd?: string
     rows: number
@@ -25,22 +25,13 @@ export interface K8sTerminalRequest {
 export class K8sTerminal {
     private readonly log = new Logger(K8sTerminal.name)
 
-    constructor(
-        private readonly k8s: KubernetesService,
-        private readonly runtimes: AgentRuntimesService
-    ) {}
+    constructor(private readonly k8s: KubernetesService) {}
 
     async tunnel(req: K8sTerminalRequest): Promise<void> {
-        const { agent, cols, cwd, rows, client, onClose } = req
-        if (!agent.namespace)
-            throw new NotFoundException('k8s agent missing namespace')
-
-        const runtime = await this.runtimes.findById(agent.runtimeId)
-        if (!runtime)
-            throw new NotFoundException(
-                `runtime ${agent.runtimeId} not found for agent ${agent.id}`
-            )
-        const pod = await resolveAgentPod(this.k8s, runtime).catch((err) => {
+        const { agent, host, cols, cwd, rows, client, onClose } = req
+        if (host.providerRef?.kind !== 'k8s')
+            throw new NotFoundException(`host ${host.id} is not a pod host`)
+        const pod = await resolveHostPod(this.k8s, host).catch((err) => {
             throw new ServiceUnavailableException((err as Error).message)
         })
 

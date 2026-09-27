@@ -3,6 +3,11 @@ import test from 'node:test'
 import 'reflect-metadata'
 import { agentCredentials } from '@manyfold/db'
 import { AgentCredentialsService } from '../src/modules/agents/credentials/agent-credentials.service'
+import {
+    contextOf,
+    k8sHostRow,
+    runtimeRow
+} from './helpers/runtime-context-fixture'
 
 // A framework prepared bare on a cloud computer (ADR-0035) has no credentials
 // row until its first agent picks a provider, exactly like one prepared on a
@@ -49,7 +54,20 @@ test('a bare pod runtime gets its first credentials row from the update', async 
         {
             encrypt: (plain: string) => ({ ciphertext: plain, keyVersion: 1 })
         } as never,
-        { findForCaller: async () => agent } as never,
+        {
+            findForCaller: async () => agent,
+            contextForCaller: async () =>
+                contextOf({
+                    agent: agent as never,
+                    runtime: runtimeRow({
+                        id: 'art_1',
+                        userId: 'usr_1',
+                        hostId: 'pdh_1',
+                        framework: 'claude-code'
+                    }),
+                    host: k8sHostRow({ id: 'pdh_1', userId: 'usr_1' })
+                })
+        } as never,
         {
             resolve: async () => ({
                 framework: 'claude-code',
@@ -61,9 +79,6 @@ test('a bare pod runtime gets its first credentials row from the update', async 
             })
         } as never,
         { findByApiKey: async () => null } as never,
-        {} as never,
-        {} as never,
-        {} as never,
         {} as never,
         {} as never
     )

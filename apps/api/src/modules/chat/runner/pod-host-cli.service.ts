@@ -1,28 +1,26 @@
 import {
     cliChannelOfVersion,
+    daemonOnline,
     isCliUpdateAvailable,
     isCliVersionTooOld,
     parseProbedSemver,
-    podRunnerHostName,
     type MfCliChannel
 } from '@manyfold/shared'
 import {
     BadRequestException,
-    Inject,
     Injectable,
     Logger,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
-import { runtimeHosts, type Database, type RuntimeHostRow } from '@manyfold/db'
-import { DRIZZLE } from '@/db/tokens'
+import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import { buildCliInstallScript } from '@/modules/agent-self/sprite-shell-env.service'
-import { resolvePodHostPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
 import { DaemonCliVersionService } from '@/modules/daemon/daemon-cli-version.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 
 const CLI_INSTALL_TIMEOUT_MS = 180_000
 // A restarted daemon gets about three minutes to register again.
@@ -35,10 +33,10 @@ export interface PodHostCliNeed {
     minVersion?: string
 }
 
-const meets = (runner: RuntimeHostRow, need: PodHostCliNeed): boolean =>
-    (!need.feature || runner.clientFeatures.includes(need.feature)) &&
+const meets = (daemon: HostDaemonRow, need: PodHostCliNeed): boolean =>
+    (!need.feature || daemon.clientFeatures.includes(need.feature)) &&
     (!need.minVersion ||
-        !isCliVersionTooOld(runner.cliVersion, need.minVersion))
+        !isCliVersionTooOld(daemon.cliVersion, need.minVersion))
 
 const tooOld = (message: string) =>
     new ServiceUnavailableException({
@@ -47,21 +45,22 @@ const tooOld = (message: string) =>
     })
 
 // The mf CLI of a cloud computer's daemon (ADR-0035 §5): updated on request,
-// and brought up to what a caller needs before it is used, the way a sprite
-// runner below the floor is reinstalled.
+// and brought up to what a caller needs before it is used. The pod's daemon IS
+// the host's daemon (ADR-0036): host_daemons for the host.
 @Injectable()
 export class PodHostCliService {
     private readonly log = new Logger(PodHostCliService.name)
     // One update per host at a time: concurrent callers share it.
-    private readonly inFlight = new Map<string, Promise<RuntimeHostRow>>()
+    private readonly inFlight = new Map<string, Promise<HostDaemonRow>>()
 
     constructor(
-        @Inject(DRIZZLE) private readonly db: Database,
         private readonly daemonHosts: DaemonHostService,
+        private readonly hostDaemons: HostDaemonsService,
+        private readonly hosts: HostsService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
-        private readonly k8s: KubernetesService,
-        private readonly podExec: PodExecFactory
+        private readonly clients: HostProviderClients,
+        private readonly providers: SandboxProviderRegistry
     ) {}
 
     // A connected daemon that knows its host restarts it (startup method
@@ -72,16 +71,17 @@ export class PodHostCliService {
     // installed.
     async update(args: {
         host: RuntimeHostRow
-        runner: RuntimeHostRow
         actorId: string
         targetVersion?: string
     }): Promise<void> {
+        const daemon = await this.hostDaemons.findByHostId(args.host.id)
         if (
-            args.runner.startupMethod === 'container' &&
-            this.daemonHosts.isOnline(args.runner)
+            daemon &&
+            daemon.startupMethod === 'container' &&
+            daemonOnline(daemon)
         )
             await this.daemonHosts.upgrade({
-                host: args.runner,
+                host: args.host,
                 actorId: args.actorId,
                 targetVersion: args.targetVersion
             })
@@ -92,13 +92,13 @@ export class PodHostCliService {
     // and returned once its new registration has it.
     async ensure(
         host: RuntimeHostRow,
-        runner: RuntimeHostRow,
         need: PodHostCliNeed
-    ): Promise<RuntimeHostRow> {
-        if (meets(runner, need)) return runner
+    ): Promise<HostDaemonRow> {
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        if (daemon && meets(daemon, need)) return daemon
         let pending = this.inFlight.get(host.id)
         if (!pending) {
-            pending = this.updateAndWait(host, runner).finally(() =>
+            pending = this.updateAndWait(host, daemon).finally(() =>
                 this.inFlight.delete(host.id)
             )
             this.inFlight.set(host.id, pending)
@@ -111,20 +111,8 @@ export class PodHostCliService {
         return fresh
     }
 
-    async runnerOf(host: RuntimeHostRow): Promise<RuntimeHostRow | null> {
-        const [runner] = await this.db
-            .select()
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.userId, host.userId),
-                    eq(runtimeHosts.kind, 'daemon'),
-                    eq(runtimeHosts.managed, true),
-                    eq(runtimeHosts.name, podRunnerHostName(host.id))
-                )
-            )
-            .limit(1)
-        return runner ?? null
+    async runnerOf(host: RuntimeHostRow): Promise<HostDaemonRow | null> {
+        return this.hostDaemons.findByHostId(host.id)
     }
 
     // Overridable in tests.
@@ -136,32 +124,25 @@ export class PodHostCliService {
     // on a newer CLI. A daemon already on the latest has nothing to update to.
     private async updateAndWait(
         host: RuntimeHostRow,
-        runner: RuntimeHostRow
-    ): Promise<RuntimeHostRow> {
+        daemon: HostDaemonRow | null
+    ): Promise<HostDaemonRow> {
         const latest = await this.cliVersion.getCachedLatest()
+        const before = daemon?.cliVersion ?? null
         if (
             latest.version &&
-            !isCliUpdateAvailable(
-                latest.channel,
-                runner.cliVersion,
-                latest.version
-            )
+            !isCliUpdateAvailable(latest.channel, before, latest.version)
         )
             throw tooOld(
-                `cloud computer ${host.id} already runs the latest Manyfold CLI (${runner.cliVersion}), which does not support this yet`
+                `cloud computer ${host.id} already runs the latest Manyfold CLI (${before}), which does not support this yet`
             )
         this.log.log(
-            `pod host cli update host=${host.id} from=${runner.cliVersion ?? 'unknown'} to=${latest.version ?? 'latest'}`
+            `pod host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
         )
-        await this.update({ host, runner, actorId: host.userId })
+        await this.update({ host, actorId: host.userId })
         for (let poll = 0; poll < REREGISTER_POLLS; poll++) {
             await this.delay(REREGISTER_POLL_MS)
-            const fresh = await this.runnerOf(host)
-            if (
-                fresh &&
-                fresh.cliVersion !== runner.cliVersion &&
-                this.daemonHosts.isOnline(fresh)
-            )
+            const fresh = await this.hostDaemons.findByHostId(host.id)
+            if (fresh && fresh.cliVersion !== before && daemonOnline(fresh))
                 return fresh
         }
         throw tooOld(
@@ -181,28 +162,19 @@ export class PodHostCliService {
                 )
             channel = cliChannelOfVersion(targetVersion)
         } else channel = (await this.cliVersion.getCachedLatest()).channel
-        const pod = await resolvePodHostPod(this.k8s, {
-            hostId: host.id,
-            clusterId: host.clusterId,
-            namespace: host.namespace
-        })
-        const exec = this.podExec.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
-        const result = await exec
-            .run({
-                cmd: [
-                    'bash',
-                    '-lc',
-                    [
-                        buildCliInstallScript(channel, targetVersion),
-                        'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"',
-                        'pkill -TERM -x mf || true'
-                    ].join('\n')
-                ],
+        const provider = await this.clients.providerForHost(host)
+        const adapter = this.providers.for(provider.kind)
+        const generation = await this.hosts.bumpGeneration(host.id)
+        const result = await adapter
+            .bootstrap({
+                host,
+                provider,
+                generation,
+                script: [
+                    buildCliInstallScript(channel, targetVersion),
+                    'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"',
+                    'pkill -TERM -x mf || true'
+                ].join('\n'),
                 timeoutMs: CLI_INSTALL_TIMEOUT_MS
             })
             .catch((err: Error) => {

@@ -1,14 +1,15 @@
-import {
+import type {
     AgentRuntimeSummary,
     CreateAgentBody,
     DaemonHostSummary,
     ExternalAgentProviderKind,
+    UserExternalAgentProviderSummary,
+    UserModelProvider,
+    UserModelProviderSummary} from '@manyfold/shared';
+import {
     K8S_HOME_BASE,
     OFFICIAL_PROVIDER_BASE_URL,
     SPRITE_HOME_BASE,
-    UserExternalAgentProviderSummary,
-    UserModelProvider,
-    UserModelProviderSummary,
     brandFor,
     credentialsManagedByRuntime,
     defaultProtocolForProvider,
@@ -288,8 +289,9 @@ const AgentNewV3: FC = (): ReactNode => {
     const { agents, refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialFramework = params.get('framework') ?? ''
-    const initialDaemonId = params.get('daemonId') ?? ''
-    const initialSandboxId = params.get('sandboxId') ?? ''
+    // One machine is one host (ADR-0036): the link names it whether it is a
+    // self-owned computer or a sandbox, and the effects below work out which.
+    const initialHostId = params.get('hostId') ?? ''
     const initialVersion = params.get('version') ?? ''
 
     const client = useApiClient()
@@ -323,7 +325,7 @@ const AgentNewV3: FC = (): ReactNode => {
     // detail page) has to land in advanced mode — that's where the runtime picker
     // lives, so simple mode would drop the pin the user just made.
     const [mode, setMode] = useState<'simple' | 'advanced'>(
-        params.get('advanced') === '1' || initialSandboxId
+        params.get('advanced') === '1' || initialHostId
             ? 'advanced'
             : 'simple'
     )
@@ -505,9 +507,9 @@ const AgentNewV3: FC = (): ReactNode => {
     }, [runtimeAuthList])
     const runtimeAuthPicker = runtimeAuthPickerState(runtimeAuthList)
 
-    // Honour ?sandboxId=. The pinned sandbox is either an attach target (install
-    // this framework onto it) or already runs the framework, in which case it
-    // appears as a reuse runtime instead.
+    // Honour ?hostId= for a sandbox. The pinned sandbox is either an attach
+    // target (install this framework onto it) or already runs the framework,
+    // in which case it appears as a reuse runtime instead.
     //
     // The ref is only set once the pin has actually been applied, never on a
     // "haven't found it yet" pass: runtimes and sandboxes load independently, and
@@ -516,9 +518,9 @@ const AgentNewV3: FC = (): ReactNode => {
     // whenever the runtimes response won the race.
     const sandboxPreselectedRef = useRef(false)
     useEffect(() => {
-        if (!initialSandboxId || sandboxPreselectedRef.current) return
+        if (!initialHostId || sandboxPreselectedRef.current) return
         const attachTarget = spriteAttachTargets.find(
-            (target) => target.hostId === initialSandboxId
+            (target) => target.hostId === initialHostId
         )
         if (attachTarget) {
             sandboxPreselectedRef.current = true
@@ -528,7 +530,7 @@ const AgentNewV3: FC = (): ReactNode => {
             return
         }
         const reuseTarget = reusableRuntimes.find(
-            (r) => r.hostId === initialSandboxId
+            (r) => r.kind === 'sprites' && r.hostId === initialHostId
         )
         if (reuseTarget) {
             sandboxPreselectedRef.current = true
@@ -536,7 +538,7 @@ const AgentNewV3: FC = (): ReactNode => {
             setPickedRuntimeId(reuseTarget.id)
             setAttachSandboxHostId('')
         }
-    }, [initialSandboxId, spriteAttachTargets, reusableRuntimes])
+    }, [initialHostId, spriteAttachTargets, reusableRuntimes])
 
     const hermesAttach =
         runtimeMode === 'existing' && pickedRuntime?.framework === 'hermes'
@@ -658,8 +660,8 @@ const AgentNewV3: FC = (): ReactNode => {
         if (!daemonSupported) return []
         const covered = new Set(
             reusableRuntimes
-                .filter((r) => r.kind === 'daemon' && r.daemonId)
-                .map((r) => r.daemonId)
+                .filter((r) => r.kind === 'daemon' && r.hostId)
+                .map((r) => r.hostId)
         )
         const out: Array<{
             host: DaemonHostSummary
@@ -741,9 +743,11 @@ const AgentNewV3: FC = (): ReactNode => {
     const daemonPreselectedRef = useRef(false)
     useEffect(() => {
         if (daemonPreselectedRef.current) return
-        if (!initialDaemonId || runtimes.length === 0) return
+        if (!initialHostId || runtimes.length === 0) return
         daemonPreselectedRef.current = true
-        const onDaemon = runtimes.filter((r) => r.daemonId === initialDaemonId)
+        const onDaemon = runtimes.filter(
+            (r) => r.kind === 'daemon' && r.hostId === initialHostId
+        )
         if (onDaemon.length === 0) return
         const pick =
             onDaemon.find((r) => r.framework === framework) ?? onDaemon[0]
@@ -755,7 +759,7 @@ const AgentNewV3: FC = (): ReactNode => {
         setRuntimeMode('existing')
         setPickedRuntimeId(pick.id)
         setAttachSandboxHostId('')
-    }, [initialDaemonId, runtimes, framework])
+    }, [initialHostId, runtimes, framework])
 
     const nameValidation = validateAgentName(name)
     const normalizedName = nameValidation.valid
@@ -777,8 +781,17 @@ const AgentNewV3: FC = (): ReactNode => {
     const existingRuntimeDefaultWorkspace = (
         runtime: AgentRuntimeSummary
     ): string => {
+        // A self-owned computer's paths live on its host row, not the runtime.
+        const host =
+            runtime.kind === 'daemon'
+                ? (daemonHosts.find((h) => h.id === runtime.hostId) ?? null)
+                : null
         if (runtime.framework === 'openclaw')
-            return openclawWorkspaceFor(runtime, normalizedName)
+            return openclawWorkspaceFor(
+                runtime,
+                normalizedName,
+                host?.homeDir ?? null
+            )
         const presented = presentedWorkspacePath(
             runtime.framework,
             runtime.kind
@@ -786,10 +799,8 @@ const AgentNewV3: FC = (): ReactNode => {
         if (presented) return presented
         if (runtime.kind === 'daemon') {
             const base =
-                runtime.workspaceBaseDir ??
-                (runtime.homeDir
-                    ? `${runtime.homeDir}/.manyfold/workspaces`
-                    : null)
+                host?.workspaceBaseDir ??
+                (host?.homeDir ? `${host.homeDir}/.manyfold/workspaces` : null)
             return base
                 ? `${base.replace(/\/+$/, '')}/{agent-id}`
                 : '~/.manyfold/workspaces/{agent-id}'
@@ -931,10 +942,10 @@ const AgentNewV3: FC = (): ReactNode => {
                 rows.find(
                     (r) =>
                         r.kind === 'daemon' &&
-                        r.daemonId === host.id &&
+                        r.hostId === host.id &&
                         r.framework === framework
                 ) ??
-                rows.find((r) => r.kind === 'daemon' && r.daemonId === host.id)
+                rows.find((r) => r.kind === 'daemon' && r.hostId === host.id)
             if (rt) {
                 setRuntimeMode('existing')
                 setPickedRuntimeId(rt.id)
@@ -1519,7 +1530,6 @@ const AgentNewV3: FC = (): ReactNode => {
                                             </span>
                                             <span className='text-fg text-ui min-w-0 truncate font-medium'>
                                                 {target.name ??
-                                                    target.spriteName ??
                                                     target.hostId}
                                             </span>
                                         </span>
@@ -1563,7 +1573,6 @@ const AgentNewV3: FC = (): ReactNode => {
                                             </span>
                                             <span className='text-fg text-ui min-w-0 truncate font-medium'>
                                                 {target.name ??
-                                                    target.spriteName ??
                                                     target.hostId}
                                             </span>
                                         </span>

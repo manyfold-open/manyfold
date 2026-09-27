@@ -11,7 +11,6 @@ import { buildCodexConfigToml } from '@/modules/agents/credentials/codex-config-
 import { piAgentDirSetupScript } from '@/modules/agents/credentials/pi-agent-dir'
 import type { ResolvedCodexCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
-import type { PodExec } from '@/modules/k8s/pod-exec'
 
 // The frameworks a pod host installs on demand (ADR-0035). Service frameworks
 // (OpenClaw, Hermes, an edition's services) join once the host's daemon
@@ -32,7 +31,7 @@ export const isPodHostFramework = (
 
 const SETUP_TIMEOUT_MS = 60_000
 
-// A login-shell script run inside the pod. Pod exec carries no env, so a secret
+// A login-shell script run inside the pod. The exec carries no env, so a secret
 // the script needs is exported at the top of its stdin — never on argv, which
 // the pod's /proc exposes.
 export interface PodScriptRunner extends HostScriptRunner {
@@ -43,8 +42,18 @@ export interface PodScriptRunner extends HostScriptRunner {
     ): Promise<ExecResult>
 }
 
+// What runs the script: the host's daemon (DaemonFrameworkExec, the normal
+// case — ADR-0036 R6) or, for the daemon's own bring-up, a bare pod exec.
+export interface PodScriptExec {
+    run(req: {
+        cmd: string[]
+        stdin?: string
+        timeoutMs: number
+    }): Promise<ExecResult>
+}
+
 export const podScriptRunner = (
-    exec: PodExec,
+    exec: PodScriptExec,
     warn: HostScriptRunner['warn']
 ): PodScriptRunner => ({
     run: (script, timeoutMs, env) =>

@@ -19,6 +19,7 @@ import { VersionTag } from '@/components/VersionTag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { docsHref } from '@/lib/docsLinks'
+import { hostLifecycleLabel } from '@/lib/hostStatus'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 
@@ -116,12 +117,12 @@ const LocalDaemons: FC = (): ReactNode => {
         }
     }
 
-    const revokeHost = async (id: string): Promise<void> => {
+    const retireHost = async (id: string): Promise<void> => {
         if (
             !(await confirm({
-                title: t('web.selfOwned.revokeHostTitle'),
-                description: t('web.selfOwned.revokeHostDesc'),
-                confirmLabel: t('web.selfOwned.revoke'),
+                title: t('web.selfOwned.retireHostTitle'),
+                description: t('web.selfOwned.retireHostDesc'),
+                confirmLabel: t('web.selfOwned.retire'),
                 tone: 'danger'
             }))
         ) {
@@ -130,7 +131,7 @@ const LocalDaemons: FC = (): ReactNode => {
         setBusy(true)
         try {
             await client.daemons.revokeHost(id)
-            setMessage(t('web.selfOwned.msgMachineRevoked'))
+            setMessage(t('web.selfOwned.msgMachineRetired'))
             await refresh()
         } catch (err) {
             setError(apiErrorMessage(err))
@@ -211,6 +212,11 @@ const LocalDaemons: FC = (): ReactNode => {
                                         <span className='text-caption text-muted'>
                                             {h.os ?? '?'}/{h.arch ?? '?'}
                                         </span>
+                                        {h.status !== 'ready' && (
+                                            <span className='tag tag-neutral'>
+                                                {hostLifecycleLabel(h.status)}
+                                            </span>
+                                        )}
                                     </div>
                                     <div className='settings-card-copy'>
                                         {t('web.selfOwned.machineMeta', {
@@ -226,7 +232,7 @@ const LocalDaemons: FC = (): ReactNode => {
                                             <>
                                                 {' · '}
                                                 <Link
-                                                    to={`/agents/new?daemonId=${h.id}`}
+                                                    to={`/agents/new?hostId=${h.id}`}
                                                     className='text-link hover:underline'
                                                 >
                                                     {t(
@@ -310,7 +316,7 @@ const LocalDaemons: FC = (): ReactNode => {
                                     )}
                                 </div>
                                 <div className='settings-card-side'>
-                                    {h.status === 'revoked' ? (
+                                    {h.status === 'retired' ? (
                                         <button
                                             type='button'
                                             disabled={busy}
@@ -323,10 +329,10 @@ const LocalDaemons: FC = (): ReactNode => {
                                         <button
                                             type='button'
                                             disabled={busy}
-                                            onClick={() => revokeHost(h.id)}
+                                            onClick={() => retireHost(h.id)}
                                             className='workbench-button-secondary text-caption h-8 px-3'
                                         >
-                                            {t('web.selfOwned.revoke')}
+                                            {t('web.selfOwned.retire')}
                                         </button>
                                     )}
                                 </div>
@@ -407,7 +413,7 @@ const LocalDaemons: FC = (): ReactNode => {
                                     <div className='settings-card-copy text-caption text-muted'>
                                         {t('web.selfOwned.tokenMeta', {
                                             bound:
-                                                tk.daemonId ??
+                                                tk.hostId ??
                                                 t('web.selfOwned.boundUnbound'),
                                             lastUsed: tk.lastUsedAt
                                                 ? formatLocalDateTime(

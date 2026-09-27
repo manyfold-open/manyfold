@@ -42,8 +42,6 @@ import {
     codexDefaultIntelligenceForModel,
     codexIntelligenceLevels,
     codexIntelligenceLevelsForModel,
-    type CodexIntelligence,
-    type RuntimeLocalTuning,
     defaultProtocolForProvider,
     geminiAutoModelKey,
     geminiCanonicalModelId,
@@ -62,9 +60,12 @@ import {
     isRuntimeLocalCredentialUsable,
     parseRuntimeLocalCredentialFacts,
     runtimeLocalCredentialStatus,
+    type CodexIntelligence,
+    type RuntimeLocalTuning,
     type RuntimeLocalCredentialContext,
     type RuntimeLocalCredentialFacts,
-    type RuntimeLocalCredentialStatus
+    type RuntimeLocalCredentialStatus,
+    type AgentRuntime
 } from '@manyfold/shared'
 import {
     ConflictException,
@@ -78,11 +79,10 @@ import {
 import { and, eq } from 'drizzle-orm'
 import {
     runtimeAuthProfiles,
-    runtimeHosts,
     agentCredentials,
-    agentRuntimes,
     agents,
     jsonbMerge,
+    hostDaemons,
     type Agent,
     type Database
 } from '@manyfold/db'
@@ -91,6 +91,7 @@ import { ResourceChangesService } from '@/modules/resource-events/resource-chang
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
@@ -162,7 +163,11 @@ export class AgentModelConfigService {
         // runner unavailable instead of waking it.
         @Optional()
         _runtimeAuth?: RuntimeAuthProfilesService,
-        @Optional() private readonly changes?: ResourceChangesService
+        @Optional() private readonly changes?: ResourceChangesService,
+        // Same rule. The agent's machine (ADR-0036): placement and host id.
+        // Absent = the agent is read as having no machine.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {}
 
     async getForAgent(
@@ -256,14 +261,14 @@ export class AgentModelConfigService {
             reason: 'updated'
         })
         const updatedWithDefaults = result.ok
-            ? await this.persistClaudeDefaultsIfReady(updated, {
+            ? await this.persistClaudeDefaultsIfReady(placedLike(updated, agent), {
                   provider: detail.provider,
                   baseUrl: detail.baseUrl,
                   status: models.length > 0 ? 'ready' : 'needs_refresh',
                   source: saved ? 'saved-provider' : 'agent-refresh',
                   models: uniqueTrimmedModelIds(models)
               })
-            : updated
+            : placedLike(updated, agent)
         const view = await this.buildView(updatedWithDefaults)
         return {
             ok: result.ok,
@@ -370,7 +375,7 @@ export class AgentModelConfigService {
     }
 
     private async resolveIncomingConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody,
         requireSelected: boolean
     ): Promise<AgentModelConfig> {
@@ -403,7 +408,7 @@ export class AgentModelConfigService {
     // the credential is refused by the adapter before the exec. No model
     // leaves the credential's default in charge.
     private mergePiConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
     ): PiAgentModelConfig {
         const raw = asRecord(body.modelConfig)
@@ -423,7 +428,7 @@ export class AgentModelConfigService {
     // effort in one name) and fails the turn on any other, so an unknown one
     // is refused here instead. No model leaves agy's own default in charge.
     private mergeAntigravityConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
     ): AntigravityCliAgentModelConfig {
         const raw = asRecord(body.modelConfig)
@@ -442,7 +447,7 @@ export class AgentModelConfigService {
     }
 
     private async mergeClaudeConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
     ): Promise<ClaudeCodeAgentModelConfig> {
         const existing = this.configFromAgent(
@@ -485,7 +490,7 @@ export class AgentModelConfigService {
     }
 
     private async mergeCodexConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
     ): Promise<CodexAgentModelConfig> {
         const existing = this.configFromAgent(
@@ -520,7 +525,7 @@ export class AgentModelConfigService {
     }
 
     private async mergeGeminiConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
     ): Promise<GeminiCliAgentModelConfig> {
         const existing = this.configFromAgent(
@@ -576,7 +581,7 @@ export class AgentModelConfigService {
     }
 
     private async assertClaudeConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         config: ClaudeCodeAgentModelConfig,
         requireSelected: boolean
     ): Promise<void> {
@@ -642,7 +647,7 @@ export class AgentModelConfigService {
     }
 
     private async assertCodexConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         config: CodexAgentModelConfig,
         requireSelected: boolean
     ): Promise<void> {
@@ -710,7 +715,7 @@ export class AgentModelConfigService {
     }
 
     private async assertGeminiConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         config: GeminiCliAgentModelConfig,
         requireSelected: boolean
     ): Promise<void> {
@@ -750,10 +755,10 @@ export class AgentModelConfigService {
     }
 
     private async persistConfig(
-        agent: Agent,
+        agent: PlacedAgent,
         config: AgentModelConfig,
         source: AgentModelConfigSource = 'platform'
-    ): Promise<Agent> {
+    ): Promise<PlacedAgent> {
         const latest = await this.reloadAgent(agent)
         const existingExtras = safeRecord(latest.extras)
         const existingModelConfig = (asRecord(existingExtras.modelConfig) ??
@@ -794,14 +799,14 @@ export class AgentModelConfigService {
             agentId: agent.id,
             reason: 'updated'
         })
-        return updated
+        return placedLike(updated, agent)
     }
 
     private async persistRuntimeLocalSelection(
-        agent: Agent,
+        agent: PlacedAgent,
         model: string | null,
         tuning: RuntimeLocalTuning
-    ): Promise<Agent> {
+    ): Promise<PlacedAgent> {
         const latest = await this.reloadAgent(agent)
         const existingExtras = safeRecord(latest.extras)
         const existingModelConfig = (asRecord(existingExtras.modelConfig) ??
@@ -840,24 +845,24 @@ export class AgentModelConfigService {
             agentId: agent.id,
             reason: 'updated'
         })
-        return updated
+        return placedLike(updated, agent)
     }
 
     // A cached refusal can be stale in the one direction that matters: the user
     // may have just signed in on the runtime host. Re-inspect before refusing
     // so the gate never blocks a machine that works. The happy path never
     // reaches here, so a live turn pays nothing for this.
-    private async assertRuntimeLocalUsable(agent: Agent): Promise<Agent> {
+    private async assertRuntimeLocalUsable(agent: PlacedAgent): Promise<PlacedAgent> {
         const cached = this.runtimeLocalConfigFromAgent(agent)
         if (!cached?.lastCheckedAt || cached.ready) return agent
-        let refreshed: Agent
+        let refreshed: PlacedAgent
         try {
             await this.refreshRuntimeLocalModelCapability(agent)
             refreshed = await this.reloadAgent(agent)
         } catch (err) {
             // The inspect transport failed rather than the credentials: let the
             // turn run and report its own error instead of inventing one.
-            if (agent.runtime !== 'daemon') return agent
+            if (agent.placement !== 'daemon') return agent
             throw new BadRequestException((err as Error).message)
         }
         const next = this.runtimeLocalConfigFromAgent(refreshed)
@@ -867,7 +872,7 @@ export class AgentModelConfigService {
         )
     }
 
-    private assertRuntimeLocalModel(agent: Agent, model: string): void {
+    private assertRuntimeLocalModel(agent: PlacedAgent, model: string): void {
         const runtimeLocal = this.runtimeLocalConfigFromAgent(agent)
         const known = [
             ...(runtimeLocal?.models ?? []),
@@ -888,7 +893,7 @@ export class AgentModelConfigService {
     // knob would push a platform default onto a CLI that was asked to use its
     // own config — the exact thing this source exists to avoid.
     private runtimeLocalTuning(
-        agent: Agent,
+        agent: PlacedAgent,
         incoming: AgentModelConfig | null | undefined
     ): RuntimeLocalTuning {
         const stored = (asRecord(safeRecord(agent.extras).modelConfig) ??
@@ -925,19 +930,32 @@ export class AgentModelConfigService {
         return {}
     }
 
-    private async reloadAgent(agent: Agent): Promise<Agent> {
-        const [latest] = await this.db
+    private async reloadAgent(agent: PlacedAgent): Promise<PlacedAgent> {
+        return (await this.loadPlacedAgent(agent.id)) ?? agent
+    }
+
+    // The agent with the two facts of its machine this service reads
+    // (ADR-0036): the placement, which decides the default source and how
+    // credentials are judged, and the host id, which routes to its daemon.
+    private async loadPlacedAgent(agentId: string): Promise<PlacedAgent | null> {
+        const [agent] = await this.db
             .select()
             .from(agents)
-            .where(eq(agents.id, agent.id))
+            .where(eq(agents.id, agentId))
             .limit(1)
-        return latest ?? agent
+        if (!agent) return null
+        const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
+        return {
+            ...agent,
+            placement: machine?.placement ?? 'external',
+            hostId: machine?.host?.id ?? null
+        }
     }
 
     private async persistClaudeDefaultsIfReady(
-        agent: Agent,
+        agent: PlacedAgent,
         providerModels: ProviderModelsState
-    ): Promise<Agent> {
+    ): Promise<PlacedAgent> {
         if (
             agent.framework !== 'claude-code' ||
             providerModels.status !== 'ready'
@@ -979,18 +997,18 @@ export class AgentModelConfigService {
     }
 
     private async hostFeatures(
-        daemonId: string
+        hostId: string
     ): Promise<{ clientFeatures: string[] } | null> {
         const [row] = await this.db
-            .select({ clientFeatures: runtimeHosts.clientFeatures })
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, daemonId))
+            .select({ clientFeatures: hostDaemons.clientFeatures })
+            .from(hostDaemons)
+            .where(eq(hostDaemons.hostId, hostId))
             .limit(1)
         return row ? { clientFeatures: row.clientFeatures ?? [] } : null
     }
 
     private async runtimeAuthBinding(
-        agent: Agent
+        agent: PlacedAgent
     ): Promise<AgentRuntimeAuthBinding> {
         const base: AgentRuntimeAuthBinding = {
             profileId: agent.runtimeAuthProfileId,
@@ -1140,10 +1158,10 @@ export class AgentModelConfigService {
             agentId: updated.id,
             reason: 'updated'
         })
-        return this.buildView(updated)
+        return this.buildView(placedLike(updated, agent))
     }
 
-    private async buildView(agent: Agent): Promise<AgentModelConfigView> {
+    private async buildView(agent: PlacedAgent): Promise<AgentModelConfigView> {
         const detail = await this.providerDetail(agent)
         const providerModels = await this.providerModels(agent, detail)
         const storedConfig = this.configFromAgent(agent)
@@ -1219,7 +1237,7 @@ export class AgentModelConfigService {
     }
 
     private effectiveConfigFromAgent(
-        agent: Agent,
+        agent: PlacedAgent,
         providerModels: ProviderModelsState,
         storedConfig: AgentModelConfig | null,
         geminiCatalogKeys?: Set<string>
@@ -1264,7 +1282,7 @@ export class AgentModelConfigService {
     }
 
     private validateView(input: {
-        agent: Agent
+        agent: PlacedAgent
         config: AgentModelConfig | null
         providerModels: ProviderModelsState
         options: AgentModelConfigView['options']
@@ -1393,7 +1411,7 @@ export class AgentModelConfigService {
         return { valid: true, messages }
     }
 
-    private configFromAgent(agent: Agent): AgentModelConfig | null {
+    private configFromAgent(agent: PlacedAgent): AgentModelConfig | null {
         const extras = safeRecord(agent.extras)
         const storedRaw = asRecord(extras.modelConfig)
         const stored = (storedRaw ?? {}) as ModelConfigExtras
@@ -1450,7 +1468,7 @@ export class AgentModelConfigService {
         return null
     }
 
-    private configSourceFromAgent(agent: Agent): AgentModelConfigSource {
+    private configSourceFromAgent(agent: PlacedAgent): AgentModelConfigSource {
         const extras = safeRecord(agent.extras)
         const stored = (asRecord(extras.modelConfig) ?? {}) as ModelConfigExtras
         if (
@@ -1462,7 +1480,7 @@ export class AgentModelConfigService {
     }
 
     private resolveIncomingSource(
-        agent: Agent,
+        agent: PlacedAgent,
         value: unknown
     ): AgentModelConfigSource {
         const source =
@@ -1479,18 +1497,18 @@ export class AgentModelConfigService {
             )
         if (!this.availableSourcesForAgent(agent).includes(source))
             throw new BadRequestException(
-                `${source} model config source is not available for runtime ${agent.runtime}`
+                `${source} model config source is not available for runtime ${agent.placement}`
             )
         return source
     }
 
-    private availableSourcesForAgent(agent: Agent): AgentModelConfigSource[] {
+    private availableSourcesForAgent(agent: PlacedAgent): AgentModelConfigSource[] {
         if (!isModelConfigFramework(agent.framework)) return []
         return ['platform', 'runtime-local']
     }
 
     private runtimeLocalConfigFromAgent(
-        agent: Agent
+        agent: PlacedAgent
     ): AgentRuntimeLocalModelConfigStatus | null {
         const cached = readRuntimeLocalModelConfigCache(agent.extras)
         if (!cached)
@@ -1518,7 +1536,7 @@ export class AgentModelConfigService {
         const evaluated = runtimeLocalCredentialStatus(
             cached.credentialFacts,
             Date.now(),
-            credentialContextFor(agent.runtime)
+            credentialContextFor(agent.placement)
         )
         const usable = isRuntimeLocalCredentialUsable(evaluated.status)
         return {
@@ -1538,7 +1556,7 @@ export class AgentModelConfigService {
     }
 
     private async providerModels(
-        agent: Agent,
+        agent: PlacedAgent,
         detail?: ProviderDetail
     ): Promise<ProviderModelsState> {
         const providerDetail = detail ?? (await this.providerDetail(agent))
@@ -1596,19 +1614,19 @@ export class AgentModelConfigService {
     }
 
     private async providerModelsForPlatformValidation(
-        agent: Agent
+        agent: PlacedAgent
     ): Promise<ProviderModelsState> {
         return this.providerModels(agent)
     }
 
     private async refreshRuntimeLocalModelCapability(
-        agent: Agent
+        agent: PlacedAgent
     ): Promise<RefreshAgentModelConfigModelsResponse> {
-        const source = runtimeLocalCacheSource(agent.runtime)
+        const source = runtimeLocalCacheSource(agent.placement)
         let capability: DaemonFrameworkModelCapability
         try {
             capability =
-                agent.runtime === 'daemon'
+                agent.placement === 'daemon'
                     ? await this.inspectDaemonModelCapability(agent)
                     : await this.inspectExecRuntimeModelCapability(agent)
         } catch (err) {
@@ -1636,15 +1654,15 @@ export class AgentModelConfigService {
     }
 
     private async inspectDaemonModelCapability(
-        agent: Agent
+        agent: PlacedAgent
     ): Promise<DaemonFrameworkModelCapability> {
         if (!this.daemonRegistry)
             throw new BadRequestException('daemon RPC is unavailable')
-        const daemonId = await this.daemonIdForAgent(agent)
+        const daemonId = agent.hostId
         if (!daemonId)
             throw new BadRequestException('daemon agent is not connected')
 
-        const authContext = authContextRefFor(agent)
+        const authContext = authContextRefFor(agent, agent.placement)
         if (authContext)
             assertHostHonoursAuthContext(
                 authContext,
@@ -1656,7 +1674,7 @@ export class AgentModelConfigService {
 
     private async modelInspectViaDaemon(
         daemonId: string,
-        agent: Agent,
+        agent: PlacedAgent,
         authContext: DaemonAuthContextRef | null,
         timeoutMs = 15_000
     ): Promise<DaemonFrameworkModelCapability> {
@@ -1695,7 +1713,7 @@ export class AgentModelConfigService {
     }
 
     private async inspectExecRuntimeModelCapability(
-        agent: Agent
+        agent: PlacedAgent
     ): Promise<DaemonFrameworkModelCapability> {
         if (!this.execDrivers || !this.daemonRegistry)
             throw new BadRequestException('daemon runner unavailable')
@@ -1703,13 +1721,13 @@ export class AgentModelConfigService {
         return this.modelInspectViaDaemon(
             runner.daemonId,
             agent,
-            authContextRefFor(agent),
+            authContextRefFor(agent, agent.placement),
             30_000
         )
     }
 
     private async persistRuntimeLocalModelCapability(
-        agent: Agent,
+        agent: PlacedAgent,
         capability: DaemonFrameworkModelCapability,
         source: AgentRuntimeLocalModelConfigSource
     ): Promise<RefreshAgentModelConfigModelsResponse> {
@@ -1720,7 +1738,7 @@ export class AgentModelConfigService {
         const now = Date.now()
         const credentialFacts =
             parseRuntimeLocalCredentialFacts(capability.credentialFacts) ?? null
-        const context = credentialContextFor(agent.runtime)
+        const context = credentialContextFor(agent.placement)
         const evaluated = runtimeLocalCredentialStatus(
             credentialFacts,
             now,
@@ -1785,22 +1803,11 @@ export class AgentModelConfigService {
             ok: runtimeLocal.ready,
             message: runtimeLocal.error,
             models,
-            view: await this.buildView(updated)
+            view: await this.buildView(placedLike(updated, agent))
         }
     }
 
-    private async daemonIdForAgent(agent: Agent): Promise<string | null> {
-        if (agent.daemonId) return agent.daemonId
-        if (!agent.runtimeId) return null
-        const [runtime] = await this.db
-            .select({ daemonId: agentRuntimes.daemonId })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, agent.runtimeId))
-            .limit(1)
-        return runtime?.daemonId ?? null
-    }
-
-    private async providerDetail(agent: Agent): Promise<ProviderDetail> {
+    private async providerDetail(agent: PlacedAgent): Promise<ProviderDetail> {
         if (
             agent.framework !== 'claude-code' &&
             agent.framework !== 'codex' &&
@@ -1911,17 +1918,27 @@ export class AgentModelConfigService {
         callerUserId: string,
         agentId: string,
         isAdmin: boolean
-    ): Promise<Agent> {
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
+    ): Promise<PlacedAgent> {
+        const agent = await this.loadPlacedAgent(agentId)
         if (!agent || (!isAdmin && agent.userId !== callerUserId))
             throw new NotFoundException(`agent ${agentId} not found`)
         return agent
     }
 }
+
+// An agent row with its placement and host id resolved (ADR-0036).
+export type PlacedAgent = Agent & {
+    placement: AgentRuntime
+    hostId: string | null
+}
+
+// A freshly written row keeps the machine facts of the row it replaced: an
+// update never moves an agent.
+const placedLike = (row: Agent, like: PlacedAgent): PlacedAgent => ({
+    ...row,
+    placement: like.placement,
+    hostId: like.hostId
+})
 
 const isFrameworkModelConfigurable = (
     framework: string
@@ -1932,16 +1949,16 @@ const isFrameworkModelConfigurable = (
 // computer is one we provisioned: its framework config dir comes from our own
 // bootstrap, so it is never evidence of a login.
 export const credentialContextFor = (
-    runtime: Agent['runtime']
+    runtime: AgentRuntime
 ): RuntimeLocalCredentialContext => ({
     configPresenceIsEvidence: runtime === 'daemon'
 })
 
-const defaultModelConfigSource = (agent: Agent): AgentModelConfigSource =>
-    agent.runtime === 'daemon' ? 'runtime-local' : 'platform'
+const defaultModelConfigSource = (agent: PlacedAgent): AgentModelConfigSource =>
+    agent.placement === 'daemon' ? 'runtime-local' : 'platform'
 
 const runtimeLocalCacheSource = (
-    runtime: Agent['runtime']
+    runtime: AgentRuntime
 ): AgentRuntimeLocalModelConfigSource => {
     if (runtime === 'daemon') return 'daemon-local'
     if (runtime === 'k8s') return 'k8s-local'

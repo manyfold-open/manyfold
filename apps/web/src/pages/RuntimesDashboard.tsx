@@ -1,4 +1,3 @@
-import { runtimeKindLabel } from '@manyfold/shared'
 import type {
     SandboxUsageBreakdown,
     UserExternalAgentProviderSummary
@@ -13,11 +12,17 @@ import {
     MetaRow
 } from '@/components/DashboardCard'
 import { Ghost } from '@/components/Loading'
-import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
+import { relative } from '@/components/RuntimeDetailPanel'
 import Breadcrumb from '@/components/Breadcrumb'
 import { VersionTag } from '@/components/VersionTag'
 import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
+import {
+    hostLifecycleLabel,
+    placementLabel,
+    powerStateLabel,
+    powerStateTone
+} from '@/lib/hostStatus'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
@@ -28,11 +33,17 @@ import {
     type DashboardView
 } from '@/lib/dashboardView'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
-import { spriteStatusDotClass, spriteStatusLabel } from '@/lib/spriteStatus'
 import { formatDuration } from '@/lib/usageFormat'
-import type { RuntimeVM } from '@/pages/AgentRuntimesList'
+import { TONE_DOT, type RuntimeVM } from '@/pages/AgentRuntimesList'
 
 type RuntimeKind = RuntimeVM['kind']
+
+// A hosted machine's one-word state: its lifecycle until it is ready, then
+// its power state.
+const hostedStateLabel = (vm: RuntimeVM): string =>
+    vm.hostStatus !== null && vm.hostStatus !== 'ready'
+        ? hostLifecycleLabel(vm.hostStatus)
+        : powerStateLabel(vm.powerState)
 
 // The mf CLI version reads as plain text until there is something newer, at
 // which point it becomes the pill that says so. Unlinked in both places the
@@ -96,7 +107,9 @@ const vmLead = (vm: RuntimeVM): ReactNode => {
             <span
                 className={[
                     'h-2 w-2 shrink-0 rounded-full',
-                    spriteStatusDotClass(vm.sandbox?.spriteStatus ?? null)
+                    vm.hostStatus === 'failed'
+                        ? TONE_DOT.error
+                        : TONE_DOT[powerStateTone(vm.powerState)]
                 ].join(' ')}
             />
         )
@@ -147,9 +160,7 @@ const VMCard: FC<VMItemProps> = ({
                         label={vm.label}
                         aside={
                             <span className='text-caption text-muted shrink-0'>
-                                {spriteStatusLabel(
-                                    vm.sandbox?.spriteStatus ?? null
-                                )}
+                                {hostedStateLabel(vm)}
                             </span>
                         }
                     />
@@ -208,7 +219,15 @@ const VMCard: FC<VMItemProps> = ({
             )}
             {vm.kind === 'k8s' && (
                 <>
-                    <CardHeader lead={vmLead(vm)} label={vm.label} />
+                    <CardHeader
+                        lead={vmLead(vm)}
+                        label={vm.label}
+                        aside={
+                            <span className='text-caption text-muted shrink-0'>
+                                {hostedStateLabel(vm)}
+                            </span>
+                        }
+                    />
                     <span className='flex flex-col gap-1.5'>
                         <MetaRow label={t('web.agentRuntimesList.location')}>
                             <span className='truncate font-mono'>
@@ -400,9 +419,7 @@ const VMTable: FC<{
             return (
                 <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
                     {nameCell(vm)}
-                    <td className={bodyCell}>
-                        {spriteStatusLabel(vm.sandbox?.spriteStatus ?? null)}
-                    </td>
+                    <td className={bodyCell}>{hostedStateLabel(vm)}</td>
                     <td className={bodyCellRight}>
                         {usageLoading && !usage ? (
                             <Ghost variant='cap' className='ml-auto w-12' />
@@ -444,9 +461,7 @@ const VMTable: FC<{
             return (
                 <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
                     {nameCell(vm)}
-                    <td className={bodyCell}>
-                        {vm.status ? runtimeStatusTag(vm.status) : '—'}
-                    </td>
+                    <td className={bodyCell}>{hostedStateLabel(vm)}</td>
                     <td className={`${bodyCell} max-w-56 truncate font-mono`}>
                         {vm.location}
                     </td>
@@ -564,7 +579,7 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
             <section key={kind} aria-busy={kind === 'sprites' && usageLoading}>
                 <div className='mb-3 flex flex-wrap items-center gap-2'>
                     <h2 className='text-ui text-fg font-medium'>
-                        {runtimeKindLabel(kind)}
+                        {placementLabel(kind)}
                     </h2>
                     <span className='tag tag-neutral tabular-nums'>
                         {sectionCount}

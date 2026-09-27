@@ -5,8 +5,8 @@ order: 1
 ---
 The open-source edition runs the complete stack — API, web workspace, admin
 console — from one Docker Compose file. Execution environments are brought by
-you: run `mf daemon` on machines you own, connect a Kubernetes cluster, or
-paste a sprites.dev account token in the admin.
+you: run `mf daemon` on machines you own, or register a Kubernetes cluster or
+a sprites.dev organisation as a runtime provider in the admin.
 
 ## Install
 
@@ -210,8 +210,9 @@ leaving the password blank keeps the stored credential.
 
 Deletion is admin-only: Admin → Users → user detail → Danger zone.
 Requesting a deletion deactivates the account immediately — every session is
-revoked, sign-in is blocked on all providers, automations are paused,
-keep-alive stops — and the user gets an email with the final deletion date.
+revoked, sign-in is blocked on all providers, automations are paused, every
+sandbox's keep-awake switch is turned off — and the user gets an email with
+the final deletion date.
 
 The hard delete runs after a grace window (default 30 days,
 `MF_DELETION_GRACE_DAYS`). During the grace period an admin can restore the
@@ -238,13 +239,14 @@ Agents run on computers you attach, three ways:
   you own. [CLI and daemons on a self-hosted deployment](/docs/self-hosting-cli/)
   walks the whole flow; [Local daemons](/docs/local-daemons/) covers
   registration in detail.
-- **Kubernetes** — add a kubeconfig in the API env to run gateway/cronjob-class
-  frameworks; deploy the in-cluster exec gateway with the Helm chart at
+- **Kubernetes** — Admin → Infrastructure → Runtime providers: register the
+  cluster with its kubeconfig to run gateway/cronjob-class frameworks; deploy
+  the in-cluster exec gateway with the Helm chart at
   `apps/k8s-gateway/helm/manyfold-k8s-gateway` (its README covers the
   `MF_K8S_GATEWAY_URL` / `MF_K8S_GATEWAY_TOKEN` wiring).
-- **sprites.dev** — Admin → Infrastructure → Stateful sandbox accounts:
-  paste a sprites.dev account token to run coding agents on rented VMs;
-  concurrency follows the account's vendor limits.
+- **sprites.dev** — Admin → Infrastructure → Runtime providers: register the
+  organisation with its sprites.dev credential to run coding agents on rented
+  VMs; concurrency follows the organisation's vendor limits.
 
 ## Key rotation
 
@@ -253,6 +255,6 @@ Rotate `MF_API_CRYPTO_KEY` by moving the old key to `API_CRYPTO_KEY_V0`
 configured until no stored row still records key version 0; the
 `.env.example` in the repo documents the same flow for non-compose runs.
 
-## Chat Runner Requirements
+## Chat Daemon Requirements
 
-Claude Code, Codex, Gemini CLI, OpenClaw and Hermes chat require a connected mf daemon runner. Update older daemons with `mf update` and restart them. For Kubernetes, update the runtime image while preserving its PVC. OpenClaw and Hermes images must run the gateway and daemon together. `PUBLIC_API_BASE_URL` must be reachable from the runtime. Missing or outdated runners produce an explicit error; chat does not switch to direct runtime execution. Dify, Langflow and A2A continue to use their external APIs.
+Claude Code, Codex, Gemini CLI, OpenClaw and Hermes chat require a connected mf daemon on the agent's computer: every self-owned computer, stateful sandbox and cloud computer runs exactly one. Update older daemons with `mf update` and restart them. For Kubernetes, update the runtime image while preserving its PVC. OpenClaw and Hermes images must run the gateway and daemon together. `PUBLIC_API_BASE_URL` must be reachable from the machine. A missing or outdated daemon produces an explicit error; chat does not switch to direct runtime execution. Dify, Langflow and A2A continue to use their external APIs.

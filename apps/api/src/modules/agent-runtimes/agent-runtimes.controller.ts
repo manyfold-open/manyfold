@@ -1,21 +1,17 @@
-import { isExternal } from '@manyfold/shared'
 import type {
     AgentControlUiUrlResponse,
     AgentRuntimeSummary,
     RuntimeAccountView,
     SetControlUiBody,
-    SetDashboardBody,
-    SetKeepAliveBody
+    SetDashboardBody
 } from '@manyfold/shared'
 import {
-    BadRequestException,
     Body,
     ConflictException,
     Controller,
     Delete,
     Get,
     HttpCode,
-    Inject,
     InternalServerErrorException,
     NotFoundException,
     Param,
@@ -24,8 +20,6 @@ import {
     Query,
     UseGuards
 } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
-import { agents, type Database } from '@manyfold/db'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
@@ -34,22 +28,18 @@ import {
     SubjectAgentFromResource
 } from '@/common/decorators/subject-agent.decorator'
 import { boundAgentIdFromUser } from '@/modules/agents/agents.controller'
-import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { RenameRuntimeDto } from './dto/rename-runtime.dto'
-import { SpritesProvisioner } from './provisioning/sprites-provisioner'
-import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
+
+export const RUNTIME_AGENTS_BOUND_CODE = 'runtime.agents_bound'
 
 @Controller('agent-runtimes')
 @UseGuards(AuthGuard)
 export class AgentRuntimesController {
     constructor(
-        @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
-        private readonly spritesProvisioner: SpritesProvisioner,
-        private readonly k8sProvisioner: K8sProvisioner,
         private readonly dashboard: RuntimeDashboardService,
         // Appended last + @Optional so positional test construction keeps
         // working; absent only there.
@@ -80,6 +70,9 @@ export class AgentRuntimesController {
         return this.runtimes.toSummary(row)
     }
 
+    // R8: a runtime with agents on it is refused; an empty one is just a row.
+    // agents.runtime_id cascades, so this is the only guard between a delete
+    // and silently losing every agent on the runtime.
     @Delete(':id')
     @HttpCode(204)
     @RequireApiTokenScope('agent-runtimes:edit')
@@ -91,52 +84,13 @@ export class AgentRuntimesController {
         const row = await this.runtimes.findById(id)
         if (!row || row.userId !== user.userId)
             throw new NotFoundException(`agent runtime ${id} not found`)
-        if (row.kind === 'sprites') {
-            // Explicit runtime delete stays destructive: drop the VM too if this
-            // empties the host (vs deleting an agent, which preserves it).
-            await this.spritesProvisioner.teardownRuntime(row, {
-                reapImmediatelyIfEmpty: true
-            })
-            return
-        }
-        if (row.kind === 'k8s') {
-            // One framework on a pod host; the host, and whatever bought it,
-            // stay (ADR-0035).
-            await this.k8sProvisioner.teardownRuntime(row)
-            return
-        }
-        if (row.kind === 'daemon')
-            // Daemon runtimes are derived state: daemon-runtime-sync creates one
-            // per framework the daemon detects and only marks vanished ones
-            // 'stopped'. The single place they are removed is the host lifecycle
-            // (revoke, then permanent delete, which drops them in one tx), so
-            // there is nothing sensible for this route to do beyond saying so.
+        const bound = await this.runtimes.agentsCount(row.id)
+        if (bound > 0)
             throw new ConflictException({
-                code: 'runtime.daemon_managed',
-                message:
-                    'daemon runtimes are managed by their local daemon host; revoke the host and then delete it permanently to remove them'
+                code: RUNTIME_AGENTS_BOUND_CODE,
+                message: `runtime ${row.id} still has ${bound} agent(s); delete them first`
             })
-        if (row.kind === 'external') {
-            // agents.runtime_id cascades on delete, so removing this row would
-            // silently take the agent with it. External runtimes are created
-            // 1:1 by the external provisioner during agent creation and torn
-            // down when that agent is deleted — refuse while one is bound.
-            const [bound] = await this.db
-                .select({ id: agents.id })
-                .from(agents)
-                .where(eq(agents.runtimeId, row.id))
-                .limit(1)
-            if (bound)
-                throw new ConflictException({
-                    code: 'runtime.external_agent_bound',
-                    message: `this runtime belongs to external agent ${bound.id}; delete the agent instead`
-                })
-            await this.runtimes.delete(row.id)
-            return
-        }
-        throw new InternalServerErrorException(
-            `unknown runtime kind: ${row.kind}`
-        )
+        await this.runtimes.delete(row.id)
     }
 
     @Patch(':id/name')
@@ -211,30 +165,5 @@ export class AgentRuntimesController {
         @Body() body: SetDashboardBody
     ): Promise<AgentRuntimeSummary> {
         return this.dashboard.setDashboard(user.userId, id, !!body.enabled, false)
-    }
-
-    @Patch(':id/keep-alive')
-    @HttpCode(200)
-    @RequireApiTokenScope('agent-runtimes:edit')
-    @SubjectAgentFromResource('agentRuntime', 'id')
-    async setKeepAlive(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() body: SetKeepAliveBody
-    ): Promise<AgentRuntimeSummary> {
-        const row = await this.runtimes.findById(id)
-        if (!row || row.userId !== user.userId)
-            throw new NotFoundException(`agent runtime ${id} not found`)
-        if (row.kind !== 'sprites' || isExternal(row.framework))
-            throw new BadRequestException({
-                message: 'keep-alive is not supported for this runtime',
-                code: 'KEEP_ALIVE_UNSUPPORTED'
-            })
-        const next = await this.spritesProvisioner.setKeepAlive(
-            user.userId,
-            row,
-            !!body.enabled
-        )
-        return this.runtimes.toSummary(next)
     }
 }

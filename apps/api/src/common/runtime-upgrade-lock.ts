@@ -2,17 +2,17 @@ import { ConflictException } from '@nestjs/common'
 import type { Database } from '@manyfold/db'
 import { sql } from 'drizzle-orm'
 
-// Lock the physical installation, not the agent addressing it. Transaction
-// ownership spans API replicas and releases on either success or failure.
+// Lock the physical installation (the host, ADR-0036), not the agent
+// addressing it. Transaction ownership spans API replicas and releases on
+// either success or failure.
 export const withRuntimeUpgradeLock = async <T>(
     db: Database,
-    target: { accountId: string; spriteName: string; component: string },
+    target: { hostId: string; component: string },
     work: () => Promise<T>
 ): Promise<T> => {
     const key = JSON.stringify([
         'runtime-upgrade',
-        target.accountId,
-        target.spriteName,
+        target.hostId,
         target.component
     ])
     return db.transaction(async (tx) => {

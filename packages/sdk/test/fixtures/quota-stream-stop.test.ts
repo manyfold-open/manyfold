@@ -45,7 +45,7 @@ test(
         const client = createClient({
             baseUrl: `http://127.0.0.1:${address.port}`
         })
-        const handle = client.agents.streamSpriteStatus({
+        const handle = client.agents.streamHostStatus({
             onQuotaWarning: () => {},
             onError: (error) => errors.push(error)
         })

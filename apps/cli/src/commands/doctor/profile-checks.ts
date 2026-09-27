@@ -688,10 +688,10 @@ const connectionCheck = (p: ProfileFacts, ctx: DoctorContext): DoctorCheck => {
             `${reg.apiUrl} is not a Manyfold API: ${describeFailure(me)}`,
             { fix: reRegisterFix(mf), data }
         )
-    if (summary.status === 'revoked')
+    if (summary.status === 'retired')
         return check(
             'fail',
-            'this machine was revoked in Settings → Self-owned computers',
+            'this machine was retired in Settings → Self-owned computers',
             { fix: reRegisterFix(mf), data }
         )
     const restart = restartFix(

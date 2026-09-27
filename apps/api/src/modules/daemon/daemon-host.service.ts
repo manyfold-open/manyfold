@@ -3,7 +3,6 @@ import {
     DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_MIN_CLI_VERSION,
-    DAEMON_ONLINE_THRESHOLD_MS,
     DaemonHostSummary,
     DaemonOwnedTerminal,
     DaemonStartupMethod,
@@ -14,9 +13,11 @@ import {
     auditAction,
     cliChannelOfVersion,
     createObjectId,
+    daemonOnline,
     isCliUpdateAvailable,
     isCliVersionTooOld,
     isObjectId,
+    runtimeAvailability,
     DAEMON_FEATURE_HERDR_TERMINAL,
     herdrFrameworksFor,
     type UpgradeHerdrResponse
@@ -36,16 +37,18 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, eq, inArray } from 'drizzle-orm'
 import {
     agents,
     agentRuntimes,
     auditLogs,
     daemonTokens,
-    isManagedDaemonTokenPurpose,
+    hostDaemons,
     runtimeHosts,
     serviceLeases,
+    type AgentRuntimeInstallStatus,
     type Database,
+    type HostDaemonRow,
     type RuntimeHostRow
 } from '@manyfold/db'
 import {
@@ -55,8 +58,11 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import { HostsService } from '@/modules/hosts/hosts.service'
+import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { DaemonRegistryService } from './daemon-registry.service'
 import { DaemonRateLimitService } from './daemon-rate-limit.service'
+import { DaemonTokenService } from './daemon-token.service'
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
 import { DaemonCliVersionService } from './daemon-cli-version.service'
 import { CliVersionCatalogService } from './cli-version-catalog.service'
@@ -76,14 +82,29 @@ const isInitUnitStartup = (
 // boot loop (ADR-0035), or — for a manual start that says so (ADR-0029 §5) —
 // the daemon itself, by handing off to a successor it starts and rolling back
 // if that never comes up.
-const canRestartAfterUpdate = (host: {
+const canRestartAfterUpdate = (daemon: {
     startupMethod: DaemonStartupMethod | null
     clientFeatures: string[]
 }): boolean =>
-    isInitUnitStartup(host.startupMethod) ||
-    host.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
+    isInitUnitStartup(daemon.startupMethod) ||
+    daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
 
-const ONLINE_THRESHOLD_MS = DAEMON_ONLINE_THRESHOLD_MS
+// The host a daemon registered onto, with the connection row the register
+// or heartbeat just wrote.
+export interface RegisteredDaemon {
+    host: RuntimeHostRow
+    daemon: HostDaemonRow
+}
+
+export interface DaemonSummaryRuntime {
+    runtimeId: string
+    framework: DetectedFramework['framework']
+    name: string
+    status: AgentRuntimeInstallStatus
+}
+
+const isUsableHost = (host: RuntimeHostRow): boolean =>
+    host.status !== 'retired' && host.status !== 'deleting'
 
 @Injectable()
 export class DaemonHostService {
@@ -98,6 +119,9 @@ export class DaemonHostService {
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
         private readonly config: ConfigService,
+        private readonly hosts: HostsService,
+        private readonly hostDaemons: HostDaemonsService,
+        private readonly tokens: DaemonTokenService,
         // Appended last + @Optional so positional test construction keeps
         // working; absent, no herdr update is ever offered.
         @Optional()
@@ -168,135 +192,198 @@ export class DaemonHostService {
     }
 
     // Cross-channel upgrades are limited to local/staging deployments.
-    private crossChannelAllowed(host: RuntimeHostRow): boolean {
+    private crossChannelAllowed(daemon: HostDaemonRow | null): boolean {
         return (
             cliDevAllowedForDeployEnv(
                 resolveMfDeployEnv(this.config.get<string>('MF_DEPLOY_ENV'))
-            ) && !isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)
+            ) &&
+            !isCliVersionTooOld(daemon?.cliVersion ?? null, DAEMON_MIN_CLI_VERSION)
         )
     }
 
+    // Registration (ADR-0036 R1/R2/R5). A token bound to a host registers
+    // onto that host and nothing else; an unbound token is the user's own
+    // and its first register creates the `local` host it then binds to. In
+    // both cases the daemon's connection row is upserted for the host.
     async upsertOnRegister(args: {
         tokenId: string
         request: RegisterDaemonRequest
         lastIp: string | null
-    }): Promise<RuntimeHostRow> {
+    }): Promise<RegisteredDaemon> {
         const { tokenId, request, lastIp } = args
         this.assertSupportedVersion(request.cliVersion)
         return this.db.transaction(async (tx) => {
-            const [token] = await tx
+            const assertUsable = <T extends { revokedAt: Date | null; expiresAt: Date | null }>(
+                row: T | undefined
+            ): T => {
+                if (!row) throw new UnauthorizedException('token not found')
+                if (row.revokedAt)
+                    throw new UnauthorizedException('token revoked')
+                if (row.expiresAt && row.expiresAt < new Date())
+                    throw new UnauthorizedException('token expired')
+                return row
+            }
+            // Lock order host → token, the same as a host deletion's (host
+            // row, then its tokens through the cascade), so a registration
+            // racing the cleanup of its host waits instead of deadlocking.
+            const [peek] = await tx
+                .select()
+                .from(daemonTokens)
+                .where(eq(daemonTokens.id, tokenId))
+                .limit(1)
+            const boundHostId = assertUsable(peek).hostId
+            let boundRow: RuntimeHostRow | undefined
+            if (boundHostId) {
+                ;[boundRow] = await tx
+                    .select()
+                    .from(runtimeHosts)
+                    .where(eq(runtimeHosts.id, boundHostId))
+                    .for('update')
+                    .limit(1)
+            }
+            const [locked] = await tx
                 .select()
                 .from(daemonTokens)
                 .where(eq(daemonTokens.id, tokenId))
                 .for('update')
                 .limit(1)
-            if (!token) throw new UnauthorizedException('token not found')
-            if (token.revokedAt)
-                throw new UnauthorizedException('token revoked')
-            if (token.expiresAt && token.expiresAt < new Date())
-                throw new UnauthorizedException('token expired')
+            const token = assertUsable(locked)
+            if (token.hostId !== boundHostId)
+                throw new ForbiddenException('token binding changed')
 
             const userId = token.userId
-            // Managed-ness is a property of the token's purpose, never of
-            // anything the registering daemon says. Both platform runners (the
-            // sprite VM's installed daemon and the daemon baked into a k8s
-            // agent image) qualify; the predicate lives with the column so a
-            // new purpose cannot quietly register as a user-visible host.
-            const managed = isManagedDaemonTokenPurpose(token.purpose)
-            await this.runtimeAccess.lockDaemonHostRegistrationInTx(tx, userId)
-
-            const [existing] = await tx
-                .select()
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.userId, userId),
-                        eq(runtimeHosts.daemonUuid, request.daemonUuid)
-                    )
-                )
-                .for('update')
-                .limit(1)
-            if (token.daemonId && token.daemonId !== existing?.id)
-                throw new ForbiddenException(
-                    'token already bound to a different daemon'
-                )
-            if (existing?.managed && !managed)
-                throw new ForbiddenException(
-                    'ordinary token cannot register a managed daemon'
-                )
-
             const now = new Date()
-            const reported = {
-                name: request.name,
-                hostname: request.hostname,
-                os: request.os,
-                arch: request.arch,
-                cliVersion: request.cliVersion,
+            // The machine's filesystem contract, declared by its daemon
+            // (ADR-0014). Its display name is the user's once it exists.
+            const declared = {
                 homeDir: request.homeDir,
                 workspaceBaseDir: request.workspaceBaseDir,
-                skillsDir: request.skillsDir ?? null,
-                detectedFrameworks: request.detectedFrameworks,
-                terminalPty: request.terminalPty ?? null,
-                herdrVersion: request.herdrVersion ?? null,
-                lastSeenAt: now,
-                lastIp,
-                status: 'active' as const
+                skillsDir: request.skillsDir ?? null
             }
             let host: RuntimeHostRow
-            if (existing) {
-                if (existing.status === 'revoked') {
-                    this.log.warn(
-                        `reactivating revoked daemon host ${existing.id} on register`
+            if (token.hostId) {
+                const bound = boundRow
+                if (!bound || bound.userId !== userId)
+                    throw new ForbiddenException(
+                        'token is bound to a host that no longer exists'
                     )
-                    if (!managed)
-                        await this.runtimeAccess.assertDaemonHostSlotAvailableInTx(
-                            tx,
-                            userId
-                        )
-                }
+                if (!isUsableHost(bound))
+                    throw new ForbiddenException(
+                        `host ${bound.id} is ${bound.status}`
+                    )
+                const becomesReady =
+                    bound.kind === 'hosted' &&
+                    (bound.status === 'provisioning' ||
+                        bound.status === 'failed')
                 const [updated] = await tx
                     .update(runtimeHosts)
                     .set({
-                        ...reported,
-                        managed: sql`${runtimeHosts.managed} or ${managed}`,
+                        ...declared,
+                        ...(becomesReady
+                            ? { status: 'ready' as const, failureReason: null }
+                            : {}),
                         updatedAt: now
                     })
-                    .where(eq(runtimeHosts.id, existing.id))
+                    .where(eq(runtimeHosts.id, bound.id))
                     .returning()
                 host = updated
             } else {
-                if (!managed)
+                await this.runtimeAccess.lockDaemonHostRegistrationInTx(
+                    tx,
+                    userId
+                )
+                // The computer may already be one of the user's local
+                // hosts (a new token for the same machine): the persisted
+                // daemon uuid finds it again.
+                const [known] = await tx
+                    .select({ host: runtimeHosts, daemon: hostDaemons })
+                    .from(hostDaemons)
+                    .innerJoin(
+                        runtimeHosts,
+                        eq(runtimeHosts.id, hostDaemons.hostId)
+                    )
+                    .where(
+                        and(
+                            eq(hostDaemons.userId, userId),
+                            eq(hostDaemons.daemonUuid, request.daemonUuid)
+                        )
+                    )
+                    .for('update')
+                    .limit(1)
+                if (known && known.host.kind !== 'local')
+                    throw new ForbiddenException(
+                        'an ordinary token cannot register a hosted machine'
+                    )
+                if (known && known.host.status === 'deleting')
+                    throw new ForbiddenException(
+                        `host ${known.host.id} is deleting`
+                    )
+                if (known && known.host.status === 'retired') {
+                    // A retired host is never reactivated: the same machine
+                    // registering again becomes a new host, and the retired
+                    // one gives up the uuid it can no longer use.
+                    await tx
+                        .delete(hostDaemons)
+                        .where(eq(hostDaemons.hostId, known.host.id))
+                }
+                if (known && known.host.status !== 'retired') {
+                    const [updated] = await tx
+                        .update(runtimeHosts)
+                        .set({ ...declared, updatedAt: now })
+                        .where(eq(runtimeHosts.id, known.host.id))
+                        .returning()
+                    host = updated
+                } else {
                     await this.runtimeAccess.assertDaemonHostSlotAvailableInTx(
                         tx,
                         userId
                     )
-                const [inserted] = await tx
-                    .insert(runtimeHosts)
-                    .values({
-                        id: createObjectId('daemonHost'),
-                        userId,
-                        daemonUuid: request.daemonUuid,
-                        ...reported,
-                        managed
-                    })
-                    .returning()
-                host = inserted
+                    const [inserted] = await tx
+                        .insert(runtimeHosts)
+                        .values({
+                            id: createObjectId('daemonHost'),
+                            userId,
+                            kind: 'local',
+                            name: request.name,
+                            status: 'ready',
+                            ...declared
+                        })
+                        .returning()
+                    host = inserted
+                }
+                await tx
+                    .update(daemonTokens)
+                    .set({ hostId: host.id })
+                    .where(eq(daemonTokens.id, token.id))
             }
 
-            await tx
-                .update(daemonTokens)
-                .set({ daemonId: host.id })
-                .where(eq(daemonTokens.id, token.id))
-            return host
+            const daemon = await this.hostDaemons.upsert(
+                host.id,
+                {
+                    userId,
+                    daemonUuid: request.daemonUuid,
+                    tokenId: token.id,
+                    hostname: request.hostname,
+                    os: request.os,
+                    arch: request.arch,
+                    cliVersion: request.cliVersion,
+                    herdrVersion: request.herdrVersion ?? null,
+                    terminalPty: request.terminalPty ?? null,
+                    detectedFrameworks: request.detectedFrameworks,
+                    lastSeenAt: now,
+                    lastIp
+                },
+                tx
+            )
+            return { host, daemon }
         })
     }
 
-    // Fires every 15s per online daemon, so the steady-state SET is trimmed to
-    // the presence column alone: the reported metadata (including the
+    // Fires every 15s per online daemon and writes host_daemons only: the
+    // host row never sees a heartbeat. The steady-state SET is trimmed to
+    // the presence column alone; the reported metadata (including the
     // detectedFrameworks JSONB) is only re-written when it actually differs.
-    // lastSeenAt always advances — the 45s presence sweep reads it, and a
-    // skipped touch would mark a live daemon offline. Returns the post-write
-    // row so the caller does not re-read what it just wrote (#629).
+    // lastSeenAt always advances — presence is derived from it (#629).
     async heartbeat(args: {
         daemonId: string
         detectedFrameworks: DetectedFramework[]
@@ -307,138 +394,130 @@ export class DaemonHostService {
         // undefined = an older daemon that does not report it (kept as is);
         // null = looked and found nothing.
         herdrVersion?: string | null
-    }): Promise<RuntimeHostRow | null> {
+    }): Promise<RegisteredDaemon | null> {
         this.assertSupportedVersion(args.cliVersion)
-        const host = await this.findById(args.daemonId)
+        const host = await this.hosts.findById(args.daemonId)
         if (!host) throw new NotFoundException('daemon host not found')
-        if (host.status === 'revoked')
-            throw new ForbiddenException('daemon host has been revoked')
+        if (!isUsableHost(host))
+            throw new ForbiddenException(`daemon host is ${host.status}`)
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        if (!daemon)
+            throw new NotFoundException(
+                'daemon not registered on this host; call /register first'
+            )
         const now = new Date()
         const terminalPty = args.terminalPty ?? null
-        const changed: Partial<RuntimeHostRow> = {}
+        const changed: Partial<HostDaemonRow> = {}
         // JSONB does not preserve object-key order; array order still matters.
         if (
-            !isDeepStrictEqual(host.detectedFrameworks, args.detectedFrameworks)
+            !isDeepStrictEqual(daemon.detectedFrameworks, args.detectedFrameworks)
         )
             changed.detectedFrameworks = args.detectedFrameworks
-        if (host.cliVersion !== args.cliVersion)
+        if (daemon.cliVersion !== args.cliVersion)
             changed.cliVersion = args.cliVersion
-        if (host.startupMethod !== args.startupMethod)
+        if (daemon.startupMethod !== args.startupMethod)
             changed.startupMethod = args.startupMethod
-        if (host.terminalPty !== terminalPty) changed.terminalPty = terminalPty
+        if (daemon.terminalPty !== terminalPty) changed.terminalPty = terminalPty
         if (
             args.clientFeatures &&
-            !isDeepStrictEqual(host.clientFeatures, args.clientFeatures)
+            !isDeepStrictEqual(daemon.clientFeatures, args.clientFeatures)
         )
             changed.clientFeatures = args.clientFeatures
         if (
             args.herdrVersion !== undefined &&
-            host.herdrVersion !== args.herdrVersion
+            daemon.herdrVersion !== args.herdrVersion
         )
             changed.herdrVersion = args.herdrVersion
-        if (host.status !== 'active') changed.status = 'active'
-        const patch: Partial<RuntimeHostRow> = {
+        const patch: Partial<HostDaemonRow> = {
             ...changed,
             ...(Object.keys(changed).length > 0 ? { updatedAt: now } : {}),
             lastSeenAt: now
         }
-        const [updated] = await this.db
-            .update(runtimeHosts)
-            .set(patch)
-            .where(eq(runtimeHosts.id, args.daemonId))
-            .returning()
-        return updated ?? null
+        const updated = await this.hostDaemons.patch(host.id, patch)
+        return { host, daemon: updated ?? { ...daemon, ...patch } }
     }
 
     async touchLastSeen(daemonId: string): Promise<void> {
-        const host = await this.findById(daemonId)
-        if (!host || host.status === 'revoked') return
-        await this.db
-            .update(runtimeHosts)
-            .set({ lastSeenAt: new Date(), status: 'active' })
-            .where(eq(runtimeHosts.id, daemonId))
+        await this.hostDaemons.patch(daemonId, { lastSeenAt: new Date() })
     }
 
     async findById(id: string): Promise<RuntimeHostRow | null> {
-        const [row] = await this.db
-            .select()
-            .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, id))
-            .limit(1)
-        return row ?? null
+        return this.hosts.findById(id)
     }
 
-    // User-facing: "the machines you registered". Platform-managed hosts (a
-    // Phase 3 sprite runner is one) are excluded — the user did not create it,
-    // cannot act on it, and it would sit in this list looking like a machine
-    // they could target.
+    async findDaemon(hostId: string): Promise<HostDaemonRow | null> {
+        return this.hostDaemons.findByHostId(hostId)
+    }
+
+    // User-facing: "the computers you connected". Hosted hosts are the
+    // platform's machines and live under sandboxes / cloud computers.
     async listForUser(userId: string): Promise<RuntimeHostRow[]> {
-        return this.db
-            .select()
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.userId, userId),
-                    eq(runtimeHosts.kind, 'daemon'),
-                    eq(runtimeHosts.managed, false)
-                )
-            )
+        return this.hosts.listForUser(userId, 'local')
     }
 
+    // Retire a local host (ADR-0036 R5): its tokens are revoked in the same
+    // transaction, its connection dropped, and nothing can reactivate it —
+    // only permanent deletion is left.
     async revoke(args: { id: string; userId: string }): Promise<void> {
-        const now = new Date()
-        await this.db
-            .update(runtimeHosts)
-            .set({ status: 'revoked', updatedAt: now })
-            .where(
-                and(
-                    eq(runtimeHosts.id, args.id),
-                    eq(runtimeHosts.userId, args.userId)
+        const retired = await this.db.transaction(async (tx) => {
+            const [row] = await tx
+                .update(runtimeHosts)
+                .set({ status: 'retired', updatedAt: new Date() })
+                .where(
+                    and(
+                        eq(runtimeHosts.id, args.id),
+                        eq(runtimeHosts.userId, args.userId),
+                        eq(runtimeHosts.kind, 'local')
+                    )
                 )
-            )
-        await this.db
-            .update(agentRuntimes)
-            .set({ status: 'stopped', updatedAt: now })
-            .where(eq(agentRuntimes.daemonId, args.id))
-        await this.db
-            .update(agents)
-            .set({
-                status: 'stopped',
-                failureReason: 'daemon revoked',
-                updatedAt: now
-            })
-            .where(eq(agents.daemonId, args.id))
+                .returning({ id: runtimeHosts.id })
+            if (!row) return false
+            await this.tokens.revokeForHost(args.id, tx)
+            return true
+        })
+        if (!retired) throw new NotFoundException('daemon host not found')
+        this.registry.disconnect(args.id, 'daemon host revoked')
     }
 
-    async deleteRevoked(args: {
+    // Permanent deletion of a retired local host: database only, in one
+    // transaction, refused while any agent still lives on it (R8).
+    async deleteRetired(args: {
         id: string
         actorId: string
         userId?: string
     }): Promise<void> {
-        const host = await this.findById(args.id)
+        const host = await this.hosts.findById(args.id)
         if (
             !host ||
-            host.kind !== 'daemon' ||
+            host.kind !== 'local' ||
             (args.userId !== undefined && host.userId !== args.userId)
         ) {
             throw new NotFoundException('daemon host not found')
         }
-        if (host.status !== 'revoked')
+        if (host.status !== 'retired')
             throw new ConflictException(
-                'daemon host must be revoked before deletion'
+                'daemon host must be retired before deletion'
             )
+        const agentCount = await this.agentCount(host.id)
+        if (agentCount > 0)
+            throw new ConflictException({
+                code: 'HOST_NOT_EMPTY',
+                message: `daemon host still has ${agentCount} agent(s); delete them first`,
+                count: agentCount
+            })
         const deletedRuntimeCount = await this.db.transaction(async (tx) => {
             const deletedRuntimes = await tx
                 .delete(agentRuntimes)
-                .where(eq(agentRuntimes.daemonId, args.id))
+                .where(eq(agentRuntimes.hostId, args.id))
                 .returning({ id: agentRuntimes.id })
+            await this.hostDaemons.deleteByHostId(args.id, tx)
             const [deleted] = await tx
                 .delete(runtimeHosts)
                 .where(
                     and(
                         eq(runtimeHosts.id, args.id),
-                        eq(runtimeHosts.kind, 'daemon'),
-                        eq(runtimeHosts.status, 'revoked'),
+                        eq(runtimeHosts.kind, 'local'),
+                        eq(runtimeHosts.status, 'retired'),
                         args.userId === undefined
                             ? undefined
                             : eq(runtimeHosts.userId, args.userId)
@@ -447,9 +526,11 @@ export class DaemonHostService {
                 .returning({ id: runtimeHosts.id })
             if (!deleted)
                 throw new ConflictException(
-                    'daemon host must be revoked before deletion'
+                    'daemon host must be retired before deletion'
                 )
-            await tx.delete(serviceLeases).where(eq(serviceLeases.name, `daemon-config:${args.id}`))
+            await tx
+                .delete(serviceLeases)
+                .where(eq(serviceLeases.name, `daemon-config:${args.id}`))
             return deletedRuntimes.length
         })
         await this.audit(args.actorId, auditAction.DAEMON_DELETED, args.id, {
@@ -469,7 +550,7 @@ export class DaemonHostService {
                 and(
                     eq(runtimeHosts.id, args.id),
                     eq(runtimeHosts.userId, args.userId),
-                    eq(runtimeHosts.kind, 'daemon')
+                    eq(runtimeHosts.kind, 'local')
                 )
             )
             .returning()
@@ -477,20 +558,28 @@ export class DaemonHostService {
         return updated
     }
 
-    isOnline(host: RuntimeHostRow): boolean {
-        if (host.status !== 'active') return false
-        if (isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)) return false
-        if (!host.rpcLastSeenAt) return false
-        return Date.now() - host.rpcLastSeenAt.getTime() < ONLINE_THRESHOLD_MS
+    // Presence is derived (ADR-0036): the daemon's last heartbeat inside the
+    // window, nothing stored and nothing swept.
+    isOnline(daemon: HostDaemonRow | null | undefined): boolean {
+        return daemonOnline(daemon)
+    }
+
+    async agentCount(hostId: string): Promise<number> {
+        const [row] = await this.db
+            .select({ value: count() })
+            .from(agents)
+            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
+            .where(eq(agentRuntimes.hostId, hostId))
+        return Number(row?.value ?? 0)
     }
 
     async resolveNeedsUpgradeMap(
-        daemonIds: Array<string | null | undefined>
+        hostIds: Array<string | null | undefined>
     ): Promise<Map<string, boolean>> {
         const result = new Map<string, boolean>()
         const uniqueIds = Array.from(
             new Set(
-                daemonIds.filter(
+                hostIds.filter(
                     (id): id is string => typeof id === 'string' && id.length > 0
                 )
             )
@@ -499,11 +588,11 @@ export class DaemonHostService {
         const { minVersion } =
             await this.adminSettings.getCachedCliMinimumVersion()
         const rows = await this.db
-            .select({ id: runtimeHosts.id, cliVersion: runtimeHosts.cliVersion })
-            .from(runtimeHosts)
-            .where(inArray(runtimeHosts.id, uniqueIds))
+            .select({ hostId: hostDaemons.hostId, cliVersion: hostDaemons.cliVersion })
+            .from(hostDaemons)
+            .where(inArray(hostDaemons.hostId, uniqueIds))
         const cliVersionById = new Map<string, string | null>()
-        for (const row of rows) cliVersionById.set(row.id, row.cliVersion)
+        for (const row of rows) cliVersionById.set(row.hostId, row.cliVersion)
         for (const id of uniqueIds) {
             const cliVersion = cliVersionById.get(id) ?? null
             result.set(id,
@@ -516,11 +605,8 @@ export class DaemonHostService {
 
     async toSummary(
         host: RuntimeHostRow,
-        runtimes: Array<{
-            runtimeId: string
-            framework: DetectedFramework['framework']
-            name: string
-        }>,
+        daemon: HostDaemonRow | null,
+        runtimes: DaemonSummaryRuntime[],
         agentCount: number
     ): Promise<DaemonHostSummary> {
         const { minVersion } =
@@ -529,58 +615,77 @@ export class DaemonHostService {
             await this.cliVersion.getCachedLatest()
         const latestHerdrVersion =
             (await this.herdrVersions?.getCachedLatest())?.version ?? null
+        const online = this.isOnline(daemon)
+        const features = daemon?.clientFeatures ?? []
+        const cliVersion = daemon?.cliVersion ?? null
         return {
             id: host.id,
             name: host.name,
-            // daemon-only summary (callers filter kind='daemon'), so daemonUuid
-            // is always set; coerce for the now-nullable column type.
-            daemonUuid: host.daemonUuid ?? '',
-            hostname: host.hostname,
-            os: host.os,
-            arch: host.arch,
-            cliVersion: host.cliVersion,
+            kind: host.kind,
+            registered: daemon !== null,
+            daemonUuid: daemon?.daemonUuid ?? '',
+            hostname: daemon?.hostname ?? null,
+            os: daemon?.os ?? null,
+            arch: daemon?.arch ?? null,
+            cliVersion,
             needsUpgrade:
-                isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION) ||
-                isCliVersionTooOld(host.cliVersion, minVersion),
+                isCliVersionTooOld(cliVersion, DAEMON_MIN_CLI_VERSION) ||
+                isCliVersionTooOld(cliVersion, minVersion),
             latestCliVersion,
             updateAvailable: isCliUpdateAvailable(
                 channel,
-                host.cliVersion,
+                cliVersion,
                 latestCliVersion
             ),
             canRemoteUpgrade:
-                this.isOnline(host) &&
-                canRestartAfterUpdate(host) &&
-                host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE),
-            canCrossChannelUpgrade: this.crossChannelAllowed(host),
-            canResumeInTerminal: host.clientFeatures.includes(
-                DAEMON_FEATURE_PTY_COMMAND
-            ),
+                online &&
+                daemon !== null &&
+                canRestartAfterUpdate(daemon) &&
+                features.includes(DAEMON_FEATURE_DAEMON_UPDATE),
+            canCrossChannelUpgrade: this.crossChannelAllowed(daemon),
+            canResumeInTerminal: features.includes(DAEMON_FEATURE_PTY_COMMAND),
             canOpenInHerdr:
-                host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
-                host.clientFeatures.includes(DAEMON_FEATURE_PTY_COMMAND),
-            herdrFrameworks: host.clientFeatures.includes(
-                DAEMON_FEATURE_PTY_COMMAND
-            )
-                ? herdrFrameworksFor(host.clientFeatures)
+                features.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
+                features.includes(DAEMON_FEATURE_PTY_COMMAND),
+            herdrFrameworks: features.includes(DAEMON_FEATURE_PTY_COMMAND)
+                ? herdrFrameworksFor(features)
                 : [],
-            herdrVersion: host.herdrVersion,
+            herdrVersion: daemon?.herdrVersion ?? null,
             latestHerdrVersion,
             herdrUpdateAvailable: HerdrVersionService.updateAvailable(
-                host.herdrVersion,
+                daemon?.herdrVersion ?? null,
                 latestHerdrVersion
             ),
-            startupMethod: host.startupMethod,
+            startupMethod: daemon?.startupMethod ?? null,
             homeDir: host.homeDir,
             workspaceBaseDir: host.workspaceBaseDir,
-            detectedFrameworks: host.detectedFrameworks,
+            detectedFrameworks: daemon?.detectedFrameworks ?? [],
             status: host.status,
-            online: this.isOnline(host),
-            lastSeenAt: host.lastSeenAt?.toISOString() ?? null,
+            online,
+            lastSeenAt: daemon?.lastSeenAt?.toISOString() ?? null,
             createdAt: host.createdAt.toISOString(),
             agentCount,
-            runtimes
+            runtimes: runtimes.map((r) => ({
+                runtimeId: r.runtimeId,
+                framework: r.framework,
+                name: r.name,
+                status: r.status,
+                availability: runtimeAvailability({
+                    runtime: { status: r.status },
+                    host: { kind: host.kind, status: host.status },
+                    daemonOnline: online
+                })
+            }))
         }
+    }
+
+    private async requireOnlineDaemon(host: RuntimeHostRow): Promise<HostDaemonRow> {
+        if (!isUsableHost(host))
+            throw new BadRequestException(`daemon host is ${host.status}`)
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        if (!this.isOnline(daemon) || !daemon)
+            throw new BadRequestException('daemon is offline')
+        return daemon
     }
 
     // herdr on the machine (ADR-0031): herdr's own updater, run by the daemon,
@@ -590,11 +695,8 @@ export class DaemonHostService {
         actorId: string
     }): Promise<UpgradeHerdrResponse> {
         const { host, actorId } = args
-        if (host.status === 'revoked')
-            throw new BadRequestException('daemon host has been revoked')
-        if (!this.isOnline(host))
-            throw new BadRequestException('daemon is offline')
-        if (!host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL))
+        const daemon = await this.requireOnlineDaemon(host)
+        if (!daemon.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL))
             throw new BadRequestException(
                 'herdr is not installed on this machine, or its Manyfold CLI is too old to update it from here'
             )
@@ -618,19 +720,19 @@ export class DaemonHostService {
         }
         const toVersion =
             typeof ack?.toVersion === 'string' ? ack.toVersion : null
-        if (toVersion && toVersion !== host.herdrVersion)
-            await this.db
-                .update(runtimeHosts)
-                .set({ herdrVersion: toVersion, updatedAt: new Date() })
-                .where(eq(runtimeHosts.id, host.id))
+        if (toVersion && toVersion !== daemon.herdrVersion)
+            await this.hostDaemons.patch(host.id, {
+                herdrVersion: toVersion,
+                updatedAt: new Date()
+            })
         this.log.log(
-            `daemon.herdr.upgraded daemonId=${host.id} from=${host.herdrVersion ?? 'none'} to=${toVersion ?? 'unknown'}`
+            `daemon.herdr.upgraded daemonId=${host.id} from=${daemon.herdrVersion ?? 'none'} to=${toVersion ?? 'unknown'}`
         )
-        return { ok: true, fromVersion: host.herdrVersion, toVersion }
+        return { ok: true, fromVersion: daemon.herdrVersion, toVersion }
     }
 
     private async resolveDaemonTarget(
-        host: RuntimeHostRow,
+        daemon: HostDaemonRow,
         requested: string | undefined
     ): Promise<{ version: string | null; channel?: MfCliChannel }> {
         if (!requested) {
@@ -644,10 +746,10 @@ export class DaemonHostService {
                 `unknown mf CLI version ${requested}`
             )
         const requestedChannel = cliChannelOfVersion(requested)
-        const daemonChannel = cliChannelOfVersion(host.cliVersion)
+        const daemonChannel = cliChannelOfVersion(daemon.cliVersion)
         if (requestedChannel === daemonChannel) return { version: requested }
         // The channel override must accompany a cross-channel target.
-        if (!this.crossChannelAllowed(host))
+        if (!this.crossChannelAllowed(daemon))
             throw new BadRequestException(
                 `${requested} is on the ${requestedChannel} channel but this daemon is on ${daemonChannel}; cross-channel upgrades are only available in local/staging`
             )
@@ -660,11 +762,8 @@ export class DaemonHostService {
         targetVersion?: string
     }): Promise<UpgradeDaemonHostResponse> {
         const { host, actorId } = args
-        if (host.status === 'revoked')
-            throw new BadRequestException('daemon host has been revoked')
-        if (!this.isOnline(host))
-            throw new BadRequestException('daemon is offline')
-        if (!canRestartAfterUpdate(host))
+        const daemon = await this.requireOnlineDaemon(host)
+        if (!canRestartAfterUpdate(daemon))
             throw new BadRequestException(
                 'this daemon is not managed by an init unit (launchd/systemd); run `mf update` then restart it on the machine'
             )
@@ -678,7 +777,7 @@ export class DaemonHostService {
         // cross-channel target (gated above) rides a `channel` override that
         // tells the daemon which CDN to pull from. No target = latest.
         const { version: targetVersion, channel } =
-            await this.resolveDaemonTarget(host, args.targetVersion)
+            await this.resolveDaemonTarget(daemon, args.targetVersion)
         const payload: Record<string, unknown> = {}
         if (targetVersion) payload.targetVersion = targetVersion
         if (channel) payload.channel = channel
@@ -694,7 +793,7 @@ export class DaemonHostService {
             const detail = (err as Error).message
             if (/not_implemented/i.test(detail))
                 throw new ConflictException(
-                    `${host.name} is running CLI ${host.cliVersion ?? 'an older version'}, which is too old to upgrade remotely. On that machine, reinstall the CLI and run \`mf daemon start\` (this also migrates an older \`nca\` install and keeps the same agents); afterwards you can upgrade from here.`
+                    `${host.name} is running CLI ${daemon.cliVersion ?? 'an older version'}, which is too old to upgrade remotely. On that machine, reinstall the CLI and run \`mf daemon start\` (this also migrates an older \`nca\` install and keeps the same agents); afterwards you can upgrade from here.`
                 )
             throw new ServiceUnavailableException(
                 `daemon upgrade failed: ${detail}`
@@ -705,7 +804,7 @@ export class DaemonHostService {
         const deferred = ack?.deferred === true
         const result: UpgradeDaemonHostResponse = {
             ok: true,
-            fromVersion: host.cliVersion,
+            fromVersion: daemon.cliVersion,
             toVersion: toVersion ?? null,
             restarting:
                 typeof ack?.restarting === 'boolean'
@@ -721,7 +820,7 @@ export class DaemonHostService {
             auditAction.DAEMON_UPGRADE_REQUESTED,
             host.id,
             {
-                fromVersion: host.cliVersion,
+                fromVersion: daemon.cliVersion,
                 toVersion: result.toVersion,
                 ...(deferred ? { deferred: true } : {})
             }

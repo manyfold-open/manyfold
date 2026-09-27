@@ -61,7 +61,7 @@ export const createQuotaFixture = async (
             userId,
             name: 'Quota fixture',
             framework: 'claude-code',
-            kind: 'sprites'
+            status: 'ready'
         })
     await db
         .insert(agents)
@@ -71,9 +71,8 @@ export const createQuotaFixture = async (
             runtimeId,
             name: 'Quota fixture',
             framework: 'claude-code',
-            runtime: 'sprites',
             internalId: agentId,
-            status: 'running'
+            status: 'ready'
         })
     await db.insert(automations).values({
         id: automationId,

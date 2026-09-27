@@ -19,9 +19,9 @@ import { SandboxesModule } from '@/modules/sandboxes/sandboxes.module'
 import { PodHostsModule } from '@/modules/pod-hosts/pod-hosts.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
+import { RuntimeProvidersModule } from '@/modules/runtime-providers/runtime-providers.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
-import { ClustersModule } from '@/modules/clusters/clusters.module'
 import { TerminalModule } from '@/modules/terminal/terminal.module'
 import { FilesModule } from '@/modules/agents/files/files.module'
 import { UsageModule } from '@/modules/usage/usage.module'
@@ -63,6 +63,7 @@ export const CORE_MODULES = [
     FrameworkExtensionsModule,
     DbModule,
     SecretsModule,
+    HostsModule,
     K8sModule,
     HealthModule,
     AuthModule,
@@ -71,8 +72,7 @@ export const CORE_MODULES = [
     UsersModule,
     UserDeletionModule,
     UserExportModule,
-    SpritesAccountsModule,
-    ClustersModule,
+    RuntimeProvidersModule,
     AgentsModule,
     AgentRuntimesModule,
     RuntimeAuthModule,

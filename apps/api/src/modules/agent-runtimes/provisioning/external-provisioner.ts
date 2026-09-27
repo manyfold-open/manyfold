@@ -20,6 +20,9 @@ export interface ExternalProvisionOutput {
     runtime: AgentRuntimeRow
 }
 
+// An external-API framework has no machine (ADR-0036 R10): its runtime row
+// keeps host_id null, is ready as soon as it exists, and is one-per-agent.
+// The provider binding stays on the agent.
 @Injectable()
 export class ExternalAgentProvisioner {
     private readonly log = new Logger(ExternalAgentProvisioner.name)
@@ -47,7 +50,7 @@ export class ExternalAgentProvisioner {
             userId: input.userId,
             name: input.runtimeName,
             framework: input.framework,
-            kind: 'external',
+            hostId: null,
             status: 'ready',
             mountPath: '/workspace',
             currentPhase: null

@@ -41,7 +41,11 @@ export const buildQuotaConflictRequest = (
     }
     if (!isConcurrentLimitReached(input.err)) return null
     const runningAgents = input.candidates.filter(
-        (a) => a.id !== input.newAgent.id && a.spriteStatus === 'running'
+        (a) =>
+            a.id !== input.newAgent.id &&
+            a.runtime === 'sprites' &&
+            a.hostId !== null &&
+            a.powerState === 'running'
     )
     return {
         kind: 'concurrent',

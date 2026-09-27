@@ -1,8 +1,24 @@
-import type { AgentFramework } from '@manyfold/shared'
-import type { Agent, AgentRuntimeRow } from '@manyfold/db'
+import type { AgentFramework, AgentRuntime, RuntimeProviderKind } from '@manyfold/shared'
+import type {
+    Agent,
+    AgentRuntimeRow,
+    HostDaemonRow,
+    RuntimeHostRow
+} from '@manyfold/db'
 
-export interface AgentAdapterContext {
+// Where a runtime runs, resolved once through agent → runtime → host → host
+// daemon (ADR-0036). RuntimeContextService returns a superset of this shape,
+// so a context can be passed wherever a target is expected.
+export interface RuntimeTarget {
     runtime: AgentRuntimeRow
+    // null for an external-API runtime
+    host: RuntimeHostRow | null
+    daemon: HostDaemonRow | null
+    providerKind: RuntimeProviderKind | null
+    placement: AgentRuntime
+}
+
+export interface AgentAdapterContext extends RuntimeTarget {
     agentId: string
     name: string
 }
@@ -11,8 +27,7 @@ export interface AgentAdapterCreateResult {
     workspacePath: string
 }
 
-export interface AgentAdapterListContext {
-    runtime: AgentRuntimeRow
+export interface AgentAdapterListContext extends RuntimeTarget {
     primaryAgentId: string | null
 }
 
@@ -24,8 +39,7 @@ export interface FrameworkAgent {
     extras: Record<string, unknown>
 }
 
-export interface AddAgentContext {
-    runtime: AgentRuntimeRow
+export interface AddAgentContext extends RuntimeTarget {
     primaryAgentId: string | null
     agentId: string
     internalId: string
@@ -42,14 +56,12 @@ export interface AddAgentResult {
     extras: Record<string, unknown>
 }
 
-export interface RemoveAgentContext {
-    runtime: AgentRuntimeRow
+export interface RemoveAgentContext extends RuntimeTarget {
     agent: Agent
     primaryAgentId: string | null
 }
 
-export interface UpdateAgentContext {
-    runtime: AgentRuntimeRow
+export interface UpdateAgentContext extends RuntimeTarget {
     agent: Agent
     patch: { name?: string; description?: string }
 }
@@ -67,7 +79,7 @@ export class NotSupportedError extends Error {
 export interface AgentAdapter {
     readonly framework: AgentFramework
     createAgent(ctx: AgentAdapterContext): Promise<AgentAdapterCreateResult>
-    deleteAgent(ctx: { runtime: AgentRuntimeRow; agent: Agent }): Promise<void>
+    deleteAgent(ctx: RuntimeTarget & { agent: Agent }): Promise<void>
     /**
      * Implementations must THROW when enumeration is impossible (unreachable
      * runtime, missing credentials, malformed output). An empty array means

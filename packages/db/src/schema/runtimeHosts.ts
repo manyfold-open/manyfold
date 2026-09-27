@@ -7,20 +7,19 @@ import {
     pgTable,
     text,
     timestamp,
-    uniqueIndex
+    index
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { users } from './users'
-import { spritesAccounts } from './spritesAccounts'
-import { k8sClusters } from './k8sClusters'
+import { runtimeProviders } from './runtimeProviders'
 
-// sandbox-only: one measurement of the whole sprite VM, taken inside the VM.
+// hosted-only: one measurement of the whole machine, taken inside it.
 // vmUsedBytes is the rootfs df reading — sprites.dev bills per-VM rootfs, so
 // this (not a per-agent sum) is what the storage meter aggregates. homes are
 // per-framework config dirs (~/.claude …) shared by that framework's agents on
-// the VM; workspaces are the per-agent `<mountPath>/<agentId>` dirs. Both list
-// only the dirs that actually returned a reading, so a missing entry means
-// "not measured" rather than 0.
+// the machine; workspaces are the per-agent `<mountPath>/<agentId>` dirs. Both
+// list only the dirs that actually returned a reading, so a missing entry
+// means "not measured" rather than 0.
 //
 // 'stale' is the parser's "nothing came back" verdict and is never persisted —
 // a failed measurement leaves the previous row untouched.
@@ -33,27 +32,63 @@ export interface SandboxStorageBreakdown {
     measuredVia: 'df' | 'du' | 'stale'
 }
 
-export interface DetectedFramework {
-    framework:
-        | 'claude-code'
-        | 'codex'
-        | 'gemini-cli'
-        | 'pi'
-        | 'antigravity-cli'
-        | 'openclaw'
-        | 'hermes'
-    version: string | null
-    path: string
-    // openclaw only: the resident gateway the daemon discovered on the host
-    // (never started). Mirrors DetectedOpenclawGateway in @manyfold/shared,
-    // restated here because the db package cannot depend on shared. The API
-    // reads it to admit or refuse an openclaw ACP turn, so the column's type
-    // has to carry it.
-    gateway?: {
-        port: number | null
-        reachable: boolean | null
-        checkedAt: string
-    }
+// ADR-0036: who owns the machine. `local` is a computer the user registered
+// with their own `mf daemon`; `hosted` is a machine the platform provisioned
+// on a runtime provider and whose daemon the platform brings up. Only
+// provisioning code writes `hosted`; nothing a registering daemon reports
+// participates in the decision.
+export type RuntimeHostKind = 'local' | 'hosted'
+
+// Lifecycle, distinct from power and from daemon presence.
+//   provisioning: the provider is still creating the machine or its daemon
+//                 has not registered yet
+//   ready:        usable
+//   failed:       provisioning failed (failure_reason says why)
+//   deleting:     remote destroy requested but not yet confirmed
+//   retired:      the user revoked it — token revoked, registration and
+//                 WebSocket refused, only permanent deletion is left
+export type RuntimeHostStatus =
+    | 'provisioning'
+    | 'ready'
+    | 'failed'
+    | 'deleting'
+    | 'retired'
+
+// hosted-only power observation as the provider adapter maps it (sprites:
+// running / warm / cold → running / suspended / stopped).
+export type RuntimeHostPowerState =
+    | 'running'
+    | 'suspended'
+    | 'stopped'
+    | 'unknown'
+
+// Provider-defined machine identity and placement. Opaque to the core; the
+// adapter for `provider_id`'s kind is the only reader and writer. Typed here
+// so the two adapters that exist share one declaration.
+export interface SpritesProviderRef {
+    kind: 'sprites'
+    spriteName: string
+    spriteId: string | null
+}
+
+export interface K8sProviderRef {
+    kind: 'k8s'
+    namespace: string
+    ingressHost: string | null
+    podPhase: string | null
+}
+
+export type RuntimeHostProviderRef = SpritesProviderRef | K8sProviderRef
+
+// Bookkeeping for the host's keep-awake lease (the provider-side activity
+// task that holds the machine running): what the platform last asked for and
+// last verified, so any API instance can pick the loop up after a restart.
+export interface KeepAwakeLease {
+    generation: number
+    taskName: string | null
+    desiredStateAt: string | null
+    lastVerifiedAt: string | null
+    lastError: string | null
 }
 
 export const runtimeHosts = pgTable(
@@ -63,144 +98,77 @@ export const runtimeHosts = pgTable(
         userId: text('user_id')
             .notNull()
             .references(() => users.id, { onDelete: 'cascade' }),
-        // Discriminator: 'daemon' = registered local machine, 'sandbox' = sprite
-        // VM, 'pod' = Kubernetes pod host (ADR-0035). All share this machine
-        // table so one host can carry many per-framework agent_runtimes.
-        // Defaults to 'daemon' so the existing daemon register/heartbeat inserts
-        // need no change.
-        kind: text('kind', {
-            enum: ['daemon', 'sandbox', 'pod']
+        kind: text('kind', { enum: ['local', 'hosted'] })
+            .notNull()
+            .$type<RuntimeHostKind>(),
+        // hosted-only. RESTRICT: a provider that still owns machines cannot
+        // be deleted.
+        providerId: text('provider_id').references(() => runtimeProviders.id, {
+            onDelete: 'restrict'
+        }),
+        providerRef: jsonb('provider_ref').$type<RuntimeHostProviderRef>(),
+        // Display name; user-renamable. hosted defaults to a platform name
+        // (`sandbox-NNN`), local to what the daemon reported.
+        name: text('name').notNull(),
+        status: text('status', {
+            enum: ['provisioning', 'ready', 'failed', 'deleting', 'retired']
         })
             .notNull()
-            .default('daemon'),
-        // daemon-only; null for sandbox hosts (the unique index below treats
-        // null as distinct so many sandbox rows per user coexist).
-        daemonUuid: text('daemon_uuid'),
-        name: text('name').notNull(),
-        hostname: text('hostname'),
-        os: text('os'),
-        arch: text('arch'),
-        cliVersion: text('cli_version'),
-        // herdr's version on the machine or inside the sandbox (ADR-0031);
-        // null = not installed. Daemons report it with every heartbeat, a
-        // sandbox is probed like its CLIs.
-        herdrVersion: text('herdr_version'),
-        startupMethod: text('startup_method', {
-            enum: [
-                'launchd-user',
-                'launchd-system',
-                'systemd-user',
-                'systemd-system',
-                'manual',
-                'container'
-            ]
-        }),
+            .$type<RuntimeHostStatus>(),
+        failureReason: text('failure_reason'),
+        // Fence for provider mutations (create / bootstrap / destroy): every
+        // adapter call is idempotent on (host, generation), and a callback
+        // carrying an older generation is dropped.
+        generation: integer('generation').notNull().default(0),
+        powerState: text('power_state', {
+            enum: ['running', 'suspended', 'stopped', 'unknown']
+        }).$type<RuntimeHostPowerState>(),
+        powerChangedAt: timestamp('power_changed_at', { withTimezone: true }),
+        // The machine's filesystem contract, declared by its daemon at
+        // registration (ADR-0014).
         homeDir: text('home_dir'),
         workspaceBaseDir: text('workspace_base_dir'),
         skillsDir: text('skills_dir'),
-        detectedFrameworks: jsonb('detected_frameworks')
-            .$type<DetectedFramework[]>()
-            .notNull()
-            .default([]),
-        clientFeatures: jsonb('client_features')
-            .$type<string[]>()
-            .notNull()
-            .default([]),
-        terminalPty: boolean('terminal_pty'),
-        lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
-        rpcInstanceId: text('rpc_instance_id'),
-        // Issuer instance + opaque connection UUID. Timestamps are not identities.
-        rpcConnectionToken: text('rpc_connection_token'),
-        rpcInbox: text('rpc_inbox'),
-        rpcConnectedAt: timestamp('rpc_connected_at', { withTimezone: true }),
-        rpcLastSeenAt: timestamp('rpc_last_seen_at', { withTimezone: true }),
-        lastIp: text('last_ip'),
-        status: text('status', {
-            enum: ['active', 'offline', 'revoked']
-        })
-            .notNull()
-            .default('active'),
-        // sandbox-only (kind='sandbox'): the sprite VM identity + owning account.
-        // Null for daemon hosts.
-        accountId: text('account_id').references(() => spritesAccounts.id, {
-            onDelete: 'set null'
-        }),
-        spriteName: text('sprite_name'),
-        spriteId: text('sprite_id'),
-        // pod-only (kind='pod', ADR-0035): where the pod runs and what it was
-        // given. The pod's Kubernetes objects are named after this row's id;
-        // its framework runtimes point here through agent_runtimes.host_id and
-        // copy the placement columns, as sprite runtimes copy spriteName.
-        clusterId: text('cluster_id').references(() => k8sClusters.id, {
-            onDelete: 'set null'
-        }),
-        namespace: text('namespace'),
-        ingressHost: text('ingress_host'),
+        // Capacity, provider-neutral; null on local hosts.
         cpuMillicores: integer('cpu_millicores'),
         memoryMb: integer('memory_mb'),
         diskGb: integer('disk_gb'),
         region: text('region'),
-        // pod-only: provisioning until the pod runs and its daemon has
-        // registered, then ready — the gate for adding framework runtimes, as
-        // sprite_id is for a sandbox — or failed with the reason.
-        podStatus: text('pod_status', {
-            enum: ['provisioning', 'ready', 'failed']
-        }),
-        podPhase: text('pod_phase'),
-        podFailureReason: text('pod_failure_reason'),
-        // Whose identity the VM's persisted shell profile defaults to (bare
-        // interactive shells only — per-agent auth is injected per-exec).
+        // hosted-only: keep the machine running. The single keep-alive
+        // switch; service processes are the daemon's service manifest's job.
+        keepAwake: boolean('keep_awake').notNull().default(false),
+        keepAwakeLease: jsonb('keep_awake_lease').$type<KeepAwakeLease>(),
+        // Whose identity the machine's persisted shell profile defaults to
+        // (bare interactive shells only — per-agent auth is injected per-exec).
         primaryAgentId: text('primary_agent_id'),
-        // sandbox-only: the VM running/warm/cold state. Host-level source of
-        // truth for concurrency counters (a sandbox can run with zero agents);
-        // null until the first status sync writes it.
-        spriteStatus: text('sprite_status', {
-            enum: ['cold', 'warm', 'running']
-        }),
-        // sandbox-only: opt-in terminal, off by default globally. Enabling
+        // hosted-only: opt-in terminal, off by default globally. Enabling
         // injects the user's api.full token per terminal session.
         terminalEnabled: boolean('terminal_enabled').notNull().default(false),
-        // sandbox-only: a SECOND, separate consent — off by default. Enabling
+        // hosted-only: a SECOND, separate consent — off by default. Enabling
         // lets a terminal session carry the agent's model-provider credentials
         // so the framework CLI's interactive TUI can resume a chat session.
-        // Deliberately not folded into terminal_enabled: that one exposes the
-        // user's own api.full token, this one exposes a provider key the API
-        // otherwise only ever returns masked, so the two are consented apart.
-        // Only claude-code needs it — codex logs in on-disk at bootstrap.
         terminalModelCredentials: boolean('terminal_model_credentials')
             .notNull()
             .default(false),
-        // sandbox-only: when the host last became agent-less (0 runtimes). Null
-        // while occupied; set on emptying or standalone create. The reaper
-        // deletes the VM once this is older than the 7-day cutoff.
+        // hosted-only: when the host last became agent-less (0 runtimes).
+        // Null while occupied; set on emptying or standalone create. The
+        // reaper deletes the machine once this is older than the 7-day cutoff.
         emptiedAt: timestamp('emptied_at', { withTimezone: true }),
-        // sandbox-only: quarantine window after this VM's exec endpoint failed a
-        // readiness probe. Automatic co-residence selection skips the host until
-        // it passes; explicit attach still targets it. Persisted (not in-request)
-        // because the failure that motivated it — one sprite backend 502ing every
-        // exec handshake — otherwise re-selects the same VM on the very next
-        // create. Null = never quarantined; past = cooled down.
+        // hosted-only: quarantine window after the machine's exec endpoint
+        // failed a readiness probe. Automatic co-residence selection skips the
+        // host until it passes; explicit attach still targets it.
         execCooldownUntil: timestamp('exec_cooldown_until', {
             withTimezone: true
         }),
-        // sandbox-only: watermark = start of the still-unaccrued `running`
-        // interval for active-duration metering. Set when the VM is observed or
-        // committed running, advanced + settled into sandbox_active_durations on
-        // each status sync, cleared (null) when not running. Compare-and-swapped
-        // so concurrent API instances don't double-count. See
-        // SandboxActiveDurationService.
-        // precision 3 is load-bearing: the CAS compares this column against a
-        // JS Date (ms). A µs value (e.g. from SQL now()) can never equal a ms
-        // param, which permanently wedges the watermark — the column itself
-        // must round every writer to ms.
+        // hosted-only: watermark = start of the still-unaccrued `running`
+        // interval for active-duration metering. Compare-and-swapped so
+        // concurrent API instances don't double-count. precision 3 is
+        // load-bearing: the CAS compares this column against a JS Date (ms).
         activeAccrualSince: timestamp('active_accrual_since', {
             withTimezone: true,
             precision: 3
         }),
-        // sandbox-only: latest whole-VM storage measurement (see
-        // SandboxStorageBreakdown). storageBytes is the meter-feeding value —
-        // the storage quota sums this per host, matching sprites.dev's per-VM
-        // rootfs billing.
+        // hosted-only: latest whole-machine storage measurement.
         storageBytes: bigint('storage_bytes', { mode: 'number' }),
         storageMeasuredAt: timestamp('storage_measured_at', {
             withTimezone: true
@@ -211,14 +179,6 @@ export const runtimeHosts = pgTable(
         storageLeaseUntil: timestamp('storage_lease_until', { withTimezone: true }),
         storageRetryAt: timestamp('storage_retry_at', { withTimezone: true }),
         storageFailureCount: integer('storage_failure_count').notNull().default(0),
-        // The platform created and owns this host — it is not a machine the
-        // user registered. Phase 3 sprite runners are daemon hosts we bring up
-        // inside the user's own sprite, and `daemon register` additionally
-        // creates one agent_runtime per framework it detects there. Without
-        // this flag all of that shows up in the user's runtime list as if they
-        // could build agents on it. Hidden from user-facing lists; admin
-        // surfaces still see it.
-        managed: boolean('managed').notNull().default(false),
         createdAt: timestamp('created_at', { withTimezone: true })
             .notNull()
             .defaultNow(),
@@ -229,10 +189,16 @@ export const runtimeHosts = pgTable(
     (table) => ({
         storageAttemptLease: check('runtime_hosts_storage_attempt_lease', sql`(${table.storageAttemptId} is null) = (${table.storageLeaseUntil} is null)`),
         storageFailuresNonnegative: check('runtime_hosts_storage_failures_nonnegative', sql`${table.storageFailureCount} >= 0`),
-        userUuidUnique: uniqueIndex('runtime_hosts_user_uuid_unique').on(
+        // Only hosted hosts carry a provider; a local host never does.
+        providerByKind: check(
+            'runtime_hosts_provider_by_kind',
+            sql`(${table.kind} = 'hosted') = (${table.providerId} is not null)`
+        ),
+        userKindIdx: index('runtime_hosts_user_kind_idx').on(
             table.userId,
-            table.daemonUuid
-        )
+            table.kind
+        ),
+        providerIdx: index('runtime_hosts_provider_id_idx').on(table.providerId)
     })
 )
 

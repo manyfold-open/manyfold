@@ -72,7 +72,6 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
         userId: ownerId,
         name: `pgcshare-runtime-${suffix}`,
         framework: 'codex',
-        kind: 'sprites'
     })
     const agentId = `agt_pgcshare_${suffix}`
     await db.insert(agents).values({
@@ -80,7 +79,6 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
         userId: ownerId,
         name: `pgcshare-agent-${suffix}`,
         framework: 'codex',
-        runtime: 'sprites',
         runtimeId,
         internalId: `pgcshare-${suffix}`
     })

@@ -133,6 +133,8 @@ test('the daemon arm injects the four identity keys and MF_TERMINAL_ID into pty.
             mountPath: '/workspace',
             extras: {}
         } as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
         terminalId: 'tms_1',
         cols: 80,
         rows: 24,

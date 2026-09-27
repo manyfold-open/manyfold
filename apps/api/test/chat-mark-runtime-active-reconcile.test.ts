@@ -2,6 +2,12 @@ import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow as fixtureRuntime,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 const runtimeRow = {
     id: 'rt-1',
@@ -38,7 +44,7 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
         ...agentOver
     }
     const callLog: string[] = []
-    const publishPatches: Array<Record<string, unknown>> = []
+    const markedHosts: string[] = []
     const touchedRuntimes: unknown[] = []
     const warnings: string[] = []
     const db = {
@@ -51,14 +57,25 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
         })
     }
     const spriteStatusSync = {
-        publishStatus: async (
-            _row: unknown,
-            patch: Record<string, unknown>
-        ) => {
-            callLog.push('publishStatus')
-            publishPatches.push(patch)
+        markHostRunning: async (hostId: string) => {
+            callLog.push('markHostRunning')
+            markedHosts.push(hostId)
         }
     }
+    // The agent's sandbox: asleep unless the row says the sprite is running.
+    const host = spritesHostRow({
+        id: 'rth-1',
+        userId: 'user-1',
+        powerState: agentRow.spriteStatus === 'running' ? 'running' : 'suspended'
+    })
+    const runtimeContext = fakeRuntimeContext(
+        contextOf({
+            agent: agentRow as never,
+            runtime: fixtureRuntime({ ...(runtimeRow as never as Record<string, never>), hostId: host.id }),
+            host,
+            daemon: null
+        })
+    )
     const spritesProvisioner = {
         wakeSpriteRuntime: async () => {
             callLog.push('wakeSpriteRuntime')
@@ -87,12 +104,23 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
         undefined as never,
         reconcile as never,
         undefined,
-        readyChatRunner(undefined)
+        readyChatRunner(undefined),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        runtimeContext as never
     )
     service['logger'].warn = (msg: string) => {
         warnings.push(msg)
     }
-    return { service, callLog, publishPatches, touchedRuntimes, warnings }
+    return { service, callLog, markedHosts, touchedRuntimes, warnings }
 }
 
 test('markRuntimeActive publishes running, nudges the sprite service, then touches reconcile with the runtime row', async () => {
@@ -105,13 +133,13 @@ test('markRuntimeActive publishes running, nudges the sprite service, then touch
     // channels/automations which funnel through it
     assert.deepEqual(
         h.callLog,
-        ['publishStatus', 'wakeSpriteRuntime', 'touchRuntime'],
-        `chat wakes hide the transition from sprite-status-sync (publishStatus writes running directly) and channel/CLI/automation sends never hit the list/get views that call touchRuntime, so the send itself must schedule the healing reconcile — and only after the lease-free wake nudge, or the listing hits a still-booting gateway; the heal order must survive the wakeSpriteRuntime rename; warnings: [${h.warnings.join('; ')}]`
+        ['markHostRunning', 'wakeSpriteRuntime', 'touchRuntime'],
+        `chat wakes hide the transition from sprite-status-sync (the host is marked running directly) and channel/CLI/automation sends never hit the list/get views that call touchRuntime, so the send itself must schedule the healing reconcile — and only after the lease-free wake nudge, or the listing hits a still-booting gateway; the heal order must survive the wakeSpriteRuntime rename; warnings: [${h.warnings.join('; ')}]`
     )
     assert.deepEqual(
-        h.publishPatches,
-        [{ spriteStatus: 'running' }],
-        'the optimistic running publish is exactly why sprite-status-sync never observes a wake transition for chat-originated wakes'
+        h.markedHosts,
+        ['rth-1'],
+        'the optimistic running write is exactly why sprite-status-sync never observes a wake transition for chat-originated wakes'
     )
     assert.equal(
         h.touchedRuntimes[0],

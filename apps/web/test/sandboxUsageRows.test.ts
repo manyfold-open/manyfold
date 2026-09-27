@@ -10,7 +10,7 @@ import {
 const makeHost = (over: Partial<SandboxUsageHost> = {}): SandboxUsageHost => ({
     hostId: 'sbx_1',
     name: 'alpha',
-    spriteStatus: 'running',
+    powerState: 'running',
     activeSecondsThisPeriod: 0,
     storageBytes: 5_000_000_000,
     storageMeasuredAt: '2026-06-15T10:00:00.000Z',

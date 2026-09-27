@@ -10,7 +10,7 @@ import {
 
 const base = {
     runtime: 'daemon' as const,
-    running: true,
+    available: true,
     framework: 'claude-code' as const,
     daemonCanOpenInHerdr: true,
     daemonCanResume: true,
@@ -90,7 +90,7 @@ test('pi goes to herdr where the CLI there can start it, and asks for the update
             hostHerdrFrameworks: ['claude-code', 'codex'],
             sandboxCliUpdateAvailable: true
         }).blocked,
-        'sandbox-runner-needs-upgrade'
+        'sandbox-cli-needs-upgrade'
     )
     // Like claude, pi's TUI on a sandbox needs the credential opt-in.
     assert.equal(
@@ -108,10 +108,11 @@ test('pi goes to herdr where the CLI there can start it, and asks for the update
     )
 })
 
-// A sandbox whose runner predates the handoff shows the control disabled
-// with the Update Center as the way out; a sandbox that has not opted into
-// lending credentials to the terminal is blocked the way its resume is.
-test('a sandbox handoff waits for its runner CLI and for the credential opt-in', () => {
+// A sandbox whose Manyfold CLI predates the handoff shows the control
+// disabled with the Update Center as the way out; a sandbox that has not
+// opted into lending credentials to the terminal is blocked the way its
+// resume is.
+test('a sandbox handoff waits for its Manyfold CLI and for the credential opt-in', () => {
     const sandbox = {
         ...base,
         runtime: 'sprites' as const,
@@ -120,20 +121,20 @@ test('a sandbox handoff waits for its runner CLI and for the credential opt-in',
         sandboxCanOpenInHerdr: true,
         sandboxModelCredentials: true
     }
-    // A runner too old for herdr points at the Update Center only when it
-    // has something to offer; on the newest release it waits for the next.
+    // A CLI too old for herdr points at the Update Center only when it has
+    // something to offer; on the newest release it waits for the next.
     assert.equal(
         herdrHandoffAvailability({
             ...sandbox,
             sandboxCanOpenInHerdr: false,
             sandboxCliUpdateAvailable: true
         }).blocked,
-        'sandbox-runner-needs-upgrade'
+        'sandbox-cli-needs-upgrade'
     )
     assert.equal(
         herdrHandoffAvailability({ ...sandbox, sandboxCanOpenInHerdr: false })
             .blocked,
-        'sandbox-runner-needs-release'
+        'sandbox-cli-needs-release'
     )
     assert.equal(
         herdrHandoffAvailability({ ...sandbox, sandboxModelCredentials: false })
@@ -153,8 +154,8 @@ test('a sandbox handoff waits for its runner CLI and for the credential opt-in',
 
 test('an offered control is disabled for the reasons the user can act on, in the order the API checks them', () => {
     assert.equal(
-        herdrHandoffAvailability({ ...base, running: false }).blocked,
-        'agent-not-running'
+        herdrHandoffAvailability({ ...base, available: false }).blocked,
+        'agent-unavailable'
     )
     assert.equal(
         herdrHandoffAvailability({ ...base, sessionId: null }).blocked,
@@ -187,13 +188,13 @@ test('an offered control is disabled for the reasons the user can act on, in the
 test('every disabled reason the control can show has a label', () => {
     const t = (key: string): string => key
     for (const blocked of [
-        'agent-not-running',
+        'agent-unavailable',
         'no-session',
         'no-session-ref',
         'framework-unsupported',
         'daemon-needs-upgrade',
-        'sandbox-runner-needs-upgrade',
-        'sandbox-runner-needs-release',
+        'sandbox-cli-needs-upgrade',
+        'sandbox-cli-needs-release',
         'needs-credential-toggle',
         'needs-runtime-signin'
     ] as const)

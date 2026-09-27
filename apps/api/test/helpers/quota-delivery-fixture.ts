@@ -128,11 +128,13 @@ const buildDeliveryFixture = async (
         first,
         {} as never,
         {} as never,
+        {} as never,
         broadcasterA,
         { event: () => {} } as never,
         {} as never,
         h.runtimeAccess,
         h.settings as never,
+        {} as never,
         {} as never,
         {} as never
     )
@@ -149,10 +151,10 @@ const buildDeliveryFixture = async (
     ) => {
         const ready = deferred()
         const errors: Error[] = []
-        const stream = client(token).agents.streamSpriteStatus({
+        const stream = client(token).agents.streamHostStatus({
             onSnapshot: () => ready.resolve(),
             onQuotaWarning: onWarning,
-            onError: (error) => {
+            onError: (error: Error) => {
                 errors.push(error)
                 ready.reject(error)
             }

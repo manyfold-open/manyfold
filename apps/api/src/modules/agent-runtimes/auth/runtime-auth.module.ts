@@ -3,7 +3,8 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { AgentRuntimesModule } from '../agent-runtimes.module'
 import { RuntimeAuthProfilesController } from './runtime-auth-profiles.controller'
 import { RuntimeAuthProfilesService } from './runtime-auth-profiles.service'
@@ -20,7 +21,8 @@ import { RuntimeAuthProfilesService } from './runtime-auth-profiles.service'
         DaemonModule,
         RunnerModule,
         RuntimeAccessModule,
-        SpritesAccountsModule
+        HostsModule,
+        HostDaemonAccessModule
     ],
     controllers: [RuntimeAuthProfilesController],
     providers: [RuntimeAuthProfilesService],

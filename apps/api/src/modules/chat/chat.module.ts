@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
-import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { UsageModule } from '@/modules/usage/usage.module'
 import { FilesModule } from '@/modules/agents/files/files.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
@@ -58,7 +58,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
     imports: [
         AuthModule,
         SecretsModule,
-        SpritesAccountsModule,
+        HostsModule,
         UsageModule,
         FilesModule,
         AgentsModule,

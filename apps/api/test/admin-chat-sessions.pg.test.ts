@@ -78,7 +78,6 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
             userId: ownerId,
             name: `pgadmses-runtime-${tag}-${suffix}`,
             framework: 'codex',
-            kind: 'sprites'
         })
         const agentId = `agt_pgadmses_${tag}_${suffix}`
         await db.insert(agents).values({
@@ -86,7 +85,6 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
             userId: ownerId,
             name: `pgadmses-agent-${tag}-${suffix}`,
             framework: 'codex',
-            runtime: 'sprites',
             runtimeId,
             internalId: `pgadmses-${tag}-${suffix}`
         })
@@ -537,7 +535,7 @@ test(
                 await h.db
                     .update(chatMessages)
                     .set({
-                        daemonId: 'owned-fixture',
+                        hostId: 'owned-fixture',
                         daemonExecRef: messageId
                     })
                     .where(eq(chatMessages.id, messageId))
@@ -571,7 +569,7 @@ test(
                     await h.repo.claimTurnForResume({
                         messageId,
                         sessionId,
-                        daemonId: 'owned-fixture',
+                        hostId: 'owned-fixture',
                         daemonExecRef: messageId,
                         ownerId: 'new-owner',
                         leaseSeconds: 30

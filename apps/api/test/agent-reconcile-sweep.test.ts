@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { AgentReconcileSweepService } from '../src/modules/agents/reconcile/agent-reconcile-sweep.service'
 
 // #516: with list endpoints turned into pure reads, this leader-gated sweep
-// is the convergence backstop — two set-based statements for the whole fleet
-// plus a bounded touch of awake service-framework runtimes.
+// is the convergence backstop — a bounded touch of awake service-framework
+// runtimes (ADR-0036: presence is never written into agent rows).
 
 const serviceRuntime = (id: string) => ({
     id,
@@ -22,10 +22,11 @@ const makeDb = (candidates: unknown[]) => {
         const b = Object.assign(
             Promise.resolve(candidates).then((rows) => {
                 awaitedSelects += 1
-                return rows
+                return rows.map((runtime) => ({ runtime }))
             }),
             {
                 from: () => b,
+                innerJoin: () => b,
                 where: () => b,
                 orderBy: () => b,
                 limit: () => b
@@ -65,24 +66,17 @@ const makeLeases = (granted: boolean) => ({
     release: async () => {}
 })
 
-test('runOnce converges stopped + resurrects coding rows set-based, then touches service runtimes', async () => {
+// Presence is never mirrored into agent rows (ADR-0036): the sweep writes
+// nothing itself, it only touches the awake service runtimes.
+test('runOnce writes nothing and touches every awake service runtime', async () => {
     const db = makeDb([serviceRuntime('rt-a'), serviceRuntime('rt-b')])
     const reconcile = makeReconcile()
     const svc = new AgentReconcileSweepService(db as never, reconcile as never)
 
     await svc.runOnce()
 
-    assert.equal(db.updates.length, 2, 'exactly two set-based statements')
-    assert.equal(
-        db.updates[0].set.status,
-        'stopped',
-        'first statement converges agents of stopped runtimes'
-    )
-    assert.equal(
-        db.updates[1].set.status,
-        'running',
-        'second statement resurrects healthy coding rows on active runtimes'
-    )
+    assert.equal(db.updates.length, 0, 'the sweep has no set-based writes')
+    assert.equal(db.awaited(), 1, 'one candidate read for the whole fleet')
     assert.deepEqual(
         reconcile.touched,
         ['rt-a', 'rt-b'],
@@ -115,12 +109,12 @@ test('tick with leadership sweeps, and again only after the interval', async () 
     )
 
     await svc.tick()
-    assert.equal(db.updates.length, 2, 'leader tick runs the sweep')
+    assert.equal(db.awaited(), 1, 'leader tick runs the sweep')
 
     await svc.tick()
     assert.equal(
-        db.updates.length,
-        2,
+        db.awaited(),
+        1,
         'next tick inside the sweep interval only renews the lease'
     )
 })

@@ -9,6 +9,7 @@ import { Ghost } from '@/components/Loading'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
 import SandboxStorageFreshness from '@/components/SandboxStorageFreshness'
 import { useApiClient } from '@/lib/apiClient'
+import { powerStateLabel } from '@/lib/hostStatus'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { frameworkLabel, FrameworkLogo } from '@/lib/frameworkMeta'
 import {
@@ -111,9 +112,9 @@ const HostStorageCard: FC<{ host: SandboxUsageHost }> = ({ host }) => {
                     <span className='text-ui text-fg font-medium'>
                         {host.name}
                     </span>
-                    {host.spriteStatus && (
+                    {host.powerState && (
                         <span className='text-caption text-subtle'>
-                            {host.spriteStatus}
+                            {powerStateLabel(host.powerState)}
                         </span>
                     )}
                 </div>
@@ -326,7 +327,11 @@ const SandboxUsage: FC = (): ReactNode => {
                                                 {host.name}
                                             </td>
                                             <td className='text-muted px-4 py-3'>
-                                                {host.spriteStatus ?? '—'}
+                                                {host.powerState
+                                                    ? powerStateLabel(
+                                                          host.powerState
+                                                      )
+                                                    : '—'}
                                             </td>
                                             <td className='text-muted px-4 py-3 text-right font-mono tabular-nums'>
                                                 {formatDuration(

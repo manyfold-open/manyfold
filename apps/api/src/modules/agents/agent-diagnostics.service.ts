@@ -4,21 +4,10 @@ import type {
     AgentStorageUsageResponse
 } from '@manyfold/shared'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import type { Agent, AgentRuntimeRow, FileRoot } from '@manyfold/db'
-import {
-    createClient as createSpritesClient,
-    execSprite,
-    type ExecResult,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
+import type { Agent, FileRoot } from '@manyfold/db'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
+import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { resolvedStoragePath } from './sprite-storage/storage-attribution'
 
 const DU_MISSING = '__NCA_MISSING__'
@@ -34,6 +23,8 @@ interface CommandResult {
     stdout: string
     stderr: string
 }
+
+type AgentContext = RuntimeContext & { agent: Agent }
 
 export const redactDiagnosticText = (value: string): string =>
     value
@@ -86,11 +77,7 @@ export class AgentDiagnosticsService {
 
     constructor(
         private readonly agents: AgentsService,
-        private readonly runtimes: AgentRuntimesService,
-        private readonly accounts: SpritesAccountsService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
-        private readonly daemonRegistry: DaemonRegistryService
+        private readonly execResolver: FrameworkExecResolver
     ) {}
 
     async storageUsage(
@@ -98,12 +85,27 @@ export class AgentDiagnosticsService {
         agentId: string,
         isAdmin: boolean
     ): Promise<AgentStorageUsageResponse> {
-        const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const ctx = await this.requireAgent(callerUserId, agentId, isAdmin)
+        const { agent } = ctx
         const checkedAt = new Date().toISOString()
         const targets = this.storageTargets(agent)
-        const host = agent.runtime === 'sprites' && agent.hostId ? await this.runtimes.findHostById(agent.hostId) : null
-        const cachedHost = host?.kind === 'sandbox' && host.userId === agent.userId ? host : null
-        const presence = cachedHost?.spriteStatus === 'warm' || cachedHost?.spriteStatus === 'cold' ? 'asleep' : await this.spriteState(agent)
+        const cachedHost =
+            ctx.host?.kind === 'hosted' && ctx.host.userId === agent.userId
+                ? ctx.host
+                : null
+        // The power state is the provider's observation; a sleeping machine
+        // is never woken for a measurement. A local machine measures only
+        // while its daemon is there to run the command.
+        const presence: 'running' | 'asleep' | 'unavailable' = cachedHost
+            ? cachedHost.powerState === 'running'
+                ? 'running'
+                : cachedHost.powerState === 'suspended' ||
+                    cachedHost.powerState === 'stopped'
+                  ? 'asleep'
+                  : 'unavailable'
+            : ctx.host && ctx.daemonOnline
+              ? 'running'
+              : 'unavailable'
         const asleep = presence === 'asleep'
         const cachedSandbox: AgentStorageUsageResponse['cachedSandbox'] = cachedHost ? {
             scope: 'sandbox', unit: 'bytes', hostId: cachedHost.id,
@@ -125,9 +127,9 @@ export class AgentDiagnosticsService {
             ]
             return { ...scope, agentId: agent.id, checkedAt, items, totalBytes: null }
         }
-        const workspace = await this.duItem(agent, targets.workspace)
+        const workspace = await this.duItem(ctx, targets.workspace)
         const config = targets.config
-            ? await this.duItem(agent, targets.config)
+            ? await this.duItem(ctx, targets.config)
             : skippedStorageItem('config', 'Agent config/state', null)
         const configBytes = config.bytes === null || workspace.bytes === null ? config.bytes : nestedConfigBytes(
             config.bytes,
@@ -162,30 +164,14 @@ export class AgentDiagnosticsService {
         callerUserId: string,
         agentId: string,
         isAdmin: boolean
-    ): Promise<Agent> {
-        const agent = await this.agents.findForCaller(
+    ): Promise<AgentContext> {
+        const ctx = await this.agents.contextForCaller(
             agentId,
             callerUserId,
             isAdmin
         )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        return agent
-    }
-
-    // Only a positive running observation admits an exec-based diagnostic.
-    private async spriteState(agent: Agent): Promise<'running' | 'asleep' | 'unavailable'> {
-        if (agent.runtime !== 'sprites') return 'running'
-        try {
-            const runtime = await this.runtimeFor(agent)
-            if (runtime.kind !== 'sprites') return 'unavailable'
-            const client = await this.spriteClientFor(agent, runtime)
-            const sprite = await client.getSprite(
-                this.spriteNameFor(agent, runtime)
-            )
-            return sprite.status === 'running' ? 'running' : 'asleep'
-        } catch {
-            return 'unavailable'
-        }
+        if (!ctx) throw new NotFoundException(`agent ${agentId} not found`)
+        return ctx
     }
 
     private storageTargets(agent: Agent): {
@@ -221,7 +207,7 @@ export class AgentDiagnosticsService {
     }
 
     private async duItem(
-        agent: Agent,
+        ctx: AgentContext,
         target: Omit<
             AgentStorageUsageItem,
             'exists' | 'bytes' | 'status' | 'message'
@@ -231,7 +217,7 @@ export class AgentDiagnosticsService {
             return skippedStorageItem(target.kind, target.label, null)
         let result: CommandResult
         try {
-            result = await this.runCommand(agent, {
+            result = await this.runCommand(ctx, {
                 cmd: [
                     'bash',
                     '-lc',
@@ -293,111 +279,14 @@ export class AgentDiagnosticsService {
         }
     }
 
+    // One command on the agent's machine through its host daemon, whatever
+    // provisioned the machine (ADR-0036 R6).
     private async runCommand(
-        agent: Agent,
+        ctx: AgentContext,
         input: { cmd: string[]; timeoutMs: number }
     ): Promise<CommandResult> {
-        const runtime = await this.runtimeFor(agent)
-        if (runtime.kind === 'sprites') {
-            const client = await this.spriteClientFor(agent, runtime)
-            const spriteName = this.spriteNameFor(agent, runtime)
-            const result = await execSprite(
-                client,
-                spriteName,
-                {
-                    cmd: input.cmd,
-                    stdin: '',
-                    timeoutMs: input.timeoutMs
-                },
-                spritesLoggerFor(this.log)
-            )
-            return toCommandResult(result)
-        }
-
-        if (runtime.kind === 'daemon')
-            return this.runDaemonCommand(agent, runtime, input)
-
-        const pod = await resolveAgentPod(this.k8s, runtime)
-        const exec = this.podExecFactory.forClient(
-            pod.client,
-            pod.namespace,
-            pod.podName,
-            pod.containerName
-        )
+        const exec = await this.execResolver.forRuntime(ctx.runtime, this.log)
         return exec.run({ cmd: input.cmd, timeoutMs: input.timeoutMs })
-    }
-
-    private async runDaemonCommand(
-        agent: Agent,
-        runtime: AgentRuntimeRow,
-        input: { cmd: string[]; timeoutMs: number }
-    ): Promise<CommandResult> {
-        const daemonId = this.daemonIdFor(agent, runtime)
-        if (!daemonId)
-            throw new Error(
-                `daemon agent ${agent.id} runtime ${runtime.id} missing daemonId`
-            )
-        const stdoutChunks: string[] = []
-        const stderrChunks: string[] = []
-        const stream = this.daemonRegistry.streamRpc({
-            daemonId,
-            method: 'exec.start',
-            payload: {
-                cmd: input.cmd,
-                env: {},
-                timeoutMs: input.timeoutMs
-            },
-            timeoutMs: input.timeoutMs + 5_000,
-            onEvent: (kind, data) => {
-                if (kind === 'stdout') stdoutChunks.push(data)
-                else if (kind === 'stderr') stderrChunks.push(data)
-            }
-        })
-        const payload = await stream.result
-        return {
-            exitCode: Number(
-                (payload as { exitCode?: number } | undefined)?.exitCode ?? 0
-            ),
-            stdout: stdoutChunks.join(''),
-            stderr: stderrChunks.join('')
-        }
-    }
-
-    private async spriteClientFor(
-        agent: Agent,
-        runtime?: AgentRuntimeRow
-    ): Promise<SpritesClient> {
-        const accountId = agent.accountId ?? runtime?.accountId
-        if (!accountId)
-            throw new Error(`sprites agent ${agent.id} missing accountId`)
-        const account = await this.accounts.getById(accountId)
-        if (!account) throw new Error(`sprites account ${accountId} not found`)
-        return createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug,
-            logger: spritesLoggerFor(this.log)
-        })
-    }
-
-    private spriteNameFor(agent: Agent, runtime: AgentRuntimeRow): string {
-        const spriteName = agent.spriteName ?? runtime.spriteName
-        if (!spriteName)
-            throw new Error(
-                `sprites agent ${agent.id} runtime ${runtime.id} missing spriteName`
-            )
-        return spriteName
-    }
-
-    private daemonIdFor(agent: Agent, runtime: AgentRuntimeRow): string | null {
-        return agent.daemonId ?? runtime.daemonId ?? null
-    }
-
-    private async runtimeFor(agent: Agent): Promise<AgentRuntimeRow> {
-        if (!agent.runtimeId)
-            throw new Error(`agent ${agent.id} has no linked runtime`)
-        const runtime = await this.runtimes.findById(agent.runtimeId)
-        if (!runtime) throw new Error(`runtime ${agent.runtimeId} not found`)
-        return runtime
     }
 }
 
@@ -427,18 +316,4 @@ const asleepStorageItem = (
     bytes: null,
     status: 'skipped',
     message
-})
-
-const toCommandResult = (result: ExecResult): CommandResult => ({
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr
-})
-
-const spritesLoggerFor = (log: Logger): SpritesLogger => ({
-    debug: () => {},
-    info: (m, meta) => log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    warn: (m, meta) => log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    error: (m, meta) =>
-        log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
 })

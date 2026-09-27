@@ -52,7 +52,7 @@ export class TerminalInventoryService implements OnModuleInit, OnModuleDestroy {
         terminals: DaemonOwnedTerminal[],
         now = Date.now()
     ): Promise<{ renewed: number; ended: number; closed: number }> {
-        const rows = await this.terminals.listLiveOwnedByDaemon(daemonId)
+        const rows = await this.terminals.listLiveOwnedByHost(daemonId)
         const reported = new Set(terminals.map((t) => t.terminalId))
         const renewed = await this.terminals.renewLeases(
             rows.filter((row) => reported.has(row.id)).map((row) => row.id)

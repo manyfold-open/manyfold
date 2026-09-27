@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
+import { reconcilerFor } from './helpers/reconcile-fixture'
+import { k8sHostRow } from './helpers/runtime-context-fixture'
 import { readJsonbMergePatch } from './jsonb-merge'
 
 const PRIMARY_WS = '/home/sprite/.nca/workspaces/agent-1'
@@ -40,7 +41,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtime: 'sprites',
     name: 'a1',
     internalId: 'agent-1',
-    status: 'running',
+    status: 'ready',
     workspacePath: PRIMARY_WS,
     mountPath: PRIMARY_WS,
     spriteName: 'nca-user-abc-main',
@@ -92,8 +93,7 @@ test('reconcile UPDATE preserves secondary agent mountPath for sprites runtime',
     const primary = fakeDbAgent({
         id: 'agent-1',
         internalId: 'agent-1',
-        framework: 'hermes',
-        spriteStatus: 'running'
+        framework: 'hermes'
     })
     const secondary = fakeDbAgent({
         id: 'agent-2',
@@ -127,7 +127,7 @@ test('reconcile UPDATE preserves secondary agent mountPath for sprites runtime',
         })
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(fakeRuntime({ framework: 'hermes' }) as never)
 
     const primaryUpdate = db.updates[0]
@@ -156,7 +156,6 @@ test('reconcile UPDATE preserves secondary agent mountPath for sprites runtime',
 test('reconcile UPDATE preserves stored model config extras', async () => {
     const row = fakeDbAgent({
         framework: 'hermes',
-        spriteStatus: 'running',
         extras: {
             modelConfig: {
                 source: 'platform',
@@ -193,7 +192,7 @@ test('reconcile UPDATE preserves stored model config extras', async () => {
         })
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry)
     await svc.reconcileRuntime(
         fakeRuntime({ framework: 'hermes', spriteId: 'sp-2' }) as never
     )
@@ -217,7 +216,6 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
         id: 'agent-1',
         internalId: 'agent-1',
         framework: 'openclaw',
-        runtime: 'k8s',
         mountPath: K8S_MOUNT,
         workspacePath: K8S_MOUNT
     })
@@ -225,7 +223,6 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
         id: 'agent-2',
         internalId: 'agent-2',
         framework: 'openclaw',
-        runtime: 'k8s',
         mountPath: K8S_MOUNT,
         workspacePath: K8S_MOUNT
     })
@@ -252,13 +249,9 @@ test('reconcile UPDATE for k8s runtime uses shared runtime.mountPath for all age
         })
     }
 
-    const svc = new AgentReconcileService(db as never, registry as never)
+    const svc = reconcilerFor(db, registry, { host: k8sHostRow() })
     await svc.reconcileRuntime(
-        fakeRuntime({
-            framework: 'openclaw',
-            kind: 'k8s',
-            mountPath: K8S_MOUNT
-        }) as never
+        fakeRuntime({ framework: 'openclaw', mountPath: K8S_MOUNT }) as never
     )
 
     for (const upd of db.updates) {

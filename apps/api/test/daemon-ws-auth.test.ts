@@ -31,16 +31,22 @@ test('daemon websocket requires bearer headers and never verifies query credenti
                 return {
                     tokenId: 'ldt_test',
                     userId: 'u_test',
-                    daemonId: 'dh_test'
+                    hostId: 'dh_test'
                 }
             }
         } as never,
         {
             findById: async () => ({
                 id: 'dh_test',
-                cliVersion,
                 userId: 'u_test',
-                status: 'online'
+                kind: 'local',
+                status: 'ready'
+            }),
+            // The floor is checked against what the daemon registered as.
+            findDaemon: async () => ({
+                hostId: 'dh_test',
+                cliVersion,
+                hostname: null
             }),
             touchLastSeen: async () => {}
         } as never,

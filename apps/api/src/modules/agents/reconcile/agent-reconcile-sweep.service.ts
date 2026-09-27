@@ -7,10 +7,11 @@ import {
     Optional
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, exists, inArray, ne, notInArray, or, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, notInArray, or, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
+    runtimeHosts,
     type AgentRuntimeRow,
     type Database
 } from '@manyfold/db'
@@ -21,11 +22,10 @@ import { AgentReconcileService } from './agent-reconcile.service'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 // Freshness backstop for agent state now that list endpoints are pure reads
-// (#516). Lifecycle writers converge agents rows inline and reports/chat
-// wakes touch individual runtimes; this sweep catches what slips through:
-// stragglers of stop/wake transitions (set-based, two statements for the
-// whole fleet) and service-framework runtimes whose agents drift when
-// created/removed outside Manyfold and nothing else touches them.
+// (#516). Reports and chat wakes touch individual runtimes; this sweep
+// catches service-framework runtimes whose agents drift when created or
+// removed outside Manyfold and nothing else touches them. Presence is never
+// mirrored into agent rows (ADR-0036), so there is nothing else to converge.
 const TICK_INTERVAL_MS = 15_000
 const SWEEP_INTERVAL_MS = 60_000
 // Single leader: without it every API replica would run the sweep and race
@@ -126,104 +126,28 @@ export class AgentReconcileSweepService
     }
 
     async runOnce(): Promise<void> {
-        await this.convergeStoppedRuntimeAgents()
-        await this.resurrectCodingRuntimeAgents()
         await this.touchServiceRuntimes()
-    }
-
-    // Set-based mirror of reconcileRuntime's stopped branch: every stop
-    // writer converges agents inline, so this writes zero rows in steady
-    // state and exists to catch interrupted transitions.
-    private async convergeStoppedRuntimeAgents(): Promise<void> {
-        const now = new Date()
-        await this.db
-            .update(agents)
-            .set({
-                status: 'stopped',
-                lastReconciledAt: now,
-                updatedAt: now
-            })
-            .where(
-                and(
-                    ne(agents.status, 'stopped'),
-                    inArray(
-                        agents.runtimeId,
-                        this.db
-                            .select({ id: agentRuntimes.id })
-                            .from(agentRuntimes)
-                            .where(
-                                and(
-                                    eq(agentRuntimes.status, 'stopped'),
-                                    ne(agentRuntimes.kind, 'external')
-                                )
-                            )
-                    )
-                )
-            )
-    }
-
-    // Set-based mirror of the coding-framework fast path in reconcileRuntime:
-    // healthy rows (internalId = id) on an active runtime must not stay
-    // stopped; orphan-stopped corrupt rows keep their status.
-    private async resurrectCodingRuntimeAgents(): Promise<void> {
-        const now = new Date()
-        await this.db
-            .update(agents)
-            .set({
-                status: 'running',
-                failureReason: null,
-                lastReconciledAt: now,
-                updatedAt: now
-            })
-            .where(
-                and(
-                    eq(agents.status, 'stopped'),
-                    eq(agents.internalId, agents.id),
-                    inArray(
-                        agents.runtimeId,
-                        this.db
-                            .select({ id: agentRuntimes.id })
-                            .from(agentRuntimes)
-                            .where(
-                                and(
-                                    eq(agentRuntimes.status, 'ready'),
-                                    inArray(
-                                        agentRuntimes.framework,
-                                        codingFrameworks()
-                                    )
-                                )
-                            )
-                    )
-                )
-            )
     }
 
     // Service frameworks are the only runtimes whose reconcile learns
     // anything the DB doesn't already know (agents created/removed in the
-    // framework's own UI). Sleeping sprites are excluded here for the same
-    // reason reconcileRuntime skips them: listing wakes the VM (billing).
+    // framework's own UI). Sleeping hosted machines are excluded here for
+    // the same reason reconcileRuntime skips them: listing wakes the VM
+    // (billing); a local machine is touched and reconcile decides by presence.
     private async touchServiceRuntimes(): Promise<void> {
         const candidates = await this.db
-            .select()
+            .select({ runtime: agentRuntimes })
             .from(agentRuntimes)
+            .innerJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
             .where(
                 and(
-                    ne(agentRuntimes.kind, 'external'),
-                    ne(agentRuntimes.status, 'stopped'),
+                    isNotNull(agentRuntimes.hostId),
+                    eq(agentRuntimes.status, 'ready'),
+                    eq(runtimeHosts.status, 'ready'),
                     notInArray(agentRuntimes.framework, codingFrameworks()),
                     or(
-                        ne(agentRuntimes.kind, 'sprites'),
-                        exists(
-                            this.db
-                                .select({ one: sql`1` })
-                                .from(agents)
-                                .where(
-                                    and(
-                                        eq(agents.runtimeId, agentRuntimes.id),
-                                        eq(agents.spriteStatus, 'running')
-                                    )
-                                )
-                        )
+                        eq(runtimeHosts.kind, 'local'),
+                        eq(runtimeHosts.powerState, 'running')
                     )
                 )
             )
@@ -235,6 +159,7 @@ export class AgentReconcileSweepService
             this.log.warn(
                 `reconcile sweep clipped at ${SWEEP_TOUCH_LIMIT} service runtimes; remainder rotates in on later sweeps`
             )
-        for (const runtime of candidates) this.reconcile.touchRuntime(runtime)
+        for (const { runtime } of candidates)
+            this.reconcile.touchRuntime(runtime)
     }
 }
