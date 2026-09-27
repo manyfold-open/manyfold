@@ -23,10 +23,7 @@ const en = {
         dismiss: 'Dismiss',
         moreActions: 'More actions',
         moreInfo: 'More info',
-        breadcrumb: 'Breadcrumb',
-        liveStatus: 'Live status · click to refresh now',
-        sandboxStatusAria:
-            'Sandbox status: {{status}}. Updates live; activate to refresh now.'
+        breadcrumb: 'Breadcrumb'
     },
     errors: {
         appCrash: {
@@ -464,8 +461,7 @@ const en = {
                 },
                 updated: 'Updated',
                 updating: 'Updating…',
-                workspace: 'Workspace',
-                yourMachine: 'your machine'
+                workspace: 'Workspace'
             }
         },
         automations: {
