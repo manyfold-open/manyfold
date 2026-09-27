@@ -3548,6 +3548,7 @@ const zh: Translations = {
                 slotTaken: '已经在跑 {{other}}，而一个沙箱只有一个公网端口',
                 podHostStarting: '还在启动，就绪后才能加入 agent',
                 podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
+                sandboxFailed: '启动失败；请在 设置 › 运行时 中删除它',
                 podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
             },
             newMachine: {

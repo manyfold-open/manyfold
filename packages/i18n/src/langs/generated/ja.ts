@@ -2071,6 +2071,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'すでに {{other}} を提供中で、サンドボックスの公開ポートは 1 つだけです',
     'web.agentNewV4.machine.podHostStarting': 'まだ起動中です。準備ができるとエージェントを追加できます',
     'web.agentNewV4.machine.podHostFailed': '起動に失敗しました。設定 › クラウドコンピューター で削除してください',
+    'web.agentNewV4.machine.sandboxFailed': '起動に失敗しました。設定 › ランタイム で削除してください',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} はまだクラウドコンピューターでは動かせません',
     'web.agentNewV4.newMachine.sandbox': '新しいサンドボックス',
     'web.agentNewV4.newMachine.sandboxDetail': 'マシンを用意して {{cli}} を導入します',

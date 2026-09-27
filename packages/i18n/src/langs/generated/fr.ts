@@ -2079,6 +2079,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'Sert déjà {{other}}, et un bac à sable n\'a qu\'un seul port public',
     'web.agentNewV4.machine.podHostStarting': 'Encore en démarrage — il pourra accueillir un agent une fois prêt',
     'web.agentNewV4.machine.podHostFailed': 'Échec du démarrage ; supprimez-le dans Paramètres › Ordinateurs cloud',
+    'web.agentNewV4.machine.sandboxFailed': 'Échec du démarrage ; supprimez-le dans Paramètres › Runtimes',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} ne peut pas encore tourner sur un ordinateur cloud',
     'web.agentNewV4.newMachine.sandbox': 'Nouveau bac à sable',
     'web.agentNewV4.newMachine.sandboxDetail': 'Créer une machine et y installer {{cli}}',

@@ -222,6 +222,31 @@ test('a sandbox without the CLI offers to install it, and flags an empty one', (
     assert.equal(rows[0].idle, true)
 })
 
+// A failed build leaves its sandbox behind, marked failed until the user
+// deletes it, and the API answers "not reachable" to an install onto it — or
+// onto one still being built. Both stay in the list and say why.
+test('a sandbox that failed or is still building cannot be installed onto', () => {
+    const rows = buildMachineOptions({
+        framework: 'claude-code',
+        runtimes: [],
+        sandboxes: [
+            { ...sandbox('h1', 'sandbox-001'), status: 'failed' },
+            { ...sandbox('h2', 'sandbox-002'), status: 'provisioning' },
+            { ...sandbox('h3', 'sandbox-003'), status: 'ready' }
+        ],
+        daemonHosts: [],
+        podHosts: []
+    })
+    assert.deepEqual(
+        rows.map((row) => [row.title, row.state, row.unavailableReason, row.disabled]),
+        [
+            ['sandbox-001', 'unavailable', 'failed', true],
+            ['sandbox-002', 'unavailable', 'starting', true],
+            ['sandbox-003', 'needs-install', undefined, false]
+        ]
+    )
+})
+
 test('your own computer is never installed onto, and says so in place', () => {
     const rows = buildMachineOptions({
         framework: 'gemini-cli',

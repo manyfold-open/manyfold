@@ -2079,6 +2079,7 @@ const de: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'Betreibt bereits {{other}}, und eine Sandbox hat nur einen öffentlichen Port',
     'web.agentNewV4.machine.podHostStarting': 'Startet noch – nimmt einen Agenten auf, sobald er bereit ist',
     'web.agentNewV4.machine.podHostFailed': 'Start fehlgeschlagen; löschen Sie ihn unter Einstellungen › Cloud-Computer',
+    'web.agentNewV4.machine.sandboxFailed': 'Start fehlgeschlagen; löschen Sie sie unter Einstellungen › Runtimes',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} kann noch nicht auf einem Cloud-Computer laufen',
     'web.agentNewV4.newMachine.sandbox': 'Neue Sandbox',
     'web.agentNewV4.newMachine.sandboxDetail': 'Eine Maschine bauen und {{cli}} darauf installieren',

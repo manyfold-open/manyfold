@@ -2080,6 +2080,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'Здесь уже работает {{other}}, а у песочницы только один публичный порт',
     'web.agentNewV4.machine.podHostStarting': 'Ещё запускается — примет агента, когда будет готов',
     'web.agentNewV4.machine.podHostFailed': 'Не удалось запустить; удалите его в Настройки › Облачные компьютеры',
+    'web.agentNewV4.machine.sandboxFailed': 'Не удалось запустить; удалите её в Настройки › Среды выполнения',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} пока не может работать на облачном компьютере',
     'web.agentNewV4.newMachine.sandbox': 'Новая песочница',
     'web.agentNewV4.newMachine.sandboxDetail': 'Создать машину и установить на неё {{cli}}',

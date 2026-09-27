@@ -2077,6 +2077,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'यहाँ पहले से {{other}} चल रहा है, और सैंडबॉक्स पर सार्वजनिक द्वार केवल एक होता है',
     'web.agentNewV4.machine.podHostStarting': 'अभी शुरू हो रहा है — तैयार होने पर यह एजेंट ले सकता है',
     'web.agentNewV4.machine.podHostFailed': 'शुरू नहीं हो सका; इसे सेटिंग्स › क्लाउड कंप्यूटर में हटाएँ',
+    'web.agentNewV4.machine.sandboxFailed': 'शुरू नहीं हो सका; इसे सेटिंग्स › रनटाइम्स में हटाएँ',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} अभी क्लाउड कंप्यूटर पर नहीं चल सकता',
     'web.agentNewV4.newMachine.sandbox': 'नया सैंडबॉक्स',
     'web.agentNewV4.newMachine.sandboxDetail': 'एक मशीन बनाइए और उस पर {{cli}} लगाइए',

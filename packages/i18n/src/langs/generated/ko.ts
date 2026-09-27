@@ -2070,6 +2070,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.machine.slotTaken": "이미 {{other}} 을(를) 제공 중이며, 샌드박스의 공개 포트는 하나뿐입니다",
     "web.agentNewV4.machine.podHostStarting": "아직 시작하는 중입니다 — 준비되면 에이전트를 받을 수 있습니다",
     "web.agentNewV4.machine.podHostFailed": "시작하지 못했습니다. 설정 › 클라우드 컴퓨터에서 삭제하세요",
+    "web.agentNewV4.machine.sandboxFailed": "시작하지 못했습니다. 설정 › 런타임에서 삭제하세요",
     "web.agentNewV4.machine.podHostNoService": "{{cli}}은(는) 아직 클라우드 컴퓨터에서 실행할 수 없습니다",
     "web.agentNewV4.newMachine.sandbox": "새 샌드박스",
     "web.agentNewV4.newMachine.sandboxDetail": "기기를 만들고 그 위에 {{cli}} 을(를) 설치합니다",

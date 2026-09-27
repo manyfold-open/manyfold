@@ -274,6 +274,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'يقدّم {{other}} بالفعل، والبيئة المعزولة لا تملك سوى منفذ عام واحد',
     'web.agentNewV4.machine.podHostStarting': 'لا يزال قيد التشغيل — يمكنه استقبال وكيل عندما يصبح جاهزًا',
     'web.agentNewV4.machine.podHostFailed': 'فشل التشغيل؛ احذفه من الإعدادات › أجهزة الكمبيوتر السحابية',
+    'web.agentNewV4.machine.sandboxFailed': 'فشل التشغيل؛ احذفه من الإعدادات › بيئات التشغيل',
     'web.agentNewV4.machine.podHostNoService': 'لا يمكن تشغيل {{cli}} على حاسوب سحابي بعد',
     'web.agentNewV4.newMachine.sandbox': 'بيئة معزولة جديدة',
     'web.agentNewV4.newMachine.sandboxDetail': 'إنشاء جهاز وتثبيت {{cli}} عليه',

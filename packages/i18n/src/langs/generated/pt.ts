@@ -2079,6 +2079,7 @@ const pt: Record<string, string> = {
     'web.agentNewV4.machine.slotTaken': 'Já está servindo {{other}}, e um ambiente isolado tem só uma porta pública',
     'web.agentNewV4.machine.podHostStarting': 'Ainda iniciando — poderá receber um agente quando estiver pronto',
     'web.agentNewV4.machine.podHostFailed': 'Falha ao iniciar; exclua-o em Configurações › Computadores em nuvem',
+    'web.agentNewV4.machine.sandboxFailed': 'Falha ao iniciar; exclua-o em Configurações › Runtimes',
     'web.agentNewV4.machine.podHostNoService': '{{cli}} ainda não pode rodar em um computador em nuvem',
     'web.agentNewV4.newMachine.sandbox': 'Novo ambiente isolado',
     'web.agentNewV4.newMachine.sandboxDetail': 'Criar uma máquina e instalar o {{cli}} nela',

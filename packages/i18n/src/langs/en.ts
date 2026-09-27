@@ -3714,6 +3714,7 @@ const en = {
                 slotTaken: 'Already serving {{other}}, and a sandbox has only one public port',
                 podHostStarting: 'Still starting — it can take an agent once it is ready',
                 podHostFailed: 'Failed to start; delete it under Settings › Cloud computers',
+                sandboxFailed: 'Failed to start; delete it under Settings › Runtimes',
                 podHostNoService: '{{cli}} cannot run on a cloud computer yet'
             },
             newMachine: {
