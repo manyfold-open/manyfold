@@ -32,7 +32,7 @@ export interface SandboxStorageBreakdown {
     measuredVia: 'df' | 'du' | 'stale'
 }
 
-// ADR-0036: who owns the machine. `local` is a computer the user registered
+// ADR-0037: who owns the machine. `local` is a computer the user registered
 // with their own `mf daemon`; `hosted` is a machine the platform provisioned
 // on a runtime provider and whose daemon the platform brings up. Only
 // provisioning code writes `hosted`; nothing a registering daemon reports

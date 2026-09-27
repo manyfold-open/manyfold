@@ -1298,7 +1298,7 @@ const AgentChat: FC = (): ReactNode => {
         ? terminalAvailabilityForAgent(currentAgent)
         : { available: false, reason: 'agent-unavailable' as const }
 
-    // The agent's machine (ADR-0036): a sandbox row or a self-owned computer,
+    // The agent's machine (ADR-0037): a sandbox row or a self-owned computer,
     // both keyed by the same host id the agent carries.
     const sessionSandbox =
         currentAgent?.runtime === 'sprites' && currentAgent.hostId

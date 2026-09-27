@@ -52,7 +52,7 @@ export interface HostRpcArgs {
     retryOnTimeout?: boolean
 }
 
-// What a caller works with while the machine is held awake (ADR-0037).
+// What a caller works with while the machine is held awake (ADR-0038).
 export interface HostSession {
     host: RuntimeHostRow
     daemon: HostDaemonRow
@@ -70,7 +70,7 @@ export interface WithHostArgs extends EnsureHostDaemonArgs {
 }
 
 // Agent → Runtime → Host → host_daemons is the only path to a machine
-// (ADR-0036), and `withHost` is the only way to work on one (ADR-0037): the
+// (ADR-0037), and `withHost` is the only way to work on one (ADR-0038): the
 // machine is held awake, its daemon is brought up if the platform owns it,
 // the work runs, the hold is released. Reachable means the API holds a socket
 // (the rpc lease) — presence is for summaries. A self-owned computer the API

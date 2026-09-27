@@ -78,7 +78,7 @@ const SANDBOX_TERMINAL_CWD = '/home/sprite'
 const PING_INTERVAL_MS = 25_000
 const PONG_TIMEOUT_MS = 35_000
 
-// How the shell reaches the machine (ADR-0036): the host's daemon whenever
+// How the shell reaches the machine (ADR-0037): the host's daemon whenever
 // it is online and owns terminals, else the provider's own exec channel.
 type TerminalTransport = 'daemon' | 'sprites' | 'k8s'
 
@@ -240,7 +240,7 @@ export class TerminalGateway implements OnModuleInit {
             socket.close(4404, 'not supported')
             return
         }
-        // The one admission rule (ADR-0036): an installed runtime on a ready
+        // The one admission rule (ADR-0037): an installed runtime on a ready
         // host. A hosted machine that is asleep is admitted — the exec that
         // opens the shell is what wakes it.
         if (!isRuntimeUsable(ctx.availability)) {

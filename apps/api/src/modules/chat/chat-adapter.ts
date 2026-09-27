@@ -24,7 +24,7 @@ import type { ManagedChannelFailureSignal } from '@/modules/chat/managed-channel
 import type { TurnExecutionFence } from '@/modules/chat/turn-fence'
 
 // Whether the host daemon's CLI advertised a capability in its last heartbeat
-// (host_daemons.client_features; daemonId is the host id, ADR-0036). Gates
+// (host_daemons.client_features; daemonId is the host id, ADR-0037). Gates
 // per-daemon transport choices — a
 // turn.start sent to a CLI that predates it would fail the turn with
 // `not_implemented`, so the caller must fall back when this is false. Throws

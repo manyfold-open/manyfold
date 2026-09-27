@@ -9,7 +9,7 @@ import {
 } from '../src/modules/agent-runtimes/agent-runtimes.controller'
 import { AdminAgentRuntimesController } from '../src/modules/agent-runtimes/admin-agent-runtimes.controller'
 
-// DELETE /agent-runtimes/:id (ADR-0036 R8): one rule for every placement. A
+// DELETE /agent-runtimes/:id (ADR-0037 R8): one rule for every placement. A
 // runtime with agents bound is refused — agents.runtime_id cascades, so
 // dropping the row would silently delete every agent on it — and an empty one
 // is just a row to delete. No kind switch, no 500, and the admin route applies

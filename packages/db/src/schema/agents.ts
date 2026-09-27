@@ -32,7 +32,7 @@ export interface AgentStorageBreakdown {
     measuredVia: 'df' | 'du' | 'stale'
 }
 
-// The agent's own lifecycle (ADR-0036). Whether it can run right now is not
+// The agent's own lifecycle (ADR-0037). Whether it can run right now is not
 // stored: it derives from its runtime's install state, the host's lifecycle
 // and the host daemon's presence (agentAvailable in @manyfold/shared).
 export type AgentLifecycleStatus = 'pending' | 'ready' | 'failed'

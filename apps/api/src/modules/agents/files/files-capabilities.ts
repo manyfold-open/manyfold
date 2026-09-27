@@ -14,7 +14,7 @@ import {
 
 export interface CapabilityInput {
     framework: string
-    // The product placement of the agent's host (placementOf, ADR-0036).
+    // The product placement of the agent's host (placementOf, ADR-0037).
     placement: AgentRuntime
     root: FileRoot
     // resolved per host, not per runtime: false only for daemons whose CLI

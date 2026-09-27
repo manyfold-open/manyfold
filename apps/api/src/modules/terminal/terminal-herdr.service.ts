@@ -333,7 +333,7 @@ export class TerminalHerdrService {
     }
 
     // The agent, owned and usable, and the daemon of its machine that can
-    // hand its sessions to herdr (ADR-0036): a local computer's own daemon,
+    // hand its sessions to herdr (ADR-0037): a local computer's own daemon,
     // or a hosted machine's (woken if asleep). Either must be online and
     // advertise herdr.
     private async herdrHost(

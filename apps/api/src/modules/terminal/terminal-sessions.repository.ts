@@ -141,7 +141,7 @@ export class TerminalSessionsRepository {
 
     // The live terminals a host's daemon owns: rows addressed by their own id
     // (the handle an owned or herdr terminal gets at creation), reached
-    // through the host the row names (ADR-0036).
+    // through the host the row names (ADR-0037).
     async listLiveOwnedByHost(hostId: string): Promise<TerminalSessionRow[]> {
         return this.db
             .select()

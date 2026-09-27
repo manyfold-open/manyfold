@@ -131,7 +131,7 @@ const OPENCLAW_AGENTS_JSON = JSON.stringify([
 ])
 
 // The host daemon's exec, recorded: every command the adapters run on the
-// sprite goes through it (ADR-0036 R6).
+// sprite goes through it (ADR-0037 R6).
 class FakeTransportResolver extends FrameworkExecResolver {
     readonly execs: Array<{ opts: { cmd: string[] } }> = []
     behavior: (cmd: string[]) => FrameworkExecRunResult | null = () => null

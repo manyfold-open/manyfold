@@ -329,7 +329,7 @@ export class DaemonRegistryService
     // never serve a request against a lease we cannot honour.
     //
     // rpc_* columns only: last_seen_at is the heartbeat's, and presence is
-    // derived from it (ADR-0036), so nothing else has to be repaired.
+    // derived from it (ADR-0037), so nothing else has to be repaired.
     private async releaseOwnRpcLeases(): Promise<void> {
         const released = await this.db
             .update(hostDaemons)

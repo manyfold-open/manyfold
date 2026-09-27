@@ -164,7 +164,7 @@ export class McpConfigMaterializer {
 
     // Synchronous push for one agent, shared by the explicit materialize
     // endpoint and the on-change refresh. Every machine is reached through
-    // its host daemon (ADR-0036 R6); an external-API agent has no files to
+    // its host daemon (ADR-0037 R6); an external-API agent has no files to
     // write. Throws for shapes that cannot take a push at all; per-scope
     // outcomes never throw and persist to extras.mcpDelivery so an offline
     // save leaves a durable stale marker (#781).

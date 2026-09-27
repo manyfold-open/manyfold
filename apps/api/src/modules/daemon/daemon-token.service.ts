@@ -7,7 +7,7 @@ import { DRIZZLE } from '@/db/tokens'
 const TOKEN_PREFIX = 'ldt_'
 const TOKEN_BYTES = 32
 
-// The host a token is bound to is the whole trust boundary (ADR-0036): a
+// The host a token is bound to is the whole trust boundary (ADR-0037): a
 // token minted by the user-facing API has none until its first register
 // creates a `local` host; a token provisioning minted for a hosted host is
 // bound at mint and can only ever register onto that host.

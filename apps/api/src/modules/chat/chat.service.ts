@@ -670,7 +670,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // instead of getting its one settle attempt at the turn gate.
         @Optional()
         private readonly recovery?: SessionRecoveryService,
-        // Same rule. The agent's machine (ADR-0036): host, placement and
+        // Same rule. The agent's machine (ADR-0037): host, placement and
         // power for the turn's runner, awake holds and exec-health key.
         // Absent = the agent is treated as having no machine.
         @Optional()
@@ -6844,7 +6844,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         {
             framework: AgentFramework
             userId: string
-            // The product placement, derived from the host (ADR-0036).
+            // The product placement, derived from the host (ADR-0037).
             runtime: AgentRuntime
             runtimeId: string | null
             model: string | null
@@ -6926,7 +6926,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }
     }
 
-    // The agent's machine (ADR-0036): the placement, the host row the awake
+    // The agent's machine (ADR-0037): the placement, the host row the awake
     // holds and exec health key on, and the provider's name for its sprite.
     // Without a context service the agent is read as having no machine.
     private async machineFacts(agentId: string): Promise<{

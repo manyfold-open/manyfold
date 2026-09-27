@@ -77,7 +77,7 @@ const throwingRegistry = {
     }
 }
 
-// Presence is never mirrored into agent rows (ADR-0036): a coding-framework
+// Presence is never mirrored into agent rows (ADR-0037): a coding-framework
 // runtime has nothing to reconcile, so the pass touches no table at all.
 for (const [host, framework] of [
     [spritesHostRow(), 'claude-code'],

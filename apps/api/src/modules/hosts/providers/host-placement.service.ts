@@ -24,7 +24,7 @@ export interface PlacementRequest {
     callerIsAdmin?: boolean
 }
 
-// Which enabled provider a new hosted host lands on (ADR-0036): by kind,
+// Which enabled provider a new hosted host lands on (ADR-0037): by kind,
 // then priority, region, and — for sprites — the organisation with the
 // fewest live hosts, so the wholesale accounts fill evenly.
 @Injectable()

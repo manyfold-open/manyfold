@@ -79,7 +79,7 @@ import {
 // an operation row minted before the host is touched, so a lost ack is
 // reconciled from the host's journal instead of by a second vendor call.
 //
-// Hosts: every runtime talks to its host's one daemon (ADR-0036), local or
+// Hosts: every runtime talks to its host's one daemon (ADR-0037), local or
 // hosted, through the same host code and the same capability gate. No
 // daemon, or a daemon without the capability, reads as unavailable — never
 // as "use the native home instead".

@@ -7,7 +7,7 @@ import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 
 // Cloud computers (ADR-0035) from the user's side: the gates on creating
 // one, the refusal to delete one still being created, deletion through the
-// one host delete path (ADR-0036 R8), and how its daemon's CLI is updated —
+// one host delete path (ADR-0037 R8), and how its daemon's CLI is updated —
 // the pod's daemon IS host_daemons for the host, so nothing is looked up by
 // name any more.
 

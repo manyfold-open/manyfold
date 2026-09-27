@@ -201,7 +201,7 @@ export class DaemonHostService {
         )
     }
 
-    // Registration (ADR-0036 R1/R2/R5). A token bound to a host registers
+    // Registration (ADR-0037 R1/R2/R5). A token bound to a host registers
     // onto that host and nothing else; an unbound token is the user's own
     // and its first register creates the `local` host it then binds to. In
     // both cases the daemon's connection row is upserted for the host.
@@ -455,7 +455,7 @@ export class DaemonHostService {
         return this.hosts.listForUser(userId, 'local')
     }
 
-    // Retire a local host (ADR-0036 R5): its tokens are revoked in the same
+    // Retire a local host (ADR-0037 R5): its tokens are revoked in the same
     // transaction, its connection dropped, and nothing can reactivate it —
     // only permanent deletion is left.
     async revoke(args: { id: string; userId: string }): Promise<void> {
@@ -558,7 +558,7 @@ export class DaemonHostService {
         return updated
     }
 
-    // Presence is derived (ADR-0036): the daemon's last heartbeat inside the
+    // Presence is derived (ADR-0037): the daemon's last heartbeat inside the
     // window, nothing stored and nothing swept.
     isOnline(daemon: HostDaemonRow | null | undefined): boolean {
         return daemonOnline(daemon)

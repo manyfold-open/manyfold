@@ -8,7 +8,7 @@ import type {
 } from '@manyfold/sprites'
 import { SpriteKeepAliveLeaseService } from '../src/modules/agents/keep-alive/sprite-keepalive-lease.service'
 
-// The keep-awake lease is the host's (ADR-0036 R7): one renewing /v1/tasks
+// The keep-awake lease is the host's (ADR-0037 R7): one renewing /v1/tasks
 // task per machine, ensured while host.keep_awake is on and released when it
 // goes off, with the bookkeeping on the host row (keep_awake_lease). Nothing
 // here starts or stops a framework service — that is the daemon's job.

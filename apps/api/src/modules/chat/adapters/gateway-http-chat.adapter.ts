@@ -112,7 +112,7 @@ interface OpenAIError {
 //
 // Abstract because `framework` decides the wire model id, the readiness code
 // and whether the channel fields ride the body.
-// The agent's placement (derived from its host, ADR-0036) and the host id
+// The agent's placement (derived from its host, ADR-0037) and the host id
 // that routes to its daemon.
 export interface GatewayAgentRow {
     placement: AgentRuntime

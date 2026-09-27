@@ -294,7 +294,7 @@ const serviceStatusLabel = (status: RuntimeServiceStatus): string => {
     return translate('web.runtimeDetails.unknown')
 }
 
-// Install state only (ADR-0036); whether a turn can start is the
+// Install state only (ADR-0037); whether a turn can start is the
 // availability tag below.
 const STATUS_TONE: Record<AgentRuntimeStatus, TagTone> = {
     ready: 'success',

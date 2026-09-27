@@ -3,7 +3,7 @@ import { users } from './users'
 import { runtimeHosts } from './runtimeHosts'
 
 // A daemon registration credential. Binding to a host is the whole trust
-// boundary (ADR-0036): a token the user minted has no host until its first
+// boundary (ADR-0037): a token the user minted has no host until its first
 // register creates a `local` one; a token the platform minted for a hosted
 // host is bound at mint, can only register onto that host and can never create
 // one. Bound tokens never change host.

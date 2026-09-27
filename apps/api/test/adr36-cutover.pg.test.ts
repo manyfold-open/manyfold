@@ -17,7 +17,7 @@ import { CONCURRENT_INDEXES } from '../src/db/concurrent-index'
 import { runJournal } from '../src/db/migration-runner'
 import { withScratchDatabase } from '../scripts/scratch-db'
 
-// ADR-0036 cutover (migration 0027). The mapping from the old model — runner
+// ADR-0037 cutover (migration 0027). The mapping from the old model — runner
 // hosts found by name, per-framework projections, token purposes, agent copies
 // — to the new one is set-based SQL, so it is proven here against a real
 // Postgres: a scratch database is migrated up to 0026, seeded in the old shape,

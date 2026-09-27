@@ -281,7 +281,7 @@ const registryFor = (seam: Seam) => ({
 })
 
 // Serves the queries the service adapters make: the agent row joined to its
-// host (ADR-0036), the host_daemons row `daemonAdvertisesFeature` and
+// host (ADR-0037), the host_daemons row `daemonAdvertisesFeature` and
 // `daemonDetectedFramework` read, and the credentials row hermes decrypts for
 // the provider alias env. Discriminating on the table means the capability
 // gate, the openclaw gateway admission and the alias derivation run for real

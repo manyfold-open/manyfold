@@ -105,7 +105,7 @@ export class DaemonGateway implements OnModuleInit {
             return
         }
 
-        // Admission is the host's (ADR-0036 R5): its bound token names it,
+        // Admission is the host's (ADR-0037 R5): its bound token names it,
         // a retired or deleting host refuses, and the floor is checked
         // against what the daemon last registered as.
         const host = await this.hosts.findById(auth.hostId)

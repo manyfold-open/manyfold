@@ -7,7 +7,7 @@ import type {
 import { t } from '@manyfold/i18n'
 import type { TagTone } from '@/components/Tag'
 
-// The four independent host facts of ADR-0036 — lifecycle, power, daemon
+// The four independent host facts of ADR-0037 — lifecycle, power, daemon
 // presence and the derived availability — rendered the same way everywhere.
 // Tones follow DESIGN.md §10.6: a sleeping machine is quiet, not a fault.
 
@@ -63,6 +63,6 @@ export const daemonPresenceLabel = (
 export const placementLabel = (placement: AgentRuntime): string =>
     t(`web.hostStatus.placement.${placement}`)
 
-// The sidebar / picker key of a machine: one host is one machine (ADR-0036),
+// The sidebar / picker key of a machine: one host is one machine (ADR-0037),
 // so the key is the host id and nothing else.
 export const hostKey = (hostId: string): string => `host:${hostId}`

@@ -27,7 +27,7 @@ import { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.ser
 // column selection: the FakeDb unit harness returns whatever it is told and
 // structurally cannot fail on either. Both invariants below are about which
 // rows and which columns the statement actually touches — on host_daemons,
-// where the rpc lease lives (ADR-0036).
+// where the rpc lease lives (ADR-0037).
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
 //     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'

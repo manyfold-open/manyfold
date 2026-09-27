@@ -558,7 +558,7 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
         )
     }
 
-    // The same host delete path the explicit endpoints use (ADR-0036 R8),
+    // The same host delete path the explicit endpoints use (ADR-0037 R8),
     // forced past the agents guard: a hosted host's machine is destroyed and
     // its rows go; a local host is retired (tokens revoked) and then deleted
     // — the machine is the user's own. External runtimes cascade with the

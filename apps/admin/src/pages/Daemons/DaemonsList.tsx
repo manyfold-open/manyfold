@@ -23,7 +23,7 @@ const statusTone = (online: boolean): BadgeTone =>
     online ? 'success' : 'neutral'
 
 // The host's lifecycle, its daemon's registration and its presence are three
-// separate facts (ADR-0036); one badge reads them in that order.
+// separate facts (ADR-0037); one badge reads them in that order.
 const presenceLabel = (r: AdminDaemonHostSummary): string => {
     if (r.status !== 'ready') return r.status
     if (!r.registered) return 'not registered'

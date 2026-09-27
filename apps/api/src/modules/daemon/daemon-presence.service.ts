@@ -4,7 +4,7 @@ import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const SWEEP_INTERVAL_MS = 15_000
 
-// Presence is derived from host_daemons.last_seen_at (ADR-0036): there is
+// Presence is derived from host_daemons.last_seen_at (ADR-0037): there is
 // nothing to flip when a daemon goes quiet, so the only periodic work left
 // here is the rate limiter's bucket GC.
 @Injectable()

@@ -11,7 +11,7 @@ import { sql } from 'drizzle-orm'
 import { users } from './users'
 import { runtimeHosts } from './runtimeHosts'
 
-// One framework installed on one host (ADR-0036). Where it runs, who owns the
+// One framework installed on one host (ADR-0037). Where it runs, who owns the
 // machine and how it is reached are all facts of the host row, never copied
 // here: kind, provider identity and daemon connection are derived through
 // host_id. The single exception is an external-API framework, which has no

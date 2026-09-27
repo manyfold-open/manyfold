@@ -4,7 +4,7 @@ import type { RuntimeHostRow } from '@manyfold/db'
 import { HostProviderClients } from './providers/host-provider-clients.service'
 import { SandboxProviderRegistry } from './providers/sandbox-provider'
 
-// ADR-0037: a machine that can sleep is kept awake by a lease for exactly as
+// ADR-0038: a machine that can sleep is kept awake by a lease for exactly as
 // long as somebody is working on it. The lease is the provider's own activity
 // primitive (a sprite's /v1/tasks entry: TTL-bound, reachable only from inside
 // the VM), and acquiring it is what resumes a suspended machine. One lease per

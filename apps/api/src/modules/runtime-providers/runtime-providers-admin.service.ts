@@ -57,7 +57,7 @@ const isUniqueViolation = (err: unknown): boolean =>
 const optionalString = (value: unknown): string | null =>
     typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 
-// Admin management of the platform's hosted capacity (ADR-0036): one row per
+// Admin management of the platform's hosted capacity (ADR-0037): one row per
 // sprites organisation or Kubernetes cluster. The shared columns are the
 // core's; what `config` holds and how a credential is probed is per kind.
 @Injectable()

@@ -54,7 +54,7 @@ import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
-// inside the machine — can go through the daemon protocol (ADR-0036 R11):
+// inside the machine — can go through the daemon protocol (ADR-0037 R11):
 // Agent → Runtime → Host → host_daemons. Online → RPC. Not online → the
 // provider adapter's power / wake / bootstrap, in that order, then RPC. A
 // local host's daemon is the user's to start: offline is `runner_unavailable`.
@@ -129,7 +129,7 @@ export interface HostDaemonArgs {
 }
 
 export interface RunnerHandle {
-    // The host id: the daemon's routing key (ADR-0036).
+    // The host id: the daemon's routing key (ADR-0037).
     daemonId: string
     // false when the daemon was already connected (the common case).
     started: boolean
@@ -302,7 +302,7 @@ export class RunnerManagerService {
     // suspended 20s earlier). A hosted machine is held awake from here until
     // the caller's admission is done: the lease is what resumes a suspended
     // machine and what stops it suspending again between the wake and the
-    // first RPC (ADR-0037). Callers that keep working hold their own; the
+    // first RPC (ADR-0038). Callers that keep working hold their own; the
     // grace on release keeps the machine up across the hand-over.
     async ensureHostDaemon(args: HostDaemonArgs): Promise<RunnerResolution> {
         const { host } = args
@@ -344,7 +344,7 @@ export class RunnerManagerService {
 
     // A fresh socket lease recorded after `since`: the proof a daemon that was
     // frozen, replaced or restarted is back. Callers that hit a dead
-    // generation on their first RPC wait here, then retry once (ADR-0037).
+    // generation on their first RPC wait here, then retry once (ADR-0038).
     awaitReconnect(
         host: RuntimeHostRow,
         since: Date,
@@ -354,7 +354,7 @@ export class RunnerManagerService {
     }
 
     // The turn path's hold on the machine, kept for as long as the turn runs
-    // (ADR-0037). The same lease the admission held: the machine never sleeps
+    // (ADR-0038). The same lease the admission held: the machine never sleeps
     // between the two.
     holdAwake(host: RuntimeHostRow, reason: string): AwakeHold {
         return this.awake.hold(host, reason)
@@ -805,7 +805,7 @@ export class RunnerManagerService {
         return res.exitCode === 0
     }
 
-    // Register with a token minted BOUND to the host (ADR-0036 R5): it can
+    // Register with a token minted BOUND to the host (ADR-0037 R5): it can
     // only ever land on this host, and the daemon it starts is this host's.
     // The token is passed on STDIN — never argv, which would put it in the
     // machine's process list.

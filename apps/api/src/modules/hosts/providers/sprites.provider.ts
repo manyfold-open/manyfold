@@ -53,7 +53,7 @@ export const spritePowerState = (status: string | null | undefined): RuntimeHost
     }
 }
 
-// The sprites.dev adapter (ADR-0036): a hosted host on a sprites organisation
+// The sprites.dev adapter (ADR-0037): a hosted host on a sprites organisation
 // is one sprite VM. Its provider_ref is { spriteName, spriteId }; the
 // organisation credential is the provider row's.
 @Injectable()

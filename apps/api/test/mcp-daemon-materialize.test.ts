@@ -231,7 +231,7 @@ test('an unchanged scope persists as delivered and writes nothing', async () => 
     assert.equal(delivery.user.status, 'delivered')
 })
 
-// Every machine takes the push through its daemon (ADR-0036); only an
+// Every machine takes the push through its daemon (ADR-0037); only an
 // external runtime has nowhere to push to.
 test('an external agent cannot be pushed to and says so', async () => {
     const db = fakeDb({ clientFeatures: [] })

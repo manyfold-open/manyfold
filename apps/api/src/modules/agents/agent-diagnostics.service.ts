@@ -280,7 +280,7 @@ export class AgentDiagnosticsService {
     }
 
     // One command on the agent's machine through its host daemon, whatever
-    // provisioned the machine (ADR-0036 R6).
+    // provisioned the machine (ADR-0037 R6).
     private async runCommand(
         ctx: AgentContext,
         input: { cmd: string[]; timeoutMs: number }

@@ -13,7 +13,7 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 // already lost) its machine; `retired` is a local-host state.
 export const HOSTED_LIVE_STATUSES = ['provisioning', 'ready', 'deleting'] as const
 
-// Composable predicates over runtime_hosts (ADR-0036 R1): a host's placement
+// Composable predicates over runtime_hosts (ADR-0037 R1): a host's placement
 // is its kind plus its provider's kind, never a column of its own.
 export const hostedOnProviderKind = (kind: RuntimeProviderKind) =>
     sql`exists (select 1 from runtime_providers p where p.id = ${runtimeHosts.providerId} and p.kind = ${kind})`
