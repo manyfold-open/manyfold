@@ -158,9 +158,9 @@ import {
     RunnerManagerService,
     classifyExecEndpointFailure,
     type RunnerExecFailure,
-    type SpriteAwakeHold,
     type SpriteExecFn
 } from '@/modules/chat/runner/runner-manager.service'
+import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     SpriteExecHealthService,
     spriteExecHealthConfig,
@@ -670,7 +670,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // instead of getting its one settle attempt at the turn gate.
         @Optional()
         private readonly recovery?: SessionRecoveryService,
-        // Same rule. The agent's machine (ADR-0036): host, placement and
+        // Same rule. The agent's machine (ADR-0037): host, placement and
         // power for the turn's runner, awake holds and exec-health key.
         // Absent = the agent is treated as having no machine.
         @Optional()
@@ -2925,7 +2925,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             )
         }
         let fence: TurnExecutionFence | null = null
-        let awakeHold: SpriteAwakeHold | null = null
+        let awakeHold: AwakeHold | null = null
         let resumeSuspended = false
         let leaseTimer: ReturnType<typeof setInterval> | null = null
         let resumeFenceLost = false
@@ -3203,13 +3203,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     private async holdRunnerSpriteAwake(
         agentCtx: { runtime: AgentRuntime; host: RuntimeHostRow | null },
         args: { turnId: string }
-    ): Promise<SpriteAwakeHold | null> {
+    ): Promise<AwakeHold | null> {
         if (!this.runnerManager) return null
         if (agentCtx.runtime !== 'sprites' || !agentCtx.host) return null
-        return this.runnerManager.keepSpriteAwake({
-            host: agentCtx.host,
-            turnId: args.turnId
-        })
+        return this.runnerManager.holdAwake(agentCtx.host, args.turnId)
     }
 
     // One rule for every path that holds a turn's awake lease. Only a real
@@ -3220,7 +3217,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // the owner now doing the work. Stop renewing and let the TTL bound the
     // leak instead, exactly as if this instance had died.
     private async settleAwakeHold(
-        hold: SpriteAwakeHold | null,
+        hold: AwakeHold | null,
         args: { keepAwake: boolean }
     ): Promise<void> {
         if (!hold) return
@@ -3383,7 +3380,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             generation: row.generation
         }
         this.setTurnFence(fence)
-        let awakeHold: SpriteAwakeHold | null = null
+        let awakeHold: AwakeHold | null = null
         let adoptOutcome: Awaited<
             ReturnType<ChatService['runAdapterFromIterable']>
         > | null = null
@@ -3495,10 +3492,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // another costs a second agent read, admission reservation and
             // client for nothing.
             if (this.runnerManager && agentCtx.host && agentCtx.runtime === 'sprites')
-                awakeHold = this.runnerManager.keepSpriteAwake({
-                    host: agentCtx.host,
-                    turnId: row.messageId
-                })
+                awakeHold = this.runnerManager.holdAwake(agentCtx.host, row.messageId)
             await this.broadcaster.beginResumeStream(
                 session.id,
                 row.messageId,
@@ -5775,10 +5769,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // to hold awake and no lease to pay for.
         const awakeHold =
             runner && this.runnerManager && agentCtx.runtime === 'sprites' && agentCtx.host
-                ? this.runnerManager.keepSpriteAwake({
-                      host: agentCtx.host,
-                      turnId: assistantMessageId
-                  })
+                ? this.runnerManager.holdAwake(agentCtx.host, assistantMessageId)
                 : null
         const carryingDaemonId = runnerDaemonId
         // A fail-fast turn never reaches a daemon and is terminal within
@@ -6853,7 +6844,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         {
             framework: AgentFramework
             userId: string
-            // The product placement, derived from the host (ADR-0036).
+            // The product placement, derived from the host (ADR-0037).
             runtime: AgentRuntime
             runtimeId: string | null
             model: string | null
@@ -6935,7 +6926,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }
     }
 
-    // The agent's machine (ADR-0036): the placement, the host row the awake
+    // The agent's machine (ADR-0037): the placement, the host row the awake
     // holds and exec health key on, and the provider's name for its sprite.
     // Without a context service the agent is read as having no machine.
     private async machineFacts(agentId: string): Promise<{

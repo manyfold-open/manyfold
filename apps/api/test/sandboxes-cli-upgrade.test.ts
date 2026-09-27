@@ -7,15 +7,34 @@ import {
 } from '@nestjs/common'
 import { DAEMON_FEATURE_MANUAL_UPDATE } from '@manyfold/shared'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 
 // The mf CLI on a sandbox is updated by the machine's own daemon (ADR-0029 §5,
-// ADR-0036 R6): `daemon.update` over the host's RPC, nothing installed over
+// ADR-0037 R6): `daemon.update` over the host's RPC, nothing installed over
 // it from outside and nothing restarted. The version it lands on reaches
 // host_daemons through the daemon's next heartbeat, so the API records
 // nothing itself.
 
 const OLD = '0.31.2-dev.202609091242.909c84a'
 const NEW = '0.33.1-dev.202609100748.ab03120'
+
+// The sandbox held awake with its daemon reachable (ADR-0038): the session's
+// rpc routes by the host id; a daemon the API holds no socket to is refused.
+const hostAccessFor = (opts: { online?: boolean }, host: { id: string }, daemon: unknown, rpc: (args: Record<string, unknown>) => Promise<unknown>) => ({
+    withHost: async (
+        args: { host: { id: string } },
+        work: (session: Record<string, unknown>) => Promise<unknown>
+    ) => {
+        if (opts.online === false)
+            throw new HostDaemonOfflineError(host as never, 'runner_unavailable')
+        return work({
+            host: args.host,
+            daemon,
+            daemonId: args.host.id,
+            rpc: (call: Record<string, unknown>) => rpc({ daemonId: args.host.id, ...call })
+        })
+    }
+})
 
 const buildHarness = (opts: {
     online?: boolean
@@ -50,20 +69,19 @@ const buildHarness = (opts: {
     }
     const view = { host, provider: { id: 'rtp_1', kind: 'sprites', name: 'acct' }, daemon, agentsCount: 0 }
     const rpcs: Array<Record<string, unknown>> = []
+    const rpc = async (args: Record<string, unknown>) => {
+        rpcs.push(args)
+        if (opts.rpcError) throw opts.rpcError
+        return { toVersion: NEW, deferred: false }
+    }
     const svc = new SandboxesService(
         { getSandboxForUser: async () => view, getSandboxById: async () => view } as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
-        { isOnline: () => opts.online !== false } as never,
-        {
-            rpc: async (args: Record<string, unknown>) => {
-                rpcs.push(args)
-                if (opts.rpcError) throw opts.rpcError
-                return { toVersion: NEW, deferred: false }
-            }
-        } as never,
+        {} as never,
+        { rpc } as never,
         {
             getCachedLatest: async () => ({ channel: 'dev', version: NEW })
         } as never,
@@ -77,7 +95,11 @@ const buildHarness = (opts: {
         {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
-        } as never
+        } as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        hostAccessFor(opts, host, daemon, rpc) as never
     )
     return { svc, rpcs }
 }

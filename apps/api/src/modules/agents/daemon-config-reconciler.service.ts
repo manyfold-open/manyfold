@@ -142,7 +142,7 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                         return
                     }
                     // Every agent whose runtime sits on this host (the hello's
-                    // daemonId is the host id, ADR-0036).
+                    // daemonId is the host id, ADR-0037).
                     const rows = (
                         await this.db
                             .select({ agent: agents })

@@ -63,7 +63,7 @@ export interface UpdateRow {
     // rather than to any one framework.
     framework: AgentFramework | null
     targetKind: UpdateTargetKind
-    // One machine is one host (ADR-0036): `host:<hostId>` for anything on a
+    // One machine is one host (ADR-0037): `host:<hostId>` for anything on a
     // machine, `agent:<id>` for a skill, `runtime:<id>` for an external one.
     targetKey: string
     targetLabel: string

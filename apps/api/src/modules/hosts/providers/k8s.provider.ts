@@ -66,7 +66,7 @@ export const ingressSuffixOf = (
     return hostIngress.slice(prefix.length)
 }
 
-// The Kubernetes adapter (ADR-0035, ADR-0036): a hosted host on a cluster is
+// The Kubernetes adapter (ADR-0035, ADR-0037): a hosted host on a cluster is
 // one Deployment + PVC + Secret in the user's namespace. Its provider_ref is
 // { namespace, ingressHost, podPhase }; the kubeconfig is the provider row's.
 @Injectable()

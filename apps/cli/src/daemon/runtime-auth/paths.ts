@@ -24,7 +24,7 @@ import {
 //       profiles/<profileId>/lock/           cross-process lock dir
 //       operations/<operationId>.json        secret-free journal
 //
-// `daemonId` is the host the daemon registered onto (ADR-0036) — a self-owned
+// `daemonId` is the host the daemon registered onto (ADR-0037) — a self-owned
 // computer (dh_…), a sandbox (sbx_…) or a pod host (pdh_…) — so two control
 // planes sharing a machine keep separate stores even under the same profile
 // name.

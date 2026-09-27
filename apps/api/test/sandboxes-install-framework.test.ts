@@ -3,11 +3,12 @@ import test from 'node:test'
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common'
 import type { ExecResult } from '@manyfold/sprites'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 
 // WHY: the create form installs (or upgrades) a coding CLI on a sandbox that
 // has no runtime for it yet, before the agent exists. The install runs the
 // same staged npm shell as the agent-level upgrade through the host daemon
-// (ADR-0036 R6), re-probes over the same seam, persists what it finds on
+// (ADR-0037 R6), re-probes over the same seam, persists what it finds on
 // host_daemons and the runtimes, and refuses to call an install "done" when
 // the machine still reports another version.
 
@@ -33,6 +34,24 @@ const probeOutput = (claude: string): string =>
         'mf=0.34.0',
         ''
     ].join('\n')
+
+// The sandbox held awake with its daemon reachable (ADR-0038): the session's
+// rpc routes by the host id; a daemon the API holds no socket to is refused.
+const hostAccessFor = (opts: { online?: boolean }, host: { id: string }, daemon: unknown, rpc: (args: Record<string, unknown>) => Promise<unknown>) => ({
+    withHost: async (
+        args: { host: { id: string } },
+        work: (session: Record<string, unknown>) => Promise<unknown>
+    ) => {
+        if (opts.online === false)
+            throw new HostDaemonOfflineError(host as never, 'runner_unavailable')
+        return work({
+            host: args.host,
+            daemon,
+            daemonId: args.host.id,
+            rpc: (call: Record<string, unknown>) => rpc({ daemonId: args.host.id, ...call })
+        })
+    }
+})
 
 const buildHarness = (opts: {
     latest?: string | null
@@ -79,7 +98,6 @@ const buildHarness = (opts: {
         }
     }
     const hostDaemons = {
-        isOnline: () => opts.online !== false,
         patch: async (_id: string, values: { detectedFrameworks?: unknown; cliVersion?: string }) => {
             persisted.frameworks = values.detectedFrameworks
             if (values.cliVersion) persisted.cli = values.cliVersion
@@ -122,7 +140,10 @@ const buildHarness = (opts: {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
         } as never,
-        frameworkVersions as never
+        frameworkVersions as never,
+        undefined as never,
+        undefined as never,
+        hostAccessFor(opts, host, daemon, async () => ({})) as never
     )
     svc.execResults.push(
         { exitCode: opts.installExit ?? 0, stdout: '', stderr: 'boom' },

@@ -32,6 +32,36 @@ const makeApiTokens = () => {
     }
 }
 
+// The machine behind a terminal request: a self-owned computer the API holds
+// a socket to. withHost hands the work a session whose rpc routes by host id.
+const hostsFor = () => ({
+    findById: async (id: string) => ({
+        id,
+        kind: 'local',
+        providerRef: null,
+        name: 'laptop',
+        workspaceBaseDir: null
+    })
+})
+const hostAccessFor = (registry: {
+    rpc?: (args: Record<string, unknown>) => Promise<unknown>
+    streamRpc?: unknown
+}) => ({
+    withHost: async (
+        args: { host: { id: string } },
+        work: (session: Record<string, unknown>) => Promise<unknown>
+    ) =>
+        work({
+            host: args.host,
+            daemon: { clientFeatures: [] },
+            daemonId: args.host.id,
+            rpc: (call: Record<string, unknown>) =>
+                registry.rpc
+                    ? registry.rpc({ daemonId: args.host.id, ...call })
+                    : Promise.resolve({})
+        })
+})
+
 class FakeClient extends EventEmitter {
     OPEN = 1
     readyState = 1
@@ -69,7 +99,9 @@ test('daemon terminal passes requested cwd to pty.open', async () => {
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
 
     await terminal.tunnel({
@@ -124,7 +156,9 @@ test('client close asks the daemon to close the pty and waits for the ack', asyn
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
     const handles: string[] = []
     let closeCause: string | null = null
@@ -175,7 +209,9 @@ test('the pty ending on its own reports why', async () => {
         const terminal = new DaemonTerminal(
             registry as never,
             fakeConnections as never,
-            makeApiTokens() as never
+            makeApiTokens() as never,
+            hostsFor() as never,
+            hostAccessFor(registry) as never
         )
         let cause: string | null = null
         await terminal.tunnel({
@@ -220,7 +256,9 @@ test('daemon terminal injects env text, connection env and identity per session 
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
 
     await terminal.tunnel({
@@ -271,7 +309,9 @@ test('daemon terminal strips protocol byte before forwarding pty input', async (
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
 
     await terminal.tunnel({
@@ -308,7 +348,9 @@ test('daemon terminal sends pty.open failures to browser', async () => {
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
     let closed = false
 
@@ -382,7 +424,9 @@ test('an owned terminal is opened under its id and the browser going away only d
     const terminal = new DaemonTerminal(
         r.registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(r.registry) as never
     )
     const handles: string[] = []
     let closeCause: string | null = null
@@ -422,7 +466,9 @@ test("the daemon's attach verdict decides which token the shell carries", async 
         const terminal = new DaemonTerminal(
             r.registry as never,
             fakeConnections as never,
-            apiTokens as never
+            apiTokens as never,
+            hostsFor() as never,
+            hostAccessFor(r.registry) as never
         )
         const bound: string[] = []
         let closeCause: string | null = null
@@ -477,7 +523,9 @@ test('a stream ended by another attachment closes the tab with 4409 and keeps th
     const terminal = new DaemonTerminal(
         r.registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(r.registry) as never
     )
     let closeCause: string | null = null
     await terminal.tunnel({
@@ -508,7 +556,9 @@ test('closePty addresses an owned terminal by its id and a stream-bound pty by i
     const terminal = new DaemonTerminal(
         r.registry as never,
         fakeConnections as never,
-        makeApiTokens() as never
+        makeApiTokens() as never,
+        hostsFor() as never,
+        hostAccessFor(r.registry) as never
     )
     await terminal.closePty('dh-1', TERMINAL_ID)
     await terminal.closePty('dh-1', 'ref-1')
@@ -537,7 +587,9 @@ test('openInHerdr sends the pty env, the resume command and the labels in one rp
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
     const tokens: string[] = []
     const result = await terminal.openInHerdr({
@@ -608,7 +660,9 @@ test('a herdr launch the daemon refuses drops the freshly minted token', async (
     const terminal = new DaemonTerminal(
         registry as never,
         fakeConnections as never,
-        apiTokens as never
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
     )
     await assert.rejects(
         terminal.openInHerdr({

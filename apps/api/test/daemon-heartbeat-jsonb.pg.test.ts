@@ -18,7 +18,7 @@ const RUN = process.env.RUN_PG_E2E === '1'
 const old = new Date('2020-01-01T00:00:00Z')
 
 // The heartbeat's steady state is one UPDATE of host_daemons.last_seen_at
-// (ADR-0036: the host row never sees a heartbeat), and a JSONB
+// (ADR-0037: the host row never sees a heartbeat), and a JSONB
 // round-trip — which reorders object keys — must not read as a change.
 test(
     'JSONB-round-tripped heartbeat metadata converges without losing real changes',

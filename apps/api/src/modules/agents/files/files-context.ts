@@ -48,6 +48,7 @@ import {
 import { extractHomeDir } from '@/modules/agents/bootstrap/home-probe'
 import { K8sPodFilesClient } from '@/modules/agents/files/k8s-pod-files-client'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import { isCustomWorkspace } from '@/modules/agents/workspace/workspace-preflight'
 import { spritesHttpError } from '@/modules/agents/files/sprite-http-error'
 import { rootCapabilities } from '@/modules/agents/files/files-capabilities'
@@ -67,7 +68,7 @@ import { HostProviderClients } from '@/modules/hosts/providers/host-provider-cli
 
 export interface FilesContext {
     agent: Agent
-    // The product placement of the agent's host (placementOf, ADR-0036);
+    // The product placement of the agent's host (placementOf, ADR-0037);
     // absent on a context a framework builds for its own files.
     placement?: AgentRuntime
     root: FileRoot
@@ -94,7 +95,7 @@ export interface FilesContext {
     binaryWriteSafe?: boolean
 }
 
-// The agent with its machine resolved (ADR-0036): where the files live is a
+// The agent with its machine resolved (ADR-0037): where the files live is a
 // fact of the host, never of the agent row.
 type AgentContext = RuntimeContext & { agent: Agent }
 type HostedAgentContext = AgentContext & { host: RuntimeHostRow }
@@ -169,6 +170,7 @@ export class FilesContextBuilder {
         private readonly hostClients: HostProviderClients,
         private readonly daemonRegistry: DaemonRegistryService,
         @Inject(DRIZZLE) private readonly db: Database,
+        private readonly hostAccess: HostDaemonAccess,
         // Appended last + @Optional: frameworks whose files their own API
         // serves (ADR-0034); absent means only the core frameworks.
         @Optional()
@@ -363,17 +365,23 @@ export class FilesContextBuilder {
     ): Promise<FilesContext> {
         const { agent } = ctx
         const daemonId = ctx.host.id
+        // Every call runs under the machine's hold and survives a reconnect
+        // (ADR-0038); a self-owned computer the API holds no socket to reads
+        // as offline.
         const rpc = (
             method: import('@manyfold/shared').DaemonRpcMethod,
             payload: Record<string, unknown>
-        ) => {
-            return this.daemonRegistry.rpc({
-                daemonId,
-                method,
-                payload,
-                timeoutMs: 30_000
-            })
-        }
+        ) =>
+            this.hostAccess.withHost(
+                {
+                    host: ctx.host,
+                    daemon: ctx.daemon,
+                    placement: ctx.placement,
+                    agentId: agent.id,
+                    reason: 'files'
+                },
+                (session) => session.rpc({ method, payload, timeoutMs: 30_000 })
+            )
         const binaryWriteSafe = this.daemonBinaryWriteSafe(ctx)
         return {
             agent,
@@ -663,7 +671,7 @@ export class FilesContextBuilder {
     }
 }
 
-// The one admission rule for files (ADR-0036): the agent's runtime is
+// The one admission rule for files (ADR-0037): the agent's runtime is
 // installed on a ready host. A hosted machine that is asleep is admitted —
 // reads wake it.
 export const assertAgentReady = (

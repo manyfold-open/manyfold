@@ -14,7 +14,7 @@ import type {
 import type { RuntimeContext } from '../../src/modules/hosts/runtime-context.service'
 import { CLI_AT_FLOOR } from './cli-floor'
 
-// Row builders for the host model (ADR-0036): a runtime on a host with one
+// Row builders for the host model (ADR-0037): a runtime on a host with one
 // daemon, and the derived facts RuntimeContextService would compute.
 
 export const runtimeRow = (

@@ -137,7 +137,7 @@ export class SessionRecoveryService {
         private readonly execHealth?: SpriteExecHealthService,
         @Optional()
         private readonly telemetry?: TelemetryService,
-        // The agent's machine (ADR-0036): placement and host id. Absent =
+        // The agent's machine (ADR-0037): placement and host id. Absent =
         // the agent is read as having no machine.
         @Optional()
         private readonly runtimeContext?: RuntimeContextService
@@ -1413,7 +1413,7 @@ export class SessionRecoveryService {
         return agent
     }
 
-    // The agent with the two host facts recovery reads (ADR-0036): its
+    // The agent with the two host facts recovery reads (ADR-0037): its
     // placement, which decides which transcript reader and source shape
     // apply, and the host id the exec-health cooldown is keyed on.
     private async loadAgentRow(agentId: string): Promise<RecoveryAgent | null> {

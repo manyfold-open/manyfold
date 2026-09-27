@@ -6,7 +6,7 @@ import type {
 } from '@/modules/agents/adapters/framework-exec'
 
 // Where a framework's CLI lives: any machine the platform provisioned
-// (ADR-0036). The version probe and the in-place upgrade run the same login
+// (ADR-0037). The version probe and the in-place upgrade run the same login
 // shell through the host's daemon on every provider; a local machine's CLI
 // is the user's own to upgrade.
 export const hostsFrameworkCli = (placement: AgentRuntime): boolean =>

@@ -7,7 +7,7 @@ import type {
 } from '@manyfold/db'
 
 // Where a runtime runs, resolved once through agent → runtime → host → host
-// daemon (ADR-0036). RuntimeContextService returns a superset of this shape,
+// daemon (ADR-0037). RuntimeContextService returns a superset of this shape,
 // so a context can be passed wherever a target is expected.
 export interface RuntimeTarget {
     runtime: AgentRuntimeRow

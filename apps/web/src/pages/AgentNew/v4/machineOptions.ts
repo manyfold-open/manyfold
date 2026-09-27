@@ -53,7 +53,7 @@ export type MachineState =
     // (or still installing this framework), or failed to start.
     | 'unavailable'
 
-// One row per machine (ADR-0036): `id` is the host key, whatever the row
+// One row per machine (ADR-0037): `id` is the host key, whatever the row
 // offers to do on it.
 export interface MachineOption {
     id: string

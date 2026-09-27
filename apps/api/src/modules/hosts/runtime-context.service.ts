@@ -25,7 +25,7 @@ import { DRIZZLE } from '@/db/tokens'
 
 // Everything a caller used to read off denormalised agent/runtime columns,
 // resolved through the one relation that remains: agent → runtime → host →
-// host daemon (ADR-0036). One query, and the derived facts computed once.
+// host daemon (ADR-0037). One query, and the derived facts computed once.
 export interface RuntimeContext {
     agent: Agent | null
     runtime: AgentRuntimeRow

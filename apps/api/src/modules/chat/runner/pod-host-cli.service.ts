@@ -1,6 +1,5 @@
 import {
     cliChannelOfVersion,
-    daemonOnline,
     isCliUpdateAvailable,
     isCliVersionTooOld,
     parseProbedSemver,
@@ -18,7 +17,10 @@ import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.s
 import { DaemonCliVersionService } from '@/modules/daemon/daemon-cli-version.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import {
+    HostDaemonsService,
+    hasRpcLease
+} from '@/modules/hosts/host-daemons.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 
@@ -46,7 +48,7 @@ const tooOld = (message: string) =>
 
 // The mf CLI of a cloud computer's daemon (ADR-0035 §5): updated on request,
 // and brought up to what a caller needs before it is used. The pod's daemon IS
-// the host's daemon (ADR-0036): host_daemons for the host.
+// the host's daemon (ADR-0037): host_daemons for the host.
 @Injectable()
 export class PodHostCliService {
     private readonly log = new Logger(PodHostCliService.name)
@@ -78,7 +80,7 @@ export class PodHostCliService {
         if (
             daemon &&
             daemon.startupMethod === 'container' &&
-            daemonOnline(daemon)
+            hasRpcLease(daemon)
         )
             await this.daemonHosts.upgrade({
                 host: args.host,
@@ -142,7 +144,7 @@ export class PodHostCliService {
         for (let poll = 0; poll < REREGISTER_POLLS; poll++) {
             await this.delay(REREGISTER_POLL_MS)
             const fresh = await this.hostDaemons.findByHostId(host.id)
-            if (fresh && fresh.cliVersion !== before && daemonOnline(fresh))
+            if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
                 return fresh
         }
         throw tooOld(

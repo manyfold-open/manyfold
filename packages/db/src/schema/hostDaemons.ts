@@ -32,7 +32,7 @@ export interface DetectedFramework {
     }
 }
 
-// The one `mf daemon` connection a host has (ADR-0036): identity, version,
+// The one `mf daemon` connection a host has (ADR-0037): identity, version,
 // capabilities, software inventory, presence and RPC routing. Keyed by the
 // host, so the routing key IS the host id and there is no second daemon
 // identity. Absent row = never registered; a stale last_seen_at = offline.

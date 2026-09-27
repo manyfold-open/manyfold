@@ -324,7 +324,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     }
 
     // A service framework's public entry is the host's provider adapter's to
-    // derive from the machine's provider ref (ADR-0036); nothing on the
+    // derive from the machine's provider ref (ADR-0037); nothing on the
     // runtime row.
     private async ingressHostFor(ctx: RuntimeContext): Promise<string | null> {
         if (!ctx.host || !ctx.providerKind) return null

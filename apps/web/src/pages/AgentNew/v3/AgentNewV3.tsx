@@ -289,7 +289,7 @@ const AgentNewV3: FC = (): ReactNode => {
     const { agents, refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialFramework = params.get('framework') ?? ''
-    // One machine is one host (ADR-0036): the link names it whether it is a
+    // One machine is one host (ADR-0037): the link names it whether it is a
     // self-owned computer or a sandbox, and the effects below work out which.
     const initialHostId = params.get('hostId') ?? ''
     const initialVersion = params.get('version') ?? ''

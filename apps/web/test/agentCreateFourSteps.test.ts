@@ -291,7 +291,7 @@ test('a cloud computer runs whatever is installed on it', () => {
             })
         ]
     })
-    // One row per machine (ADR-0036): the host key, whatever the row does.
+    // One row per machine (ADR-0037): the host key, whatever the row does.
     const joined = rows.find((r) => r.id === 'host:pdh_1')
     assert.equal(joined?.state, 'ready')
     assert.equal(joined?.runtimeId, 'r1')

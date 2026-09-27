@@ -24,6 +24,10 @@ import {
 import { assertCurrentGeneration } from './generation'
 
 const WAKE_TIMEOUT_MS = 60_000
+const AWAKE_LEASE_TIMEOUT_MS = 60_000
+
+const shellQuote = (value: string): string =>
+    `'${value.replace(/'/g, `'\\''`)}'`
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 180_000
 
 // The sprite is named after the host so a retry under the same generation
@@ -49,7 +53,7 @@ export const spritePowerState = (status: string | null | undefined): RuntimeHost
     }
 }
 
-// The sprites.dev adapter (ADR-0036): a hosted host on a sprites organisation
+// The sprites.dev adapter (ADR-0037): a hosted host on a sprites organisation
 // is one sprite VM. Its provider_ref is { spriteName, spriteId }; the
 // organisation credential is the provider row's.
 @Injectable()
@@ -132,6 +136,54 @@ export class SpritesProvider implements SandboxProvider {
             if (isSpritesNotFound(err)) return 'unknown'
             throw err
         }
+    }
+
+    // /v1/tasks is the platform's own activity lease, reachable only from
+    // inside the VM, so the exec that posts it is also what resumes a
+    // suspended sprite. The path goes straight after -X and BEFORE -d, with no
+    // -H/-o/-w: anything else makes curl exit 3 and the hold silently never
+    // happens (seen on staging 2026-07). Create-or-renew.
+    async holdAwake(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string; ttl: string }
+    ): Promise<void> {
+        const create = JSON.stringify({ name: lease.name, expire: lease.ttl })
+        const renew = JSON.stringify({ expire: lease.ttl })
+        const exec = await this.clients.spriteExecForHost(
+            args.host,
+            this.spritesLogger()
+        )
+        const res = await exec({
+            cmd: [
+                'bash',
+                '-lc',
+                `sprite-env curl -s -X POST /v1/tasks -d ${shellQuote(create)} >/dev/null 2>&1 ` +
+                    `|| sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${lease.name}`)} -d ${shellQuote(renew)} >/dev/null 2>&1`
+            ],
+            timeoutMs: AWAKE_LEASE_TIMEOUT_MS
+        })
+        if (res.exitCode !== 0)
+            throw new Error(
+                `sprite awake lease ${lease.name} exited ${res.exitCode}`
+            )
+    }
+
+    async releaseAwake(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string }
+    ): Promise<void> {
+        const exec = await this.clients.spriteExecForHost(
+            args.host,
+            this.spritesLogger()
+        )
+        await exec({
+            cmd: [
+                'bash',
+                '-lc',
+                `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${lease.name}`)} >/dev/null 2>&1`
+            ],
+            timeoutMs: AWAKE_LEASE_TIMEOUT_MS
+        })
     }
 
     // Any exec resumes a suspended sprite; a no-op command is the cheapest.

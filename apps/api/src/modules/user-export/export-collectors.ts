@@ -134,7 +134,7 @@ async function collectAgents(
         )
         .where(eq(agentRuntimes.userId, userId))
         .orderBy(asc(agentRuntimes.createdAt), asc(agentRuntimes.id))
-    // The placement is a fact of the host (ADR-0036), exported under the
+    // The placement is a fact of the host (ADR-0037), exported under the
     // runtime's historical `kind` and the agent's `runtime` keys.
     const placementByRuntime = new Map<string, string>()
     for (const { hostKind, providerKind, ...row } of runtimes) {

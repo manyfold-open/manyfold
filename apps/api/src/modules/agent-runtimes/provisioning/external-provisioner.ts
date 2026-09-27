@@ -20,7 +20,7 @@ export interface ExternalProvisionOutput {
     runtime: AgentRuntimeRow
 }
 
-// An external-API framework has no machine (ADR-0036 R10): its runtime row
+// An external-API framework has no machine (ADR-0037 R10): its runtime row
 // keeps host_id null, is ready as soon as it exists, and is one-per-agent.
 // The provider binding stays on the agent.
 @Injectable()

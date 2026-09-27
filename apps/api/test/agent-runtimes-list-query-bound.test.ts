@@ -7,7 +7,7 @@ import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtim
 
 // GET /agent-runtimes used to map every row through toSummary(), which fired
 // up to four queries per runtime — one staging request produced 83 DB spans
-// and ~10s wall time (#542). Under ADR-0036 a summary is one join (runtime ⋈
+// and ~10s wall time (#542). Under ADR-0037 a summary is one join (runtime ⋈
 // host ⋈ host daemon ⋈ provider) plus one grouped agent count, whatever the
 // list size; these pin that shape and the facts derived from it.
 

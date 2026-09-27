@@ -7,6 +7,7 @@ import type {
     RuntimeHostRow
 } from '@manyfold/db'
 import { daemonOnline, type RuntimeAccountProbe } from '@manyfold/shared'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 import {
     mergeSandboxProbe,
     RuntimeAccountService
@@ -135,12 +136,6 @@ const harness = (opts: {
         findByHostId: async () => daemonFor(),
         isOnline: (daemon: HostDaemonRow | null) => daemonOnline(daemon)
     }
-    const daemonRegistry = {
-        rpc: async (args: { method: string; payload: unknown }) => {
-            calls.push(`rpc:${args.method}:${JSON.stringify(args.payload)}`)
-            return rpc()
-        }
-    }
     const runtimeAccess = {
         reserveActiveSlot: async (input: { hostId: string }) => {
             calls.push(`reserveActiveSlot:${input.hostId}`)
@@ -153,23 +148,41 @@ const harness = (opts: {
             return { plan: null, activeCount: 0, wholesale: null }
         }
     }
-    // The runner manager's wake: the machine comes up with a daemon that
-    // can inspect accounts.
+    // The host session (ADR-0038): a hosted machine the API holds no socket
+    // to is brought up when the caller wakes; otherwise only a reachable
+    // daemon answers, and the probe rides the session's rpc.
     const hostAccess = {
-        ensure: async (args: { host: RuntimeHostRow }) => {
-            calls.push(`ensure:${args.host.id}`)
-            woken = daemonRow({
-                hostId: args.host.id,
-                userId: args.host.userId,
-                clientFeatures: ['account.inspect']
+        withHost: async (
+            args: { host: RuntimeHostRow; wake?: boolean },
+            work: (session: {
+                daemon: HostDaemonRow
+                rpc: (call: { method: string; payload: unknown }) => Promise<unknown>
+            }) => Promise<unknown>
+        ) => {
+            let daemon = daemonFor()
+            const reachable = daemon !== null && opts.online !== false
+            if (!reachable && args.host.kind === 'hosted' && args.wake !== false) {
+                calls.push(`ensure:${args.host.id}`)
+                woken = daemonRow({
+                    hostId: args.host.id,
+                    userId: args.host.userId,
+                    clientFeatures: ['account.inspect']
+                })
+                daemon = woken
+            } else if (!reachable)
+                throw new HostDaemonOfflineError(args.host, 'runner_unavailable')
+            return work({
+                daemon: daemon!,
+                rpc: async (call) => {
+                    calls.push(`rpc:${call.method}:${JSON.stringify(call.payload)}`)
+                    return rpc()
+                }
             })
-            return { daemon: woken, online: true }
         }
     }
     const service = new RuntimeAccountService(
         context as never,
         hostDaemons as never,
-        daemonRegistry as never,
         runtimeAccess as never,
         hostAccess as never
     )

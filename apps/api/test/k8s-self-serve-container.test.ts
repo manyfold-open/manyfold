@@ -277,7 +277,7 @@ test('a service framework is provisioned onto a pod host', async () => {
 test('installing onto a cloud computer passes a typed refusal through and wraps anything else', async () => {
     const failed: string[] = []
     // The (host_id, framework) slot is claimed by an upsert and, on failure,
-    // kept as `failed` for the next try (ADR-0036) — never deleted.
+    // kept as `failed` for the next try (ADR-0037) — never deleted.
     const db = {
         insert: () => ({
             values: () => ({

@@ -33,7 +33,7 @@ export const chatMessages = pgTable(
         }),
         capabilityEventsJson: jsonb('capability_events_json'),
         // The host whose daemon ran (or is running) this turn: the routing key
-        // for resume, cancel and stdin (ADR-0036). Snapshot, not a foreign key.
+        // for resume, cancel and stdin (ADR-0037). Snapshot, not a foreign key.
         hostId: text('host_id'),
         daemonExecRef: text('daemon_exec_ref'),
         cancelRequestedAt: timestamp('cancel_requested_at', {

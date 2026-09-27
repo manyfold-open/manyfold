@@ -1038,7 +1038,7 @@ export class RuntimeAccessService {
         )
     }
 
-    // The host row a new sandbox starts as (ADR-0036): hosted on the chosen
+    // The host row a new sandbox starts as (ADR-0037): hosted on the chosen
     // sprites provider, `provisioning` until the adapter has created the VM
     // and its daemon has registered. The sprite is named after the host so a
     // retry under the same generation finds the machine it already made; the
@@ -1668,7 +1668,7 @@ export class RuntimeAccessService {
         })
     }
 
-    // The host's keep-awake switch (ADR-0036 R7), quota-gated: enabling
+    // The host's keep-awake switch (ADR-0037 R7), quota-gated: enabling
     // commits a running VM, so it takes a concurrent-active slot at enable
     // time and is written in the same transaction as the cap checks.
     async enableKeepAlive(input: {

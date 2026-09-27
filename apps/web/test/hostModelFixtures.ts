@@ -1,7 +1,7 @@
 import type { SandboxSummary } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
 
-// Rows as the API ships them after ADR-0036: an agent carries its host one
+// Rows as the API ships them after ADR-0037: an agent carries its host one
 // hop away (hostId/hostName/powerState/daemonOnline) and a derived
 // availability; a sandbox row IS its host. Tests override what they assert.
 let seq = 0

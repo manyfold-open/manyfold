@@ -12,7 +12,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 
-// The machine table (ADR-0036). Lifecycle and power live here; the daemon
+// The machine table (ADR-0037). Lifecycle and power live here; the daemon
 // connection lives in host_daemons and never writes this row.
 @Injectable()
 export class HostsService {

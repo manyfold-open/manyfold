@@ -48,7 +48,7 @@ const readRecord = (
 
 // Read/install/refresh an agent's AGENTS.manyfold.md. Status is DB-backed
 // (cold-safe); install/on-change writes to the machine through its daemon,
-// whatever provisioned it (ADR-0036 R6).
+// whatever provisioned it (ADR-0037 R6).
 @Injectable()
 export class AgentContextDocManageService {
     private readonly log = new Logger(AgentContextDocManageService.name)

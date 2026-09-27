@@ -92,6 +92,7 @@ import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
@@ -155,7 +156,7 @@ export class AgentModelConfigService {
         private readonly modelProviders: ModelProvidersService,
         private readonly catalog: FrameworkCatalogService,
         @Optional()
-        private readonly daemonRegistry?: DaemonRegistryService,
+        _daemonRegistry?: DaemonRegistryService,
         @Optional()
         private readonly execDrivers?: ExecDriverFactory,
         // Appended LAST and @Optional so positional test construction keeps
@@ -164,10 +165,14 @@ export class AgentModelConfigService {
         @Optional()
         _runtimeAuth?: RuntimeAuthProfilesService,
         @Optional() private readonly changes?: ResourceChangesService,
-        // Same rule. The agent's machine (ADR-0036): placement and host id.
+        // Same rule. The agent's machine (ADR-0037): placement and host id.
         // Absent = the agent is read as having no machine.
         @Optional()
-        private readonly runtimeContext?: RuntimeContextService
+        private readonly runtimeContext?: RuntimeContextService,
+        // Same rule. The machine held awake and its daemon reachable for an
+        // inspection (ADR-0038); absent, a daemon inspection is refused.
+        @Optional()
+        private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     async getForAgent(
@@ -935,7 +940,7 @@ export class AgentModelConfigService {
     }
 
     // The agent with the two facts of its machine this service reads
-    // (ADR-0036): the placement, which decides the default source and how
+    // (ADR-0037): the placement, which decides the default source and how
     // credentials are judged, and the host id, which routes to its daemon.
     private async loadPlacedAgent(agentId: string): Promise<PlacedAgent | null> {
         const [agent] = await this.db
@@ -1656,8 +1661,6 @@ export class AgentModelConfigService {
     private async inspectDaemonModelCapability(
         agent: PlacedAgent
     ): Promise<DaemonFrameworkModelCapability> {
-        if (!this.daemonRegistry)
-            throw new BadRequestException('daemon RPC is unavailable')
         const daemonId = agent.hostId
         if (!daemonId)
             throw new BadRequestException('daemon agent is not connected')
@@ -1672,12 +1675,16 @@ export class AgentModelConfigService {
         return this.modelInspectViaDaemon(daemonId, agent, authContext)
     }
 
+    // The inspection runs on the agent's machine under its awake hold, with
+    // the daemon brought up when the platform owns the machine (ADR-0038).
     private async modelInspectViaDaemon(
         daemonId: string,
         agent: PlacedAgent,
         authContext: DaemonAuthContextRef | null,
         timeoutMs = 15_000
     ): Promise<DaemonFrameworkModelCapability> {
+        if (!this.hostAccess || !this.runtimeContext)
+            throw new BadRequestException('daemon RPC is unavailable')
         // An older CLI reports nothing for pi or agy, which would read as
         // "not signed in" when the answer is "update".
         const required = runtimeLocalInspectFeature(agent.framework)
@@ -1690,17 +1697,34 @@ export class AgentModelConfigService {
             throw new BadRequestException(
                 `Update the Manyfold CLI on this runtime to use ${frameworkLabel(agent.framework)}'s own sign-in`
             )
-        const payload = await this.daemonRegistry!.rpc({
-            daemonId,
-            method: 'model.inspect',
-            payload: {
-                framework: agent.framework,
-                ...(authContext
-                    ? { authSelection: { mode: 'profile', ...authContext } }
-                    : {})
+        const machine = await this.runtimeContext.forAgent(agent.id)
+        if (!machine?.host)
+            throw new BadRequestException('daemon agent is not connected')
+        const payload = await this.hostAccess.withHost(
+            {
+                host: machine.host,
+                daemon: machine.daemon,
+                placement: machine.placement,
+                agentId: agent.id,
+                reason: 'model-inspect'
             },
-            timeoutMs
-        })
+            (session) =>
+                session.rpc({
+                    method: 'model.inspect',
+                    payload: {
+                        framework: agent.framework,
+                        ...(authContext
+                            ? {
+                                  authSelection: {
+                                      mode: 'profile',
+                                      ...authContext
+                                  }
+                              }
+                            : {})
+                    },
+                    timeoutMs
+                })
+        )
         const inspect = payload as unknown as DaemonModelInspectResponse
         const capability = inspect?.frameworks?.find(
             (item) => item.framework === agent.framework
@@ -1715,7 +1739,7 @@ export class AgentModelConfigService {
     private async inspectExecRuntimeModelCapability(
         agent: PlacedAgent
     ): Promise<DaemonFrameworkModelCapability> {
-        if (!this.execDrivers || !this.daemonRegistry)
+        if (!this.execDrivers || !this.hostAccess)
             throw new BadRequestException('daemon runner unavailable')
         const runner = await this.execDrivers.resolveRunner(agent)
         return this.modelInspectViaDaemon(
@@ -1926,7 +1950,7 @@ export class AgentModelConfigService {
     }
 }
 
-// An agent row with its placement and host id resolved (ADR-0036).
+// An agent row with its placement and host id resolved (ADR-0037).
 export type PlacedAgent = Agent & {
     placement: AgentRuntime
     hostId: string | null

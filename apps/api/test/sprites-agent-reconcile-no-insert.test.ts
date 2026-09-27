@@ -229,7 +229,7 @@ test('reconcile sprites: clean state — UPDATE existing row, no INSERT', async 
 })
 
 // A runtime that is not ready has nothing to list; presence is never
-// mirrored into its agents (ADR-0036), so nothing is written either.
+// mirrored into its agents (ADR-0037), so nothing is written either.
 test('reconcile of a runtime that is not ready neither lists nor writes', async () => {
     const row = fakeDbAgent({
         id: 'agent-1',

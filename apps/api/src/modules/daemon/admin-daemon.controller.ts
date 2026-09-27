@@ -32,7 +32,7 @@ import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { DaemonHostService, type DaemonSummaryRuntime } from './daemon-host.service'
 import { CliUpgradeDto } from './dto/cli-upgrade.dto'
 
-// The self-owned computers of every user (ADR-0036: `local` hosts). Hosted
+// The self-owned computers of every user (ADR-0037: `local` hosts). Hosted
 // hosts are listed under the sandboxes and cloud computers admin pages.
 @Controller('admin/daemon')
 @UseGuards(AuthGuard, AdminGuard)

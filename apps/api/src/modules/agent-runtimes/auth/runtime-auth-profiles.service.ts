@@ -56,10 +56,8 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import {
-    AUTH_AWAKE_TTL,
-    RunnerManagerService
-} from '@/modules/chat/runner/runner-manager.service'
+import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     CONCURRENT_ACTIVE_LIMIT_CODE,
     isConcurrentActiveLimitError,
@@ -81,7 +79,7 @@ import {
 // an operation row minted before the host is touched, so a lost ack is
 // reconciled from the host's journal instead of by a second vendor call.
 //
-// Hosts: every runtime talks to its host's one daemon (ADR-0036), local or
+// Hosts: every runtime talks to its host's one daemon (ADR-0037), local or
 // hosted, through the same host code and the same capability gate. No
 // daemon, or a daemon without the capability, reads as unavailable — never
 // as "use the native home instead".
@@ -146,7 +144,11 @@ const PREWARM_DEBOUNCE_MS = 45_000
 // Seen on the local stack [2026-09-11]: the Free plan's one slot was held by a
 // runtime the create form had picked by default, and no other sandbox could
 // wake until the 5m hold ran out.
-const PREWARM_AWAKE_TTL = '2m'
+const PREWARM_HOLD_MS = 2 * 60_000
+// How long an account wake keeps the machine after its last activity: long
+// enough for the sign-in / key / pick sequence, short enough that a wake
+// nobody follows up on stops billing within minutes.
+const AUTH_HOLD_MS = 5 * 60_000
 
 const conflict = (
     code: string,
@@ -284,7 +286,7 @@ export class RuntimeAuthProfilesService {
     // unavailable rather than guessing.
     private async wakeHost(
         ctx: RuntimeContext,
-        holdTtl: string = AUTH_AWAKE_TTL
+        holdMs: number = AUTH_HOLD_MS
     ): Promise<HostDaemonRow | null> {
         const { host, runtime } = ctx
         if (!host || host.kind !== 'hosted') return null
@@ -316,16 +318,38 @@ export class RuntimeAuthProfilesService {
             `runtime auth host wake runtime=${runtime.id} host=${host.id} online=${ensured.online}${ensured.fallbackReason ? ` reason=${ensured.fallbackReason}` : ''}`
         )
         if (!ensured.online) return null
-        // A woken sandbox would be frozen again ~35s after the last exec, and
-        // an account operation has no turn lease to hold the VM. Hold it for a
-        // few minutes so the sign-in / key / pick that this wake is for does
-        // not pay a second wake; the TTL is the leak bound, nothing renews it.
-        void this.runnerManager.holdSpriteAwake({
-            host,
-            turnId: awakeHoldTurnId(runtime.id),
-            ttl: holdTtl
-        })
+        // An account operation has no turn to hold the machine awake, and a
+        // woken sandbox suspends within seconds of its last activity. Hold it
+        // for the sign-in / key / pick this wake is for; every wake re-arms
+        // the idle timer, and the user's next pick, the form closing or the
+        // timer lets go.
+        this.armAuthHold(runtime.id, host, holdMs)
         return ensured.daemon ?? (await this.hostDaemons.findByHostId(host.id))
+    }
+
+    private readonly authHolds = new Map<
+        string,
+        { hostId: string; hold: AwakeHold; timer: ReturnType<typeof setTimeout> }
+    >()
+
+    private armAuthHold(runtimeId: string, host: RuntimeHostRow, holdMs: number): void {
+        const existing = this.authHolds.get(runtimeId)
+        if (existing) clearTimeout(existing.timer)
+        const hold = existing?.hold ?? this.runnerManager.holdAwake(host, `auth-${runtimeId}`)
+        const timer = setTimeout(() => {
+            void this.releaseAuthHold(runtimeId)
+        }, holdMs)
+        if (typeof timer.unref === 'function') timer.unref()
+        this.authHolds.set(runtimeId, { hostId: host.id, hold, timer })
+    }
+
+    private async releaseAuthHold(runtimeId: string): Promise<boolean> {
+        const entry = this.authHolds.get(runtimeId)
+        if (!entry) return false
+        this.authHolds.delete(runtimeId)
+        clearTimeout(entry.timer)
+        await entry.hold.release().catch(() => undefined)
+        return true
     }
 
     private async releaseOtherAuthHolds(
@@ -333,28 +357,12 @@ export class RuntimeAuthProfilesService {
         exceptHostId: string
     ): Promise<void> {
         const hosted = await this.hosts.listForUser(userId, 'hosted')
-        for (const host of hosted) {
-            if (
-                host.id === exceptHostId ||
-                host.powerState !== 'running' ||
-                host.providerRef?.kind !== 'sprites'
-            )
-                continue
-            const onHost = await this.runtimes.listRuntimesByHost(host.id)
-            for (const other of onHost) {
-                try {
-                    await this.runnerManager.releaseSpriteAwake({
-                        host,
-                        turnId: awakeHoldTurnId(other.id)
-                    })
-                } catch (err) {
-                    this.log.debug(
-                        `auth hold release skipped runtime=${other.id}: ${(err as Error).message.slice(0, 120)}`
-                    )
-                }
-            }
+        const mine = new Set(hosted.map((host) => host.id))
+        for (const [runtimeId, entry] of this.authHolds) {
+            if (entry.hostId === exceptHostId || !mine.has(entry.hostId)) continue
+            await this.releaseAuthHold(runtimeId)
             this.log.log(
-                `auth holds released on sandbox=${host.id} so sandbox=${exceptHostId} can take the active slot`
+                `auth hold released on sandbox=${entry.hostId} so sandbox=${exceptHostId} can take the active slot`
             )
         }
     }
@@ -370,19 +378,7 @@ export class RuntimeAuthProfilesService {
         this.assertHuman(principal)
         const runtime = await this.requireRuntime(principal.userId, runtimeId)
         this.prewarmedAt.delete(runtime.id)
-        const ctx = await this.runtimeContext.forRuntime(runtime.id)
-        const sandbox = ctx?.placement === 'sprites' ? ctx.host : null
-        if (
-            !sandbox ||
-            sandbox.userId !== runtime.userId ||
-            sandbox.powerState !== 'running'
-        )
-            return { released: false }
-        await this.runnerManager.releaseSpriteAwake({
-            host: sandbox,
-            turnId: awakeHoldTurnId(runtime.id)
-        })
-        return { released: true }
+        return { released: await this.releaseAuthHold(runtime.id) }
     }
 
     // Intent prewarm from the agent-create form: the user picked a sandbox
@@ -449,7 +445,7 @@ export class RuntimeAuthProfilesService {
     private async runPrewarm(ctx: RuntimeContext): Promise<void> {
         const runtime = ctx.runtime
         try {
-            const daemon = await this.wakeHost(ctx, PREWARM_AWAKE_TTL)
+            const daemon = await this.wakeHost(ctx, PREWARM_HOLD_MS)
             this.log.log(
                 `runtime auth host prewarm runtime=${runtime.id} ${daemon ? 'ok' : 'unavailable'}`
             )
@@ -1342,10 +1338,6 @@ export class RuntimeAuthProfilesService {
     }
 
 }
-
-// One name for the hold an account wake places on a sandbox, so the release
-// removes exactly what the wake created.
-const awakeHoldTurnId = (runtimeId: string): string => `auth-${runtimeId}`
 
 // The code and message of an admission the API refused (a quota, a cap, a
 // missing sandbox), for the prewarm answer. Anything else is not a refusal

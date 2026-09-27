@@ -32,7 +32,7 @@ test('terminal reconnect budget resets only after the Sprite session opens', () 
 
 test('a PTY on the host daemon has no second hop, so its session_info opens it', () => {
     // The API says `terminal_pty` on every daemon PTY, whatever the placement
-    // (ADR-0036): a self-owned computer and a hosted sandbox alike.
+    // (ADR-0037): a self-owned computer and a hosted sandbox alike.
     assert.equal(
         isUpstreamTerminalSessionInfo({
             type: 'session_info',

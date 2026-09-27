@@ -2,12 +2,37 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DAEMON_FEATURE_SERVICES } from '@manyfold/shared'
 import { PodHostServices } from '../src/modules/agent-runtimes/provisioning/pod-host-services'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod-service-frameworks'
 
 // A cloud computer's service frameworks run under its own daemon (ADR-0035
 // §6): the API names the service, the host's daemon keeps it up.
 
 const HOST = { id: 'pdh_1', userId: 'usr_1' }
+const HOST_ROW = { ...HOST, kind: 'hosted', providerRef: { kind: 'k8s' } }
+
+// The host session (ADR-0038): the daemon row the API holds a socket to, or
+// nothing; the session's rpc routes by the host id.
+const accessFor = (
+    hostDaemons: { findByHostId: () => Promise<unknown> },
+    registry: { rpc: (req: { daemonId: string; method: string; payload: unknown }) => Promise<unknown> }
+) => ({
+    withHost: async (
+        args: { host: { id: string } },
+        work: (session: Record<string, unknown>) => Promise<unknown>
+    ) => {
+        const daemon = await hostDaemons.findByHostId()
+        if (!daemon)
+            throw new HostDaemonOfflineError(args.host as never, 'runner_unavailable')
+        return work({
+            host: args.host,
+            daemon,
+            daemonId: args.host.id,
+            rpc: (call: { method: string; payload: unknown }) =>
+                registry.rpc({ daemonId: args.host.id, ...call })
+        })
+    }
+})
 
 // `runner` is the host's daemon row (host_daemons), keyed by the host id.
 const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) => {
@@ -27,9 +52,9 @@ const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) =
     }
     return {
         services: new PodHostServices(
-            registry as never,
-            { findById: async () => null } as never,
-            hostDaemons as never
+            { findById: async () => HOST_ROW } as never,
+            hostDaemons as never,
+            accessFor(hostDaemons, registry) as never
         ),
         calls,
         list: (services: unknown[]) => {
@@ -41,7 +66,7 @@ const servicesWith = (runner: { id: string; clientFeatures: string[] } | null) =
 test('services go to the host daemon, which has to advertise them', async () => {
     const rig = servicesWith({ id: 'pdh_1', clientFeatures: [DAEMON_FEATURE_SERVICES] })
     await rig.services.restart(HOST, 'openclaw')
-    // The routing key is the host id (ADR-0036).
+    // The routing key is the host id (ADR-0037).
     assert.deepEqual(
         rig.calls.map((c) => [c.daemonId, c.method, c.payload]),
         [
@@ -87,9 +112,9 @@ test('a host whose CLI predates services has it updated first', async () => {
         }
     }
     const services = new PodHostServices(
-        registry as never,
         hosts as never,
         hostDaemons as never,
+        accessFor(hostDaemons, registry) as never,
         cli as never
     )
     await services.start(HOST, 'openclaw')

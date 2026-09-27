@@ -9,7 +9,7 @@ import type {
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
-// A sprites host (ADR-0036): the adapter makes the machine under a fresh
+// A sprites host (ADR-0037): the adapter makes the machine under a fresh
 // generation, the runner manager brings its daemon up, and the framework
 // bootstrap runs against the sprite the host's provider_ref names. A create
 // that fails on a fresh host takes the host with it — through `deleting`,
@@ -149,7 +149,7 @@ const buildHarness = (opts: {
             },
             ensureHostDaemon: async (args: { host: RuntimeHostRow }) => {
                 calls.push('daemon')
-                return { handle: { daemonId: args.host.id, started: false, generation: null }, workspace: { outcome: 'none' } }
+                return { handle: { daemonId: args.host.id, started: false, generation: null } }
             }
         } as never,
         {} as never,
@@ -319,7 +319,7 @@ test('SpritesProvisioner delegates wakes to the keep-alive lease', async () => {
 // channels, automations via markRuntimeActive). Getting it wrong either
 // re-fuses wake+lease (a billing task per chat message) or drops the lease on
 // cold wakes (the pre-start cleanup deleted the task, so a paid-for slot
-// silently vanishes). The switch is the host's keep_awake (ADR-0036 R7).
+// silently vanishes). The switch is the host's keep_awake (ADR-0037 R7).
 
 test('wakeSpriteRuntime never leases for a host that is not kept awake, even on cold start', async () => {
     const calls: string[] = []

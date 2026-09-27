@@ -127,7 +127,7 @@ export const configFixture = async (t: TestContext) => {
     await db
         .insert(users)
         .values({ id: userId, email: `${userId}@fixture.invalid` })
-    // A local host (ADR-0036) whose daemon registered once and is offline
+    // A local host (ADR-0037) whose daemon registered once and is offline
     // until the peer connects; the runtime is its claude-code slot.
     await db
         .insert(runtimeHosts)

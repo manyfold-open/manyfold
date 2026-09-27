@@ -113,7 +113,7 @@ test(
             assert.equal(result[0].status, 'ready')
             assert.equal(result[0].name, `${h.hostName}-claude-code-2`)
 
-            // The same host reporting again UPDATES its row (ADR-0036 R3):
+            // The same host reporting again UPDATES its row (ADR-0037 R3):
             // the (host_id, framework) upsert never makes a second one.
             const again = await new DaemonRuntimeSyncService(
                 h.db

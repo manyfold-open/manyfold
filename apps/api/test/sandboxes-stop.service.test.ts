@@ -9,7 +9,7 @@ import type {
 } from '@manyfold/sprites'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
-// Sandbox-wide stop (ADR-0036): every wake cause the platform owns is removed
+// Sandbox-wide stop (ADR-0037): every wake cause the platform owns is removed
 // in one action — exec sessions closed, the host's keep-awake switch turned
 // off and its lease released, framework services stopped, non-managed
 // services stopped, agent-registered activity tasks deleted. Nothing here is

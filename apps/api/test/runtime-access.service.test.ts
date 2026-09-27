@@ -23,7 +23,7 @@ import {
 } from '@manyfold/db'
 import { RuntimeAccessService } from '../src/modules/runtime-access/runtime-access.service'
 
-// The quota and reservation rules of ADR-0036: hosts are the unit (a sandbox
+// The quota and reservation rules of ADR-0037: hosts are the unit (a sandbox
 // VM, a cloud computer, a self-owned computer), a placement is derived from a
 // host's kind and its provider's kind, and keep-awake is a host switch.
 

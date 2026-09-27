@@ -627,7 +627,7 @@ test('rename is local only', async () => {
     )
 })
 
-// Presence and availability are derived (ADR-0036): the summary reads the
+// Presence and availability are derived (ADR-0037): the summary reads the
 // daemon row's heartbeat, the host's lifecycle and each runtime's install
 // state, and stores none of it.
 test('toSummary derives online and runtime availability from the daemon row', async () => {

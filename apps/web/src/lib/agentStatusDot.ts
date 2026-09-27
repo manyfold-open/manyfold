@@ -6,7 +6,7 @@ import { availabilityLabel, availabilityTone } from '@/lib/hostStatus'
 
 // The agent's own lifecycle comes first (a pending or failed agent has no
 // machine story yet); a ready agent reads as its derived availability
-// (ADR-0036), which already folds in the host's power and daemon presence.
+// (ADR-0037), which already folds in the host's power and daemon presence.
 export type AgentStatusFacts = Pick<
     SdkAgent,
     'status' | 'availability' | 'powerState'

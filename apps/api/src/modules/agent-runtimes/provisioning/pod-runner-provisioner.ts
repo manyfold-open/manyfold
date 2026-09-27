@@ -13,7 +13,7 @@ export interface PodRunnerProvision {
 
 // Every pod host runs one daemon, which carries the turns of every framework
 // runtime on it (ADR-0035); it has to register before any of them can chat.
-// Its credential is minted BOUND to the host (ADR-0036 R5): the pod's boot
+// Its credential is minted BOUND to the host (ADR-0037 R5): the pod's boot
 // loop can register onto that host and nothing else.
 @Injectable()
 export class PodRunnerProvisioner {

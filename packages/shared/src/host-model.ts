@@ -1,6 +1,6 @@
 import type { AgentRuntime } from './constants'
 
-// ADR-0036: one real machine is a Host, a Host has one daemon connection, and a
+// ADR-0037: one real machine is a Host, a Host has one daemon connection, and a
 // Runtime is one framework on one Host. These are the derived facts every
 // surface reads off those rows; none of them is stored.
 
@@ -97,7 +97,7 @@ export interface AvailabilityHost {
     status: RuntimeHostStatus
 }
 
-// The single admission function (ADR-0036). chat, files, terminal, herdr and
+// The single admission function (ADR-0037). chat, files, terminal, herdr and
 // automations all ask this; nothing else re-derives "can this agent run".
 export const runtimeAvailability = (args: {
     runtime: AvailabilityRuntime

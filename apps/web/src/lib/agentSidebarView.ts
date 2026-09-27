@@ -77,7 +77,7 @@ export interface RuntimeHostRef {
     label: string
 }
 
-// The machine an agent runs on (ADR-0036: one host is one machine), so agents
+// The machine an agent runs on (ADR-0037: one host is one machine), so agents
 // sharing a host collapse into one group. The `hostNames` map, keyed by host
 // id, carries the freshest renameable name the shell has (a daemon host or
 // sandbox row); the agent's own hostName is the fallback, then the placement.

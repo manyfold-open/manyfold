@@ -13,10 +13,12 @@ import type {
     RuntimeAccountView,
     RuntimeAccountViewStatus,
 } from '@manyfold/shared'
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError
+} from '@/modules/agents/adapters/host-daemon-access'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import {
     RuntimeContextService,
@@ -92,9 +94,8 @@ export class RuntimeAccountService {
     constructor(
         private readonly context: RuntimeContextService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly daemonRegistry: DaemonRegistryService,
         private readonly runtimeAccess: RuntimeAccessService,
-        @Optional() private readonly hostAccess?: HostDaemonAccess
+        private readonly hostAccess: HostDaemonAccess
     ) {}
 
     async getView(
@@ -267,24 +268,45 @@ export class RuntimeAccountService {
                 })
             }
         }
-        let daemon = await this.hostDaemons.findByHostId(host.id)
-        // The admitted wake is what brings a sleeping machine's daemon up;
-        // a page open on a running machine only reads the daemon it has.
-        if (
-            host.kind === 'hosted' &&
-            wake &&
-            (!daemon || !this.hostDaemons.isOnline(daemon)) &&
-            this.hostAccess
-        ) {
-            const ensured = await this.hostAccess.ensure({
-                host,
-                daemon,
-                placement: ctx.placement,
-                wake: true
-            })
-            daemon = ensured.online ? ensured.daemon : null
-        }
-        if (!daemon || !this.hostDaemons.isOnline(daemon)) {
+        // The admitted wake is what brings a sleeping machine's daemon up; a
+        // page open on a running machine only reads the daemon the API holds
+        // a socket to. The probe runs under the machine's hold (ADR-0038).
+        const daemon = await this.hostDaemons.findByHostId(host.id)
+        try {
+            return await this.hostAccess.withHost(
+                {
+                    host,
+                    daemon,
+                    placement: ctx.placement,
+                    reason: 'account-inspect',
+                    wake
+                },
+                async (session) => {
+                    if (!inspectsAccount(session.daemon.clientFeatures, framework))
+                        return this.view(
+                            row,
+                            ctx.placement,
+                            'daemon-upgrade-required',
+                            { host: hostView }
+                        )
+                    const payload = await session.rpc({
+                        method: 'account.inspect',
+                        payload: { framework, usage: fetchUsage },
+                        timeoutMs:
+                            host.kind === 'hosted'
+                                ? SANDBOX_RPC_TIMEOUT_MS
+                                : DAEMON_RPC_TIMEOUT_MS
+                    })
+                    return this.viewFromProbe(
+                        row,
+                        ctx.placement,
+                        payload,
+                        hostView
+                    )
+                }
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
             if (host.kind === 'local')
                 return this.view(row, ctx.placement, 'daemon-offline')
             return this.view(row, ctx.placement, 'probe-failed', {
@@ -292,20 +314,6 @@ export class RuntimeAccountService {
                 error: 'sandbox daemon offline'
             })
         }
-        if (!inspectsAccount(daemon.clientFeatures, framework))
-            return this.view(row, ctx.placement, 'daemon-upgrade-required', {
-                host: hostView
-            })
-        const payload = await this.daemonRegistry.rpc({
-            daemonId: host.id,
-            method: 'account.inspect',
-            payload: { framework, usage: fetchUsage },
-            timeoutMs:
-                host.kind === 'hosted'
-                    ? SANDBOX_RPC_TIMEOUT_MS
-                    : DAEMON_RPC_TIMEOUT_MS
-        })
-        return this.viewFromProbe(row, ctx.placement, payload, hostView)
     }
 
     // Public seam for the auth-profiles listing, which receives the ambient

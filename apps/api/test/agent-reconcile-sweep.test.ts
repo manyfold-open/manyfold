@@ -4,7 +4,7 @@ import { AgentReconcileSweepService } from '../src/modules/agents/reconcile/agen
 
 // #516: with list endpoints turned into pure reads, this leader-gated sweep
 // is the convergence backstop — a bounded touch of awake service-framework
-// runtimes (ADR-0036: presence is never written into agent rows).
+// runtimes (ADR-0037: presence is never written into agent rows).
 
 const serviceRuntime = (id: string) => ({
     id,
@@ -66,7 +66,7 @@ const makeLeases = (granted: boolean) => ({
     release: async () => {}
 })
 
-// Presence is never mirrored into agent rows (ADR-0036): the sweep writes
+// Presence is never mirrored into agent rows (ADR-0037): the sweep writes
 // nothing itself, it only touches the awake service runtimes.
 test('runOnce writes nothing and touches every awake service runtime', async () => {
     const db = makeDb([serviceRuntime('rt-a'), serviceRuntime('rt-b')])

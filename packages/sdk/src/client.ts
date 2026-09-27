@@ -649,7 +649,7 @@ export interface SandboxesClient {
     create: (body: CreateSandboxBody) => Promise<SandboxSummary>
     delete: (id: string) => Promise<void>
     rename: (id: string, name: string) => Promise<SandboxSummary>
-    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    // The host's keep-awake switch (ADR-0037): keeps the machine running.
     setKeepAwake: (id: string, enabled: boolean) => Promise<SandboxSummary>
     setTerminal: (id: string, enabled: boolean) => Promise<SandboxSummary>
     setTerminalModelCredentials: (
@@ -1342,7 +1342,7 @@ export interface NcaClient {
                 body: SendTestEmailBody
             ) => Promise<SendTestEmailResult>
         }
-        // Sources of hosted capacity (ADR-0036): sprites organisations and
+        // Sources of hosted capacity (ADR-0037): sprites organisations and
         // Kubernetes clusters behind one resource.
         runtimeProviders: {
             list: () => Promise<RuntimeProviderSummary[]>

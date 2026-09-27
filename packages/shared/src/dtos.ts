@@ -746,7 +746,7 @@ export type ExperimentAssignments = Record<string, string>
 export type RuntimeProviderStatus = 'enabled' | 'disabled'
 export type RuntimeProviderHealthStatus = 'unknown' | 'ok' | 'failed'
 
-// One Admin-registered source of hosted capacity (ADR-0036). `config` carries
+// One Admin-registered source of hosted capacity (ADR-0037). `config` carries
 // the provider-specific, non-secret settings (sprites: orgSlug, orgId,
 // tokenId, notes; k8s: description, hostSuffix); the credential never leaves
 // the server.
@@ -2177,7 +2177,7 @@ export interface AgentSummary {
     powerState: RuntimeHostPowerState | null
     daemonOnline: boolean | null
     daemonNeedsUpgrade: boolean
-    // The host's keep-awake switch (ADR-0036); false without a hosted host.
+    // The host's keep-awake switch (ADR-0037); false without a hosted host.
     keepAwake: boolean
     name: string
     framework: AgentFramework

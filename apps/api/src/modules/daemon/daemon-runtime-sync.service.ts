@@ -77,7 +77,7 @@ const patchKey = (patch: RuntimePatch): string =>
         v instanceof Date ? v.toISOString() : v
     )
 
-// A local host's runtimes are its daemon's software inventory (ADR-0036 R3):
+// A local host's runtimes are its daemon's software inventory (ADR-0037 R3):
 // one runtime per detected framework, upserted on (host_id, framework) so a
 // restart updates rows instead of adding them, and a framework that vanished
 // from the inventory reads `failed` — the row stays for the agents on it.

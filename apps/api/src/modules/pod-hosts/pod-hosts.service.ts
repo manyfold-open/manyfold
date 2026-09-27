@@ -49,7 +49,7 @@ import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
 // Cloud computers (ADR-0035): what a user sees of a hosted k8s host, and the
 // operations on the host itself. Agents land on a host through the agent
 // create flow; this is the machine around them. Its daemon IS host_daemons
-// for the host (ADR-0036).
+// for the host (ADR-0037).
 @Injectable()
 export class PodHostsService {
     constructor(

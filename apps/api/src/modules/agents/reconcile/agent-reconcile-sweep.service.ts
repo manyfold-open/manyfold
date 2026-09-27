@@ -25,7 +25,7 @@ import { inBackgroundContext } from '@/common/telemetry/background-context'
 // (#516). Reports and chat wakes touch individual runtimes; this sweep
 // catches service-framework runtimes whose agents drift when created or
 // removed outside Manyfold and nothing else touches them. Presence is never
-// mirrored into agent rows (ADR-0036), so there is nothing else to converge.
+// mirrored into agent rows (ADR-0037), so there is nothing else to converge.
 const TICK_INTERVAL_MS = 15_000
 const SWEEP_INTERVAL_MS = 60_000
 // Single leader: without it every API replica would run the sweep and race

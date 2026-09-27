@@ -218,7 +218,7 @@ export const apiPaths = {
     // Manyfold opened (ADR-0029 §3).
     TERMINAL_SESSION_HOOKS: '/terminal/session-hooks',
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,
-    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    // The host's keep-awake switch (ADR-0037): keeps the machine running.
     SANDBOX_KEEP_AWAKE: (id: string) => `/sandboxes/${id}/keep-awake`,
     SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
         `/sandboxes/${id}/terminal-model-credentials`,

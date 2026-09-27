@@ -29,7 +29,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
     }) as RuntimeHostRow
 
 // The daemon row the service reads for the version, the features and the
-// presence it decides on; the host row carries none of them (ADR-0036).
+// presence it decides on; the host row carries none of them (ADR-0037).
 const daemon = (overrides: Partial<HostDaemonRow> = {}): HostDaemonRow =>
     ({
         hostId: 'dh-1',

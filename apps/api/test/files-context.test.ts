@@ -65,7 +65,7 @@ const localContext = (
         })
     })
 
-// The one admission rule (ADR-0036): an installed runtime on a ready host. A
+// The one admission rule (ADR-0037): an installed runtime on a ready host. A
 // hosted machine that is asleep is still admitted (reads wake it); a local
 // one whose daemon is gone is not.
 test('assertAgentReady accepts an available local agent', () => {
@@ -138,6 +138,7 @@ const frameworkBuilder = (
                 throw new NotFoundException('sprites account spa-1 not found')
             }
         } as never,
+        {} as never,
         {} as never,
         {} as never,
         extensionsWith({ framework: FIXTURE, files: fixtureFiles(files) })
@@ -253,7 +254,22 @@ const daemonStub = (
             ) as never,
             {} as never,
             registry as never,
-            {} as never
+            {} as never,
+            // Every daemon call runs under the host session (ADR-0038); the
+            // session's rpc routes by the host id.
+            {
+                withHost: async (
+                    args: { host: { id: string }; daemon: unknown },
+                    work: (session: Record<string, unknown>) => Promise<unknown>
+                ) =>
+                    work({
+                        host: args.host,
+                        daemon: args.daemon,
+                        daemonId: args.host.id,
+                        rpc: (call: DaemonCall) =>
+                            registry.rpc({ daemonId: args.host.id, ...call } as never)
+                    })
+            } as never
         )
     }
 }

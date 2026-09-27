@@ -110,7 +110,7 @@ export class SpriteStatusController {
     }
 
     // Every agent with its derived availability: agent → runtime → host →
-    // host daemon in one join (ADR-0036); nothing is read off the agent row.
+    // host daemon in one join (ADR-0037); nothing is read off the agent row.
     private async snapshotFor(userId: string): Promise<AgentHostStatusUpdate[]> {
         const rows = await this.db
             .select({
