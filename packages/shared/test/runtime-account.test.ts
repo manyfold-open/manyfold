@@ -13,8 +13,11 @@ import {
 // and the sandbox script cannot disagree. These fixtures are the vendor shapes
 // observed from the CLIs' own endpoints.
 
-const probe = (usage: Partial<RuntimeAccountUsageFetch>): RuntimeAccountProbe => ({
-    framework: 'codex',
+const probe = (
+    usage: Partial<RuntimeAccountUsageFetch>,
+    framework: RuntimeAccountProbe['framework'] = 'codex'
+): RuntimeAccountProbe => ({
+    framework,
     checkedAt: '2026-09-03T10:00:00.000Z',
     credentialFacts: null,
     tokenSource: 'file',
@@ -215,6 +218,51 @@ describe('runtimeAccountUsage: gemini', () => {
                 ['gemini_pro', 75, '2026-09-04T00:00:00.000Z'],
                 ['gemini_flash', 10, '2026-09-04T00:00:00.000Z'],
                 ['gemini_flash_lite', 0, null]
+            ]
+        )
+    })
+})
+
+describe('runtimeAccountUsage: antigravity', () => {
+    it('keeps each model quota and its reset time visible', () => {
+        const usage = runtimeAccountUsage(
+            probe(
+                {
+                    vendor: 'google',
+                    body: {
+                        models: {
+                            'gemini-3.5-flash': {
+                                displayName: 'Gemini 3.5 Flash',
+                                quotaInfo: {
+                                    remainingFraction: 0.65,
+                                    resetTime: '2026-09-04T00:00:00Z'
+                                }
+                            },
+                            'claude-sonnet': {
+                                label: 'Claude Sonnet',
+                                quotaInfo: { remainingFraction: 1 }
+                            }
+                        }
+                    }
+                },
+                'antigravity-cli'
+            )
+        )
+        assert.deepEqual(
+            usage?.windows.map((w) => [
+                w.key,
+                w.usedPercent,
+                w.scope,
+                w.resetsAt
+            ]),
+            [
+                [
+                    'gemini-3.5-flash',
+                    35,
+                    'Gemini 3.5 Flash',
+                    '2026-09-04T00:00:00.000Z'
+                ],
+                ['claude-sonnet', 0, 'Claude Sonnet', null]
             ]
         )
     })

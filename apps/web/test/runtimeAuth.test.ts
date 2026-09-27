@@ -40,6 +40,7 @@ const profile = (
     credentialStatus: 'valid',
     credentialGeneration: 1,
     identity: null,
+    usage: null,
     vendorUserId: null,
     vendorAccountId: null,
     checkedAt: null,

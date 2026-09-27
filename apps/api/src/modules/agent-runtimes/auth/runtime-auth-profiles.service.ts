@@ -22,6 +22,7 @@ import {
     RUNTIME_AUTH_ERROR,
     createObjectId,
     parseRuntimeAccountProbe,
+    runtimeAccountUsage,
     runtimeAuthSupported,
     runtimeLocalCredentialStatus,
     type RuntimeAuthProfileFramework,
@@ -633,7 +634,8 @@ export class RuntimeAuthProfilesService {
     private toView(
         row: RuntimeAuthProfileRow,
         agentCount: number,
-        defaultProfileId: string | null
+        defaultProfileId: string | null,
+        usage: ReturnType<typeof runtimeAccountUsage> = null
     ): RuntimeAuthProfileView {
         return {
             id: row.id,
@@ -654,6 +656,7 @@ export class RuntimeAuthProfilesService {
                           accountId: row.vendorAccountId
                       }
                     : null,
+            usage,
             vendorUserId: row.vendorUserId,
             vendorAccountId: row.vendorAccountId,
             checkedAt: row.checkedAt?.toISOString() ?? null,
@@ -701,6 +704,10 @@ export class RuntimeAuthProfilesService {
             )
         let ambient: RuntimeAuthListView['ambient'] = null
         let error: string | null = null
+        const usageByProfile = new Map<
+            string,
+            ReturnType<typeof runtimeAccountUsage>
+        >()
         if (resolved.availability === 'ok' && resolved.host) {
             try {
                 const listed = await this.rpc<DaemonAuthListResponse>(
@@ -712,21 +719,26 @@ export class RuntimeAuthProfilesService {
                     listed.profiles.map((report) => [report.profileId, report])
                 )
                 rows = await Promise.all(
-                    rows.map((row) =>
-                        this.applyReport(
-                            row,
-                            reports.get(row.id) ?? {
-                                profileId: row.id,
-                                present: false,
-                                authMethod: null,
-                                generation: row.credentialGeneration,
-                                createdAt: null,
-                                lastLoginAt: null,
-                                probe: null,
-                                error: null
-                            }
+                    rows.map(async (row) => {
+                        const report = reports.get(row.id) ?? {
+                            profileId: row.id,
+                            present: false,
+                            authMethod: null,
+                            generation: row.credentialGeneration,
+                            createdAt: null,
+                            lastLoginAt: null,
+                            probe: null,
+                            error: null
+                        }
+                        const probe = report.probe
+                            ? parseRuntimeAccountProbe(report.probe)
+                            : null
+                        usageByProfile.set(
+                            row.id,
+                            probe ? runtimeAccountUsage(probe) : null
                         )
-                    )
+                        return this.applyReport(row, report)
+                    })
                 )
                 ambient = listed.ambient
                     ? this.account.fromProbe(
@@ -773,7 +785,8 @@ export class RuntimeAuthProfilesService {
                     this.toView(
                         row,
                         byProfile.get(row.id)?.length ?? 0,
-                        runtime.defaultAuthProfileId
+                        runtime.defaultAuthProfileId,
+                        usageByProfile.get(row.id) ?? null
                     )
                 ),
             error
@@ -795,10 +808,14 @@ export class RuntimeAuthProfilesService {
         )
         const updated = await this.applyReport(row, report)
         const byProfile = await this.agentsByProfile(runtime.id)
+        const probe = report.probe
+            ? parseRuntimeAccountProbe(report.probe)
+            : null
         return this.toView(
             updated,
             byProfile.get(row.id)?.length ?? 0,
-            runtime.defaultAuthProfileId
+            runtime.defaultAuthProfileId,
+            probe ? runtimeAccountUsage(probe) : null
         )
     }
 
