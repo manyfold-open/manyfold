@@ -333,7 +333,9 @@ const AgentCredentialsDialog: FC<Props> = ({
     const frameworkModelConfigSupported =
         frameworkUsesModelConfig(framework) && framework !== 'pi'
     const supportsModelField =
-        isCoreFramework(framework) && FRAMEWORK_SUPPORTS_MODEL[framework]
+        isCoreFramework(framework) &&
+        FRAMEWORK_SUPPORTS_MODEL[framework] &&
+        framework !== 'antigravity-cli'
     const [view, setView] = useState<AgentCredentialsView | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
@@ -679,7 +681,14 @@ const AgentCredentialsDialog: FC<Props> = ({
                 if (effectiveCredentialsChanged || legacyModelChanged) {
                     updated = await client.agents.credentials.update(
                         agentId,
-                        buildBody(framework, picker, model, providerHint)
+                        buildBody(
+                            framework,
+                            picker,
+                            framework === 'antigravity-cli'
+                                ? modelConfigDraft?.model ?? ''
+                                : model,
+                            providerHint
+                        )
                     )
                     if (framework === 'pi') {
                         const piView = await client.agents.updateModelConfig(
@@ -965,6 +974,57 @@ const AgentCredentialsDialog: FC<Props> = ({
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {framework === 'antigravity-cli' && selectedModelConfigView && (
+                        <section className='space-y-2.5'>
+                            <div className='flex items-center justify-between gap-2'>
+                                <h3 className='text-ui text-fg font-medium'>
+                                    {t('web.credentials.model')}
+                                </h3>
+                                <ShortcutTooltip label={t('web.composer.refresh')}>
+                                    <button
+                                        type='button'
+                                        className='text-muted hover:text-fg hover:bg-surface-hover flex h-8 w-8 items-center justify-center rounded-sm disabled:opacity-50'
+                                        aria-label={t('web.composer.refresh')}
+                                        disabled={
+                                            providerTesting ||
+                                            (!selectedSaved && !showCurrentInline)
+                                        }
+                                        onClick={() => void testSelectedProvider()}
+                                    >
+                                        {providerTesting
+                                            ? <Spinner size={16} />
+                                            : <RefreshIcon className='h-4 w-4' />}
+                                    </button>
+                                </ShortcutTooltip>
+                            </div>
+                            <WorkbenchSelect
+                                size='sm'
+                                mono
+                                ariaLabel={t('web.credentials.model')}
+                                value={modelConfigDraft?.model ?? ''}
+                                onChange={(value) => {
+                                    setModelConfigDraft({
+                                        framework: 'antigravity-cli',
+                                        model: value || null
+                                    })
+                                    setError(null)
+                                    setSuccessMsg(null)
+                                }}
+                                options={[
+                                    { value: '', label: t('web.credentials.useFrameworkDefault') },
+                                    ...selectedModelConfigView.options.map((option) => ({
+                                        value: option.value,
+                                        label: option.label,
+                                        disabled: !option.enabled
+                                    }))
+                                ]}
+                            />
+                            {modelConfigValidation.message && (
+                                <div className='workbench-alert-error'>{modelConfigValidation.message}</div>
+                            )}
+                        </section>
                     )}
 
                     {supportsModelField && (

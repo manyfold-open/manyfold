@@ -1,5 +1,5 @@
 import {
-    AGY_DEFAULT_API_KEY_MODEL,
+    defaultAntigravityModel,
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
@@ -378,6 +378,16 @@ export const reconcileModelConfigDraftForProviderModels = (
         return reconcileClaudeDraftForProviderModels(draft, models)
     if (view.framework === 'gemini-cli')
         return reconcileGeminiDraftForProviderModels(view, draft, models)
+    if (view.framework === 'antigravity-cli') {
+        const current = draft?.framework === 'antigravity-cli' ? draft.model : null
+        const options = resolveAntigravityModelOptions(models)
+        return {
+            framework: 'antigravity-cli',
+            model: options.some((option) => option.value === current)
+                ? current
+                : defaultAntigravityModel(models)
+        }
+    }
     return draft
 }
 
@@ -579,7 +589,7 @@ export const validateModelConfigDraft = (
     if (view.framework === 'antigravity-cli') {
         const model =
             (draft?.framework === 'antigravity-cli' ? draft.model : null) ??
-            AGY_DEFAULT_API_KEY_MODEL
+            defaultAntigravityModel(view.providerModels)
         if (
             resolveAntigravityModelOptions(view.providerModels).some(
                 (item) => item.value === model && item.enabled
