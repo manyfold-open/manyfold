@@ -30,8 +30,8 @@ const runtime = (overrides: Record<string, unknown> = {}) =>
 
 const attachWith = async (
     runtimeRow: ReturnType<typeof runtime>
-): Promise<Array<{ id: string; runtime: string; status: string }>> => {
-    const written: Array<{ id: string; runtime: string; status: string }> = []
+): Promise<Array<{ id: string; status: string }>> => {
+    const written: Array<{ id: string; status: string }> = []
     const db = {
         select: () => ({
             from: () => ({
@@ -74,16 +74,8 @@ const attachWith = async (
         ) as never,
         undefined,
         {
-            refreshOnChange: async (agent: {
-                id: string
-                runtime: string
-                status: string
-            }) => {
-                written.push({
-                    id: agent.id,
-                    runtime: agent.runtime,
-                    status: agent.status
-                })
+            refreshOnChange: async (agent: { id: string; status: string }) => {
+                written.push({ id: agent.id, status: agent.status })
             }
         } as never
     )
@@ -94,13 +86,10 @@ const attachWith = async (
 test('an agent added to a running sandbox gets its context doc written', async () => {
     const written = await attachWith(runtime())
     assert.equal(written.length, 1)
-    assert.equal(written[0].runtime, 'sprites')
-    assert.equal(written[0].status, 'running')
+    assert.equal(written[0].status, 'ready')
 })
 
 test('a daemon agent is left to its configuration delivery', async () => {
-    const written = await attachWith(
-        runtime({ kind: 'daemon', daemonId: 'dh_1', spriteName: null })
-    )
+    const written = await attachWith(runtime({ hostId: 'dh_1' }))
     assert.deepEqual(written, [])
 })

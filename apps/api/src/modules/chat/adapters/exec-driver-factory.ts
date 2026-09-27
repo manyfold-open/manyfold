@@ -229,6 +229,10 @@ export class ExecDriverFactory {
                   : await this.contextFor(input.id)
         const ctx = this.requireMachine(loaded, 'runner')
         const { agent, host, placement } = ctx
+        // The machine is its owner's: an agent never inherits another
+        // user's runtime, whatever row points at it.
+        if (host.userId !== agent.userId)
+            throw new ChatRunnerError(placement, 'runtime owner mismatch')
         if (ctx.availability === 'unavailable')
             throw new ChatRunnerError(placement, 'runtime unavailable')
         const runnerFacts = frameworkDefinition(agent.framework)?.runner

@@ -21,7 +21,12 @@ import type {
     SpriteExecAdmission,
     SpriteExecDecision
 } from '../src/modules/agents/sprite-exec-health/sprite-exec-health.service'
-import { spritesHostRow } from './helpers/runtime-context-fixture'
+import {
+    contextOf,
+    fakeRuntimeContext,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 
 // #730, the half that lives in the turn path. A sprite whose exec endpoint 502s
 // the WebSocket upgrade cost every routed turn 39s on the runner inspect and 39s
@@ -515,10 +520,14 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     const db = {
         select: () => ({
             from: (table: Parameters<typeof getTableName>[0]) => {
-                // The agent read joins its runtime, host and provider; every
-                // other table answers empty.
+                // The agent read joins its runtime, host and provider; the
+                // host tables answer empty (the runner is brought up by the
+                // runner manager, never found in a row).
+                const name = getTableName(table)
                 const rows =
-                    getTableName(table) === 'agents' ? [currentAgent] : []
+                    name === 'runtime_hosts' || name === 'host_daemons'
+                        ? []
+                        : [currentAgent]
                 const chain = {
                     innerJoin: () => chain,
                     leftJoin: () => chain,
@@ -725,7 +734,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     }
     const runnerManager = new TestRunnerManager(
         {
-            setPower: async () => {},
+            findById: async () => HOST,
+            patch: async () => HOST,
             bumpGeneration: async () => 1
         } as never,
         { findByHostId: async () => null } as never,
@@ -772,7 +782,28 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         runnerManager,
         undefined,
         undefined,
-        execHealth as never
+        execHealth as never,
+        undefined,
+        undefined,
+        undefined,
+        fakeRuntimeContext(
+            contextOf({
+                agent: {
+                    id: AGENT_ID,
+                    userId: 'user-1',
+                    status: 'ready',
+                    framework: 'claude-code',
+                    runtimeId: 'runtime-1'
+                } as never,
+                runtime: runtimeRow({
+                    id: 'runtime-1',
+                    userId: 'user-1',
+                    hostId: HOST_ID
+                }),
+                host: HOST,
+                daemon: null
+            })
+        ) as never
     )
 
     const internals = service as unknown as {
@@ -836,15 +867,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
 const storageHarness = (unavailable: boolean) => {
     const health: HealthCall[] = []
     const state = { accountReads: 0 }
-    const hostRow = {
-        id: HOST_ID,
-        userId: 'user-1',
-        kind: 'sandbox',
-        accountId: 'sac_1',
-        spriteName: 'art-abc',
-        spriteStatus: 'running',
-        storageMeasuredAt: null
-    }
+    const hostRow = { ...HOST, storageMeasuredAt: null }
     const db = {
         transaction: async (work: (tx: unknown) => Promise<unknown>) => work(db),
         execute: async () => [],
@@ -861,19 +884,22 @@ const storageHarness = (unavailable: boolean) => {
                 }
                 result.limit = async () => list
                 result.orderBy = async () => list
-                return { where: () => result }
+                const chain = { where: () => result, innerJoin: () => chain }
+                return chain
             }
         })
     }
-    const accounts = {
-        getById: async () => {
+    // The provider client is the first thing a measurement reaches for; it
+    // is counted, and answers with nothing so the measurement ends there.
+    const hostClients = {
+        spritesClientForHost: async () => {
             state.accountReads += 1
-            return null
+            throw new Error('no client in this test')
         }
     }
     const service = new SpriteStorageService(
         db as never,
-        accounts as never,
+        hostClients as never,
         { event: () => {}, error: () => {} } as never,
         {
             isKnownUnavailable: async (hostId: string | null) => {

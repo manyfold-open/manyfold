@@ -115,7 +115,8 @@ test('external provider endpoint changes clear stale upstream session refs', asy
     assert.match(query.sql, /"chat_sessions"\."framework_session_ref" is not null/)
     assert.match(query.sql, /"agents"\."extras"->'externalBinding'->>'providerId'/)
     assert.ok(query.params.includes('user_1'))
-    assert.ok(query.params.includes('external'))
+    // External agents are the ones whose runtime has no machine (ADR-0036).
+    assert.match(query.sql, /r\.host_id is null/)
     assert.ok(query.params.includes('dify'))
     assert.ok(query.params.includes('ueap_1'))
 

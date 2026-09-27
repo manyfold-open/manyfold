@@ -235,17 +235,19 @@ const consumer = async (
     const service = Object.create(SandboxesService.prototype)
     Object.assign(service, {
         runtimes: {
-            listRunnerHosts: async () => [],
             getSandboxForUser: async () => ({
-                host: {
+                host: spritesHostRow({
                     id: 'sbx_fixture',
                     userId: 'usr_fixture',
-                    spriteId: 'sprite',
-                    spriteName: 'fixture',
-                    accountId: 'spa_fixture'
-                }
+                    providerRef: {
+                        kind: 'sprites',
+                        spriteName: 'fixture',
+                        spriteId: 'sprite'
+                    }
+                }),
+                daemon: null
             }),
-            listRuntimesByHost: async () => []
+            findRuntimeOnHost: async () => null
         },
         crypto: {},
         frameworkVersions: f.versions,

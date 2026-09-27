@@ -248,6 +248,7 @@ test(
                     userId,
                     name: kind,
                     framework: 'codex',
+                    status: 'ready',
                     hostId: hosts[kind].id
                 })
                 const [agent] = await db
@@ -278,7 +279,13 @@ test(
                 assert.equal(
                     admitted.length,
                     1,
-                    'only one simultaneous request can own the workspace'
+                    `only one simultaneous request can own the workspace: ${admissions
+                        .map((result) =>
+                            result.status === 'rejected'
+                                ? String(result.reason)
+                                : 'admitted'
+                        )
+                        .join(' | ')}`
                 )
                 const rejected = admissions.find(
                     (result) => result.status === 'rejected'

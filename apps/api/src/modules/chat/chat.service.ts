@@ -12,8 +12,7 @@ import {
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
     CHAT_SESSION_IMPORT_PENDING_CODE,
     createObjectId,
-    isObjectId,
-    placementOf
+    isObjectId
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -70,8 +69,6 @@ import {
     agents,
     agentRuntimes,
     chatMessages as chatMessagesTable,
-    runtimeHosts,
-    runtimeProviders,
     userModelProviders,
     type Agent,
     type AgentUsageEventRow,
@@ -100,6 +97,7 @@ import {
     type TerminalStreamContent,
     type TurnClaim
 } from '@/modules/chat/chat.repository'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { SessionRecoveryService } from '@/modules/chat/recovery/session-recovery.service'
 import {
     ChatSseBroadcaster,
@@ -273,6 +271,13 @@ interface ProviderTurnFacts {
     modelProviderSource: UserModelProviderSource | null
     managedBrand: UserModelProvider | null
     inferenceProtocol: InferenceProtocol | null
+}
+
+const EMPTY_PROVIDER_FACTS: ProviderTurnFacts = {
+    modelProviderBuiltInId: null,
+    modelProviderSource: null,
+    managedBrand: null,
+    inferenceProtocol: null
 }
 // The `chat.turn.terminal` funnel's closed outcome set, and where the terminal
 // was written from. Every durable done/error row has exactly one of these
@@ -664,7 +669,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // Same rule. Absent = a pending terminal import is refused outright
         // instead of getting its one settle attempt at the turn gate.
         @Optional()
-        private readonly recovery?: SessionRecoveryService
+        private readonly recovery?: SessionRecoveryService,
+        // Same rule. The agent's machine (ADR-0036): host, placement and
+        // power for the turn's runner, awake holds and exec-health key.
+        // Absent = the agent is treated as having no machine.
+        @Optional()
+        private readonly runtimeContext?: RuntimeContextService
     ) {
         // Registered here rather than in onApplicationBootstrap so a manually
         // constructed service (tests) gets the subscription without running
@@ -5671,7 +5681,21 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             }
         }
         const servedPricing: { scope: ServedPriceScope | null } = { scope: null }
-        const agentCtx = await this.resolveAgentContext(session.agentId)
+        const agentCtx =
+            agent && agent.id === session.agentId
+                ? {
+                      framework: agent.framework,
+                      userId: agent.userId,
+                      runtimeId: agent.runtimeId ?? null,
+                      model: agent.model ?? null,
+                      modelProviderId: agent.modelProviderId ?? null,
+                      ...(await this.providerFacts(
+                          agent.modelProviderId ?? null
+                      )),
+                      ...(await this.machineFacts(agent.id)),
+                      workspacePath: agent.workspacePath ?? null
+                  }
+                : await this.resolveAgentContext(session.agentId)
         // Decided BEFORE any runner, daemon or CLI work: when a managed
         // channel's shared upstream account pool is known empty, every one of
         // those steps is spent rediscovering it — minutes per turn (#660) — and
@@ -6674,33 +6698,43 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
     private async markRuntimeActive(agentId: string): Promise<void> {
         try {
-            const agentCtx = await this.resolveAgentContext(agentId)
-            if (agentCtx.runtime !== 'sprites' || !agentCtx.hostId) return
+            const rows = await this.db
+                .select({
+                    id: agents.id,
+                    userId: agents.userId,
+                    runtimeId: agents.runtimeId
+                })
+                .from(agents)
+                .where(eq(agents.id, agentId))
+                .limit(1)
+            const row = rows[0]
+            if (!row) return
+            const machine = await this.runtimeContext?.forAgent(agentId)
+            const host = machine?.host
+            if (machine?.placement !== 'sprites' || !host) return
             // Over-quota users must not re-open the accrual watermark via
             // this fire-and-forget wake: a running power write would let the
             // turn hit reserveActiveSlot's fast path unchecked. Skipping
             // forces the slow path, which reports the typed 403.
             if (
                 this.runtimeAccess &&
-                (await this.runtimeAccess.isActiveHoursExhausted(
-                    agentCtx.userId
-                ))
+                (await this.runtimeAccess.isActiveHoursExhausted(row.userId))
             ) {
                 this.logger.debug(
                     `skipping sprite wake for agent=${agentId}: active hours quota reached`
                 )
                 return
             }
-            if (agentCtx.powerState !== 'running')
-                await this.spriteStatusSync.markHostRunning(agentCtx.hostId)
+            if (host.powerState !== 'running')
+                await this.spriteStatusSync.markHostRunning(host.id)
             // Always nudge the sprite-side service on chat activity. The
             // sprite VM can stay `running` while the service process inside
             // it has stopped. The nudge restarts the service WITHOUT
             // re-instating a keep-awake lease — the lease exists only while
             // the host's keep-awake switch is on. `wakeSpriteRuntime` is
             // idempotent and no-ops for exec-kind frameworks.
-            if (agentCtx.runtimeId) {
-                const runtime = await this.runtimes.findById(agentCtx.runtimeId)
+            if (row.runtimeId) {
+                const runtime = await this.runtimes.findById(row.runtimeId)
                 if (runtime) {
                     await this.spritesProvisioner.wakeSpriteRuntime(runtime)
                     this.reconcile?.touchRuntime(runtime)
@@ -6851,17 +6885,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 modelProviderSource: userModelProviders.source,
                 managedBrand: userModelProviders.managedBrand,
                 inferenceProtocol: userModelProviders.inferenceProtocol,
-                workspacePath: agents.workspacePath,
-                host: runtimeHosts,
-                providerKind: runtimeProviders.kind
+                workspacePath: agents.workspacePath
             })
             .from(agents)
-            .innerJoin(agentRuntimes, eq(agentRuntimes.id, agents.runtimeId))
-            .leftJoin(runtimeHosts, eq(runtimeHosts.id, agentRuntimes.hostId))
-            .leftJoin(
-                runtimeProviders,
-                eq(runtimeProviders.id, runtimeHosts.providerId)
-            )
             .leftJoin(
                 userModelProviders,
                 eq(userModelProviders.id, agents.modelProviderId)
@@ -6873,11 +6899,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         return {
             framework: row.framework,
             userId: row.userId,
-            runtime: placementOf(
-                row.host
-                    ? { kind: row.host.kind, providerKind: row.providerKind }
-                    : null
-            ),
             runtimeId: row.runtimeId ?? null,
             model: row.model ?? null,
             modelProviderId: row.modelProviderId ?? null,
@@ -6885,15 +6906,58 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             modelProviderSource: row.modelProviderSource ?? null,
             managedBrand: row.managedBrand ?? null,
             inferenceProtocol: row.inferenceProtocol ?? null,
-            hostId: row.host?.id ?? null,
-            hostKind: row.host?.kind ?? null,
-            powerState: row.host?.powerState ?? null,
-            host: row.host ?? null,
-            spriteName:
-                row.host?.providerRef?.kind === 'sprites'
-                    ? row.host.providerRef.spriteName
-                    : null,
+            ...(await this.machineFacts(agentId)),
             workspacePath: row.workspacePath ?? null
+        }
+    }
+
+    private async providerFacts(
+        providerId: string | null
+    ): Promise<ProviderTurnFacts> {
+        if (!providerId) return EMPTY_PROVIDER_FACTS
+        const rows = await this.db
+            .select({
+                builtInId: userModelProviders.builtInId,
+                source: userModelProviders.source,
+                managedBrand: userModelProviders.managedBrand,
+                inferenceProtocol: userModelProviders.inferenceProtocol
+            })
+            .from(userModelProviders)
+            .where(eq(userModelProviders.id, providerId))
+            .limit(1)
+        const row = rows[0]
+        if (!row) return EMPTY_PROVIDER_FACTS
+        return {
+            modelProviderBuiltInId: row.builtInId ?? null,
+            modelProviderSource: row.source ?? null,
+            managedBrand: row.managedBrand ?? null,
+            inferenceProtocol: row.inferenceProtocol ?? null
+        }
+    }
+
+    // The agent's machine (ADR-0036): the placement, the host row the awake
+    // holds and exec health key on, and the provider's name for its sprite.
+    // Without a context service the agent is read as having no machine.
+    private async machineFacts(agentId: string): Promise<{
+        runtime: AgentRuntime
+        hostId: string | null
+        hostKind: RuntimeHostKind | null
+        powerState: RuntimeHostPowerState | null
+        host: RuntimeHostRow | null
+        spriteName: string | null
+    }> {
+        const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
+        const host = machine?.host ?? null
+        return {
+            runtime: machine?.placement ?? 'external',
+            hostId: host?.id ?? null,
+            hostKind: host?.kind ?? null,
+            powerState: host?.powerState ?? null,
+            host,
+            spriteName:
+                host?.providerRef?.kind === 'sprites'
+                    ? host.providerRef.spriteName
+                    : null
         }
     }
 }

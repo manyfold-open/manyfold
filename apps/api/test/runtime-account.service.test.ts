@@ -302,7 +302,7 @@ test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot f
     const asleep = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(asleep.status, 'sandbox-asleep')
     assert.deepEqual(asleep.host, {
-        spriteStatus: 'cold',
+        powerState: 'stopped',
         terminalEnabled: true
     })
     assert.deepEqual(h.calls, [])

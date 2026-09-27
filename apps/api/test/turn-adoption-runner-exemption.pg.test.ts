@@ -111,7 +111,7 @@ const insertLapsedTurn = async (
         role: 'assistant',
         contentBlocksJson: [],
         ...(carrier
-            ? { daemonId: carrier.hostId, daemonExecRef: carrier.execRef }
+            ? { hostId: carrier.hostId, daemonExecRef: carrier.execRef }
             : {})
     })
     await h.db.insert(turnExecutions).values({

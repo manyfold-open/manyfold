@@ -11,7 +11,7 @@ import type {
     AgentRuntime,
     DetectedFramework
 } from '@manyfold/shared'
-import { runtimeHosts, agentCredentials } from '@manyfold/db'
+import { agentCredentials, hostDaemons, runtimeHosts } from '@manyfold/db'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
@@ -280,12 +280,12 @@ const registryFor = (seam: Seam) => ({
     }
 })
 
-// Serves the queries the service adapters make: the agent row, the
-// runtime_hosts row `daemonAdvertisesFeature` and `daemonDetectedFramework`
-// read, and the credentials row hermes decrypts for the provider alias env.
-// Discriminating on the table means the capability gate, the openclaw gateway
-// admission and the alias derivation run for real rather than being stubbed
-// out.
+// Serves the queries the service adapters make: the agent row joined to its
+// host (ADR-0036), the host_daemons row `daemonAdvertisesFeature` and
+// `daemonDetectedFramework` read, and the credentials row hermes decrypts for
+// the provider alias env. Discriminating on the table means the capability
+// gate, the openclaw gateway admission and the alias derivation run for real
+// rather than being stubbed out.
 const dbFor = (opts: {
     runtime: AgentRuntime
     framework: AgentFramework
@@ -293,10 +293,9 @@ const dbFor = (opts: {
     detectedFrameworks: DetectedFramework[]
 }) => ({
     select: (): unknown => ({
-        from: (table: unknown): unknown => ({
-            where: (): unknown => ({
-                limit: async (): Promise<unknown[]> =>
-                    table === runtimeHosts
+        from: (table: unknown): unknown => {
+            const rows = async (): Promise<unknown[]> =>
+                    table === runtimeHosts || table === hostDaemons
                         ? [
                               {
                                   clientFeatures: opts.clientFeatures,
@@ -316,15 +315,26 @@ const dbFor = (opts: {
                             ]
                           : [
                               {
-                                  runtime: opts.runtime,
                                   internalId: 'main',
-                                  daemonId:
+                                  // The joined host: a local computer for a
+                                  // daemon runtime, else the provider's.
+                                  hostId:
                                       opts.runtime === 'daemon'
                                           ? 'dh_byod'
-                                          : null,
+                                          : 'dh_runner',
+                                  hostKind:
+                                      opts.runtime === 'daemon'
+                                          ? 'local'
+                                          : 'hosted',
+                                  providerKind:
+                                      opts.runtime === 'k8s'
+                                          ? 'k8s'
+                                          : opts.runtime === 'sprites'
+                                            ? 'sprites'
+                                            : null,
                                   workspacePath:
                                       '/home/sprite/.manyfold/workspaces/agt_marker',
-                                  ingressHost: 'gw.marker.test',
+                                  mountPath: '/home/sprite/.hermes',
                                   runtimeId: 'art_marker',
                                   framework: opts.framework,
                                   name: 'marker',
@@ -339,8 +349,14 @@ const dbFor = (opts: {
                                   }
                               }
                           ]
-            })
-        })
+            const chain = {
+                innerJoin: () => chain,
+                leftJoin: () => chain,
+                where: () => chain,
+                limit: rows
+            }
+            return chain
+        }
     })
 })
 

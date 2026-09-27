@@ -1,7 +1,8 @@
 import {
     agentBaseUrl,
     auditAction,
-    envTextFromExtras
+    envTextFromExtras,
+    type AgentFramework
 } from '@manyfold/shared'
 import type { AgentRuntimeSummary } from '@manyfold/shared'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -327,19 +328,12 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     // runtime row.
     private async ingressHostFor(ctx: RuntimeContext): Promise<string | null> {
         if (!ctx.host || !ctx.providerKind) return null
-        const port =
-            ctx.runtime.framework === 'hermes'
-                ? HERMES_PORT
-                : ctx.runtime.framework === 'openclaw'
-                  ? OPENCLAW_PORT
-                  : null
-        if (port === null) return null
         const provider = await this.hostClients.providerForHost(ctx.host)
         const url = this.providers.for(ctx.providerKind).publicUrl?.({
             host: ctx.host,
             provider,
             framework: ctx.runtime.framework,
-            port
+            port: this.servicePortFor(ctx.runtime.framework)
         })
         if (!url) return null
         try {
@@ -347,6 +341,25 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         } catch {
             return null
         }
+    }
+
+    // The port the framework's UI is served on inside the machine: the
+    // built-in gateways' own, an edition framework's from its health URL,
+    // else the public https port (both providers route by name, not port).
+    private servicePortFor(framework: AgentFramework): number {
+        if (framework === 'hermes') return HERMES_PORT
+        if (framework === 'openclaw') return OPENCLAW_PORT
+        const healthUrl =
+            this.extensions.get(framework)?.spriteService?.supervision.healthUrl
+        if (healthUrl) {
+            try {
+                const port = Number(new URL(healthUrl).port)
+                if (port > 0) return port
+            } catch {
+                // not a URL: fall through to the public port
+            }
+        }
+        return 443
     }
 
     // Background half of the async hermes toggle: persists the dashboard

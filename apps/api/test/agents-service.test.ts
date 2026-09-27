@@ -46,10 +46,11 @@ const makeService = (agent = baseAgent) => {
     let selectCalls = 0
     let lastPatch: Record<string, unknown> | null = null
     const db = {
-        select: () => ({
+        select: (cols?: unknown) => ({
             from: () => ({
                 where: () => ({
                     limit: async () => {
+                        if (cols) return []
                         selectCalls += 1
                         return selectCalls === 1 ? [agent] : []
                     }

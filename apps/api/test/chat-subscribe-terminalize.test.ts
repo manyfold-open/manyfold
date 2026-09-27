@@ -360,8 +360,9 @@ test('latestDeadInflightMessage gates on daemon liveness with no message-age del
     assert.ok(query.params.includes('assistant'))
 
     // The daemon-liveness predicate, identical to listOrphanedAssistantMessages:
-    // a daemon seen within the grace window is resumable and never reported dead.
-    assert.match(query.sql, /"runtime_hosts"/)
+    // a daemon seen within the grace window is resumable and never reported
+    // dead. Presence lives on the host's daemon row (ADR-0036).
+    assert.match(query.sql, /"host_daemons"/)
     assert.match(query.sql, /last_seen_at/)
     assert.ok(
         query.params.includes(

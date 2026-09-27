@@ -134,14 +134,14 @@ const OPENCLAW_AGENTS_JSON = JSON.stringify([
 // sprite goes through it (ADR-0036 R6).
 class FakeTransportResolver extends FrameworkExecResolver {
     readonly execs: Array<{ opts: { cmd: string[] } }> = []
-    behavior: (line: string) => FrameworkExecRunResult | null = () => null
+    behavior: (cmd: string[]) => FrameworkExecRunResult | null = () => null
 
     private exec(): FrameworkExec {
         return {
             run: async (req) => {
                 this.execs.push({ opts: { cmd: req.cmd } })
                 return (
-                    this.behavior(req.cmd[2] ?? '') ?? {
+                    this.behavior(req.cmd) ?? {
                         exitCode: 1,
                         stdout: '',
                         stderr: 'command not stubbed'
@@ -190,8 +190,8 @@ const makeHarness = () => {
 // custom-workspace runtimes) and heal the row.
 test('verifiedByReport reconcile heals a false-failed hermes sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line.includes(`'${HERMES_VENV_PYTHON}'`)
+    resolver.behavior = (cmd) =>
+        cmd[0] === HERMES_VENV_PYTHON
             ? { exitCode: 0, stdout: HERMES_PROFILES_JSON, stderr: '' }
             : null
     const db = makeDb([fakeDbAgent()])
@@ -203,8 +203,8 @@ test('verifiedByReport reconcile heals a false-failed hermes sprites agent throu
     )
 
     assert.equal(resolver.execs.length, 1, 'first venv candidate must hit')
-    assert.equal(resolver.execs[0].opts.cmd[0], 'bash')
-    assert.equal(resolver.execs[0].opts.cmd[1], '-lc')
+    assert.equal(resolver.execs[0].opts.cmd[0], HERMES_VENV_PYTHON)
+    assert.equal(resolver.execs[0].opts.cmd[1], '-c')
     assert.equal(db.inserts.length, 0)
     assert.equal(db.updates.length, 1)
     assert.equal(db.updates[0].set.status, 'ready')
@@ -222,8 +222,8 @@ test('verifiedByReport reconcile heals a false-failed hermes sprites agent throu
 
 test('verifiedByReport reconcile heals a false-failed openclaw sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line === `'openclaw' 'agents' 'list' '--json'`
+    resolver.behavior = (cmd) =>
+        cmd.join(' ') === 'openclaw agents list --json'
             ? { exitCode: 0, stdout: OPENCLAW_AGENTS_JSON, stderr: '' }
             : null
     const db = makeDb([
@@ -245,10 +245,12 @@ test('verifiedByReport reconcile heals a false-failed openclaw sprites agent thr
     )
 
     assert.equal(resolver.execs.length, 1)
-    assert.equal(
-        resolver.execs[0].opts.cmd[2],
-        `'openclaw' 'agents' 'list' '--json'`
-    )
+    assert.deepEqual(resolver.execs[0].opts.cmd, [
+        'openclaw',
+        'agents',
+        'list',
+        '--json'
+    ])
     assert.equal(db.updates.length, 1)
     assert.equal(db.updates[0].set.status, 'ready')
     assert.equal(db.updates[0].set.failureReason, null)
@@ -261,8 +263,8 @@ test('verifiedByReport reconcile heals a false-failed openclaw sprites agent thr
 // aliased onto the same row or inserted as a phantom agent.
 test('sprites reconcile ignores the built-in profile when the promoted primary has an exact live profile', async () => {
     const { resolver, registry } = makeHarness()
-    resolver.behavior = (line) =>
-        line === `'openclaw' 'agents' 'list' '--json'`
+    resolver.behavior = (cmd) =>
+        cmd.join(' ') === 'openclaw agents list --json'
             ? {
                   exitCode: 0,
                   stdout: JSON.stringify([

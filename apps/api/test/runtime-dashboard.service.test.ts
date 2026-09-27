@@ -7,6 +7,12 @@ import {
 } from '@nestjs/common'
 import { RuntimeDashboardService } from '../src/modules/agent-runtimes/orchestration/runtime-dashboard.service'
 import { FIXTURE, fixtureControlUi } from './helpers/fixture-framework'
+import {
+    contextOf,
+    k8sHostRow,
+    runtimeRow,
+    spritesHostRow
+} from './helpers/runtime-context-fixture'
 import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const runtime = (patch: Record<string, unknown> = {}) => ({
@@ -260,7 +266,7 @@ test('cloud computer openclaw toggle reconfigures its service, patches flag and 
         db: dbFor({ audits, credsCiphertext: 'ENC1' })
     })
     ;(service as never as Record<string, unknown>).reconfigurePodService =
-        async (_runtime: unknown, enabled: boolean) => {
+        async (_runtime: unknown, _host: unknown, enabled: boolean) => {
             reconfigured.push(enabled)
         }
     await service.setControlUi('user-1', 'runtime-1', true, false)
@@ -608,9 +614,18 @@ const serviceFor = (deps: {
     new RuntimeDashboardService(
         (deps.db ?? auditDb()) as never,
         deps.runtimes as never,
-        (deps.context ?? {}) as never,
-        (deps.hostClients ?? {}) as never,
-        (deps.providers ?? {}) as never,
+        (deps.context ?? deps.runtimes) as never,
+        (deps.hostClients ?? {
+            providerForHost: async () => ({ id: 'rtp_1', name: 'p' })
+        }) as never,
+        // The provider's public URL for the framework port: the host row's
+        // name carries the ingress host a test chose.
+        (deps.providers ?? {
+            for: () => ({
+                publicUrl: ({ host }: { host: { name: string } }) =>
+                    host.name ? `https://${host.name}` : null
+            })
+        }) as never,
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,
         (deps.openclawBootstrap ?? {}) as never,
@@ -663,9 +678,31 @@ const runtimesFor = (
         claimResult: true
     }
 ): unknown => {
+    // One queue for the context read and the refreshed read, in the order
+    // the facade makes them.
     const queue = [...rows]
+    // The runtime with its machine, as the facade reads it: a cloud
+    // computer or a sandbox by the row's kind, its ingress host on the host.
+    const hostFor = (row: Record<string, unknown>) => {
+        const name = (row.ingressHost as string | null) ?? ''
+        return row.kind === 'k8s'
+            ? k8sHostRow({ id: 'rth_dash', userId: 'user-1', name })
+            : spritesHostRow({ id: 'rth_dash', userId: 'user-1', name })
+    }
     return {
         findById: async () => queue.shift() ?? rows[rows.length - 1] ?? null,
+        forRuntime: async () => {
+            const row = queue.shift() ?? rows[rows.length - 1] ?? null
+            return row
+                ? contextOf({
+                      runtime: runtimeRow({
+                          ...(row as never as Record<string, never>),
+                          hostId: 'rth_dash'
+                      }),
+                      host: hostFor(row)
+                  })
+                : null
+        },
         toSummary: (row: Record<string, unknown>) => row,
         applyStatusPatch: async (
             _runtimeId: string,

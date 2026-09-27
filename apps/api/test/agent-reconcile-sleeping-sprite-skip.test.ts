@@ -15,7 +15,7 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     userId: 'u-1',
     name: 'main',
     framework: 'hermes',
-    kind: 'sprites',
+    hostId: 'rth_fixture',
     status: 'ready',
     accountId: 'acc-1',
     spriteName: 'nca-user-abc-main',
@@ -340,13 +340,16 @@ test('reconcile keeps the sleep skip when verifiedByReport is false', async () =
 // WHY: the report bypasses the sleep gate but must not become an unbounded
 // reconcile trigger — the min-wait/failure backoff is the report-flood bound.
 test('second verifiedByReport touch within 15s is dropped', async () => {
-    const rows = [fakeDbAgent({ spriteStatus: 'warm' })]
+    const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     const registry = recordingRegistry([
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
 
-    const svc = reconcilerFor(db, registry)
+    const svc = reconcilerFor(db, registry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: daemonRow()
+    })
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime, { verifiedByReport: true })
@@ -374,12 +377,15 @@ test('second verifiedByReport touch within 15s is dropped', async () => {
 // refresh the ordinary debounce timestamp. They must not consume the one
 // chance a fence-valid ready report has to run the authoritative listing.
 test('verifiedByReport touch is not dropped after a recent non-report sleep skip', async () => {
-    const rows = [fakeDbAgent({ spriteStatus: 'warm' })]
+    const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     const registry = recordingRegistry([
         { id: 'agent-1', name: 'a1', workspace: WS, model: null, extras: {} }
     ])
-    const svc = reconcilerFor(db, registry)
+    const svc = reconcilerFor(db, registry, {
+        host: spritesHostRow({ powerState: 'suspended' }),
+        daemon: daemonRow()
+    })
     const runtime = fakeRuntime() as never
 
     svc.touchRuntime(runtime)
@@ -398,7 +404,7 @@ test('verifiedByReport touch is not dropped after a recent non-report sleep skip
 // WHY: a ready report can race an already-running background reconcile. Keep
 // one trailing verified pass instead of losing the report at the inflight gate.
 test('verifiedByReport touch coalesces behind an inflight non-report reconcile', async () => {
-    const rows = [fakeDbAgent({ spriteStatus: 'running' })]
+    const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     let releaseFirst!: () => void
     let markFirstStarted!: () => void
@@ -445,7 +451,7 @@ test('verifiedByReport touch coalesces behind an inflight non-report reconcile',
 // WHY: priority over successful background debounce must not erase failure
 // backoff; an unhealthy runtime still needs the existing bounded retry policy.
 test('verifiedByReport touch still respects failure backoff', async () => {
-    const rows = [fakeDbAgent({ spriteStatus: 'running' })]
+    const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     let calls = 0
     const registry = {

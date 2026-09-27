@@ -93,7 +93,7 @@ const insertAssistant = async (
         role: 'assistant',
         contentBlocksJson: [],
         ...(daemon
-            ? { daemonId: daemon.hostId, daemonExecRef: daemon.execRef }
+            ? { hostId: daemon.hostId, daemonExecRef: daemon.execRef }
             : {})
     })
 }
