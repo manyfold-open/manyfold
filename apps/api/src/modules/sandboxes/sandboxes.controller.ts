@@ -79,7 +79,7 @@ export class SandboxesController {
         return this.sandboxes.setTerminal(user.userId, id, body)
     }
 
-    // The host's keep-awake switch (ADR-0036 R7): keeps the machine running.
+    // The host's keep-awake switch (ADR-0037 R7): keeps the machine running.
     @Patch(':id/keep-awake')
     @RequireApiTokenScope('sandboxes:edit')
     async setKeepAwake(

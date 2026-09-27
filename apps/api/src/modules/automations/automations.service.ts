@@ -452,7 +452,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
         this.changed(row.automation, 'run')
         try {
-            // The one admission rule (ADR-0036): the agent's own lifecycle
+            // The one admission rule (ADR-0037): the agent's own lifecycle
             // and its runtime's availability; a hosted machine that is asleep
             // is admitted, the turn wakes it.
             if (row.agent.status !== 'ready')

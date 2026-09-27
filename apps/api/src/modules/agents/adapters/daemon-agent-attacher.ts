@@ -4,7 +4,6 @@ import {
 } from '@manyfold/shared'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import type { Agent } from '@manyfold/db'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     isAgentWorkspaceManaged,
     isWorkspacePreflightUserError,
@@ -14,15 +13,12 @@ import { HostDaemonAccess } from './host-daemon-access'
 import type { RuntimeTarget } from './agent-adapter'
 
 // A coding agent's workspace on its machine, created and removed through the
-// host's daemon whatever provider the machine came from (ADR-0036 R6).
+// host's daemon whatever provider the machine came from (ADR-0037 R6).
 @Injectable()
 export class DaemonAgentAttacher {
     private readonly log = new Logger(DaemonAgentAttacher.name)
 
-    constructor(
-        private readonly registry: DaemonRegistryService,
-        private readonly access: HostDaemonAccess
-    ) {}
+    constructor(private readonly access: HostDaemonAccess) {}
 
     async attach(args: {
         target: RuntimeTarget
@@ -34,20 +30,22 @@ export class DaemonAgentAttacher {
             args.workspace,
             defaultWorkspaceFor(args.target, args.agentId)
         )
-        const hostId = await this.access.requireOnline({ ...args.target, host })
         try {
-            await this.registry.rpc({
-                daemonId: hostId,
-                method: 'workspace.ensure',
-                payload: {
-                    path: selection.path,
-                    create: selection.managed
-                }
-            })
+            await this.access.withHost(
+                { ...args.target, host, agentId: args.agentId, reason: 'attach' },
+                (session) =>
+                    session.rpc({
+                        method: 'workspace.ensure',
+                        payload: {
+                            path: selection.path,
+                            create: selection.managed
+                        }
+                    })
+            )
         } catch (err) {
             const message = (err as Error).message
             this.log.warn(
-                `workspace.ensure failed for ${args.agentId} on ${hostId}: ${message}`
+                `workspace.ensure failed for ${args.agentId} on ${host.id}: ${message}`
             )
             if (isWorkspacePreflightUserError(message))
                 throw new BadRequestException(message)
@@ -60,18 +58,17 @@ export class DaemonAgentAttacher {
         const host = requireHost(args.target)
         if (!args.agent.workspacePath) return
         try {
-            const hostId = await this.access.requireOnline({
-                ...args.target,
-                host
-            })
-            await this.registry.rpc({
-                daemonId: hostId,
-                method: 'workspace.delete',
-                payload: {
-                    path: args.agent.workspacePath,
-                    remove: isAgentWorkspaceManaged(args.agent)
-                }
-            })
+            await this.access.withHost(
+                { ...args.target, host, agentId: args.agent.id, reason: 'detach' },
+                (session) =>
+                    session.rpc({
+                        method: 'workspace.delete',
+                        payload: {
+                            path: args.agent.workspacePath,
+                            remove: isAgentWorkspaceManaged(args.agent)
+                        }
+                    })
+            )
         } catch (err) {
             this.log.warn(
                 `workspace.delete failed for ${args.agent.id} on ${host.id}: ${(err as Error).message}`

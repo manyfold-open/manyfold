@@ -6,7 +6,7 @@ import type {
 import { t } from '@manyfold/i18n'
 import type { BadgeTone } from '@/ui'
 
-// The independent host facts of ADR-0036 (lifecycle, power, daemon presence
+// The independent host facts of ADR-0037 (lifecycle, power, daemon presence
 // and the derived availability), rendered the same way on every admin page.
 
 const AVAILABILITY_TONE: Record<RuntimeAvailability, BadgeTone> = {

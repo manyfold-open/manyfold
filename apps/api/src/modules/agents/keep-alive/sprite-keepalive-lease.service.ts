@@ -63,7 +63,7 @@ const ENSURE_RETRY_AFTER_MS = 120_000
 const ENSURE_MAX_BACKOFF_MS = 5 * 60_000
 const REPORT_PROBE_BUDGET_SEC = 120
 // The host's lease state lives on the machine under the sprite user's home,
-// beside nothing framework-specific: one lease per host (ADR-0036 R7).
+// beside nothing framework-specific: one lease per host (ADR-0037 R7).
 const HOST_LEASE_STATE_DIR = `${SPRITE_HOME_BASE}/.nca/keepalive`
 
 const ensureBackoffMs = (failures: number): number =>

@@ -7,7 +7,7 @@ import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 // A cloud computer's mf CLI (ADR-0035 §5): how it is updated, and how a
 // caller that needs more of it than the host has gets it updated first. The
-// pod's daemon is the host's daemon (ADR-0036): host_daemons for the host.
+// pod's daemon is the host's daemon (ADR-0037): host_daemons for the host.
 
 const host = () =>
     ({
@@ -29,10 +29,14 @@ const daemon = (over: Record<string, unknown> = {}) =>
         clientFeatures: [],
         startupMethod: 'container',
         lastSeenAt: new Date(),
+        rpcInstanceId: 'api-1',
+        rpcConnectedAt: new Date(),
         ...over
     }) as never
 
-const offline = { lastSeenAt: new Date(Date.now() - 120_000) }
+// Reachable is the rpc lease (ADR-0038): a daemon the API holds no socket to
+// has none, however fresh its last heartbeat.
+const offline = { rpcInstanceId: null, rpcConnectedAt: null }
 
 class InstantPodHostCli extends PodHostCliService {
     delays = 0

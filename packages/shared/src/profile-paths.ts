@@ -36,7 +36,7 @@ export const POD_RUNNER_PROFILE = 'podrunner'
 // rather than being re-typed on either side.
 //
 // MF_DAEMON_TOKEN is the one-time `ldt_` registration credential, bound to the
-// pod host it registers onto (ADR-0036); the boot loop consumes it into the
+// pod host it registers onto (ADR-0037); the boot loop consumes it into the
 // daemon config on first boot and every later boot starts from that config
 // instead, so a later boot does not need it: the registration already lives on
 // the PVC.

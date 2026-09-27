@@ -27,7 +27,7 @@ import {
 // service's own. Seen on staging [2026-09-10]: a runner frozen by sprite
 // suspension kept an "online" socket lease, `auth.create` went out on it and
 // timed out — the row said online, the VM said warm, and only the VM was
-// right. The host row's power state is the authority (ADR-0036).
+// right. The host row's power state is the authority (ADR-0037).
 
 const runtime = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
     runtimeRow({
@@ -115,38 +115,40 @@ const harness = (opts: {
             })
         })
     }
+    // art_other lives on the user's other sandbox (sbx_other); everything
+    // else is the runtime under test on its machine.
+    const otherHost = sandboxRow({
+        id: 'sbx_other',
+        powerState: 'suspended',
+        providerRef: { kind: 'sprites', spriteName: 'sbx-other', spriteId: null }
+    })
+    const runtimeOf = (id: string) =>
+        id === 'art_other'
+            ? runtime({ id: 'art_other', hostId: 'sbx_other' })
+            : runtime({ hostId: opts.host.id })
     const runtimes = {
-        findById: async () => runtime({ hostId: opts.host.id }),
-        listRuntimesByHost: async (hostId: string) =>
-            hostId === 'sbx_other'
-                ? [runtime({ id: 'art_other', hostId: 'sbx_other' })]
-                : []
+        findById: async (id: string) => runtimeOf(id)
     }
     const runtimeContext = {
-        forRuntime: async () =>
-            contextOf({
-                runtime: runtime({ hostId: opts.host.id }),
-                host: opts.host,
-                daemon
-            })
+        forRuntime: async (id: string) =>
+            id === 'art_other'
+                ? contextOf({
+                      runtime: runtimeOf(id),
+                      host: otherHost,
+                      daemon: null
+                  })
+                : contextOf({
+                      runtime: runtimeOf(id),
+                      host: opts.host,
+                      daemon
+                  })
     }
     // The user's other sandbox, when a test has one: awake, holding the
     // plan's one slot only through an account wake's hold on its runtime.
     const hosts = {
         listForUser: async () => [
             opts.host,
-            ...(opts.otherRunning
-                ? [
-                      sandboxRow({
-                          id: 'sbx_other',
-                          providerRef: {
-                              kind: 'sprites',
-                              spriteName: 'sbx-other',
-                              spriteId: null
-                          }
-                      })
-                  ]
-                : [])
+            ...(opts.otherRunning ? [otherHost] : [])
         ]
     }
     const hostDaemons = {
@@ -167,6 +169,8 @@ const harness = (opts: {
     const runtimeAccess = {
         reserveActiveSlot: async (input: { hostId: string }) => {
             calls.push(`reserveActiveSlot:${input.hostId}`)
+            // The other sandbox is the one already holding the slot.
+            if (input.hostId === 'sbx_other') return { plan: null, activeCount: 0, wholesale: null }
             if (opts.refuseHours)
                 throw new ForbiddenException({
                     code: 'ACTIVE_HOURS_QUOTA_REACHED',
@@ -201,13 +205,18 @@ const harness = (opts: {
             return { daemon, online: true }
         }
     }
+    // The awake hold an account wake places (ADR-0038): released by the
+    // user's next pick, the form closing or the service's own idle timer.
     const runnerManager = {
-        holdSpriteAwake: async (args: { turnId: string; ttl: string }) => {
-            calls.push(`holdAwake:${args.turnId}:${args.ttl}`)
-            return true
-        },
-        releaseSpriteAwake: async (args: { turnId: string }) => {
-            calls.push(`releaseAwake:${args.turnId}`)
+        holdAwake: (_host: RuntimeHostRow, reason: string) => {
+            calls.push(`hold:${reason}`)
+            return {
+                settled: Promise.resolve(true),
+                release: async () => {
+                    calls.push(`release:${reason}`)
+                },
+                detach: () => {}
+            }
         }
     }
     const service = new RuntimeAuthProfilesService(
@@ -272,7 +281,7 @@ test('wake=1 on the list admits the sandbox first, then wakes the runner, then l
         'ensure:sbx_1',
         // The woken runner is held awake for the operation that follows;
         // nothing else on this path would keep the VM from re-freezing it.
-        'holdAwake:auth-art_1:5m',
+        'hold:auth-art_1',
         'rpc:auth.list'
     ])
 })
@@ -326,7 +335,7 @@ test('create without wake on an asleep sandbox is refused as host_unavailable; w
     assert.deepEqual(woken.calls, [
         'reserveActiveSlot:sbx_1',
         'ensure:sbx_1',
-        'holdAwake:auth-art_1:5m',
+        'hold:auth-art_1',
         'rpc:auth.create'
     ])
 })
@@ -349,7 +358,7 @@ test('prewarm wakes the runner once per window, off the request path', async () 
     })
     const first = await h.service.prewarm(principal, 'art_1')
     assert.equal(first.accepted, true)
-    await settle(h.calls, (c) => c.some((x) => x.startsWith('holdAwake:')))
+    await settle(h.calls, (c) => c.some((x) => x.startsWith('hold:')))
     assert.deepEqual(h.calls, [
         // The admission runs on the request, so a refusal is the answer; the
         // wake off the request path admits again (a cheap fast path once the
@@ -358,7 +367,7 @@ test('prewarm wakes the runner once per window, off the request path', async () 
         'reserveActiveSlot:sbx_1',
         'ensure:sbx_1',
         // A prewarm's hold is the short one; the form renews it while picked.
-        'holdAwake:auth-art_1:2m'
+        'hold:auth-art_1'
     ])
     const again = await h.service.prewarm(principal, 'art_1')
     assert.equal(again.accepted, false, 'debounced inside the window')
@@ -401,11 +410,11 @@ test('a prewarm holds the sandbox for the short window; a release drops that hol
     const h = harness({ host: sandboxRow(), daemon: null })
     const accepted = await h.service.prewarm(principal, 'art_1')
     assert.equal(accepted.accepted, true)
-    await settle(h.calls, (c) => c.some((x) => x.startsWith('holdAwake:')))
-    assert.ok(h.calls.includes('holdAwake:auth-art_1:2m'), h.calls.join(','))
+    await settle(h.calls, (c) => c.some((x) => x.startsWith('hold:')))
+    assert.ok(h.calls.includes('hold:auth-art_1'), h.calls.join(','))
     const released = await h.service.release(principal, 'art_1')
     assert.equal(released.released, true)
-    assert.ok(h.calls.includes('releaseAwake:auth-art_1'), h.calls.join(','))
+    assert.ok(h.calls.includes('release:auth-art_1'), h.calls.join(','))
 })
 
 test('a release leaves a sandbox that is not running alone: nothing holds it, and an exec would wake it', async () => {
@@ -416,7 +425,7 @@ test('a release leaves a sandbox that is not running alone: nothing holds it, an
     const released = await h.service.release(principal, 'art_1')
     assert.equal(released.released, false)
     assert.ok(!h.calls.some((c) => c.startsWith('ensure:')), h.calls.join(','))
-    assert.ok(!h.calls.some((c) => c.startsWith('releaseAwake:')))
+    assert.ok(!h.calls.some((c) => c.startsWith('release:')))
 })
 
 test('a wake refused by the slot cap releases the account holds on the other sandbox, then reports the cap', async () => {
@@ -426,14 +435,17 @@ test('a wake refused by the slot cap releases the account holds on the other san
         refuseSlot: true,
         otherRunning: true
     })
+    // The other sandbox holds the slot through an account wake of its own.
+    await h.service.list('user-1', 'art_other', { wake: true })
+    assert.ok(h.calls.includes('hold:auth-art_other'), h.calls.join(','))
     const list = await h.service.list('user-1', 'art_1', { wake: true })
     assert.equal(list.availability, 'sandbox-limit')
     assert.ok(
-        h.calls.includes('releaseAwake:auth-art_other'),
+        h.calls.includes('release:auth-art_other'),
         h.calls.join(',')
     )
     // Only the other sandbox's holds go; this one was never woken.
-    assert.ok(!h.calls.some((c) => c.startsWith('ensure:')))
+    assert.ok(!h.calls.includes('ensure:sbx_1'))
 })
 
 // A prewarm the plan refuses is answered, not swallowed: the create form
@@ -461,11 +473,12 @@ test("a prewarm refused by the slot cap reports the cap after releasing the othe
         refuseSlot: true,
         otherRunning: true
     })
+    await h.service.list('user-1', 'art_other', { wake: true })
     const view = await h.service.prewarm(principal, 'art_1')
     assert.equal(view.accepted, false)
     assert.equal(view.refused?.code, 'CONCURRENT_ACTIVE_LIMIT_REACHED')
     assert.ok(
-        h.calls.includes('releaseAwake:auth-art_other'),
+        h.calls.includes('release:auth-art_other'),
         h.calls.join(',')
     )
 })

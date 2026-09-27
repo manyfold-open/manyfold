@@ -9,6 +9,17 @@ import type {
     ExecStreamResult
 } from './exec-driver'
 import { observedResult } from './exec-driver'
+import { isTransportLoss } from '@/modules/agents/adapters/host-daemon-access'
+
+export interface DaemonExecDriverOptions {
+    // Directories the platform vouches for beyond the daemon's own; sent
+    // on every exec.start (DAEMON_FEATURE_EXEC_ROOTS).
+    roots?: readonly string[]
+    // Waits for the daemon's fresh lease after a thaw replaced its socket;
+    // true once it is back. A first exec.start lost to the old socket is
+    // sent once more on the new one.
+    reconnect?: (since: Date) => Promise<boolean>
+}
 
 interface StreamSinks {
     stdout: AsyncIterable<string>
@@ -137,32 +148,42 @@ export class DaemonExecDriver implements ExecDriver {
         // A profile-bound agent: the daemon resolves this ref into the
         // credential context itself (DAEMON_FEATURE_AUTH_CONTEXT). Null =
         // inherited, today's behaviour.
-        private readonly authContext: DaemonAuthContextRef | null = null
+        private readonly authContext: DaemonAuthContextRef | null = null,
+        private readonly options: DaemonExecDriverOptions = {}
     ) {}
 
     stream(req: ExecStreamRequest): ExecStreamHandle {
         const sinks = makeSinks()
+        const roots = [...(req.roots ?? this.options.roots ?? [])]
         const payload = {
             cmd: withCodexHome(req.cmd, req.codexHome),
             env: { ...(this.baseEnv ?? {}), ...(req.env ?? {}) },
             stdin: req.stdin ?? '',
             dir: req.dir,
+            ...(roots.length ? { roots } : {}),
             timeoutMs: req.timeoutMs,
             ...(req.temporarySettings ? { temporarySettings: req.temporarySettings } : {}),
             ...(this.authContext
                 ? { authSelection: { mode: 'profile', ...this.authContext } }
                 : {})
         }
+        // Anything the daemon sent back proves it has the exec; only a
+        // request it never saw is sent again below.
+        let received = 0
+        const onEvent: typeof sinks.push = (kind, data, seq) => {
+            received += 1
+            sinks.push(kind, data, seq)
+        }
         // The fence needs a stable exec ref to probe and re-pin (#619); a
         // stream without one (no execHandle) keeps the plain transport.
-        const stream =
+        const dispatch = () =>
             req.execHandle && this.fencedDispatch
                 ? this.fencedDispatch.streamTurnRpc({
                       daemonId: this.daemonId,
                       method: 'exec.start',
                       payload,
                       timeoutMs: req.timeoutMs + 10_000,
-                      onEvent: sinks.push,
+                      onEvent,
                       refId: req.execHandle
                   })
                 : this.registry.streamRpc({
@@ -170,12 +191,48 @@ export class DaemonExecDriver implements ExecDriver {
                       method: 'exec.start',
                       payload,
                       timeoutMs: req.timeoutMs + 10_000,
-                      onEvent: sinks.push,
+                      onEvent,
                       ...(req.execHandle
                           ? { refIdOverride: req.execHandle }
                           : {})
                   })
-        const result: Promise<ExecStreamResult> = stream.result
+        const since = new Date()
+        let current: ReturnType<typeof dispatch> | null = null
+        const attempt = (): Promise<Record<string, unknown> | undefined> => {
+            current = dispatch()
+            return current.result
+        }
+        // Lost to the socket, not refused by the daemon, and nothing arrived
+        // yet: the daemon never saw it, so once it is back on a fresh lease
+        // the same request goes again. Anything received means the daemon
+        // has the exec; that case is the resume path's.
+        const reconnect = this.options.reconnect
+        const dispatched = new Promise<Record<string, unknown> | undefined>(
+            (resolve, reject) => {
+                let first: Promise<Record<string, unknown> | undefined>
+                try {
+                    first = attempt()
+                } catch (err) {
+                    first = Promise.reject(err)
+                }
+                first.then(resolve, (err: unknown) => {
+                    if (!reconnect || received > 0 || !isTransportLoss(err, false))
+                        return reject(err)
+                    reconnect(since).then(
+                        (back) => {
+                            if (!back) return reject(err)
+                            try {
+                                attempt().then(resolve, reject)
+                            } catch (again) {
+                                reject(again)
+                            }
+                        },
+                        () => reject(err)
+                    )
+                })
+            }
+        )
+        const result: Promise<ExecStreamResult> = dispatched
             .then((payload) => {
                 sinks.close()
                 return {
@@ -192,7 +249,7 @@ export class DaemonExecDriver implements ExecDriver {
             stdout: sinks.stdout,
             stderr: sinks.stderr,
             result: observedResult(result),
-            abort: () => stream.cancel(),
+            abort: () => current?.cancel(),
             lastDeliveredSeq: sinks.lastDeliveredSeq
         }
     }

@@ -46,7 +46,7 @@ const EXEC_TIMEOUT_MS = 10 * 60_000
 const RESTORE_WRITE_TIMEOUT_MS = 10 * 60_000
 const POD_PROBE_TIMEOUT_MS = 30_000
 
-// The machine a workspace operation runs on (ADR-0036): the agent's host and
+// The machine a workspace operation runs on (ADR-0037): the agent's host and
 // the placement that decides which transport carries the bytes.
 interface WorkspaceTarget {
     placement: Exclude<AgentRuntime, 'external'>
@@ -80,7 +80,7 @@ export class WorkspaceRuntimeService {
         return workspaceOperationKey(agent, await this.target(agent))
     }
 
-    // The one admission rule for a backup or restore (ADR-0036): an installed
+    // The one admission rule for a backup or restore (ADR-0037): an installed
     // runtime on a ready host. Returns the placement the row snapshots.
     async admit(agent: Agent): Promise<AgentRuntime> {
         const ctx = await this.runtimeContext.forAgent(agent.id)
@@ -498,7 +498,7 @@ const workspaceRoot = (agent: Agent): string =>
     normalizeAbsPath(agent.mountPath || agent.workspacePath || '/workspace')
 
 // One workspace on one machine, whichever agent addresses it and whatever
-// the machine's later fate (ADR-0036): the placement and the host id.
+// the machine's later fate (ADR-0037): the placement and the host id.
 export const workspaceOperationKey = (
     agent: Agent,
     target: { placement: AgentRuntime; host: { id: string } | null }

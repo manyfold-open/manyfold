@@ -27,7 +27,7 @@ import { daemonConfigLeaseName } from '@/modules/daemon/daemon-config-delivery.s
 
 export const HOST_NOT_EMPTY_CODE = 'HOST_NOT_EMPTY'
 
-// Host deletion (ADR-0036 R8): 409 while agents exist, else `deleting` →
+// Host deletion (ADR-0037 R8): 409 while agents exist, else `deleting` →
 // revoke the host's tokens → adapter.destroy → delete runtimes, host_daemons
 // and the host in one transaction. A destroy that fails leaves the row at
 // `deleting` with the reason, and the reaper / a retry runs it again under the

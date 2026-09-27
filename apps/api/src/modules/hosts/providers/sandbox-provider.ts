@@ -7,7 +7,7 @@ import type {
     RuntimeProvider
 } from '@manyfold/db'
 
-// What a runtime provider must implement (ADR-0036): the machine's lifecycle
+// What a runtime provider must implement (ADR-0037): the machine's lifecycle
 // and a single bootstrap channel that installs `mf`, writes the host's bound
 // token and starts the daemon. Everything that happens inside the machine
 // afterwards goes through the host daemon's RPC and is provider-agnostic.
@@ -80,6 +80,18 @@ export interface SandboxProvider {
             timeoutMs?: number
         }
     ): Promise<ProviderExecResult>
+    // The provider's activity lease (ADR-0038): while it is held the machine is
+    // not suspended, and acquiring it resumes a suspended machine. Create or
+    // renew, so a retry is not a failure. Providers whose machines never sleep
+    // leave both out and the core holds nothing.
+    holdAwake?(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string; ttl: string }
+    ): Promise<void>
+    releaseAwake?(
+        args: Omit<ProviderCall, 'generation'>,
+        lease: { name: string }
+    ): Promise<void>
     publicUrl?(
         args: Omit<ProviderCall, 'generation'> & {
             framework: string

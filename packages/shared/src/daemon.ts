@@ -7,7 +7,7 @@ import type {
 import type { RuntimeLocalCredentialFacts } from './runtime-local-credentials'
 import type { OpenclawTurnUsage } from './acp'
 
-// The host's lifecycle (ADR-0036); presence is the separate `online` flag.
+// The host's lifecycle (ADR-0037); presence is the separate `online` flag.
 export type DaemonHostStatus = RuntimeHostStatus
 
 export type DaemonStartupMethod =
@@ -87,7 +87,7 @@ export interface RegisterDaemonRequest {
     herdrVersion?: string | null
 }
 
-// `daemonId` is the host the daemon registered onto (ADR-0036): the routing
+// `daemonId` is the host the daemon registered onto (ADR-0037): the routing
 // key for RPC and the scope of the daemon's local stores.
 export interface RegisterDaemonResponse {
     daemonId: string
@@ -798,6 +798,13 @@ export const runtimeLocalInspectFeature = (framework: string): string | null =>
 // Services API does. Only a pod host's daemon (startup method 'container')
 // offers it; nothing asks a user's own machine to run a service.
 export const DAEMON_FEATURE_SERVICES = 'services.v1'
+// exec.start carries `roots`: absolute directories the platform vouches for
+// beyond the daemon's own (the agent's workspace, a framework home on a
+// shared machine). The daemon admits that exec's cwd under any of them, for
+// that exec only. The roots travel with the work instead of a workspace.ensure
+// RPC ahead of it that could race the machine's sleep (ADR-0038); a daemon
+// without this feature is asked to update before a turn that needs them.
+export const DAEMON_FEATURE_EXEC_ROOTS = 'exec.roots.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -826,5 +833,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_PI_LOCAL,
-    DAEMON_FEATURE_ANTIGRAVITY_LOCAL
+    DAEMON_FEATURE_ANTIGRAVITY_LOCAL,
+    DAEMON_FEATURE_EXEC_ROOTS
 ]

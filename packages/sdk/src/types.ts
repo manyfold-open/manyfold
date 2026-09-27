@@ -14,7 +14,7 @@ export interface SdkUser {
     experiments: ExperimentAssignments
 }
 
-// The agent as every surface reads it (ADR-0036): placement, host and
+// The agent as every surface reads it (ADR-0037): placement, host and
 // availability are derived server-side and shipped on the summary.
 export type SdkAgent = AgentSummary
 

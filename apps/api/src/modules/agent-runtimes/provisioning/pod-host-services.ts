@@ -1,6 +1,5 @@
 import {
     DAEMON_FEATURE_SERVICES,
-    daemonOnline,
     type DaemonServiceSpec,
     type DaemonServiceStatus
 } from '@manyfold/shared'
@@ -10,7 +9,11 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import type { RuntimeHostRow } from '@manyfold/db'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
@@ -22,36 +25,57 @@ type PodHostRef = Pick<RuntimeHostRow, 'id' | 'userId'>
 
 // The long-running processes of the service frameworks on a pod host, run by
 // the host's own daemon (ADR-0035 §6) — the pod's counterpart of a sprite's
-// Services API. The daemon is the host's (ADR-0036): host_daemons for the host.
+// Services API. The daemon is the host's (ADR-0037): host_daemons for the
+// host, reached through the host's session (ADR-0038) so a daemon the API
+// holds no socket to is brought up rather than refused.
 @Injectable()
 export class PodHostServices {
     constructor(
-        private readonly registry: DaemonRegistryService,
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
+        private readonly access: HostDaemonAccess,
         // Absent in tests that build the service positionally: a daemon
         // without services is then refused rather than updated.
         @Optional() private readonly cli?: PodHostCliService
     ) {}
 
-    private async runnerId(host: PodHostRef): Promise<string> {
-        const daemon = await this.hostDaemons.findByHostId(host.id)
-        if (!daemon || !daemonOnline(daemon))
+    private async withDaemon<T>(
+        host: PodHostRef,
+        work: (session: HostSession) => Promise<T>
+    ): Promise<T> {
+        const row = await this.hosts.findById(host.id)
+        if (!row || row.userId !== host.userId)
             throw new ServiceUnavailableException(
                 `cloud computer ${host.id} has no connected daemon`
             )
-        if (daemon.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
-            return host.id
-        // A host started from an image whose CLI predates services has it
-        // updated in place first (ADR-0035 §5).
-        const podHost = this.cli ? await this.hosts.findById(host.id) : null
-        if (!this.cli || !podHost || podHost.userId !== host.userId)
-            throw new ServiceUnavailableException({
-                code: 'POD_HOST_DAEMON_TOO_OLD',
-                message: `the Manyfold CLI on cloud computer ${host.id} is too old to run services; update it first`
-            })
-        await this.cli.ensure(podHost, { feature: DAEMON_FEATURE_SERVICES })
-        return host.id
+        try {
+            return await this.access.withHost(
+                {
+                    host: row,
+                    daemon: await this.hostDaemons.findByHostId(host.id),
+                    placement: 'k8s',
+                    reason: 'services'
+                },
+                async (session) => {
+                    if (session.daemon.clientFeatures.includes(DAEMON_FEATURE_SERVICES))
+                        return work(session)
+                    // A host started from an image whose CLI predates services
+                    // has it updated in place first (ADR-0035 §5).
+                    if (!this.cli)
+                        throw new ServiceUnavailableException({
+                            code: 'POD_HOST_DAEMON_TOO_OLD',
+                            message: `the Manyfold CLI on cloud computer ${host.id} is too old to run services; update it first`
+                        })
+                    await this.cli.ensure(row, { feature: DAEMON_FEATURE_SERVICES })
+                    return work(session)
+                }
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
+            throw new ServiceUnavailableException(
+                `cloud computer ${host.id} has no connected daemon`
+            )
+        }
     }
 
     private async call(
@@ -64,18 +88,15 @@ export class PodHostServices {
             | 'service.list',
         payload: Record<string, unknown>
     ): Promise<Record<string, unknown> | undefined> {
-        return this.registry.rpc({
-            daemonId: await this.runnerId(host),
-            method,
-            payload,
-            timeoutMs: SERVICE_RPC_TIMEOUT_MS
-        })
+        return this.withDaemon(host, (session) =>
+            session.rpc({ method, payload, timeoutMs: SERVICE_RPC_TIMEOUT_MS })
+        )
     }
 
     // Throws unless the host's daemon runs services, updating its CLI first
     // when it predates them.
     async ready(host: PodHostRef): Promise<void> {
-        await this.runnerId(host)
+        await this.withDaemon(host, async () => undefined)
     }
 
     async upsert(host: PodHostRef, spec: DaemonServiceSpec): Promise<void> {

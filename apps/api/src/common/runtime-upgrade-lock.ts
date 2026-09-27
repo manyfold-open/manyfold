@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common'
 import type { Database } from '@manyfold/db'
 import { sql } from 'drizzle-orm'
 
-// Lock the physical installation (the host, ADR-0036), not the agent
+// Lock the physical installation (the host, ADR-0037), not the agent
 // addressing it. Transaction ownership spans API replicas and releases on
 // either success or failure.
 export const withRuntimeUpgradeLock = async <T>(

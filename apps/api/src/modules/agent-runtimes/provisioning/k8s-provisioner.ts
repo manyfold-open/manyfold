@@ -30,7 +30,7 @@ import { PodHostServices } from './pod-host-services'
 import { podServiceRecipe } from './pod-service-frameworks'
 import { withdrawPodHostFramework } from './pod-host-network'
 
-// Deletes k8s runtimes and pod hosts (ADR-0035, ADR-0036). A runtime is one
+// Deletes k8s runtimes and pod hosts (ADR-0035, ADR-0037). A runtime is one
 // framework on a pod host, so deleting it leaves the host and its home volume
 // alone; the host is the machine and is deleted on its own, with everything
 // on it — never while an agent still lives there (R8).

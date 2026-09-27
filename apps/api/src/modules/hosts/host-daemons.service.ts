@@ -9,8 +9,17 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 
-// The one daemon connection a host has (ADR-0036). Presence is derived from
+// The one daemon connection a host has (ADR-0037). Presence is derived from
 // lastSeenAt; there is no status column and no sweep.
+// The API holds a socket to this daemon somewhere (the registry writes the
+// lease on connect and clears it on an orderly close). This, not presence,
+// is what a dispatch decision reads: a heartbeat outlives a closed socket by
+// up to the presence window, a lease does not (ADR-0038).
+export const hasRpcLease = (
+    daemon: HostDaemonRow | null | undefined
+): daemon is HostDaemonRow =>
+    Boolean(daemon?.rpcInstanceId && daemon.rpcConnectedAt)
+
 @Injectable()
 export class HostDaemonsService {
     constructor(@Inject(DRIZZLE) private readonly db: Database) {}

@@ -757,7 +757,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             }),
             deleteUnbound: async () => true
         } as never,
-        { rpc: async () => ({}) } as never
+        { rpc: async () => ({}), onConnected: () => () => {} } as never,
+        { hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} }) } as never
     )
 
     const service = new ChatService(

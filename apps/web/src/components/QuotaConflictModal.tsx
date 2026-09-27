@@ -138,7 +138,7 @@ const QuotaConflictModal: FC<Props> = ({ request, onClose }) => {
             setActiveStopId(stopAgent.id)
             setPhase('stopping')
             try {
-                // Stopping is host level (ADR-0036): the whole sandbox goes to
+                // Stopping is host level (ADR-0037): the whole sandbox goes to
                 // sleep, and every agent on it with it.
                 await client.sandboxes.stop(stopAgent.hostId)
                 const deadline = Date.now() + STOP_TIMEOUT_MS

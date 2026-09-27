@@ -8,7 +8,7 @@ import {
 } from '@manyfold/db'
 import { CLI_AT_FLOOR } from './cli-floor'
 
-// Postgres seeds for the host model (ADR-0036).
+// Postgres seeds for the host model (ADR-0037).
 
 export const seedLocalHost = async (
     db: Database,
@@ -98,7 +98,10 @@ export const seedHostDaemon = async (
         terminalPty?: boolean | null
     }
 ): Promise<HostDaemonRow> => {
-    const seen = input.online === false ? new Date(0) : new Date()
+    // Online is a socket the API holds (the rpc lease, ADR-0038) with a
+    // fresh heartbeat; offline is a stale heartbeat and no lease.
+    const online = input.online !== false
+    const seen = online ? new Date() : new Date(0)
     const [row] = await db
         .insert(hostDaemons)
         .values({
@@ -110,10 +113,10 @@ export const seedHostDaemon = async (
             herdrVersion: input.herdrVersion ?? null,
             terminalPty: input.terminalPty ?? null,
             lastSeenAt: seen,
-            rpcInstanceId: 'api-test',
-            rpcConnectionToken: `token-${input.hostId}`,
-            rpcInbox: `inbox-${input.hostId}`,
-            rpcConnectedAt: seen,
+            rpcInstanceId: online ? 'api-test' : null,
+            rpcConnectionToken: online ? `token-${input.hostId}` : null,
+            rpcInbox: online ? `inbox-${input.hostId}` : null,
+            rpcConnectedAt: online ? seen : null,
             rpcLastSeenAt: seen
         })
         .returning()

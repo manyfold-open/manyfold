@@ -7,7 +7,7 @@ import {
     uniqueIndex
 } from 'drizzle-orm/pg-core'
 
-// One Admin-registered source of hosted capacity (ADR-0036): a sprites.dev
+// One Admin-registered source of hosted capacity (ADR-0037): a sprites.dev
 // organisation, a Kubernetes cluster, or whatever provider comes next. The
 // shared columns are what placement and the Admin list read; everything a
 // provider needs beyond them lives in `config`, whose shape only that

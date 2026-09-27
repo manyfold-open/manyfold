@@ -2,7 +2,8 @@ import {
     MF_RUNTIME_IDENTITY_ENV_KEYS,
     frameworkCapability,
     listFrameworks,
-    supportsRuntime
+    supportsRuntime,
+    DAEMON_FEATURE_EXEC_ROOTS
 } from '@manyfold/shared'
 import type { AgentFramework } from '@manyfold/shared'
 import assert from 'node:assert/strict'
@@ -229,7 +230,9 @@ const buildFactory = (
     const daemon = daemonRow({
         hostId: host.id,
         userId: host.userId,
-        clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw']
+        // The turn carries its workspace roots (ADR-0038); the fixture's
+        // workspace lies outside the managed tree.
+        clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw', DAEMON_FEATURE_EXEC_ROOTS]
     })
     const agent = {
         id: 'agt_factory',

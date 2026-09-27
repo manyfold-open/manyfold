@@ -54,7 +54,7 @@ export class DaemonConfigDeliveryError extends Error {
 export interface DaemonConfigSnapshot {
     agent: Agent
     runtime: AgentRuntimeRow
-    // The machine the agent's runtime lives on (ADR-0036): its daemon is
+    // The machine the agent's runtime lives on (ADR-0037): its daemon is
     // the delivery target and its declared home is where config lands.
     host: RuntimeHostRow
     homeDir: string | null
@@ -235,7 +235,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
     }
 
     // The agent's host through its runtime: the routing key for every
-    // delivery (ADR-0036 R9).
+    // delivery (ADR-0037 R9).
     private async hostIdFor(agent: Agent): Promise<string | null> {
         const [row] = await this.db
             .select({ hostId: agentRuntimes.hostId })

@@ -18,7 +18,7 @@ import { CLI_ABOVE_FLOOR, CLI_AT_FLOOR } from './helpers/cli-floor'
 // matched runtime row — production/staging measured 47,711 runtime UPDATEs
 // over 13,834 heartbeats. The reconcile must diff before writing and batch
 // what is left, so a same-value heartbeat costs zero runtime UPDATEs and the
-// cost stops scaling with the detected framework count. ADR-0036 also took
+// cost stops scaling with the detected framework count. ADR-0037 also took
 // the agents statements away: nothing about an agent follows a heartbeat.
 
 const HOST_HOME = '/Users/me'
@@ -206,7 +206,7 @@ test('a same-value heartbeat writes no runtime row and never touches agents', as
     assert.deepEqual(
         db.of('update', 'agents'),
         [],
-        'presence never flips an agent (ADR-0036)'
+        'presence never flips an agent (ADR-0037)'
     )
 })
 

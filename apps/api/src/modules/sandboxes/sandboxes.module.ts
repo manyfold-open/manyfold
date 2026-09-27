@@ -8,6 +8,7 @@ import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-dur
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { FrameworkVersionsModule } from '@/modules/framework-versions/framework-versions.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
@@ -19,6 +20,7 @@ import { ActiveHoursEnforcementService } from './active-hours-enforcement.servic
 
 @Module({
     imports: [
+        HostDaemonAccessModule,
         AuthModule,
         AgentRuntimesModule,
         AgentsModule,

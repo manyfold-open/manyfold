@@ -302,7 +302,7 @@ export class SkillMaterializerService {
         )
     }
 
-    // Where the skills land is a fact of the runtime's host (ADR-0036): a
+    // Where the skills land is a fact of the runtime's host (ADR-0037): a
     // hosted sandbox or pod is written through the provider's own channel
     // (which wakes it), a local machine through its daemon while online.
     private async materializeAgentRow(

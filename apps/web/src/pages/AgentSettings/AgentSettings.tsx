@@ -1221,7 +1221,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         label={statusChipLabel}
                                     />
                                     {/* Keep-awake is the sandbox's switch
-                                        (ADR-0036), so it reads here and is
+                                        (ADR-0037), so it reads here and is
                                         changed there. */}
                                     {agent.keepAwake && agent.hostId ? (
                                         <Link

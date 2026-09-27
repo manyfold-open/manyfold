@@ -103,7 +103,7 @@ import {
 interface SkillTarget {
     agent: Agent
     runtime: AgentRuntimeRow
-    // The product placement of the runtime's host (placementOf, ADR-0036).
+    // The product placement of the runtime's host (placementOf, ADR-0037).
     placement: AgentRuntime
     framework: SkillFramework
 }

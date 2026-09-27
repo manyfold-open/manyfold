@@ -170,7 +170,7 @@ const GROUP_BY_OPTIONS: ReadonlyArray<GroupByOption<GroupBy>> = [
     { value: 'framework', label: '', icon: CodeIcon }
 ]
 
-// One machine (ADR-0036): a host with its runtimes underneath, or a single
+// One machine (ADR-0037): a host with its runtimes underneath, or a single
 // external runtime, which has no machine.
 export interface RuntimeVM {
     key: string
@@ -1107,7 +1107,7 @@ const HostDetailPanel: FC<{
         enabled: boolean
     ) => void | Promise<void>
     togglingTerminal?: boolean
-    // The host's keep-awake switch (ADR-0036): keeps the machine running.
+    // The host's keep-awake switch (ADR-0037): keeps the machine running.
     onToggleKeepAwake?: (
         hostId: string,
         enabled: boolean

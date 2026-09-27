@@ -112,6 +112,22 @@ test('the daemon arm injects the four identity keys and MF_TERMINAL_ID into pty.
         },
         rpc: async () => ({})
     }
+    const hostAccess = {
+        withHost: async (
+            args: { host: { id: string } },
+            work: (session: Record<string, unknown>) => Promise<unknown>
+        ) =>
+            work({
+                host: args.host,
+                daemon: { clientFeatures: [] },
+                daemonId: args.host.id,
+                rpc: (call: Record<string, unknown>) =>
+                    (registry.rpc as (args: unknown) => Promise<unknown>)({
+                        daemonId: args.host.id,
+                        ...call
+                    })
+            })
+    }
     const terminal = new DaemonTerminal(
         registry as never,
         { resolveAgentEnv: async () => ({}) } as never,
@@ -122,6 +138,8 @@ test('the daemon arm injects the four identity keys and MF_TERMINAL_ID into pty.
             }),
             hardDelete: async () => {}
         } as never,
+        { findById: async (id: string) => ({ id, kind: 'local', providerRef: null, name: 'laptop' }) } as never,
+        hostAccess as never,
         fakeConfig
     )
     await terminal.tunnel({

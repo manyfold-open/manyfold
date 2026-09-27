@@ -25,7 +25,7 @@ import {
 
 // Real-Postgres proof that an agent's mf CLI version resolves for BOTH host
 // shapes through the one join agents → runtime → host → host_daemons
-// (ADR-0036), and that a runtime without a host degrades to "not detected".
+// (ADR-0037), and that a runtime without a host degrades to "not detected".
 // tsc cannot see that and a fake db cannot either — only a real row can.
 // Env-gated like the other *.pg.test.ts:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \

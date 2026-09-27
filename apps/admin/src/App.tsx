@@ -166,7 +166,7 @@ const legacyParamRedirects: LegacyParamRedirectDefinition[] = [
         name: 'id',
         to: adminRoutes.runtime
     },
-    // Migrated clusters keep their ids as runtime providers (ADR-0036).
+    // Migrated clusters keep their ids as runtime providers (ADR-0037).
     {
         from: '/settings/clusters/:id',
         name: 'id',

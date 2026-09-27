@@ -23,7 +23,7 @@ export interface FrameworkExec {
     run(req: FrameworkExecRunRequest): Promise<FrameworkExecRunResult>
 }
 
-// One command on a host, through its daemon (ADR-0036 R6): the only way
+// One command on a host, through its daemon (ADR-0037 R6): the only way
 // anything inside a machine is run, whichever provider the machine is on.
 export class DaemonFrameworkExec implements FrameworkExec {
     constructor(

@@ -549,7 +549,7 @@ test(
             .update(runtimeHosts)
             .set({ status: 'retired' })
             .where(eq(runtimeHosts.id, h.daemonId))
-        // A host is deleted only once its agents are gone (ADR-0036 R8).
+        // A host is deleted only once its agents are gone (ADR-0037 R8).
         await h.db.delete(agents).where(eq(agents.id, h.agentId))
         const hosts = new DaemonHostService(
             h.db,

@@ -43,7 +43,7 @@ export class FrameworkVersionProbeService {
         return this.agents.get(agentId, callerUserId, isAdmin)
     }
 
-    // Hosted machines only, through their daemon (ADR-0036). No-op for
+    // Hosted machines only, through their daemon (ADR-0037). No-op for
     // non-versioned frameworks or other placements. A probe that cannot run
     // leaves the stored version untouched (never clobbers a known-good value
     // with null).

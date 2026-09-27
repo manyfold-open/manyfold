@@ -61,7 +61,7 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 
 // One agent with everything its summary derives from: the runtime it runs
 // in, the machine that runtime sits on, the machine's daemon and the
-// provider kind (ADR-0036). Read with one join, never copied onto the agent.
+// provider kind (ADR-0037). Read with one join, never copied onto the agent.
 export interface AgentSummaryRow {
     agent: Agent
     runtime: AgentRuntimeRow
@@ -331,7 +331,7 @@ export class AgentsService {
         return row
     }
 
-    // The agent with its machine resolved (ADR-0036); null when it does not
+    // The agent with its machine resolved (ADR-0037); null when it does not
     // exist or the caller may not see it, so callers answer 404 either way.
     async contextForCaller(
         agentId: string,

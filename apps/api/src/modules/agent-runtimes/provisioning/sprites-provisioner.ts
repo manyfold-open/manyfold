@@ -171,7 +171,7 @@ interface SpriteHost {
     spriteName: string
 }
 
-// Sprites hosts (ADR-0036): a hosted host on a sprites.dev organisation, its
+// Sprites hosts (ADR-0037): a hosted host on a sprites.dev organisation, its
 // machine made by the sprites adapter, its daemon brought up by the runner
 // manager, and every framework on it installed through that daemon.
 @Injectable()
@@ -420,7 +420,7 @@ export class SpritesProvisioner {
 
     // Bring up the machine of a host the caller has already inserted
     // (`hosted`, `provisioning`, provider kind sprites) and its daemon
-    // (ADR-0036): adapter.create under a fresh generation, the host helpers,
+    // (ADR-0037): adapter.create under a fresh generation, the host helpers,
     // then the daemon — whose register with a token bound to the host is what
     // makes the host `ready`. A failure leaves the host `failed` with the
     // reason, its machine torn down best-effort so nothing bills.
@@ -850,7 +850,7 @@ export class SpritesProvisioner {
     }
 
     // Seam for tests: the coding CLI install runs the same staged npm shell
-    // as the agent-create bootstrap, through the host's daemon (ADR-0036 R6).
+    // as the agent-create bootstrap, through the host's daemon (ADR-0037 R6).
     protected installCodingFramework(
         ctx: BootstrapContext,
         framework: VersionedFramework,

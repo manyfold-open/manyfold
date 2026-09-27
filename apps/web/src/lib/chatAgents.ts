@@ -70,7 +70,7 @@ export const reconcileSidebarAgents = (
 }
 
 // What the host-status stream says about one agent: its host's power state
-// and the availability the API derived from it (ADR-0036).
+// and the availability the API derived from it (ADR-0037).
 export type AgentStatusSnapshot = Pick<
     AgentHostStatusUpdate,
     'agentId' | 'powerState' | 'availability'

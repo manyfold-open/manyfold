@@ -6,7 +6,7 @@ export const isUpstreamTerminalSessionInfo = (value: unknown): boolean => {
         terminal_pty?: unknown
     }
     if (frame.type !== 'session_info') return false
-    // A PTY on the host's daemon (ADR-0036) is opened by the gateway itself
+    // A PTY on the host's daemon (ADR-0037) is opened by the gateway itself
     // and says so with `terminal_pty`, whatever the placement: that frame is
     // the open signal. A failed pty.open follows with an error frame and a
     // non-reconnectable close, never the 502 loop the session-id rule below

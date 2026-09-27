@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
@@ -9,7 +8,6 @@ import {
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
     RUNNER_PROFILE,
-    daemonOnline,
     isCliVersionTooOld,
     profilePaths,
     type MfCliChannel
@@ -33,7 +31,14 @@ import {
     HERDR_INSTALL_MARKER
 } from '@/modules/agent-self/sprite-shell-env.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import {
+    HostDaemonsService,
+    hasRpcLease
+} from '@/modules/hosts/host-daemons.service'
+import {
+    HostAwakeService,
+    type AwakeHold
+} from '@/modules/hosts/host-awake.service'
 import {
     HostProviderClients,
     type HostExecFn
@@ -49,7 +54,7 @@ import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
-// inside the machine — can go through the daemon protocol (ADR-0036 R11):
+// inside the machine — can go through the daemon protocol (ADR-0037 R11):
 // Agent → Runtime → Host → host_daemons. Online → RPC. Not online → the
 // provider adapter's power / wake / bootstrap, in that order, then RPC. A
 // local host's daemon is the user's to start: offline is `runner_unavailable`.
@@ -85,19 +90,6 @@ const TOKEN_TTL_DAYS = 90
 // connected with nothing holding the sprite awake.
 const DEFAULT_WAIT_ONLINE_MS = 120_000
 const POLL_INTERVAL_MS = 500
-// The awake lease bounds the leak when the owning instance dies mid-turn: the
-// sprite keeps executing (that is the whole point) but suspends on its own soon
-// after. Renewed at a third of the TTL so a single failed renew is not fatal.
-const AWAKE_TTL = '30m'
-const AWAKE_RENEW_MS = 10 * 60_000
-// A stale daemon connection can sit inside the presence grace window looking
-// online while its websocket generation is frozen (sprite suspended mid-ping)
-// or already closed. The registry's generic 30s RPC default turned that into a
-// 30s stall on every affected turn — 8 of 10 production fallbacks took
-// 29–30.1s (#592). workspace.ensure is a filesystem check on the daemon and a
-// live connection answers it in milliseconds, so a short setup deadline
-// converts a dead generation into a fast refusal.
-const WORKSPACE_ENSURE_TIMEOUT_MS = 5_000
 // What the inspect got before a caller could bound it. Kept as the default so a
 // caller without an exec-health budget behaves exactly as it did.
 const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
@@ -115,13 +107,6 @@ const STATUS_PROBE_TIMEOUT_MS = 30_000
 // back on a fresh lease within a few seconds; a process that is not back by
 // then is wedged or gone, and `daemon stop; daemon start` is what helps.
 const WAKE_RECONNECT_WAIT_MS = 15_000
-// How long a daemon woken for an account operation (not a turn) is held awake.
-// Long enough for the sign-in / key / pick sequence the user just started, and
-// for a freshly started daemon to dial in (~60-75s), short enough that a wake
-// nobody follows up on stops billing within minutes. Renewed by every
-// subsequent wake, never by a timer: the TTL is the whole leak bound.
-export const AUTH_AWAKE_TTL = '5m'
-
 // The `{ cmd, stdin?, timeoutMs }` exec shape the sandbox callers share.
 export type SpriteExecFn = HostExecFn
 
@@ -143,15 +128,8 @@ export interface HostDaemonArgs {
     firstExecTimeoutMs?: number
 }
 
-export interface SpriteAwakeHold {
-    // Turn reached a terminal: stop renewing and drop the lease now.
-    release: () => Promise<void>
-    // Turn was handed off mid-flight: stop renewing, leave the lease to expire.
-    detach: () => void
-}
-
 export interface RunnerHandle {
-    // The host id: the daemon's routing key (ADR-0036).
+    // The host id: the daemon's routing key (ADR-0037).
     daemonId: string
     // false when the daemon was already connected (the common case).
     started: boolean
@@ -166,9 +144,6 @@ export type RunnerFallbackReason =
     | 'runner_unavailable'
     | 'runner_missing'
     | 'sprite_exec_unavailable'
-    | 'workspace_timeout'
-    | 'workspace_connection_closed'
-    | 'workspace_error'
     // hermes only, decided by the caller: the daemon came up but does not
     // advertise turn.hermes, so it cannot own the ACP client.
     | 'runner_missing_turn_rpc'
@@ -192,20 +167,12 @@ export interface RunnerExecFailure {
     upstreamStatus?: number
 }
 
-export type WorkspacePreflightOutcome =
-    | 'none' // no custom workspace: nothing to register
-    | 'base' // under the daemon-managed root: registered by construction
-    | 'cached' // already ensured within this daemon generation
-    | 'ensured' // workspace.ensure ran and succeeded
-    | 'failed' // workspace.ensure failed: the turn cannot start
-
 export interface RunnerResolution {
     handle: RunnerHandle | null
     fallbackReason?: RunnerFallbackReason
     // Present only with `sprite_exec_unavailable`: what the inspect proved about
     // the sprite exec endpoint, for the caller to quarantine on (#730).
     execFailure?: RunnerExecFailure
-    workspace: { outcome: WorkspacePreflightOutcome; ensureMs?: number }
 }
 
 // What restartForInstalledCli did about the daemon PROCESS after the sandbox
@@ -240,20 +207,6 @@ interface RunnerMachineState {
     version: string | null
     // herdr present on the machine (ADR-0031); null when the probe did not say.
     herdr: boolean | null
-}
-
-export type RunnerWakeOutcome =
-    | 'live'
-    | 'reconnected'
-    | 'restarted'
-    | 'brought-up'
-    | 'busy'
-    | 'exec-failed'
-    | 'not-online'
-
-export interface RunnerWakeResult {
-    handle: RunnerHandle | null
-    outcome: RunnerWakeOutcome
 }
 
 interface RunnerBringUp {
@@ -317,35 +270,20 @@ const leaseGeneration = (daemon: HostDaemonRow | null | undefined): string | nul
         ? `${daemon.rpcInstanceId}:${daemon.rpcConnectedAt.getTime()}`
         : null
 
-const NOOP_HOLD: SpriteAwakeHold = {
-    release: async () => {},
-    detach: () => {}
-}
-
 @Injectable()
 export class RunnerManagerService {
     private readonly logger = new Logger(RunnerManagerService.name)
     // One in-flight bring-up per host: concurrent turns on the same machine
     // must not each install and register a daemon.
     private readonly bringUps = new Map<string, Promise<RunnerBringUp>>()
-    // Custom workspaces already registered with a daemon, keyed by host and
-    // scoped to one connection generation. The daemon keeps an ensured root
-    // for the life of its process and a process restart cannot keep its
-    // websocket, so a new rpc lease strictly covers every daemon-side reset
-    // that could forget the path — replacing the entry on generation change
-    // re-registers exactly when registration could have been lost (#592).
-    private readonly ensuredWorkspaces = new Map<
-        string,
-        { generation: string; paths: Set<string> }
-    >()
-
     constructor(
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
         private readonly providers: SandboxProviderRegistry,
         private readonly clients: HostProviderClients,
         private readonly tokens: DaemonTokenService,
-        private readonly registry: DaemonRegistryService
+        private readonly registry: DaemonRegistryService,
+        private readonly awake: HostAwakeService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -354,14 +292,24 @@ export class RunnerManagerService {
         return new Promise((resolve) => setTimeout(resolve, ms))
     }
 
-    // The daemon of a host, online — brought up if the host is the
+    // The daemon of a host, reachable — brought up if the host is the
     // platform's and it is not (R11). Never throws: no daemon is an answer.
+    //
+    // Reachable means the API holds a socket to it (the rpc lease), never that
+    // a heartbeat is recent: a heartbeat outlives a closed socket by up to the
+    // presence window, which is exactly the window a turn used to fall into
+    // (staging 2026-09-27: `workspace_connection_closed` on a machine that had
+    // suspended 20s earlier). A hosted machine is held awake from here until
+    // the caller's admission is done: the lease is what resumes a suspended
+    // machine and what stops it suspending again between the wake and the
+    // first RPC (ADR-0038). Callers that keep working hold their own; the
+    // grace on release keeps the machine up across the hand-over.
     async ensureHostDaemon(args: HostDaemonArgs): Promise<RunnerResolution> {
         const { host } = args
         const daemon = await this.hostDaemons.findByHostId(host.id)
         if (host.kind === 'local') {
-            if (!daemon || !daemonOnline(daemon))
-                return unavailable('runner_unavailable')
+            // Only its owner can start a self-owned computer.
+            if (!hasRpcLease(daemon)) return unavailable('runner_unavailable')
             return this.admit(host, daemon, args, false)
         }
         if (
@@ -370,25 +318,46 @@ export class RunnerManagerService {
             host.status === 'failed'
         )
             return unavailable('runner_unavailable')
-        if (daemon && daemonOnline(daemon))
-            return this.admit(host, daemon, args, false)
-        const resolved = await this.singleFlightBringUp(args)
-        if (!resolved.handle)
-            return {
-                handle: null,
-                // `runner_unavailable` is an invitation to retry later, so it
-                // is exactly the wrong thing to say when the inspect just
-                // proved the exec transport cannot open (#730).
-                fallbackReason: resolved.execFailure
-                    ? 'sprite_exec_unavailable'
-                    : 'runner_unavailable',
-                ...(resolved.execFailure
-                    ? { execFailure: resolved.execFailure }
-                    : {}),
-                workspace: { outcome: 'none' }
-            }
-        const fresh = await this.hostDaemons.findByHostId(host.id)
-        return this.admit(host, fresh, args, resolved.handle.started)
+        const hold = this.awake.hold(host, `ensure-${args.agentId ?? host.id}`)
+        try {
+            if (hasRpcLease(daemon)) return this.admit(host, daemon, args, false)
+            const resolved = await this.singleFlightBringUp(args, hold)
+            if (!resolved.handle)
+                return {
+                    handle: null,
+                    // `runner_unavailable` is an invitation to retry later, so it
+                    // is exactly the wrong thing to say when the inspect just
+                    // proved the exec transport cannot open (#730).
+                    fallbackReason: resolved.execFailure
+                        ? 'sprite_exec_unavailable'
+                        : 'runner_unavailable',
+                    ...(resolved.execFailure
+                        ? { execFailure: resolved.execFailure }
+                        : {})
+                }
+            const fresh = await this.hostDaemons.findByHostId(host.id)
+            return this.admit(host, fresh, args, resolved.handle.started)
+        } finally {
+            void hold.release()
+        }
+    }
+
+    // A fresh socket lease recorded after `since`: the proof a daemon that was
+    // frozen, replaced or restarted is back. Callers that hit a dead
+    // generation on their first RPC wait here, then retry once (ADR-0038).
+    awaitReconnect(
+        host: RuntimeHostRow,
+        since: Date,
+        waitMs = WAKE_RECONNECT_WAIT_MS
+    ): Promise<RunnerHandle | null> {
+        return this.waitForLease(host, since, waitMs)
+    }
+
+    // The turn path's hold on the machine, kept for as long as the turn runs
+    // (ADR-0038). The same lease the admission held: the machine never sleeps
+    // between the two.
+    holdAwake(host: RuntimeHostRow, reason: string): AwakeHold {
+        return this.awake.hold(host, reason)
     }
 
     // The throwing form for callers that cannot proceed without the daemon
@@ -430,42 +399,22 @@ export class RunnerManagerService {
             )
             return unavailable('runner_unavailable')
         }
-        const handle: RunnerHandle = {
-            daemonId: host.id,
-            started,
-            generation: leaseGeneration(daemon)
-        }
-        const workspace = await this.workspacePreflight(
-            host,
-            daemon,
-            args.workspacePath
-        )
-        if (workspace.outcome === 'failed')
-            return {
-                handle: null,
-                fallbackReason: workspace.reason,
-                workspace: {
-                    outcome: 'failed',
-                    ensureMs: workspace.ensureMs
-                }
-            }
-        for (const root of args.extraRoots ?? [])
-            await this.workspacePreflight(host, daemon, root)
         return {
-            handle,
-            workspace: {
-                outcome: workspace.outcome,
-                ...(workspace.ensureMs !== undefined
-                    ? { ensureMs: workspace.ensureMs }
-                    : {})
+            handle: {
+                daemonId: host.id,
+                started,
+                generation: leaseGeneration(daemon)
             }
         }
     }
 
-    private singleFlightBringUp(args: HostDaemonArgs): Promise<RunnerBringUp> {
+    private singleFlightBringUp(
+        args: HostDaemonArgs,
+        hold: AwakeHold
+    ): Promise<RunnerBringUp> {
         const inFlight = this.bringUps.get(args.host.id)
         if (inFlight) return inFlight
-        const attempt = this.bringUp(args).finally(() => {
+        const attempt = this.bringUp(args, hold).finally(() => {
             this.bringUps.delete(args.host.id)
         })
         this.bringUps.set(args.host.id, attempt)
@@ -480,16 +429,21 @@ export class RunnerManagerService {
         return { provider, adapter: this.providers.for(provider.kind) }
     }
 
-    // R11 for a hosted host whose daemon is not online: observe power, wake a
-    // suspended or stopped machine and give the thawed daemon a moment to
-    // dial back in; otherwise bootstrap — install mf, register with a token
-    // bound to this host, start — under a fresh generation.
-    private async bringUp(args: HostDaemonArgs): Promise<RunnerBringUp> {
+    // R11 for a hosted host the API holds no socket to: observe power, resume
+    // a suspended or stopped machine (the awake lease already did, when the
+    // provider has one) and give the thawed daemon a moment to dial back in;
+    // otherwise bootstrap — install mf, register with a token bound to this
+    // host, start — under a fresh generation. The lease is held throughout.
+    private async bringUp(
+        args: HostDaemonArgs,
+        hold: AwakeHold
+    ): Promise<RunnerBringUp> {
         const { host } = args
         const tag = `hostId=${host.id} agentId=${args.agentId ?? '-'}`
         try {
             const { provider, adapter } = await this.adapterFor(host)
             const since = new Date()
+            await hold.settled
             const power = await adapter.power({ host, provider })
             await recordPower(this.hosts, host.id, power)
             if (power === 'suspended' || power === 'stopped') {
@@ -523,8 +477,9 @@ export class RunnerManagerService {
             const prepared = await this.installAndRegister(adapter, call, state)
             if (prepared !== 'ok') return { handle: null }
             const waitMs = args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
+            const startedAt = new Date()
             let online = await this.startHeldAwake(adapter, call, () =>
-                this.waitOnline(host, waitMs)
+                this.waitForLease(host, startedAt, waitMs)
             )
             if (!online) {
                 this.logger.warn(`daemon did not come online ${tag}`)
@@ -540,7 +495,7 @@ export class RunnerManagerService {
                     if (!(await this.register(adapter, call)).ok)
                         return { handle: null }
                     online = await this.startHeldAwake(adapter, call, () =>
-                        this.waitOnline(host, waitMs)
+                        this.waitForLease(host, startedAt, waitMs)
                     )
                 }
                 if (!online) return { handle: null }
@@ -555,98 +510,6 @@ export class RunnerManagerService {
                     `daemon bring-up failed ${tag} class=${errorClass(err)}`
                 )
             return { handle: null }
-        }
-    }
-
-    // A daemon that is registered but not answering, made to answer — for
-    // the callers that talk to it OUTSIDE a turn (the runtime page's auth.*
-    // RPCs). A turn never needs this: its own execs wake the sprite and its
-    // awake lease keeps it up, so a frozen daemon thaws under the turn's first
-    // RPC. An auth.* call has neither, and the daemon row cannot tell it the
-    // process is frozen: a suspended process misses pings but keeps its 45s
-    // lease, so presence says yes for up to a minute after the VM went to
-    // sleep. Seen on staging 2026-09-10: the daemon heartbeated at :27, the
-    // sprite suspended at :35, `auth.create` at :41 sat on the frozen socket
-    // for the full 20s RPC timeout, twice, before the pong deadline dropped
-    // it. Nothing here throws: no daemon is a legitimate answer.
-    async wakeRunner(args: {
-        host: RuntimeHostRow
-        waitOnlineMs?: number
-    }): Promise<RunnerWakeResult> {
-        const { host } = args
-        const since = new Date()
-        const daemon = await this.hostDaemons.findByHostId(host.id)
-        if (host.kind === 'local')
-            return daemon && daemonOnline(daemon)
-                ? { handle: handleFor(host, daemon, false), outcome: 'live' }
-                : { handle: null, outcome: 'not-online' }
-        try {
-            const { provider, adapter } = await this.adapterFor(host)
-            const power = await adapter.power({ host, provider })
-            await recordPower(this.hosts, host.id, power)
-            if (power === 'suspended' || power === 'stopped')
-                await adapter.wake({ host, provider, generation: host.generation })
-            // The API still holds the socket: the process that just thawed
-            // answers on it, and the next RPC is the proof. Waiting for a
-            // pong here would only add up to a ping interval of latency.
-            const current = await this.hostDaemons.findByHostId(host.id)
-            if (current && daemonOnline(current) && power === 'running')
-                return { handle: handleFor(host, current, false), outcome: 'live' }
-            // Either the process thawed and is dialling back in, or it is
-            // gone with the VM (a cold start keeps the config on disk).
-            const reconnected = await this.waitForLease(
-                host,
-                since,
-                WAKE_RECONNECT_WAIT_MS
-            )
-            if (reconnected) return { handle: reconnected, outcome: 'reconnected' }
-            const generation = await this.hosts.bumpGeneration(host.id)
-            const call: ProviderCall = { host, provider, generation }
-            const process = await this.probeRunnerProcess(adapter, call)
-            if (
-                process.kind === 'running' &&
-                (process.activeExecs - process.adoptableExecs > 0 ||
-                    process.activePtys > 0)
-            ) {
-                this.logger.warn(
-                    `daemon silent but busy, not restarting hostId=${host.id} execs=${process.activeExecs} adoptable=${process.adoptableExecs} ptys=${process.activePtys}`
-                )
-                return { handle: null, outcome: 'busy' }
-            }
-            const inspected = await this.inspect(adapter, call)
-            if (!inspected.state) return { handle: null, outcome: 'exec-failed' }
-            const wasRegistered =
-                inspected.state.registered &&
-                !isCliVersionTooOld(inspected.state.version, DAEMON_MIN_CLI_VERSION)
-            const prepared = await this.installAndRegister(
-                adapter,
-                call,
-                inspected.state
-            )
-            if (prepared !== 'ok') return { handle: null, outcome: 'not-online' }
-            const started = await this.startHeldAwake(adapter, call, () =>
-                this.waitForLease(
-                    host,
-                    since,
-                    args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
-                )
-            )
-            if (!started) {
-                const tail = await this.logTail(adapter, call)
-                this.logger.warn(
-                    `daemon did not come back after wake hostId=${host.id} tail=${tail ?? '(none)'}`
-                )
-                return { handle: null, outcome: 'not-online' }
-            }
-            return {
-                handle: started,
-                outcome: wasRegistered ? 'restarted' : 'brought-up'
-            }
-        } catch (err) {
-            this.logger.warn(
-                `daemon wake failed hostId=${host.id} class=${errorClass(err)}`
-            )
-            return { handle: null, outcome: 'exec-failed' }
         }
     }
 
@@ -730,7 +593,7 @@ export class RunnerManagerService {
         const daemon = await this.hostDaemons.findByHostId(args.host.id)
         if (
             !daemon ||
-            !daemonOnline(daemon) ||
+            !hasRpcLease(daemon) ||
             !daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
         )
             return { kind: 'not-capable' }
@@ -770,7 +633,7 @@ export class RunnerManagerService {
         const daemon = await this.hostDaemons.findByHostId(args.host.id)
         if (
             !daemon ||
-            !daemonOnline(daemon) ||
+            !hasRpcLease(daemon) ||
             !daemon.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
         )
             return { kind: 'not-capable' }
@@ -792,72 +655,6 @@ export class RunnerManagerService {
                 `herdr upgrade via herdr.update failed hostId=${args.host.id}: ${error}`
             )
             return { kind: 'failed', error }
-        }
-    }
-
-    // A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
-    // outside the machine-scoped root the daemon registered, and the daemon
-    // exec guard refuses a cwd it does not know.
-    // Seen on staging 2026-08-04: a claude agent co-resident on a sandbox with
-    // its workspace in another framework's home failed every daemon turn with
-    // `outside allowed roots`. Register the path as a workspace root before
-    // dispatching. A failure here fails the turn: a daemon that will not admit
-    // the workspace cannot run it.
-    private async workspacePreflight(
-        host: RuntimeHostRow,
-        daemon: HostDaemonRow | null,
-        workspacePath: string | null | undefined
-    ): Promise<{
-        outcome: WorkspacePreflightOutcome
-        ensureMs?: number
-        reason?: RunnerFallbackReason
-    }> {
-        const path = workspacePath
-        if (!path) return { outcome: 'none' }
-        const base = host.workspaceBaseDir?.replace(/\/+$/, '')
-        if (base && (path === base || path.startsWith(`${base}/`)))
-            return { outcome: 'base' }
-        // The generation comes from the daemon row's rpc lease, not a local
-        // socket map: the socket may live on the peer api instance, but every
-        // instance sees the same lease. Rows without a lease (mid-reconnect
-        // race) never hit the cache and always re-ensure — the safe direction.
-        const generation = leaseGeneration(daemon)
-        const cached = generation
-            ? this.ensuredWorkspaces.get(host.id)
-            : undefined
-        if (
-            cached &&
-            cached.generation === generation &&
-            cached.paths.has(path)
-        )
-            return { outcome: 'cached' }
-        const startedAt = Date.now()
-        try {
-            await this.registry.rpc({
-                daemonId: host.id,
-                method: 'workspace.ensure',
-                payload: { path, create: false },
-                timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
-            })
-            if (generation) {
-                const entry =
-                    cached?.generation === generation
-                        ? cached
-                        : { generation, paths: new Set<string>() }
-                entry.paths.add(path)
-                this.ensuredWorkspaces.set(host.id, entry)
-            }
-            return { outcome: 'ensured', ensureMs: Date.now() - startedAt }
-        } catch (err) {
-            const message = (err as Error).message
-            this.logger.warn(
-                `daemon workspace register failed hostId=${host.id} class=${errorClass(err)}`
-            )
-            return {
-                outcome: 'failed',
-                ensureMs: Date.now() - startedAt,
-                reason: classifyWorkspaceEnsureFailure(message)
-            }
         }
     }
 
@@ -1008,7 +805,7 @@ export class RunnerManagerService {
         return res.exitCode === 0
     }
 
-    // Register with a token minted BOUND to the host (ADR-0036 R5): it can
+    // Register with a token minted BOUND to the host (ADR-0037 R5): it can
     // only ever land on this host, and the daemon it starts is this host's.
     // The token is passed on STDIN — never argv, which would put it in the
     // machine's process list.
@@ -1110,10 +907,7 @@ export class RunnerManagerService {
         call: ProviderCall,
         waitFor: () => Promise<T>
     ): Promise<T> {
-        const hold = this.keepSpriteAwake({
-            host: call.host,
-            turnId: `start-${randomUUID()}`
-        })
+        const hold = this.awake.hold(call.host, 'start')
         try {
             await this.start(adapter, call)
             return await waitFor()
@@ -1147,145 +941,6 @@ export class RunnerManagerService {
         return redactCredentialText(res.stdout).replace(/\s+/g, ' ')
     }
 
-    // A daemon turn produces NO platform-visible activity on a sprite: with
-    // the exec running INSIDE the sprite (via the daemon) rather than as a
-    // sprite exec session, the platform sees an idle VM, suspends it, the
-    // frozen daemon stops answering websocket pings, and the API drops it
-    // mid-turn. Seen on staging 2026-07-25.
-    //
-    // So a daemon turn has to hold the sprite awake itself. `/v1/tasks` is the
-    // platform's own activity lease, reachable from inside the sprite. The
-    // lease carries a TTL rather than being renewed from here on purpose: if
-    // this API instance dies mid-turn the task expires on its own, the sprite
-    // suspends, and nothing leaks — the user-facing keep-awake switch (with its
-    // quota and billing meaning) is left completely alone. A long turn is kept
-    // alive by renewal, and the renew timer dies with the process that owns
-    // the turn. A host that is not a sprite has nothing to hold.
-    keepSpriteAwake(args: {
-        host: RuntimeHostRow
-        turnId: string
-    }): SpriteAwakeHold {
-        if (args.host.providerRef?.kind !== 'sprites') return NOOP_HOLD
-        // The create and every renew stay fire-and-forget, but release() waits
-        // for whichever was last in flight before it deletes. A hold settled
-        // on its first poll would otherwise race its own DELETE past the POST
-        // and leave a full-TTL lease that nobody renews and nothing needs.
-        let pending: Promise<unknown> = this.holdSpriteAwake({
-            ...args,
-            ttl: AWAKE_TTL
-        }).catch(() => false)
-        const timer = setInterval(() => {
-            pending = this.holdSpriteAwake({ ...args, ttl: AWAKE_TTL }).catch(
-                () => false
-            )
-        }, AWAKE_RENEW_MS)
-        if (typeof timer.unref === 'function') timer.unref()
-        let done = false
-        const stop = (): boolean => {
-            if (done) return false
-            done = true
-            clearInterval(timer)
-            return true
-        }
-        return {
-            release: async () => {
-                if (!stop()) return
-                await pending
-                await this.releaseSpriteAwake(args)
-            },
-            // The turn was SUSPENDED, not finished: the daemon is still working
-            // and will hand the answer to whoever picks the stream up next.
-            // Deleting the lease here would let the sprite suspend and freeze it
-            // mid-answer, so stop renewing and let the TTL bound the leak.
-            detach: () => {
-                stop()
-            }
-        }
-    }
-
-    async holdSpriteAwake(args: {
-        host: RuntimeHostRow
-        turnId?: string
-        ttl?: string
-    }): Promise<boolean> {
-        if (args.host.providerRef?.kind !== 'sprites') return true
-        const turnId = args.turnId ?? `hold-${args.host.id}`
-        const ttl = args.ttl ?? AUTH_AWAKE_TTL
-        const name = awakeTaskName(turnId)
-        const create = JSON.stringify({ name, expire: ttl })
-        const renew = JSON.stringify({ expire: ttl })
-        // Copied from the proven keep-alive script (packages/sprites tasks.ts):
-        // the path goes straight after -X and BEFORE -d, with no -H/-o/-w. My
-        // first attempt added those and put the path last, which made curl exit
-        // 3 (malformed URL) on every turn — the hold silently never happened.
-        // Create-or-renew, so a retry of the same turn is not a failure either.
-        const res = await this.spriteExec(args.host)
-            .then((exec) =>
-                exec({
-                    cmd: [
-                        'bash',
-                        '-lc',
-                        `sprite-env curl -s -X POST /v1/tasks -d ${shellQuote(create)} >/dev/null 2>&1 ` +
-                            `|| sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${name}`)} -d ${shellQuote(renew)} >/dev/null 2>&1`
-                    ],
-                    timeoutMs: 60_000
-                })
-            )
-            .catch(() => null)
-        const ok = res?.exitCode === 0
-        if (!ok)
-            this.logger.warn(
-                `sprite awake-hold failed hostId=${args.host.id} turnId=${turnId} exit=${res?.exitCode}`
-            )
-        return ok
-    }
-
-    async releaseSpriteAwake(args: {
-        host: RuntimeHostRow
-        turnId: string
-    }): Promise<void> {
-        if (args.host.providerRef?.kind !== 'sprites') return
-        const name = awakeTaskName(args.turnId)
-        await this.spriteExec(args.host)
-            .then((exec) =>
-                exec({
-                    cmd: [
-                        'bash',
-                        '-lc',
-                        `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${name}`)} >/dev/null 2>&1`
-                    ],
-                    timeoutMs: 30_000
-                })
-            )
-            .catch((err: Error) => {
-                // The TTL is the backstop, so a failed release only means the
-                // sprite stays awake a little longer than necessary.
-                this.logger.warn(
-                    `sprite awake-release failed turnId=${args.turnId} class=${errorClass(err)}`
-                )
-                return null
-            })
-    }
-
-    // Test seam: the sprite exec opens a real WebSocket.
-    protected spriteExec(host: RuntimeHostRow): Promise<HostExecFn> {
-        return this.clients.spriteExecForHost(host)
-    }
-
-    private async waitOnline(
-        host: RuntimeHostRow,
-        waitMs: number
-    ): Promise<RunnerHandle | null> {
-        const deadline = Date.now() + waitMs
-        for (;;) {
-            const daemon = await this.hostDaemons.findByHostId(host.id)
-            if (daemon && daemonOnline(daemon))
-                return handleFor(host, daemon, true)
-            if (Date.now() >= deadline) return null
-            await this.delay(POLL_INTERVAL_MS)
-        }
-    }
-
     // A lease the API recorded AFTER `since`: a pong or a connect from a
     // process that was demonstrably running at that moment. Presence alone is
     // the wrong test here — it is what a frozen process still passes.
@@ -1295,17 +950,30 @@ export class RunnerManagerService {
         waitMs: number
     ): Promise<RunnerHandle | null> {
         const deadline = Date.now() + waitMs
-        for (;;) {
-            const daemon = await this.hostDaemons.findByHostId(host.id)
-            if (
-                daemon &&
-                daemonOnline(daemon) &&
-                daemon.rpcLastSeenAt &&
-                daemon.rpcLastSeenAt.getTime() >= since.getTime()
-            )
-                return handleFor(host, daemon, true)
-            if (Date.now() >= deadline) return null
-            await this.delay(POLL_INTERVAL_MS)
+        // The socket may land on this instance (the event ends the wait at
+        // once) or on a peer (the poll sees the lease it wrote).
+        let poke: (() => void) | null = null
+        const unsubscribe = this.registry.onConnected((daemonId) => {
+            if (daemonId === host.id) poke?.()
+        })
+        try {
+            for (;;) {
+                const daemon = await this.hostDaemons.findByHostId(host.id)
+                if (
+                    hasRpcLease(daemon) &&
+                    daemon.rpcLastSeenAt &&
+                    daemon.rpcLastSeenAt.getTime() >= since.getTime()
+                )
+                    return handleFor(host, daemon, true)
+                if (Date.now() >= deadline) return null
+                await new Promise<void>((resolve) => {
+                    poke = resolve
+                    void this.delay(POLL_INTERVAL_MS).then(resolve)
+                })
+                poke = null
+            }
+        } finally {
+            unsubscribe()
         }
     }
 
@@ -1320,7 +988,7 @@ export class RunnerManagerService {
         const deadline = Date.now() + (waitMs ?? RESTART_WAIT_MS)
         for (;;) {
             const daemon = await this.hostDaemons.findByHostId(host.id)
-            if (daemon && daemonOnline(daemon) && daemon.cliVersion === version)
+            if (hasRpcLease(daemon) && daemon.cliVersion === version)
                 return true
             if (Date.now() >= deadline) return false
             await this.delay(POLL_INTERVAL_MS)
@@ -1369,8 +1037,7 @@ const handleFor = (
 
 const unavailable = (reason: RunnerFallbackReason): RunnerResolution => ({
     handle: null,
-    fallbackReason: reason,
-    workspace: { outcome: 'none' }
+    fallbackReason: reason
 })
 
 // The `--json` payload of `mf daemon status`: `local` is the control-socket
@@ -1465,26 +1132,6 @@ export const classifyExecEndpointFailure = (
 const errorClass = (err: unknown): string =>
     err instanceof Error && err.name ? err.name : typeof err
 
-// The registry surfaces a dead generation in exactly two shapes: its own
-// deadline text for a socket that is up but frozen, and a connection-lifecycle
-// rejection for one that closed or was replaced mid-flight (including the
-// broker's offline / stale-lease refusals for a peer-held socket). Anything
-// else came back from a live daemon and is a genuine preflight error.
-const classifyWorkspaceEnsureFailure = (
-    message: string
-): RunnerFallbackReason =>
-    /timed out/i.test(message)
-        ? 'workspace_timeout'
-        : /connection closed|connection replaced|is not connected|no active websocket|lease is stale/i.test(
-                message
-            )
-          ? 'workspace_connection_closed'
-          : 'workspace_error'
-
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
 
-// Task names must be simple identifiers for the platform API, and per-turn so
-// two concurrent turns on one sprite cannot release each other's lease.
-const awakeTaskName = (turnId: string): string =>
-    `mfturn-${turnId.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40)}`

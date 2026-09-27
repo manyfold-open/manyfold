@@ -109,7 +109,7 @@ test('verify round-trips a freshly minted token with its binding', async () => {
     assert.ok(db.rows[0].lastUsedAt instanceof Date)
 })
 
-// The whole trust boundary (ADR-0036 R5): only provisioning code passes a
+// The whole trust boundary (ADR-0037 R5): only provisioning code passes a
 // host, and the register path trusts the binding, never anything the
 // daemon says. A request-shaped mint carries no host whatever its name.
 test('only an explicit mint argument binds a token to a host', async () => {

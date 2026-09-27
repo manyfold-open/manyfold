@@ -15,7 +15,7 @@ import {
 } from './helpers/runtime-context-fixture'
 
 // A coding agent's workspace lives on its machine and is reached through
-// the host's one daemon, whichever provider made the machine (ADR-0036 R6):
+// the host's one daemon, whichever provider made the machine (ADR-0037 R6):
 // the adapter hands every add and remove to the daemon attacher with the
 // runtime's target.
 

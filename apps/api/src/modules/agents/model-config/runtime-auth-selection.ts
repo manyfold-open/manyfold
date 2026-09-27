@@ -14,7 +14,7 @@ import type { Agent } from '@manyfold/db'
 // Pure readers of an agent's auth selection, shared by the exec factory,
 // the terminals and the model-config service (the service imports the
 // factory, so the factory cannot import the service). The placement is the
-// host's (placementOf), never a column on the agent (ADR-0036).
+// host's (placementOf), never a column on the agent (ADR-0037).
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object' && !Array.isArray(value)

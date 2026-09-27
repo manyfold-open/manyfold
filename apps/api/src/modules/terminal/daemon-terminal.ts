@@ -6,10 +6,12 @@ import type {
     DaemonPtyAuthLogin
 } from '@manyfold/shared'
 import {
+    DAEMON_FEATURE_EXEC_ROOTS,
     HERDR_LAUNCH_FAILED_CODE,
     envTextFromExtras,
     envTextToRecord,
     isObjectId,
+    placementOf,
     type AgentRuntime
 } from '@manyfold/shared'
 import {
@@ -20,13 +22,18 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
-import type { Agent } from '@manyfold/db'
+import type { Agent, RuntimeHostRow } from '@manyfold/db'
 import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import {
     DaemonRegistryService,
     DaemonRpcResponseError
 } from '@/modules/daemon/daemon-registry.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
+import {
+    HostDaemonAccess,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
+import { HostsService } from '@/modules/hosts/hosts.service'
 import {
     ApiTokenService,
     API_TOKEN_SCOPE_FULL
@@ -40,7 +47,7 @@ import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
 
 export interface DaemonTerminalRequest {
     agent: Agent
-    // The machine's host id is the daemon's routing key (ADR-0036); the
+    // The machine's host id is the daemon's routing key (ADR-0037); the
     // placement decides which sign-in the agent's shell runs under.
     hostId: string
     placement: AgentRuntime
@@ -125,10 +132,36 @@ export class DaemonTerminal {
         private readonly registry: DaemonRegistryService,
         private readonly connections: ConnectionsService,
         private readonly apiTokens: ApiTokenService,
+        private readonly hosts: HostsService,
+        private readonly hostAccess: HostDaemonAccess,
         // Appended last + @Optional so positional test construction keeps
         // working; absent, the identity env carries no API URL.
         @Optional() private readonly config?: ConfigService
     ) {}
+
+    // The daemon's machine, reachable for the call (ADR-0038): held awake,
+    // brought up when the platform owns it. A terminal request carries the
+    // host id; the row is one read away.
+    private async withHost<T>(
+        daemonId: string,
+        reason: string,
+        work: (session: HostSession) => Promise<T>
+    ): Promise<T> {
+        const host = await this.hosts.findById(daemonId)
+        if (!host) throw new Error(`host ${daemonId} not found`)
+        return this.hostAccess.withHost(
+            {
+                host,
+                daemon: null,
+                placement: placementOf({
+                    kind: host.kind,
+                    providerKind: host.providerRef?.kind ?? null
+                }),
+                reason
+            },
+            work
+        )
+    }
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
         const { agent, cols, cwd, rows, resume, client, onClose } = req
@@ -269,12 +302,16 @@ export class DaemonTerminal {
                 : {})
         }
         try {
-            const result = await this.registry.rpc({
+            const result = await this.withHost(
                 daemonId,
-                method: 'terminal.herdr.open',
-                payload: payload as unknown as Record<string, unknown>,
-                timeoutMs: HERDR_OPEN_TIMEOUT_MS
-            })
+                'terminal-herdr-open',
+                (session) =>
+                    session.rpc({
+                        method: 'terminal.herdr.open',
+                        payload: payload as unknown as Record<string, unknown>,
+                        timeoutMs: HERDR_OPEN_TIMEOUT_MS
+                    })
+            )
             return herdrOpenResultOf(result)
         } catch (err) {
             void this.apiTokens
@@ -327,45 +364,71 @@ export class DaemonTerminal {
     }
 
     // Run a view script's prepare-only mode on the daemon; its last stdout
-    // line is what it reports.
+    // line is what it reports. It runs under the machine's hold, and the
+    // workspace it runs in is vouched for on the exec itself
+    // (DAEMON_FEATURE_EXEC_ROOTS): a re-bootstrapped machine has no memory
+    // of the roots an attach once registered.
     private async runViewPrepare(
         daemonId: string,
         prepare: { cmd: string[]; env: Record<string, string> },
         cwd: string | null = null
     ): Promise<{ exitCode: number; last: string; stderr: string }> {
-        let stdout = ''
-        let stderr = ''
-        const stream = this.registry.streamRpc({
-            daemonId,
-            method: 'exec.start',
-            payload: {
-                cmd: prepare.cmd,
-                env: prepare.env,
-                ...(cwd ? { cwd } : {}),
-                timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
-            },
-            timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS + 5_000,
-            onEvent: (kind, data) => {
-                if (kind === 'stdout') stdout += data
-                else if (kind === 'stderr') stderr += data
-            }
+        return this.withHost(daemonId, 'terminal-view-prepare', async (session) => {
+            const roots = cwd ? [cwd] : []
+            if (
+                roots.length &&
+                !underWorkspaceBase(cwd!, session.host) &&
+                !(session.daemon.clientFeatures ?? []).includes(
+                    DAEMON_FEATURE_EXEC_ROOTS
+                )
+            )
+                throw new BadGatewayException({
+                    code: HERDR_LAUNCH_FAILED_CODE,
+                    message:
+                        session.host.kind === 'hosted'
+                            ? 'the sandbox runner cannot open this workspace yet; upgrade its Manyfold CLI'
+                            : 'update the Manyfold CLI on this computer to open this workspace'
+                })
+            let stdout = ''
+            let stderr = ''
+            const stream = this.registry.streamRpc({
+                daemonId,
+                method: 'exec.start',
+                payload: {
+                    cmd: prepare.cmd,
+                    env: prepare.env,
+                    ...(cwd ? { cwd } : {}),
+                    ...(roots.length ? { roots } : {}),
+                    timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
+                },
+                timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS + 5_000,
+                onEvent: (kind, data) => {
+                    if (kind === 'stdout') stdout += data
+                    else if (kind === 'stderr') stderr += data
+                }
+            })
+            const result = await stream.result
+            const exitCode = Number(
+                (result as { exitCode?: number } | undefined)?.exitCode ?? 0
+            )
+            const last = stdout.trim().split('\n').pop()?.trim() ?? ''
+            return { exitCode, last, stderr }
         })
-        const result = await stream.result
-        const exitCode = Number(
-            (result as { exitCode?: number } | undefined)?.exitCode ?? 0
-        )
-        const last = stdout.trim().split('\n').pop()?.trim() ?? ''
-        return { exitCode, last, stderr }
     }
 
     // Raise the session's pane in herdr again (ADR-0031).
     async focusHerdr(daemonId: string, terminalId: string): Promise<boolean> {
-        const result = await this.registry.rpc({
+        const result = await this.withHost(
             daemonId,
-            method: 'terminal.herdr.focus',
-            payload: { terminalId },
-            timeoutMs: HERDR_FOCUS_TIMEOUT_MS
-        })
+            'terminal-herdr-focus',
+            (session) =>
+                session.rpc({
+                    method: 'terminal.herdr.focus',
+                    payload: { terminalId },
+                    timeoutMs: HERDR_FOCUS_TIMEOUT_MS,
+                    retryOnTimeout: true
+                })
+        )
         return result?.focused === true
     }
 
@@ -454,7 +517,11 @@ export class DaemonTerminal {
         let closed = false
         let stream: ReturnType<DaemonRegistryService['streamRpc']>
         try {
-            stream = this.registry.streamRpc({
+            // The pty is the session and stays on its stream; the open itself
+            // runs under the machine's hold, so a hosted daemon that is not
+            // connected is brought up rather than refused.
+            stream = await this.withHost(daemonId, 'terminal-open', async () =>
+                this.registry.streamRpc({
                 daemonId,
                 method: 'pty.open',
                 payload: {
@@ -494,7 +561,8 @@ export class DaemonTerminal {
                         })
                     } catch {}
                 }
-            })
+                })
+            )
         } catch (err) {
             client.send(
                 JSON.stringify({
@@ -658,4 +726,11 @@ const attachModeOf = (data: string): 'attached' | 'spawned' | null => {
     } catch {
         return null
     }
+}
+
+// Under the host's managed workspace tree the daemon admits a path by
+// construction; anywhere else it has to be told (exec.roots.v1).
+const underWorkspaceBase = (path: string, host: RuntimeHostRow): boolean => {
+    const base = host.workspaceBaseDir?.replace(/\/+$/, '')
+    return Boolean(base && (path === base || path.startsWith(`${base}/`)))
 }

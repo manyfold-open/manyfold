@@ -43,7 +43,7 @@ export interface PodScriptRunner extends HostScriptRunner {
 }
 
 // What runs the script: the host's daemon (DaemonFrameworkExec, the normal
-// case — ADR-0036 R6) or, for the daemon's own bring-up, a bare pod exec.
+// case — ADR-0037 R6) or, for the daemon's own bring-up, a bare pod exec.
 export interface PodScriptExec {
     run(req: {
         cmd: string[]

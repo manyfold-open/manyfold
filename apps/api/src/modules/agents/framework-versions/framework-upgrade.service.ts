@@ -600,7 +600,7 @@ export class FrameworkUpgradeService {
             )
     }
 
-    // The agent's runtime on a hosted machine (ADR-0036); a local machine's
+    // The agent's runtime on a hosted machine (ADR-0037); a local machine's
     // CLI is the user's own to upgrade.
     private async hostedRuntime(agent: Agent): Promise<HostedRuntime> {
         const ctx = await this.runtimeContext.forRuntime(agent.runtimeId)

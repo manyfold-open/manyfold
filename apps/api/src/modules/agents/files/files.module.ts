@@ -9,9 +9,11 @@ import { FilesController } from '@/modules/agents/files/files.controller'
 import { AdminFilesController } from '@/modules/agents/files/admin-files.controller'
 import { FilesContextBuilder } from '@/modules/agents/files/files-context'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 
 @Module({
     imports: [
+        HostDaemonAccessModule,
         ResourceEventsModule,
         AuthModule,
         HostsModule,
