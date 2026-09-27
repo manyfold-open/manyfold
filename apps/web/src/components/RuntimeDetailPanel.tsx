@@ -25,19 +25,14 @@ import {
 import EmptyState from '@/components/EmptyState'
 import { Ghost, GhostSettingsRows, Spinner } from '@/components/Loading'
 import OverflowMenu from '@/components/OverflowMenu'
-import { useI18n, type TFn } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import {
     ControlRow,
     dashboardStateError,
     dashboardStatePending,
     dashboardStatePendingLabel
 } from '@/components/ControlRow'
-import {
-    StatusTag,
-    statusLabel,
-    statusTone,
-    type TagTone
-} from '@/components/Tag'
+import { StatusTag, type TagTone } from '@/components/Tag'
 import ProductDialog from '@/components/ProductDialog'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import RenameDialog from '@/components/RenameDialog'
@@ -235,10 +230,9 @@ const InfoPanel: FC<{ children: ReactNode }> = ({ children }): ReactNode => (
     </div>
 )
 
-const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean; t: TFn }> = ({
+const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean }> = ({
     agent: a,
-    isPrimary,
-    t
+    isPrimary
 }): ReactNode => {
     const body = (
         <>
@@ -249,10 +243,6 @@ const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean; t: TFn }> = ({
                     {isPrimary && (
                         <span className='tag tag-neutral'>{translate('web.runtimeDetails.primary')}</span>
                     )}
-                    <StatusTag
-                        tone={statusTone(a.status)}
-                        label={statusLabel(a.status, t)}
-                    />
                 </span>
                 <span className='settings-card-copy block truncate'>
                     <span className='font-mono'>{a.internalId}</span>
@@ -325,16 +315,6 @@ const availabilityTag = (
         label={availabilityLabel(availability)}
     />
 )
-
-// A runtime's one-word verdict: its install state until it is installed,
-// then whether its machine can take a turn right now (a ready runtime on a
-// sleeping or offline machine says so instead of "Ready").
-export const runtimeAvailabilityTag = (
-    runtime: Pick<AgentRuntimeSummary, 'status' | 'availability'>
-): ReactNode =>
-    runtime.status !== 'ready' || runtime.availability === 'available'
-        ? runtimeStatusTag(runtime.status)
-        : availabilityTag(runtime.availability)
 
 export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
     if (online === null)
@@ -675,7 +655,6 @@ const RuntimeDetailPanel: FC<{
             <IdentityHeader
                 icon={<FrameworkLogo framework={runtime.framework} size={28} />}
                 title={runtime.name}
-                badge={runtimeAvailabilityTag(runtime)}
                 subtitle={
                     <>
                         <span className='text-ui text-fg font-medium'>
@@ -806,7 +785,6 @@ const RuntimeDetailPanel: FC<{
                                 key={a.id}
                                 agent={a}
                                 isPrimary={a.id === runtime.primaryAgentId}
-                                t={t}
                             />
                         ))}
                     </div>

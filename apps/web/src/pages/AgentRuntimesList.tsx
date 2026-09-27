@@ -48,7 +48,6 @@ import RuntimeDetailPanel, {
     monoCopyValue,
     powerStateTag,
     relative,
-    runtimeAvailabilityTag,
     runtimeStatusTag
 } from '@/components/RuntimeDetailPanel'
 import { formatDuration } from '@/lib/usageFormat'
@@ -546,7 +545,6 @@ const HostRuntimeRow: FC<{
                             kind='framework'
                             linked={false}
                         />
-                        {runtimeAvailabilityTag(r)}
                     </span>
                     <span className='settings-card-copy block truncate'>
                         <span className='font-mono'>{r.name}</span>
@@ -554,8 +552,8 @@ const HostRuntimeRow: FC<{
                             {' '}
                             · {r.agentsCount}{' '}
                             {r.agentsCount === 1
-                                ? t('web.agentRuntimesList.runtime')
-                                : t('web.agentRuntimesList.runtimes')}
+                                ? t('web.agentRuntimesList.agent')
+                                : t('web.agentRuntimesList.agents')}
                         </span>
                     </span>
                 </span>
