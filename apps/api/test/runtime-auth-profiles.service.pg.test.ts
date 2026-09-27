@@ -27,6 +27,7 @@ import {
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import { RuntimeAccountService } from '@/modules/agent-runtimes/account/runtime-account.service'
+import { HostDaemonOfflineError } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
@@ -193,24 +194,42 @@ const buildHarness = async (): Promise<Harness> => {
     const hostDaemonsService = new HostDaemonsService(db)
     const runtimeContext = new RuntimeContextService(db)
     // Presence is the host_daemons row: the harness flips it by moving
-    // last_seen_at, and the access helper reports exactly that.
+    // last_seen_at, and the access helper reports exactly that. The session
+    // it hands work routes RPCs by the host id.
     const hostAccess = {
         ensure: async () => {
             const daemon = await hostDaemonsService.findByHostId(hostId)
             return { daemon, online: hostDaemonsService.isOnline(daemon) }
+        },
+        withHost: async (
+            args: { host: { id: string } },
+            work: (session: Record<string, unknown>) => Promise<unknown>
+        ) => {
+            const daemon = await hostDaemonsService.findByHostId(hostId)
+            if (!hostDaemonsService.isOnline(daemon))
+                throw new HostDaemonOfflineError(args.host as never, 'runner_unavailable')
+            return work({
+                host: args.host,
+                daemon,
+                daemonId: hostId,
+                rpc: (call: Record<string, unknown>) =>
+                    daemonRegistry.rpc({ daemonId: hostId, ...call } as never)
+            })
         }
     }
     // The hosted-only collaborators (active-slot admission, awake holds) are
     // never reached by a local host.
     const runtimeAccess = { reserveActiveSlot: async () => {} }
     const runnerManager = {
-        holdSpriteAwake: async () => {},
-        releaseSpriteAwake: async () => {}
+        holdAwake: () => ({
+            settled: Promise.resolve(true),
+            release: async () => {},
+            detach: () => {}
+        })
     }
     const account = new RuntimeAccountService(
         runtimeContext,
         hostDaemonsService,
-        daemonRegistry as never,
         runtimeAccess as never,
         hostAccess as never
     )

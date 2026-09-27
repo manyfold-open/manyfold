@@ -44,7 +44,6 @@ import {
     agentCredentials,
     auditLogs,
     type Database,
-    type HostDaemonRow,
     type RuntimeHostRow
 } from '@manyfold/db'
 import { execSprite, SpritesError } from '@manyfold/sprites'
@@ -73,7 +72,11 @@ import { HostPlacementService } from '@/modules/hosts/providers/host-placement.s
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
 import { DaemonFrameworkExec } from '@/modules/agents/adapters/framework-exec'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import {
@@ -151,10 +154,10 @@ export class SandboxesService {
         // Same convention; absent, no herdr update is offered.
         @Optional()
         private readonly herdrVersions?: HerdrVersionService,
-        // Same convention; present, an offline hosted daemon is woken and
-        // bootstrapped (R11) before an operation instead of being refused.
+        // Same convention; present, the machine is held awake and its daemon
+        // brought up (R11, ADR-0037) for an operation instead of being refused.
         @Optional()
-        private readonly runnerManager?: RunnerManagerService
+        private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     private async latestHerdr(): Promise<string | null> {
@@ -318,7 +321,7 @@ export class SandboxesService {
         return this.get(owner, hostId)
     }
 
-    // The host's keep-awake switch (ADR-0036 R7). The flag write is the
+    // The host's keep-awake switch (ADR-0037 R7). The flag write is the
     // commitment (enable is quota-gated and atomic in enableKeepAlive);
     // sprite-side lease ops are best-effort — the lease sweep converges a
     // degraded toggle within ~60s, so the API returns the committed flag even
@@ -390,17 +393,33 @@ export class SandboxesService {
         return this.get(r.host.userId, hostId)
     }
 
-    // Everything inside the machine goes through its daemon (R6). The runner
-    // manager brings an offline hosted daemon back (power → wake → bootstrap,
-    // R11); without it a sandbox whose daemon is not connected cannot be
-    // operated on until it is back.
-    private async requireOnlineDaemon(r: SandboxHostView): Promise<HostDaemonRow> {
-        if (r.daemon && this.hostDaemons.isOnline(r.daemon)) return r.daemon
-        if (this.runnerManager) return this.runnerManager.requireHostDaemon(r.host)
-        throw new ServiceUnavailableException({
-            message: `sandbox ${r.host.id} has no daemon online`,
-            code: SANDBOX_DAEMON_OFFLINE_CODE
-        })
+    // Everything inside the machine goes through its daemon (R6), and every
+    // operation on it runs under the machine's awake hold with the daemon
+    // brought up when it is not connected (R11, ADR-0037).
+    private async withSandboxDaemon<T>(
+        r: SandboxHostView,
+        reason: string,
+        work: (session: HostSession) => Promise<T>
+    ): Promise<T> {
+        if (!this.hostAccess)
+            throw new ServiceUnavailableException({
+                message: `sandbox ${r.host.id} has no daemon online`,
+                code: SANDBOX_DAEMON_OFFLINE_CODE
+            })
+        try {
+            return await this.hostAccess.withHost(
+                { host: r.host, daemon: r.daemon, placement: 'sprites', reason },
+                work
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
+            throw new ServiceUnavailableException({
+                message: err.message,
+                code: SANDBOX_DAEMON_OFFLINE_CODE,
+                hostId: r.host.id,
+                reason: err.reason
+            })
+        }
     }
 
     private upgradeLockKey(
@@ -435,38 +454,43 @@ export class SandboxesService {
         } else {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
-        const daemon = await this.requireOnlineDaemon(r)
-        if (!daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE))
-            throw new ConflictException({
-                message: 'the sandbox daemon cannot update itself; it is below the supported floor',
-                code: 'SANDBOX_DAEMON_TOO_OLD'
-            })
-        return withRuntimeUpgradeLock(
-            this.db,
-            this.upgradeLockKey(host, 'mf-cli'),
-            async () => {
-                const payload: Record<string, unknown> = { channel }
-                if (targetVersion) payload.targetVersion = targetVersion
-                const ack = await this.daemonRegistry
-                    .rpc({
-                        daemonId: host.id,
-                        method: 'daemon.update',
-                        payload,
-                        timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
-                    })
-                    .catch((err: Error) => {
-                        throw new ServiceUnavailableException(
-                            `mf CLI upgrade failed: ${err.message}`
-                        )
-                    })
-                const toVersion =
-                    typeof ack?.toVersion === 'string' ? ack.toVersion : null
-                this.log.log(
-                    `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${ack?.deferred === true}`
+        return this.withSandboxDaemon(r, 'upgrade-cli', async (session) => {
+            if (
+                !session.daemon.clientFeatures.includes(
+                    DAEMON_FEATURE_MANUAL_UPDATE
                 )
-                return this.get(host.userId, hostId)
-            }
-        )
+            )
+                throw new ConflictException({
+                    message:
+                        'the sandbox daemon cannot update itself; it is below the supported floor',
+                    code: 'SANDBOX_DAEMON_TOO_OLD'
+                })
+            return withRuntimeUpgradeLock(
+                this.db,
+                this.upgradeLockKey(host, 'mf-cli'),
+                async () => {
+                    const payload: Record<string, unknown> = { channel }
+                    if (targetVersion) payload.targetVersion = targetVersion
+                    const ack = await session
+                        .rpc({
+                            method: 'daemon.update',
+                            payload,
+                            timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
+                        })
+                        .catch((err: Error) => {
+                            throw new ServiceUnavailableException(
+                                `mf CLI upgrade failed: ${err.message}`
+                            )
+                        })
+                    const toVersion =
+                        typeof ack?.toVersion === 'string' ? ack.toVersion : null
+                    this.log.log(
+                        `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${ack?.deferred === true}`
+                    )
+                    return this.get(host.userId, hostId)
+                }
+            )
+        })
     }
 
     // Install or upgrade herdr inside the sandbox (ADR-0031) through the
@@ -479,34 +503,39 @@ export class SandboxesService {
     ): Promise<SandboxSummary> {
         const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
-        const daemon = await this.requireOnlineDaemon(r)
-        if (!daemon.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL))
-            throw new ConflictException({
-                message: 'the sandbox daemon cannot install herdr; update the mf CLI first',
-                code: 'SANDBOX_DAEMON_TOO_OLD'
-            })
-        return withRuntimeUpgradeLock(
-            this.db,
-            this.upgradeLockKey(host, 'herdr'),
-            async () => {
-                const ack = await this.daemonRegistry
-                    .rpc({
-                        daemonId: host.id,
-                        method: 'herdr.update',
-                        payload: {},
-                        timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
-                    })
-                    .catch((err: Error) => {
-                        throw new ServiceUnavailableException(
-                            `herdr install failed: ${err.message}`
-                        )
-                    })
-                this.log.log(
-                    `sandbox herdr upgrade via herdr.update host=${hostId} to=${typeof ack?.toVersion === 'string' ? ack.toVersion : 'unknown'}`
+        return this.withSandboxDaemon(r, 'upgrade-herdr', async (session) => {
+            if (
+                !session.daemon.clientFeatures.includes(
+                    DAEMON_FEATURE_HERDR_TERMINAL
                 )
-                return this.get(host.userId, hostId)
-            }
-        )
+            )
+                throw new ConflictException({
+                    message:
+                        'the sandbox daemon cannot install herdr; update the mf CLI first',
+                    code: 'SANDBOX_DAEMON_TOO_OLD'
+                })
+            return withRuntimeUpgradeLock(
+                this.db,
+                this.upgradeLockKey(host, 'herdr'),
+                async () => {
+                    const ack = await session
+                        .rpc({
+                            method: 'herdr.update',
+                            payload: {},
+                            timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
+                        })
+                        .catch((err: Error) => {
+                            throw new ServiceUnavailableException(
+                                `herdr install failed: ${err.message}`
+                            )
+                        })
+                    this.log.log(
+                        `sandbox herdr upgrade via herdr.update host=${hostId} to=${typeof ack?.toVersion === 'string' ? ack.toVersion : 'unknown'}`
+                    )
+                    return this.get(host.userId, hostId)
+                }
+            )
+        })
     }
 
     // Install (or move to a version of) one of the sprite image's coding CLIs
@@ -547,8 +576,8 @@ export class SandboxesService {
         const shell = target
             ? buildNpmUpgradeShell(descriptor, target)
             : buildNpmLatestInstallShell(descriptor)
-        const daemon = await this.requireOnlineDaemon(r)
-        return withRuntimeUpgradeLock(
+        return this.withSandboxDaemon(r, `install-${framework}`, ({ daemon }) =>
+            withRuntimeUpgradeLock(
             this.db,
             this.upgradeLockKey(host, framework),
             async () => {
@@ -604,6 +633,7 @@ export class SandboxesService {
                 )
                 return this.get(host.userId, hostId)
             }
+            )
         )
     }
 

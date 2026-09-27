@@ -136,17 +136,23 @@ export const runDaemonBash = async (
 const isMissingFileError = (err: unknown): boolean =>
     /^(?:Error: )?ENOENT\b/.test((err as Error)?.message ?? '')
 
+// An RPC to the machine's daemon under its awake hold: HostSession.rpc
+// (ADR-0038), which survives the reconnect a thaw causes.
+export type DaemonFsRpc = (args: {
+    method: 'fs.read'
+    payload: Record<string, unknown>
+    timeoutMs?: number
+}) => Promise<Record<string, unknown> | undefined>
+
 // Absent-is-null, matching the sprite readFileText contract every MCP
 // read-modify-write relies on. Anything else (offline daemon, containment
 // refusal) stays an error the caller must surface.
 export const daemonReadTextFile = async (
-    registry: DaemonRegistryService,
-    daemonId: string,
+    rpc: DaemonFsRpc,
     absPath: string
 ): Promise<string | null> => {
     try {
-        const res = await registry.rpc({
-            daemonId,
+        const res = await rpc({
             method: 'fs.read',
             payload: { path: absPath, chunked: false },
             timeoutMs: 30_000

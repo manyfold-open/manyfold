@@ -2005,7 +2005,27 @@ const makeService = (
                     clientFeatures: db.hostFeatures ?? []
                 })
             })
-        }) as never
+        }) as never,
+        // The machine session (ADR-0038): present exactly when a daemon RPC
+        // is, routing the inspection by the host id.
+        (daemonRegistry
+            ? {
+                  withHost: async (
+                      args: { host: { id: string }; daemon: unknown },
+                      work: (session: Record<string, unknown>) => Promise<unknown>
+                  ) =>
+                      work({
+                          host: args.host,
+                          daemon: args.daemon,
+                          daemonId: args.host.id,
+                          rpc: (call: Record<string, unknown>) =>
+                              (daemonRegistry.rpc as (args: unknown) => Promise<Record<string, unknown>>)({
+                                  daemonId: args.host.id,
+                                  ...call
+                              })
+                      })
+              }
+            : undefined) as never
     )
 
 

@@ -14,7 +14,10 @@ import { eq } from 'drizzle-orm'
 import { agents, jsonbMerge, type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError
+} from '@/modules/agents/adapters/host-daemon-access'
 import { daemonReadTextFile } from '@/modules/daemon/daemon-fs'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import { composioInjectScope } from '@/modules/agent-runtimes/mcp/composio-mcp'
@@ -34,7 +37,7 @@ export class McpImportService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly agents: AgentsService,
-        private readonly daemonRegistry: DaemonRegistryService
+        private readonly hostAccess: HostDaemonAccess
     ) {}
 
     async refresh(
@@ -99,19 +102,34 @@ export class McpImportService {
 
     // Reads one file on the machine, null when absent — a seam for tests. The
     // host's daemon is the one transport, whatever provisioned the machine
-    // (ADR-0036).
+    // (ADR-0037). An import never wakes a machine: a read-only refresh is
+    // not worth billed running time, so a machine the API holds no socket to
+    // is reported offline.
     protected async readerFor(
         ctx: RuntimeContext
     ): Promise<(absPath: string) => Promise<string | null>> {
-        if (!ctx.host)
-            throw new BadRequestException('MCP import requires a machine')
-        if (!ctx.daemonOnline)
-            throw new ServiceUnavailableException(
-                `the machine is offline; ${ctx.host.kind === 'local' ? 'start its daemon' : 'wake it'} and retry`
-            )
-        const hostId = ctx.host.id
-        return (absPath) =>
-            daemonReadTextFile(this.daemonRegistry, hostId, absPath)
+        const host = ctx.host
+        if (!host) throw new BadRequestException('MCP import requires a machine')
+        return async (absPath) => {
+            try {
+                return await this.hostAccess.withHost(
+                    {
+                        host,
+                        daemon: ctx.daemon,
+                        placement: ctx.placement,
+                        agentId: ctx.agent?.id,
+                        reason: 'mcp-import',
+                        wake: false
+                    },
+                    (session) => daemonReadTextFile(session.rpc, absPath)
+                )
+            } catch (err) {
+                if (!(err instanceof HostDaemonOfflineError)) throw err
+                throw new ServiceUnavailableException(
+                    `the machine is offline; ${host.kind === 'local' ? 'start its daemon' : 'wake it'} and retry`
+                )
+            }
+        }
     }
 }
 

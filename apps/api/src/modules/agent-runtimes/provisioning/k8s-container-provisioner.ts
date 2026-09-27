@@ -1,7 +1,6 @@
 import type { ProvisionableContainerSku } from '@/common/ports/cloud-computer.ports'
 import {
     createObjectId,
-    daemonOnline,
     K8S_HOME_BASE,
     type AgentFramework,
     type AgentModelConfigSource,
@@ -41,7 +40,10 @@ import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import type { FrameworkReleaseArtifacts } from '@/modules/framework-versions/framework-version-registry'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
+import {
+    HostDaemonsService,
+    hasRpcLease
+} from '@/modules/hosts/host-daemons.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import {
@@ -155,7 +157,7 @@ interface FrameworkOnHost {
     ingressHost?: string
 }
 
-// A Kubernetes pod host (ADR-0035, ADR-0036): one pod running the generic host
+// A Kubernetes pod host (ADR-0035, ADR-0037): one pod running the generic host
 // image, whose PVC is the home directory every framework on it is installed
 // into. The host row is `hosted` on a k8s runtime provider; the k8s adapter
 // makes the pod, the pod's boot loop registers the host's daemon with the
@@ -731,7 +733,7 @@ export class K8sContainerProvisioner {
                   artifacts: args.requestedArtifacts ?? null
               }
             : await this.frameworkVersions.resolveInstallVersion(args.framework)
-        // Everything inside the machine goes through its daemon (ADR-0036
+        // Everything inside the machine goes through its daemon (ADR-0037
         // R6): the install is a login-shell script the daemon runs.
         const resolution = await this.runnerManager.ensureHostDaemon({ host })
         if (!resolution.handle)
@@ -860,9 +862,9 @@ export class K8sContainerProvisioner {
         )
     }
 
+    // Registered AND connected: the boot loop's daemon holds an rpc lease.
     private async daemonRegistered(hostId: string): Promise<boolean> {
-        const daemon = await this.hostDaemons.findByHostId(hostId)
-        return daemon !== null && daemonOnline(daemon)
+        return hasRpcLease(await this.hostDaemons.findByHostId(hostId))
     }
 
     // Undo a host whose creation failed: its Kubernetes objects and — once
