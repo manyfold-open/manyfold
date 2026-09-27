@@ -57,15 +57,12 @@ import {
     ChevronDownIcon,
     ChevronRightIcon,
     ChevronUpIcon,
-    CloudComputerIcon,
     CodeIcon,
-    GlobeIcon,
     ListViewIcon,
-    LocalDaemonIcon,
-    type LucideIcon,
     RefreshIcon,
     ZapIcon
 } from '@/components/icons'
+import HostKindIcon, { HOST_KIND_ICON } from '@/components/HostKindIcon'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import ProductDialog from '@/components/ProductDialog'
 import RenameDialog from '@/components/RenameDialog'
@@ -568,27 +565,6 @@ const HostRuntimeRow: FC<{
             )}
             <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
         </div>
-    )
-}
-
-const HOST_ICON: Record<RuntimeKind, LucideIcon> = {
-    daemon: LocalDaemonIcon,
-    sprites: BoxIcon,
-    k8s: CloudComputerIcon,
-    external: GlobeIcon
-}
-
-const HostKindIcon: FC<{ kind: RuntimeKind; className?: string }> = ({
-    kind,
-    className
-}): ReactNode => {
-    const Icon = HOST_ICON[kind]
-    return (
-        <Icon
-            role='img'
-            aria-label={placementLabel(kind)}
-            className={className}
-        />
     )
 }
 
@@ -1216,7 +1192,7 @@ const HostDetailPanel: FC<{
             d.version
         ])
     )
-    const Icon = HOST_ICON[vm.kind]
+    const Icon = HOST_KIND_ICON[vm.kind]
     // Every sprite image ships claude-code / codex / gemini-cli pre-installed, and
     // a sandbox can host any framework it hasn't provisioned yet. Surface those as
     // one-click "provision here" targets.

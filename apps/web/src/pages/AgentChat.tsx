@@ -38,7 +38,9 @@ import {
     useParams,
     useSearchParams
 } from 'react-router-dom'
-import { MenuIcon } from '@/components/icons'
+import { FolderIcon, MenuIcon } from '@/components/icons'
+import HostKindIcon from '@/components/HostKindIcon'
+import { hostKey, placementLabel } from '@/lib/hostStatus'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
@@ -3130,6 +3132,11 @@ interface AgentChatHeaderProps {
     onOpenRuntimeViewer: (() => void) | null
 }
 
+// A path has no spaces to wrap at, so a deep one ran off the tooltip or was
+// cut short; a zero-width space after each separator lets it wrap at folders.
+const wrappablePath = (path: string): string =>
+    path.replace(/[\\/]/g, '$&\u200b')
+
 const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     agent,
     refreshing,
@@ -3152,6 +3159,24 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     const navigate = useNavigate()
     const workspacePath = workspacePathOf(agent)
     const workspaceDirName = workspaceDirNameOf(agent)
+    const identityLabel = `${agentStatusDotLabel(agent)} · ${t('web.shell.agentSettings')}`
+    const hostPath = (hostId: string): string =>
+        `/settings/runtimes?host=${hostKey(hostId)}`
+    // Both of the header's doors lead out of the chat area, so they take the
+    // rail transition; a modified click still opens a tab the browser's way.
+    const openForward =
+        (path: string) =>
+        (event: ReactMouseEvent<HTMLAnchorElement>): void => {
+            if (
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+            )
+                return
+            event.preventDefault()
+            navigateWithRailTransition(navigate, path, 'forward')
+        }
     const actionButtonClass = (active = false): string =>
         [
             'shadow-ring-light h-9 w-9 shrink-0 items-center justify-center rounded-pill transition-colors disabled:cursor-not-allowed disabled:opacity-45',
@@ -3254,32 +3279,21 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                     and inside the area, so the avatar does not impersonate an
                     overflow menu. No chevron: per DESIGN.md that glyph
                     promises a list, and this navigates. */}
-                <ShortcutTooltip
-                    label={`${agentStatusDotLabel(agent)} · ${t('web.shell.agentSettings')}`}
-                    placement='bottom-start'
-                    className='min-w-0'
-                >
-                    <Link
-                        to={agentSettingsPath(agent.id)}
-                        onClick={(event: ReactMouseEvent<HTMLAnchorElement>) => {
-                            // Let modified clicks open a tab the browser's way.
-                            if (
-                                event.metaKey ||
-                                event.ctrlKey ||
-                                event.shiftKey ||
-                                event.altKey
-                            )
-                                return
-                            event.preventDefault()
-                            navigateWithRailTransition(
-                                navigate,
-                                agentSettingsPath(agent.id),
-                                'forward'
-                            )
-                        }}
-                        className='group/identity hover:bg-soft flex min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors'
+                <div className='flex min-w-0 items-center gap-2'>
+                    {/* The avatar opens the same page as the name; only the
+                        name is the link a keyboard or a screen reader meets. */}
+                    <ShortcutTooltip
+                        label={identityLabel}
+                        placement='bottom-start'
+                        className='hidden shrink-0 sm:inline-flex'
                     >
-                        <span className='hidden shrink-0 sm:inline-flex'>
+                        <Link
+                            to={agentSettingsPath(agent.id)}
+                            onClick={openForward(agentSettingsPath(agent.id))}
+                            tabIndex={-1}
+                            aria-hidden='true'
+                            className='rounded-pill inline-flex'
+                        >
                             {/* No tooltip of its own: it would open on top of
                                 the link's, so the state is named there. */}
                             <AgentIconStatus
@@ -3292,34 +3306,86 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                                         size={28}
                                     />
                                 }
-                                ring='border-main group-hover/identity:border-soft'
+                                ring='border-main'
                             />
-                        </span>
-                        <h1 className='text-ui text-fg min-w-0 truncate font-medium'>
-                            {agent.name}
-                        </h1>
-                        <span className='sr-only'>
-                            {agentStatusDotLabel(agent)}
-                        </span>
-                    </Link>
-                </ShortcutTooltip>
-                {/* A sandbox path is plumbing — every agent's differs only by
-                    an opaque id, and Terminal and Files already open inside it.
-                    A daemon agent's directory is not plumbing but identity: it
-                    answers which of your projects this agent acts on, with your
-                    permissions, and it is a choice you can get wrong. Only that
-                    case earns a permanent place, and only as the basename. */}
-                {agent.runtime === 'daemon' && workspaceDirName ? (
-                    <ShortcutTooltip
-                        label={workspacePath}
-                        placement='bottom-start'
-                        className='hidden min-w-0 shrink sm:block'
-                    >
-                        <span className='text-caption text-muted bg-soft shadow-ring-light block max-w-[14rem] truncate rounded-sm px-2 py-0.5 font-mono'>
-                            {workspaceDirName}
-                        </span>
+                        </Link>
                     </ShortcutTooltip>
-                ) : null}
+                    <div className='min-w-0'>
+                        <ShortcutTooltip
+                            label={identityLabel}
+                            placement='bottom-start'
+                            className='min-w-0 max-w-full'
+                        >
+                            <Link
+                                to={agentSettingsPath(agent.id)}
+                                onClick={openForward(agentSettingsPath(agent.id))}
+                                className='hover:bg-soft -mx-1 block min-w-0 rounded-sm px-1 transition-colors'
+                            >
+                                <h1 className='text-ui text-fg truncate font-medium'>
+                                    {agent.name}
+                                </h1>
+                                <span className='sr-only'>
+                                    {agentStatusDotLabel(agent)}
+                                </span>
+                            </Link>
+                        </ShortcutTooltip>
+                        {/* Where the agent runs and what it works in, one
+                            size down: the machine opens its own settings, the
+                            folder shows its basename and the full path on
+                            hover. An agent with no machine has neither. */}
+                        {agent.hostId !== null && (
+                            <div className='text-caption text-muted hidden min-w-0 items-center gap-1.5 sm:flex'>
+                                <ShortcutTooltip
+                                    label={placementLabel(agent.runtime)}
+                                    placement='bottom-start'
+                                    className='min-w-0 shrink'
+                                >
+                                    <Link
+                                        to={hostPath(agent.hostId)}
+                                        onClick={openForward(
+                                            hostPath(agent.hostId)
+                                        )}
+                                        className='hover:bg-soft -mx-1 inline-flex min-w-0 items-center gap-1 rounded-sm px-1 transition-colors'
+                                    >
+                                        <HostKindIcon
+                                            kind={agent.runtime}
+                                            className='h-3 w-3 shrink-0'
+                                        />
+                                        <span className='truncate font-mono'>
+                                            {agent.hostName ?? agent.hostId}
+                                        </span>
+                                    </Link>
+                                </ShortcutTooltip>
+                                {workspaceDirName ? (
+                                    <>
+                                        <span
+                                            aria-hidden='true'
+                                            className='text-placeholder'
+                                        >
+                                            ·
+                                        </span>
+                                        <ShortcutTooltip
+                                            label={wrappablePath(workspacePath)}
+                                            multiline
+                                            placement='bottom-start'
+                                            className='min-w-0 shrink'
+                                        >
+                                            <span className='inline-flex min-w-0 items-center gap-1'>
+                                                <FolderIcon
+                                                    aria-hidden='true'
+                                                    className='h-3 w-3 shrink-0'
+                                                />
+                                                <span className='truncate font-mono'>
+                                                    {workspaceDirName}
+                                                </span>
+                                            </span>
+                                        </ShortcutTooltip>
+                                    </>
+                                ) : null}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <div className='flex shrink-0 items-center gap-1.5'>
