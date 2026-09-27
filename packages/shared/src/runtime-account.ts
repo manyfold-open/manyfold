@@ -393,6 +393,44 @@ const geminiWindows = (
     })
 }
 
+// Antigravity's subscription endpoint returns one quotaInfo object per model
+// from `fetchAvailableModels`, while Gemini CLI returns grouped buckets from
+// `retrieveUserQuota`. Keep the model rows separate: different models can
+// have different reset times and the CLI's own usage panel shows them that
+// way too.
+const antigravityWindows = (
+    body: Record<string, unknown>
+): RuntimeAccountUsageWindow[] => {
+    const rawModels = body.models
+    const models: Array<[string, unknown]> = Array.isArray(rawModels)
+        ? rawModels.map((model, index) => [String(index), model])
+        : isRecord(rawModels)
+          ? Object.entries(rawModels)
+          : []
+    return models.flatMap(([modelId, raw]) => {
+        if (!isRecord(raw)) return []
+        const quota = isRecord(raw.quotaInfo)
+            ? raw.quotaInfo
+            : isRecord(raw.quota)
+              ? raw.quota
+              : raw
+        const remaining = optionalNumber(quota.remainingFraction)
+        if (remaining === null) return []
+        const label = optionalString(raw.displayName) ?? optionalString(raw.label)
+        return [
+            {
+                key: optionalString(raw.model) ?? modelId,
+                usedPercent: clampPercent((1 - remaining) * 100),
+                resetsAt:
+                    isoOrNull(quota.resetTime) ??
+                    isoOrNull(quota.reset_time),
+                windowSeconds: null,
+                scope: label
+            }
+        ]
+    })
+}
+
 const usageError = (
     kind: RuntimeAccountUsageErrorKind,
     message: string | null,
@@ -438,5 +476,12 @@ export const runtimeAccountUsage = (
             plan: optionalString(body.plan_type),
             error: null
         }
-    return { ...base, windows: geminiWindows(body), error: null }
+    return {
+        ...base,
+        windows:
+            probe.framework === 'antigravity-cli'
+                ? antigravityWindows(body)
+                : geminiWindows(body),
+        error: null
+    }
 }

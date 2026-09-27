@@ -1,4 +1,4 @@
-import type { ConfigurableFramework } from '@manyfold/shared'
+import type { ModelConfigFramework } from '@manyfold/shared'
 
 // Vendor endpoints are parameters only so the test can point the emitted
 // script at a local HTTP stub; production always passes the defaults.
@@ -7,6 +7,7 @@ export interface RuntimeAccountScriptEndpoints {
     codexUsage: string
     geminiLoadCodeAssist: string
     geminiUserQuota: string
+    antigravityAvailableModels: string
 }
 
 export const RUNTIME_ACCOUNT_ENDPOINTS: RuntimeAccountScriptEndpoints = {
@@ -15,7 +16,9 @@ export const RUNTIME_ACCOUNT_ENDPOINTS: RuntimeAccountScriptEndpoints = {
     geminiLoadCodeAssist:
         'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
     geminiUserQuota:
-        'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'
+        'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
+    antigravityAvailableModels:
+        'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
 }
 
 // The sandbox half of account.inspect: a hand-mirrored copy of the daemon's
@@ -26,7 +29,7 @@ export const RUNTIME_ACCOUNT_ENDPOINTS: RuntimeAccountScriptEndpoints = {
 // sibling test (apps/api/test/runtime-account-script.test.ts) runs the emitted
 // script for real; nothing else type checks it.
 export const runtimeAccountScript = (
-    framework: ConfigurableFramework,
+    framework: ModelConfigFramework,
     endpoints: RuntimeAccountScriptEndpoints = RUNTIME_ACCOUNT_ENDPOINTS,
     // fetchUsage false = read the sign-in only; the API holds a fresh usage
     // answer and the vendor's usage endpoint rate-limits harder than pages
@@ -189,8 +192,46 @@ const inspectGemini = async () => {
   })
   return { tokenSource: 'file', identity, usage }
 }
+const inspectAntigravity = async () => {
+  const tokenNames = ['antigravity-cli/antigravity-oauth-token', 'jetski-standalone-oauth-token']
+  let saved = null
+  for (const name of tokenNames) {
+    const candidate = parseRecord(readText(path.join(home, '.gemini', name)))
+    if (candidate) { saved = candidate; break }
+  }
+  if (!saved) return { tokenSource: 'none', identity: null, usage: null }
+  const token = nested(saved, 'token') || saved
+  const claims = jwtClaims(saved.id_token || token.id_token)
+  const accounts = parseRecord(readText(path.join(home, '.gemini', 'google_accounts.json')))
+  const email = trimmed(claims && claims.email) || trimmed(accounts && accounts.active)
+  let identity = email ? { email, name: trimmed(claims && claims.name), organization: null, plan: null, accountId: trimmed(claims && claims.sub) } : null
+  const accessToken = trimmed(token.access_token)
+  if (!accessToken) return { tokenSource: 'file', identity, usage: null }
+  if (typeof token.expiry === 'string') {
+    const expiry = Date.parse(token.expiry)
+    if (Number.isFinite(expiry) && expiry > 0 && expiry <= now) return { tokenSource: 'file', identity, usage: skipped('google') }
+  }
+  if (!fetchUsage) return { tokenSource: 'file', identity, usage: null }
+  const headers = Object.assign(bearer(accessToken), { 'Content-Type': 'application/json' })
+  const load = await vendorFetch('google', endpoints.geminiLoadCodeAssist, {
+    method: 'POST', headers,
+    body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' } })
+  })
+  if (load.error || load.status < 200 || load.status >= 300) return { tokenSource: 'file', identity, usage: load }
+  const loadRecord = load.body && typeof load.body === 'object' && !Array.isArray(load.body) ? load.body : null
+  const planInfo = nested(loadRecord, 'planInfo')
+  const currentTier = nested(loadRecord, 'currentTier')
+  const plan = trimmed(planInfo && planInfo.planType) || trimmed(currentTier && currentTier.name) || trimmed(currentTier && currentTier.id)
+  if (plan && identity) identity = Object.assign({}, identity, { plan })
+  const project = geminiProjectId(load.body)
+  const usage = await vendorFetch('google', endpoints.antigravityAvailableModels, {
+    method: 'POST', headers,
+    body: JSON.stringify(project ? { project } : {})
+  })
+  return { tokenSource: 'file', identity, usage }
+}
 const main = async () => {
-  const report = framework === 'claude-code' ? await inspectClaude() : framework === 'codex' ? await inspectCodex() : await inspectGemini()
+  const report = framework === 'claude-code' ? await inspectClaude() : framework === 'codex' ? await inspectCodex() : framework === 'antigravity-cli' ? await inspectAntigravity() : await inspectGemini()
   console.log(JSON.stringify({ account: Object.assign({ framework, checkedAt: new Date(now).toISOString() }, report) }))
 }
 main().catch((err) => {

@@ -64,7 +64,21 @@ const probeFor = (email: string): RuntimeAccountProbe => ({
         plan: 'pro',
         accountId: 'acct-1'
     },
-    usage: null
+    usage: {
+        vendor: 'openai',
+        status: 200,
+        body: {
+            rate_limit: {
+                primary_window: {
+                    used_percent: 23,
+                    limit_window_seconds: 18_000
+                }
+            }
+        },
+        retryAfterSeconds: null,
+        error: null,
+        fetchedAt: '2026-09-09T20:00:01.000Z'
+    }
 })
 
 interface Harness {
@@ -317,6 +331,15 @@ test(
             )
             assert.equal(profile.credentialStatus, 'valid')
             assert.equal(profile.identity?.email, 'work@vendor.local')
+            assert.deepEqual(profile.usage?.windows, [
+                {
+                    key: 'five_hour',
+                    usedPercent: 23,
+                    resetsAt: null,
+                    windowSeconds: 18_000,
+                    scope: null
+                }
+            ])
             assert.equal(profile.credentialGeneration, 1)
             assert.equal(listed.ambient?.identity?.email, 'native@vendor.local')
             assert.equal(listed.ambient?.status, 'ok')

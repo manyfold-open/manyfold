@@ -2035,7 +2035,12 @@ const RuntimeLocalModelMenu: FC<{
     ]
         .filter((part): part is string => Boolean(part))
         .join(' · ')
-    const usage = account ? ambientAccountUsage(bound, account.lastOk) : null
+    const usage = account
+        ? bound
+            ? (account.list?.profiles.find((profile) => profile.id === bound)
+                  ?.usage ?? null)
+            : ambientAccountUsage(null, account.lastOk)
+        : null
 
     return (
         <>
