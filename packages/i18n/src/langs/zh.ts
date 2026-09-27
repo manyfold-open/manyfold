@@ -261,7 +261,6 @@ const zh: Translations = {
                     working: '处理中…'
                 },
                 copyAgentId: '复制 Agent ID',
-                copyWorkspacePath: '复制工作区路径',
                 created: '创建时间',
                 dashboard: {
                     controlUi: '控制 UI',
@@ -316,7 +315,6 @@ const zh: Translations = {
                 },
                 framework: {
                     changeTitle: '切换框架版本',
-                    changeVersion: '切换版本',
                     changeVersionEllipsis: '切换版本…',
                     chooseVersion:
                         '选择要安装的 {{framework}} 版本。升级会在 sandbox 内执行，最多约一分钟。',
@@ -330,7 +328,6 @@ const zh: Translations = {
                     versionBlocked: '当前 {{framework}} 版本存在已知缺陷',
                     versionLabel: '版本'
                 },
-                lastActive: '最近活跃',
                 lastMessage: '最近消息',
                 mcp: {
                     alreadySynced: '已与 Runtime 同步。',
@@ -406,7 +403,6 @@ const zh: Translations = {
                     title: '权限'
                 },
                 refresh: '刷新',
-                runtime: '运行时',
                 saving: '保存中…',
                 skills: {
                     description:
@@ -428,10 +424,8 @@ const zh: Translations = {
                     deleteTitle: '删除备份',
                     manage: '管理 →',
                     measured: '测量于 {{date}}',
-                    measuredInline: ' · 测量于 {{date}}',
                     noBackups: '暂无工作区备份。',
                     notMeasured: '尚未测量存储用量。',
-                    notMeasuredInline: ' · 尚未测量',
                     restoreAction: '恢复',
                     restoreConfirm:
                         '恢复 {{date}} 的备份吗？当前工作区文件会被替换。',
@@ -942,11 +936,8 @@ const zh: Translations = {
                 provider: '提供方',
                 cli: 'mf CLI',
                 cliUpToDate: '已是最新',
-                access: 'Manyfold 操作能力',
                 accessSkill: 'Manyfold CLI 技能',
-                accessSkillMeta: 'manyfold-cli-usage · 平台托管 · 新 Agent 默认安装',
                 accessInstalled: '已安装',
-                accessMissing: '未安装',
                 accessInstalledBlurb:
                     '让这个 Agent 通过 mf CLI 替你管理渠道、自动化、技能、文件与备份，行动范围以你授予的权限为界。',
                 accessMissingBlurb:

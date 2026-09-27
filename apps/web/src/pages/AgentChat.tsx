@@ -38,9 +38,8 @@ import {
     useParams,
     useSearchParams
 } from 'react-router-dom'
-import { FolderIcon, MenuIcon } from '@/components/icons'
-import HostKindIcon from '@/components/HostKindIcon'
-import { hostKey, placementLabel } from '@/lib/hostStatus'
+import { MenuIcon } from '@/components/icons'
+import AgentPlaceLine from '@/components/AgentPlaceLine'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
@@ -51,7 +50,6 @@ import {
     writeStoredPermissionMode,
     type ComposerPermissionMode
 } from '@/lib/permissionModes'
-import { workspaceDirNameOf, workspacePathOf } from '@/lib/workspacePath'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import EmptyState from '@/components/EmptyState'
 import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
@@ -3132,11 +3130,6 @@ interface AgentChatHeaderProps {
     onOpenRuntimeViewer: (() => void) | null
 }
 
-// A path has no spaces to wrap at, so a deep one ran off the tooltip or was
-// cut short; a zero-width space after each separator lets it wrap at folders.
-const wrappablePath = (path: string): string =>
-    path.replace(/[\\/]/g, '$&\u200b')
-
 const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     agent,
     refreshing,
@@ -3157,13 +3150,10 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
 }): ReactNode => {
     const { t } = useI18n()
     const navigate = useNavigate()
-    const workspacePath = workspacePathOf(agent)
-    const workspaceDirName = workspaceDirNameOf(agent)
     const identityLabel = `${agentStatusDotLabel(agent)} · ${t('web.shell.agentSettings')}`
-    const hostPath = (hostId: string): string =>
-        `/settings/runtimes?host=${hostKey(hostId)}`
-    // Both of the header's doors lead out of the chat area, so they take the
-    // rail transition; a modified click still opens a tab the browser's way.
+    // The avatar and the name lead out of the chat area into the agent's
+    // settings, so they take the rail transition; a modified click still opens
+    // a tab the browser's way.
     const openForward =
         (path: string) =>
         (event: ReactMouseEvent<HTMLAnchorElement>): void => {
@@ -3329,61 +3319,10 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                                 </span>
                             </Link>
                         </ShortcutTooltip>
-                        {/* Where the agent runs and what it works in, one
-                            size down: the machine opens its own settings, the
-                            folder shows its basename and the full path on
-                            hover. An agent with no machine has neither. */}
-                        {agent.hostId !== null && (
-                            <div className='text-caption text-muted hidden min-w-0 items-center gap-1.5 sm:flex'>
-                                <ShortcutTooltip
-                                    label={placementLabel(agent.runtime)}
-                                    placement='bottom-start'
-                                    className='min-w-0 shrink'
-                                >
-                                    <Link
-                                        to={hostPath(agent.hostId)}
-                                        onClick={openForward(
-                                            hostPath(agent.hostId)
-                                        )}
-                                        className='hover:bg-soft -mx-1 inline-flex min-w-0 items-center gap-1 rounded-sm px-1 transition-colors'
-                                    >
-                                        <HostKindIcon
-                                            kind={agent.runtime}
-                                            className='h-3 w-3 shrink-0'
-                                        />
-                                        <span className='truncate font-mono'>
-                                            {agent.hostName ?? agent.hostId}
-                                        </span>
-                                    </Link>
-                                </ShortcutTooltip>
-                                {workspaceDirName ? (
-                                    <>
-                                        <span
-                                            aria-hidden='true'
-                                            className='text-placeholder'
-                                        >
-                                            ·
-                                        </span>
-                                        <ShortcutTooltip
-                                            label={wrappablePath(workspacePath)}
-                                            multiline
-                                            placement='bottom-start'
-                                            className='min-w-0 shrink'
-                                        >
-                                            <span className='inline-flex min-w-0 items-center gap-1'>
-                                                <FolderIcon
-                                                    aria-hidden='true'
-                                                    className='h-3 w-3 shrink-0'
-                                                />
-                                                <span className='truncate font-mono'>
-                                                    {workspaceDirName}
-                                                </span>
-                                            </span>
-                                        </ShortcutTooltip>
-                                    </>
-                                ) : null}
-                            </div>
-                        )}
+                        <AgentPlaceLine
+                            agent={agent}
+                            className='hidden sm:flex'
+                        />
                     </div>
                 </div>
             </div>

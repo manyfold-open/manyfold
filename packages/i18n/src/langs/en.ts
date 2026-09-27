@@ -264,7 +264,6 @@ const en = {
                     working: 'Working…'
                 },
                 copyAgentId: 'Copy agent ID',
-                copyWorkspacePath: 'Copy workspace path',
                 created: 'Created',
                 dashboard: {
                     controlUi: 'Control UI',
@@ -321,7 +320,6 @@ const en = {
                 },
                 framework: {
                     changeTitle: 'Change framework version',
-                    changeVersion: 'change version',
                     changeVersionEllipsis: 'Change version…',
                     chooseVersion:
                         'Choose a {{framework}} version to install. Upgrades run in the sandbox and may take up to a minute.',
@@ -336,7 +334,6 @@ const en = {
                         'This {{framework}} version has a known defect',
                     versionLabel: 'Version'
                 },
-                lastActive: 'Last active',
                 lastMessage: 'Last message',
                 mcp: {
                     alreadySynced: 'Already in sync with the runtime.',
@@ -414,7 +411,6 @@ const en = {
                     title: 'Permissions'
                 },
                 refresh: 'Refresh',
-                runtime: 'Runtime',
                 saving: 'Saving…',
                 skills: {
                     description:
@@ -437,10 +433,8 @@ const en = {
                     deleteTitle: 'Delete backup',
                     manage: 'Manage →',
                     measured: 'Measured {{date}}',
-                    measuredInline: ' · measured {{date}}',
                     noBackups: 'No workspace backups yet.',
                     notMeasured: 'Storage usage has not been measured yet.',
-                    notMeasuredInline: ' · not measured yet',
                     restoreAction: 'Restore',
                     restoreConfirm:
                         'Restore backup from {{date}}? Current workspace files will be replaced.',
@@ -959,12 +953,8 @@ const en = {
                 provider: 'Provider',
                 cli: 'mf CLI',
                 cliUpToDate: 'up to date',
-                access: 'Manyfold access',
                 accessSkill: 'Manyfold CLI skill',
-                accessSkillMeta:
-                    'manyfold-cli-usage · managed · ships with new agents',
                 accessInstalled: 'Installed',
-                accessMissing: 'Not installed',
                 accessInstalledBlurb:
                     'Lets this agent manage channels, automations, skills, files and backups for you through the mf CLI, within the permissions you grant it.',
                 accessMissingBlurb:

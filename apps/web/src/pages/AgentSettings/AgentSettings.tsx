@@ -21,7 +21,7 @@ import type { FC, ReactNode } from 'react'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useResourceRefresh } from '@/hooks/useResourceRefresh'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { NcaClient, SdkAgent } from '@manyfold/sdk'
 import { ApiError } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
@@ -32,7 +32,6 @@ import {
     ProviderIcon,
     RefreshIcon,
     RestoreIcon,
-    RuntimeIcon,
     SettingsIcon,
     TrashIcon
 } from '@/components/icons'
@@ -73,7 +72,7 @@ import {
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
 import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import { AgentIconStatus } from '@/components/AgentStatusDot'
-import { hostKey, placementLabel } from '@/lib/hostStatus'
+import AgentPlaceLine from '@/components/AgentPlaceLine'
 import { formatDateTime } from '@/lib/dateFormat'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { useI18n } from '@/lib/i18n'
@@ -151,29 +150,6 @@ const Info: FC<{ label: string; value: ReactNode; mono?: boolean }> = ({
     </div>
 )
 
-// min-w-0 because a Fact is usually a grid cell, and a grid track's automatic
-// minimum is its content — without it a long value (a workspace path) widens
-// the column past the card instead of truncating inside it.
-const Fact: FC<{ label: string; value: ReactNode; mono?: boolean }> = ({
-    label,
-    mono,
-    value
-}): ReactNode => (
-    <div className='min-w-0 px-5 py-4'>
-        <dt className='text-caption text-subtle'>
-            {label}
-        </dt>
-        <dd
-            className={[
-                'text-ui text-fg mt-1.5 break-all',
-                mono ? 'font-mono' : ''
-            ].join(' ')}
-        >
-            {value ?? '-'}
-        </dd>
-    </div>
-)
-
 // Overview's banner stack is the area's router for trouble: the condition
 // usually lives in another section, so each banner states it and offers the
 // jump. Errors sort before notices — something broken outranks something
@@ -229,17 +205,22 @@ const BannerStack: FC<{ banners: OverviewBanner[] }> = ({
     )
 }
 
-// Look-it-up facts (ids, paths, timestamps) read as a quiet reference list
-// rather than competing with the cards for the top of the page.
-const QuietRow: FC<{ label: string; children: ReactNode }> = ({
-    label,
-    children
-}): ReactNode => (
-    <div className='border-divider/50 text-ui flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b py-2 last:border-b-0'>
-        <span className='text-caption text-subtle w-28 shrink-0'>{label}</span>
-        <span className='text-muted inline-flex min-w-0 items-center gap-1.5'>
-            {children}
-        </span>
+// One overview fact in the settings-card row anatomy the rest of Settings uses:
+// what it is on the left (a title, and a line saying more when there is more
+// to say), its value or the action on it on the right.
+const OverviewRow: FC<{
+    title: string
+    description?: ReactNode
+    children?: ReactNode
+}> = ({ title, description, children }): ReactNode => (
+    <div className='settings-card-row'>
+        <div className='min-w-0'>
+            <div className='settings-card-label'>{title}</div>
+            {description ? (
+                <div className='settings-card-copy'>{description}</div>
+            ) : null}
+        </div>
+        {children ? <div className='settings-card-side'>{children}</div> : null}
     </div>
 )
 
@@ -935,8 +916,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
         )
     }
 
-    // The machine's own name; an external-API agent has no machine.
-    const runtimeLocation = agent.hostName
     // Skills materialize into the agent's workspace for the frameworks that
     // discover them (claude-code/codex/gemini-cli/hermes); the API resolves
     // them through the agent's runtime, so a runtime must be attached.
@@ -954,9 +933,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
         !!agent.cliVersion &&
         !!agent.cliLatestVersion &&
         !agent.cliUpdateAvailable
-    const runtimePath = agent.runtimeId
-        ? `/settings/runtimes/${agent.runtimeId}`
-        : '/settings/runtimes'
     const modelProviderType =
         credentials?.provider ?? defaultProviderForFramework(agent.framework)
     const usesFrameworkModelConfig = frameworkUsesModelConfig(
@@ -1142,13 +1118,8 @@ const AgentSettingsContent: FC = (): ReactNode => {
                         )
                     })
                 // A framework upgrade being available is news, not trouble: it
-                // rides in the Framework cell's hint line instead of a banner,
+                // rides on the Framework row's version tag instead of a banner,
                 // so a banner on this page always means something needs doing.
-                // An agent with no runtime of its own (an external one) has its
-                // endpoint as the second fact instead; anywhere else the
-                // endpoint stays a look-it-up detail. Either way it renders
-                // once.
-                const endpointInStrip = hasEndpoint && !agent.runtimeId
                 const endpointValue =
                     nativeUiAlwaysOn(agent.framework) && agent.runtimeId ? (
                         <button
@@ -1185,10 +1156,13 @@ const AgentSettingsContent: FC = (): ReactNode => {
                     <section className='space-y-5'>
                         <BannerStack banners={banners} />
 
-                        {/* The page's own title: this section's subject is the
-                            agent itself. It carries what the rail's thumbnail
-                            deliberately does not — renaming, and the one
-                            lifecycle action. */}
+                        {/* The page's own title, and the one place this area
+                            names the agent: the rail keeps only the way back
+                            and the sections. It carries what nothing else on
+                            the page does — renaming, and the one lifecycle
+                            action — and, a size down, where the agent runs and
+                            what it works in, drawn as the chat header draws
+                            them. */}
                         <div className='flex flex-wrap items-center gap-3'>
                             <AgentIconStatus
                                 agent={agent}
@@ -1223,18 +1197,19 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     {agentStatusDotLabel(agent)}
                                 </span>
                                 {/* Keep-awake is the sandbox's switch
-                                    (ADR-0037), so it reads here and is
-                                    changed there. */}
-                                {agent.keepAwake && agent.hostId ? (
-                                    <Link
-                                        to={`/settings/runtimes?host=${hostKey(agent.hostId)}`}
-                                        className='text-caption text-subtle hover:text-fg mt-1 inline-block transition-colors'
-                                    >
-                                        {t(
-                                            'web.agentSettings.overview.keepAwakeOn'
-                                        )}
-                                    </Link>
-                                ) : null}
+                                    (ADR-0037), so it reads beside the
+                                    machine's name and is changed there. */}
+                                <AgentPlaceLine
+                                    agent={agent}
+                                    note={
+                                        agent.keepAwake
+                                            ? t(
+                                                  'web.agentSettings.overview.keepAwakeOn'
+                                              )
+                                            : undefined
+                                    }
+                                    className='mt-0.5'
+                                />
                             </div>
                             {canRestart && (
                                 <button
@@ -1250,516 +1225,358 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             )}
                         </div>
 
-                        {/* What this agent is made of. These four were spread
-                            across three places (a row, a grid cell and the
-                            reference list at the bottom) and the mf CLI was
-                            nowhere — yet they are the first things anyone
-                            checks when something behaves oddly. */}
-                        <dl className='workbench-panel divide-divider divide-y overflow-hidden'>
-                            <div className='divide-divider grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0'>
-                                <Fact
-                                    label={t(
-                                        agent.runtime === 'external'
-                                            ? 'web.agentSettings.overview.provider'
-                                            : 'web.agentSettings.overview.framework'
-                                    )}
-                                    value={
-                                        <>
-                                            <span className='flex flex-wrap items-center gap-2'>
-                                                <span>
-                                                    {frameworkLabel(
-                                                        agent.framework
-                                                    )}
-                                                </span>
-                                                {fwVersioned ? (
-                                                    agent.frameworkVersion ? (
-                                                        <VersionTag
-                                                            label={
-                                                                agent.frameworkVersion
-                                                            }
-                                                            latest={
-                                                                fwUpdateAvailable
-                                                                    ? agent.frameworkLatestVersion
-                                                                    : null
-                                                            }
-                                                            kind='framework'
-                                                        />
-                                                    ) : (
-                                                        <span className='text-caption text-subtle'>
-                                                            {t(
-                                                                'web.agents.detail.framework.notDetected'
-                                                            )}
-                                                        </span>
-                                                    )
-                                                ) : null}
-                                                {fwSprite && (
-                                                    <ShortcutTooltip
-                                                        label={t(
-                                                            'web.agents.detail.framework.refreshVersion'
-                                                        )}
-                                                    >
-                                                        <button
-                                                            type='button'
-                                                            disabled={
-                                                                fwRefreshing
-                                                            }
-                                                            onClick={() =>
-                                                                void handleRefreshFrameworkVersion()
-                                                            }
-                                                            aria-label={t(
-                                                                'web.agents.detail.framework.refreshVersion'
-                                                            )}
-                                                            className='text-subtle hover:text-fg hover:bg-surface-hover rounded-pill inline-flex h-6 w-6 shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-50'
-                                                        >
-                                                            <RefreshIcon
-                                                                className={
-                                                                    fwRefreshing
-                                                                        ? 'h-3.5 w-3.5 loading-spin'
-                                                                        : 'h-3.5 w-3.5'
-                                                                }
-                                                            />
-                                                        </button>
-                                                    </ShortcutTooltip>
-                                                )}
-                                            </span>
-                                            {fwPickVersion ? (
-                                                <button
-                                                    type='button'
-                                                    onClick={() =>
-                                                        void handleOpenVersionPicker()
-                                                    }
-                                                    className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
-                                                >
-                                                    {t(
-                                                        'web.agents.detail.framework.changeVersion'
-                                                    )}
-                                                </button>
-                                            ) : fwLatestLabel ? (
-                                                <span className='text-caption text-subtle mt-1 block'>
-                                                    {fwLatestLabel}
-                                                </span>
-                                            ) : null}
-                                        </>
-                                    }
-                                />
-                                {agent.runtimeId ? (
-                                    <Fact
-                                        label={t('web.agents.detail.runtime')}
-                                        value={
-                                            <>
-                                                <Link
-                                                    to={runtimePath}
-                                                    className='text-link hover:text-fg inline-flex max-w-full items-center gap-1.5'
-                                                >
-                                                    <RuntimeIcon className='h-3.5 w-3.5 shrink-0' />
-                                                    <span>
-                                                        {placementLabel(
-                                                            agent.runtime
-                                                        )}
-                                                    </span>
-                                                    <span aria-hidden='true'>
-                                                        →
-                                                    </span>
-                                                </Link>
-                                                {runtimeLocation ? (
-                                                    <span className='text-caption text-subtle mt-1 block truncate font-mono'>
-                                                        {runtimeLocation}
-                                                    </span>
-                                                ) : null}
-                                            </>
-                                        }
-                                    />
-                                ) : endpointInStrip ? (
-                                    <Fact
-                                        label={t('web.agents.detail.endpoint')}
-                                        value={endpointValue}
-                                    />
-                                ) : null}
-                            </div>
-                            {showCli || agent.workspacePath ? (
-                                <div className='divide-divider grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0'>
-                                    {showCli && (
-                                        <Fact
-                                            label={t(
-                                                'web.agentSettings.overview.cli'
-                                            )}
-                                            value={
-                                                <>
-                                                    {agent.cliVersion ? (
-                                                        <VersionTag
-                                                            label={
-                                                                agent.cliVersion
-                                                            }
-                                                            latest={
-                                                                agent.cliUpdateAvailable
-                                                                    ? agent.cliLatestVersion
-                                                                    : null
-                                                            }
-                                                            kind='cli'
-                                                        />
-                                                    ) : (
-                                                        <span className='text-caption text-subtle'>
-                                                            {t(
-                                                                'web.agents.detail.framework.notDetected'
-                                                            )}
-                                                        </span>
-                                                    )}
-                                                    {cliUpToDate ? (
-                                                        <span className='text-caption text-subtle mt-1 block'>
-                                                            {t(
-                                                                'web.agentSettings.overview.cliUpToDate'
-                                                            )}
-                                                        </span>
-                                                    ) : null}
-                                                </>
+                        {/* One row per fact, in the anatomy every other
+                            settings surface uses: what it is on the left, its
+                            value or the action on it on the right. Where the
+                            agent runs and its workspace moved into the header,
+                            so they are not restated here. */}
+                        <div className='settings-card'>
+                            <OverviewRow
+                                title={t(
+                                    agent.runtime === 'external'
+                                        ? 'web.agentSettings.overview.provider'
+                                        : 'web.agentSettings.overview.framework'
+                                )}
+                                description={[
+                                    frameworkLabel(agent.framework),
+                                    fwLatestLabel
+                                ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                            >
+                                {fwVersioned ? (
+                                    agent.frameworkVersion ? (
+                                        <VersionTag
+                                            label={agent.frameworkVersion}
+                                            latest={
+                                                fwUpdateAvailable
+                                                    ? agent.frameworkLatestVersion
+                                                    : null
                                             }
+                                            kind='framework'
                                         />
-                                    )}
-                                    {agent.workspacePath ? (
-                                        <Fact
-                                            label={t(
-                                                'web.agents.detail.workspace'
-                                            )}
-                                            value={
-                                                <span className='flex min-w-0 items-center gap-1.5'>
-                                                    <ShortcutTooltip
-                                                        label={
-                                                            agent.workspacePath
-                                                        }
-                                                        className='min-w-0'
-                                                    >
-                                                        <span className='block min-w-0 truncate font-mono'>
-                                                            {agent.workspacePath}
-                                                        </span>
-                                                    </ShortcutTooltip>
-                                                    <CopyButton
-                                                        value={
-                                                            agent.workspacePath
-                                                        }
-                                                        label={t(
-                                                            'web.agents.detail.copyWorkspacePath'
-                                                        )}
-                                                    />
-                                                </span>
-                                            }
-                                        />
-                                    ) : null}
-                                </div>
-                            ) : null}
-                        </dl>
-
-                        {/* How it has been doing lately. */}
-                        <dl className='workbench-panel divide-divider divide-y overflow-hidden'>
-                            <div className='divide-divider grid divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0'>
-                                <Fact
-                                    label={t('web.agents.detail.lastMessage')}
-                                    value={
-                                        agent.lastMessageAt
-                                            ? timeAgo(agent.lastMessageAt)
-                                            : '-'
-                                    }
-                                />
-                                <Fact
-                                    label={t('web.agents.detail.lastActive')}
-                                    value={
-                                        agent.lastActiveAt
-                                            ? timeAgo(agent.lastActiveAt)
-                                            : '-'
-                                    }
-                                />
-                            </div>
-                            {agent.runtime !== 'external' && (
-                                <div className='flex flex-wrap items-center justify-between gap-3 px-5 py-4'>
-                                    <div className='min-w-0'>
-                                        <dt className='text-caption text-subtle'>
+                                    ) : (
+                                        <span className='text-caption text-subtle'>
                                             {t(
-                                                'web.agents.detail.storage.title'
+                                                'web.agents.detail.framework.notDetected'
                                             )}
-                                        </dt>
-                                        <dd className='text-ui text-fg mt-1.5 tabular-nums'>
-                                            {storage
-                                                ? formatBytes(
-                                                      storage.totalBytes
+                                        </span>
+                                    )
+                                ) : null}
+                                {fwSprite && (
+                                    <ShortcutTooltip
+                                        label={t(
+                                            'web.agents.detail.framework.refreshVersion'
+                                        )}
+                                    >
+                                        <button
+                                            type='button'
+                                            disabled={fwRefreshing}
+                                            onClick={() =>
+                                                void handleRefreshFrameworkVersion()
+                                            }
+                                            aria-label={t(
+                                                'web.agents.detail.framework.refreshVersion'
+                                            )}
+                                            className='text-subtle hover:text-fg hover:bg-surface-hover rounded-pill inline-flex h-6 w-6 shrink-0 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+                                        >
+                                            <RefreshIcon
+                                                className={
+                                                    fwRefreshing
+                                                        ? 'h-3.5 w-3.5 loading-spin'
+                                                        : 'h-3.5 w-3.5'
+                                                }
+                                            />
+                                        </button>
+                                    </ShortcutTooltip>
+                                )}
+                                {fwPickVersion ? (
+                                    <button
+                                        type='button'
+                                        onClick={() =>
+                                            void handleOpenVersionPicker()
+                                        }
+                                        className='workbench-button-secondary'
+                                    >
+                                        {t(
+                                            'web.agents.detail.framework.changeVersionEllipsis'
+                                        )}
+                                    </button>
+                                ) : null}
+                            </OverviewRow>
+                            {hasEndpoint ? (
+                                <OverviewRow
+                                    title={t('web.agents.detail.endpoint')}
+                                >
+                                    {endpointValue}
+                                </OverviewRow>
+                            ) : null}
+                            {showCli ? (
+                                <OverviewRow
+                                    title={t('web.agentSettings.overview.cli')}
+                                    description={
+                                        cliUpToDate
+                                            ? t(
+                                                  'web.agentSettings.overview.cliUpToDate'
+                                              )
+                                            : undefined
+                                    }
+                                >
+                                    {agent.cliVersion ? (
+                                        <VersionTag
+                                            label={agent.cliVersion}
+                                            latest={
+                                                agent.cliUpdateAvailable
+                                                    ? agent.cliLatestVersion
+                                                    : null
+                                            }
+                                            kind='cli'
+                                        />
+                                    ) : (
+                                        <span className='text-caption text-subtle'>
+                                            {t(
+                                                'web.agents.detail.framework.notDetected'
+                                            )}
+                                        </span>
+                                    )}
+                                </OverviewRow>
+                            ) : null}
+                            {/* The platform's own skill decides whether this
+                                agent can act on Manyfold for you. Installed it
+                                looks like any other row in the Skills list, so
+                                its absence — and its presence — were both
+                                invisible there. */}
+                            {cliSkillCard ? (
+                                <OverviewRow
+                                    title={t(
+                                        'web.agentSettings.overview.accessSkill'
+                                    )}
+                                    description={t(
+                                        cliSkillInstalled
+                                            ? 'web.agentSettings.overview.accessInstalledBlurb'
+                                            : 'web.agentSettings.overview.accessMissingBlurb'
+                                    )}
+                                >
+                                    {cliSkillInstalled ? (
+                                        <StatusTag
+                                            tone='success'
+                                            label={t(
+                                                'web.agentSettings.overview.accessInstalled'
+                                            )}
+                                        />
+                                    ) : (
+                                        <button
+                                            type='button'
+                                            disabled={cliSkillInstalling}
+                                            onClick={() =>
+                                                void installCliSkill()
+                                            }
+                                            className='workbench-button-secondary'
+                                        >
+                                            {cliSkillInstalling
+                                                ? t(
+                                                      'web.skills.statusInstalling'
                                                   )
-                                                : '-'}
-                                            <span className='text-subtle'>
-                                                {storage
-                                                    ? t(
-                                                          'web.agents.detail.storage.measuredInline',
-                                                          {
-                                                              date: formatDate(
-                                                                  storage.checkedAt
-                                                              )
-                                                          }
+                                                : t('web.skills.installAction')}
+                                        </button>
+                                    )}
+                                </OverviewRow>
+                            ) : null}
+                            {agent.runtime !== 'external' ? (
+                                <OverviewRow
+                                    title={t('web.agents.detail.storage.title')}
+                                    description={
+                                        // A sleeping sandbox is not woken to
+                                        // be measured, so a check can come
+                                        // back with no total; saying when it
+                                        // was "measured" then claimed a number
+                                        // that is not there.
+                                        storage?.totalBytes != null
+                                            ? t(
+                                                  'web.agents.detail.storage.measured',
+                                                  {
+                                                      date: formatDate(
+                                                          storage.checkedAt
                                                       )
-                                                    : t(
-                                                          'web.agents.detail.storage.notMeasuredInline'
-                                                      )}
-                                            </span>
-                                        </dd>
-                                    </div>
+                                                  }
+                                              )
+                                            : storage?.asleep
+                                              ? t(
+                                                    'web.agents.detail.storage.asleep'
+                                                )
+                                              : t(
+                                                    'web.agents.detail.storage.notMeasured'
+                                                )
+                                    }
+                                >
+                                    {storage?.totalBytes != null ? (
+                                        <span className='text-ui text-fg tabular-nums'>
+                                            {formatBytes(storage.totalBytes)}
+                                        </span>
+                                    ) : null}
                                     <button
                                         type='button'
                                         onClick={() => selectTab('storage')}
-                                        className='text-link hover:text-fg text-ui inline-flex shrink-0 items-center gap-1'
+                                        className='text-link hover:text-fg text-ui'
                                     >
                                         {t('web.agents.detail.storage.manage')}
                                     </button>
-                                </div>
-                            )}
-                            {/* One line answering "how can this agent be
-                                reached", with the counts that matter and a way
-                                into each. */}
-                            <div className='px-5 py-4'>
-                                <dt className='text-caption text-subtle'>
-                                    {t(
-                                        'web.agentSettings.overview.interfaces'
-                                    )}
-                                </dt>
-                                <dd className='text-ui mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1'>
-                                    <button
-                                        type='button'
-                                        onClick={() => selectTab('channels')}
-                                        className='text-link hover:text-fg'
-                                    >
-                                        {channels === null
+                                </OverviewRow>
+                            ) : null}
+                            {/* How this agent can be reached, with the counts
+                                that matter and a way into each. */}
+                            <OverviewRow
+                                title={t(
+                                    'web.agentSettings.overview.interfaces'
+                                )}
+                            >
+                                <button
+                                    type='button'
+                                    onClick={() => selectTab('channels')}
+                                    className='text-link hover:text-fg text-ui'
+                                >
+                                    {channels === null
+                                        ? t(
+                                              'web.agentSettings.sections.channels'
+                                          )
+                                        : t(
+                                              'web.agentSettings.overview.channelCount',
+                                              {
+                                                  count: channels.filter(
+                                                      (channel) =>
+                                                          channel.agentId ===
+                                                          agent.id
+                                                  ).length
+                                              }
+                                          )}
+                                </button>
+                                {brokenChannels.length > 0 && (
+                                    <StatusTag
+                                        tone='error'
+                                        label={t(
+                                            'web.agentSettings.overview.channelErrors',
+                                            { count: brokenChannels.length }
+                                        )}
+                                    />
+                                )}
+                                <span className='text-subtle'>·</span>
+                                <button
+                                    type='button'
+                                    onClick={() => selectTab('a2a')}
+                                    className='text-link hover:text-fg text-ui'
+                                >
+                                    {a2aEnabled === null
+                                        ? t('web.agentSettings.sections.a2a')
+                                        : t(
+                                              a2aEnabled
+                                                  ? 'web.agentSettings.overview.a2aOn'
+                                                  : 'web.agentSettings.overview.a2aOff'
+                                          )}
+                                </button>
+                            </OverviewRow>
+                            <OverviewRow
+                                title={t('web.agents.detail.lastMessage')}
+                            >
+                                <span className='text-ui text-fg'>
+                                    {agent.lastMessageAt
+                                        ? timeAgo(agent.lastMessageAt)
+                                        : '-'}
+                                </span>
+                            </OverviewRow>
+                            {(agent.framework === 'openclaw' ||
+                                (agent.framework === 'hermes' &&
+                                    agent.runtime === 'sprites')) &&
+                            agent.runtimeId ? (
+                                <ControlRow
+                                    label={
+                                        agent.framework === 'openclaw'
                                             ? t(
-                                                  'web.agentSettings.sections.channels'
+                                                  'web.agents.detail.dashboard.controlUi'
                                               )
                                             : t(
-                                                  'web.agentSettings.overview.channelCount',
-                                                  {
-                                                      count: channels.filter(
-                                                          (channel) =>
-                                                              channel.agentId ===
-                                                              agent.id
-                                                      ).length
-                                                  }
-                                              )}
-                                    </button>
-                                    {brokenChannels.length > 0 && (
-                                        <StatusTag
-                                            tone='error'
-                                            label={t(
-                                                'web.agentSettings.overview.channelErrors',
-                                                { count: brokenChannels.length }
-                                            )}
-                                        />
-                                    )}
-                                    <span className='text-subtle'>·</span>
-                                    <button
-                                        type='button'
-                                        onClick={() => selectTab('a2a')}
-                                        className='text-link hover:text-fg'
-                                    >
-                                        {a2aEnabled === null
-                                            ? t('web.agentSettings.sections.a2a')
+                                                  'web.agents.detail.dashboard.dashboard'
+                                              )
+                                    }
+                                    description={
+                                        agent.framework === 'openclaw'
+                                            ? t(
+                                                  'web.agents.detail.dashboard.controlUiDescription'
+                                              )
                                             : t(
-                                                  a2aEnabled
-                                                      ? 'web.agentSettings.overview.a2aOn'
-                                                      : 'web.agentSettings.overview.a2aOff'
-                                              )}
-                                    </button>
-                                </dd>
-                            </div>
-                        </dl>
+                                                  'web.agents.detail.dashboard.dashboardDescription'
+                                              )
+                                    }
+                                    enabled={
+                                        agent.framework === 'openclaw'
+                                            ? agent.controlUiEnabled
+                                            : agent.dashboardEnabled
+                                    }
+                                    pending={
+                                        dashboardToggling ||
+                                        dashboardStatePending(
+                                            agent.dashboardState
+                                        )
+                                    }
+                                    pendingLabel={dashboardStatePendingLabel(
+                                        agent.dashboardState,
+                                        t('web.agents.detail.updating')
+                                    )}
+                                    onToggle={(): void => {
+                                        void handleToggleDashboard()
+                                    }}
+                                    onOpen={handleOpenAgentDashboard}
+                                    openLabel={
+                                        agent.framework === 'openclaw'
+                                            ? t(
+                                                  'web.agents.detail.dashboard.openUi'
+                                              )
+                                            : t(
+                                                  'web.agents.detail.dashboard.openDashboard'
+                                              )
+                                    }
+                                    error={
+                                        dashboardToggleError ??
+                                        dashboardStateError(
+                                            agent.dashboardState
+                                        )
+                                    }
+                                />
+                            ) : null}
+                        </div>
 
-                        {/* The platform's own skill decides whether this agent
-                            can act on Manyfold for you. Installed it looks like
-                            any other row in the Skills list, so its absence —
-                            and its presence — were both invisible here. */}
-                        {cliSkillCard && (
-                            <div>
-                                <div className='workbench-kicker mb-1.5'>
-                                    {t('web.agentSettings.overview.access')}
-                                </div>
-                                <div className='workbench-panel divide-divider divide-y overflow-hidden'>
-                                    <div className='flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-4'>
-                                        <div className='min-w-0 flex-1'>
-                                            <div className='text-ui text-fg font-medium'>
-                                                {t(
-                                                    'web.agentSettings.overview.accessSkill'
-                                                )}
-                                            </div>
-                                            <div className='text-caption text-subtle mt-0.5'>
-                                                {cliSkillInstalled
-                                                    ? t(
-                                                          'web.agentSettings.overview.accessSkillMeta'
-                                                      )
-                                                    : t(
-                                                          'web.agentSettings.overview.accessMissing'
-                                                      )}
-                                            </div>
-                                        </div>
-                                        {cliSkillInstalled ? (
-                                            <>
-                                                <StatusTag
-                                                    tone='success'
-                                                    label={t(
-                                                        'web.agentSettings.overview.accessInstalled'
-                                                    )}
-                                                />
-                                                <button
-                                                    type='button'
-                                                    onClick={() =>
-                                                        selectTab('skills')
-                                                    }
-                                                    className='text-link hover:text-fg text-ui shrink-0'
-                                                >
-                                                    {t(
-                                                        'web.agentSettings.sections.skills'
-                                                    )}
-                                                    <span aria-hidden='true'>
-                                                        {' '}
-                                                        →
-                                                    </span>
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                type='button'
-                                                disabled={cliSkillInstalling}
-                                                onClick={() =>
-                                                    void installCliSkill()
-                                                }
-                                                className='workbench-button-secondary shrink-0'
-                                            >
-                                                {cliSkillInstalling
-                                                    ? t(
-                                                          'web.skills.statusInstalling'
-                                                      )
-                                                    : t(
-                                                          'web.skills.installAction'
-                                                      )}
-                                            </button>
-                                        )}
-                                    </div>
-                                    <p className='text-caption text-muted px-5 py-4'>
-                                        {cliSkillInstalled ? (
-                                            <>
-                                                {t(
-                                                    'web.agentSettings.overview.accessInstalledBlurb'
-                                                )}{' '}
-                                                <button
-                                                    type='button'
-                                                    onClick={() =>
-                                                        selectTab('permissions')
-                                                    }
-                                                    className='text-link hover:text-fg'
-                                                >
-                                                    {t(
-                                                        'web.agentSettings.sections.permissions'
-                                                    )}
-                                                    <span aria-hidden='true'>
-                                                        {' '}
-                                                        →
-                                                    </span>
-                                                </button>
-                                            </>
-                                        ) : (
-                                            t(
-                                                'web.agentSettings.overview.accessMissingBlurb'
-                                            )
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Look-it-up facts, demoted out of the cards. */}
+                        {/* Look-it-up facts, kept apart from the ones above. */}
                         <div>
-                            <div className='workbench-kicker mb-1'>
+                            <div className='workbench-kicker mb-1.5'>
                                 {t('web.agentSettings.overview.details')}
                             </div>
-                            <QuietRow label={t('web.agents.detail.agentId')}>
-                                <span className='min-w-0 truncate font-mono'>
-                                    {agent.id}
-                                </span>
-                                <CopyButton
-                                    value={agent.id}
-                                    label={t('web.agents.detail.copyAgentId')}
-                                />
-                            </QuietRow>
-                            <QuietRow label={t('web.agents.detail.created')}>
-                                {formatDate(agent.createdAt)}
-                            </QuietRow>
-                            {hasEndpoint && !endpointInStrip ? (
-                                <QuietRow
-                                    label={t('web.agents.detail.endpoint')}
+                            <div className='settings-card'>
+                                <OverviewRow
+                                    title={t('web.agents.detail.agentId')}
                                 >
-                                    {endpointValue}
-                                </QuietRow>
-                            ) : null}
+                                    <span className='text-ui text-fg min-w-0 truncate font-mono'>
+                                        {agent.id}
+                                    </span>
+                                    <CopyButton
+                                        value={agent.id}
+                                        label={t(
+                                            'web.agents.detail.copyAgentId'
+                                        )}
+                                    />
+                                </OverviewRow>
+                                <OverviewRow
+                                    title={t('web.agents.detail.created')}
+                                >
+                                    <span className='text-ui text-fg'>
+                                        {formatDate(agent.createdAt)}
+                                    </span>
+                                </OverviewRow>
+                            </div>
                         </div>
 
                         {fwError && !fwPickerOpen ? (
                             <p className='text-caption text-error'>
                                 {fwError}
                             </p>
-                        ) : null}
-
-                        {(agent.framework === 'openclaw' ||
-                            (agent.framework === 'hermes' &&
-                                agent.runtime === 'sprites')) &&
-                        agent.runtimeId ? (
-                            <div className='border-divider border-t pt-5'>
-                                <div className='settings-card'>
-                                    <ControlRow
-                                        label={
-                                            agent.framework === 'openclaw'
-                                                ? t(
-                                                      'web.agents.detail.dashboard.controlUi'
-                                                  )
-                                                : t(
-                                                      'web.agents.detail.dashboard.dashboard'
-                                                  )
-                                        }
-                                        description={
-                                            agent.framework === 'openclaw'
-                                                ? t(
-                                                      'web.agents.detail.dashboard.controlUiDescription'
-                                                  )
-                                                : t(
-                                                      'web.agents.detail.dashboard.dashboardDescription'
-                                                  )
-                                        }
-                                        enabled={
-                                            agent.framework === 'openclaw'
-                                                ? agent.controlUiEnabled
-                                                : agent.dashboardEnabled
-                                        }
-                                        pending={
-                                            dashboardToggling ||
-                                            dashboardStatePending(
-                                                agent.dashboardState
-                                            )
-                                        }
-                                        pendingLabel={dashboardStatePendingLabel(
-                                            agent.dashboardState,
-                                            t('web.agents.detail.updating')
-                                        )}
-                                        onToggle={(): void => {
-                                            void handleToggleDashboard()
-                                        }}
-                                        onOpen={handleOpenAgentDashboard}
-                                        openLabel={
-                                            agent.framework === 'openclaw'
-                                                ? t(
-                                                      'web.agents.detail.dashboard.openUi'
-                                                  )
-                                                : t(
-                                                      'web.agents.detail.dashboard.openDashboard'
-                                                  )
-                                        }
-                                        error={
-                                            dashboardToggleError ??
-                                            dashboardStateError(
-                                                agent.dashboardState
-                                            )
-                                        }
-                                    />
-                                </div>
-                            </div>
                         ) : null}
 
                         <div className='border-divider mt-2 flex flex-wrap items-center gap-x-4 gap-y-3 border-t pt-5'>
