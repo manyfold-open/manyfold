@@ -1,5 +1,5 @@
+import type { RuntimeHostPowerState } from './host-model'
 import type { AgentFramework, AgentRuntime } from './constants'
-import type { SpriteStatus } from './dtos'
 import {
     isModelConfigFramework,
     type ModelConfigFramework
@@ -110,7 +110,7 @@ export interface RuntimeAccountView {
     tokenSource: RuntimeAccountTokenSource | null
     identity: RuntimeAccountIdentity | null
     usage: RuntimeAccountUsage | null
-    host: { spriteStatus: SpriteStatus | null; terminalEnabled: boolean } | null
+    host: { powerState: RuntimeHostPowerState | null; terminalEnabled: boolean } | null
     error: string | null
 }
 

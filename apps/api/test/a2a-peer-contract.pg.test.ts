@@ -8,8 +8,6 @@ import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
 import {
     a2aAgentGrants,
-    agentRuntimes,
-    agents,
     apiTokens,
     createDb
 } from '@manyfold/db'

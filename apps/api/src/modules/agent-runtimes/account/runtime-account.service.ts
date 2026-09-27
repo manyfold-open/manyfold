@@ -12,8 +12,6 @@ import type {
     RuntimeAccountUsage,
     RuntimeAccountView,
     RuntimeAccountViewStatus,
-    RuntimeHostPowerState,
-    SpriteStatus
 } from '@manyfold/shared'
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
@@ -64,23 +62,8 @@ type HostView = RuntimeAccountView['host']
 
 // The account view still speaks sprites.dev's lifecycle vocabulary for the
 // host it probed; the host row stores the provider-neutral power state.
-const spriteStatusOf = (
-    state: RuntimeHostPowerState | null
-): SpriteStatus | null => {
-    switch (state) {
-        case 'running':
-            return 'running'
-        case 'suspended':
-            return 'warm'
-        case 'stopped':
-            return 'cold'
-        default:
-            return null
-    }
-}
-
 const hostViewOf = (host: RuntimeHostRow): HostView => ({
-    spriteStatus: spriteStatusOf(host.powerState),
+    powerState: host.powerState,
     terminalEnabled: host.terminalEnabled
 })
 
