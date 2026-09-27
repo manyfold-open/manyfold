@@ -2,11 +2,12 @@ import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
+import { AgentIconStatus } from '@/components/AgentStatusDot'
 import AreaBackLink from '@/components/AreaBackLink'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
-import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import type { AgentSettingsSectionId } from '@/lib/agentSettingsSections'
 import { sectionsFor } from '@/lib/agentSettingsSections'
 import { readLastChatLocationRecord } from '@/lib/chatNavigation'
@@ -114,9 +115,14 @@ const AgentSettingsRail: FC<{
             />
 
             <div className='border-divider/60 mb-3 flex min-w-0 items-center gap-2.5 border-b px-2 pb-3'>
-                <span className='shrink-0'>
-                    <FrameworkLogo framework={agent.framework} size={28} />
-                </span>
+                <AgentIconStatus
+                    agent={agent}
+                    size='md'
+                    icon={
+                        <FrameworkLogo framework={agent.framework} size={28} />
+                    }
+                    ring='border-[rgb(var(--color-settings-rail))]'
+                />
                 <div className='min-w-0 flex-1'>
                     <ShortcutTooltip
                         label={agent.name}
@@ -127,18 +133,9 @@ const AgentSettingsRail: FC<{
                             {agent.name}
                         </div>
                     </ShortcutTooltip>
-                    <div className='text-caption text-muted mt-0.5 flex min-w-0 items-center gap-1.5'>
-                        <span
-                            aria-hidden='true'
-                            className={
-                                'h-1.5 w-1.5 shrink-0 rounded-full ' +
-                                agentStatusDotClass(agent)
-                            }
-                        />
-                        <span className='truncate'>
-                            {agentStatusDotLabel(agent)}
-                        </span>
-                    </div>
+                    <span className='sr-only'>
+                        {agentStatusDotLabel(agent)}
+                    </span>
                 </div>
             </div>
 

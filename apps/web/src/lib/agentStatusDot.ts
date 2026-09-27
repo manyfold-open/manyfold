@@ -1,8 +1,7 @@
 import type { RuntimeAvailability } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
-import type { TagTone } from '@/components/Tag'
-import { availabilityLabel, availabilityTone } from '@/lib/hostStatus'
+import { availabilityLabel } from '@/lib/hostStatus'
 
 // The agent's own lifecycle comes first (a pending or failed agent has no
 // machine story yet); a ready agent reads as its derived availability
@@ -31,21 +30,11 @@ const STATUS_LABEL_KEY: Record<SdkAgent['status'], string> = {
     failed: 'web.tags.status.failed'
 }
 
-const STATUS_TONE: Record<Exclude<SdkAgent['status'], 'ready'>, TagTone> = {
-    pending: 'warning',
-    failed: 'error'
-}
-
 export const agentStatusDotClass = (agent: AgentStatusFacts): string => {
     if (agent.status === 'failed') return RED
     if (agent.status === 'pending') return AMBER
     return AVAILABILITY_DOT[agent.availability]
 }
-
-export const agentStatusTone = (agent: AgentStatusFacts): TagTone =>
-    agent.status === 'ready'
-        ? availabilityTone(agent.availability)
-        : STATUS_TONE[agent.status]
 
 export const agentStatusDotLabel = (agent: AgentStatusFacts): string =>
     agent.status === 'ready'

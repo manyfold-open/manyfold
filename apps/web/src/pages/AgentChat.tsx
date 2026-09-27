@@ -3255,7 +3255,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                     overflow menu. No chevron: per DESIGN.md that glyph
                     promises a list, and this navigates. */}
                 <ShortcutTooltip
-                    label={t('web.shell.agentSettings')}
+                    label={`${agentStatusDotLabel(agent)} · ${t('web.shell.agentSettings')}`}
                     placement='bottom-start'
                     className='min-w-0'
                 >
@@ -3280,9 +3280,8 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                         className='group/identity hover:bg-soft flex min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors'
                     >
                         <span className='hidden shrink-0 sm:inline-flex'>
-                            {/* No tooltip of its own: the state is spelled
-                                out beside the name, and the link already
-                                carries one. */}
+                            {/* No tooltip of its own: it would open on top of
+                                the link's, so the state is named there. */}
                             <AgentIconStatus
                                 agent={agent}
                                 size='md'
@@ -3299,7 +3298,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                         <h1 className='text-ui text-fg min-w-0 truncate font-medium'>
                             {agent.name}
                         </h1>
-                        <span className='text-caption text-muted hidden shrink-0 sm:inline'>
+                        <span className='sr-only'>
                             {agentStatusDotLabel(agent)}
                         </span>
                     </Link>

@@ -71,7 +71,8 @@ import {
     readEnvPendingRestart
 } from '@/lib/envPendingRestart'
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
-import { agentStatusDotLabel, agentStatusTone } from '@/lib/agentStatusDot'
+import { agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { AgentIconStatus } from '@/components/AgentStatusDot'
 import { hostKey, placementLabel } from '@/lib/hostStatus'
 import { formatDateTime } from '@/lib/dateFormat'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
@@ -934,8 +935,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
         )
     }
 
-    const statusChipLabel = agentStatusDotLabel(agent)
-    const statusChipTone = agentStatusTone(agent)
     // The machine's own name; an external-API agent has no machine.
     const runtimeLocation = agent.hostName
     // Skills materialize into the agent's workspace for the frameworks that
@@ -1191,12 +1190,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             deliberately does not — renaming, and the one
                             lifecycle action. */}
                         <div className='flex flex-wrap items-center gap-3'>
-                            <span className='shrink-0'>
-                                <FrameworkLogo
-                                    framework={agent.framework}
-                                    size={36}
-                                />
-                            </span>
+                            <AgentIconStatus
+                                agent={agent}
+                                size='md'
+                                icon={
+                                    <FrameworkLogo
+                                        framework={agent.framework}
+                                        size={36}
+                                    />
+                                }
+                                ring='border-[rgb(var(--color-settings-bg))]'
+                            />
                             <div className='min-w-0 flex-1'>
                                 <div className='flex min-w-0 items-center gap-1'>
                                     <h2 className='text-h3 text-fg min-w-0 truncate'>
@@ -1215,25 +1219,22 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         </button>
                                     </ShortcutTooltip>
                                 </div>
-                                <div className='mt-1 flex flex-wrap items-center gap-2'>
-                                    <StatusTag
-                                        tone={statusChipTone}
-                                        label={statusChipLabel}
-                                    />
-                                    {/* Keep-awake is the sandbox's switch
-                                        (ADR-0037), so it reads here and is
-                                        changed there. */}
-                                    {agent.keepAwake && agent.hostId ? (
-                                        <Link
-                                            to={`/settings/runtimes?host=${hostKey(agent.hostId)}`}
-                                            className='text-caption text-subtle hover:text-fg transition-colors'
-                                        >
-                                            {t(
-                                                'web.agentSettings.overview.keepAwakeOn'
-                                            )}
-                                        </Link>
-                                    ) : null}
-                                </div>
+                                <span className='sr-only'>
+                                    {agentStatusDotLabel(agent)}
+                                </span>
+                                {/* Keep-awake is the sandbox's switch
+                                    (ADR-0037), so it reads here and is
+                                    changed there. */}
+                                {agent.keepAwake && agent.hostId ? (
+                                    <Link
+                                        to={`/settings/runtimes?host=${hostKey(agent.hostId)}`}
+                                        className='text-caption text-subtle hover:text-fg mt-1 inline-block transition-colors'
+                                    >
+                                        {t(
+                                            'web.agentSettings.overview.keepAwakeOn'
+                                        )}
+                                    </Link>
+                                ) : null}
                             </div>
                             {canRestart && (
                                 <button
