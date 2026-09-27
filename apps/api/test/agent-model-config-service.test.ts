@@ -2450,6 +2450,18 @@ test('Antigravity ignores caller-supplied routing and resolves the enabled provi
     assert.deepEqual(turn.modelConfig, { framework: 'antigravity-cli', model: 'gemini-3.6-flash-medium', providerModel: 'gemini-3.6-flash-medium' })
 })
 
+test('Antigravity explicitly clearing a saved model selects an available default', async () => {
+    const db = new FakeDb({ ...baseAgent, framework: 'antigravity-cli', model: 'old-model' })
+    db.credentialPayload = { googleApiKey: 'fixture-key' }
+    const service = makeService(db, ['google/gemini-3.8-flash'])
+    const view = await service.updateForAgent('user-1', 'agent-1', {
+        modelConfigSource: 'platform',
+        modelConfig: { framework: 'antigravity-cli', model: null }
+    }, false)
+    assert.equal(view.config?.model, 'google/gemini-3.8-flash')
+    assert.equal(view.validation.valid, true)
+})
+
 test('Antigravity official Google credentials require discovery and refresh makes matching models available', async () => {
     const db = new FakeDb({
         ...baseAgent,

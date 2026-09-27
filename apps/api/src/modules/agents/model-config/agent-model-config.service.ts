@@ -443,10 +443,13 @@ export class AgentModelConfigService {
             )
         const providerModels =
             await this.providerModelsForPlatformValidation(agent)
+        const requested = raw?.model !== undefined
+            ? raw.model
+            : body.model !== undefined
+              ? body.model
+              : agent.model
         const model =
-            normalizeNullable(
-                raw?.model ?? body.model ?? normalizeNullable(agent.model)
-            ) ?? defaultAntigravityModel(providerModels.models)
+            normalizeNullable(requested) ?? defaultAntigravityModel(providerModels.models)
         const config: AntigravityCliAgentModelConfig = {
             framework: 'antigravity-cli',
             // Dispatch exactly the default we validate, even if credentials
