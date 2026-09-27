@@ -25,7 +25,7 @@ import {
     stat
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { resolve, sep, join, dirname, basename } from 'node:path'
+import { resolve, sep, join, dirname, basename, isAbsolute } from 'node:path'
 import type { Readable } from 'node:stream'
 import {
     claudeCodeModelAliases,
@@ -271,7 +271,10 @@ export const assertRealPathContained = (abs: string, roots: string[]): void => {
     )
 }
 
-export const ensureUnderAllowedRoot = (path: string): string => {
+export const ensureUnderAllowedRoot = (
+    path: string,
+    extraRoots: readonly string[] = []
+): string => {
     ensureRegisteredRootsLoaded()
     const abs = resolve(expandHome(path))
     if (FRAMEWORK_HOME_FILES.includes(abs)) {
@@ -282,12 +285,14 @@ export const ensureUnderAllowedRoot = (path: string): string => {
         isInsideManagedRoot(abs) ||
         FRAMEWORK_HOME_ROOTS.some((root) => isInsideRoot(abs, root)) ||
         isInsideRoot(abs, authRoot()) ||
-        [...registeredWorkspaceRoots].some((root) => isInsideRoot(abs, root))
+        [...registeredWorkspaceRoots, ...extraRoots].some((root) =>
+            isInsideRoot(abs, root)
+        )
     if (!lexicallyAllowed)
         throw new Error(
             `path ${abs} is outside allowed roots (workspace + framework configs); refusing`
         )
-    assertRealPathContained(abs, allowedRoots())
+    assertRealPathContained(abs, [...allowedRoots(), ...extraRoots])
     return abs
 }
 
@@ -357,9 +362,22 @@ interface ExecPayload {
     stdin?: string
     keepStdinOpen?: boolean
     dir?: string
+    // Absolute directories the platform vouches for, admitted for this
+    // exec's cwd only (DAEMON_FEATURE_EXEC_ROOTS).
+    roots?: string[]
     timeoutMs?: number
     authSelection?: unknown
     temporarySettings?: 'gemini-platform'
+}
+
+// The platform is the authority for where its turns run; the daemon only
+// insists the declaration is unambiguous. Never persisted or merged into the
+// registered roots: they are this exec's.
+const execRoots = (raw: unknown): string[] => {
+    if (raw === undefined) return []
+    if (!Array.isArray(raw) || !raw.every((r) => typeof r === 'string' && isAbsolute(r)))
+        throw new Error('roots must be absolute paths')
+    return raw.map((r) => resolve(r))
 }
 
 // A profile-bound execution (DAEMON_FEATURE_AUTH_CONTEXT): resolve the
@@ -1146,9 +1164,18 @@ const execStart = async (
         execStreams.delete(ctx.refId)
         rmSync(bufferDir(ctx.refId), { recursive: true, force: true })
     }
-    const cwd = payload.dir
-        ? ensureUnderAllowedRoot(payload.dir)
-        : process.cwd()
+    let cwd: string
+    try {
+        cwd = payload.dir
+            ? ensureUnderAllowedRoot(payload.dir, execRoots(payload.roots))
+            : process.cwd()
+    } catch (err) {
+        return {
+            ok: false,
+            payload: { exitCode: -1 },
+            error: (err as Error).message
+        }
+    }
     // env stays out of meta.json: it can carry credentials (connection tokens
     // and MF_API_TOKEN since #781), and nothing ever reads it back out of the
     // buffer — a resume re-attaches to the live child. Same rationale as the

@@ -8,6 +8,7 @@ import {
     frameworkCapability,
     frameworkDefinition,
     DAEMON_FEATURE_AUTH_CONTEXT,
+    DAEMON_FEATURE_EXEC_ROOTS,
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
     DAEMON_FEATURE_EXEC_RESOURCES,
@@ -39,7 +40,10 @@ import {
     type RuntimeKind
 } from '@/modules/auth/runtime-token.service'
 import type { ExecDriver } from './exec-driver'
-import { DaemonExecDriver } from './daemon-exec-driver'
+import {
+    DaemonExecDriver,
+    type DaemonExecDriverOptions
+} from './daemon-exec-driver'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import {
@@ -97,7 +101,7 @@ export interface RecoveryFsHandle {
 
 type AgentContext = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
 
-// Every turn reaches its machine the same way (ADR-0036): agent → runtime →
+// Every turn reaches its machine the same way (ADR-0037): agent → runtime →
 // host → the host's one daemon. The placement only decides what rides along
 // (credentials, identity token, sprite awake holds); the transport is always
 // the daemon RPC keyed by the host id.
@@ -163,8 +167,10 @@ export class ExecDriverFactory {
             placement
         )
 
-        const daemonId =
-            carryingDaemonId ?? (await this.resolveRunner(ctx)).daemonId
+        const runner = carryingDaemonId
+            ? { daemonId: carryingDaemonId, roots: turnRoots(agent, placement) }
+            : await this.resolveRunner(ctx)
+        const daemonId = runner.daemonId
         const coding = frameworkCapability(agent.framework).kind === 'coding'
         // A turn on the CLI's own sign-in needs no stored credential, and a
         // sandbox runtime prepared bare has none until a provider is bound —
@@ -195,11 +201,10 @@ export class ExecDriverFactory {
         if (placement === 'sprites')
             void this.spriteStorage.measureIfDue(agent.id, 'chat')
         return {
-            driver: this.daemonDriverFor(
-                daemonId,
-                baseEnv,
-                selectedAuthContext
-            ),
+            driver: this.daemonDriverFor(daemonId, baseEnv, selectedAuthContext, {
+                roots: runner.roots,
+                reconnect: this.reconnectFor(ctx.host)
+            }),
             daemonId,
             creds,
             resolvePriceScope: () =>
@@ -235,17 +240,20 @@ export class ExecDriverFactory {
         if (ctx.availability === 'unavailable')
             throw new ChatRunnerError(placement, 'runtime unavailable')
         const runnerFacts = frameworkDefinition(agent.framework)?.runner
-        // Gateway-backed frameworks create/resolve their own workspace on the
-        // first turn; admission must not require that lazy path to exist yet.
-        const workspacePath = runnerFacts?.lazyWorkspace
-            ? null
-            : (agent.workspacePath ?? agent.mountPath)
-        const extraRoots = runnerFacts?.homeRoots?.[placement] ?? []
+        const roots = turnRoots(agent, placement)
+        // A root the daemon does not own by construction (the agent's
+        // workspace outside the managed tree, a framework home on a shared
+        // machine) rides on the exec, which only a daemon with the feature
+        // admits; an older one is asked to update rather than refusing the
+        // cwd mid-turn.
         const required = [
             ...(authContextRefFor(agent, placement)
                 ? [DAEMON_FEATURE_AUTH_CONTEXT]
                 : []),
-            ...(runnerFacts?.requiredFeatures ?? [])
+            ...(runnerFacts?.requiredFeatures ?? []),
+            ...(roots.some((root) => !underWorkspaceBase(root, host))
+                ? [DAEMON_FEATURE_EXEC_ROOTS]
+                : [])
         ]
         // A sandbox turn is metered from its admission: the active slot is
         // reserved before the machine is woken for it.
@@ -259,8 +267,6 @@ export class ExecDriverFactory {
             daemon: ctx.daemon,
             placement,
             agentId: agent.id,
-            workspacePath,
-            extraRoots,
             requiredFeatures: required,
             firstExecTimeoutMs: spriteExecHealthConfig().firstExecTimeoutMs
         })
@@ -284,7 +290,16 @@ export class ExecDriverFactory {
                 'runner version or capability',
                 true
             )
-        return { daemonId: host.id }
+        return { daemonId: host.id, roots }
+    }
+
+    // A turn's first exec.start retries once after the daemon reconnects on
+    // a fresh lease (ADR-0038): the turn holds the machine awake, so a socket
+    // the thaw replaced is back within seconds.
+    private reconnectFor(host: RuntimeHostRow): ((since: Date) => Promise<boolean>) | undefined {
+        const manager = this.runnerManager
+        if (!manager) return undefined
+        return async (since) => (await manager.awaitReconnect(host, since)) !== null
     }
 
     // The agent's machine, for the sprite awake holds a turn places.
@@ -355,14 +370,16 @@ export class ExecDriverFactory {
     daemonDriverFor(
         daemonId: string,
         baseEnv?: Record<string, string>,
-        authContext: DaemonAuthContextRef | null = null
+        authContext: DaemonAuthContextRef | null = null,
+        options: DaemonExecDriverOptions = {}
     ): ExecDriver {
         return new DaemonExecDriver(
             this.daemonRegistry,
             daemonId,
             baseEnv,
             this.fencedDispatch,
-            authContext
+            authContext,
+            options
         )
     }
 
@@ -505,4 +522,26 @@ const spritesLoggerFor = (log: Logger, agentId?: string): SpritesLogger => {
         error: (m, meta) =>
             log.error(`[sprites] ${m} ${JSON.stringify(withAgent(meta))}`)
     }
+}
+
+// The directories a turn of this agent runs in beyond the daemon's own
+// roots: its workspace (a gateway-backed framework resolves its own on the
+// first turn and declares none) and the framework's home roots for the
+// placement.
+const turnRoots = (agent: Agent, placement: AgentRuntime): readonly string[] => {
+    const facts = frameworkDefinition(agent.framework)?.runner
+    const workspace = facts?.lazyWorkspace
+        ? null
+        : (agent.workspacePath ?? agent.mountPath)
+    return [
+        ...(workspace ? [workspace] : []),
+        ...(facts?.homeRoots?.[placement] ?? [])
+    ]
+}
+
+// Under the host's managed workspace tree the daemon admits a path by
+// construction; anywhere else it has to be told.
+const underWorkspaceBase = (path: string, host: RuntimeHostRow): boolean => {
+    const base = host.workspaceBaseDir?.replace(/\/+$/, '')
+    return Boolean(base && (path === base || path.startsWith(`${base}/`)))
 }

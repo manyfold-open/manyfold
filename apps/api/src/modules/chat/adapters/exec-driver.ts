@@ -3,6 +3,10 @@ export interface ExecStreamRequest {
     env?: Record<string, string>
     stdin?: string
     dir?: string
+    // Absolute directories the platform vouches for beyond the daemon's own
+    // (DAEMON_FEATURE_EXEC_ROOTS): the exec's cwd is admitted under any of
+    // them. Daemon driver only.
+    roots?: readonly string[]
     timeoutMs: number
     keepAliveMs?: number
     livenessTimeoutMs?: number

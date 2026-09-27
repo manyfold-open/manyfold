@@ -53,15 +53,13 @@ interface Harness {
 }
 
 const healthy = (hostId: string): RunnerResolution => ({
-    handle: { daemonId: hostId, started: false, generation: null },
-    workspace: { outcome: 'none' }
+    handle: { daemonId: hostId, started: false, generation: null }
 })
 
 const unhealthy = (): RunnerResolution => ({
     handle: null,
     fallbackReason: 'sprite_exec_unavailable',
-    execFailure: { failureClass: 'handshake_5xx', upstreamStatus: 502 },
-    workspace: { outcome: 'none' }
+    execFailure: { failureClass: 'handshake_5xx', upstreamStatus: 502 }
 })
 
 // `candidates` are the sandboxes that exist; only an explicit attachHostId can

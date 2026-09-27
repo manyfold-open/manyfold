@@ -113,8 +113,7 @@ const buildHarness = () => {
             ensureHostDaemon: async (args: { host: { id: string } }) => {
                 calls.daemonAsked.push(args.host.id)
                 return {
-                    handle: { daemonId: args.host.id, started: false, generation: null },
-                    workspace: { outcome: 'none' }
+                    handle: { daemonId: args.host.id, started: false, generation: null }
                 }
             }
         } as never,

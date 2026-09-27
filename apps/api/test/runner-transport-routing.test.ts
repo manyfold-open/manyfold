@@ -26,7 +26,8 @@ const features = [
     'turn.hermes',
     'turn.openclaw',
     'turn.openclaw.acp',
-    'auth-context.v1'
+    'auth-context.v1',
+    'exec.roots.v1'
 ]
 const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
     runtime === 'daemon'
@@ -47,7 +48,7 @@ const rig = (
     } = {}
 ) => {
     const calls: string[] = []
-    const workspaces: unknown[] = []
+    const payloads: Record<string, unknown>[] = []
     let awakeReleases = 0
     const agent = {
         id: 'agt_one',
@@ -88,21 +89,15 @@ const rig = (
             })
         })
     }
-    // The runner manager's answer, recorded: what workspace it was asked to
-    // ensure and whether the daemon came up.
+    // The runner manager's answer, recorded: whether the daemon came up.
     const hostAccess = {
-        ensure: async (args: {
-            daemon: HostDaemonRow | null
-            workspacePath?: string | null
-        }) => {
-            workspaces.push(args.workspacePath)
+        ensure: async (args: { daemon: HostDaemonRow | null }) => {
             calls.push('resolve')
             if (options.reason)
                 return {
                     daemon: null,
                     online: false,
-                    fallbackReason: options.reason,
-                    workspace: { outcome: 'failed' }
+                    fallbackReason: options.reason
                 }
             const online = daemonOnline(args.daemon)
             return {
@@ -121,8 +116,9 @@ const rig = (
         fakeRuntimeContext(context) as never,
         {} as never,
         {
-            streamRpc: () => {
+            streamRpc: (args: { payload: Record<string, unknown> }) => {
                 calls.push('exec.start')
+                payloads.push(args.payload)
                 return {
                     refId: 'ref',
                     result: Promise.resolve({ exitCode: 0 }),
@@ -145,15 +141,17 @@ const rig = (
         undefined,
         undefined,
         {
-            keepSpriteAwake: () => ({
+            holdAwake: () => ({
+                settled: Promise.resolve(true),
                 release: async () => {
                     awakeReleases++
                 },
                 detach() {}
-            })
+            }),
+            awaitReconnect: async () => null
         } as never
     )
-    return { factory, agent, calls, workspaces, awakeReleases: () => awakeReleases }
+    return { factory, agent, host, calls, payloads, awakeReleases: () => awakeReleases }
 }
 
 for (const framework of listFrameworks()) {
@@ -206,11 +204,7 @@ for (const runtime of ['daemon', 'sprites', 'k8s'] as const) {
     }
 }
 
-for (const reason of [
-    'workspace_timeout',
-    'workspace_error',
-    'runner_missing'
-] as const) {
+for (const reason of ['runner_unavailable', 'runner_missing'] as const) {
     test(`Pod ${reason} never falls back to pod exec`, async () => {
         const { factory, agent, calls } = rig('k8s', 'codex', { reason })
         await assert.rejects(factory.resolveRunner(agent), ChatRunnerError)
@@ -230,15 +224,46 @@ test('a newly starting Pod without a registered runner is retryable', async () =
 
 for (const runtime of ['sprites', 'k8s'] as const) {
     test(`${runtime}: gateway frameworks leave workspace resolution to the gateway`, async () => {
-        const { factory, agent, workspaces } = rig(runtime, 'openclaw')
+        const { factory, agent } = rig(runtime, 'openclaw')
         agent.workspacePath = '/not-yet-created/workspace'
-        await factory.resolveRunner(agent)
-        assert.deepEqual(workspaces, [null])
+        const gateway = await factory.resolveRunner(agent)
+        assert.equal(gateway.roots.includes(agent.workspacePath!), false)
         const coding = rig(runtime, 'codex')
-        await coding.factory.resolveRunner(coding.agent)
-        assert.deepEqual(coding.workspaces, [coding.agent.workspacePath])
+        const resolved = await coding.factory.resolveRunner(coding.agent)
+        assert.equal(resolved.roots[0], coding.agent.workspacePath)
     })
 }
+
+// ADR-0038: the roots ride on the exec instead of a workspace.ensure ahead
+// of the turn. A daemon that cannot read them is refused with the upgrade
+// path before any exec; a workspace under the host's managed tree needs no
+// declaration and no feature.
+test('a workspace outside the managed tree needs exec.roots.v1; under it the daemon needs no feature', async () => {
+    const outside = rig('sprites', 'codex', {
+        features: features.filter((f) => f !== 'exec.roots.v1')
+    })
+    await assert.rejects(outside.factory.resolveRunner(outside.agent), (err: unknown) => {
+        assert.ok(err instanceof ChatRunnerError)
+        assert.equal(err.chatError.code, 'chat_runner_upgrade_required')
+        return true
+    })
+    const managed = rig('sprites', 'codex', {
+        features: features.filter((f) => f !== 'exec.roots.v1')
+    })
+    managed.host.workspaceBaseDir = '/workspace'
+    const resolved = await managed.factory.resolveRunner(managed.agent)
+    assert.deepEqual(resolved.roots, [managed.agent.workspacePath])
+})
+
+test('the resolved roots reach the daemon on exec.start', async () => {
+    const { factory, agent, payloads } = rig('sprites', 'codex')
+    const resolved = await factory.resolveRunner(agent)
+    const driver = factory.daemonDriverFor(resolved.daemonId, undefined, null, {
+        roots: resolved.roots
+    })
+    await driver.stream({ cmd: ['true'], dir: agent.workspacePath!, timeoutMs: 1000 }).result
+    assert.deepEqual(payloads[0].roots, [agent.workspacePath])
+})
 
 test('Sprite recovery reserves a slot and reads its account only once', async () => {
     const { factory, agent, calls, awakeReleases } = rig('sprites', 'codex')
