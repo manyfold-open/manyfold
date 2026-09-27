@@ -9,6 +9,7 @@ import {
     UpdateAgentCredentialsBody,
     UserModelProvider,
     UserModelProviderSummary,
+    antigravityProviderModelIds,
     claudeCodeModelAliasMapKey,
     claudeCodeModelMapAliases,
     defaultProtocolForProvider,
@@ -453,9 +454,11 @@ const AgentCredentialsDialog: FC<Props> = ({
     const selectedSavedProviderModels = useMemo(
         () =>
             selectedSaved
-                ? providerModelIdsForSummary(selectedSaved, providerHint)
+                ? framework === 'antigravity-cli'
+                    ? antigravityProviderModelIds(selectedSaved)
+                    : providerModelIdsForSummary(selectedSaved, providerHint)
                 : null,
-        [providerHint, selectedSaved]
+        [framework, providerHint, selectedSaved]
     )
 
     const selectedProviderModels = useMemo(() => {

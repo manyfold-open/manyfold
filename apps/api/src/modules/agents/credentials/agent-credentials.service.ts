@@ -127,7 +127,11 @@ export class AgentCredentialsService {
             return runtimeUiPlaceholderView(agent)
         if (isExternal(agent.framework))
             return externalPlaceholderView(agent)
-        const cred = await this.requireCredentialsRow(agent)
+        const cred = await this.findCredentialsRow(agent)
+        // A bare hosted runtime has no credentials until its first agent is
+        // bound to a provider. Keep the settings page editable so the normal
+        // credentials update can create that first row.
+        if (!cred) return platformPlaceholderView(agent)
         const resolved = this.decryptResolved(cred, agent.framework)
         const savedProvider = await this.findSavedProvider(
             agent.userId,
@@ -551,6 +555,16 @@ const daemonPlaceholderView = (agent: Agent): AgentCredentialsView => ({
     savedProvider: null,
     extras: {},
     localManaged: true,
+    updatedAt: agent.updatedAt.toISOString()
+})
+
+const platformPlaceholderView = (agent: Agent): AgentCredentialsView => ({
+    framework: agent.framework,
+    provider: null,
+    apiKeyMasked: null,
+    baseUrl: null,
+    savedProvider: null,
+    extras: {},
     updatedAt: agent.updatedAt.toISOString()
 })
 

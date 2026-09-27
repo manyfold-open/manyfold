@@ -594,6 +594,8 @@ export {
     AGY_PLATFORM_OUTRANKING_ENV,
     AGY_TITLE_MODEL,
     antigravityUpstreamModel,
+    antigravityProviderModelIds,
+    resolveAntigravityModelOptions,
     isAntigravityConversationId,
     parseAntigravityModelList
 } from './antigravity-cli'
