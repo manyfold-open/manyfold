@@ -65,7 +65,8 @@ import { subscribeSessionsChanged } from '@/lib/sessionOwnershipEvents'
 import { lazyChunk } from '@/lib/lazyChunk'
 import { buildQuotaConflictRequest } from '@/lib/quotaConflict'
 import { useAppAuth } from '@/lib/auth'
-import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { AgentIconStatus } from '@/components/AgentStatusDot'
 import { getAgentChatAvailability } from '@/lib/chatAgents'
 import {
     CHAT_SCROLL_BOTTOM,
@@ -3276,25 +3277,29 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                                 'forward'
                             )
                         }}
-                        className='hover:bg-soft flex min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors'
+                        className='group/identity hover:bg-soft flex min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors'
                     >
                         <span className='hidden shrink-0 sm:inline-flex'>
-                            <FrameworkLogo
-                                framework={agent.framework}
-                                size={28}
+                            {/* No tooltip of its own: the state is spelled
+                                out beside the name, and the link already
+                                carries one. */}
+                            <AgentIconStatus
+                                agent={agent}
+                                size='md'
+                                tooltip={false}
+                                icon={
+                                    <FrameworkLogo
+                                        framework={agent.framework}
+                                        size={28}
+                                    />
+                                }
+                                ring='border-main group-hover/identity:border-soft'
                             />
                         </span>
                         <h1 className='text-ui text-fg min-w-0 truncate font-medium'>
                             {agent.name}
                         </h1>
-                        <span className='text-caption text-muted hidden shrink-0 items-center gap-1.5 sm:inline-flex'>
-                            <span
-                                className={[
-                                    'h-1.5 w-1.5 rounded-full',
-                                    agentStatusDotClass(agent)
-                                ].join(' ')}
-                                aria-hidden='true'
-                            />
+                        <span className='text-caption text-muted hidden shrink-0 sm:inline'>
                             {agentStatusDotLabel(agent)}
                         </span>
                     </Link>
