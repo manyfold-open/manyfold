@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 8.1.2
+
+### Patch Changes
+
+- [#578](https://github.com/manyfold-open/manyfold/pull/578) [`b078222`](https://github.com/manyfold-open/manyfold/commit/b078222ff1f507aa315ca42a3ba3aa9fa53c2003) Thanks [@yingca1](https://github.com/yingca1)! - Fix Antigravity provider/model editing by connecting the model picker to the validated draft and exposing refresh and validation errors. Run enabled provider-specific Gemini model IDs through agy's native custom model registration, preserving exact gateway routes, native OAuth isolation, built-in model variants and terminal resume behavior.
+
 ## 8.1.1
 
 ### Patch Changes
