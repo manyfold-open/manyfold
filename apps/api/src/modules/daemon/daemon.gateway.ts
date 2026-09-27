@@ -11,7 +11,8 @@ import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
 import { randomUUID } from 'node:crypto'
-import { auditLogs, type Database } from '@manyfold/db'
+import { agentRuntimes, auditLogs, type Database } from '@manyfold/db'
+import { eq } from 'drizzle-orm'
 import { Inject } from '@nestjs/common'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonTokenService } from './daemon-token.service'
@@ -130,6 +131,11 @@ export class DaemonGateway implements OnModuleInit {
         }
         const cliVersion = daemon.cliVersion
         const hostname = daemon.hostname
+
+        const runtimes = await this.db
+            .select({ id: agentRuntimes.id })
+            .from(agentRuntimes)
+            .where(eq(agentRuntimes.hostId, host.id))
 
         let pongTimer: NodeJS.Timeout | null = null
         let pingTimer: NodeJS.Timeout | null = null
@@ -270,6 +276,7 @@ export class DaemonGateway implements OnModuleInit {
             type: 'welcome',
             daemonId: host.id,
             serverTime: new Date().toISOString(),
+            runtimeIds: runtimes.map((r) => r.id),
             serverFeatures: [DAEMON_FEATURE_EXEC_RESUME]
         }
         socket.send(JSON.stringify(welcome))

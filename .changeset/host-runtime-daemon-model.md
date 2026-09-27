@@ -21,9 +21,8 @@ gone). Agent, runtime, sandbox and host summaries expose the host they live on
 `availability` instead of copied sprite / pod fields, agent status is the
 agent's own lifecycle (`pending` / `ready` / `failed`) and runtime status the
 install state (`installing` / `ready` / `failed`); the sprite-status stream
-emits host-status events. Daemon protocol: the register response and the
-welcome frame no longer carry `runtimes` / `runtimeIds`, the daemon's local
-stores are scoped by the host id, and the minimum CLI version is 5.0.0 — older
-daemons are refused at register and must `mf update`. CLI: `mf agent create
---account-id` becomes `--provider-id`; `mf runtime get`, `mf agent get` and
-`mf daemon status` print the host, provider, power state and availability.
+emits host-status events. Daemon protocol: the register response no longer
+carries `runtimes`, the welcome frame's `runtimeIds` lists the runtimes on the
+host, and the daemon's local stores are scoped by the host id. CLI: `mf agent
+create --account-id` becomes `--provider-id`; `mf runtime get`, `mf agent get`
+and `mf daemon status` print the host, provider, power state and availability.

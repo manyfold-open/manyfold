@@ -126,7 +126,8 @@ test('late events from an old socket cannot close or dispatch on its successor',
                 Buffer.from(
                     JSON.stringify({
                         type: 'welcome',
-                        daemonId: 'old'
+                        daemonId: 'old',
+                        runtimeIds: []
                     })
                 )
             )
@@ -351,7 +352,8 @@ test('the backoff resets when the server takes the hello, not on open', async ()
                 JSON.stringify({
                     type: 'welcome',
                     daemonId: 'ldh_fixture',
-                    serverTime: new Date().toISOString()
+                    serverTime: new Date().toISOString(),
+                    runtimeIds: []
                 })
             )
             await until(() => internals(client).backoffMs === 1000)

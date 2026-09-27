@@ -412,7 +412,9 @@ const runClaimedForeground = async (
                 localState.ws = false
             },
             onWelcome: (frame) =>
-                void log(`welcome daemonId=${frame.daemonId}`),
+                void log(
+                    `welcome daemonId=${frame.daemonId} runtimes=${frame.runtimeIds.length}`
+                ),
             handleRpc: rpcHandler
         })
         ws.start()
