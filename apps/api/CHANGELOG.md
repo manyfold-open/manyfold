@@ -1,5 +1,29 @@
 # @manyfold/api
 
+## 8.1.0
+
+### Minor Changes
+
+- [#569](https://github.com/manyfold-open/manyfold/pull/569) [`e4eab55`](https://github.com/manyfold-open/manyfold/commit/e4eab559326beea7f664310bba47002a270a638d) Thanks [@yingca1](https://github.com/yingca1)! - A turn now carries the directories it runs in — the agent's workspace and
+  its framework's home — on the exec itself, instead of registering them with
+  the daemon in a separate call just before the turn. A message to an agent
+  whose workspace sits outside the machine's managed tree (a coding agent on
+  a sandbox it shares with a service framework) no longer depends on that
+  extra round trip landing before the machine sleeps; the daemon admits the
+  exec's directory for that exec only. A daemon too old to read them is asked
+  to update before the turn rather than failing mid-turn.
+
+- [#569](https://github.com/manyfold-open/manyfold/pull/569) [`e4eab55`](https://github.com/manyfold-open/manyfold/commit/e4eab559326beea7f664310bba47002a270a638d) Thanks [@yingca1](https://github.com/yingca1)! - A machine that can sleep is now held awake for exactly as long as the
+  platform works on it, and only then. One lease per machine covers the wake,
+  the daemon's reconnect, the admission and the turn, so a sandbox that
+  suspended a moment ago no longer answers a message with "the agent's
+  computer is unavailable": it is woken, held, and the turn runs. Whether a
+  machine can take work is read from the socket the API holds to its daemon,
+  never from the last heartbeat; a self-owned computer the API holds no
+  socket to is offline and says so. Account operations, the terminal, files,
+  storage and recovery use the same lease, and a call that lands on a socket
+  the thaw replaced is retried once on the fresh one.
+
 ## 8.0.0
 
 ### Major Changes
