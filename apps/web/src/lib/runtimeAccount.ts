@@ -24,6 +24,29 @@ export const usageWindowLabelKey = (key: string): string | null =>
 export const usageTone = (usedPercent: number): TagTone =>
     usedPercent >= 90 ? 'error' : usedPercent >= 70 ? 'warning' : 'success'
 
+export const usageErrorNote = (
+    usage: RuntimeAccountUsage | null,
+    t: TFn
+): string | null => {
+    const error = usage?.error
+    if (!error) return null
+    if (error.kind === 'stale-token')
+        return t('web.runtimeDetails.account.usageStale')
+    if (error.kind === 'unauthorized')
+        return t('web.runtimeDetails.account.usageUnauthorized')
+    if (error.kind === 'rate-limited')
+        return t('web.runtimeDetails.account.usageRateLimited', {
+            time: error.retryAfterSeconds
+                ? formatDuration(error.retryAfterSeconds * 1000)
+                : '—'
+        })
+    if (error.kind === 'network')
+        return t('web.runtimeDetails.account.usageNetwork')
+    return error.message
+        ? `${t('web.runtimeDetails.account.usageUnexpected')} (${error.message})`
+        : t('web.runtimeDetails.account.usageUnexpected')
+}
+
 export const formatResetsIn = (
     resetsAt: string | null,
     now: number

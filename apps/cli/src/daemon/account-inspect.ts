@@ -1,4 +1,3 @@
-import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
     ModelConfigFramework,
@@ -55,6 +54,8 @@ export const GEMINI_LOAD_CODE_ASSIST_URL =
     'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist'
 export const GEMINI_USER_QUOTA_URL =
     'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'
+export const ANTIGRAVITY_AVAILABLE_MODELS_URL =
+    'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels'
 
 const defaultDeps = (): AccountInspectDeps => ({
     fetch: globalThis.fetch,
@@ -340,13 +341,104 @@ const inspectPi = async (
 const inspectAntigravity = async (
     deps: AccountInspectDeps
 ): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
-    for (const name of AGY_TOKEN_FILES)
+    let saved: Record<string, unknown> | null = null
+    for (const name of AGY_TOKEN_FILES) {
+        const file = await readTextIfPresent(join(deps.dirs.geminiDir, name))
+        if (!file.ok || !file.text?.trim()) continue
+        saved = parseJsonRecord(file.text)
+        if (saved) break
+    }
+    if (!saved) return { tokenSource: 'none', identity: null, usage: null }
+
+    const token = nestedRecord(saved, 'token') ?? saved
+    const claims = jwtClaims(saved.id_token ?? token?.id_token)
+    const accounts = parseJsonRecord(
+        (await readTextIfPresent(join(deps.dirs.geminiDir, 'google_accounts.json')))
+            .text
+    )
+    const email = trimmed(claims?.email) ?? trimmed(accounts?.active)
+    let identity: RuntimeAccountIdentity | null = email
+        ? {
+              email,
+              name: trimmed(claims?.name),
+              organization: null,
+              plan: null,
+              accountId: trimmed(claims?.sub)
+          }
+        : claims
+          ? identityOrNull({
+                email: null,
+                name: trimmed(claims.name),
+                organization: null,
+                plan: null,
+                accountId: trimmed(claims.sub)
+            })
+          : null
+    const accessToken = trimmed(token?.access_token)
+    if (!accessToken) return { tokenSource: 'file', identity, usage: null }
+    const expiry = token?.expiry
+    if (typeof expiry === 'string') {
+        const expiresAt = Date.parse(expiry)
         if (
-            ((await stat(join(deps.dirs.geminiDir, name)).catch(() => null))
-                ?.size ?? 0) > 0
+            Number.isFinite(expiresAt) &&
+            expiresAt > 0 &&
+            expiresAt <= deps.now()
         )
-            return { tokenSource: 'file', identity: null, usage: null }
-    return { tokenSource: 'none', identity: null, usage: null }
+            return {
+                tokenSource: 'file',
+                identity,
+                usage: skippedFetch('google', deps)
+            }
+    }
+    if (!deps.usage) return { tokenSource: 'file', identity, usage: null }
+
+    const headers = {
+        ...bearer(accessToken),
+        'Content-Type': 'application/json'
+    }
+    const load = await vendorFetch(
+        deps,
+        'google',
+        GEMINI_LOAD_CODE_ASSIST_URL,
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                metadata: {
+                    ideType: 'ANTIGRAVITY',
+                    platform: 'PLATFORM_UNSPECIFIED',
+                    pluginType: 'GEMINI'
+                }
+            })
+        }
+    )
+    if (load.error || load.status < 200 || load.status >= 300)
+        return { tokenSource: 'file', identity, usage: load }
+
+    const loadBody = load.body
+    const loadRecord =
+        loadBody && typeof loadBody === 'object' && !Array.isArray(loadBody)
+            ? (loadBody as Record<string, unknown>)
+            : null
+    const planInfo = nestedRecord(loadRecord, 'planInfo')
+    const currentTier = nestedRecord(loadRecord, 'currentTier')
+    const plan =
+        trimmed(planInfo?.planType) ??
+        trimmed(currentTier?.name) ??
+        trimmed(currentTier?.id)
+    if (plan && identity) identity = { ...identity, plan }
+    const project = geminiProjectId(loadBody)
+    const usage = await vendorFetch(
+        deps,
+        'google',
+        ANTIGRAVITY_AVAILABLE_MODELS_URL,
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(project ? { project } : {})
+        }
+    )
+    return { tokenSource: 'file', identity, usage }
 }
 
 const accountReportFor = (
@@ -365,6 +457,7 @@ const accountReportFor = (
         case 'antigravity-cli':
             return inspectAntigravity(deps)
     }
+    throw new Error(`unsupported account framework: ${framework}`)
 }
 
 export const inspectRuntimeAccount = async (

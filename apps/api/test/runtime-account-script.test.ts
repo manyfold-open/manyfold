@@ -91,7 +91,8 @@ const endpointsFor = (base: string) => ({
     anthropicUsage: `${base}/anthropic/usage`,
     codexUsage: `${base}/codex/usage`,
     geminiLoadCodeAssist: `${base}/gemini/load`,
-    geminiUserQuota: `${base}/gemini/quota`
+    geminiUserQuota: `${base}/gemini/quota`,
+    antigravityAvailableModels: `${base}/antigravity/models`
 })
 
 // `claude --version` feeds the User-Agent; plant a stub so the assertion does
@@ -108,7 +109,7 @@ const plantClaudeStub = async (root: string): Promise<string> => {
 }
 
 const inspect = async (
-    framework: 'claude-code' | 'codex' | 'gemini-cli',
+    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'antigravity-cli',
     home: string,
     base: string
 ): Promise<{ probe: RuntimeAccountProbe; stdout: string }> => {
@@ -323,6 +324,76 @@ test('sandbox account script: gemini resolves its project before asking for quot
         assert.equal(probe.identity?.email, 'ying@gmail.example')
         assert.deepEqual(probe.usage?.body, quota)
         assert.equal(stdout.includes('ya29'), false)
+    })
+})
+
+test('sandbox account script: antigravity reads model quotas from Cloud Code', async () => {
+    await withFixture(async (home, stub) => {
+        await mkdir(join(home, '.gemini', 'antigravity-cli'), {
+            recursive: true
+        })
+        await writeFile(
+            join(
+                home,
+                '.gemini',
+                'antigravity-cli',
+                'antigravity-oauth-token'
+            ),
+            JSON.stringify({
+                token: {
+                    access_token: 'agy-sandbox-secret',
+                    expiry: new Date(Date.now() + 60_000).toISOString()
+                },
+                id_token: jwt({ email: 'agy@example.com', sub: 'agy-sub' })
+            })
+        )
+        await writeFile(
+            join(home, '.gemini', 'google_accounts.json'),
+            JSON.stringify({ active: 'agy@example.com' })
+        )
+        const models = {
+            models: {
+                'gemini-3.1-pro': {
+                    displayName: 'Gemini 3.1 Pro',
+                    quotaInfo: {
+                        remainingFraction: 0.4,
+                        resetTime: '2026-09-03T15:00:00Z'
+                    }
+                }
+            }
+        }
+        stub.respond = (req) =>
+            req.path === '/gemini/load'
+                ? {
+                      status: 200,
+                      body: { cloudaicompanionProject: 'agy-proj' }
+                  }
+                : { status: 200, body: models }
+        const { probe, stdout } = await inspect(
+            'antigravity-cli',
+            home,
+            stub.base
+        )
+        assert.deepEqual(
+            stub.calls.map((call) => [call.method, call.path]),
+            [
+                ['POST', '/gemini/load'],
+                ['POST', '/antigravity/models']
+            ]
+        )
+        assert.deepEqual(JSON.parse(stub.calls[0].body), {
+            metadata: {
+                ideType: 'ANTIGRAVITY',
+                platform: 'PLATFORM_UNSPECIFIED',
+                pluginType: 'GEMINI'
+            }
+        })
+        assert.deepEqual(JSON.parse(stub.calls[1].body), {
+            project: 'agy-proj'
+        })
+        assert.equal(probe.identity?.email, 'agy@example.com')
+        assert.deepEqual(probe.usage?.body, models)
+        assert.equal(stdout.includes('agy-sandbox-secret'), false)
     })
 })
 

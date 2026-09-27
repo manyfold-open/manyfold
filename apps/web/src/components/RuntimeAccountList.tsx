@@ -30,6 +30,7 @@ import {
     hostAccountHeadline,
     hostAccountSubline,
     signInNeeded,
+    usageErrorNote,
     usageTone,
     usageWindowLabelKey
 } from '@/lib/runtimeAccount'
@@ -43,7 +44,6 @@ import {
     settleRuntimeAuthOperation
 } from '@/lib/runtimeAuth'
 import { updatesPath } from '@/lib/updateCenter'
-import { formatDuration } from '@/lib/usageFormat'
 
 const RuntimeSignInTerminal = lazyChunk(
     () => import('@/components/RuntimeSignInTerminal')
@@ -82,24 +82,8 @@ const usageNote = (
     usage: RuntimeAccountUsage | null,
     t: TFn
 ): string | null => {
-    const error = usage?.error
-    if (error) {
-        if (error.kind === 'stale-token')
-            return t('web.runtimeDetails.account.usageStale')
-        if (error.kind === 'unauthorized')
-            return t('web.runtimeDetails.account.usageUnauthorized')
-        if (error.kind === 'rate-limited')
-            return t('web.runtimeDetails.account.usageRateLimited', {
-                time: error.retryAfterSeconds
-                    ? formatDuration(error.retryAfterSeconds * 1000)
-                    : '—'
-            })
-        if (error.kind === 'network')
-            return t('web.runtimeDetails.account.usageNetwork')
-        return error.message
-            ? `${t('web.runtimeDetails.account.usageUnexpected')} (${error.message})`
-            : t('web.runtimeDetails.account.usageUnexpected')
-    }
+    const errorNote = usageErrorNote(usage, t)
+    if (errorNote) return errorNote
     if (usage) return null
     if (view.tokenSource === 'keychain-unread')
         return t('web.runtimeDetails.account.keychainUnread')
@@ -786,6 +770,8 @@ export const RuntimeAccountList: FC<{
             removable &&
             list.capabilities.manage
         const signInOnRow = canSignIn && profileNeedsSignIn(profile)
+        const usageWindows = profile.usage?.windows ?? []
+        const usageMessage = usageErrorNote(profile.usage, t)
         const items: OverflowMenuEntry[] = [
             ...(canSignIn && !signInOnRow
                 ? [
@@ -879,7 +865,15 @@ export const RuntimeAccountList: FC<{
                     profile.id,
                     !profileBindable(profile) || !list.capabilities.execute
                 )}
-            />
+            >
+                {(usageWindows.length > 0 || usageMessage) && (
+                    <UsageWindows
+                        windows={usageWindows}
+                        note={usageMessage}
+                        fetchedAt={profile.usage?.fetchedAt ?? null}
+                    />
+                )}
+            </AccountCard>
         )
     }
 

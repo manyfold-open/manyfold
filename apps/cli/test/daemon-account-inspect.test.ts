@@ -7,6 +7,7 @@ import type { RuntimeAccountProbe } from '@manyfold/shared'
 import {
     ANTHROPIC_USAGE_URL,
     CODEX_USAGE_URL,
+    ANTIGRAVITY_AVAILABLE_MODELS_URL,
     GEMINI_LOAD_CODE_ASSIST_URL,
     GEMINI_USER_QUOTA_URL,
     inspectRuntimeAccount,
@@ -312,6 +313,29 @@ const writeGemini = async (
     )
 }
 
+const writeAntigravity = async (home: string): Promise<void> => {
+    await mkdir(join(home, '.gemini', 'antigravity-cli'), { recursive: true })
+    await writeFile(
+        join(home, '.gemini', 'antigravity-cli', 'antigravity-oauth-token'),
+        JSON.stringify({
+            token: {
+                access_token: 'agy-access-secret',
+                refresh_token: 'agy-refresh-secret',
+                expiry: new Date(NOW + 60_000).toISOString()
+            },
+            id_token: jwt({
+                email: 'agy@example.com',
+                name: 'Agy User',
+                sub: 'agy-sub'
+            })
+        })
+    )
+    await writeFile(
+        join(home, '.gemini', 'google_accounts.json'),
+        JSON.stringify({ active: 'agy@example.com' })
+    )
+}
+
 test('gemini: resolves the Code Assist project, then asks for its quota', async () => {
     await withHome(async (home) => {
         await writeGemini(home, {
@@ -364,6 +388,60 @@ test('gemini: a rejected project lookup is the reported outcome, not a second ca
         const expired = await inspectRuntimeAccount('gemini-cli', deps(fetch))
         assert.equal(expired.usage?.error?.kind, 'stale-token')
         assert.equal(calls.length, 1)
+    })
+})
+
+test('antigravity: reads the subscription quota from fetchAvailableModels', async () => {
+    await withHome(async (home) => {
+        await writeAntigravity(home)
+        const models = {
+            models: {
+                'gemini-3.5-flash': {
+                    displayName: 'Gemini 3.5 Flash',
+                    quotaInfo: {
+                        remainingFraction: 0.65,
+                        resetTime: '2026-09-03T15:00:00Z'
+                    }
+                }
+            }
+        }
+        const { fetch, calls } = stubFetch((call) =>
+            call.url === GEMINI_LOAD_CODE_ASSIST_URL
+                ? json({
+                      cloudaicompanionProject: 'agy-project',
+                      currentTier: { name: 'Google AI Pro' }
+                  })
+                : json(models)
+        )
+        const report = await inspectRuntimeAccount(
+            'antigravity-cli',
+            deps(fetch)
+        )
+        assert.deepEqual(
+            calls.map((call) => call.url),
+            [GEMINI_LOAD_CODE_ASSIST_URL, ANTIGRAVITY_AVAILABLE_MODELS_URL]
+        )
+        assert.deepEqual(JSON.parse(calls[0].body ?? ''), {
+            metadata: {
+                ideType: 'ANTIGRAVITY',
+                platform: 'PLATFORM_UNSPECIFIED',
+                pluginType: 'GEMINI'
+            }
+        })
+        assert.deepEqual(JSON.parse(calls[1].body ?? ''), {
+            project: 'agy-project'
+        })
+        assert.deepEqual(report.identity, {
+            email: 'agy@example.com',
+            name: 'Agy User',
+            organization: null,
+            plan: 'Google AI Pro',
+            accountId: 'agy-sub'
+        })
+        assert.deepEqual(report.usage?.body, models)
+        const wire = JSON.stringify(report)
+        assert.equal(wire.includes('agy-access-secret'), false)
+        assert.equal(wire.includes('agy-refresh-secret'), false)
     })
 })
 

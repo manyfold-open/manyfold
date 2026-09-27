@@ -8,6 +8,7 @@ import {
     runtimeAccountSupport,
     type RuntimeAccountIdentity,
     type RuntimeAccountProbe,
+    type RuntimeAccountUsage,
     type RuntimeAccountView
 } from './runtime-account'
 
@@ -109,6 +110,7 @@ export interface RuntimeAuthProfileView {
     // refresh; cache keys and execution evidence, never a token hash.
     credentialGeneration: number
     identity: RuntimeAccountIdentity | null
+    usage: RuntimeAccountUsage | null
     vendorUserId: string | null
     vendorAccountId: string | null
     checkedAt: string | null
