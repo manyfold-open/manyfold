@@ -59,9 +59,11 @@ import {
     costFull,
     costShort,
     creatingPrimary,
+    preparingPrimary,
     runtimeFull,
     runtimeShort
 } from '@/pages/AgentNew/v4/summaryLabels'
+import type { PreparePhase } from '@/pages/AgentNew/v4/summaryLabels'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import {
     buildMachineOptions,
@@ -145,7 +147,12 @@ const AgentNewV4: FC = (): ReactNode => {
     // because a highlighted row is not yet a resource — the machine is only
     // built when the step is left.
     const [machinePick, setMachinePick] = useState<string | null>(null)
-    const [preparing, setPreparing] = useState<string | null>(null)
+    // The machine step ② is committing, and which of its two requests is in
+    // flight: the build, then the install.
+    const [preparing, setPreparing] = useState<{
+        machine: string
+        phase: PreparePhase
+    } | null>(null)
     const [stepError, setStepError] = useState<string | null>(null)
     const [serviceProviderId, setServiceProviderId] = useState<string | null>(
         null
@@ -161,11 +168,12 @@ const AgentNewV4: FC = (): ReactNode => {
         profileId: string
     } | null>(null)
     const [busySignIn, setBusySignIn] = useState(false)
-    // Seconds since the create was pressed. The request carries no progress
-    // of its own — it is one POST, and the server sends nothing until it
-    // answers — so a moving number is the only honest evidence the page is
-    // still alive. Everything else would be a progress bar we invented.
-    const [creatingFor, setCreatingFor] = useState(0)
+    // Seconds since the button started a wait: step ②'s build and install, or
+    // the create. None of those requests carries progress of its own — the
+    // server sends nothing until it answers — so a moving number is the only
+    // honest evidence the page is still alive. Everything else would be a
+    // progress bar we invented.
+    const [waitedFor, setWaitedFor] = useState(0)
     // An agent the create made but whose step ③ answer could not be bound
     // afterwards. It exists either way, so the button stops offering to make
     // another one and opens this one instead.
@@ -322,7 +330,7 @@ const AgentNewV4: FC = (): ReactNode => {
                         hostLabel: row.title,
                         ownComputer: false
                     }
-                setPreparing(row.title)
+                setPreparing({ machine: row.title, phase: 'install' })
                 const runtime = await client.podHosts.prepareRuntime(
                     row.podHostId,
                     framework
@@ -347,7 +355,7 @@ const AgentNewV4: FC = (): ReactNode => {
                         hostLabel: row.title,
                         ownComputer: false
                     }
-                setPreparing(row.title)
+                setPreparing({ machine: row.title, phase: 'install' })
                 const runtime = await client.sandboxes.prepareRuntime(
                     row.sandboxId,
                     framework
@@ -363,7 +371,10 @@ const AgentNewV4: FC = (): ReactNode => {
                 }
             }
             if (machinePick === 'new:sandbox') {
-                setPreparing(t('web.agentNewV4.preparing.newMachine'))
+                setPreparing({
+                    machine: t('web.agentNewV4.preparing.newMachine'),
+                    phase: 'build'
+                })
                 const sandbox = await client.sandboxes.create({})
                 if (deferred) {
                     await create.refetchSandboxes()
@@ -376,7 +387,7 @@ const AgentNewV4: FC = (): ReactNode => {
                         ownComputer: false
                     }
                 }
-                setPreparing(sandbox.name)
+                setPreparing({ machine: sandbox.name, phase: 'install' })
                 const runtime = await client.sandboxes.prepareRuntime(
                     sandbox.id,
                     framework
@@ -643,18 +654,19 @@ const AgentNewV4: FC = (): ReactNode => {
 
     // One wait from the user's side: the create and the binding after it.
     const creating = create.busy || binding
+    const busy = preparing !== null || creating
     useEffect(() => {
-        if (!creating) {
-            setCreatingFor(0)
+        if (!busy) {
+            setWaitedFor(0)
             return
         }
         const started = Date.now()
         const timer = setInterval(
-            () => setCreatingFor(Math.floor((Date.now() - started) / 1000)),
+            () => setWaitedFor(Math.floor((Date.now() - started) / 1000)),
             1000
         )
         return () => clearInterval(timer)
-    }, [creating])
+    }, [busy])
 
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
@@ -754,8 +766,6 @@ const AgentNewV4: FC = (): ReactNode => {
         goTo,
         t
     ])
-
-    const busy = preparing !== null || creating
 
     // The managed row's second line. "Billed by usage" alone asks the user
     // to choose how to pay without saying whether there is anything to pay
@@ -947,7 +957,7 @@ const AgentNewV4: FC = (): ReactNode => {
         // OpenClaw install is 1–2 minutes on top.
         if (creating)
             return creatingPrimary(
-                creatingFor,
+                waitedFor,
                 installing
                     ? machineAsleep
                         ? 210
@@ -976,11 +986,30 @@ const AgentNewV4: FC = (): ReactNode => {
         remoteRef,
         signIn,
         creating,
-        creatingFor,
+        waitedFor,
         machineAsleep,
         unbound,
         t
     ])
+
+    // While step ② commits the machine, the button keeps the cost line it
+    // showed before the press and only its label moves. The budget is that
+    // line's promise plus the slack the create allows its own: "about a
+    // minute" for a build alone, "about 2 minutes" for a build and the
+    // install, "about 1–2 minutes" for an install.
+    const preparingButton = useMemo((): StepPrimary | null => {
+        if (preparing === null || framework === null) return null
+        return preparingPrimary(
+            preparing.phase,
+            frameworkLabel(framework),
+            waitedFor,
+            machinePick === 'new:sandbox' && installsAtCreate(framework)
+                ? 75
+                : 150,
+            primary.fine ?? '',
+            t
+        )
+    }, [preparing, framework, waitedFor, machinePick, primary.fine, t])
 
     const question = useMemo((): string => {
         if (flow.step === 'type') return t('web.agentNewV4.question.type')
@@ -1015,7 +1044,7 @@ const AgentNewV4: FC = (): ReactNode => {
                           framework !== null && installsAtCreate(framework)
                               ? 'web.agentNewV4.preparing.noteBuild'
                               : 'web.agentNewV4.preparing.note',
-                          { machine: preparing }
+                          { machine: preparing.machine }
                       )
                     : // Waking a sleeping machine to open a login takes about
                       // a minute, during which the only feedback was a greyed
@@ -1037,7 +1066,7 @@ const AgentNewV4: FC = (): ReactNode => {
             error={stepError ?? create.error}
             onJump={goTo}
             onNext={() => void advance()}
-            primary={primary}
+            primary={preparingButton ?? primary}
             busy={busy || busySignIn}
         >
             {flow.step === 'type' && (
@@ -1055,6 +1084,7 @@ const AgentNewV4: FC = (): ReactNode => {
                     machines={machines}
                     newMachines={newMachines}
                     selectedId={machinePick}
+                    locked={preparing !== null}
                     onSelectMachine={(row: MachineOption) =>
                         setMachinePick(row.id)
                     }

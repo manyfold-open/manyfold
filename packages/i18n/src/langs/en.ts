@@ -3807,7 +3807,10 @@ const en = {
                 createFine: 'a few seconds',
                 createFineAsleep: 'about a minute · this machine has to wake up first',
                 creating: 'Creating…',
-                tookLonger: 'longer than usual · a failure leaves nothing half-made'
+                tookLonger: 'longer than usual · a failure leaves nothing half-made',
+                building: 'Building…',
+                installing: 'Installing {{cli}}…',
+                longerThanUsual: 'longer than usual'
             }
         },
         agentNew: {

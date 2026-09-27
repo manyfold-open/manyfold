@@ -22,6 +22,7 @@ import {
     costFull,
     costShort,
     creatingPrimary,
+    preparingPrimary,
     runtimeFull,
     runtimeShort
 } from '../src/pages/AgentNew/v4/summaryLabels'
@@ -518,6 +519,33 @@ test('overrunning replaces the cost line rather than adding a second one', () =>
     // Past it, the same slot says something different. Because that line had
     // been constant, changing it is the signal.
     assert.equal(creatingPrimary(76, 75, cost, tt).fine, 'web.agentNewV4.primary.tookLonger')
+})
+
+// The wait after "Build one and install …" at step ②. It is two requests, the
+// build and then the install, so the label can name the one in flight; the
+// count and the cost line keep the create's rules across both.
+test('step ② names the request in flight and counts across both', () => {
+    const cost = 'about 2 minutes · sign in once afterwards · 0 of 5 used'
+    assert.equal(
+        preparingPrimary('build', 'Pi', 1, 150, cost, tt).label,
+        'web.agentNewV4.primary.building'
+    )
+    assert.equal(
+        preparingPrimary('build', 'Pi', 12, 150, cost, tt).label,
+        'web.agentNewV4.primary.building · 12s'
+    )
+    // The install picks up the build's count: one wait, a new verb.
+    assert.equal(
+        preparingPrimary('install', 'Pi', 13, 150, cost, tt).label,
+        'web.agentNewV4.primary.installing(Pi) · 13s'
+    )
+    assert.equal(preparingPrimary('install', 'Pi', 150, 150, cost, tt).fine, cost)
+    // A build that fails leaves its machine behind, marked failed, so the
+    // overrun line cannot borrow the create's "nothing half-made".
+    assert.equal(
+        preparingPrimary('install', 'Pi', 151, 150, cost, tt).fine,
+        'web.agentNewV4.primary.longerThanUsual'
+    )
 })
 
 // A service framework (OpenClaw, Hermes, an edition's) is installed at

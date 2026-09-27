@@ -3641,7 +3641,10 @@ const zh: Translations = {
                 createFine: '几秒',
                 createFineAsleep: '约一分钟 · 这台机器要先唤醒',
                 creating: '正在创建…',
-                tookLonger: '比平常久了 · 失败不会留下半个 agent'
+                tookLonger: '比平常久了 · 失败不会留下半个 agent',
+                building: '正在准备机器…',
+                installing: '正在安装 {{cli}}…',
+                longerThanUsual: '比平常久了'
             }
         },
         agentNew: {
