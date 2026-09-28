@@ -3212,10 +3212,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // One rule for every path that holds a turn's awake lease. Only a real
     // terminal proves nothing on the sprite still needs it awake. A turn that
     // suspended, or whose fence another owner took mid-relay, is live under
-    // somebody else — who may be renewing this very lease, since every path
-    // names it by the turn — so deleting it here would freeze the sprite under
-    // the owner now doing the work. Stop renewing and let the TTL bound the
-    // leak instead, exactly as if this instance had died.
+    // somebody else — who holds the machine with a lease of its own, or
+    // shares this instance's one — so deleting it here could freeze the sprite
+    // under the owner now doing the work. Stop renewing and let the TTL bound
+    // the leak instead, exactly as if this instance had died.
     private async settleAwakeHold(
         hold: AwakeHold | null,
         args: { keepAwake: boolean }

@@ -25,6 +25,18 @@ export const liveHostedHosts = (kind: RuntimeProviderKind) =>
         hostedOnProviderKind(kind)
     )
 
+// A live hosted machine that is up. The concurrency caps, active-hours
+// enforcement, the admin overview and the exec-session reaper all count this
+// one set, keyed on the corrected power the status sync keeps.
+export const runningHostedHosts = (kind: RuntimeProviderKind) =>
+    and(liveHostedHosts(kind), eq(runtimeHosts.powerState, 'running'))
+
+// The raw-SQL twins, for scalar subqueries that alias runtime_hosts as `h`.
+// Keep them in step with the builders above.
+export const LIVE_SPRITES_HOST_SQL = `h.kind = 'hosted' and h.status in ('provisioning', 'ready', 'deleting') and exists (select 1 from runtime_providers p where p.id = h.provider_id and p.kind = 'sprites')`
+
+export const RUNNING_SPRITES_HOST_SQL = `${LIVE_SPRITES_HOST_SQL} and h.power_state = 'running'`
+
 export const liveLocalHosts = () =>
     and(eq(runtimeHosts.kind, 'local'), ne(runtimeHosts.status, 'retired'))
 

@@ -83,9 +83,9 @@ export const DEFAULT_SPRITE_EXEC_PROBE_TIMEOUT_MS = 5_000
 //
 // Not the 5s above, and deliberately: this exec also WAKES a suspended VM and
 // runs a login shell, where the probe only ever meets a sprite something else
-// already woke. 15s is the bound the provisioning no-op probe settled on for
-// the same staging fault (SANDBOX_EXEC_PROBE_TIMEOUT_MS) — several times what a
-// healthy inspect needs, well under the 36–39s the fault takes to surface.
+// already woke. 15s is the bound a no-op exec probe settled on for the same
+// staging fault — several times what a healthy inspect needs, well under the
+// 36–39s the fault takes to surface.
 export const DEFAULT_SPRITE_EXEC_FIRST_EXEC_TIMEOUT_MS = 15_000
 
 // Read per call rather than frozen at import: these are operational knobs an

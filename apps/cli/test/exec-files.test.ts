@@ -82,7 +82,7 @@ test('the wrapper is fixed text that takes the exec dir and argv as positional p
     assert.match(EXEC_WRAPPER_SCRIPT, /^d=\$1\nshift\n/)
     assert.match(
         EXEC_WRAPPER_SCRIPT,
-        /"\$@" <"\$d\/stdin" >>"\$d\/stdout\.log" 2>>"\$d\/stderr\.log" &/
+        /exec 3<"\$d\/stdin"\nrm -f "\$d\/stdin"\n"\$@" <&3 3<&- >>"\$d\/stdout\.log" 2>>"\$d\/stderr\.log" &\np=\$!\nexec 3<&-\n/
     )
     // The child is forked before TERM is ignored, so the group kill reaches
     // it while the wrapper lives on to write the exit line.
@@ -188,6 +188,74 @@ test(
             )
         assert.ok(existsSync(join(run.dir, 'events.ndjson')))
         assert.equal(readFileSync(join(run.dir, 'exit'), 'utf8'), '3\n')
+    }
+)
+
+// A caller may hand a whole script over as stdin: the buffer keeps it
+// neither in its meta nor as a file once the child has it open.
+test(
+    'a script sent as stdin is off the disk while the child still reads it',
+    { skip: !posix },
+    async () => {
+        const run = startExec(
+            'stdin-unlinked',
+            ['/bin/sh', '-c', 'sleep 1; cat'],
+            { stdin: 'stdin-script-fixture' }
+        )
+        const stdinFile = join(run.dir, 'stdin')
+        const until = Date.now() + 900
+        while (existsSync(stdinFile) && Date.now() < until) await sleep(20)
+        const unlinked = !existsSync(stdinFile)
+        const running = fileExecRegistry.get(run.refId) !== undefined
+        const final = await run.handle.done
+        assert.ok(unlinked, 'unlinked by the wrapper')
+        assert.ok(running, 'while the child was still running')
+        assert.deepEqual(final, { ok: true, payload: { exitCode: 0 } })
+        assert.equal(
+            run.events
+                .filter((e) => e.kind === 'stdout')
+                .map((e) => e.data)
+                .join(''),
+            'stdin-script-fixture'
+        )
+    }
+)
+
+test(
+    "rpc: an exec's stdin never reaches its meta, on the pipe path or the file path",
+    { skip: !posix },
+    async () => {
+        setDeclaredWorkspaceRoot(join(home, 'workspaces'))
+        const prior = process.env.MF_DAEMON_EXEC_FILES
+        const ctx = (refId: string) => ({
+            refId,
+            sendEvent: () => {},
+            onCancel: () => {}
+        })
+        try {
+            for (const flag of [undefined, '1']) {
+                if (flag === undefined) delete process.env.MF_DAEMON_EXEC_FILES
+                else process.env.MF_DAEMON_EXEC_FILES = flag
+                const refId = nextRef(`meta-stdin-${flag ?? 'pipe'}`)
+                const ack = await rpcHandler(
+                    'exec.start',
+                    { cmd: ['/bin/cat'], stdin: 'stdin-script-fixture' },
+                    ctx(refId) as never
+                )
+                assert.equal(ack.ok, true, ack.error)
+                const meta = readMeta(refId)
+                assert.deepEqual(meta?.payload.cmd, ['/bin/cat'])
+                assert.equal('stdin' in (meta?.payload ?? {}), false)
+                assert.doesNotMatch(
+                    readFileSync(join(daemonPaths.execDir, refId, 'meta.json'), 'utf8'),
+                    /stdin-script-fixture/
+                )
+            }
+        } finally {
+            if (prior === undefined) delete process.env.MF_DAEMON_EXEC_FILES
+            else process.env.MF_DAEMON_EXEC_FILES = prior
+            setDeclaredWorkspaceRoot(null)
+        }
     }
 )
 

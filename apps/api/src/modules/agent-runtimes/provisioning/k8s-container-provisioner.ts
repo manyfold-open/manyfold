@@ -52,9 +52,11 @@ import {
 } from '@/modules/hosts/providers/sandbox-provider'
 import { ingressSuffixOf } from '@/modules/hosts/providers/k8s.provider'
 import { recordPower } from '@/modules/hosts/providers/generation'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
-import { DaemonFrameworkExec } from '@/modules/agents/adapters/framework-exec'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
 import {
     isPodHostFramework,
     podScriptRunner,
@@ -157,6 +159,17 @@ interface FrameworkOnHost {
     ingressHost?: string
 }
 
+interface PodFrameworkInstall {
+    host: RuntimeHostRow
+    provider: RuntimeProvider
+    framework: AgentFramework
+    credentials: unknown
+    modelConfigSource: AgentModelConfigSource | null
+    requested: FrameworkVersionSelection | null
+    requestedRepo?: string | null
+    requestedArtifacts?: FrameworkReleaseArtifacts | null
+}
+
 // A Kubernetes pod host (ADR-0035, ADR-0037): one pod running the generic host
 // image, whose PVC is the home directory every framework on it is installed
 // into. The host row is `hosted` on a k8s runtime provider; the k8s adapter
@@ -176,8 +189,7 @@ export class K8sContainerProvisioner {
         private readonly clients: HostProviderClients,
         private readonly placement: HostPlacementService,
         private readonly providers: SandboxProviderRegistry,
-        private readonly runnerManager: RunnerManagerService,
-        private readonly registry: DaemonRegistryService,
+        private readonly hostAccess: HostDaemonAccess,
         private readonly config: ConfigService,
         private readonly crypto: CryptoService,
         private readonly podRunner: PodRunnerProvisioner,
@@ -714,16 +726,9 @@ export class K8sContainerProvisioner {
         return ready
     }
 
-    private async installFramework(args: {
-        host: RuntimeHostRow
-        provider: RuntimeProvider
-        framework: AgentFramework
-        credentials: unknown
-        modelConfigSource: AgentModelConfigSource | null
-        requested: FrameworkVersionSelection | null
-        requestedRepo?: string | null
-        requestedArtifacts?: FrameworkReleaseArtifacts | null
-    }): Promise<FrameworkOnHost> {
+    private async installFramework(
+        args: PodFrameworkInstall
+    ): Promise<FrameworkOnHost> {
         assertPodHostFramework(args.framework)
         const { host } = args
         const { selection, repo, artifacts } = args.requested
@@ -734,19 +739,47 @@ export class K8sContainerProvisioner {
               }
             : await this.frameworkVersions.resolveInstallVersion(args.framework)
         // Everything inside the machine goes through its daemon (ADR-0037
-        // R6): the install is a login-shell script the daemon runs.
-        const resolution = await this.runnerManager.ensureHostDaemon({ host })
-        if (!resolution.handle)
+        // R6): the install is a login-shell script the daemon runs, all of it
+        // in one session on the machine.
+        try {
+            return await this.hostAccess.withHost(
+                {
+                    host,
+                    daemon: null,
+                    placement: 'k8s',
+                    reason: `install-${args.framework}`
+                },
+                (session) =>
+                    this.installFrameworkOn(session, args, {
+                        selection,
+                        repo,
+                        artifacts
+                    })
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
             throw new ServiceUnavailableException({
                 code: 'POD_HOST_DAEMON_OFFLINE',
-                message: `cloud computer ${host.id} has no connected daemon (${resolution.fallbackReason ?? 'offline'})`
+                message: `cloud computer ${host.id} has no connected daemon (${err.reason})`
             })
-        const runner = podScriptRunner(
-            new DaemonFrameworkExec(this.registry, host.id),
-            (event, fields) =>
-                this.log.warn(
-                    `${event} ${JSON.stringify({ hostId: host.id, ...fields })}`
-                )
+        }
+    }
+
+    private async installFrameworkOn(
+        session: HostSession,
+        args: PodFrameworkInstall,
+        resolved: {
+            selection: FrameworkVersionSelection
+            repo: string | null
+            artifacts: FrameworkReleaseArtifacts | null
+        }
+    ): Promise<FrameworkOnHost> {
+        const { host } = args
+        const { selection, repo, artifacts } = resolved
+        const runner = podScriptRunner({ run: session.exec }, (event, fields) =>
+            this.log.warn(
+                `${event} ${JSON.stringify({ hostId: host.id, ...fields })}`
+            )
         )
         const install = {
             frameworkVersion: selection.version,

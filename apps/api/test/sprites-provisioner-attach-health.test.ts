@@ -9,7 +9,7 @@ import type {
 } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
-import type { RunnerResolution } from '../src/modules/chat/runner/runner-manager.service'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 
 // Placement is explicit: no sandbox named means a fresh VM, and only an attach
 // lands on a VM that already exists. These tests own that boundary in the
@@ -52,15 +52,12 @@ interface Harness {
     bootstrappedOn: string[]
 }
 
-const healthy = (hostId: string): RunnerResolution => ({
-    handle: { daemonId: hostId, started: false, generation: null }
-})
-
-const unhealthy = (): RunnerResolution => ({
-    handle: null,
-    fallbackReason: 'sprite_exec_unavailable',
-    execFailure: { failureClass: 'handshake_5xx', upstreamStatus: 502 }
-})
+// What the bring-up says of a sandbox whose exec endpoint is wedged.
+const unhealthy = (host: RuntimeHostRow): HostDaemonOfflineError =>
+    new HostDaemonOfflineError(host, 'sprite_exec_unavailable', {
+        failureClass: 'handshake_5xx',
+        upstreamStatus: 502
+    })
 
 // `candidates` are the sandboxes that exist; only an explicit attachHostId can
 // land on one of them.
@@ -210,20 +207,19 @@ const buildHarness = (opts: {
         { selectProvider: async () => provider } as never,
         { for: () => adapter } as never,
         {
-            ensureHostDaemon: async (args: { host: RuntimeHostRow }) => {
+            withHost: async (
+                args: { host: RuntimeHostRow },
+                work: (session: unknown) => Promise<unknown>
+            ) => {
                 daemonAsked.push(args.host.id)
                 const spriteName = (args.host.providerRef as { spriteName: string }).spriteName
-                return (opts.unhealthy ?? []).includes(spriteName)
-                    ? unhealthy()
-                    : healthy(args.host.id)
-            },
-            requireHostDaemon: async (host: RuntimeHostRow) => {
-                daemonAsked.push(host.id)
-                hosts.set(host.id, { ...hosts.get(host.id)!, status: 'ready' })
-                return { hostId: host.id }
+                if ((opts.unhealthy ?? []).includes(spriteName))
+                    throw unhealthy(args.host)
+                // The daemon registering is what flips a new sandbox ready.
+                hosts.set(args.host.id, { ...hosts.get(args.host.id)!, status: 'ready' })
+                return work({ host: args.host, daemonId: args.host.id })
             }
         } as never,
-        {} as never,
         { revokeForHost: async () => 1 } as never,
         runtimes as never,
         { run: async () => ({ homeDir: undefined }) } as never,

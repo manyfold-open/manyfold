@@ -16,7 +16,10 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
-import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
+import {
+    liveHostedHosts,
+    runningHostedHosts
+} from '@/modules/runtime-access/runtime-usage-counts'
 import { SandboxesService } from './sandboxes.service'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 
@@ -127,12 +130,7 @@ export class ActiveHoursEnforcementService
         const running = await this.db
             .select({ id: runtimeHosts.id, userId: runtimeHosts.userId })
             .from(runtimeHosts)
-            .where(
-                and(
-                    liveHostedHosts('sprites'),
-                    eq(runtimeHosts.powerState, 'running')
-                )
-            )
+            .where(runningHostedHosts('sprites'))
         const keepAlive = await this.db
             .select({ id: runtimeHosts.id, userId: runtimeHosts.userId })
             .from(runtimeHosts)
@@ -211,7 +209,14 @@ export class ActiveHoursEnforcementService
         const unresolved: string[] = []
         for (const hostId of input.runningHostIds) {
             try {
-                const res = await this.sandboxes.stop(input.userId, hostId)
+                // Forced: the platform's own holds go too, and an agent task
+                // named like one cannot keep the VM up past the quota.
+                const res = await this.sandboxes.stop(
+                    input.userId,
+                    hostId,
+                    false,
+                    { force: true }
+                )
                 if (res.status === 'noop' || res.warnings.length > 0)
                     unresolved.push(hostId)
                 else stopped.push(hostId)

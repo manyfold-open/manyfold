@@ -154,20 +154,12 @@ class FakeTransportResolver extends FrameworkExecResolver {
     override async forRuntime(): Promise<FrameworkExec> {
         return this.exec()
     }
-
-    override async forHost(): Promise<FrameworkExec> {
-        return this.exec()
-    }
 }
 
 const frameworkStub = (framework: string) => ({ framework })
 
 const makeHarness = () => {
-    const resolver = new FakeTransportResolver(
-        {} as never,
-        {} as never,
-        {} as never
-    )
+    const resolver = new FakeTransportResolver({} as never, {} as never)
     const registry = new AgentAdapterRegistry(
         frameworkStub('claude-code') as never,
         frameworkStub('codex') as never,

@@ -43,10 +43,13 @@ const hostsFor = () => ({
         workspaceBaseDir: null
     })
 })
-const hostAccessFor = (registry: {
-    rpc?: (args: Record<string, unknown>) => Promise<unknown>
-    streamRpc?: unknown
-}) => ({
+const hostAccessFor = (
+    registry: {
+        rpc?: (args: Record<string, unknown>) => Promise<unknown>
+        streamRpc?: unknown
+    },
+    holds: Array<{ reason: string; released: boolean }> = []
+) => ({
     withHost: async (
         args: { host: { id: string } },
         work: (session: Record<string, unknown>) => Promise<unknown>
@@ -59,7 +62,18 @@ const hostAccessFor = (registry: {
                 registry.rpc
                     ? registry.rpc({ daemonId: args.host.id, ...call })
                     : Promise.resolve({})
-        })
+        }),
+    hold: (_host: unknown, reason: string) => {
+        const hold = { reason, released: false }
+        holds.push(hold)
+        return {
+            settled: Promise.resolve(true),
+            release: async () => {
+                hold.released = true
+            },
+            detach: () => {}
+        }
+    }
 })
 
 class FakeClient extends EventEmitter {
@@ -678,4 +692,122 @@ test('a herdr launch the daemon refuses drops the freshly minted token', async (
     )
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(apiTokens.calls.deleted, ['tok-1'])
+})
+
+// WHY: exec.start reads `dir`, not `cwd`. The view prepare sent `cwd`, so the
+// daemon ran it in its own working directory and the roots vouching for the
+// workspace admitted nothing.
+test('a view prepare runs in the workspace it names', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const registry = {
+        rpc: async () => ({}),
+        streamRpc: (call: {
+            payload: Record<string, unknown>
+            onEvent: (kind: string, data: string) => void
+        }) => {
+            calls.push(call.payload)
+            call.onEvent('stdout', '--app_data_dir=/tmp/agy-view\n')
+            return { result: Promise.resolve({ exitCode: 0 }) }
+        }
+    }
+    const hostAccess = {
+        withHost: async (
+            args: { host: { id: string } },
+            work: (session: Record<string, unknown>) => Promise<unknown>
+        ) =>
+            work({
+                host: args.host,
+                daemon: { clientFeatures: ['exec.roots.v1'] },
+                daemonId: args.host.id,
+                rpc: async () => ({})
+            })
+    }
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        makeApiTokens() as never,
+        hostsFor() as never,
+        hostAccess as never
+    )
+
+    const flag = await terminal.prepareAntigravityView(
+        'dh-1',
+        {},
+        '/Users/cy/project'
+    )
+
+    assert.equal(flag, '--app_data_dir=/tmp/agy-view')
+    assert.equal(calls[0]?.dir, '/Users/cy/project')
+    assert.deepEqual(calls[0]?.roots, ['/Users/cy/project'])
+    assert.equal('cwd' in (calls[0] ?? {}), false)
+})
+
+// A terminal tunnelled to a registry whose pty stream ends when `end` is called.
+const heldTerminal = (opts: { terminalId?: string } = {}) => {
+    const holds: Array<{ reason: string; released: boolean }> = []
+    let end!: (payload: Record<string, unknown>) => void
+    const registry = {
+        streamRpc: () => ({
+            refId: 'ref-1',
+            result: new Promise<Record<string, unknown>>((resolve) => {
+                end = resolve
+            }),
+            cancel: () => {}
+        }),
+        rpc: async () => ({ ok: true })
+    }
+    const client = new FakeClient()
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        makeApiTokens() as never,
+        hostsFor() as never,
+        hostAccessFor(registry, holds) as never
+    )
+    const open = () =>
+        terminal.tunnel({
+            agent: makeAgent() as never,
+            hostId: 'dh-1',
+            placement: 'daemon',
+            cols: 80,
+            rows: 24,
+            client: client as never,
+            onClose: () => {},
+            ...(opts.terminalId ? { ownedTerminalId: opts.terminalId } : {})
+        })
+    return { holds, client, open, end: (payload = {}) => end(payload) }
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve))
+
+// WHY: a pty is neither an exec nor a task, and a sprite suspends about a
+// second after its last one of those. Held only while it opened, a sprite
+// terminal froze a few seconds after the tab came up.
+test('an attached terminal holds its machine until the tab goes away', async () => {
+    const t = heldTerminal()
+    await t.open()
+    assert.deepEqual(t.holds, [{ reason: 'terminal-pty', released: false }])
+
+    t.client.emit('close')
+    await tick()
+    assert.deepEqual(t.holds, [{ reason: 'terminal-pty', released: true }])
+})
+
+test('a pty that ends on its own lets its machine go', async () => {
+    const t = heldTerminal()
+    await t.open()
+
+    t.end()
+    await tick()
+    assert.equal(t.holds[0]?.released, true)
+})
+
+test('an owned terminal whose tab detaches lets its machine go', async () => {
+    const t = heldTerminal({ terminalId: 'tms_1' })
+    await t.open()
+    assert.equal(t.holds[0]?.reason, 'terminal-tms_1')
+
+    t.client.emit('close')
+    await tick()
+    assert.equal(t.holds[0]?.released, true)
 })

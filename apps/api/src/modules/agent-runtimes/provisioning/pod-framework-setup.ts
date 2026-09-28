@@ -31,9 +31,9 @@ export const isPodHostFramework = (
 
 const SETUP_TIMEOUT_MS = 60_000
 
-// A login-shell script run inside the pod. The exec carries no env, so a secret
-// the script needs is exported at the top of its stdin — never on argv, which
-// the pod's /proc exposes.
+// A login-shell script run inside the pod by its daemon. A secret the script
+// needs rides the exec's env: the daemon keeps a command's stdin in its exec
+// buffer on disk, and its argv is in the pod's /proc, but never its env.
 export interface PodScriptRunner extends HostScriptRunner {
     run(
         script: string,
@@ -42,12 +42,13 @@ export interface PodScriptRunner extends HostScriptRunner {
     ): Promise<ExecResult>
 }
 
-// What runs the script: the host's daemon (DaemonFrameworkExec, the normal
-// case — ADR-0037 R6) or, for the daemon's own bring-up, a bare pod exec.
+// What runs the script: a host session's exec through the daemon
+// (ADR-0037 R6).
 export interface PodScriptExec {
     run(req: {
         cmd: string[]
         stdin?: string
+        env?: Record<string, string>
         timeoutMs: number
     }): Promise<ExecResult>
 }
@@ -59,16 +60,31 @@ export const podScriptRunner = (
     run: (script, timeoutMs, env) =>
         exec.run({
             cmd: ['bash', '-l', '-s'],
-            stdin: `${exportLines(env)}${script}\n`,
+            stdin: `${script}\n`,
+            ...(env ? { env } : {}),
             timeoutMs
         }),
     warn
 })
 
-const exportLines = (env?: Record<string, string>): string =>
-    Object.entries(env ?? {})
-        .map(([key, value]) => `export ${key}=${shellQuote(value)}\n`)
-        .join('')
+// A step that writes a file holding a secret: the content is base64 in the
+// step's env under `envName`, never in the script, and lands atomically,
+// readable by its owner only. `pathExpr` is a shell word (quoted, or a
+// "$HOME/…" the shell expands).
+export const secretFileStep = (
+    pathExpr: string,
+    envName: string,
+    content: string
+): { script: string; env: Record<string, string> } => ({
+    script: [
+        'set -eu',
+        `mkdir -p "$(dirname ${pathExpr})"`,
+        'umask 077',
+        `printf '%s' "$${envName}" | base64 -d > ${pathExpr}.tmp`,
+        `mv -f ${pathExpr}.tmp ${pathExpr}`
+    ].join('\n'),
+    env: { [envName]: Buffer.from(content, 'utf8').toString('base64') }
+})
 
 export const runPodStep = async (
     runner: PodScriptRunner,
@@ -200,13 +216,13 @@ export const applyCodexCredentialsOnPod = async (args: {
         args.mcpToml,
         args.composioKey
     )
-    await runPodStep(
-        args.runner,
-        'codex-config',
-        [
-            'set -eu',
-            'mkdir -p "$HOME/.codex"',
-            `cat > "$HOME/.codex/config.toml" <<'MF_CODEX_EOF'\n${configToml}\nMF_CODEX_EOF`
-        ].join('\n')
+    // The toml can carry the Composio key.
+    const step = secretFileStep(
+        '"$HOME/.codex/config.toml"',
+        'MF_CODEX_CONFIG_B64',
+        configToml
     )
+    await runPodStep(args.runner, 'codex-config', step.script, {
+        env: step.env
+    })
 }

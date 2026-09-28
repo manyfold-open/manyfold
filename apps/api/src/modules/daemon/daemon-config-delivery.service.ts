@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common'
+import { Inject, Injectable, OnModuleDestroy, Optional } from '@nestjs/common'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
     agents,
@@ -22,6 +22,11 @@ import {
     mcpConfigFromExtras
 } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
+import {
+    HostAwakeService,
+    NOOP_HOLD,
+    type AwakeHold
+} from '@/modules/hosts/host-awake.service'
 import {
     DaemonRegistryService,
     storedConfigConnectionToken,
@@ -184,6 +189,18 @@ export const readDaemonConfigSnapshot = async (
     }
 }
 
+// The delivery's reads and writes are not platform-visible activity on a
+// sprite, which suspends about a second after its last exec or task, so the
+// machine is held while they run (ADR-0038). Only a machine that is already
+// up: a delivery never wakes one, and taking a hold on a sleeping sprite would.
+export const holdForDelivery = (
+    awake: HostAwakeService | undefined,
+    host: RuntimeHostRow
+): AwakeHold =>
+    awake && (host.kind === 'local' || host.powerState === 'running')
+        ? awake.hold(host, 'config-delivery')
+        : NOOP_HOLD
+
 export interface DaemonConfigAttempt {
     generation: string
     holderId: string
@@ -214,7 +231,8 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
     private stopping = false
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly registry: DaemonRegistryService
+        private readonly registry: DaemonRegistryService,
+        @Optional() private readonly awake?: HostAwakeService
     ) {}
 
     async onModuleDestroy(): Promise<void> {
@@ -404,6 +422,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
                 throw new DaemonConfigDeliveryError('superseded')
             }
         }
+        const hold = holdForDelivery(this.awake, claimed.host)
         const deadline = setTimeout(() => abort.abort(), 90_000)
         deadline.unref()
         const stopRetirement = this.registry.onConnectionRetired(
@@ -490,6 +509,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         } finally {
             clearTimeout(deadline)
             stopRetirement()
+            void hold.release()
             await this.transaction(async (tx) => {
                 await tx
                     .update(serviceLeases)

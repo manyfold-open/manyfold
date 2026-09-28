@@ -383,10 +383,11 @@ export class RuntimeAuthProfilesService {
     }
 
     // Intent prewarm from the agent-create form: the user picked a sandbox
-    // runtime, so start its runner now and let the list answer when they get
-    // to the accounts. Same admission and metering as a click (wakeRunner
-    // runs reserveActiveSlot), fire-and-forget, debounced per runtime;
-    // quota and transient wake failures are expected and only logged.
+    // runtime, so start its daemon now and let the list answer when they get
+    // to the accounts. Same admission and metering as a click (the
+    // reserveActiveSlot below, then wakeHost under a hold), fire-and-forget,
+    // debounced per runtime; quota and transient wake failures are expected
+    // and only logged.
     private readonly prewarmedAt = new Map<string, number>()
 
     async prewarm(

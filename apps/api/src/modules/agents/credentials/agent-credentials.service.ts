@@ -40,6 +40,7 @@ import {
 import { auditLogs } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
+import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
@@ -60,8 +61,7 @@ import type {
 } from '@/modules/agents/credentials/resolved-credentials'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import {
-    applyCodexCredentialsOnPod,
-    podScriptRunner
+    applyCodexCredentialsOnPod
 } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
 
 const maskApiKey = (raw: string | null | undefined): string | null => {
@@ -95,7 +95,9 @@ export class AgentCredentialsService {
         // working; without it, gateway-framework credential updates degrade
         // to the saved-but-rebuild-to-apply 409.
         @Optional()
-        private readonly serviceRestart?: AgentServiceRestartService
+        private readonly serviceRestart?: AgentServiceRestartService,
+        // Same convention; the pod path needs it to reach the host's daemon.
+        @Optional() private readonly podServices?: PodHostServices
     ) {}
 
     async getView(
@@ -433,7 +435,10 @@ export class AgentCredentialsService {
             throw new InternalServerErrorException(
                 `agent ${agent.id} is not on a cloud computer`
             )
-        const exec = await this.hostClients.podExecForHost(ctx.host)
+        if (!this.podServices)
+            throw new InternalServerErrorException(
+                'cloud computer services are not available'
+            )
         const composioKey = await decryptComposioKey(
             this.db,
             this.crypto,
@@ -441,14 +446,14 @@ export class AgentCredentialsService {
             (agent.extras as { composioConnectionId?: string | null })
                 .composioConnectionId
         )
-        await applyCodexCredentialsOnPod({
-            runner: podScriptRunner(exec, (event, fields) =>
-                this.log.warn(`${event} ${JSON.stringify(fields)}`)
-            ),
-            baseUrl: resolved.value.openaiBaseUrl ?? null,
-            mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
-            composioKey
-        })
+        await this.podServices.runScripts(ctx.host, 'codex-credentials', (runner) =>
+            applyCodexCredentialsOnPod({
+                runner,
+                baseUrl: resolved.value.openaiBaseUrl ?? null,
+                mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
+                composioKey
+            })
+        )
     }
 
     private async requireAgent(

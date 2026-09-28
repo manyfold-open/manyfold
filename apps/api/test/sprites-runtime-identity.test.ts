@@ -212,8 +212,7 @@ test('createSprites mints the runtime identity only AFTER the agents row exists 
         'identity mint ran before the agents row was inserted — FK would fail'
     )
     assert.equal(identityCalls[0].args.agentId, result.id)
-    assert.equal(identityCalls[0].args.userId, 'user-1')
-    assert.equal(identityCalls[0].args.spriteName, 'agt-core-agent')
+    assert.deepEqual(identityCalls[0].args, { userId: 'user-1', agentId: result.id })
     assert.equal(db.credentialRows.length, 1)
     assert.deepEqual(teardownCalls, [])
 })
@@ -257,8 +256,7 @@ const provisionerWith = (opts: {
         {} as never, // clients
         {} as never, // placement
         {} as never, // providers
-        {} as never, // runnerManager
-        {} as never, // registry
+        {} as never, // hostAccess
         {} as never, // tokens
         {} as never, // runtimes
         {} as never, // claudeBootstrap
@@ -296,9 +294,7 @@ test('installRuntimeIdentity mints (encrypted) and never writes the token to the
 
     await provisioner.installRuntimeIdentity({
         userId: 'user-1',
-        agentId: 'agt_A',
-        client: {} as never,
-        spriteName: 'agt-a'
+        agentId: 'agt_A'
     })
 
     assert.equal(mintArgs.length, 1)
@@ -331,9 +327,7 @@ test('installRuntimeIdentity throws when the mint fails (gated)', async () => {
         () =>
             provisioner.installRuntimeIdentity({
                 userId: 'user-1',
-                agentId: 'agt_A',
-                client: {} as never,
-                spriteName: 'agt-a'
+                agentId: 'agt_A'
             }),
         /FK violation/
     )
@@ -358,9 +352,7 @@ test('installRuntimeIdentity skips (no mint, no write, no throw) without PUBLIC_
 
     await provisioner.installRuntimeIdentity({
         userId: 'user-1',
-        agentId: 'agt_A',
-        client: {} as never,
-        spriteName: 'agt-a'
+        agentId: 'agt_A'
     })
 
     assert.equal(
@@ -387,9 +379,7 @@ test('installRuntimeIdentity throws when the token service is unwired in a gated
         () =>
             provisioner.installRuntimeIdentity({
                 userId: 'user-1',
-                agentId: 'agt_A',
-                client: {} as never,
-                spriteName: 'agt-a'
+                agentId: 'agt_A'
             }),
         /RuntimeTokenService is not wired/
     )

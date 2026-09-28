@@ -126,7 +126,8 @@ test('the daemon arm injects the four identity keys and MF_TERMINAL_ID into pty.
                         daemonId: args.host.id,
                         ...call
                     })
-            })
+            }),
+        hold: () => ({ release: async () => {} })
     }
     const terminal = new DaemonTerminal(
         registry as never,

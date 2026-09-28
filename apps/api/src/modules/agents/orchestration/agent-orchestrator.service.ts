@@ -114,7 +114,6 @@ import {
     RuntimeContextService,
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 
 interface OrchestratorContext {
     userId: string
@@ -227,10 +226,7 @@ export class AgentOrchestratorService {
         // (ADR-0034); absent means only the core frameworks.
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        @Optional() private readonly changes?: ResourceChangesService,
-        // Only the sprites rotate path reaches the provider directly (the
-        // identity is injected into the VM's shell profile).
-        @Optional() private readonly hostClients?: HostProviderClients
+        @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -269,16 +265,13 @@ export class AgentOrchestratorService {
         return agentRowToSummary(summaryRowOf(ctx))
     }
 
-    // Rotate the agent's runtime identity and re-inject it live. Order-B,
-    // brick-safe-by-recovery: installRuntimeIdentity mints (revoking the prior
-    // active row + inserting the new active row atomically) THEN re-injects with
-    // required:true. If injection throws, the new token is already valid and
-    // re-injectable (retry rotate) while the old is intentionally dead — never a
-    // silent half-rotate. NOT zero-downtime: the old in-shell token stops the
-    // instant the mint commits, so this is an explicit, not-routine operation.
-    // k8s rotation (Secret patch + pod restart/drain) is deferred — re-provision
-    // to rotate a k8s identity. A daemon identity rotates mint-only, because it
-    // is injected per turn rather than living in a shell profile (#781).
+    // Rotate the agent's runtime identity. Mint-only: the mint revokes the
+    // prior active row and inserts the new one atomically, and the identity is
+    // injected per exec or turn from the encrypted copy rather than living in a
+    // shell profile (#781), so there is no live re-inject step. NOT
+    // zero-downtime: the old token stops the instant the mint commits, so this
+    // is an explicit, not-routine operation. k8s rotation (Secret patch + pod
+    // restart/drain) is deferred — re-provision to rotate a k8s identity.
     async rotateRuntimeToken(
         agentId: string,
         callerUserId: string,
@@ -324,19 +317,10 @@ export class AgentOrchestratorService {
                 `runtime-token rotation is not supported for ${placement} runtimes`
             )
         }
-        if (!this.hostClients)
-            throw new InternalServerErrorException(
-                'host provider clients unavailable'
-            )
-        const { client, spriteName } =
-            await this.hostClients.spritesClientForHost(ctx.host)
-
         try {
             await this.spritesProvisioner.installRuntimeIdentity({
                 userId: agent.userId,
-                agentId: agent.id,
-                client,
-                spriteName
+                agentId: agent.id
             })
         } catch (err) {
             await this.writeRotateAudit(
@@ -347,7 +331,7 @@ export class AgentOrchestratorService {
                 (err as Error).message
             )
             throw new InternalServerErrorException(
-                `runtime-token rotation failed mid-inject for ${agent.id}; the new token is valid but not yet injected — retry rotate (the previous token is revoked)`
+                `runtime-token rotation failed for ${agent.id}; the previous token is still active — retry rotate`
             )
         }
 
@@ -1293,10 +1277,6 @@ export class AgentOrchestratorService {
         }
 
         const { runtime, host, provider } = provisioned
-        const spriteName =
-            host.providerRef?.kind === 'sprites'
-                ? host.providerRef.spriteName
-                : null
         await this.audit(
             actorUserId,
             auditAction.AGENT_CREATE_STARTED,
@@ -1361,15 +1341,9 @@ export class AgentOrchestratorService {
             // doing this during provisioning would violate the FK. Fail-loud: a
             // mint/inject failure throws and the catch below tears the runtime
             // down (no half-provisioned, tokenless agent).
-            if (!spriteName)
-                throw new InternalServerErrorException(
-                    `host ${host.id} has no sprite for identity injection`
-                )
             await this.spritesProvisioner.installRuntimeIdentity({
                 userId,
-                agentId,
-                client: provisioned.spritesClient,
-                spriteName
+                agentId
             })
 
             emitter.step('storing_credentials')

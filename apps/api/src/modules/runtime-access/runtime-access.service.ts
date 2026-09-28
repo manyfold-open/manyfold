@@ -78,9 +78,12 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { buildSandboxUsageBreakdown } from './sandbox-usage-breakdown'
 import {
+    LIVE_SPRITES_HOST_SQL,
+    RUNNING_SPRITES_HOST_SQL,
     alwaysOnlineUsageInTx,
     emptyUsage,
     liveHostedHosts,
+    runningHostedHosts,
     usageCountsForUsers as computeUsageCountsForUsers,
     type RuntimeUsageCounts
 } from './runtime-usage-counts'
@@ -119,10 +122,6 @@ const serviceFrameworks = (): string[] =>
     listFrameworks().filter(
         (framework) => frameworkCapability(framework).kind === 'service'
     )
-
-// A running sandbox VM: hosted on a sprites provider and observed `running`.
-const runningSpritesHosts = () =>
-    and(liveHostedHosts('sprites'), eq(runtimeHosts.powerState, 'running'))
 
 @Injectable()
 export class RuntimeAccessService {
@@ -822,7 +821,7 @@ export class RuntimeAccessService {
         const [row] = await this.db
             .select({ value: count() })
             .from(runtimeHosts)
-            .where(and(eq(runtimeHosts.userId, userId), runningSpritesHosts()))
+            .where(and(eq(runtimeHosts.userId, userId), runningHostedHosts('sprites')))
         return Number(row?.value ?? 0)
     }
 
@@ -1563,7 +1562,7 @@ export class RuntimeAccessService {
                 .where(
                     and(
                         eq(runtimeHosts.userId, input.userId),
-                        runningSpritesHosts(),
+                        runningHostedHosts('sprites'),
                         ne(runtimeHosts.id, input.hostId)
                     )
                 )
@@ -1583,7 +1582,7 @@ export class RuntimeAccessService {
                 .from(runtimeHosts)
                 .where(
                     and(
-                        runningSpritesHosts(),
+                        runningHostedHosts('sprites'),
                         // Exclude the target host: it ends up running either way,
                         // so the cap applies to the OTHER running VMs. Starting a
                         // 2nd framework on an already running VM adds no VM and
@@ -1708,20 +1707,13 @@ export class RuntimeAccessService {
             const usageRows = (await tx.execute(sql`
                 select count(*)::int as value from (
                     select h.id as host_id from runtime_hosts h
-                    join runtime_providers p on p.id = h.provider_id
                     where h.user_id = ${input.userId}
-                      and h.kind = 'hosted'
-                      and p.kind = 'sprites'
-                      and h.status in ('provisioning', 'ready', 'deleting')
-                      and h.power_state = 'running'
+                      and ${sql.raw(RUNNING_SPRITES_HOST_SQL)}
                       and h.id != ${input.hostId}
                     union
                     select h.id as host_id from runtime_hosts h
-                    join runtime_providers p on p.id = h.provider_id
                     where h.user_id = ${input.userId}
-                      and h.kind = 'hosted'
-                      and p.kind = 'sprites'
-                      and h.status in ('provisioning', 'ready', 'deleting')
+                      and ${sql.raw(LIVE_SPRITES_HOST_SQL)}
                       and h.keep_awake = true
                       and h.id != ${input.hostId}
                 ) committed
@@ -1742,7 +1734,7 @@ export class RuntimeAccessService {
                 .from(runtimeHosts)
                 .where(
                     and(
-                        runningSpritesHosts(),
+                        runningHostedHosts('sprites'),
                         // Exclude the target host: it ends up running either way,
                         // so the cap applies to the OTHER running VMs.
                         ne(runtimeHosts.id, input.hostId)
@@ -1811,7 +1803,7 @@ export class RuntimeAccessService {
         const [row] = await this.db
             .select({ value: count() })
             .from(runtimeHosts)
-            .where(runningSpritesHosts())
+            .where(runningHostedHosts('sprites'))
         return {
             orgActive: Number(row?.value ?? 0),
             activeCap: cap.activeCap

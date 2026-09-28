@@ -5,7 +5,8 @@ import {
     buildKeepAliveLeaseScript,
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
-    buildServiceStartScript
+    buildServiceStartScript,
+    parseTaskList
 } from '../src/tasks'
 
 // WHY: the wake path must be structurally incapable of registering a billing
@@ -342,4 +343,28 @@ test('buildKeepAliveCleanupScript scans for report.sh only under killStartScript
         killStartScriptProcesses: false
     })
     assert.match(leaseOnly, /KILL_START_SCRIPT_PROCESSES=0/)
+})
+
+// WHY: `sprite-env curl` has no status code to read, so a listing that parses
+// is the only proof a task call went through; anything else is not a listing.
+test('parseTaskList reads a listing and refuses anything else', () => {
+    assert.deepEqual(
+        parseTaskList(
+            JSON.stringify({
+                tasks: [
+                    { name: 'mf-hold-0123abcd', started_at: 'a', expires_at: 'b' },
+                    { name: 'bare' },
+                    { started_at: 'nameless' }
+                ]
+            })
+        ),
+        [
+            { name: 'mf-hold-0123abcd', startedAt: 'a', expiresAt: 'b' },
+            { name: 'bare', startedAt: null, expiresAt: null }
+        ]
+    )
+    assert.deepEqual(parseTaskList('{"tasks":[]}'), [])
+    assert.equal(parseTaskList(''), null)
+    assert.equal(parseTaskList('curl: (7) Failed to connect'), null)
+    assert.equal(parseTaskList('{"error":"not found"}'), null)
 })

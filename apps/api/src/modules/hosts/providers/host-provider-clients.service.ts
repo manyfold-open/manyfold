@@ -187,28 +187,6 @@ export class HostProviderClients {
         )
     }
 
-    async podExecFnForHost(host: RuntimeHostRow): Promise<HostExecFn> {
-        const exec = await this.podExecForHost(host)
-        return (args) =>
-            exec.run({
-                cmd: args.cmd,
-                stdin: args.stdin,
-                timeoutMs: args.timeoutMs
-            })
-    }
-
-    // One native exec for whichever provider the host lives on, for callers
-    // that only need "run this on the machine" and must not care which.
-    async execForHost(
-        host: RuntimeHostRow,
-        logger?: SpritesLogger
-    ): Promise<HostExecFn> {
-        const provider = await this.providerForHost(host)
-        return provider.kind === 'k8s'
-            ? this.podExecFnForHost(host)
-            : this.spriteExecForHost(host, logger)
-    }
-
     async hostById(hostId: string): Promise<RuntimeHostRow> {
         const host = await this.hosts.findById(hostId)
         if (!host) throw new NotFoundException(`host ${hostId} not found`)

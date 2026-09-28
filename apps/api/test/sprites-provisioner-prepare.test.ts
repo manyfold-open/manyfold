@@ -51,6 +51,7 @@ class TestProvisioner extends SpritesProvisioner {
     installed: Array<{ framework: string; ctx: BootstrapContext; runner: HostScriptRunner }> = []
     installResult: string | null = '2.1.300'
     installError: Error | null = null
+    runsDuringInstall = false
 
     protected async installCodingFramework(
         ctx: BootstrapContext,
@@ -58,6 +59,7 @@ class TestProvisioner extends SpritesProvisioner {
         runner: HostScriptRunner
     ): Promise<string | null> {
         this.installed.push({ framework, ctx, runner })
+        if (this.runsDuringInstall) await runner.run('true', 1_000)
         if (this.installError) throw this.installError
         return this.installResult
     }
@@ -71,6 +73,7 @@ const buildHarness = () => {
         provisioningPatches: unknown[]
         phases: unknown[]
         daemonAsked: string[]
+        sessionExecs: Array<{ open: boolean }>
         hermesRuns: unknown[]
         shellEnv: unknown[]
         piSetups: BootstrapContext[]
@@ -80,6 +83,7 @@ const buildHarness = () => {
         provisioningPatches: [],
         phases: [],
         daemonAsked: [],
+        sessionExecs: [],
         hermesRuns: [],
         shellEnv: [],
         piSetups: []
@@ -110,14 +114,26 @@ const buildHarness = () => {
         {} as never,
         {} as never,
         {
-            ensureHostDaemon: async (args: { host: { id: string } }) => {
+            withHost: async (
+                args: { host: { id: string } },
+                work: (session: unknown) => Promise<unknown>
+            ) => {
                 calls.daemonAsked.push(args.host.id)
-                return {
-                    handle: { daemonId: args.host.id, started: false, generation: null }
+                let open = true
+                try {
+                    return await work({
+                        host: args.host,
+                        daemonId: args.host.id,
+                        exec: async () => {
+                            calls.sessionExecs.push({ open })
+                            return { exitCode: 0, stdout: '', stderr: '' }
+                        }
+                    })
+                } finally {
+                    open = false
                 }
             }
         } as never,
-        { streamRpc: () => ({ result: Promise.resolve({ exitCode: 0 }), refId: 'r', cancel() {} }) } as never,
         {} as never,
         runtimes as never,
         { run: async () => ({ homeDir: undefined }) } as never,
@@ -275,4 +291,21 @@ test('a pi prepare sets up pi on the sandbox; the other coding CLIs need nothing
         frameworkVersionSource: 'latest'
     })
     assert.equal(other.calls.piSetups.length, 0)
+})
+
+// WHY: a daemon exec is not platform-visible activity on a sprite, which
+// suspends about a second after the last exec or task. The install's commands
+// must run inside the session that holds the machine awake, not after it.
+test('a prepare runs its install commands inside the session holding the sandbox', async () => {
+    const h = buildHarness()
+    h.provisioner.runsDuringInstall = true
+
+    await h.provisioner.prepareRuntime({
+        userId: 'user-1',
+        hostId: 'sbx_1',
+        framework: 'claude-code'
+    } as never)
+
+    assert.deepEqual(h.calls.daemonAsked, ['sbx_1'])
+    assert.deepEqual(h.calls.sessionExecs, [{ open: true }])
 })

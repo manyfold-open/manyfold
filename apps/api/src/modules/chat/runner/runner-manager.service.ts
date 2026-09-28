@@ -2,21 +2,14 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     DAEMON_FEATURE_EXEC_FILES,
-    DAEMON_FEATURE_HERDR_TERMINAL,
-    DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_MIN_CLI_VERSION,
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
     RUNNER_PROFILE,
     isCliVersionTooOld,
-    profilePaths,
-    type MfCliChannel
+    profilePaths
 } from '@manyfold/shared'
-import {
-    Injectable,
-    Logger,
-    ServiceUnavailableException
-} from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
 import type {
     HostDaemonRow,
     RuntimeHostRow,
@@ -52,6 +45,7 @@ import {
 import { recordPower } from '@/modules/hosts/providers/generation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+import { HostCliService, HostCliTooOldError } from './host-cli.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
 // inside the machine — can go through the daemon protocol (ADR-0037 R11):
@@ -93,13 +87,6 @@ const POLL_INTERVAL_MS = 500
 // What the inspect got before a caller could bound it. Kept as the default so a
 // caller without an exec-health budget behaves exactly as it did.
 const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
-// After the sandbox CLI upgrade restarts the daemon, how long to wait for the
-// restarted process's first heartbeat to carry the installed version (that
-// heartbeat is the write that moves cliVersion and clientFeatures).
-const RESTART_WAIT_MS = 45_000
-// The daemon downloads and prechecks the binary inside this window.
-const RUNNER_UPGRADE_RPC_TIMEOUT_MS = 180_000
-const STATUS_PROBE_TIMEOUT_MS = 30_000
 // After a wake thawed a registered daemon whose socket the API had already
 // dropped, how long its own reconnect gets before the process is restarted.
 // The daemon's ws client forces a reconnect when it detects the clock jump a
@@ -174,32 +161,6 @@ export interface RunnerResolution {
     // the sprite exec endpoint, for the caller to quarantine on (#730).
     execFailure?: RunnerExecFailure
 }
-
-// What restartForInstalledCli did about the daemon PROCESS after the sandbox
-// CLI upgrade swapped the binary under it. Every value is a valid end state for
-// the upgrade — the binary on disk is the new one regardless.
-export type RunnerRestartOutcome =
-    | 'no-runner'
-    | 'not-running'
-    | 'current'
-    | 'busy'
-    | 'restarted'
-    | 'restart-timeout'
-    | 'failed'
-
-// `mf daemon status --json` as seen from the runner profile inside the machine.
-export type RunnerProcessState =
-    | { kind: 'not-running' }
-    // A process is there but answered no health: a daemon older than the
-    // control socket. Its version and activity cannot be read from outside.
-    | { kind: 'unknown' }
-    | {
-          kind: 'running'
-          version: string | null
-          activeExecs: number
-          adoptableExecs: number
-          activePtys: number
-      }
 
 interface RunnerMachineState {
     installed: boolean
@@ -283,7 +244,10 @@ export class RunnerManagerService {
         private readonly clients: HostProviderClients,
         private readonly tokens: DaemonTokenService,
         private readonly registry: DaemonRegistryService,
-        private readonly awake: HostAwakeService
+        private readonly awake: HostAwakeService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, a daemon lacking a feature is refused as too old.
+        @Optional() private readonly hostCli?: HostCliService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -320,7 +284,10 @@ export class RunnerManagerService {
             return unavailable('runner_unavailable')
         const hold = this.awake.hold(host, `ensure-${args.agentId ?? host.id}`)
         try {
-            if (hasRpcLease(daemon)) return this.admit(host, daemon, args, false)
+            // Awaited, not returned: the admission can update the daemon, and
+            // the hold has to outlast that, not end when the promise is made.
+            if (hasRpcLease(daemon))
+                return await this.admit(host, daemon, args, false)
             const resolved = await this.singleFlightBringUp(args, hold)
             if (!resolved.handle)
                 return {
@@ -336,7 +303,7 @@ export class RunnerManagerService {
                         : {})
                 }
             const fresh = await this.hostDaemons.findByHostId(host.id)
-            return this.admit(host, fresh, args, resolved.handle.started)
+            return await this.admit(host, fresh, args, resolved.handle.started)
         } finally {
             void hold.release()
         }
@@ -360,29 +327,6 @@ export class RunnerManagerService {
         return this.awake.hold(host, reason)
     }
 
-    // The throwing form for callers that cannot proceed without the daemon
-    // (a sandbox operation, a framework install).
-    async requireHostDaemon(
-        host: RuntimeHostRow,
-        args: Omit<HostDaemonArgs, 'host'> = {}
-    ): Promise<HostDaemonRow> {
-        const resolution = await this.ensureHostDaemon({ ...args, host })
-        const daemon = resolution.handle
-            ? await this.hostDaemons.findByHostId(host.id)
-            : null
-        if (!resolution.handle || !daemon)
-            throw new ServiceUnavailableException({
-                code:
-                    host.kind === 'local'
-                        ? 'DAEMON_OFFLINE'
-                        : 'SANDBOX_DAEMON_OFFLINE',
-                message: `${host.name} is not reachable (${resolution.fallbackReason ?? 'daemon offline'})`,
-                hostId: host.id,
-                reason: resolution.fallbackReason ?? 'runner_unavailable'
-            })
-        return daemon
-    }
-
     private async admit(
         host: RuntimeHostRow,
         daemon: HostDaemonRow | null,
@@ -393,19 +337,48 @@ export class RunnerManagerService {
         const missing = (args.requiredFeatures ?? []).filter(
             (feature) => !features.includes(feature)
         )
-        if (missing.length) {
-            this.logger.warn(
-                `daemon on host ${host.id} lacks required features ${missing.join(',')} for agent ${args.agentId ?? '-'}`
+        if (!missing.length)
+            return {
+                handle: {
+                    daemonId: host.id,
+                    started,
+                    generation: leaseGeneration(daemon)
+                }
+            }
+        // A hosted machine's daemon is the platform's to keep current (R11):
+        // it is updated here, under the admission's hold, and the work goes on
+        // once it is back with what the work needs. A self-owned computer is
+        // its user's to update, so the answer says the CLI is too old.
+        if (host.kind === 'hosted' && daemon && this.hostCli) {
+            this.logger.log(
+                `daemon on host ${host.id} lacks ${missing.join(',')} for agent ${args.agentId ?? '-'}; updating its CLI`
             )
-            return unavailable('runner_unavailable')
-        }
-        return {
-            handle: {
-                daemonId: host.id,
-                started,
-                generation: leaseGeneration(daemon)
+            try {
+                const fresh = await this.hostCli.ensure(host, {
+                    features: missing
+                })
+                return {
+                    handle: {
+                        daemonId: host.id,
+                        started: true,
+                        generation: leaseGeneration(fresh)
+                    }
+                }
+            } catch (err) {
+                this.logger.warn(
+                    `daemon on host ${host.id} was not updated for ${missing.join(',')}: ${(err as Error).message}`
+                )
+                return unavailable(
+                    err instanceof HostCliTooOldError
+                        ? 'runner_cli_too_old'
+                        : 'runner_unavailable'
+                )
             }
         }
+        this.logger.warn(
+            `daemon on host ${host.id} lacks required features ${missing.join(',')} for agent ${args.agentId ?? '-'}`
+        )
+        return unavailable('runner_cli_too_old')
     }
 
     private singleFlightBringUp(
@@ -510,151 +483,6 @@ export class RunnerManagerService {
                     `daemon bring-up failed ${tag} class=${errorClass(err)}`
                 )
             return { handle: null }
-        }
-    }
-
-    // The sandbox CLI upgrade installs over ~/.local/bin/mf, but a sprite's
-    // daemon is a long-lived process with no supervisor: nothing re-execs it,
-    // its own daemon.update refuses without an init unit, auto-update is off
-    // for a manual start, and a warm sprite resume brings the OLD process
-    // back. Its heartbeat keeps reporting the build it was started with —
-    // cliVersion and clientFeatures alike — so every capability gate reads the
-    // pre-upgrade daemon while the sandbox row says the upgrade landed.
-    // Seen on staging 2026-09-10.
-    //
-    // Never at the cost of a turn: a daemon with live sessions is left alone,
-    // and nothing here throws — the caller's upgrade already landed on disk.
-    async restartForInstalledCli(args: {
-        host: RuntimeHostRow
-        installedVersion: string
-        waitMs?: number
-    }): Promise<RunnerRestartOutcome> {
-        const { host } = args
-        try {
-            const daemon = await this.hostDaemons.findByHostId(host.id)
-            if (!daemon) return 'no-runner'
-            const { provider, adapter } = await this.adapterFor(host)
-            const generation = await this.hosts.bumpGeneration(host.id)
-            const call: ProviderCall = { host, provider, generation }
-            const state = await this.probeRunnerProcess(adapter, call)
-            if (state.kind === 'not-running') return 'not-running'
-            if (state.kind === 'running') {
-                if (state.version === args.installedVersion) return 'current'
-                // Execs the next daemon adopts do not hold the restart back:
-                // the stop passes --keep-execs to a daemon that reports them.
-                if (
-                    state.activeExecs - state.adoptableExecs > 0 ||
-                    state.activePtys > 0
-                ) {
-                    this.logger.warn(
-                        `daemon busy, keeping ${state.version ?? 'unknown'} hostId=${host.id} execs=${state.activeExecs} adoptable=${state.adoptableExecs} ptys=${state.activePtys}`
-                    )
-                    return 'busy'
-                }
-            }
-            // 'unknown' falls through on purpose: a daemon too old to answer
-            // its own control socket is the one a restart helps most.
-            const reported = await this.startHeldAwake(adapter, call, () =>
-                this.waitForCliVersion(host, args.installedVersion, args.waitMs)
-            )
-            if (!reported) {
-                const tail = await this.logTail(adapter, call)
-                this.logger.warn(
-                    `daemon did not report ${args.installedVersion} after restart hostId=${host.id} tail=${tail ?? '(none)'}`
-                )
-                return 'restart-timeout'
-            }
-            this.logger.log(
-                `daemon restarted on ${args.installedVersion} hostId=${host.id}`
-            )
-            return 'restarted'
-        } catch (err) {
-            this.logger.warn(
-                `daemon restart failed hostId=${host.id} class=${errorClass(err)}`
-            )
-            return 'failed'
-        }
-    }
-
-    // A daemon that can update itself (ADR-0029 §5: a manual start that
-    // advertises daemon.update.manual) is upgraded through daemon.update —
-    // it downloads, prechecks, swaps, hands its execs to a successor and
-    // rolls back on its own — instead of the platform installing over it and
-    // restarting it. `not-capable` sends the caller down the install path.
-    async upgradeViaDaemon(args: {
-        host: RuntimeHostRow
-        targetVersion?: string
-        channel?: MfCliChannel
-    }): Promise<
-        | { kind: 'not-capable' }
-        | { kind: 'dispatched'; toVersion: string | null; deferred: boolean }
-        | { kind: 'failed'; error: string }
-    > {
-        const daemon = await this.hostDaemons.findByHostId(args.host.id)
-        if (
-            !daemon ||
-            !hasRpcLease(daemon) ||
-            !daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
-        )
-            return { kind: 'not-capable' }
-        const payload: Record<string, unknown> = {}
-        if (args.targetVersion) payload.targetVersion = args.targetVersion
-        if (args.channel) payload.channel = args.channel
-        try {
-            const ack = await this.registry.rpc({
-                daemonId: args.host.id,
-                method: 'daemon.update',
-                payload,
-                timeoutMs: RUNNER_UPGRADE_RPC_TIMEOUT_MS
-            })
-            const toVersion =
-                typeof ack?.toVersion === 'string' ? ack.toVersion : null
-            const deferred = ack?.deferred === true
-            this.logger.log(
-                `daemon upgrade via daemon.update hostId=${args.host.id} to=${toVersion ?? 'latest'} deferred=${deferred}`
-            )
-            return { kind: 'dispatched', toVersion, deferred }
-        } catch (err) {
-            const error = (err as Error).message
-            this.logger.warn(
-                `daemon upgrade via daemon.update failed hostId=${args.host.id}: ${error}`
-            )
-            return { kind: 'failed', error }
-        }
-    }
-
-    // herdr inside the machine, through the daemon (ADR-0031): the daemon
-    // runs herdr's updater and reports the version it left behind.
-    async upgradeHerdrViaDaemon(args: { host: RuntimeHostRow }): Promise<
-        | { kind: 'not-capable' }
-        | { kind: 'dispatched'; toVersion: string | null }
-        | { kind: 'failed'; error: string }
-    > {
-        const daemon = await this.hostDaemons.findByHostId(args.host.id)
-        if (
-            !daemon ||
-            !hasRpcLease(daemon) ||
-            !daemon.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
-        )
-            return { kind: 'not-capable' }
-        try {
-            const ack = await this.registry.rpc({
-                daemonId: args.host.id,
-                method: 'herdr.update',
-                payload: {},
-                timeoutMs: RUNNER_UPGRADE_RPC_TIMEOUT_MS
-            })
-            return {
-                kind: 'dispatched',
-                toVersion:
-                    typeof ack?.toVersion === 'string' ? ack.toVersion : null
-            }
-        } catch (err) {
-            const error = (err as Error).message
-            this.logger.warn(
-                `herdr upgrade via herdr.update failed hostId=${args.host.id}: ${error}`
-            )
-            return { kind: 'failed', error }
         }
     }
 
@@ -977,48 +805,6 @@ export class RunnerManagerService {
         }
     }
 
-    // Online is not enough after a restart: the socket lease flips on connect,
-    // the version on the first heartbeat, and a row that is online on the OLD
-    // version is exactly the state a restart is meant to leave.
-    private async waitForCliVersion(
-        host: RuntimeHostRow,
-        version: string,
-        waitMs?: number
-    ): Promise<boolean> {
-        const deadline = Date.now() + (waitMs ?? RESTART_WAIT_MS)
-        for (;;) {
-            const daemon = await this.hostDaemons.findByHostId(host.id)
-            if (hasRpcLease(daemon) && daemon.cliVersion === version)
-                return true
-            if (Date.now() >= deadline) return false
-            await this.delay(POLL_INTERVAL_MS)
-        }
-    }
-
-    // The running daemon's own word on what it is and whether it is busy, via
-    // the control socket the runner profile owns. The daemon row cannot
-    // answer either: its cliVersion is whatever the process last heartbeated
-    // (true, but that is the question), and the API has no cross-instance
-    // view of live sessions.
-    private async probeRunnerProcess(
-        adapter: SandboxProvider,
-        call: ProviderCall
-    ): Promise<RunnerProcessState> {
-        const layout = layoutFor(call.provider)
-        const res = await adapter.bootstrap({
-            ...call,
-            script: `${layout.envPrefix} ${MF_BIN} daemon status --json`,
-            timeoutMs: STATUS_PROBE_TIMEOUT_MS
-        })
-        if (res.exitCode !== 0) {
-            this.logger.warn(
-                `daemon status probe failed hostId=${call.host.id} exit=${res.exitCode}`
-            )
-            return { kind: 'unknown' }
-        }
-        return parseRunnerStatus(res.stdout)
-    }
-
     private apiUrl(): string {
         const base = process.env.PUBLIC_API_BASE_URL?.replace(/\/+$/, '')
         return base ? `${base}/api` : DEFAULT_API_BASE_URL
@@ -1039,48 +825,6 @@ const unavailable = (reason: RunnerFallbackReason): RunnerResolution => ({
     handle: null,
     fallbackReason: reason
 })
-
-// The `--json` payload of `mf daemon status`: `local` is the control-socket
-// health of the running process (null when there is none, or when the daemon
-// predates the socket), `localPid` the pid-file process if any. Read from the
-// first `{` to the last `}` because a login shell may print before the CLI does.
-export const parseRunnerStatus = (stdout: string): RunnerProcessState => {
-    let body: {
-        configured?: unknown
-        localPid?: unknown
-        local?: {
-            version?: unknown
-            activeExecs?: unknown
-            adoptableExecs?: unknown
-            activePtys?: unknown
-        } | null
-    }
-    try {
-        body = JSON.parse(
-            stdout.slice(stdout.indexOf('{'), stdout.lastIndexOf('}') + 1)
-        ) as typeof body
-    } catch {
-        return { kind: 'unknown' }
-    }
-    if (body.configured === false) return { kind: 'not-running' }
-    const local = body.local
-    if (local && typeof local === 'object')
-        return {
-            kind: 'running',
-            version: typeof local.version === 'string' ? local.version : null,
-            activeExecs:
-                typeof local.activeExecs === 'number' ? local.activeExecs : 0,
-            adoptableExecs:
-                typeof local.adoptableExecs === 'number'
-                    ? local.adoptableExecs
-                    : 0,
-            activePtys:
-                typeof local.activePtys === 'number' ? local.activePtys : 0
-        }
-    if (body.localPid === null || body.localPid === undefined)
-        return { kind: 'not-running' }
-    return { kind: 'unknown' }
-}
 
 // The token we send IS `ldt_`-prefixed, so the CLI complaining that it is not
 // can only mean the CLI never read stdin and used the literal `-`. Same for a

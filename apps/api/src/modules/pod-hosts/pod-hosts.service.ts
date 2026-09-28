@@ -44,7 +44,7 @@ import {
     DaemonCliVersionService,
     type LatestCliVersion
 } from '@/modules/daemon/daemon-cli-version.service'
-import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
+import { HostCliService } from '@/modules/chat/runner/host-cli.service'
 
 // Cloud computers (ADR-0035): what a user sees of a hosted k8s host, and the
 // operations on the host itself. Agents land on a host through the agent
@@ -60,7 +60,7 @@ export class PodHostsService {
         private readonly adminSettings: AdminSettingsService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly cli: PodHostCliService,
+        private readonly cli: HostCliService,
         // Appended last + @Optional: absence means the open defaults.
         @Optional()
         @Inject(CLOUD_COMPUTER_PORT)
