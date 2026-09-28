@@ -672,7 +672,11 @@ export class DaemonHostService {
                 status: r.status,
                 availability: runtimeAvailability({
                     runtime: { status: r.status },
-                    host: { kind: host.kind, status: host.status },
+                    host: {
+                        kind: host.kind,
+                        status: host.status,
+                        powerState: host.powerState
+                    },
                     daemonOnline: online
                 })
             }))

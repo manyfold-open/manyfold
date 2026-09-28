@@ -78,7 +78,8 @@ export const daemonOnline = (
 }
 
 export type RuntimeAvailability =
-    // installed, host ready and its daemon online: a turn can start now
+    // installed, host ready, the machine not suspended and its daemon online:
+    // a turn can start now
     | 'available'
     // installed and host ready, but the machine is suspended or stopped (or
     // its daemon is simply not connected yet): a caller may wake it first
@@ -95,6 +96,9 @@ export interface AvailabilityRuntime {
 export interface AvailabilityHost {
     kind: RuntimeHostKind
     status: RuntimeHostStatus
+    // A hosted machine's power as the status sync keeps it (the provider's
+    // listing, overruled by a fresh daemon heartbeat); null where none is kept.
+    powerState: RuntimeHostPowerState | null
 }
 
 // The single admission function (ADR-0037). chat, files, terminal, herdr and
@@ -108,6 +112,16 @@ export const runtimeAvailability = (args: {
     if (args.runtime.status !== 'ready') return 'unavailable'
     if (args.host === null) return 'available'
     if (args.host.status !== 'ready') return 'unavailable'
+    // A suspended or stopped VM holds a frozen daemon whose last heartbeat can
+    // still sit inside the presence window. Read as `available`, that showed
+    // a green agent the concurrent-sandbox count — keyed on the same power
+    // state — had already let go of; nothing answers until it is woken.
+    if (
+        args.host.kind === 'hosted' &&
+        (args.host.powerState === 'suspended' ||
+            args.host.powerState === 'stopped')
+    )
+        return 'wakeable'
     if (args.daemonOnline) return 'available'
     return args.host.kind === 'hosted' ? 'wakeable' : 'offline'
 }
