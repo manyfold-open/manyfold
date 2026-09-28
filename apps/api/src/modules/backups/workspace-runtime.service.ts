@@ -1,8 +1,13 @@
 import * as posix from 'node:path/posix'
 import { createHash } from 'node:crypto'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import type { Agent, RuntimeHostRow } from '@manyfold/db'
-import type { AgentRuntime } from '@manyfold/shared'
+import type { Agent, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
+import {
+    DAEMON_FEATURE_FS_WRITE_BINARY,
+    DAEMON_FEATURE_FS_WRITE_MODE,
+    DAEMON_FS_WRITE_MAX_BYTES,
+    type AgentRuntime
+} from '@manyfold/shared'
 import {
     execSprite,
     spriteFsReadFile,
@@ -51,6 +56,7 @@ const POD_PROBE_TIMEOUT_MS = 30_000
 interface WorkspaceTarget {
     placement: Exclude<AgentRuntime, 'external'>
     host: RuntimeHostRow
+    daemon: HostDaemonRow | null
 }
 
 @Injectable()
@@ -71,7 +77,7 @@ export class WorkspaceRuntimeService {
             throw new NotFoundException(
                 `external-runtime agent ${agent.id} has no workspace`
             )
-        return { placement: ctx.placement, host: ctx.host }
+        return { placement: ctx.placement, host: ctx.host, daemon: ctx.daemon }
     }
 
     // The lock key of one workspace on one machine, independent of which
@@ -383,38 +389,47 @@ export class WorkspaceRuntimeService {
         return { stream: iter() }
     }
 
+    // One fs.write carries the archive: base64 keeps its bytes intact, and
+    // mode 600 because an archive holds whatever the workspace does. It used
+    // to be inlined into a `bash -lc` argument, which Linux caps at 128 KiB a
+    // piece, so a restore of any real workspace failed. The whole archive
+    // rides one daemon frame, so that frame's size is the cap.
     private async writeFileToDaemon(
         target: WorkspaceTarget,
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        // Buffer the upload so we can ship a single base64 payload to the daemon.
-        // Phase 6+ TODO: extend WS protocol to support server→daemon streaming events,
-        // then write incrementally. For v1 minimum, cap at 100MB which covers
-        // typical coding-agent workspace archives.
+        const features = target.daemon?.clientFeatures ?? []
+        const missing = [
+            DAEMON_FEATURE_FS_WRITE_BINARY,
+            DAEMON_FEATURE_FS_WRITE_MODE
+        ].filter((feature) => !features.includes(feature))
+        if (missing.length > 0)
+            throw new Error(
+                `update the Manyfold CLI on ${target.host.name} to restore a backup (needs ${missing.join(', ')})`
+            )
         const chunks: Buffer[] = []
         let totalBytes = 0
         for await (const chunk of stream) {
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             totalBytes += buf.length
-            if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
+            if (totalBytes > DAEMON_FS_WRITE_MAX_BYTES)
                 throw new Error(
-                    `daemon restore archive exceeds ${BUFFERED_BACKUP_MAX_BYTES} bytes`
+                    `daemon restore archive exceeds the ${Math.floor(DAEMON_FS_WRITE_MAX_BYTES / (1024 * 1024))} MB one daemon write carries`
                 )
             chunks.push(buf)
         }
-        const body = Buffer.concat(chunks)
-        // Use a bash script to write so we can decode base64 server-side.
-        // fs.write RPC stores `content` as utf8; archives are binary, so we
-        // shell-pipe through `base64 -d` instead.
-        const encoded = body.toString('base64')
-        const script = [
-            'set -euo pipefail',
-            `mkdir -p "$(dirname ${shellQuote(absPath)})"`,
-            `printf '%s' ${shellQuote(encoded)} | base64 -d > ${shellQuote(absPath)}`,
-            `chmod 600 ${shellQuote(absPath)}`
-        ].join('\n')
-        await this.runOnDaemon(target, script)
+        await this.daemonRegistry.rpc({
+            daemonId: target.host.id,
+            method: 'fs.write',
+            payload: {
+                path: absPath,
+                content: Buffer.concat(chunks).toString('base64'),
+                encoding: 'base64',
+                mode: '600'
+            },
+            timeoutMs: RESTORE_WRITE_TIMEOUT_MS
+        })
     }
 
     // Over the exec websocket rather than the gateway, whose request body

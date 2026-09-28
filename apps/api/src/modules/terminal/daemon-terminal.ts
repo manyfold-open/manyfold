@@ -397,7 +397,9 @@ export class DaemonTerminal {
                 payload: {
                     cmd: prepare.cmd,
                     env: prepare.env,
-                    ...(cwd ? { cwd } : {}),
+                    // exec.start reads `dir`; the daemon admits it through the
+                    // roots sent beside it.
+                    ...(cwd ? { dir: cwd } : {}),
                     ...(roots.length ? { roots } : {}),
                     timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
                 },

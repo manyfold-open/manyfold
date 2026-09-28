@@ -679,3 +679,51 @@ test('a herdr launch the daemon refuses drops the freshly minted token', async (
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(apiTokens.calls.deleted, ['tok-1'])
 })
+
+// WHY: exec.start reads `dir`, not `cwd`. The view prepare sent `cwd`, so the
+// daemon ran it in its own working directory and the roots vouching for the
+// workspace admitted nothing.
+test('a view prepare runs in the workspace it names', async () => {
+    const calls: Array<Record<string, unknown>> = []
+    const registry = {
+        rpc: async () => ({}),
+        streamRpc: (call: {
+            payload: Record<string, unknown>
+            onEvent: (kind: string, data: string) => void
+        }) => {
+            calls.push(call.payload)
+            call.onEvent('stdout', '--app_data_dir=/tmp/agy-view\n')
+            return { result: Promise.resolve({ exitCode: 0 }) }
+        }
+    }
+    const hostAccess = {
+        withHost: async (
+            args: { host: { id: string } },
+            work: (session: Record<string, unknown>) => Promise<unknown>
+        ) =>
+            work({
+                host: args.host,
+                daemon: { clientFeatures: ['exec.roots.v1'] },
+                daemonId: args.host.id,
+                rpc: async () => ({})
+            })
+    }
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        makeApiTokens() as never,
+        hostsFor() as never,
+        hostAccess as never
+    )
+
+    const flag = await terminal.prepareAntigravityView(
+        'dh-1',
+        {},
+        '/Users/cy/project'
+    )
+
+    assert.equal(flag, '--app_data_dir=/tmp/agy-view')
+    assert.equal(calls[0]?.dir, '/Users/cy/project')
+    assert.deepEqual(calls[0]?.roots, ['/Users/cy/project'])
+    assert.equal('cwd' in (calls[0] ?? {}), false)
+})
