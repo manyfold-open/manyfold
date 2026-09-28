@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common'
 import {
     SpritesError,
+    parseTaskList,
     type Sprite,
+    type SpriteTask,
     type SpritesClient,
     type SpritesLogger
 } from '@manyfold/sprites'
@@ -25,6 +27,23 @@ import { assertCurrentGeneration } from './generation'
 
 const WAKE_TIMEOUT_MS = 60_000
 const AWAKE_LEASE_TIMEOUT_MS = 60_000
+const AWAKE_RELEASE_ATTEMPTS = 3
+
+// A /v1/tasks `expire` value (`30m`) in ms; null for a form this does not read.
+const ttlMs = (ttl: string): number | null => {
+    const match = /^(\d+)([smh])$/.exec(ttl)
+    if (!match) return null
+    const unit = { s: 1_000, m: 60_000, h: 3_600_000 }[match[2] as 's' | 'm' | 'h']
+    return Number(match[1]) * unit
+}
+
+// A listed task holds for a TTL taken at `since` when at least half of that
+// TTL is still ahead of it; one listed without an expiry is taken at its word.
+const holdsFor = (task: SpriteTask, ttl: string, since: number): boolean => {
+    const ms = ttlMs(ttl)
+    const expiresAt = task.expiresAt ? Date.parse(task.expiresAt) : Number.NaN
+    return ms === null || !Number.isFinite(expiresAt) || expiresAt >= since + ms / 2
+}
 
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
@@ -142,7 +161,11 @@ export class SpritesProvider implements SandboxProvider {
     // inside the VM, so the exec that posts it is also what resumes a
     // suspended sprite. The path goes straight after -X and BEFORE -d, with no
     // -H/-o/-w: anything else makes curl exit 3 and the hold silently never
-    // happens (seen on staging 2026-07). Create-or-renew.
+    // happens (seen on staging 2026-07). With no status code to read, the
+    // listing after each call is the proof: the hold counts once its name is
+    // listed with at least half its TTL ahead. A renew comes first, and a
+    // create only when the renew's listing does not show the hold, so a create
+    // never runs against a name that is already there.
     async holdAwake(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string; ttl: string }
@@ -153,21 +176,42 @@ export class SpritesProvider implements SandboxProvider {
             args.host,
             this.spritesLogger()
         )
-        const res = await exec({
-            cmd: [
-                'bash',
-                '-lc',
-                `sprite-env curl -s -X POST /v1/tasks -d ${shellQuote(create)} >/dev/null 2>&1 ` +
-                    `|| sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${lease.name}`)} -d ${shellQuote(renew)} >/dev/null 2>&1`
-            ],
-            timeoutMs: AWAKE_LEASE_TIMEOUT_MS
-        })
-        if (res.exitCode !== 0)
+        const since = Date.now()
+        const listAfter = async (call: string) => {
+            const res = await exec({
+                cmd: [
+                    'bash',
+                    '-lc',
+                    `${call} >/dev/null 2>&1; sprite-env curl -s /v1/tasks`
+                ],
+                timeoutMs: AWAKE_LEASE_TIMEOUT_MS
+            })
+            return parseTaskList(res.stdout)?.filter(
+                (task) => task.name === lease.name
+            ) ?? []
+        }
+        const renewed = await listAfter(
+            `sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${lease.name}`)} -d ${shellQuote(renew)}`
+        )
+        if (renewed.some((task) => holdsFor(task, lease.ttl, since))) return
+        const created = renewed.length
+            ? renewed
+            : await listAfter(
+                  `sprite-env curl -s -X POST /v1/tasks -d ${shellQuote(create)}`
+              )
+        if (created.length === 0)
             throw new Error(
-                `sprite awake lease ${lease.name} exited ${res.exitCode}`
+                `sprite awake lease ${lease.name} is not listed after create-or-renew`
+            )
+        if (!created.some((task) => holdsFor(task, lease.ttl, since)))
+            throw new Error(
+                `sprite awake lease ${lease.name} was not renewed (expires ${created[0].expiresAt})`
             )
     }
 
+    // Confirmed the same way: by a listing without the name. A create that
+    // raced another may have left two under one name, so the delete repeats
+    // while the name is still listed.
     async releaseAwake(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string }
@@ -176,14 +220,22 @@ export class SpritesProvider implements SandboxProvider {
             args.host,
             this.spritesLogger()
         )
-        await exec({
-            cmd: [
-                'bash',
-                '-lc',
-                `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${lease.name}`)} >/dev/null 2>&1`
-            ],
-            timeoutMs: AWAKE_LEASE_TIMEOUT_MS
-        })
+        for (let attempt = 0; attempt < AWAKE_RELEASE_ATTEMPTS; attempt++) {
+            const res = await exec({
+                cmd: [
+                    'bash',
+                    '-lc',
+                    `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${lease.name}`)} >/dev/null 2>&1; ` +
+                        'sprite-env curl -s /v1/tasks'
+                ],
+                timeoutMs: AWAKE_LEASE_TIMEOUT_MS
+            })
+            const tasks = parseTaskList(res.stdout)
+            if (tasks && !tasks.some((task) => task.name === lease.name)) return
+        }
+        throw new Error(
+            `sprite awake lease ${lease.name} is still listed after ${AWAKE_RELEASE_ATTEMPTS} deletes`
+        )
     }
 
     // Any exec resumes a suspended sprite; a no-op command is the cheapest.

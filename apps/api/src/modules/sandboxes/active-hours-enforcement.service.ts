@@ -211,7 +211,14 @@ export class ActiveHoursEnforcementService
         const unresolved: string[] = []
         for (const hostId of input.runningHostIds) {
             try {
-                const res = await this.sandboxes.stop(input.userId, hostId)
+                // Forced: the platform's own holds go too, and an agent task
+                // named like one cannot keep the VM up past the quota.
+                const res = await this.sandboxes.stop(
+                    input.userId,
+                    hostId,
+                    false,
+                    { force: true }
+                )
                 if (res.status === 'noop' || res.warnings.length > 0)
                     unresolved.push(hostId)
                 else stopped.push(hostId)

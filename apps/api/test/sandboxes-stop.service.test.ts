@@ -280,9 +280,41 @@ test('stop deletes only agent-registered tasks and reports re-registration', asy
     assert.match(res.warnings[0], /task 'sticky' is still registered/)
 })
 
+// WHY: an API instance's awake hold (ADR-0038) is what keeps a sprite up
+// under a turn in progress. A user's stop deleting it froze that turn until
+// the next renew woke the VM again; the stop leaves it and says why the
+// sandbox is still up.
+test('a user stop keeps the platform awake holds and says what still holds the sandbox', async () => {
+    const h = makeStop({})
+    h.svc.execResults.push(
+        ok(JSON.stringify({ tasks: [{ name: 'mf-hold-0123abcd' }, { name: 'mine' }] })),
+        ok('{"tasks":[{"name":"mf-hold-0123abcd"}]}')
+    )
+    const res = await h.svc.stop('u1', 'sbx_1')
+    assert.deepEqual(res.deletedTasks, ['mine'])
+    assert.ok(
+        res.warnings.some((w) => /work in progress is holding the sandbox awake/.test(w))
+    )
+})
+
+// WHY: a task name inside the VM is only a claim an agent can copy. The
+// active-hours enforcer must get the sandbox to sleep, so its stop deletes the
+// platform's holds as well.
+test('a forced stop deletes the platform awake holds too', async () => {
+    const h = makeStop({})
+    h.svc.execResults.push(
+        ok(JSON.stringify({ tasks: [{ name: 'mf-hold-0123abcd' }, { name: 'mine' }] })),
+        ok('{"tasks":[{"name":"mine"}]}'),
+        ok('{"tasks":[]}')
+    )
+    const res = await h.svc.stop('u1', 'sbx_1', false, { force: true })
+    assert.deepEqual(res.deletedTasks, ['mf-hold-0123abcd', 'mine'])
+    assert.ok(!res.warnings.some((w) => /work in progress/.test(w)))
+})
+
 test('stop defaults the estimate to the auto-sleep floor and keeps the larger release estimate', async () => {
     const floor = await makeStop({}).svc.stop('u1', 'sbx_1')
-    assert.equal(floor.estimatedReadyInSec, 35)
+    assert.equal(floor.estimatedReadyInSec, 5)
 
     const degraded = makeStop({
         host: baseHost({ keepAwake: true }),

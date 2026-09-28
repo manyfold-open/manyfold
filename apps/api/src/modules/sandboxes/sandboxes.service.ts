@@ -3,6 +3,7 @@ import {
     cliChannelOfVersion,
     createObjectId,
     daemonOnline,
+    isAwakeHoldTaskName,
     isCliUpdateAvailable,
     isPlatformTaskName,
     isServiceFrameworkName,
@@ -48,12 +49,13 @@ import {
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
-import { execSprite, SpritesError } from '@manyfold/sprites'
+import { execSprite, parseTaskList, SpritesError } from '@manyfold/sprites'
 import type {
     ExecOptions,
     ExecResult,
     ServiceListResponse,
     ServiceObject,
+    SpriteTask,
     SpritesClient
 } from '@manyfold/sprites'
 import {
@@ -99,8 +101,11 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
-// How long a stopped sprite takes to suspend once nothing holds it awake.
-const SPRITES_AUTO_SLEEP_SEC = 35
+// How long a stopped sprite takes to read as asleep once nothing holds it
+// awake. Measured on staging [2026-09-27]: a sprite with no exec and no task
+// suspends about 1s after the last one; the status sync's 3s fast cadence
+// comes on top before the listing shows it.
+const SPRITES_AUTO_SLEEP_SEC = 5
 
 export const SANDBOX_DAEMON_OFFLINE_CODE = 'SANDBOX_DAEMON_OFFLINE'
 
@@ -343,7 +348,11 @@ export class SandboxesService {
         if (!fresh) throw new NotFoundException(`sandbox ${hostId} not found`)
         try {
             if (enabled) await this.keepAliveLease.ensureLease(fresh)
-            else await this.keepAliveLease.releaseLease(fresh, 'user-toggle')
+            // The release is an exec, and an exec resumes a sleeping sprite:
+            // exactly what switching keep-awake off must not do. A frozen
+            // renewer is released by the lease sweep once the VM runs again.
+            else if (fresh.powerState === 'running')
+                await this.keepAliveLease.releaseLease(fresh, 'user-toggle')
         } catch (err) {
             this.log.warn(
                 `keep-awake ${enabled ? 'enable' : 'disable'} sprite ops degraded for host ${hostId}: ${(err as Error).message}`
@@ -840,25 +849,17 @@ export class SandboxesService {
         const ref = spritesRef(host)
         if (host.powerState !== 'running' || !ref) return []
         const client = await this.spritesClientFor(host)
-        const raw = await this.readTasksOnSprite(client, ref.spriteName)
-        return raw
-            .filter((t) => typeof t.name === 'string')
-            .map((t) => ({
-                name: t.name as string,
-                startedAt:
-                    typeof t.started_at === 'string' ? t.started_at : null,
-                expiresAt:
-                    typeof t.expires_at === 'string' ? t.expires_at : null,
-                keepAlive: isPlatformTaskName(t.name as string)
-            }))
+        const tasks = await this.readTasksOnSprite(client, ref.spriteName)
+        return tasks.map((task) => ({
+            ...task,
+            keepAlive: isPlatformTaskName(task.name)
+        }))
     }
 
     private async readTasksOnSprite(
         client: SpritesClient,
         spriteName: string
-    ): Promise<
-        Array<{ name?: unknown; started_at?: unknown; expires_at?: unknown }>
-    > {
+    ): Promise<SpriteTask[]> {
         const result = await this.exec(client, spriteName, {
             cmd: ['sprite-env', 'curl', '-s', '/v1/tasks'],
             stdin: '',
@@ -870,18 +871,7 @@ export class SandboxesService {
                 `failed to read tasks on ${spriteName}: ${err.message}`
             )
         })
-        try {
-            const body = JSON.parse(result.stdout.trim() || '{}') as {
-                tasks?: Array<{
-                    name?: unknown
-                    started_at?: unknown
-                    expires_at?: unknown
-                }>
-            }
-            return body.tasks ?? []
-        } catch {
-            return []
-        }
+        return parseTaskList(result.stdout) ?? []
     }
 
     async deleteTask(
@@ -924,11 +914,15 @@ export class SandboxesService {
     // registered activity tasks deleted. Agents wake again on their next
     // message; keep-awake stays off until re-enabled. Host-level terminal
     // sessions are not closed here and can still hold the VM awake until they
-    // end.
+    // end. A user's stop leaves the platform's own awake holds in place, so a
+    // turn in progress finishes before the VM sleeps; `force` (the
+    // active-hours enforcer) deletes those too, since a task name inside the
+    // VM is only a claim.
     async stop(
         userId: string,
         hostId: string,
-        isAdmin = false
+        isAdmin = false,
+        opts: { force?: boolean } = {}
     ): Promise<SandboxStopResponse> {
         const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
@@ -1037,8 +1031,14 @@ export class SandboxesService {
         // would just be resurrected by its in-VM renew loop.
         const deletedTasks: string[] = []
         const tasksOnSprite = await this.readTasksOnSprite(client, spriteName)
+        const heldForWork = tasksOnSprite.filter(
+            (t) => isAwakeHoldTaskName(t.name) && !opts.force
+        )
         for (const t of tasksOnSprite) {
-            if (typeof t.name !== 'string' || isPlatformTaskName(t.name))
+            if (
+                isPlatformTaskName(t.name) &&
+                !(opts.force && isAwakeHoldTaskName(t.name))
+            )
                 continue
             const remaining = await this.deleteTaskOnSprite(
                 client,
@@ -1051,6 +1051,10 @@ export class SandboxesService {
                 )
             else deletedTasks.push(t.name)
         }
+        if (heldForWork.length > 0)
+            warnings.push(
+                'work in progress is holding the sandbox awake; it sleeps once that work finishes'
+            )
 
         await this.spriteStatusSync
             .refreshSandboxHost(host)
@@ -1124,7 +1128,7 @@ export class SandboxesService {
         client: SpritesClient,
         spriteName: string,
         name: string
-    ): Promise<Array<{ name?: unknown }>> {
+    ): Promise<SpriteTask[]> {
         const result = await this.exec(client, spriteName, {
             cmd: [
                 'bash',
@@ -1143,17 +1147,13 @@ export class SandboxesService {
         })
         // Unlike readTasksOnSprite, an unreadable verify list is an error — a
         // lenient fallback would report success whenever the verify curl failed.
-        try {
-            if (result.exitCode !== 0) throw new Error('task list read failed')
-            const body = JSON.parse(result.stdout.trim()) as {
-                tasks?: Array<{ name?: unknown }>
-            }
-            return body.tasks ?? []
-        } catch {
+        const remaining =
+            result.exitCode === 0 ? parseTaskList(result.stdout) : null
+        if (!remaining)
             throw new ServiceUnavailableException(
                 `could not verify task deletion on ${spriteName}`
             )
-        }
+        return remaining
     }
 
     private async requireProvisionedSandbox(

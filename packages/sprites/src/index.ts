@@ -23,6 +23,7 @@ export {
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
     buildServiceStartScript,
+    parseTaskList,
     shellSingleQuote
 } from './tasks'
 export type {
@@ -30,7 +31,8 @@ export type {
     KeepAliveLeaseScriptOptions,
     RuntimeReportEnvFileOptions,
     RuntimeReportScriptOptions,
-    ServiceStartScriptOptions
+    ServiceStartScriptOptions,
+    SpriteTask
 } from './tasks'
 export { parseServiceLogStream } from './services'
 export type { ServiceLogEvent } from './services'

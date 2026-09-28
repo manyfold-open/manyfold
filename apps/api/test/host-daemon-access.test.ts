@@ -126,6 +126,31 @@ test('a read path that must not wake the machine reads the lease and holds nothi
     assert.equal((await live.access.ensure({ host: host(), daemon: null, placement: 'sprites', wake: false })).online, true)
 })
 
+// WHY: taking the hold is itself an exec into the VM, and an exec resumes a
+// sleeping sprite. A read that must not start billed running time (an MCP
+// import, an auth-profile list) used to take one before looking.
+test('withHost that must not wake a sleeping machine takes no hold and reports it offline', async () => {
+    const { access, events } = build()
+    await assert.rejects(
+        access.withHost(
+            { host: host({ powerState: 'suspended' }), daemon: null, placement: 'sprites', reason: 'mcp-import', wake: false },
+            async () => 'never'
+        ),
+        HostDaemonOfflineError
+    )
+    assert.deepEqual(events, [])
+})
+
+test('withHost that must not wake still works on a running machine it holds a socket to', async () => {
+    const { access, events } = build()
+    const out = await access.withHost(
+        { host: host({ powerState: 'running' }), daemon: null, placement: 'sprites', reason: 'mcp-import', wake: false },
+        async () => 'read'
+    )
+    assert.equal(out, 'read')
+    assert.deepEqual(events, ['hold:mcp-import', 'release:mcp-import'])
+})
+
 test('an RPC lost to a closed or replaced socket is retried once on the fresh lease', async () => {
     let attempts = 0
     const { access, events } = build({

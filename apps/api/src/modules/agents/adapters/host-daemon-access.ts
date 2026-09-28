@@ -146,6 +146,7 @@ export class HostDaemonAccess {
         args: WithHostArgs,
         work: (session: HostSession) => Promise<T>
     ): Promise<T> {
+        if (args.wake === false) await this.assertUp(args)
         const hold = this.hold(args.host, args.reason)
         try {
             const ensured = await this.ensure(args)
@@ -167,6 +168,21 @@ export class HostDaemonAccess {
 
     hold(host: RuntimeHostRow, reason: string): AwakeHold {
         return this.awake?.hold(host, reason) ?? NOOP_HOLD
+    }
+
+    // A caller that must not start billed running time gets no hold on a
+    // machine that is not already up and connected: taking the hold is itself
+    // an exec, and an exec resumes a sleeping sprite.
+    private async assertUp(args: EnsureHostDaemonArgs): Promise<void> {
+        const daemon =
+            args.daemon ?? (await this.hostDaemons.findByHostId(args.host.id))
+        const up =
+            args.host.kind === 'local' || args.host.powerState === 'running'
+        if (!up || !hasRpcLease(daemon))
+            throw new HostDaemonOfflineError(
+                args.host,
+                daemon ? 'runner_unavailable' : 'runner_missing'
+            )
     }
 
     private async rpc(

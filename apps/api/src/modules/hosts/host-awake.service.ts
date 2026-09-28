@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable, Logger } from '@nestjs/common'
+import { AWAKE_HOLD_TASK_PREFIX } from '@manyfold/shared'
 import type { RuntimeHostRow } from '@manyfold/db'
 import { HostProviderClients } from './providers/host-provider-clients.service'
 import { SandboxProviderRegistry } from './providers/sandbox-provider'
@@ -50,19 +51,14 @@ interface Lease {
     grace: ReturnType<typeof setTimeout> | null
 }
 
-// Task names must be simple identifiers for the provider API (sprites: 40
-// chars of [A-Za-z0-9-]). The host id without its prefix plus this instance's
-// tag stays under that and never collides across instances.
-const leaseName = (hostId: string, instance: string): string =>
-    `mf-${hostId.replace(/^[a-z]+_/, '').replace(/[^a-zA-Z0-9-]/g, '')}-${instance}`.slice(
-        0,
-        40
-    )
-
 @Injectable()
 export class HostAwakeService {
     private readonly log = new Logger(HostAwakeService.name)
-    private readonly instance = randomUUID().replace(/-/g, '').slice(0, 8)
+    // One name per API instance: instances never delete each other's hold,
+    // and the prefix is what marks it as the platform's (isPlatformTaskName),
+    // so the sandbox's Tasks surface neither lists it as the agent's nor
+    // deletes it on a user's stop.
+    private readonly leaseName = `${AWAKE_HOLD_TASK_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 8)}`
     private readonly leases = new Map<string, Lease>()
 
     constructor(
@@ -126,7 +122,7 @@ export class HostAwakeService {
     }
 
     private open(host: RuntimeHostRow): Lease {
-        const name = leaseName(host.id, this.instance)
+        const name = this.leaseName
         const lease: Lease = {
             host,
             name,

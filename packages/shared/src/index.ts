@@ -548,9 +548,11 @@ export {
     supportsRuntime,
     isExternal,
     isServiceFrameworkName,
+    isAwakeHoldTaskName,
     isPlatformTaskName,
     frameworkMcpSupport,
     isKnownMcpScope,
+    AWAKE_HOLD_TASK_PREFIX,
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
     PLATFORM_TASK_PREFIX
