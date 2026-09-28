@@ -630,6 +630,18 @@ const zh: Translations = {
                 sprites: '有状态沙箱',
                 k8s: '云端计算机',
                 external: '外部 API'
+            },
+            sandboxLegend: {
+                button: '状态颜色说明',
+                title: '状态颜色',
+                intro: '同一台沙箱在各处颜色一致：这里、运行时列表，以及聊天中其上的 Agent。',
+                running: '已开机，daemon 已连接，Agent 会立即回复。计入运行时间。',
+                suspended: '休眠中，下一条消息会唤醒它。不计入运行时间。',
+                stopped: '休眠且已关机，下一条消息会唤醒它，比从“已挂起”唤醒更慢。不计入运行时间。',
+                notConnected: '已开机，但 daemon 未连接：刚被唤醒，或 daemon 已停止。下一条消息会重新连接。计入运行时间。',
+                deleting: '正在删除，其上的所有内容会一并删除。',
+                provisioning: '正在创建。',
+                failed: '未能创建，或其机器已不存在。原因见下方。'
             }
         },
         controlRow: {

@@ -6,7 +6,12 @@ import {
     agentStatusDotClass,
     agentStatusDotLabel
 } from '../src/lib/agentStatusDot'
-import { TONE_DOT, machineLabel, machineTone } from '../src/lib/hostStatus'
+import {
+    TONE_DOT,
+    machineLabel,
+    machineTone,
+    sandboxStatusLegend
+} from '../src/lib/hostStatus'
 
 const POWER: Array<RuntimeHostPowerState | null> = [
     'running',
@@ -152,4 +157,37 @@ test('an agent on a machine that is up with no daemon is not called asleep', () 
     assert.equal(label('running'), 'Not connected')
     assert.equal(label('suspended'), 'Asleep')
     assert.equal(label('stopped'), 'Asleep')
+})
+
+// The "?" beside a sandbox's badge explains every badge that sandbox can
+// show, each once and each with copy of its own.
+test("a sandbox's legend covers every badge it can show", () => {
+    const legend = sandboxStatusLegend()
+    const listed = new Set(
+        legend.map((entry) => `${entry.tone} ${entry.label}`)
+    )
+    for (const status of [
+        null,
+        'provisioning',
+        'ready',
+        'failed',
+        'deleting'
+    ] as const)
+        for (const powerState of POWER)
+            for (const daemonOnline of [true, false]) {
+                const machine = {
+                    kind: 'hosted',
+                    status,
+                    powerState,
+                    daemonOnline
+                } as const
+                const badge = `${machineTone(machine)} ${machineLabel(machine)}`
+                assert.ok(listed.has(badge), `${badge} is not in the legend`)
+            }
+    assert.equal(listed.size, legend.length, 'a badge is listed twice')
+    for (const entry of legend)
+        assert.ok(
+            entry.meaning !== '' && !entry.meaning.startsWith('web.'),
+            `${entry.label} has no copy`
+        )
 })

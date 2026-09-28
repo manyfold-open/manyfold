@@ -64,6 +64,12 @@ const readyAvailability = (machine: MachineFacts): RuntimeAvailability =>
         daemonOnline: machine.daemonOnline === true
     })
 
+const hostedIn = (
+    status: RuntimeHostStatus,
+    powerState: RuntimeHostPowerState,
+    daemonOnline: boolean
+): MachineFacts => ({ kind: 'hosted', status, powerState, daemonOnline })
+
 const isAsleep = (
     state: RuntimeHostPowerState | null
 ): state is 'suspended' | 'stopped' =>
@@ -96,6 +102,41 @@ export const machineLabel = (machine: MachineFacts): string => {
           ? powerStateLabel(machine.powerState)
           : t('web.hostStatus.availability.notConnected')
 }
+
+// Every badge a sandbox can wear, in the order its "?" lists them: each one
+// drawn by machineTone and machineLabel from a machine in that state, so the
+// legend cannot say something the badge does not. A sandbox is never retired;
+// only a self-owned computer is.
+interface LegendRow {
+    machine: MachineFacts
+    meaning: string
+}
+
+const SANDBOX_LEGEND: readonly LegendRow[] = [
+    { machine: hostedIn('ready', 'running', true), meaning: 'running' },
+    { machine: hostedIn('ready', 'suspended', false), meaning: 'suspended' },
+    { machine: hostedIn('ready', 'stopped', false), meaning: 'stopped' },
+    { machine: hostedIn('ready', 'running', false), meaning: 'notConnected' },
+    { machine: hostedIn('deleting', 'unknown', false), meaning: 'deleting' },
+    {
+        machine: hostedIn('provisioning', 'unknown', false),
+        meaning: 'provisioning'
+    },
+    { machine: hostedIn('failed', 'unknown', false), meaning: 'failed' }
+]
+
+interface LegendEntry {
+    tone: TagTone
+    label: string
+    meaning: string
+}
+
+export const sandboxStatusLegend = (): LegendEntry[] =>
+    SANDBOX_LEGEND.map(({ machine, meaning }) => ({
+        tone: machineTone(machine),
+        label: machineLabel(machine),
+        meaning: t(`web.hostStatus.sandboxLegend.${meaning}`)
+    }))
 
 export const powerStateTone = (state: RuntimeHostPowerState | null): TagTone =>
     POWER_TONE[state ?? 'unknown']

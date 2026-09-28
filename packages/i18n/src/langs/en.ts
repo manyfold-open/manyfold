@@ -640,6 +640,24 @@ const en = {
                 sprites: 'Stateful sandbox',
                 k8s: 'Cloud computer',
                 external: 'External API'
+            },
+            sandboxLegend: {
+                button: 'What the status colors mean',
+                title: 'Status colors',
+                intro:
+                    'A sandbox shows the same color everywhere: here, in the runtime list, and on its agents in the chat.',
+                running:
+                    'Up, with its daemon connected. Agents answer right away. Counts as running time.',
+                suspended:
+                    "Asleep. The next message wakes it. Doesn't count as running time.",
+                stopped:
+                    "Asleep and powered off. The next message wakes it, more slowly than from Suspended. Doesn't count as running time.",
+                notConnected:
+                    "Up, but its daemon isn't connected: it was just woken, or the daemon stopped. The next message reconnects it. Counts as running time.",
+                deleting: 'Being deleted, along with everything on it.',
+                provisioning: 'Being created.',
+                failed:
+                    "It couldn't be created, or its machine is gone. The reason is shown below."
             }
         },
         controlRow: {

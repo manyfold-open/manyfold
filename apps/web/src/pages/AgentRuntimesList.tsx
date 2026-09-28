@@ -62,6 +62,7 @@ import {
     ZapIcon
 } from '@/components/icons'
 import HostKindIcon, { HOST_KIND_ICON } from '@/components/HostKindIcon'
+import SandboxStatusHelp from '@/components/SandboxStatusHelp'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import ProductDialog from '@/components/ProductDialog'
 import RenameDialog from '@/components/RenameDialog'
@@ -1229,8 +1230,9 @@ const HostDetailPanel: FC<{
     const availableFrameworks = frameworkList.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )
-    // The machine's badge says what its dot says everywhere. A ready
-    // sandbox's badge doubles as its refresh control.
+    // The machine's badge says what its dot says everywhere. A sandbox's
+    // badge is followed by its "?" legend and, once ready, its refresh
+    // control.
     const refreshStatus = (): void => {
         if (!onRefreshStatus || !sandboxHostId || refreshingStatus) return
         setRefreshingStatus(true)
@@ -1238,15 +1240,17 @@ const HostDetailPanel: FC<{
             .catch(() => undefined)
             .finally(() => setRefreshingStatus(false))
     }
+    const refreshable =
+        Boolean(onRefreshStatus && sandboxHostId) &&
+        (vm.hostStatus === null || vm.hostStatus === 'ready')
     const badge =
         vm.hostId === null ? (
             vm.status && runtimeStatusTag(vm.status)
-        ) : vm.kind === 'sprites' &&
-          sandbox &&
-          (vm.hostStatus === null || vm.hostStatus === 'ready') ? (
+        ) : vm.kind === 'sprites' && sandbox ? (
             <span className='flex items-center gap-1.5'>
                 {machineStatusTag(vmMachine(vm))}
-                {onRefreshStatus && sandboxHostId && (
+                <SandboxStatusHelp />
+                {refreshable && (
                     <ShortcutTooltip
                         label={t('web.agentRuntimesList.refreshStatus')}
                         className='shrink-0'
