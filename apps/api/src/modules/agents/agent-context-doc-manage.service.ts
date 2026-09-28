@@ -4,7 +4,9 @@ import {
     Inject,
     Injectable,
     Logger,
-    NotFoundException
+    NotFoundException,
+    Optional,
+    ServiceUnavailableException
 } from '@nestjs/common'
 import { type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -26,6 +28,10 @@ import {
     RuntimeContextService,
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError
+} from '@/modules/agents/adapters/host-daemon-access'
 
 type AgentContext = RuntimeContext & { agent: Agent }
 
@@ -58,7 +64,10 @@ export class AgentContextDocManageService {
         private readonly runtimeContext: RuntimeContextService,
         private readonly contextDoc: AgentContextDocService,
         private readonly daemonRegistry: DaemonRegistryService,
-        private readonly delivery: DaemonConfigDeliveryService
+        private readonly delivery: DaemonConfigDeliveryService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, a refresh never wakes a sleeping sandbox.
+        @Optional() private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     async getStatus(
@@ -102,13 +111,36 @@ export class AgentContextDocManageService {
                 'the context doc is only available for coding-framework agents on a machine'
             )
         // Writing needs a reachable machine: an installed runtime on a ready
-        // host. A hosted machine that has idled is fine — the delivery wakes
-        // it; a local machine must have its daemon connected.
+        // host. The user asked for this write, so a hosted machine that has
+        // gone to sleep is woken for it and held until the doc is delivered
+        // (the automatic pushes below never wake one); a local machine must
+        // have its daemon connected.
         if (!isRuntimeUsable(ctx.availability))
             throw new BadRequestException(
                 'start the agent before installing its context doc'
             )
-        await this.refreshDaemon(ctx.agent)
+        const { host } = ctx
+        if (host?.kind === 'hosted' && this.hostAccess)
+            await this.hostAccess
+                .withHost(
+                    {
+                        host,
+                        daemon: ctx.daemon,
+                        placement: ctx.placement,
+                        agentId: ctx.agent.id,
+                        reason: 'context-doc'
+                    },
+                    () => this.refreshDaemon(ctx.agent)
+                )
+                .catch((err: unknown) => {
+                    if (!(err instanceof HostDaemonOfflineError)) throw err
+                    throw new ServiceUnavailableException({
+                        code: 'SANDBOX_DAEMON_OFFLINE',
+                        message: `${host.name} is not reachable (${err.reason})`,
+                        hostId: host.id
+                    })
+                })
+        else await this.refreshDaemon(ctx.agent)
         return this.getStatus(userId, agentId, isAdmin)
     }
 
