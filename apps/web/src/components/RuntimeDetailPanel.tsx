@@ -524,13 +524,17 @@ const RuntimeDetailPanel: FC<{
     const getPrimaryAgent = (): SdkAgent | null =>
         agents?.find((a) => a.id === runtime?.primaryAgentId) ?? null
 
+    // Re-reads the version on the machine. A sandbox is probed as a whole,
+    // every framework on it, so any runtime there can refresh, with or
+    // without an agent to address.
     const handleRefreshFrameworkVersion = async (): Promise<void> => {
-        const agent = getPrimaryAgent()
-        if (!agent || fwRefreshing) return
+        if (!runtime?.hostId || fwRefreshing) return
         setFwRefreshing(true)
         setFwError(null)
         try {
-            await client.agents.refreshFrameworkVersion(agent.id)
+            await client.sandboxes.detectFrameworks(runtime.hostId, {
+                probe: true
+            })
             load(true)
         } catch (e) {
             setFwError(apiErrorMessage(e))
@@ -697,7 +701,7 @@ const RuntimeDetailPanel: FC<{
                                     : null
                             }
                         />
-                        {fwUpgradeable && (
+                        {runtime.kind === 'sprites' && runtime.hostId && (
                             <ShortcutTooltip
                                 label={translate(
                                     'web.runtimeDetails.refreshVersion'
