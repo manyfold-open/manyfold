@@ -210,7 +210,9 @@ test('summaries derive placement, host and daemon facts from the join', async ()
     assert.equal(sandbox.powerState, 'suspended')
     assert.equal(sandbox.daemonOnline, true)
     assert.equal(sandbox.daemonCliVersion, '5.0.0')
-    assert.equal(sandbox.availability, 'available')
+    // Suspended with a heartbeat still inside the presence window: the daemon
+    // froze with its VM, so the machine has to be woken before a turn.
+    assert.equal(sandbox.availability, 'wakeable')
     assert.equal(sandbox.agentsCount, 3)
     assert.equal(byId.get('art_1')?.agentsCount, 0)
 

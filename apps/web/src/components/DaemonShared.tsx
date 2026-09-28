@@ -11,6 +11,7 @@ import {
 } from '@/lib/daemonCommands'
 import { docsHref } from '@/lib/docsLinks'
 import { frameworkLabel } from '@/lib/frameworkMeta'
+import { TONE_DOT, machineTone } from '@/lib/hostStatus'
 import { useI18n } from '@/lib/i18n'
 
 export const DaemonStatusDot: FC<{ online: boolean }> = ({
@@ -26,11 +27,17 @@ export const DaemonStatusDot: FC<{ online: boolean }> = ({
             )}
         >
             <span
-                className={
-                    online
-                        ? 'inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500'
-                        : 'inline-block h-2 w-2 shrink-0 rounded-full bg-zinc-400'
-                }
+                className={[
+                    'inline-block h-2 w-2 shrink-0 rounded-full',
+                    TONE_DOT[
+                        machineTone({
+                            kind: 'local',
+                            status: null,
+                            powerState: null,
+                            daemonOnline: online
+                        })
+                    ]
+                ].join(' ')}
             />
         </ShortcutTooltip>
     )

@@ -448,6 +448,18 @@ export class AgentsController {
         return this.diagnostics.storageUsage(user.userId, id, false)
     }
 
+    // Measures now; on a sleeping sandbox that wakes it.
+    @Post(':id/storage-usage/refresh')
+    @HttpCode(200)
+    @RequireApiTokenScope('agents:edit')
+    @SubjectAgentFromPath('id')
+    async refreshStorageUsage(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<AgentStorageUsageResponse> {
+        return this.diagnostics.refreshStorageUsage(user.userId, id, false)
+    }
+
     @Get(':id/credentials')
     @RequireApiTokenScope('secrets:read')
     @SubjectAgentFromPath('id')

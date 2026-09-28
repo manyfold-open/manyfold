@@ -62,6 +62,11 @@ interface Calls {
     upgradeHost: CliCall[]
     upgradeFramework: Array<{ agentId: string; targetVersion: string }>
     upgradeFrameworkStream: Array<{ agentId: string; targetVersion: string }>
+    installFramework: Array<{
+        id: string
+        framework: string
+        targetVersion: string | undefined
+    }>
 }
 
 interface Overrides {
@@ -90,7 +95,8 @@ const fakeClient = (
         upgradeCli: [],
         upgradeHost: [],
         upgradeFramework: [],
-        upgradeFrameworkStream: []
+        upgradeFrameworkStream: [],
+        installFramework: []
     }
     const client = {
         skills: {
@@ -118,6 +124,20 @@ const fakeClient = (
                 calls.upgradeCli.push({ id: sandboxId, targetVersion })
                 clock.now += 1_000
                 return over.upgradeCli ? over.upgradeCli(sandboxId) : {}
+            },
+            installFramework: async (
+                sandboxId: string,
+                framework: string,
+                targetVersion?: string
+            ): Promise<unknown> => {
+                calls.order.push('installFramework')
+                calls.installFramework.push({
+                    id: sandboxId,
+                    framework,
+                    targetVersion
+                })
+                clock.now += 1_000
+                return {}
             }
         },
         daemons: {
@@ -274,6 +294,30 @@ test('a started batch dispatches every step with no page mounted and no subscrib
     })
     for (const id of rowIds)
         assert.deepEqual(runs[id], { state: 'succeeded', detail: null })
+})
+
+test("a sandbox's pre-installed CLI is moved by the sandbox itself", async () => {
+    const { client, calls } = fakeClient()
+    const steps: BatchStep[] = [
+        {
+            type: 'sandboxFramework',
+            rowId: 'framework:host:sbx_1:claude-code',
+            hostId: 'sbx_1',
+            framework: 'claude-code',
+            targetVersion: '2.1.0'
+        }
+    ]
+
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    await waitFor(finished)
+
+    assert.deepEqual(calls.installFramework, [
+        { id: 'sbx_1', framework: 'claude-code', targetVersion: '2.1.0' }
+    ])
+    assert.deepEqual(runOf('framework:host:sbx_1:claude-code'), {
+        state: 'succeeded',
+        detail: null
+    })
 })
 
 test('rows move pending → running → succeeded one step at a time', async () => {

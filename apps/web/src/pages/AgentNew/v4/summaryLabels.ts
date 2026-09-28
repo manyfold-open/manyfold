@@ -83,6 +83,19 @@ export const costFull = (
 const modelSuffix = (model: string | undefined): string =>
     model === undefined ? '' : ` · ${model}`
 
+const waitingPrimary = (
+    verb: string,
+    overrun: string,
+    elapsedSeconds: number,
+    budgetSeconds: number,
+    cost: string
+): { label: string; fine: string } => ({
+    // Below two seconds the count is noise: it would read "· 0s" and then
+    // "· 1s" on a create that is already finishing.
+    label: elapsedSeconds < 2 ? verb : `${verb} · ${elapsedSeconds}s`,
+    fine: elapsedSeconds > budgetSeconds ? overrun : cost
+})
+
 // What the primary button says while a create is in flight.
 //
 // The request carries no progress of its own — one POST, and the server says
@@ -100,18 +113,38 @@ export const creatingPrimary = (
     budgetSeconds: number,
     cost: string,
     t: TFn
-): { label: string; fine: string } => {
-    const creating = t('web.agentNewV4.primary.creating')
-    return {
-        // Below two seconds the count is noise: it would read "· 0s" and then
-        // "· 1s" on a create that is already finishing.
-        label:
-            elapsedSeconds < 2
-                ? creating
-                : `${creating} · ${elapsedSeconds}s`,
-        fine:
-            elapsedSeconds > budgetSeconds
-                ? t('web.agentNewV4.primary.tookLonger')
-                : cost
-    }
-}
+): { label: string; fine: string } =>
+    waitingPrimary(
+        t('web.agentNewV4.primary.creating'),
+        t('web.agentNewV4.primary.tookLonger'),
+        elapsedSeconds,
+        budgetSeconds,
+        cost
+    )
+
+export type PreparePhase = 'build' | 'install'
+
+// What the primary button says while step ② builds the machine or installs
+// the CLI onto it — the same contract as the create's. This wait is two
+// requests rather than one, the build and then the install, so the label can
+// name the one running without inventing anything; the count spans both,
+// because the cost line promised one number for the pair. The overrun line
+// drops the create's "a failure leaves nothing half-made": a build that fails
+// leaves its machine behind, marked failed.
+export const preparingPrimary = (
+    phase: PreparePhase,
+    cli: string,
+    elapsedSeconds: number,
+    budgetSeconds: number,
+    cost: string,
+    t: TFn
+): { label: string; fine: string } =>
+    waitingPrimary(
+        phase === 'build'
+            ? t('web.agentNewV4.primary.building')
+            : t('web.agentNewV4.primary.installing', { cli }),
+        t('web.agentNewV4.primary.longerThanUsual'),
+        elapsedSeconds,
+        budgetSeconds,
+        cost
+    )

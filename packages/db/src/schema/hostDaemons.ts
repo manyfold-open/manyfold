@@ -20,6 +20,9 @@ export interface DetectedFramework {
         | 'hermes'
     version: string | null
     path: string
+    // Set by the API on an entry it probed itself, never by a daemon; mirrors
+    // DetectedFramework.probedAt in @manyfold/shared.
+    probedAt?: string
     // openclaw only: the resident gateway the daemon discovered on the host
     // (never started). Mirrors DetectedOpenclawGateway in @manyfold/shared,
     // restated here because the db package cannot depend on shared. The API

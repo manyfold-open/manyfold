@@ -2,7 +2,6 @@ const en = {
     common: {
         appName: 'Manyfold',
         loading: 'Loading…',
-        loadingShort: 'Loading…',
         saving: 'Saving…',
         creating: 'Creating…',
         installing: 'Installing…',
@@ -264,6 +263,7 @@ const en = {
                     working: 'Working…'
                 },
                 copyAgentId: 'Copy agent ID',
+                copyHostId: 'Copy host ID',
                 copyWorkspacePath: 'Copy workspace path',
                 created: 'Created',
                 dashboard: {
@@ -320,23 +320,14 @@ const en = {
                     title: 'Files'
                 },
                 framework: {
-                    changeTitle: 'Change framework version',
-                    changeVersion: 'change version',
-                    changeVersionEllipsis: 'Change version…',
-                    chooseVersion:
-                        'Choose a {{framework}} version to install. Upgrades run in the sandbox and may take up to a minute.',
-                    latest: 'latest {{version}}',
                     notDetected: 'not detected',
                     refreshVersion: 'Refresh version',
-                    upgrade: 'Upgrade',
-                    upgradeTitle: 'Upgrade framework',
                     upgrading: 'Upgrading…',
                     upgradingStep: 'Upgrading… {{step}}',
                     versionBlocked:
-                        'This {{framework}} version has a known defect',
-                    versionLabel: 'Version'
+                        'This {{framework}} version has a known defect'
                 },
-                lastActive: 'Last active',
+                hostId: 'Host ID',
                 lastMessage: 'Last message',
                 mcp: {
                     alreadySynced: 'Already in sync with the runtime.',
@@ -414,7 +405,6 @@ const en = {
                     title: 'Permissions'
                 },
                 refresh: 'Refresh',
-                runtime: 'Runtime',
                 saving: 'Saving…',
                 skills: {
                     description:
@@ -435,12 +425,9 @@ const en = {
                     deleteAction: 'Delete',
                     deleteConfirm: 'Delete backup from {{date}}?',
                     deleteTitle: 'Delete backup',
-                    manage: 'Manage →',
                     measured: 'Measured {{date}}',
-                    measuredInline: ' · measured {{date}}',
                     noBackups: 'No workspace backups yet.',
                     notMeasured: 'Storage usage has not been measured yet.',
-                    notMeasuredInline: ' · not measured yet',
                     restoreAction: 'Restore',
                     restoreConfirm:
                         'Restore backup from {{date}}? Current workspace files will be replaced.',
@@ -454,7 +441,7 @@ const en = {
                     unavailableExternal:
                         'External agents have no workspace on Manyfold, so there is nothing to back up here.',
                     starting: 'Starting...',
-                    title: 'Agent-owned paths',
+                    title: 'Storage',
                     total: 'Agent path total',
                     cachedSandbox: 'Cached sandbox filesystem: {{value}} · measured {{date}}',
                     asleep: 'Sandbox asleep'
@@ -620,7 +607,8 @@ const en = {
                 available: 'Available',
                 wakeable: 'Asleep',
                 offline: 'Offline',
-                unavailable: 'Unavailable'
+                unavailable: 'Unavailable',
+                notConnected: 'Not connected'
             },
             lifecycle: {
                 provisioning: 'Provisioning',
@@ -644,6 +632,24 @@ const en = {
                 sprites: 'Stateful sandbox',
                 k8s: 'Cloud computer',
                 external: 'External API'
+            },
+            sandboxLegend: {
+                button: 'What the status colors mean',
+                title: 'Status colors',
+                intro:
+                    'A sandbox shows the same color everywhere: here, in the runtime list, and on its agents in the chat.',
+                running:
+                    'Up, with its daemon connected. Agents answer right away. Counts as running time.',
+                suspended:
+                    "Asleep. The next message wakes it. Doesn't count as running time.",
+                stopped:
+                    "Asleep and powered off. The next message wakes it, more slowly than from Suspended. Doesn't count as running time.",
+                notConnected:
+                    "Up, but its daemon isn't connected: it was just woken, or the daemon stopped. The next message reconnects it. Counts as running time.",
+                deleting: 'Being deleted, along with everything on it.',
+                provisioning: 'Being created.',
+                failed:
+                    "It couldn't be created, or its machine is gone. The reason is shown below."
             }
         },
         controlRow: {
@@ -669,8 +675,6 @@ const en = {
             stopped: 'Stopped',
             unknown: 'Unknown',
             failed: 'Failed',
-            online: 'Online',
-            offline: 'Offline',
             checked: 'checked {{time}}',
             failedToOpenControlUi: 'Failed to open control UI',
             failedToOpenDashboard: 'Failed to open dashboard',
@@ -685,7 +689,6 @@ const en = {
             rename: 'Rename',
             deleting: 'Deleting…',
             runtimeFailed: 'Runtime failed',
-            upgrade: 'Upgrade',
             agents: 'Agents ({{count}})',
             controls: 'Controls',
             controlUi: 'Control UI',
@@ -707,13 +710,7 @@ const en = {
             service: 'Service',
             phase: 'Phase',
             created: 'Created',
-            upgradeFramework: 'Upgrade framework',
-            changeFrameworkVersion: 'Change framework version',
-            chooseVersion:
-                'Choose a {{framework}} version to install. Upgrades run in the sandbox and may take up to a minute.',
-            cancel: 'Cancel',
             upgrading: 'Upgrading…',
-            version: 'Version',
             renameRuntime: 'Rename runtime',
             account: {
                 title: 'Account',
@@ -875,7 +872,6 @@ const en = {
             runtimesTitle: 'No runtimes yet',
             hostRuntimesBody:
                 'Install a framework below and the daemon will detect it.',
-            sandboxRuntimesBody: 'Provision a framework below to add one.',
             createRuntimeBody: 'Create a sandbox runtime to get started.',
             createRuntimeAction: 'Create runtime',
             runtimeNotFoundTitle: 'Runtime not found',
@@ -954,28 +950,22 @@ const en = {
             overview: {
                 keepAwakeOn: 'kept awake',
                 details: 'Details',
-                interfaces: 'Interfaces',
                 framework: 'Framework',
                 provider: 'Provider',
                 cli: 'mf CLI',
-                cliUpToDate: 'up to date',
-                access: 'Manyfold access',
-                accessSkill: 'Manyfold CLI skill',
-                accessSkillMeta:
-                    'manyfold-cli-usage · managed · ships with new agents',
+                managedSkills: 'Managed Agent Skills',
                 accessInstalled: 'Installed',
-                accessMissing: 'Not installed',
                 accessInstalledBlurb:
                     'Lets this agent manage channels, automations, skills, files and backups for you through the mf CLI, within the permissions you grant it.',
                 accessMissingBlurb:
                     'Want this agent to operate Manyfold for you? This skill teaches it to manage channels, automations, skills, files and backups through the mf CLI. New agents get it by default — add it back if it is missing.',
-                channelCount: '{{count}} channels',
+                channelCount: '{{count}} connected',
                 channelErrors: '{{count}} error',
                 channelsBroken: '{{name}} cannot authenticate',
                 channelsBrokenMore: '+{{count}} more affected',
                 fixInChannels: 'Fix in Channels',
-                a2aOn: 'A2A on',
-                a2aOff: 'A2A off',
+                a2aOn: 'On',
+                a2aOff: 'Off',
                 deleteBlurb:
                     'Deletes the workspace, channels and stored credentials. This cannot be undone.'
             },
@@ -1146,8 +1136,7 @@ const en = {
             account: 'Account',
             externalAgentProviders: 'External agents',
             channels: 'Channels',
-            kicker: 'Workspace settings',
-            body: 'Runtime controls, usage reporting, and provider management live here in a dedicated workspace surface.'
+            kicker: 'Workspace settings'
         },
         general: {
             title: 'General',
@@ -3714,6 +3703,7 @@ const en = {
                 slotTaken: 'Already serving {{other}}, and a sandbox has only one public port',
                 podHostStarting: 'Still starting — it can take an agent once it is ready',
                 podHostFailed: 'Failed to start; delete it under Settings › Cloud computers',
+                sandboxFailed: 'Failed to start; delete it under Settings › Runtimes',
                 podHostNoService: '{{cli}} cannot run on a cloud computer yet'
             },
             newMachine: {
@@ -3807,7 +3797,10 @@ const en = {
                 createFine: 'a few seconds',
                 createFineAsleep: 'about a minute · this machine has to wake up first',
                 creating: 'Creating…',
-                tookLonger: 'longer than usual · a failure leaves nothing half-made'
+                tookLonger: 'longer than usual · a failure leaves nothing half-made',
+                building: 'Building…',
+                installing: 'Installing {{cli}}…',
+                longerThanUsual: 'longer than usual'
             }
         },
         agentNew: {
@@ -4099,16 +4092,9 @@ const en = {
             waitingForSlot: 'Waiting for another sandbox to fall asleep…',
             modelProviderSection: 'Model provider',
             advancedConfig: 'Advanced config',
-            frameworkNotInstalled: 'is not installed on this sandbox',
-            installFramework: 'Install',
-            upgradeFrameworkTo: 'Upgrade to v{{version}}',
-            frameworkUpToDate: 'Latest',
             frameworkInstalling: 'Installing…',
             frameworkUpgrading: 'Upgrading…',
-            frameworkNotChecked: 'not checked on this sandbox yet',
-            checkFramework: 'Check',
             frameworkChecking: 'Checking…',
-            frameworkInstalled: 'Installed',
             frameworkServiceSlotTaken:
                 'This sandbox already runs {{framework}}; it holds one of OpenClaw and Hermes at a time.',
             deleteHasAgents: 'Delete its agents first',
@@ -4707,10 +4693,8 @@ const en = {
                 installing: 'Installing',
                 asleep: 'Asleep'
             },
-            changeVersion: 'change version',
             updating: 'Updating…',
             endpoint: 'Endpoint',
-            version: 'Version',
         },
         agentRuntimesList: {
             collapseHost: 'Collapse host',
@@ -4727,14 +4711,8 @@ const en = {
                 'Run this on {{host}}, then the daemon detects it automatically — Manyfold never installs CLIs on your own computer.',
             latest: 'latest',
             installedNotProvisioned: 'Installed · not provisioned',
-            preinstalledReady: 'Pre-installed · ready to provision',
             notInstalled: 'Not installed',
-            needsSandbox: 'Needs its own sandbox',
-            notProvisioned: 'Not provisioned',
-            noCliVersion:
-                'No CLI version reported yet — upgrading installs one.',
             versionUnknown: 'Version unknown',
-            changeCliVersion: 'Change mf CLI version',
             managedBy:
                 'Managed by Manyfold — delete via the framework, not here.',
             managed: 'Managed',
@@ -4753,15 +4731,12 @@ const en = {
             deletingSandbox: 'Deleting sandbox…',
             machineOffline: 'Machine offline',
             upgrading: 'Upgrading…',
-            upgrade: 'Upgrade',
             runtimesTitle: 'Runtimes',
             availableFrameworks: 'Available frameworks',
             detecting: 'Detecting…',
             detectFrameworks: 'Detect frameworks',
             installDaemonHint:
                 'Install agent CLIs on this machine yourself — the daemon detects them automatically.',
-            provisionHint:
-                'Provision another agent CLI on this sandbox. Service frameworks (openclaw/hermes) run as their own sprite.',
             activity: 'Activity',
             deleteService: 'Delete service',
             deleteTask: 'Delete task',
@@ -4808,17 +4783,10 @@ const en = {
             serviceStopped: 'Stopped',
             serviceFailed: 'Failed',
             sandbox: 'Sandbox',
-            provision: 'Provision',
             alreadyRuns: '{{framework}} already runs here',
-            unavailableAction: 'unavailable',
             leaseExpires: 'keep-awake lease expires {{time}}',
             guideInstallMethods:
                 'Any install method works — the daemon finds the CLI on your PATH (including Homebrew, a native installer, or nvm/fnm/volta) and registers it as a runtime.',
-            versionPickerDaemon:
-                'Pick a version to install on "{{name}}". The daemon restarts and agents on this machine stop briefly.',
-            versionPickerSandbox:
-                'Pick a version to install on "{{name}}". The upgrade is in-place; nothing restarts.',
-            latestVersion: 'Latest (v{{version}})',
             activePeriod: 'active {{duration}} this period',
             activityDescription: 'What keeps this sandbox awake: managed services (e.g. a dev server) and activity leases — the keep-awake switch installs one. Keep-awake leases are managed from that switch; agent-registered tasks can be deleted here.',
             loading: 'Loading…',
@@ -4833,7 +4801,6 @@ const en = {
             herdrLabel: 'herdr',
             sandboxHerdrDescription: 'herdr inside this sandbox, where handed-off conversations open. Installs and upgrades are in-place; nothing restarts.',
             daemonHerdrDescription: 'herdr on this machine. Upgrading runs herdr’s own updater.',
-            installVersion: 'Install {{version}}',
             herdrUpgradedMessage: 'herdr upgraded to v{{version}}',
             sandboxCliDescription:
                 'Platform CLI installed in this sandbox. Upgrades are in-place; nothing restarts.',
@@ -4852,6 +4819,8 @@ const en = {
             hostDeleting: 'Deleting the machine…',
             removingAgents: 'Delete its agents first',
             refreshStatus: 'Refresh status',
+            installFramework: 'Install a framework',
+            settingUp: 'Setting up…',
             provider: 'Provider',
             providerRef: 'Provider reference',
             daemon: 'Daemon'

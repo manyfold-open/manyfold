@@ -1,9 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-    countActiveSandboxes,
-    groupActiveSandboxes
-} from '../src/lib/concurrencySlots'
+import { groupActiveSandboxes } from '../src/lib/concurrencySlots'
 import {
     makeAgentSummary as makeAgent,
     makeDaemonAgentSummary,
@@ -22,19 +19,19 @@ test('co-resident cross-framework agents share one slot', () => {
         slots[0].agents.map((a) => a.id),
         [claude.id, codex.id]
     )
-    assert.equal(countActiveSandboxes([claude, codex], []), 1)
+    assert.equal(groupActiveSandboxes([claude, codex], [], none).length, 1)
 })
 
 test('agents on the same runtime collapse into one slot', () => {
     const a = makeAgent({ hostId: 'sbx_1', runtimeId: 'art_x' })
     const b = makeAgent({ hostId: 'sbx_1', runtimeId: 'art_x' })
-    assert.equal(countActiveSandboxes([a, b], []), 1)
+    assert.equal(groupActiveSandboxes([a, b], [], none).length, 1)
 })
 
 test('distinct hosts get distinct slots', () => {
     const a = makeAgent({ hostId: 'sbx_1' })
     const b = makeAgent({ hostId: 'sbx_2' })
-    assert.equal(countActiveSandboxes([a, b], []), 2)
+    assert.equal(groupActiveSandboxes([a, b], [], none).length, 2)
 })
 
 test('non-running and non-sandbox agents are excluded', () => {
@@ -46,14 +43,14 @@ test('non-running and non-sandbox agents are excluded', () => {
         powerState: 'running'
     })
     assert.equal(
-        countActiveSandboxes([suspended, stopped, unknown, daemon], []),
+        groupActiveSandboxes([suspended, stopped, unknown, daemon], [], none).length,
         0
     )
 })
 
 test('a running agent that has no host yet is excluded', () => {
     const a = makeAgent({ hostId: null, hostName: null })
-    assert.equal(countActiveSandboxes([a], []), 0)
+    assert.equal(groupActiveSandboxes([a], [], none).length, 0)
 })
 
 test('a bare running sandbox occupies its own slot', () => {
@@ -76,13 +73,13 @@ test('non-running sandbox rows are skipped', () => {
         registered: false,
         daemonOnline: false
     })
-    assert.equal(countActiveSandboxes([], [suspended, stopped, provisioning]), 0)
+    assert.equal(groupActiveSandboxes([], [suspended, stopped, provisioning], none).length, 0)
 })
 
 test('agent state overrides a stale running sandbox row', () => {
     const staleRow = makeSandbox()
     const asleep = makeAgent({ hostId: staleRow.id, powerState: 'suspended' })
-    assert.equal(countActiveSandboxes([asleep], [staleRow]), 0)
+    assert.equal(groupActiveSandboxes([asleep], [staleRow], none).length, 0)
 })
 
 test('row and running agents on the same host count once, named by the row', () => {
@@ -124,5 +121,5 @@ test('slot releases only when every agent on the host is releasing', () => {
 test('empty sandbox list degrades to pure agent grouping', () => {
     const a = makeAgent({ hostId: 'sbx_1' })
     const b = makeAgent({ hostId: 'sbx_2' })
-    assert.equal(countActiveSandboxes([a, b], []), 2)
+    assert.equal(groupActiveSandboxes([a, b], [], none).length, 2)
 })

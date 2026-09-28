@@ -11,9 +11,9 @@ import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 // The runtime page's Account section: the host probe (who the machine is
 // signed in as, and its usage) framing the shared account list. Opening the
 // page reads a host that is awake and otherwise falls back to the cached
-// last-good probe, so the account stays named while the sandbox sleeps; the
-// list's own notices carry the wake affordances, and Refresh (or a sign-in)
-// is the user's explicit consent to wake.
+// last-good probe, so the account stays named while the sandbox sleeps.
+// Refresh (or a sign-in) is the user's explicit consent to wake, so an asleep
+// sandbox gets no wake notice of its own under the cards.
 const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     runtime
 }): ReactNode => {
@@ -36,9 +36,9 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
         [probe, reloadAuth]
     )
 
-    // The list's own wake buttons (start runner, check again) reload only the
-    // list; wrap its reload so a wake refreshes the host probe too, or the
-    // host card would keep the cached identity after the sandbox came up.
+    // The list's own wake button (check again) reloads only the list; wrap
+    // its reload so a wake refreshes the host probe too, or the host card
+    // would keep the cached identity after the sandbox came up.
     const reloadAll = useCallback(
         async (opts?: { wake?: boolean }) => {
             if (opts?.wake) void probe(true)
@@ -102,6 +102,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                     onRefreshUsage={(): void => {
                         void probe(true, true)
                     }}
+                    surfaceWakes
                 />
             </>
         )

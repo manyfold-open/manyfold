@@ -20,15 +20,18 @@ export interface CreateMenuOption {
     // real links so they keep middle-click and open-in-new-tab.
     to?: string
     onSelect?: () => void
+    // Listed but not pickable right now, with `detail` saying why.
+    disabled?: boolean
+    detail?: string
 }
 
 export const CreateMenu: FC<{
     options: readonly CreateMenuOption[]
-    // header: a round icon button in a rail header. footer: the rail's
-    // full-width primary button. inline: a secondary button in page content.
-    // 'chip' is the create form's dashed add chip, so the menu can sit in a
-    // row of them.
-    variant: 'header' | 'footer' | 'inline' | 'chip'
+    // header: a round icon button in a rail header; icon: the same button in
+    // page content. footer: the rail's full-width primary button. inline: a
+    // secondary button in page content. 'chip' is the create form's dashed
+    // add chip, so the menu can sit in a row of them.
+    variant: 'header' | 'icon' | 'footer' | 'inline' | 'chip'
     triggerLabel: string
     sheetTitle: string
     disabled?: boolean
@@ -83,7 +86,14 @@ export const CreateMenu: FC<{
                 ) : Icon ? (
                     <Icon className={iconClass} />
                 ) : null}
-                <span className='min-w-0 flex-1 truncate'>{option.label}</span>
+                <span className='min-w-0 flex-1'>
+                    <span className='block truncate'>{option.label}</span>
+                    {option.detail && (
+                        <span className='text-caption text-subtle block truncate'>
+                            {option.detail}
+                        </span>
+                    )}
+                </span>
             </>
         )
         if (option.to !== undefined)
@@ -101,11 +111,12 @@ export const CreateMenu: FC<{
             <button
                 key={option.key}
                 type='button'
+                disabled={option.disabled}
                 onClick={() => {
                     setOpen(false)
                     option.onSelect?.()
                 }}
-                className={className}
+                className={`${className} disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent`}
             >
                 {body}
             </button>
@@ -127,6 +138,14 @@ export const CreateMenu: FC<{
                     {...triggerProps}
                     aria-label={triggerLabel}
                     className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors disabled:opacity-40'
+                >
+                    <PlusIcon className='h-4 w-4' />
+                </button>
+            ) : variant === 'icon' ? (
+                <button
+                    {...triggerProps}
+                    aria-label={triggerLabel}
+                    className='text-muted hover:bg-surface-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors disabled:opacity-40'
                 >
                     <PlusIcon className='h-4 w-4' />
                 </button>

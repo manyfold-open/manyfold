@@ -90,6 +90,7 @@ import type {
     SandboxTaskSummary,
     CliVersionCatalog,
     CreateSandboxBody,
+    DetectSandboxFrameworksBody,
     CreatePodHostBody,
     PodHostSummary,
     SetSandboxTerminalBody,
@@ -401,6 +402,8 @@ export interface AgentsClient {
     delete: (agentId: string) => Promise<void>
     restart: (agentId: string) => Promise<AgentSummary>
     storageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
+    // Measures now; on a sleeping sandbox that wakes it.
+    refreshStorageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
     refreshFrameworkVersion: (agentId: string) => Promise<AgentSummary>
     refreshMcp: (agentId: string) => Promise<RefreshAgentMcpResponse>
     materializeMcp: (agentId: string) => Promise<MaterializeAgentMcpResponse>
@@ -465,6 +468,7 @@ interface AgentsPaths {
     contextDoc: (id: string) => string
     contextDocRefresh: (id: string) => string
     storageUsage: (id: string) => string
+    storageUsageRefresh: (id: string) => string
     frameworkVersionRefresh: (id: string) => string
     frameworkVersionUpgrade: (id: string) => string
     frameworkVersionUpgradeStream: (id: string) => string
@@ -656,7 +660,12 @@ export interface SandboxesClient {
         id: string,
         enabled: boolean
     ) => Promise<SandboxSummary>
-    detectFrameworks: (id: string) => Promise<SandboxSummary>
+    // `probe` probes the sandbox now instead of reading what its daemon last
+    // reported; it wakes the sandbox.
+    detectFrameworks: (
+        id: string,
+        opts?: DetectSandboxFrameworksBody
+    ) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
     // Install or upgrade herdr inside the sandbox (ADR-0031).
@@ -1928,6 +1937,11 @@ const buildAgentsClient = (
             request<AgentStorageUsageResponse>(paths.storageUsage(agentId), {
                 method: 'POST'
             }),
+        refreshStorageUsage: (agentId) =>
+            request<AgentStorageUsageResponse>(
+                paths.storageUsageRefresh(agentId),
+                { method: 'POST' }
+            ),
         refreshFrameworkVersion: (agentId) =>
             request<AgentSummary>(paths.frameworkVersionRefresh(agentId), {
                 method: 'POST'
@@ -2153,6 +2167,7 @@ const userAgentPaths: AgentsPaths = {
     contextDoc: apiPaths.AGENT_CONTEXT_DOC,
     contextDocRefresh: apiPaths.AGENT_CONTEXT_DOC_REFRESH,
     storageUsage: apiPaths.AGENT_STORAGE_USAGE,
+    storageUsageRefresh: apiPaths.AGENT_STORAGE_USAGE_REFRESH,
     frameworkVersionRefresh: apiPaths.AGENT_FRAMEWORK_VERSION_REFRESH,
     frameworkVersionUpgrade: apiPaths.AGENT_FRAMEWORK_VERSION_UPGRADE,
     frameworkVersionUpgradeStream:
@@ -2171,6 +2186,8 @@ const adminAgentPaths: AgentsPaths = {
     contextDoc: apiPaths.AGENT_CONTEXT_DOC,
     contextDocRefresh: apiPaths.AGENT_CONTEXT_DOC_REFRESH,
     storageUsage: apiPaths.ADMIN_AGENT_STORAGE_USAGE,
+    // No admin storage refresh; the admin agent UI never calls this.
+    storageUsageRefresh: apiPaths.AGENT_STORAGE_USAGE_REFRESH,
     frameworkVersionRefresh: apiPaths.ADMIN_AGENT_FRAMEWORK_VERSION_REFRESH,
     frameworkVersionUpgrade: apiPaths.ADMIN_AGENT_FRAMEWORK_VERSION_UPGRADE,
     frameworkVersionUpgradeStream:
@@ -2630,10 +2647,13 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         } as SetSandboxTerminalModelCredentialsBody)
                     }
                 ),
-            detectFrameworks: (id) =>
+            detectFrameworks: (id, opts) =>
                 request<SandboxSummary>(
                     apiPaths.SANDBOX_DETECT_FRAMEWORKS(id),
-                    { method: 'POST' }
+                    {
+                        method: 'POST',
+                        ...(opts ? { body: JSON.stringify(opts) } : {})
+                    }
                 ),
             refreshStatus: (id) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_REFRESH_STATUS(id), {

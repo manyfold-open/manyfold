@@ -43,7 +43,8 @@ const makeDb = (host: Record<string, unknown> | null) => {
 const makeService = (
     db: ReturnType<typeof makeDb>,
     host: Record<string, unknown> | null,
-    findError?: Error
+    findError?: Error,
+    registry?: unknown
 ) => {
     const emits: Array<{ userId: string; event: Record<string, unknown> }> = []
     const hostEmits: Array<{
@@ -81,7 +82,9 @@ const makeService = (
             settleHostNotRunning: async () => {},
             pruneOlderThan: async () => {}
         } as never,
-        {} as never
+        {} as never,
+        undefined,
+        registry as never
     )
     return { svc, emits, hostEmits }
 }
@@ -119,6 +122,39 @@ test('markHostRunning on a suspended host publishes running and pokes the provid
     assert.equal(hostEmits[0]?.update.hostId, 'host-1')
     assert.equal(hostEmits[0]?.update.powerState, 'running')
     assert.equal(nextEligible(svc, 'rtp-1'), 0)
+})
+
+// WHY: a daemon connecting is proof its sprite runs, and it can land well
+// before the next listing pass. Seen on a local stack [2026-09-28]: an agent
+// read online while its sandbox still counted as asleep, so the sidebar and
+// the concurrent-sandbox count disagreed until the poll caught up.
+test('a daemon connecting publishes its host as running', async () => {
+    const host = fakeHost()
+    const db = makeDb(host)
+    const hook: { listener: ((hostId: string) => void) | null } = {
+        listener: null
+    }
+    const registry = {
+        onConnected: (fn: (hostId: string) => void) => {
+            hook.listener = fn
+            return () => {
+                hook.listener = null
+            }
+        }
+    }
+    const { svc, hostEmits } = makeService(db, host, undefined, registry)
+
+    const watch = svc['watchDaemonConnects' as never] as () => void
+    watch.call(svc)
+    assert.ok(hook.listener, 'subscribed to daemon connects')
+    hook.listener?.('host-1')
+    for (let i = 0; i < 20 && hostEmits.length === 0; i++)
+        await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(hostUpdates(db)[0]?.set.powerState, 'running')
+    assert.equal(hostEmits[0]?.update.powerState, 'running')
+    svc.onModuleDestroy()
+    assert.equal(hook.listener, null, 'unsubscribed on shutdown')
 })
 
 // WHY: a row already at `running` must still kick the provider — without

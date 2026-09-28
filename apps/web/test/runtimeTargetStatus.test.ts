@@ -10,6 +10,7 @@ test('the picked sandbox reports the daemon being started, then answering', () =
         sandboxTargetStatus({
             hostStatus: 'ready',
             powerState: 'stopped',
+            daemonOnline: false,
             picked: true,
             prewarming: true,
             availability: 'sandbox-asleep'
@@ -20,6 +21,7 @@ test('the picked sandbox reports the daemon being started, then answering', () =
         sandboxTargetStatus({
             hostStatus: 'ready',
             powerState: 'running',
+            daemonOnline: true,
             picked: true,
             prewarming: false,
             availability: 'ok'
@@ -33,16 +35,30 @@ test("every other sandbox reports the machine in the runtime list's words", () =
         sandboxTargetStatus({
             hostStatus: 'ready',
             powerState: 'running',
+            daemonOnline: true,
             picked: false,
             prewarming: true,
             availability: 'ok'
         }),
         { kind: 'host', label: 'Running', tone: 'success' }
     )
+    // Up, but with no daemon to take a turn: amber in the runtime list too.
+    assert.deepEqual(
+        sandboxTargetStatus({
+            hostStatus: 'ready',
+            powerState: 'running',
+            daemonOnline: false,
+            picked: false,
+            prewarming: false,
+            availability: null
+        }),
+        { kind: 'host', label: 'Not connected', tone: 'warning' }
+    )
     assert.deepEqual(
         sandboxTargetStatus({
             hostStatus: 'ready',
             powerState: 'suspended',
+            daemonOnline: false,
             picked: false,
             prewarming: false,
             availability: null
@@ -55,6 +71,7 @@ test("every other sandbox reports the machine in the runtime list's words", () =
         sandboxTargetStatus({
             hostStatus: 'provisioning',
             powerState: 'unknown',
+            daemonOnline: false,
             picked: true,
             prewarming: false,
             availability: 'sandbox-asleep'

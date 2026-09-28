@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { StorageMeasurementError } from '@/common/telemetry/storage-measurement-error'
 import { and, asc, eq, ne, or, isNull, lte, sql } from 'drizzle-orm'
-import { createObjectId, frameworkCapability } from '@manyfold/shared'
+import { createObjectId } from '@manyfold/shared'
 import { trace, SpanStatusCode } from '@opentelemetry/api'
 import { suppressTracing } from '@sentry/opentelemetry'
 import {
@@ -21,7 +21,7 @@ import { HostProviderClients } from '@/modules/hosts/providers/host-provider-cli
 import { spritesRef } from '@/modules/agent-runtimes/host-ref'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import { shellQuote } from '@/modules/agents/agent-diagnostics.service'
+import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
 import {
     MeasurementObservation,
     storageFailureClass,
@@ -30,6 +30,7 @@ import {
     type StorageMeasurementTrigger
 } from './measurement-observation'
 import { attributeStoragePaths } from './storage-attribution'
+import { frameworkHome, workspacePathFor } from './agent-storage-paths'
 
 const MIN_INTERVAL_MS = 5 * 60 * 1000
 const CMD_TIMEOUT_MS = 8_000
@@ -138,9 +139,50 @@ export class SpriteStorageService {
         })
     }
 
+    // A refresh the user asked for: measured now, inside the interval and past
+    // a failed attempt's backoff, and on a sleeping VM too — any exec resumes
+    // one, and the caller must already have admitted that wake. True once a
+    // new reading is published, whether this call measured it or an attempt
+    // already in flight did.
+    async measureHostNow(hostId: string): Promise<boolean> {
+        const reading = async () => {
+            const [row] = await this.db
+                .select({
+                    measuredAt: runtimeHosts.storageMeasuredAt,
+                    leased: sql<boolean>`coalesce(${runtimeHosts.storageLeaseUntil} > clock_timestamp(), false)`
+                })
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.id, hostId))
+                .limit(1)
+            return row
+        }
+        const before = await reading()
+        if (!before) return false
+        // A live lease runs out within LEASE_MS; a holder that died with it
+        // is outwaited by then.
+        const deadline = Date.now() + LEASE_MS + 1000
+        let row = before
+        for (;;) {
+            // The attempt holding the lease publishes a reading as new as
+            // this one would be: wait for it rather than measure twice.
+            if (!row.leased)
+                await this.measureHostInScope(hostId, 'manual', true)
+            else await new Promise((resolve) => setTimeout(resolve, 500))
+            const next = await reading()
+            if (!next) return false
+            if (next.measuredAt?.getTime() !== before.measuredAt?.getTime())
+                return true
+            // Measured and nothing new, nothing in flight: it failed.
+            if ((!row.leased && !next.leased) || Date.now() >= deadline)
+                return false
+            row = next
+        }
+    }
+
     private async measureHostInScope(
         hostId: string,
-        trigger: StorageMeasurementTrigger
+        trigger: StorageMeasurementTrigger,
+        force = false
     ): Promise<void> {
         const [host] = await this.db
             .select()
@@ -150,9 +192,9 @@ export class SpriteStorageService {
         if (!host) return
         if (host.kind !== 'hosted' || host.status !== 'ready') return
         if (!spritesRef(host)) return
-        if (host.powerState !== 'running') return
+        if (host.powerState !== 'running' && !force) return
 
-        if (host.storageMeasuredAt) {
+        if (host.storageMeasuredAt && !force) {
             const sinceMs = Date.now() - host.storageMeasuredAt.getTime()
             if (sinceMs < MIN_INTERVAL_MS) return
         }
@@ -179,6 +221,22 @@ export class SpriteStorageService {
             createObjectId('storageMeasurementAttempt'),
             trigger
         )
+        const due = force
+            ? undefined
+            : and(
+                  eq(runtimeHosts.powerState, 'running'),
+                  or(
+                      isNull(runtimeHosts.storageMeasuredAt),
+                      lte(
+                          runtimeHosts.storageMeasuredAt,
+                          sql`clock_timestamp() - ${MIN_INTERVAL_MS} * interval '1 millisecond'`
+                      )
+                  ),
+                  or(
+                      isNull(runtimeHosts.storageRetryAt),
+                      lte(runtimeHosts.storageRetryAt, sql`clock_timestamp()`)
+                  )
+              )
         const [claimed] = await this.withDbBudget(async (tx) =>
             tx
                 .update(runtimeHosts)
@@ -191,25 +249,11 @@ export class SpriteStorageService {
                         eq(runtimeHosts.id, host.id),
                         eq(runtimeHosts.kind, 'hosted'),
                         eq(runtimeHosts.status, 'ready'),
-                        eq(runtimeHosts.powerState, 'running'),
-                        or(
-                            isNull(runtimeHosts.storageMeasuredAt),
-                            lte(
-                                runtimeHosts.storageMeasuredAt,
-                                sql`clock_timestamp() - ${MIN_INTERVAL_MS} * interval '1 millisecond'`
-                            )
-                        ),
+                        due,
                         or(
                             isNull(runtimeHosts.storageLeaseUntil),
                             lte(
                                 runtimeHosts.storageLeaseUntil,
-                                sql`clock_timestamp()`
-                            )
-                        ),
-                        or(
-                            isNull(runtimeHosts.storageRetryAt),
-                            lte(
-                                runtimeHosts.storageRetryAt,
                                 sql`clock_timestamp()`
                             )
                         )
@@ -354,7 +398,7 @@ export class SpriteStorageService {
         ).then((rows) => rows.map((row) => row.agent))
         const homes = new Map<string, MeasureTarget['homes'][number]>()
         for (const agent of hostAgents) {
-            const homeDir = frameworkHomeDir(agent)
+            const homeDir = frameworkHome(agent)?.path ?? null
             if (!homeDir) continue
             const key = JSON.stringify([agent.framework, homeDir])
             const existing = homes.get(key)
@@ -522,20 +566,6 @@ export class SpriteStorageService {
         })
     }
 }
-
-const frameworkHomeDir = (agent: Agent): string | null => {
-    if (agent.framework === 'openclaw' || agent.framework === 'hermes')
-        return agent.mountPath || null
-    const config = frameworkCapability(agent.framework).configHome
-    if (!config) return null
-    return (
-        agent.fileRoots?.find((root) => root.id === config.rootId)?.path ??
-        `~/${config.subdir}`
-    )
-}
-
-const workspacePathFor = (agent: Agent): string =>
-    agent.workspacePath || agent.mountPath || '/workspace'
 
 // Section order is the parse contract: df, then one du per agent workspace
 // (hostAgents order), then one du per framework home (homes order).

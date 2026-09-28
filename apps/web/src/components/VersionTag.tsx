@@ -1,4 +1,4 @@
-import type { FC, ReactNode } from 'react'
+import type { FC, ReactNode, RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { tagToneClass } from '@/components/Tag'
@@ -46,6 +46,15 @@ export const VersionTag: FC<{
     // Mono is for the version itself; a stand-in like "Version unknown" is a
     // human-readable label and stays sans (DESIGN.md §8.3).
     mono?: boolean
+    // The label as a press target of its own, for a surface that changes the
+    // version in place: it opens that surface's picker, and only the arrow
+    // leads to the Update Center.
+    labelPress?: {
+        onPress: () => void
+        expanded: boolean
+        ariaLabel: string
+        anchorRef: RefObject<HTMLButtonElement>
+    }
     className?: string
 }> = ({
     label,
@@ -56,6 +65,7 @@ export const VersionTag: FC<{
     prefix = 'v',
     hint,
     mono = true,
+    labelPress,
     className
 }): ReactNode => {
     const { t } = useI18n()
@@ -72,6 +82,36 @@ export const VersionTag: FC<{
         (latest
             ? t('web.updates.badgeCta', { version: `${prefix}${latest}` })
             : null)
+    if (labelPress)
+        return (
+            <span className={classes}>
+                <button
+                    ref={labelPress.anchorRef}
+                    type='button'
+                    aria-haspopup='menu'
+                    aria-expanded={labelPress.expanded}
+                    aria-label={`${label} · ${labelPress.ariaLabel}`}
+                    onClick={labelPress.onPress}
+                    className='transition-opacity hover:opacity-80'
+                >
+                    {label}
+                </button>
+                {latest && (
+                    <ShortcutTooltip label={tip as string}>
+                        <Link
+                            to={updatesPath(kind)}
+                            aria-label={tip as string}
+                            className='inline-flex transition-opacity hover:opacity-80'
+                        >
+                            <UpdatesIcon
+                                aria-hidden='true'
+                                className='h-3.5 w-3.5'
+                            />
+                        </Link>
+                    </ShortcutTooltip>
+                )}
+            </span>
+        )
     if (!latest) {
         const pill = <span className={classes}>{label}</span>
         return tip ? (

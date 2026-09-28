@@ -5,11 +5,17 @@ import {
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agentRuntimes, type Agent, type Database } from '@manyfold/db'
+import {
+    agentRuntimes,
+    hostDaemons,
+    type Agent,
+    type Database
+} from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
 import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
+import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { hostsFrameworkCli, runOnRuntimeHost } from './runtime-host-shell'
 
@@ -78,6 +84,45 @@ export class FrameworkVersionProbeService {
                 updatedAt: now
             })
             .where(eq(agentRuntimes.id, ctx.runtime.id))
+        if (parsed && ctx.runtime.hostId)
+            await this.recordOnHost(
+                ctx.runtime.hostId,
+                agent.framework,
+                parsed,
+                now
+            )
         return parsed
+    }
+
+    // The same version in the host's inventory, stamped, so the daemon's
+    // cached report cannot write the one from before an upgrade back over it
+    // (probed-inventory). A framework the daemon has not reported waits for
+    // its next detection.
+    private async recordOnHost(
+        hostId: string,
+        framework: string,
+        version: string,
+        now: Date
+    ): Promise<void> {
+        const [row] = await this.db
+            .select({ detectedFrameworks: hostDaemons.detectedFrameworks })
+            .from(hostDaemons)
+            .where(eq(hostDaemons.hostId, hostId))
+            .limit(1)
+        const reported = row?.detectedFrameworks.find(
+            (entry) => entry.framework === framework
+        )
+        if (!row || !reported) return
+        await this.db
+            .update(hostDaemons)
+            .set({
+                detectedFrameworks: recordProbedEntries(
+                    row.detectedFrameworks,
+                    [{ ...reported, version }],
+                    now
+                ),
+                updatedAt: now
+            })
+            .where(eq(hostDaemons.hostId, hostId))
     }
 }

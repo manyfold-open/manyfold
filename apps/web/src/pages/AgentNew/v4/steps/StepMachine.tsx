@@ -48,9 +48,11 @@ const machineDetail = (
             other: row.blockedBy !== undefined ? frameworkLabel(row.blockedBy) : ''
         })
     if (row.state === 'unavailable')
-        return row.unavailableReason === 'failed'
-            ? t('web.agentNewV4.machine.podHostFailed')
-            : t('web.agentNewV4.machine.podHostStarting')
+        return row.unavailableReason !== 'failed'
+            ? t('web.agentNewV4.machine.podHostStarting')
+            : row.hostKind === 'sprites'
+              ? t('web.agentNewV4.machine.sandboxFailed')
+              : t('web.agentNewV4.machine.podHostFailed')
     return row.agentsCount > 0
         ? t('web.agentNewV4.machine.readyWithAgents', {
               cli,
@@ -91,6 +93,11 @@ export const StepMachine: FC<{
     machines: MachineOption[]
     newMachines: NewMachineOption[]
     selectedId: string | null
+    // Set while the picked row is being built or installed onto. The other
+    // rows freeze in place: picking one mid-build relabelled the button for a
+    // machine nobody was building, and the build carried on with the first
+    // pick anyway.
+    locked?: boolean
     onSelectMachine: (row: MachineOption) => void
     onSelectNew: (option: NewMachineOption) => void
 }> = ({
@@ -98,6 +105,7 @@ export const StepMachine: FC<{
     machines,
     newMachines,
     selectedId,
+    locked = false,
     onSelectMachine,
     onSelectNew
 }): ReactNode => {
@@ -134,7 +142,10 @@ export const StepMachine: FC<{
                                 </>
                             }
                             selected={selectedId === row.id}
-                            disabled={row.disabled}
+                            disabled={
+                                row.disabled ||
+                                (locked && selectedId !== row.id)
+                            }
                             onSelect={() => onSelectMachine(row)}
                         />
                     ))}
@@ -178,7 +189,10 @@ export const StepMachine: FC<{
                             </>
                         }
                         selected={selectedId === 'new:' + option.kind}
-                        disabled={option.disabled}
+                        disabled={
+                            option.disabled ||
+                            (locked && selectedId !== 'new:' + option.kind)
+                        }
                         onSelect={() => onSelectNew(option)}
                     />
                 ))}

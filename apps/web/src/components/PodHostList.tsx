@@ -9,7 +9,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
-import { runtimeStatusLabel } from '@/components/RuntimeDetailPanel'
+import {
+    machineStatusTag,
+    runtimeStatusLabel
+} from '@/components/RuntimeDetailPanel'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { StatusTag } from '@/components/Tag'
 import { useApiClient } from '@/lib/apiClient'
@@ -18,9 +21,7 @@ import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import {
     daemonPresenceLabel,
     hostLifecycleLabel,
-    hostLifecycleTone,
-    powerStateLabel,
-    powerStateTone
+    hostLifecycleTone
 } from '@/lib/hostStatus'
 import { useI18n } from '@/lib/i18n'
 
@@ -141,16 +142,13 @@ const PodHostList: FC<{
                                         label={hostLifecycleLabel(host.status)}
                                         pulse={host.status === 'provisioning'}
                                     />
-                                    {host.status === 'ready' && (
-                                        <StatusTag
-                                            tone={powerStateTone(
-                                                host.powerState
-                                            )}
-                                            label={powerStateLabel(
-                                                host.powerState
-                                            )}
-                                        />
-                                    )}
+                                    {host.status === 'ready' &&
+                                        machineStatusTag({
+                                            kind: 'hosted',
+                                            status: host.status,
+                                            powerState: host.powerState,
+                                            daemonOnline: host.daemonOnline
+                                        })}
                                     {host.status === 'ready' && (
                                         <span className='text-caption text-subtle'>
                                             {daemonPresenceLabel({

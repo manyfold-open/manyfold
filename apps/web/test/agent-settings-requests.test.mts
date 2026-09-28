@@ -135,6 +135,7 @@ const storageUsage = (
     unit: 'bytes',
     agentId,
     checkedAt: '2026-09-01T00:00:00Z',
+    measuredAt: '2026-09-01T00:00:00Z',
     asleep: false,
     items: [],
     totalBytes,
@@ -195,7 +196,10 @@ const fixture = async (agents: Record<string, SdkAgent>) => {
             else if (url.pathname === `/api/agents/${id}`) body = agents[id]
             else if (path.endsWith('/model-config')) body = model(id)
             else if (path.endsWith('/credentials')) body = credentials
-            else if (path.endsWith('/storage-usage'))
+            else if (
+                path.endsWith('/storage-usage') ||
+                path.endsWith('/storage-usage/refresh')
+            )
                 body = storageUsage(id, 1024)
             else if (
                 path === '/api/channels' ||
@@ -535,9 +539,11 @@ for (const runtime of ['daemon', 'sprites'] as const) {
                         paths.some((path) => path.endsWith(suffix)),
                         section !== 'storage'
                     )
+                // Overview reads storage only for a sandbox's filesystem size.
                 assert.equal(
                     paths.some((path) => path.endsWith('/storage-usage')),
-                    section !== 'model'
+                    section === 'storage' ||
+                        (section === 'overview' && runtime === 'sprites')
                 )
                 assert.equal(
                     paths.some((path) => path.startsWith('/api/backups')),
@@ -644,7 +650,7 @@ test('quick section changes discard older storage responses and preserve refresh
             await f.page.getByText('1.0 KiB', { exact: true }).count(),
             0
         )
-        f.responses.set('/api/agents/a/storage-usage', {
+        f.responses.set('/api/agents/a/storage-usage/refresh', {
             body: storageUsage('a', 2048)
         })
         await f.page
@@ -656,6 +662,40 @@ test('quick section changes discard older storage responses and preserve refresh
                 .getByText('measurement fixture failed', { exact: false })
                 .count(),
             0
+        )
+    } finally {
+        await f.close()
+    }
+})
+
+test('a sandbox overview details its host, workspace and filesystem size without measuring', async () => {
+    const f = await fixture({ a: agent('a', 'sprites') })
+    try {
+        f.responses.set('/api/agents/a/storage-usage', {
+            body: {
+                ...storageUsage('a', 1024),
+                asleep: true,
+                cachedSandbox: {
+                    scope: 'sandbox',
+                    unit: 'bytes',
+                    hostId: 'host-a',
+                    storageBytes: 1_240_547_328,
+                    storageMeasuredAt: '2026-09-01T00:00:00Z',
+                    storageFreshness: 'stale',
+                    asleep: true
+                }
+            }
+        })
+        await f.page.goto(origin + '/agents/a/settings/overview')
+        await f.page.getByText('1.24 GB', { exact: true }).waitFor()
+        for (const value of ['host-a', '/workspace'])
+            assert.equal(
+                await f.page.getByText(value, { exact: true }).count(),
+                1
+            )
+        assert.equal(
+            f.special().some((call) => call.path.endsWith('/refresh')),
+            false
         )
     } finally {
         await f.close()
@@ -806,7 +846,9 @@ test('mobile rail navigation preserves the same request boundary', async () => {
     try {
         await f.page.setViewportSize({ width: 390, height: 844 })
         await f.page.goto(origin + '/agents/a/settings/overview')
-        await f.page.getByText('1.0 KiB', { exact: false }).first().waitFor()
+        await f.page
+            .getByRole('heading', { name: 'Details', exact: true })
+            .waitFor()
         await renderSettled(f.page)
         f.calls.length = 0
         await f.page.locator('.settings-mobile-menu-btn').click()

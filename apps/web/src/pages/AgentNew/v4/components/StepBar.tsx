@@ -20,6 +20,11 @@ interface StepBarProps {
     // ① picked, because each step only restates the IMMEDIATELY previous
     // answer inside its own question.
     values: StepValues
+    // Set while the step's own button is working. A finished step stops being
+    // a way back until the wait ends: the request that is running would still
+    // move the flow on when it answers, pulling the user out of wherever they
+    // had jumped to.
+    locked?: boolean
     onJump: (step: CreateStepId) => void
 }
 
@@ -51,6 +56,7 @@ const SummaryBar: FC<StepBarProps> = ({
     current,
     reached,
     values,
+    locked = false,
     onJump
 }): ReactNode => {
     const { t } = useI18n()
@@ -80,7 +86,7 @@ const SummaryBar: FC<StepBarProps> = ({
                 )
                 return (
                     <li key={step} className='min-w-0'>
-                        {done ? (
+                        {done && !locked ? (
                             <button
                                 type='button'
                                 onClick={() => onJump(step)}
@@ -111,6 +117,7 @@ const SummaryBar: FC<StepBarProps> = ({
 const PathBar: FC<StepBarProps> = ({
     current,
     reached,
+    locked = false,
     onJump
 }): ReactNode => {
     const { t } = useI18n()
@@ -135,7 +142,7 @@ const PathBar: FC<StepBarProps> = ({
                                 ·
                             </span>
                         )}
-                        {done ? (
+                        {done && !locked ? (
                             <button
                                 type='button'
                                 onClick={() => onJump(step)}
@@ -149,7 +156,9 @@ const PathBar: FC<StepBarProps> = ({
                                 className={
                                     isCurrent
                                         ? 'text-fg inline-flex items-center gap-1.5 font-medium'
-                                        : 'text-placeholder inline-flex items-center gap-1.5'
+                                        : done
+                                          ? 'text-fg inline-flex items-center gap-1.5'
+                                          : 'text-placeholder inline-flex items-center gap-1.5'
                                 }
                             >
                                 {label}

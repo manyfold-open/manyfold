@@ -1,4 +1,5 @@
 import {
+    SANDBOX_PREINSTALLED_FRAMEWORKS,
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
     isUpgradeableFramework,
@@ -23,28 +24,21 @@ import {
     RefreshIcon
 } from '@/components/icons'
 import EmptyState from '@/components/EmptyState'
-import { Ghost, GhostSettingsRows, Spinner } from '@/components/Loading'
+import { Ghost, GhostSettingsRows } from '@/components/Loading'
 import OverflowMenu from '@/components/OverflowMenu'
-import { useI18n, type TFn } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import {
     ControlRow,
     dashboardStateError,
     dashboardStatePending,
     dashboardStatePendingLabel
 } from '@/components/ControlRow'
-import {
-    StatusTag,
-    statusLabel,
-    statusTone,
-    type TagTone
-} from '@/components/Tag'
-import ProductDialog from '@/components/ProductDialog'
+import { StatusTag, type TagTone } from '@/components/Tag'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import RenameDialog from '@/components/RenameDialog'
 import RuntimeAccountSection from '@/components/RuntimeAccountSection'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { VersionTag } from '@/components/VersionTag'
-import WorkbenchSelect from '@/components/WorkbenchSelect'
+import VersionPicker from '@/components/VersionPicker'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useApiClient } from '@/lib/apiClient'
 import { updateRunStore, useIsTargetUpdating } from '@/lib/updateRunStore'
@@ -55,11 +49,15 @@ import {
     availabilityTone,
     daemonPresenceLabel,
     hostKey,
+    machineLabel,
+    machineTone,
     placementLabel,
     powerStateLabel,
-    powerStateTone
+    powerStateTone,
+    type MachineFacts
 } from '@/lib/hostStatus'
 import { openDashboardInPopup } from '@/lib/openDashboard'
+import { versionChoices } from '@/lib/sandboxRuntimes'
 
 export { ControlRow } from '@/components/ControlRow'
 export { StatusTag, type TagTone } from '@/components/Tag'
@@ -235,10 +233,9 @@ const InfoPanel: FC<{ children: ReactNode }> = ({ children }): ReactNode => (
     </div>
 )
 
-const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean; t: TFn }> = ({
+const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean }> = ({
     agent: a,
-    isPrimary,
-    t
+    isPrimary
 }): ReactNode => {
     const body = (
         <>
@@ -249,10 +246,6 @@ const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean; t: TFn }> = ({
                     {isPrimary && (
                         <span className='tag tag-neutral'>{translate('web.runtimeDetails.primary')}</span>
                     )}
-                    <StatusTag
-                        tone={statusTone(a.status)}
-                        label={statusLabel(a.status, t)}
-                    />
                 </span>
                 <span className='settings-card-copy block truncate'>
                     <span className='font-mono'>{a.internalId}</span>
@@ -318,33 +311,29 @@ export const runtimeStatusTag = (status: AgentRuntimeStatus): ReactNode => (
 )
 
 const availabilityTag = (
-    availability: RuntimeAvailability
+    availability: RuntimeAvailability,
+    powerState: RuntimeHostPowerState | null
 ): ReactNode => (
     <StatusTag
         tone={availabilityTone(availability)}
-        label={availabilityLabel(availability)}
+        label={availabilityLabel(availability, powerState)}
     />
 )
 
-// A runtime's one-word verdict: its install state until it is installed,
-// then whether its machine can take a turn right now (a ready runtime on a
-// sleeping or offline machine says so instead of "Ready").
-export const runtimeAvailabilityTag = (
-    runtime: Pick<AgentRuntimeSummary, 'status' | 'availability'>
-): ReactNode =>
-    runtime.status !== 'ready' || runtime.availability === 'available'
-        ? runtimeStatusTag(runtime.status)
-        : availabilityTag(runtime.availability)
-
-export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
-    if (online === null)
-        return (
-            <StatusTag tone='idle' label={translate('web.runtimeDetails.unknown')} />
-        )
-    return online ? (
-        <StatusTag tone='success' label={translate('web.runtimeDetails.online')} />
-    ) : (
-        <StatusTag tone='error' label={translate('web.runtimeDetails.offline')} />
+// A machine's own badge: the colour its dot has everywhere, and the words for
+// it.
+export const machineStatusTag = (machine: MachineFacts): ReactNode => {
+    const tone = machineTone(machine)
+    return (
+        <StatusTag
+            tone={tone}
+            label={machineLabel(machine)}
+            pulse={
+                machine.status === 'provisioning' ||
+                machine.status === 'deleting' ||
+                (machine.kind === 'hosted' && tone === 'success')
+            }
+        />
     )
 }
 
@@ -415,9 +404,7 @@ const RuntimeDetailPanel: FC<{
     const [fwUpgrading, setFwUpgrading] = useState(false)
     const queuedUpgrade = useIsTargetUpdating(`framework:${runtimeId}`)
     const [fwError, setFwError] = useState<string | null>(null)
-    const [fwPickerOpen, setFwPickerOpen] = useState(false)
     const [fwVersions, setFwVersions] = useState<string[] | null>(null)
-    const [fwTarget, setFwTarget] = useState<string>('')
     const [fwStep, setFwStep] = useState<string | null>(null)
     const [fwLatest, setFwLatest] = useState<string | null>(null)
 
@@ -527,10 +514,6 @@ const RuntimeDetailPanel: FC<{
                 if (cancelled) return
                 setFwVersions(catalog.versions)
                 setFwLatest(catalog.latest)
-                setFwTarget(
-                    (prev) =>
-                        prev || catalog.latest || catalog.versions[0] || ''
-                )
             })
             .catch(() => {})
         return () => {
@@ -541,13 +524,17 @@ const RuntimeDetailPanel: FC<{
     const getPrimaryAgent = (): SdkAgent | null =>
         agents?.find((a) => a.id === runtime?.primaryAgentId) ?? null
 
+    // Re-reads the version on the machine. A sandbox is probed as a whole,
+    // every framework on it, so any runtime there can refresh, with or
+    // without an agent to address.
     const handleRefreshFrameworkVersion = async (): Promise<void> => {
-        const agent = getPrimaryAgent()
-        if (!agent || fwRefreshing) return
+        if (!runtime?.hostId || fwRefreshing) return
         setFwRefreshing(true)
         setFwError(null)
         try {
-            await client.agents.refreshFrameworkVersion(agent.id)
+            await client.sandboxes.detectFrameworks(runtime.hostId, {
+                probe: true
+            })
             load(true)
         } catch (e) {
             setFwError(apiErrorMessage(e))
@@ -556,43 +543,39 @@ const RuntimeDetailPanel: FC<{
         }
     }
 
-    const handleOpenVersionPicker = async (): Promise<void> => {
+    // A version picked from the header's list, moved the way the Update Center
+    // moves it: through the runtime's agent, or in place on the sandbox for a
+    // CLI its image ships when no agent is there to address.
+    const handleUpgradeFramework = async (version: string): Promise<void> => {
+        if (
+            !runtime ||
+            fwUpgrading ||
+            updateRunStore.isTargetUpdating(`framework:${runtimeId}`)
+        )
+            return
         const agent = getPrimaryAgent()
-        if (!agent) return
-        setFwPickerOpen(true)
-        setFwError(null)
-        if (fwVersions) return
-        try {
-            const catalog = await client.frameworkVersions.get(agent.framework)
-            setFwVersions(catalog.versions)
-            setFwLatest(catalog.latest)
-            setFwTarget(catalog.latest ?? catalog.versions[0] ?? '')
-        } catch (e) {
-            setFwError(apiErrorMessage(e))
-        }
-    }
-
-    const handleUpgradeFramework = async (): Promise<void> => {
-        const agent = getPrimaryAgent()
-        if (!agent || !fwTarget || fwUpgrading || updateRunStore.isTargetUpdating(`framework:${runtimeId}`)) return
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
         try {
-            if (frameworkUpgradeMode(agent.framework) === 'rebuild') {
-                // heavy rebuild — stream phase events
-                await client.agents.upgradeFrameworkStream(
-                    agent.id,
-                    fwTarget,
-                    (ev) => {
-                        if (ev.type === 'step') setFwStep(ev.step)
-                    }
+            if (agent) {
+                if (frameworkUpgradeMode(agent.framework) === 'rebuild')
+                    // heavy rebuild — stream phase events
+                    await client.agents.upgradeFrameworkStream(
+                        agent.id,
+                        version,
+                        (ev) => {
+                            if (ev.type === 'step') setFwStep(ev.step)
+                        }
+                    )
+                else await client.agents.upgradeFramework(agent.id, version)
+            } else if (runtime.hostId)
+                await client.sandboxes.installFramework(
+                    runtime.hostId,
+                    runtime.framework,
+                    version
                 )
-            } else {
-                await client.agents.upgradeFramework(agent.id, fwTarget)
-            }
             load(true)
-            setFwPickerOpen(false)
         } catch (e) {
             setFwError(apiErrorMessage(e))
         } finally {
@@ -665,73 +648,85 @@ const RuntimeDetailPanel: FC<{
         runtime.frameworkVersion,
         fwLatest
     )
+    const fwChangeable =
+        fwUpgradeable ||
+        (runtime.kind === 'sprites' &&
+            primaryAgent === null &&
+            runtime.hostId !== null &&
+            (SANDBOX_PREINSTALLED_FRAMEWORKS as readonly string[]).includes(
+                runtime.framework
+            ))
 
     return (
         <div className='space-y-8'>
             {error && <div className='workbench-alert-error'>{error}</div>}
-            {fwError && !fwPickerOpen && (
+            {fwError && (
                 <div className='workbench-alert-error'>{fwError}</div>
             )}
             <IdentityHeader
                 icon={<FrameworkLogo framework={runtime.framework} size={28} />}
                 title={runtime.name}
-                badge={runtimeAvailabilityTag(runtime)}
                 subtitle={
                     <>
                         <span className='text-ui text-fg font-medium'>
                             {frameworkLabel(runtime.framework)}
                         </span>
-                        <VersionTag
-                            label={
-                                runtime.frameworkVersion
-                                    ? `v${runtime.frameworkVersion}`
-                                    : translate(
-                                          'web.runtimeDetails.versionPending'
-                                      )
+                        <VersionPicker
+                            current={runtime.frameworkVersion}
+                            unknownLabel={translate(
+                                'web.runtimeDetails.versionPending'
+                            )}
+                            groups={[
+                                {
+                                    label: null,
+                                    versions: versionChoices(
+                                        fwVersions ?? [],
+                                        fwLatest
+                                    )
+                                }
+                            ]}
+                            latest={fwLatest}
+                            update={fwUpgradeAvailable ? fwLatest : null}
+                            kind='framework'
+                            busy={fwUpgrading || queuedUpgrade}
+                            busyLabel={
+                                fwStep
+                                    ? `${translate('web.runtimeDetails.upgrading')} ${fwStep.replace(/_/g, ' ')}`
+                                    : translate('web.runtimeDetails.upgrading')
                             }
-                            mono={!!runtime.frameworkVersion}
-                            latest={
-                                fwUpgradeable && fwUpgradeAvailable
-                                    ? fwLatest
+                            onPick={
+                                fwChangeable
+                                    ? (version) =>
+                                          void handleUpgradeFramework(version)
                                     : null
                             }
-                            kind='framework'
                         />
-                        {fwUpgradeable && (
-                            <>
-                                <ShortcutTooltip
-                                    label={translate('web.runtimeDetails.refreshVersion')}
-                                    className='shrink-0'
-                                >
-                                    <button
-                                        type='button'
-                                        disabled={fwRefreshing}
-                                        onClick={(): void => {
-                                            void handleRefreshFrameworkVersion()
-                                        }}
-                                        aria-label={translate('web.runtimeDetails.refreshVersion')}
-                                        className='text-subtle hover:bg-surface-hover inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50'
-                                    >
-                                        <RefreshIcon
-                                            className={[
-                                                'h-3.5 w-3.5',
-                                                fwRefreshing
-                                                    ? 'loading-spin'
-                                                    : ''
-                                            ].join(' ')}
-                                        />
-                                    </button>
-                                </ShortcutTooltip>
+                        {runtime.kind === 'sprites' && runtime.hostId && (
+                            <ShortcutTooltip
+                                label={translate(
+                                    'web.runtimeDetails.refreshVersion'
+                                )}
+                                className='shrink-0'
+                            >
                                 <button
                                     type='button'
+                                    disabled={fwRefreshing}
                                     onClick={(): void => {
-                                        void handleOpenVersionPicker()
+                                        void handleRefreshFrameworkVersion()
                                     }}
-                                    className='text-caption text-subtle hover:text-fg transition-colors'
+                                    aria-label={translate(
+                                        'web.runtimeDetails.refreshVersion'
+                                    )}
+                                    className='text-subtle hover:bg-surface-hover inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50'
                                 >
-                                    {translate('web.runtimeDetails.changeVersion')}
+                                    <RefreshIcon
+                                        className={[
+                                            'h-3.5 w-3.5',
+                                            fwRefreshing ? 'loading-spin' : ''
+                                        ].join(' ')}
+                                    />
                                 </button>
-                            </>
+                            </ShortcutTooltip>
                         )}
                         <span className='text-subtle'>·</span>
                         <span className='text-caption text-muted'>
@@ -806,7 +801,6 @@ const RuntimeDetailPanel: FC<{
                                 key={a.id}
                                 agent={a}
                                 isPrimary={a.id === runtime.primaryAgentId}
-                                t={t}
                             />
                         ))}
                     </div>
@@ -928,7 +922,10 @@ const RuntimeDetailPanel: FC<{
                     {runtime.hostId && (
                         <Info
                             label={translate('web.runtimeDetails.availability')}
-                            value={availabilityTag(runtime.availability)}
+                            value={availabilityTag(
+                                runtime.availability,
+                                runtime.powerState
+                            )}
                         />
                     )}
                     {runtime.hostKind === 'hosted' && (
@@ -986,84 +983,6 @@ const RuntimeDetailPanel: FC<{
                 </InfoPanel>
             </Section>
 
-            {fwPickerOpen && primaryAgent && (
-                <ProductDialog
-                    title={
-                        fwUpgradeAvailable
-                            ? translate('web.runtimeDetails.upgradeFramework')
-                            : translate('web.runtimeDetails.changeFrameworkVersion')
-                    }
-                    description={translate('web.runtimeDetails.chooseVersion', {
-                        framework: frameworkLabel(runtime.framework)
-                    })}
-                    size='sm'
-                    onClose={() => {
-                        if (!fwUpgrading) setFwPickerOpen(false)
-                    }}
-                    closeDisabled={fwUpgrading}
-                    bodyClassName='flex flex-col gap-4'
-                    footer={
-                        <>
-                            <button
-                                type='button'
-                                className='workbench-button-secondary'
-                                onClick={() => setFwPickerOpen(false)}
-                                disabled={fwUpgrading}
-                            >
-                                {translate('web.runtimeDetails.cancel')}
-                            </button>
-                            <button
-                                type='button'
-                                className='workbench-button-primary'
-                                disabled={
-                                    fwUpgrading ||
-                                    queuedUpgrade ||
-                                    !fwTarget ||
-                                    fwTarget === runtime.frameworkVersion
-                                }
-                                onClick={(): void => {
-                                    void handleUpgradeFramework()
-                                }}
-                            >
-                                {fwUpgrading ? (
-                                    <span className='inline-flex items-center gap-2'>
-                                        <Spinner size={16} />
-                                        {fwStep
-                                            ? `${translate('web.runtimeDetails.upgrading')} ${fwStep.replace(/_/g, ' ')}`
-                                            : translate('web.runtimeDetails.upgrading')}
-                                    </span>
-                                ) : (
-                                    translate('web.runtimeDetails.upgrade')
-                                )}
-                            </button>
-                        </>
-                    }
-                >
-                    <div>
-                        <label
-                            htmlFor='fw-version-select'
-                            className='text-caption text-subtle mb-1.5 block'
-                        >
-                            {translate('web.runtimeDetails.version')}
-                        </label>
-                        <WorkbenchSelect
-                            id='fw-version-select'
-                            mono
-                            value={fwTarget}
-                            disabled={fwUpgrading || !fwVersions}
-                            onChange={setFwTarget}
-                            placeholder={translate('common.loading')}
-                            options={(fwVersions ?? []).map((v) => ({
-                                value: v,
-                                label: v
-                            }))}
-                        />
-                    </div>
-                    {fwError ? (
-                        <div className='workbench-alert-error'>{fwError}</div>
-                    ) : null}
-                </ProductDialog>
-            )}
             {renameOpen && (
                 <RenameDialog
                     title={translate('web.runtimeDetails.renameRuntime')}

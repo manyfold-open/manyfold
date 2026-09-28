@@ -2261,6 +2261,9 @@ export interface AgentStorageUsageResponse {
     unit: 'bytes'
     agentId: string
     checkedAt: string
+    // When the items were measured: a sandbox's come from its last storage
+    // measurement, any other machine's from this report. null = never.
+    measuredAt: string | null
     asleep: boolean
     items: AgentStorageUsageItem[]
     totalBytes: number | null
@@ -2479,6 +2482,12 @@ export interface CliUpgradeBody {
 // version) before any runtime for it exists. No target = the catalog's latest.
 export interface InstallSandboxFrameworkBody {
     targetVersion?: string
+}
+
+export interface DetectSandboxFrameworksBody {
+    // Probe the sandbox now, through its daemon, instead of reading the
+    // inventory the daemon last reported. Wakes the sandbox.
+    probe?: boolean
 }
 
 export interface CreateSandboxBody {

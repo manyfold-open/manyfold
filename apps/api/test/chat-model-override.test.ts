@@ -20,6 +20,10 @@ import type {
     ExecStreamRequest
 } from '../src/modules/chat/adapters/exec-driver'
 import {
+    TurnFenceLostError,
+    type TurnExecutionFence
+} from '../src/modules/chat/turn-fence'
+import {
     CODEX_EXEC_JSON_POOL_EMPTY,
     CODEX_POOL_EMPTY_LOOKALIKES,
     CODEX_POOL_EMPTY_TERMINAL
@@ -1954,6 +1958,9 @@ test('Gemini adapter persists the session ref before a mid-stream failure', asyn
 })
 
 test('Claude adapter clears the frozen session ref when --resume cannot load the session', async () => {
+    // Seen on staging [2026-09-27]: the sandbox restarted before the first
+    // turn's transcript reached disk, and claude 2.1.280 answered every later
+    // --resume of that session with this line.
     const resultLine = JSON.stringify({
         type: 'result',
         subtype: 'error_during_execution',
@@ -1961,43 +1968,44 @@ test('Claude adapter clears the frozen session ref when --resume cannot load the
         num_turns: 0,
         duration_ms: 0,
         session_id: 'dead-session',
+        errors: ['No conversation found with session ID: dead-session'],
         usage: { input_tokens: 0, output_tokens: 0 }
     })
-    const handle = makeDriverFactory(
-        {
-            anthropicAuthToken: 'token',
-            anthropicBaseUrl: 'https://api.example.test'
-        },
-        'sprites',
-        `${resultLine}\n`
-    )
-    const stored: (string | null)[] = []
-    const adapter = new ClaudeCodeAdapter(
-        handle.drivers as never,
-        {
-            setRuntimeSyncCursor: async () => undefined,
-            updateFrameworkSessionRef: async (
-                _sessionId: string,
-                ref: string | null
-            ) => {
-                stored.push(ref)
-            }
-        } as never
-    )
-
-    const events = await collect(
-        adapter.sendMessage(
+    // A final line without its newline goes through the trailing parse.
+    for (const stdout of [`${resultLine}\n`, resultLine]) {
+        const handle = makeDriverFactory(
             {
-                ...baseCtx,
-                framework: 'claude-code',
-                frameworkSessionRef: 'dead-session'
+                anthropicAuthToken: 'token',
+                anthropicBaseUrl: 'https://api.example.test'
             },
-            userMessage
+            'sprites',
+            stdout,
+            {},
+            { exitCode: 1 }
         )
-    )
+        const fence = { held: true }
+        const stored: (string | null)[] = []
+        const adapter = new ClaudeCodeAdapter(
+            handle.drivers as never,
+            fencedSessionRefRepo(fence, stored) as never
+        )
 
-    assert.ok(events.some((event) => event.type === 'error'))
-    assert.deepEqual(stored, [null])
+        const events = await consumeLikeTurnLoop(
+            adapter.sendMessage(
+                {
+                    ...baseCtx,
+                    framework: 'claude-code',
+                    frameworkSessionRef: 'dead-session',
+                    turnFence: claudeTurnFence
+                },
+                userMessage
+            ),
+            fence
+        )
+
+        assert.equal(events.at(-1)?.type, 'error')
+        assert.deepEqual(stored, [null])
+    }
 })
 
 test('Claude adapter keeps the session ref when an in-turn error is not a resume load failure', async () => {
@@ -2017,31 +2025,27 @@ test('Claude adapter keeps the session ref when an in-turn error is not a resume
         'sprites',
         `${resultLine}\n`
     )
+    const fence = { held: true }
     const stored: (string | null)[] = []
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        {
-            setRuntimeSyncCursor: async () => undefined,
-            updateFrameworkSessionRef: async (
-                _sessionId: string,
-                ref: string | null
-            ) => {
-                stored.push(ref)
-            }
-        } as never
+        fencedSessionRefRepo(fence, stored) as never
     )
 
-    await collect(
+    const events = await consumeLikeTurnLoop(
         adapter.sendMessage(
             {
                 ...baseCtx,
                 framework: 'claude-code',
-                frameworkSessionRef: 'live-session'
+                frameworkSessionRef: 'live-session',
+                turnFence: claudeTurnFence
             },
             userMessage
-        )
+        ),
+        fence
     )
 
+    assert.equal(events.at(-1)?.type, 'error')
     assert.ok(!stored.includes(null))
 })
 
@@ -2063,31 +2067,27 @@ test('Claude adapter keeps the session ref when a resume error omits num_turns',
         'sprites',
         `${resultLine}\n`
     )
+    const fence = { held: true }
     const stored: (string | null)[] = []
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        {
-            setRuntimeSyncCursor: async () => undefined,
-            updateFrameworkSessionRef: async (
-                _sessionId: string,
-                ref: string | null
-            ) => {
-                stored.push(ref)
-            }
-        } as never
+        fencedSessionRefRepo(fence, stored) as never
     )
 
-    await collect(
+    const events = await consumeLikeTurnLoop(
         adapter.sendMessage(
             {
                 ...baseCtx,
                 framework: 'claude-code',
-                frameworkSessionRef: 'keep-session'
+                frameworkSessionRef: 'keep-session',
+                turnFence: claudeTurnFence
             },
             userMessage
-        )
+        ),
+        fence
     )
 
+    assert.equal(events.at(-1)?.type, 'error')
     assert.ok(!stored.includes(null))
 })
 
@@ -2512,3 +2512,44 @@ const collect = async (
     for await (const event of events) out.push(event)
     return out
 }
+
+// Reads an adapter stream the way ChatService's turn loop does: persisting a
+// terminal event releases the turn fence, and the loop stops reading there.
+const consumeLikeTurnLoop = async (
+    events: AsyncIterable<EmittedChatEvent>,
+    fence: { held: boolean }
+): Promise<EmittedChatEvent[]> => {
+    const out: EmittedChatEvent[] = []
+    for await (const event of events) {
+        out.push(event)
+        if (event.type === 'done' || event.type === 'error') {
+            fence.held = false
+            break
+        }
+    }
+    return out
+}
+
+const claudeTurnFence: TurnExecutionFence = {
+    messageId: 'msg-assistant',
+    ownerId: 'owner-1',
+    generation: 1
+}
+
+// Refuses fenced writes once the turn loop has released the fence, as
+// ChatRepository.updateFrameworkSessionRef does.
+const fencedSessionRefRepo = (
+    fence: { held: boolean },
+    stored: (string | null)[]
+) => ({
+    setRuntimeSyncCursor: async () => undefined,
+    updateFrameworkSessionRef: async (
+        _sessionId: string,
+        ref: string | null,
+        turnFence?: TurnExecutionFence
+    ) => {
+        if (turnFence && !fence.held)
+            throw new TurnFenceLostError(turnFence.messageId)
+        stored.push(ref)
+    }
+})
