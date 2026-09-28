@@ -615,7 +615,8 @@ const en = {
                 available: 'Available',
                 wakeable: 'Asleep',
                 offline: 'Offline',
-                unavailable: 'Unavailable'
+                unavailable: 'Unavailable',
+                notConnected: 'Not connected'
             },
             lifecycle: {
                 provisioning: 'Provisioning',
@@ -664,8 +665,6 @@ const en = {
             stopped: 'Stopped',
             unknown: 'Unknown',
             failed: 'Failed',
-            online: 'Online',
-            offline: 'Offline',
             checked: 'checked {{time}}',
             failedToOpenControlUi: 'Failed to open control UI',
             failedToOpenDashboard: 'Failed to open dashboard',

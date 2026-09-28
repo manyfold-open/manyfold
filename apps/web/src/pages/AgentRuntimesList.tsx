@@ -43,10 +43,9 @@ import RuntimeDetailPanel, {
     Section,
     StatusTag,
     type TagTone,
-    daemonOnlineBadge,
     formatDate,
+    machineStatusTag,
     monoCopyValue,
-    powerStateTag,
     relative,
     runtimeStatusTag
 } from '@/components/RuntimeDetailPanel'
@@ -82,10 +81,9 @@ import {
     availabilityTone,
     daemonPresenceLabel,
     hostKey,
-    hostLifecycleLabel,
-    hostLifecycleTone,
     machineTone,
-    placementLabel
+    placementLabel,
+    type MachineFacts
 } from '@/lib/hostStatus'
 import { updatesPath } from '@/lib/updateCenter'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
@@ -363,6 +361,13 @@ const runtimeDotClass = (r: AgentRuntimeSummary): string =>
               : availabilityTone(r.availability)
     ]
 
+export const vmMachine = (vm: RuntimeVM): MachineFacts => ({
+    kind: vm.kind === 'daemon' ? 'local' : 'hosted',
+    status: vm.hostStatus,
+    powerState: vm.powerState,
+    daemonOnline: vm.online
+})
+
 // A machine's dot is the machine, not its runtimes, drawn by the one
 // machineTone the chat's agent badges use too. An external runtime has no
 // machine, so its dot is the runtime's.
@@ -371,14 +376,7 @@ export const vmDotClass = (vm: RuntimeVM): string =>
         ? vm.runtimes[0]
             ? runtimeDotClass(vm.runtimes[0])
             : TONE_DOT.idle
-        : TONE_DOT[
-              machineTone({
-                  kind: vm.kind === 'daemon' ? 'local' : 'hosted',
-                  status: vm.hostStatus,
-                  powerState: vm.powerState,
-                  daemonOnline: vm.online
-              })
-          ]
+        : TONE_DOT[machineTone(vmMachine(vm))]
 
 const vmContaining = (vms: RuntimeVM[], runtimeId: string): RuntimeVM | null =>
     vms.find((v) => v.runtimes.some((r) => r.id === runtimeId)) ?? null
@@ -1231,9 +1229,8 @@ const HostDetailPanel: FC<{
     const availableFrameworks = frameworkList.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )
-    // The machine's badge: lifecycle while it is not ready; then its daemon's
-    // presence for a self-owned computer and its power state for a hosted
-    // one. A sandbox's power badge doubles as its refresh control.
+    // The machine's badge says what its dot says everywhere. A ready
+    // sandbox's badge doubles as its refresh control.
     const refreshStatus = (): void => {
         if (!onRefreshStatus || !sandboxHostId || refreshingStatus) return
         setRefreshingStatus(true)
@@ -1242,20 +1239,13 @@ const HostDetailPanel: FC<{
             .finally(() => setRefreshingStatus(false))
     }
     const badge =
-        vm.hostStatus !== null && vm.hostStatus !== 'ready' ? (
-            <StatusTag
-                tone={hostLifecycleTone(vm.hostStatus)}
-                label={hostLifecycleLabel(vm.hostStatus)}
-                pulse={
-                    vm.hostStatus === 'provisioning' ||
-                    vm.hostStatus === 'deleting'
-                }
-            />
-        ) : vm.kind === 'daemon' ? (
-            daemonOnlineBadge(vm.online)
-        ) : vm.kind === 'sprites' && sandbox ? (
+        vm.hostId === null ? (
+            vm.status && runtimeStatusTag(vm.status)
+        ) : vm.kind === 'sprites' &&
+          sandbox &&
+          (vm.hostStatus === null || vm.hostStatus === 'ready') ? (
             <span className='flex items-center gap-1.5'>
-                {powerStateTag(vm.powerState)}
+                {machineStatusTag(vmMachine(vm))}
                 {onRefreshStatus && sandboxHostId && (
                     <ShortcutTooltip
                         label={t('web.agentRuntimesList.refreshStatus')}
@@ -1280,11 +1270,9 @@ const HostDetailPanel: FC<{
                     </ShortcutTooltip>
                 )}
             </span>
-        ) : vm.hostId !== null ? (
-            powerStateTag(vm.powerState)
-        ) : vm.status ? (
-            runtimeStatusTag(vm.status)
-        ) : null
+        ) : (
+            machineStatusTag(vmMachine(vm))
+        )
     // mf CLI version property-row value. When the daemon supports remote upgrade
     // we offer a version picker constrained to its OWN channel (a daemon can only
     // self-update from the channel it was installed from). Otherwise it's a

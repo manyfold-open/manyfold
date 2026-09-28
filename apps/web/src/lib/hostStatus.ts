@@ -53,6 +53,22 @@ export interface MachineFacts {
     daemonOnline: boolean | null
 }
 
+const readyAvailability = (machine: MachineFacts): RuntimeAvailability =>
+    runtimeAvailability({
+        runtime: { status: 'ready' },
+        host: {
+            kind: machine.kind,
+            status: 'ready',
+            powerState: machine.powerState
+        },
+        daemonOnline: machine.daemonOnline === true
+    })
+
+const isAsleep = (
+    state: RuntimeHostPowerState | null
+): state is 'suspended' | 'stopped' =>
+    state === 'suspended' || state === 'stopped'
+
 // One machine, one colour, wherever it is drawn: an agent's badge in the
 // chat, a row or a card under Settings › Runtimes. A machine being built or
 // taken down shows that; otherwise it reads what a ready runtime on it would.
@@ -62,17 +78,24 @@ export interface MachineFacts {
 export const machineTone = (machine: MachineFacts): TagTone =>
     machine.status !== null && machine.status !== 'ready'
         ? LIFECYCLE_TONE[machine.status]
-        : AVAILABILITY_TONE[
-              runtimeAvailability({
-                  runtime: { status: 'ready' },
-                  host: {
-                      kind: machine.kind,
-                      status: 'ready',
-                      powerState: machine.powerState
-                  },
-                  daemonOnline: machine.daemonOnline === true
-              })
-          ]
+        : AVAILABILITY_TONE[readyAvailability(machine)]
+
+// The words for that colour on the machine's own badge. A hosted machine says
+// its power, except one that is up with no daemon connected, which cannot take
+// a turn.
+// Seen on a local stack [2026-09-28]: a sandbox the listing called running,
+// its daemon cut off, read a green "Running" beside its amber dot.
+export const machineLabel = (machine: MachineFacts): string => {
+    if (machine.status !== null && machine.status !== 'ready')
+        return hostLifecycleLabel(machine.status)
+    if (machine.kind === 'local')
+        return daemonPresenceLabel({ online: machine.daemonOnline === true })
+    return readyAvailability(machine) === 'available'
+        ? powerStateLabel('running')
+        : isAsleep(machine.powerState)
+          ? powerStateLabel(machine.powerState)
+          : t('web.hostStatus.availability.notConnected')
+}
 
 export const powerStateTone = (state: RuntimeHostPowerState | null): TagTone =>
     POWER_TONE[state ?? 'unknown']
@@ -83,8 +106,16 @@ export const powerStateLabel = (state: RuntimeHostPowerState | null): string =>
 export const availabilityTone = (availability: RuntimeAvailability): TagTone =>
     AVAILABILITY_TONE[availability]
 
-export const availabilityLabel = (availability: RuntimeAvailability): string =>
-    t(`web.hostStatus.availability.${availability}`)
+// `wakeable` is two machines: one asleep, and one up whose daemon is not
+// connected (just woken, or woken by an exec that brings no daemon up). Only
+// the first is asleep; the second is running, and counted as such.
+export const availabilityLabel = (
+    availability: RuntimeAvailability,
+    powerState: RuntimeHostPowerState | null
+): string =>
+    availability === 'wakeable' && !isAsleep(powerState)
+        ? t('web.hostStatus.availability.notConnected')
+        : t(`web.hostStatus.availability.${availability}`)
 
 export const hostLifecycleTone = (status: RuntimeHostStatus): TagTone =>
     LIFECYCLE_TONE[status]

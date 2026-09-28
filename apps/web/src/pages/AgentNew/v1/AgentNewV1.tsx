@@ -2153,6 +2153,7 @@ const AgentNew: FC = (): ReactNode => {
         const status = sandboxTargetStatus({
             hostStatus: sandbox?.status ?? null,
             powerState: sandbox?.powerState ?? null,
+            daemonOnline: sandbox?.daemonOnline ?? null,
             picked,
             prewarming: runnerPrewarming,
             availability: picked

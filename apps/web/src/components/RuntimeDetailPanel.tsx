@@ -50,9 +50,12 @@ import {
     availabilityTone,
     daemonPresenceLabel,
     hostKey,
+    machineLabel,
+    machineTone,
     placementLabel,
     powerStateLabel,
-    powerStateTone
+    powerStateTone,
+    type MachineFacts
 } from '@/lib/hostStatus'
 import { openDashboardInPopup } from '@/lib/openDashboard'
 
@@ -308,24 +311,29 @@ export const runtimeStatusTag = (status: AgentRuntimeStatus): ReactNode => (
 )
 
 const availabilityTag = (
-    availability: RuntimeAvailability
+    availability: RuntimeAvailability,
+    powerState: RuntimeHostPowerState | null
 ): ReactNode => (
     <StatusTag
         tone={availabilityTone(availability)}
-        label={availabilityLabel(availability)}
+        label={availabilityLabel(availability, powerState)}
     />
 )
 
-export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
-    if (online === null)
-        return (
-            <StatusTag tone='idle' label={translate('web.runtimeDetails.unknown')} />
-        )
-    return online ? (
-        <StatusTag tone='success' label={translate('web.runtimeDetails.online')} />
-    ) : (
-        // An unplugged computer is quiet, not failed: the tone its dot has too.
-        <StatusTag tone='idle' label={translate('web.runtimeDetails.offline')} />
+// A machine's own badge: the colour its dot has everywhere, and the words for
+// it.
+export const machineStatusTag = (machine: MachineFacts): ReactNode => {
+    const tone = machineTone(machine)
+    return (
+        <StatusTag
+            tone={tone}
+            label={machineLabel(machine)}
+            pulse={
+                machine.status === 'provisioning' ||
+                machine.status === 'deleting' ||
+                (machine.kind === 'hosted' && tone === 'success')
+            }
+        />
     )
 }
 
@@ -907,7 +915,10 @@ const RuntimeDetailPanel: FC<{
                     {runtime.hostId && (
                         <Info
                             label={translate('web.runtimeDetails.availability')}
-                            value={availabilityTag(runtime.availability)}
+                            value={availabilityTag(
+                                runtime.availability,
+                                runtime.powerState
+                            )}
                         />
                     )}
                     {runtime.hostKind === 'hosted' && (

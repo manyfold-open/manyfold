@@ -17,11 +17,7 @@ import Breadcrumb from '@/components/Breadcrumb'
 import { VersionTag } from '@/components/VersionTag'
 import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
-import {
-    hostLifecycleLabel,
-    placementLabel,
-    powerStateLabel
-} from '@/lib/hostStatus'
+import { machineLabel, placementLabel } from '@/lib/hostStatus'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
@@ -33,16 +29,16 @@ import {
 } from '@/lib/dashboardView'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { formatDuration } from '@/lib/usageFormat'
-import { vmDotClass, type RuntimeVM } from '@/pages/AgentRuntimesList'
+import {
+    vmDotClass,
+    vmMachine,
+    type RuntimeVM
+} from '@/pages/AgentRuntimesList'
 
 type RuntimeKind = RuntimeVM['kind']
 
-// A hosted machine's one-word state: its lifecycle until it is ready, then
-// its power state.
-const hostedStateLabel = (vm: RuntimeVM): string =>
-    vm.hostStatus !== null && vm.hostStatus !== 'ready'
-        ? hostLifecycleLabel(vm.hostStatus)
-        : powerStateLabel(vm.powerState)
+// A hosted machine's one-word state, the words for its dot.
+const hostedStateLabel = (vm: RuntimeVM): string => machineLabel(vmMachine(vm))
 
 // The mf CLI version reads as plain text until there is something newer, at
 // which point it becomes the pill that says so. Unlinked in both places the

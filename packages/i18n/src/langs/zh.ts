@@ -605,7 +605,8 @@ const zh: Translations = {
                 available: '可用',
                 wakeable: '休眠中',
                 offline: '离线',
-                unavailable: '不可用'
+                unavailable: '不可用',
+                notConnected: '未连接'
             },
             lifecycle: {
                 provisioning: '准备中',
@@ -654,8 +655,6 @@ const zh: Translations = {
             stopped: '已停止',
             unknown: '未知',
             failed: '失败',
-            online: '在线',
-            offline: '离线',
             checked: '检查于 {{time}}',
             failedToOpenControlUi: '打开控制 UI 失败',
             failedToOpenDashboard: '打开 Dashboard 失败',

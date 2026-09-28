@@ -32,5 +32,5 @@ export const agentStatusDotClass = (agent: AgentStatusFacts): string =>
 
 export const agentStatusDotLabel = (agent: AgentStatusFacts): string =>
     agent.status === 'ready'
-        ? availabilityLabel(agent.availability)
+        ? availabilityLabel(agent.availability, agent.powerState)
         : t(STATUS_LABEL_KEY[agent.status])
