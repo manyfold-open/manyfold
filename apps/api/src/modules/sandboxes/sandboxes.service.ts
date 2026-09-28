@@ -95,9 +95,15 @@ import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.s
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
 import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
 import { CryptoService } from '@/modules/secrets/crypto.service'
+import { HostCliService } from '@/modules/chat/runner/host-cli.service'
 
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
+// How long the hold outlasts daemon.update for the successor's first
+// heartbeat, 3s a poll. Measured on staging [2026-09-28]: over 35 sandboxes
+// the new version was reported 5s after the ack at the median, 25s at p90,
+// 47s at most.
+const CLI_SUCCESSOR_POLLS = 30
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
 // How long a stopped sprite takes to read as asleep once nothing holds it
 // awake. Measured on staging [2026-09-27]: a sprite with no exec and no task
@@ -157,7 +163,11 @@ export class SandboxesService {
         // Same convention; present, the machine is held awake and its daemon
         // brought up (R11, ADR-0037) for an operation instead of being refused.
         @Optional()
-        private readonly hostAccess?: HostDaemonAccess
+        private readonly hostAccess?: HostDaemonAccess,
+        // Same convention; present, a CLI upgrade holds the machine until the
+        // updated daemon reports.
+        @Optional()
+        private readonly hostCli?: HostCliService
     ) {}
 
     private async latestHerdr(): Promise<string | null> {
@@ -517,6 +527,7 @@ export class SandboxesService {
                 async () => {
                     const payload: Record<string, unknown> = { channel }
                     if (targetVersion) payload.targetVersion = targetVersion
+                    const before = session.daemon.cliVersion
                     const ack = await session
                         .rpc({
                             method: 'daemon.update',
@@ -533,6 +544,23 @@ export class SandboxesService {
                     this.log.log(
                         `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${ack?.deferred === true}`
                     )
+                    // The daemon hands off to its successor and exits, which is
+                    // no platform activity: released on the ack, the machine
+                    // froze before the successor dialed in, and the sandbox
+                    // read the old CLI until its next wake. Seen on staging
+                    // [2026-09-28]: daemon.log had the handoff while
+                    // host_daemons kept the old version.
+                    if (ack?.restarting === true && this.hostCli) {
+                        const back = await this.hostCli.awaitSuccessor(
+                            host,
+                            before,
+                            CLI_SUCCESSOR_POLLS
+                        )
+                        if (!back)
+                            this.log.warn(
+                                `sandbox cli upgrade host=${hostId}: the updated daemon did not report while held; it reports on the next wake`
+                            )
+                    }
                     return this.get(host.userId, hostId)
                 }
             )

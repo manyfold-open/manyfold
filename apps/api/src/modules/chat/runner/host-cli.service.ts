@@ -138,6 +138,23 @@ export class HostCliService {
         return this.hostDaemons.findByHostId(host.id)
     }
 
+    // The daemon once the successor of an update is back on another CLI: the
+    // new version arrives with the successor's first heartbeat, over a live
+    // lease. null when it is not back within `polls`.
+    async awaitSuccessor(
+        host: RuntimeHostRow,
+        before: string | null,
+        polls = REREGISTER_POLLS
+    ): Promise<HostDaemonRow | null> {
+        for (let poll = 0; poll < polls; poll++) {
+            await this.delay(REREGISTER_POLL_MS)
+            const fresh = await this.hostDaemons.findByHostId(host.id)
+            if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
+                return fresh
+        }
+        return null
+    }
+
     // Overridable in tests.
     protected delay(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms))
@@ -163,12 +180,8 @@ export class HostCliService {
             `host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
         )
         await this.update({ host, actorId: host.userId })
-        for (let poll = 0; poll < REREGISTER_POLLS; poll++) {
-            await this.delay(REREGISTER_POLL_MS)
-            const fresh = await this.hostDaemons.findByHostId(host.id)
-            if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
-                return fresh
-        }
+        const back = await this.awaitSuccessor(host, before)
+        if (back) return back
         throw new HostCliTooOldError(
             host,
             `the Manyfold CLI on ${host.name} was updated but its daemon did not come back; update it from its page`

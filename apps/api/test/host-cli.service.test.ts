@@ -188,6 +188,22 @@ test('a daemon that never comes back is given about three minutes', async () => 
     assert.equal(rig.cli.delays, 60)
 })
 
+test('the successor of an update is its registration on another CLI over a live lease', async () => {
+    const back = daemon({ cliVersion: '4.6.0' })
+    const rig = build({
+        registrations: [daemon(), daemon({ cliVersion: '4.6.0', ...offline }), back]
+    })
+    const got = await rig.cli.awaitSuccessor(host(), '3.0.1', 5)
+    assert.equal(got, back)
+    assert.equal(rig.cli.delays, 3)
+})
+
+test('a successor that does not report within its polls is not there', async () => {
+    const rig = build({ registrations: [daemon()] })
+    assert.equal(await rig.cli.awaitSuccessor(host(), '3.0.1', 4), null)
+    assert.equal(rig.cli.delays, 4)
+})
+
 test('callers that need the same host updated share one update', async () => {
     const back = daemon({
         cliVersion: '4.6.0',

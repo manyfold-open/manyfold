@@ -20,19 +20,25 @@ const NEW = '0.33.1-dev.202609100748.ab03120'
 
 // The sandbox held awake with its daemon reachable (ADR-0038): the session's
 // rpc routes by the host id; a daemon the API holds no socket to is refused.
-const hostAccessFor = (opts: { online?: boolean }, host: { id: string }, daemon: unknown, rpc: (args: Record<string, unknown>) => Promise<unknown>) => ({
+// `hold.held` is true for as long as the work runs.
+const hostAccessFor = (opts: { online?: boolean }, host: { id: string }, daemon: unknown, rpc: (args: Record<string, unknown>) => Promise<unknown>, hold: { held: boolean }) => ({
     withHost: async (
         args: { host: { id: string } },
         work: (session: Record<string, unknown>) => Promise<unknown>
     ) => {
         if (opts.online === false)
             throw new HostDaemonOfflineError(host as never, 'runner_unavailable')
-        return work({
-            host: args.host,
-            daemon,
-            daemonId: args.host.id,
-            rpc: (call: Record<string, unknown>) => rpc({ daemonId: args.host.id, ...call })
-        })
+        hold.held = true
+        try {
+            return await work({
+                host: args.host,
+                daemon,
+                daemonId: args.host.id,
+                rpc: (call: Record<string, unknown>) => rpc({ daemonId: args.host.id, ...call })
+            })
+        } finally {
+            hold.held = false
+        }
     }
 })
 
@@ -42,6 +48,8 @@ const buildHarness = (opts: {
     upgradeInProgress?: boolean
     rpcError?: Error
     installable?: boolean
+    ack?: Record<string, unknown>
+    successorBack?: boolean
 }) => {
     const host = {
         id: 'sbx_1',
@@ -72,7 +80,15 @@ const buildHarness = (opts: {
     const rpc = async (args: Record<string, unknown>) => {
         rpcs.push(args)
         if (opts.rpcError) throw opts.rpcError
-        return { toVersion: NEW, deferred: false }
+        return opts.ack ?? { toVersion: NEW, deferred: false }
+    }
+    const hold = { held: false }
+    const waits: Array<{ before: unknown; polls: unknown; held: boolean }> = []
+    const hostCli = {
+        awaitSuccessor: async (_host: unknown, before: unknown, polls: unknown) => {
+            waits.push({ before, polls, held: hold.held })
+            return opts.successorBack === false ? null : { ...daemon, cliVersion: NEW }
+        }
     }
     const svc = new SandboxesService(
         { getSandboxForUser: async () => view, getSandboxById: async () => view } as never,
@@ -98,9 +114,10 @@ const buildHarness = (opts: {
         undefined as never,
         undefined as never,
         undefined as never,
-        hostAccessFor(opts, host, daemon, rpc) as never
+        hostAccessFor(opts, host, daemon, rpc, hold) as never,
+        hostCli as never
     )
-    return { svc, rpcs }
+    return { svc, rpcs, waits }
 }
 
 test('the daemon is asked to update itself, on the deploy channel when no target is named', async () => {
@@ -112,6 +129,29 @@ test('the daemon is asked to update itself, on the deploy channel when no target
     assert.equal(h.rpcs[0].method, 'daemon.update')
     assert.deepEqual(h.rpcs[0].payload, { channel: 'dev' })
     assert.equal(summary.cliVersion, OLD, 'the row learns the new version from the heartbeat, not from here')
+})
+
+// The handoff to the successor is no platform activity: the machine stays
+// held until the successor reports, or it freezes before dialing in.
+test('a daemon that restarts on the new CLI keeps the machine held until its successor reports', async () => {
+    const h = buildHarness({ ack: { toVersion: NEW, restarting: true } })
+    await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.deepEqual(h.waits, [{ before: OLD, polls: 30, held: true }])
+})
+
+test('an update the daemon deferred for its live sessions is not waited for', async () => {
+    const h = buildHarness({
+        ack: { toVersion: null, restarting: false, deferred: true, activeSessions: 1 }
+    })
+    await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.deepEqual(h.waits, [])
+})
+
+test('a successor that does not report while held still answers the upgrade', async () => {
+    const h = buildHarness({ ack: { toVersion: NEW, restarting: true }, successorBack: false })
+    const summary = await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.equal(summary.id, 'sbx_1')
+    assert.equal(h.waits.length, 1)
 })
 
 test('a pinned target must be installable and picks its channel from the version string', async () => {
