@@ -114,6 +114,12 @@ export const runtimeAuthRoot = (configRoot: string): string =>
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
+// A URL hostname (IPv6 keeps its brackets) that only reaches this machine.
+export const isLoopbackHostname = (hostname: string): boolean => {
+    const host = hostname.toLowerCase()
+    return LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost')
+}
+
 // Names an agent setup guide must never pick for a deployment of its own: the
 // profiles a binary selects by itself, the legacy dev-channel name, the
 // profile the plugin README uses for the hosted API, and the runner profiles.
@@ -145,10 +151,9 @@ const shortHash = (value: string): string => {
 export const cliProfileForApiUrl = (apiUrl: string): string => {
     const url = new URL(apiUrl)
     const host = url.hostname.toLowerCase()
-    const base =
-        LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost')
-            ? 'localhost'
-            : host.replace(/^api[.-]/, '')
+    const base = isLoopbackHostname(host)
+        ? 'localhost'
+        : host.replace(/^api[.-]/, '')
     const raw = [base, url.port].filter(Boolean).join('-')
     let name =
         raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'deployment'

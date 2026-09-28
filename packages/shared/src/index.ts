@@ -1184,6 +1184,7 @@ export {
     RUNNER_PROFILE,
     buildPodRunnerEnv,
     cliProfileForApiUrl,
+    isLoopbackHostname,
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,

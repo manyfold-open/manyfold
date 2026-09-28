@@ -917,6 +917,7 @@ const en = {
             usageWindow7d: 'Last week',
             theme: 'Theme',
             language: 'Language',
+            useInAgent: 'Use it in your agent',
             learnMore: 'Learn more',
             learnMoreMenu: 'Learn more links',
             docs: 'Docs',
@@ -931,6 +932,17 @@ const en = {
             privacyPolicy: 'Privacy Policy',
             termsOfService: 'Terms of Service',
             logOut: 'Log out'
+        },
+        useInAgent: {
+            title: 'Use Manyfold in your agent',
+            description:
+                'Copy this prompt into your own AI agent. It installs the mf CLI if needed, signs you in through your browser, and adds the Manyfold plugin.',
+            hint: 'Works with Claude Code, Codex and any agent that can run shell commands.',
+            prompt: 'Connect this agent to Manyfold: fetch {{url}} with `curl` and follow it to the end.',
+            promptLocal:
+                'This is my local Manyfold dev stack at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.',
+            promptOther:
+                'This is the Manyfold deployment at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.'
         },
         agentSettings: {
             timing: {

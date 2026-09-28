@@ -4115,7 +4115,14 @@ const es: Record<string, string> = {
     'web.selfOwned.retire': 'Retirar',
     'web.selfOwned.retireHostTitle': 'Retirar máquina',
     'web.selfOwned.retireHostDesc': 'Su demonio se desconecta y su token se revoca; la máquina no puede volver a conectarse. Los agentes que hay en ella dejan de ejecutarse. Se conservan los datos del espacio de trabajo en la máquina.',
-    'web.selfOwned.msgMachineRetired': 'Máquina retirada'
+    'web.selfOwned.msgMachineRetired': 'Máquina retirada',
+    'web.settingsMenu.useInAgent': 'Úsalo en tu agente',
+    'web.useInAgent.title': 'Usa Manyfold en tu agente',
+    'web.useInAgent.description': 'Copia este prompt en tu propio agente de IA. Instala la CLI mf si hace falta, inicia sesión a través de tu navegador y añade el plugin de Manyfold.',
+    'web.useInAgent.hint': 'Funciona con Claude Code, Codex y cualquier agente que pueda ejecutar comandos de shell.',
+    'web.useInAgent.prompt': 'Conecta este agente a Manyfold: descarga {{url}} con `curl` y sigue sus instrucciones hasta el final.',
+    'web.useInAgent.promptLocal': 'Este es mi entorno de desarrollo local de Manyfold en {{host}}: usa un perfil de `mf` aparte para él y no toques mis otros inicios de sesión de `mf` ni el `mf` que tengo instalado.',
+    'web.useInAgent.promptOther': 'Este es el despliegue de Manyfold en {{host}}: usa un perfil de `mf` aparte para él y no toques mis otros inicios de sesión de `mf` ni el `mf` que tengo instalado.'
 }
 
 export default es
