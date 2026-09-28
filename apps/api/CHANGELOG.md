@@ -1,5 +1,26 @@
 # @manyfold/api
 
+## 8.4.0
+
+### Minor Changes
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - Holding a sandbox awake is now checked instead of assumed. The platform's awake hold is created or renewed and then confirmed in the sandbox's task list, and a release is confirmed the same way. The hold is named as the platform's own: the sandbox's Tasks list shows it as a keep-awake lease, it cannot be deleted there, and stopping a sandbox leaves it in place so a turn in progress finishes first (the stop says so). The active-hours enforcer's stop still removes everything. Reads that must not wake a sandbox no longer wake it to take a hold, and switching keep-awake off on a sleeping sandbox no longer wakes it. Restoring a backup to a self-owned computer works for archives up to the daemon's single-write limit instead of failing above about 96 KB, and the terminal's workspace preparation runs in the workspace it names.
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox or cloud computer whose Manyfold CLI lacks something a turn needs now has its CLI updated on the spot, and the turn goes on once the updated daemon is back, instead of failing as "runner unavailable". The turn asks for a CLI update only when even the latest CLI lacks it or the machine cannot update itself. A computer of your own that lacks it is told to update its CLI, rather than that the runner is unavailable.
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - Work on a sandbox now keeps it awake for as long as the work runs, not just while its daemon comes up:
+
+    - framework version probes, upgrades, diagnostics, and Hermes and OpenClaw agent setup;
+    - installing a framework on a sandbox or cloud computer;
+    - MCP and context-document delivery;
+    - an open terminal, until its tab closes.
+
+    Installing or refreshing an agent's context document on a sandbox that has gone to sleep wakes it for the write, instead of failing.
+
+    A command whose connection drops while the sandbox wakes is resent once, and the daemon picks up the one already running instead of starting it twice. Cloud computer scripts no longer put secrets in the command's input, which the daemon keeps on disk for up to a day; they travel in its environment instead.
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox's active hours now accrue from the same power state that holds its concurrent-sandbox slot: while its daemon is heartbeating, a sandbox that sprites.dev misreports as asleep is metered as running instead of holding a slot for free. A sandbox kept running this way is also sampled on the fast cadence, so metering stops within seconds of the daemon going quiet.
+
 ## 8.3.0
 
 ### Minor Changes
