@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Injectable, Optional } from '@nestjs/common'
 import type { AgentRuntime, DaemonRpcMethod } from '@manyfold/shared'
 import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
@@ -52,6 +53,24 @@ export interface HostRpcArgs {
     retryOnTimeout?: boolean
 }
 
+// One command on the machine, run by its daemon (exec.start).
+export interface HostExecRequest {
+    cmd: string[]
+    env?: Record<string, string>
+    stdin?: string
+    timeoutMs: number
+    dir?: string
+    // Directories beyond the workspace base the daemon admits `dir` under for
+    // this one exec (exec.roots.v1).
+    roots?: readonly string[]
+}
+
+export interface HostExecResult {
+    exitCode: number
+    stdout: string
+    stderr: string
+}
+
 // What a caller works with while the machine is held awake (ADR-0038).
 export interface HostSession {
     host: RuntimeHostRow
@@ -62,6 +81,13 @@ export interface HostSession {
     // does on its own — reconnect after a thaw: a call lost to a closed,
     // replaced or frozen socket waits for the fresh lease and goes once more.
     rpc: (args: HostRpcArgs) => Promise<Record<string, unknown> | undefined>
+    // A command on the machine, under the same hold. The refId is minted once:
+    // a command whose socket was lost is sent again on the fresh lease under
+    // that refId, and the daemon attaches to it, or replays it if it finished,
+    // instead of running it twice (exec.start is idempotent by refId,
+    // ADR-0029 §4). A timeout is never retried; a long command must not be
+    // doubled.
+    exec: (req: HostExecRequest) => Promise<HostExecResult>
 }
 
 export interface WithHostArgs extends EnsureHostDaemonArgs {
@@ -146,19 +172,22 @@ export class HostDaemonAccess {
         args: WithHostArgs,
         work: (session: HostSession) => Promise<T>
     ): Promise<T> {
+        if (args.wake === false) await this.assertUp(args)
         const hold = this.hold(args.host, args.reason)
         try {
             const ensured = await this.ensure(args)
             if (!ensured.online || !ensured.daemon)
                 throw new HostDaemonOfflineError(
                     args.host,
-                    ensured.fallbackReason ?? 'runner_unavailable'
+                    ensured.fallbackReason ?? 'runner_unavailable',
+                    ensured.execFailure
                 )
             return await work({
                 host: args.host,
                 daemon: ensured.daemon,
                 daemonId: args.host.id,
-                rpc: (call) => this.rpc(args.host, call)
+                rpc: (call) => this.rpc(args.host, call),
+                exec: (req) => this.exec(args.host, req)
             })
         } finally {
             void hold.release()
@@ -167,6 +196,21 @@ export class HostDaemonAccess {
 
     hold(host: RuntimeHostRow, reason: string): AwakeHold {
         return this.awake?.hold(host, reason) ?? NOOP_HOLD
+    }
+
+    // A caller that must not start billed running time gets no hold on a
+    // machine that is not already up and connected: taking the hold is itself
+    // an exec, and an exec resumes a sleeping sprite.
+    private async assertUp(args: EnsureHostDaemonArgs): Promise<void> {
+        const daemon =
+            args.daemon ?? (await this.hostDaemons.findByHostId(args.host.id))
+        const up =
+            args.host.kind === 'local' || args.host.powerState === 'running'
+        if (!up || !hasRpcLease(daemon))
+            throw new HostDaemonOfflineError(
+                args.host,
+                daemon ? 'runner_unavailable' : 'runner_missing'
+            )
     }
 
     private async rpc(
@@ -195,6 +239,53 @@ export class HostDaemonAccess {
             })
         }
     }
+
+    private async exec(
+        host: RuntimeHostRow,
+        req: HostExecRequest
+    ): Promise<HostExecResult> {
+        const refId = randomUUID()
+        const payload: Record<string, unknown> = {
+            cmd: req.cmd,
+            timeoutMs: req.timeoutMs
+        }
+        if (req.env) payload.env = req.env
+        if (req.stdin !== undefined) payload.stdin = req.stdin
+        if (req.dir) payload.dir = req.dir
+        if (req.roots?.length) payload.roots = [...req.roots]
+        const attempt = async (): Promise<HostExecResult> => {
+            const stdout: string[] = []
+            const stderr: string[] = []
+            const stream = this.registry.streamRpc({
+                daemonId: host.id,
+                method: 'exec.start',
+                payload,
+                timeoutMs: req.timeoutMs + 5_000,
+                refIdOverride: refId,
+                onEvent: (kind, data) => {
+                    if (kind === 'stdout') stdout.push(data)
+                    else if (kind === 'stderr') stderr.push(data)
+                }
+            })
+            const ack = await stream.result
+            return {
+                exitCode: typeof ack?.exitCode === 'number' ? ack.exitCode : -1,
+                stdout: stdout.join(''),
+                stderr: stderr.join('')
+            }
+        }
+        const since = new Date()
+        try {
+            return await attempt()
+        } catch (err) {
+            if (!isTransportLoss(err, false)) throw err
+            const back = this.runnerManager
+                ? await this.runnerManager.awaitReconnect(host, since)
+                : null
+            if (!back) throw err
+            return attempt()
+        }
+    }
 }
 
 // The registry surfaces a lost generation in a few fixed shapes: a socket that
@@ -216,7 +307,10 @@ export const isTransportLoss = (err: unknown, includeTimeout: boolean): boolean 
 export class HostDaemonOfflineError extends Error {
     constructor(
         readonly host: RuntimeHostRow,
-        readonly reason: RunnerFallbackReason
+        readonly reason: RunnerFallbackReason,
+        // What the bring-up's first exec proved about the provider's exec
+        // endpoint, when that is why there is no daemon.
+        readonly execFailure?: RunnerExecFailure
     ) {
         super(
             host.kind === 'local'

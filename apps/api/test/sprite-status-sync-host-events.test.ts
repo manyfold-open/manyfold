@@ -67,6 +67,7 @@ const makeService = (
         update: Record<string, unknown>
     }> = []
     const agentEmits: Array<Record<string, unknown>> = []
+    const accruals: Array<{ hostId: string; running: boolean }> = []
     const svc = new SpriteStatusSyncService(
         db as never,
         {
@@ -95,14 +96,16 @@ const makeService = (
         { recordSpritesVendorCapacity: async () => false } as never,
         {} as never,
         {
-            accrue: async () => {},
+            accrue: async (host: { id: string }, running: boolean) => {
+                accruals.push({ hostId: host.id, running })
+            },
             settleHostNotRunning: async () => {},
             pruneOlderThan: async () => {}
         } as never,
         {} as never
     )
     svc['clientFor' as never] = (() => client) as never
-    return { svc, powerWrites, hostEmits, agentEmits }
+    return { svc, powerWrites, hostEmits, agentEmits, accruals }
 }
 
 const sync = async (svc: SpriteStatusSyncService) =>
@@ -285,4 +288,91 @@ test('refreshSandboxHost stays silent when the probe matches the row', async () 
     assert.equal(state, 'suspended')
     assert.equal(powerWrites.length, 0)
     assert.equal(hostEmits.length, 0)
+})
+
+// WHY: the concurrency caps count a heartbeating sandbox as running, so active
+// hours must accrue for it too. Metering from the raw listing let a sandbox
+// sprites.dev misreported as `cold` hold a slot for minutes while nothing
+// accrued.
+test('a heartbeating sandbox the listing calls cold accrues active time', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 5_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'cold' }]
+    })
+    const { svc, accruals } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.deepEqual(accruals, [{ hostId: 'host-1', running: true }])
+})
+
+test('a quiet daemon leaves metering to the listing', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 60_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'warm' }]
+    })
+    const { svc, accruals } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.deepEqual(accruals, [{ hostId: 'host-1', running: false }])
+})
+
+// WHY: a sandbox held running by its daemon is billed until the hold ends,
+// and the hold only ends at the next pass after the daemon goes quiet. On the
+// slow cadence that pass could come ~30s later; the fast cadence bounds the
+// overcount to a few seconds past the heartbeat window.
+test('a sandbox held running by its daemon keeps its provider on the fast cadence', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 5_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'cold' }]
+    })
+    const { svc } = makeService(db, client)
+
+    assert.equal(await sync(svc), true)
+})
+
+test('a provider with nothing running stays on the slow cadence', async () => {
+    const db = makeDb([fakeHost({ powerState: 'suspended' })])
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'warm' }]
+    })
+    const { svc } = makeService(db, client)
+
+    assert.equal(await sync(svc), false)
+})
+
+// WHY: manual refresh is the second power writer; it must correct the same
+// way before it accrues, or it would meter a heartbeating sandbox as asleep
+// and then write back the running state the pass had set.
+test('refreshSandboxHost corrects the listing with the heartbeat before it accrues', async () => {
+    const db = makeDb(
+        [],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 5_000) }]
+    )
+    const client = makeClient({
+        getSprite: async () => ({ name: HOST_SPRITE, status: 'cold' })
+    })
+    const { svc, powerWrites, accruals } = makeService(db, client)
+
+    const state = await svc.refreshSandboxHost(
+        fakeHost({ powerState: 'running' }) as never
+    )
+
+    assert.equal(state, 'running')
+    assert.equal(powerWrites.length, 0)
+    assert.deepEqual(accruals, [{ hostId: 'host-1', running: true }])
 })

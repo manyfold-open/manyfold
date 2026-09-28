@@ -309,7 +309,6 @@ test('installing onto a cloud computer passes a typed refusal through and wraps 
         none,
         none,
         none,
-        none,
         none
     )
     const host = {

@@ -29,7 +29,11 @@ import {
 } from '@/modules/agents/bootstrap/hermes-shared'
 import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
-import { runPodStep, type PodScriptRunner } from './pod-framework-setup'
+import {
+    runPodStep,
+    secretFileStep,
+    type PodScriptRunner
+} from './pod-framework-setup'
 
 // The service frameworks a pod host runs (ADR-0035 P2): installed into the
 // home volume with the recipes a sprite uses, and kept up by the host's
@@ -73,17 +77,6 @@ export interface PodServiceRecipe {
     ): Promise<PodServiceSetup>
 }
 
-// A secret-bearing file, written atomically and readable by its owner only;
-// base64 so no content can end the script early.
-const writeFileScript = (path: string, content: string): string =>
-    [
-        'set -eu',
-        `mkdir -p "$(dirname ${shellQuote(path)})"`,
-        'umask 077',
-        `printf '%s' ${shellQuote(Buffer.from(content, 'utf8').toString('base64'))} | base64 -d > ${shellQuote(`${path}.tmp`)}`,
-        `mv -f ${shellQuote(`${path}.tmp`)} ${shellQuote(path)}`
-    ].join('\n')
-
 const OPENCLAW_HOME = `${K8S_HOME_BASE}/.openclaw`
 
 const openclawRecipe: PodServiceRecipe = {
@@ -111,21 +104,25 @@ const openclawRecipe: PodServiceRecipe = {
     configure: async (runner, args) => {
         const creds = args.credentials as ResolvedOpenclawCredentials
         const gatewayToken = generateOpenclawGatewayToken(creds.gatewayToken)
+        // The config holds the provider key and the gateway token.
+        const config = secretFileStep(
+            shellQuote(`${OPENCLAW_HOME}/openclaw.json`),
+            'MF_OPENCLAW_CONFIG_B64',
+            openclawConfigJsonFor({
+                creds,
+                gatewayToken,
+                home: OPENCLAW_HOME,
+                controlUiEnabled: args.controlUiEnabled
+            })
+        )
         await runPodStep(
             runner,
             'openclaw-config',
             [
                 `mkdir -p ${shellQuote(openclawDefaultWorkspace(OPENCLAW_HOME))}`,
-                writeFileScript(
-                    `${OPENCLAW_HOME}/openclaw.json`,
-                    openclawConfigJsonFor({
-                        creds,
-                        gatewayToken,
-                        home: OPENCLAW_HOME,
-                        controlUiEnabled: args.controlUiEnabled
-                    })
-                )
-            ].join('\n')
+                config.script
+            ].join('\n'),
+            { env: config.env }
         )
         return {
             spec: {
@@ -172,11 +169,14 @@ const hermesRecipe: PodServiceRecipe = {
     configure: async (runner, args) => {
         const creds = args.credentials as ResolvedHermesCredentials
         const apiServerKey = generateHermesApiServerKey(creds.apiServerKey)
-        await runPodStep(
-            runner,
-            'hermes-config',
-            writeFileScript(`${HERMES.home}/config.yaml`, hermesConfigYamlFor(creds))
+        const config = secretFileStep(
+            shellQuote(`${HERMES.home}/config.yaml`),
+            'MF_HERMES_CONFIG_B64',
+            hermesConfigYamlFor(creds)
         )
+        await runPodStep(runner, 'hermes-config', config.script, {
+            env: config.env
+        })
         return {
             spec: {
                 name: 'hermes',

@@ -11,6 +11,7 @@ import {
 } from '@manyfold/shared'
 import { enumerateInflightForHello, gcStaleBuffers } from './exec-buffer'
 import { recoverFileExecs } from './exec-files'
+import { sweepUploads } from './fs-upload'
 import { listOwnedTerminals } from './owned-terminals'
 import { listHerdrTerminals } from './herdr'
 
@@ -137,6 +138,12 @@ export class DaemonWsClient {
             if (removed > 0) this.log(`exec-buffer gc removed ${removed}`)
         } catch (err) {
             this.log(`exec-buffer gc failed: ${(err as Error).message}`)
+        }
+        try {
+            const parts = sweepUploads()
+            if (parts > 0) this.log(`fs upload gc removed ${parts}`)
+        } catch (err) {
+            this.log(`fs upload gc failed: ${(err as Error).message}`)
         }
     }
 

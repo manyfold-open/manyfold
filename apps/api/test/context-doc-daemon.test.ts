@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agents } from '@manyfold/db'
+import { ServiceUnavailableException } from '@nestjs/common'
+import { agents, type RuntimeHostRow } from '@manyfold/db'
 import {
     contextOf,
     fakeRuntimeContext,
@@ -9,6 +10,7 @@ import {
 } from './helpers/runtime-context-fixture'
 import { AgentContextDocManageService } from '../src/modules/agents/agent-context-doc-manage.service'
 import { AgentContextDocService } from '../src/modules/agent-self/agent-context-doc.service'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 import { readJsonbMergePatch } from './jsonb-merge'
 import { legacyConfigDelivery } from './helpers/legacy-config-delivery'
 
@@ -74,7 +76,8 @@ const fakeRegistry = (opts: { ok: boolean }) => {
 
 const build = (
     db: ReturnType<typeof fakeDb>,
-    registry: ReturnType<typeof fakeRegistry>
+    registry: ReturnType<typeof fakeRegistry>,
+    opts: { host?: Partial<RuntimeHostRow>; hostAccess?: unknown } = {}
 ): AgentContextDocManageService => {
     const contextDoc = new AgentContextDocService(
         db as never,
@@ -92,13 +95,27 @@ const build = (
                     userId: 'user-1',
                     hostId: 'dh-1'
                 }),
-                host: hostRow({ id: 'dh-1', userId: 'user-1', homeDir: '/home/cy' })
+                host: hostRow({
+                    id: 'dh-1',
+                    userId: 'user-1',
+                    homeDir: '/home/cy',
+                    ...opts.host
+                })
             })
         ) as never,
         contextDoc,
         registry as never,
-        legacyConfigDelivery(db as never) as never
+        legacyConfigDelivery(db as never) as never,
+        opts.hostAccess as never
     )
+}
+
+const SLEEPING_SANDBOX: Partial<RuntimeHostRow> = {
+    kind: 'hosted',
+    providerId: 'rtp_1',
+    providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'spr_1' },
+    powerState: 'suspended',
+    name: 'sandbox'
 }
 
 test('refresh writes the context doc to a daemon over exec and records it', async () => {
@@ -149,4 +166,69 @@ test('a daemon service-framework agent stays unsupported', async () => {
     const svc = build(db, fakeRegistry({ ok: true }))
     const status = await svc.getStatus('user-1', 'agent-1', false)
     assert.equal(status.supported, false)
+})
+
+// The user asked for this write: a sandbox that has gone to sleep is woken
+// for it, and the doc goes out inside that session.
+test('refresh wakes a sleeping sandbox and delivers under its hold', async () => {
+    const db = fakeDb(agentRow())
+    const registry = fakeRegistry({ ok: true })
+    const sessions: string[] = []
+    const svc = build(db, registry, {
+        host: SLEEPING_SANDBOX,
+        hostAccess: {
+            withHost: async (
+                args: { reason: string },
+                work: () => Promise<unknown>
+            ) => {
+                sessions.push(args.reason)
+                const out = await work()
+                sessions.push(`scripts=${registry.scripts.length}`)
+                return out
+            }
+        }
+    })
+
+    await svc.refresh('user-1', 'agent-1', false)
+
+    assert.deepEqual(sessions, ['context-doc', 'scripts=1'])
+})
+
+test('a sandbox that cannot be woken answers 503 and writes nothing', async () => {
+    const db = fakeDb(agentRow())
+    const registry = fakeRegistry({ ok: true })
+    const svc = build(db, registry, {
+        host: SLEEPING_SANDBOX,
+        hostAccess: {
+            withHost: async (args: { host: RuntimeHostRow }) => {
+                throw new HostDaemonOfflineError(args.host, 'runner_unavailable')
+            }
+        }
+    })
+
+    await assert.rejects(svc.refresh('user-1', 'agent-1', false), (err: unknown) => {
+        assert.ok(err instanceof ServiceUnavailableException)
+        assert.equal(
+            (err.getResponse() as { code: string }).code,
+            'SANDBOX_DAEMON_OFFLINE'
+        )
+        return true
+    })
+    assert.equal(registry.scripts.length, 0)
+})
+
+test('a self-owned computer is written directly, never through a wake', async () => {
+    const db = fakeDb(agentRow())
+    const registry = fakeRegistry({ ok: true })
+    const svc = build(db, registry, {
+        hostAccess: {
+            withHost: async () => {
+                throw new Error('a local machine is never woken')
+            }
+        }
+    })
+
+    await svc.refresh('user-1', 'agent-1', false)
+
+    assert.equal(registry.scripts.length, 1)
 })

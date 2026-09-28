@@ -52,7 +52,6 @@ import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
 import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
 import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
-import { podScriptRunner } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
 
 const POD_SERVICE_READY_TIMEOUT_MS = 180_000
 
@@ -513,7 +512,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 `${runtime.framework} has no service on this cloud computer`
             )
-        const exec = await this.hostClients.podExecForHost(host)
         // The service's env carries the runtime's agent env, as on a sprite.
         const [agent] = runtime.primaryAgentId
             ? await this.db
@@ -522,17 +520,20 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                   .where(eq(agents.id, runtime.primaryAgentId))
                   .limit(1)
             : []
-        const setup = await recipe.configure(
-            podScriptRunner(exec, (event, fields) =>
-                this.log.warn(`${event} ${JSON.stringify(fields)}`)
-            ),
-            {
-                credentials: await this.decryptCreds(runtime.id),
-                envText: agent ? (envTextFromExtras(agent.extras) ?? null) : null,
-                controlUiEnabled
-            }
-        )
+        const credentials = await this.decryptCreds(runtime.id)
         const target = { id: host.id, userId: host.userId }
+        const setup = await this.podServices.runScripts(
+            target,
+            'service-reconfigure',
+            (runner) =>
+                recipe.configure(runner, {
+                    credentials,
+                    envText: agent
+                        ? (envTextFromExtras(agent.extras) ?? null)
+                        : null,
+                    controlUiEnabled
+                })
+        )
         await this.podServices.upsert(target, setup.spec)
         await this.podServices.restart(target, setup.spec.name)
         await this.podServices.waitHealthy(

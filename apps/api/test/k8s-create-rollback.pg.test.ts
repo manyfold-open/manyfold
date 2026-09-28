@@ -54,6 +54,7 @@ import { K8sProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-p
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { podHostResourceName } from '../src/modules/agent-runtimes/provisioning/pod-host-resources'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostDaemonAccess } from '../src/modules/agents/adapters/host-daemon-access'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 import { ChatService } from '../src/modules/chat/chat.service'
 import { ChatRepository } from '../src/modules/chat/chat.repository'
@@ -270,8 +271,12 @@ const fixture = async (t: TestContext) => {
         clients,
         new HostPlacementService(db),
         providers,
-        runnerManager,
-        daemonRegistry as never,
+        new HostDaemonAccess(
+            hostDaemonsService,
+            daemonRegistry as never,
+            undefined,
+            runnerManager
+        ),
         config,
         crypto,
         podRunner,

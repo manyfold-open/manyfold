@@ -1,4 +1,5 @@
 import {
+    DAEMON_FEATURE_MANUAL_UPDATE,
     cliChannelOfVersion,
     isCliUpdateAvailable,
     isCliVersionTooOld,
@@ -29,29 +30,43 @@ const CLI_INSTALL_TIMEOUT_MS = 180_000
 const REREGISTER_POLLS = 60
 const REREGISTER_POLL_MS = 3_000
 
-// What the caller needs of a pod host's daemon.
-export interface PodHostCliNeed {
-    feature?: string
+// What the caller needs of a hosted machine's daemon.
+export interface HostCliNeed {
+    features?: readonly string[]
     minVersion?: string
 }
 
-const meets = (daemon: HostDaemonRow, need: PodHostCliNeed): boolean =>
-    (!need.feature || daemon.clientFeatures.includes(need.feature)) &&
+const meets = (daemon: HostDaemonRow, need: HostCliNeed): boolean =>
+    (need.features ?? []).every((f) => daemon.clientFeatures.includes(f)) &&
     (!need.minVersion ||
         !isCliVersionTooOld(daemon.cliVersion, need.minVersion))
 
-const tooOld = (message: string) =>
-    new ServiceUnavailableException({
-        code: 'POD_HOST_DAEMON_TOO_OLD',
-        message
-    })
+// A daemon that updates itself and comes back on its own: a pod host's is
+// restarted by the boot loop, a sprite's hands off to its successor.
+const updatesItself = (daemon: HostDaemonRow): boolean =>
+    daemon.startupMethod === 'container' ||
+    daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
 
-// The mf CLI of a cloud computer's daemon (ADR-0035 §5): updated on request,
-// and brought up to what a caller needs before it is used. The pod's daemon IS
-// the host's daemon (ADR-0037): host_daemons for the host.
+const podHost = (host: RuntimeHostRow): boolean =>
+    host.providerRef?.kind === 'k8s'
+
+// The CLI a need asks for is not there after everything the platform can do
+// to get it: callers report it as "update the CLI", not as an outage.
+export class HostCliTooOldError extends ServiceUnavailableException {
+    constructor(host: RuntimeHostRow, message: string) {
+        super({
+            code: podHost(host) ? 'POD_HOST_DAEMON_TOO_OLD' : 'SANDBOX_DAEMON_TOO_OLD',
+            message
+        })
+    }
+}
+
+// The mf CLI of a hosted machine's daemon (ADR-0035 §5, ADR-0038): updated on
+// request, and brought up to what a caller needs before it is used. The
+// machine's daemon IS the host's daemon (ADR-0037): host_daemons for the host.
 @Injectable()
-export class PodHostCliService {
-    private readonly log = new Logger(PodHostCliService.name)
+export class HostCliService {
+    private readonly log = new Logger(HostCliService.name)
     // One update per host at a time: concurrent callers share it.
     private readonly inFlight = new Map<string, Promise<HostDaemonRow>>()
 
@@ -65,36 +80,41 @@ export class PodHostCliService {
         private readonly providers: SandboxProviderRegistry
     ) {}
 
-    // A connected daemon that knows its host restarts it (startup method
-    // 'container') updates itself and exits, and the host's boot loop starts
-    // the new binary from the home volume. Any other one (baked into an image
-    // from before that, or below the floor and so never online) is installed
-    // over instead, and stopped so the boot loop starts the binary just
-    // installed.
+    // A connected daemon that updates itself does: a pod host's exits and the
+    // boot loop starts the new binary from the home volume, a sprite's hands
+    // off to its successor. A pod host's daemon that cannot (baked into an
+    // image from before that, or below the floor and so never online) is
+    // installed over instead, and stopped so the boot loop starts the binary
+    // just installed. A sprite has no loop to start it again, so there is no
+    // install-over to fall back to there.
     async update(args: {
         host: RuntimeHostRow
         actorId: string
         targetVersion?: string
     }): Promise<void> {
         const daemon = await this.hostDaemons.findByHostId(args.host.id)
-        if (
-            daemon &&
-            daemon.startupMethod === 'container' &&
-            hasRpcLease(daemon)
-        )
+        if (daemon && hasRpcLease(daemon) && updatesItself(daemon))
             await this.daemonHosts.upgrade({
                 host: args.host,
                 actorId: args.actorId,
                 targetVersion: args.targetVersion
             })
-        else await this.installOver(args.host, args.targetVersion)
+        else if (podHost(args.host))
+            await this.installOver(args.host, args.targetVersion)
+        else
+            throw new HostCliTooOldError(
+                args.host,
+                `the Manyfold CLI on ${args.host.name} cannot update itself; update it from the sandbox's page`
+            )
     }
 
     // The host's daemon, updated first when it lacks what `need` asks for,
-    // and returned once its new registration has it.
+    // and returned once its new registration has it. A sprite's caller holds
+    // the machine awake across the update: the handoff is not platform
+    // activity.
     async ensure(
         host: RuntimeHostRow,
-        need: PodHostCliNeed
+        need: HostCliNeed
     ): Promise<HostDaemonRow> {
         const daemon = await this.hostDaemons.findByHostId(host.id)
         if (daemon && meets(daemon, need)) return daemon
@@ -107,8 +127,9 @@ export class PodHostCliService {
         }
         const fresh = await pending
         if (!meets(fresh, need))
-            throw tooOld(
-                `cloud computer ${host.id} now runs Manyfold CLI ${fresh.cliVersion ?? 'of an unknown version'}, which does not support this yet`
+            throw new HostCliTooOldError(
+                host,
+                `${host.name} now runs Manyfold CLI ${fresh.cliVersion ?? 'of an unknown version'}, which does not support this yet`
             )
         return fresh
     }
@@ -134,11 +155,12 @@ export class PodHostCliService {
             latest.version &&
             !isCliUpdateAvailable(latest.channel, before, latest.version)
         )
-            throw tooOld(
-                `cloud computer ${host.id} already runs the latest Manyfold CLI (${before}), which does not support this yet`
+            throw new HostCliTooOldError(
+                host,
+                `${host.name} already runs the latest Manyfold CLI (${before}), which does not support this yet`
             )
         this.log.log(
-            `pod host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
+            `host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
         )
         await this.update({ host, actorId: host.userId })
         for (let poll = 0; poll < REREGISTER_POLLS; poll++) {
@@ -147,8 +169,9 @@ export class PodHostCliService {
             if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
                 return fresh
         }
-        throw tooOld(
-            `the Manyfold CLI on cloud computer ${host.id} was updated but its daemon did not come back; update it from the cloud computer's page`
+        throw new HostCliTooOldError(
+            host,
+            `the Manyfold CLI on ${host.name} was updated but its daemon did not come back; update it from its page`
         )
     }
 

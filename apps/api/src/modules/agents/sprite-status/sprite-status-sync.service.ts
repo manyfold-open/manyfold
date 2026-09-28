@@ -37,6 +37,7 @@ import { patchProviderRef } from '@/modules/hosts/providers/generation'
 import { spritePowerState } from '@/modules/hosts/providers/sprites.provider'
 import { podPowerState } from '@/modules/hosts/providers/k8s.provider'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
+import { correctedPower } from '@/modules/agents/sprite-status/corrected-power'
 import {
     derivePodPhase,
     fetchPodForHost
@@ -47,7 +48,8 @@ import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-du
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import {
     hostedOnProviderKind,
-    liveHostedHosts
+    liveHostedHosts,
+    runningHostedHosts
 } from '@/modules/runtime-access/runtime-usage-counts'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
@@ -78,12 +80,6 @@ const REAPER_INTERVAL_MS = 5 * 60_000
 // cadence tolerance), and a clean shutdown releases immediately.
 const SYNC_LEASE_NAME = 'sprite-status-sync'
 const SYNC_LEASE_TTL_MS = 45_000
-// A daemon heartbeats every 15s and a frozen VM sends none, so one heard this
-// recently is running on its machine whatever the listing says. Seen on a
-// local stack [2026-09-28]: sprites.dev reported a sprite `cold`, with no
-// last_running_at, for minutes while its daemon kept heartbeating; every turn
-// published `running` and the next pass flipped it back.
-const HEARTBEAT_PROVES_RUNNING_MS = 20_000
 // A sandbox with zero agents is deleted this long after it became empty
 // (runtime_hosts.emptied_at). Empty-duration based — terminal activity does NOT
 // reset it; only attaching an agent (which clears emptied_at) does.
@@ -205,9 +201,6 @@ const backoffMs = (count: number): number =>
 // string is what scopes revival to our own failures.
 export const spriteGoneReason = (spriteName: string): string =>
     `sprite ${spriteName} not found on sprites.dev`
-
-const runningSpritesHosts = () =>
-    and(liveHostedHosts('sprites'), eq(runtimeHosts.powerState, 'running'))
 
 @Injectable()
 export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
@@ -417,7 +410,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             hosts = await this.db
                 .select()
                 .from(runtimeHosts)
-                .where(runningSpritesHosts())
+                .where(runningHostedHosts('sprites'))
                 .limit(REAPER_BATCH)
         } catch (err) {
             this.log.warn(
@@ -517,7 +510,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             const [row] = await this.db
                 .select({ value: count() })
                 .from(runtimeHosts)
-                .where(runningSpritesHosts())
+                .where(runningHostedHosts('sprites'))
             const orgActive = Number(row?.value ?? 0)
             const softCap = Math.floor(
                 (cap.activeCap * cap.softThresholdPct) / 100
@@ -761,9 +754,11 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     /**
-     * Returns true if any sprite on this provider is currently hot (running)
-     * — used to decide whether the next tick for this provider should run on
-     * the fast or slow cadence.
+     * Returns true if any sprite on this provider is currently hot — listed
+     * running, or held running by its daemon — used to decide whether the
+     * next tick for this provider should run on the fast or slow cadence. A
+     * host the daemon holds running is sampled fast too, so the hold ends
+     * within a tick of its daemon going quiet rather than a slow tick later.
      */
     private async syncProvider(providerId: string): Promise<boolean> {
         const provider = await this.providers.findById(providerId)
@@ -786,8 +781,13 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             if (status === 'running') anyHot = true
         }
         await this.recordVendorCapacity(provider, list, counts)
-        await this.syncHosts(client, provider.id, byName, new Date())
-        return anyHot
+        const anyHostRunning = await this.syncHosts(
+            client,
+            provider.id,
+            byName,
+            new Date()
+        )
+        return anyHot || anyHostRunning
     }
 
     /**
@@ -861,16 +861,18 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             this.telemetry.event('wholesale_warm_soft_cap', attrs)
     }
 
-    // Host-level power writer (R4): the listing is mapped onto power_state,
-    // the running interval is accrued, and every agent on the host hears
-    // about the change. Nothing here touches runtime or agent rows. A host
-    // failed by the gone marker is revived when its VM shows up again.
+    // Host-level power writer (R4): the listing, corrected by the daemon's
+    // heartbeat, becomes power_state, the running interval is accrued from
+    // that same value, and every agent on the host hears about the change.
+    // Nothing here touches runtime or agent rows. A host failed by the gone
+    // marker is revived when its VM shows up again. True when any host is now
+    // running.
     private async syncHosts(
         client: SpritesClient,
         providerId: string,
         byName: Map<string, RuntimeHostPowerState>,
         now: Date
-    ): Promise<void> {
+    ): Promise<boolean> {
         const hosts = await this.db
             .select()
             .from(runtimeHosts)
@@ -881,8 +883,9 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     inArray(runtimeHosts.status, ['ready', 'failed'])
                 )
             )
-        const heartbeating = await this.recentlyHeartbeating(hosts, now)
+        const heartbeats = await this.lastHeartbeats(hosts)
         const missing: RuntimeHostRow[] = []
+        let anyRunning = false
         for (const host of hosts) {
             const ref = spritesRef(host)
             if (!ref) continue
@@ -908,7 +911,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                 continue
             }
             this.hostSpriteMissingSince.delete(host.id)
-            const listed = byName.get(ref.spriteName) ?? 'unknown'
+            const next = correctedPower({
+                listed: byName.get(ref.spriteName) ?? 'unknown',
+                heartbeatAt: heartbeats.get(host.id) ?? null,
+                now
+            })
+            if (next === 'running') anyRunning = true
             // Accrue before the unchanged-status short-circuit: a host that stays
             // `running` across samples writes no status change but must still
             // advance the watermark + credit the elapsed seconds. Metering
@@ -916,18 +924,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             // whole provider pass and freeze power_state for every other host
             // (phantom `running` rows then inflate the concurrency caps).
             try {
-                await this.activeDuration.accrue(host, listed === 'running', now)
+                await this.activeDuration.accrue(host, next === 'running', now)
             } catch (err) {
                 this.log.warn(
                     `active-duration accrue failed for host ${host.id}: ${describeError(err)}`
                 )
             }
-            // Metering follows the listing; the power state the product shows
-            // and counts also takes the daemon's word for a machine it is on.
-            const next =
-                listed !== 'running' && heartbeating.has(host.id)
-                    ? 'running'
-                    : listed
             if (next === host.powerState) continue
             // Host-level so a bare sandbox (zero agents, still billed for its
             // rootfs) gets measured too.
@@ -938,6 +940,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         }
         if (missing.length > 0)
             await this.detectDeletedHosts(client, missing, now)
+        return anyRunning
     }
 
     // Hosts whose VM is gone from the listing, after the same confirmation
@@ -1096,12 +1099,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         await this.broadcastPower(host, power, now)
     }
 
-    // The hosts whose daemon has heartbeated within HEARTBEAT_PROVES_RUNNING_MS.
-    private async recentlyHeartbeating(
-        hosts: Array<Pick<RuntimeHostRow, 'id'>>,
-        now: Date
-    ): Promise<Set<string>> {
-        if (hosts.length === 0) return new Set()
+    // Each host's last daemon heartbeat, for correctedPower; a host whose
+    // daemon never heartbeated is absent.
+    private async lastHeartbeats(
+        hosts: Array<Pick<RuntimeHostRow, 'id'>>
+    ): Promise<Map<string, Date>> {
+        if (hosts.length === 0) return new Map()
         const rows = await this.db
             .select({
                 hostId: hostDaemons.hostId,
@@ -1114,16 +1117,10 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     hosts.map((host) => host.id)
                 )
             )
-        return new Set(
-            rows
-                .filter(
-                    (row) =>
-                        row.lastSeenAt !== null &&
-                        now.getTime() - row.lastSeenAt.getTime() <
-                            HEARTBEAT_PROVES_RUNNING_MS
-                )
-                .map((row) => row.hostId)
-        )
+        const heartbeats = new Map<string, Date>()
+        for (const row of rows)
+            if (row.lastSeenAt) heartbeats.set(row.hostId, row.lastSeenAt)
+        return heartbeats
     }
 
     // The host's own event plus one per agent on it, with the availability
@@ -1255,12 +1252,12 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             return host.powerState
         const provider = await this.providers.findById(host.providerId)
         if (!provider) return host.powerState
-        let state: RuntimeHostPowerState
+        let listed: RuntimeHostPowerState
         try {
             const sprite = await this.clientFor(provider).getSprite(
                 ref.spriteName
             )
-            state = spritePowerState(sprite.status)
+            listed = spritePowerState(sprite.status)
         } catch (err) {
             // A vanished sprite is a teardown anomaly the periodic detector
             // owns; don't clobber the row here, just surface the last state.
@@ -1269,16 +1266,16 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             throw err
         }
         const now = new Date()
+        // Corrected the same way the periodic pass corrects it, or the two
+        // writers would overwrite each other.
+        const state = correctedPower({
+            listed,
+            heartbeatAt: (await this.lastHeartbeats([host])).get(host.id) ?? null,
+            now
+        })
         // Manual refresh is another direct host-power writer; accrue here too
         // so an interval that opened or closed between samples isn't lost.
         await this.activeDuration.accrue(host, state === 'running', now)
-        // The periodic pass takes a fresh heartbeat over the listing; this
-        // read has to agree with it, or the two would overwrite each other.
-        if (
-            state !== 'running' &&
-            (await this.recentlyHeartbeating([host], now)).has(host.id)
-        )
-            state = 'running'
         if (state !== host.powerState) {
             await this.hosts.setPower(host.id, state)
             // Persisting here makes the poked periodic pass see the state as

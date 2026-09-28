@@ -4,7 +4,8 @@ import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
     HostDaemonAccess,
     HostDaemonOfflineError,
-    isTransportLoss
+    isTransportLoss,
+    type HostExecRequest
 } from '../src/modules/agents/adapters/host-daemon-access'
 import { DaemonRpcResponseError } from '../src/modules/daemon/daemon-registry.service'
 
@@ -126,6 +127,31 @@ test('a read path that must not wake the machine reads the lease and holds nothi
     assert.equal((await live.access.ensure({ host: host(), daemon: null, placement: 'sprites', wake: false })).online, true)
 })
 
+// WHY: taking the hold is itself an exec into the VM, and an exec resumes a
+// sleeping sprite. A read that must not start billed running time (an MCP
+// import, an auth-profile list) used to take one before looking.
+test('withHost that must not wake a sleeping machine takes no hold and reports it offline', async () => {
+    const { access, events } = build()
+    await assert.rejects(
+        access.withHost(
+            { host: host({ powerState: 'suspended' }), daemon: null, placement: 'sprites', reason: 'mcp-import', wake: false },
+            async () => 'never'
+        ),
+        HostDaemonOfflineError
+    )
+    assert.deepEqual(events, [])
+})
+
+test('withHost that must not wake still works on a running machine it holds a socket to', async () => {
+    const { access, events } = build()
+    const out = await access.withHost(
+        { host: host({ powerState: 'running' }), daemon: null, placement: 'sprites', reason: 'mcp-import', wake: false },
+        async () => 'read'
+    )
+    assert.equal(out, 'read')
+    assert.deepEqual(events, ['hold:mcp-import', 'release:mcp-import'])
+})
+
 test('an RPC lost to a closed or replaced socket is retried once on the fresh lease', async () => {
     let attempts = 0
     const { access, events } = build({
@@ -180,4 +206,92 @@ test('isTransportLoss names exactly the registry\'s lost-generation shapes', () 
     assert.equal(isTransportLoss(new Error('rpc fs.list timed out'), true), true)
     assert.equal(isTransportLoss(new DaemonRpcResponseError('connection closed'), true), false)
     assert.equal(isTransportLoss(new Error('workspace directory does not exist'), true), false)
+})
+
+// A session exec over a registry whose streamRpc is scripted per attempt.
+const buildExec = (attempts: Array<(call: Record<string, unknown>) => Promise<Record<string, unknown>>>) => {
+    const calls: Array<Record<string, unknown>> = []
+    const registry = {
+        streamRpc: (call: Record<string, unknown> & { onEvent: (kind: string, data: string) => void }) => {
+            calls.push(call)
+            const next = attempts.shift()
+            if (!next) throw new Error('unexpected exec attempt')
+            call.onEvent('stdout', `attempt ${calls.length}\n`)
+            return { refId: String(call.refIdOverride), result: next(call), cancel: () => {} }
+        }
+    }
+    const awake = {
+        hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} })
+    }
+    const runnerManager = {
+        ensureHostDaemon: async () => ({ handle: { daemonId: 'sbx_1', started: false, generation: 'g' } }),
+        awaitReconnect: async () => ({ daemonId: 'sbx_1', started: false, generation: 'g2' })
+    }
+    const access = new HostDaemonAccess(
+        { findByHostId: async () => daemon() } as never,
+        registry as never,
+        awake as never,
+        runnerManager as never
+    )
+    const run = (req: HostExecRequest) =>
+        access.withHost(
+            { host: host(), daemon: null, placement: 'sprites', reason: 'test' },
+            (session) => session.exec(req)
+        )
+    return { run, calls }
+}
+
+// WHY: a command whose socket a thaw replaced is still running on the machine.
+// Sending it again under a new refId would start a second one; the daemon
+// attaches to, or replays, the one it already has under the same refId.
+test('an exec lost to a closed socket goes again under the same refId, with only that answer kept', async () => {
+    const { run, calls } = buildExec([
+        async () => {
+            throw new Error('daemon connection closed')
+        },
+        async () => ({ exitCode: 0 })
+    ])
+
+    const result = await run({ cmd: ['true'], timeoutMs: 1_000 })
+
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0].method, 'exec.start')
+    assert.ok(calls[0].refIdOverride)
+    assert.equal(calls[1].refIdOverride, calls[0].refIdOverride)
+    assert.deepEqual(result, { exitCode: 0, stdout: 'attempt 2\n', stderr: '' })
+})
+
+test('an exec the daemon failed, or one that timed out, is never sent twice', async () => {
+    const refused = buildExec([
+        async () => {
+            throw new DaemonRpcResponseError('exec.start refused')
+        }
+    ])
+    await assert.rejects(refused.run({ cmd: ['true'], timeoutMs: 1_000 }), /refused/)
+    assert.equal(refused.calls.length, 1)
+
+    const slow = buildExec([
+        async () => {
+            throw new Error('rpc exec.start timed out after 6000ms')
+        }
+    ])
+    await assert.rejects(slow.run({ cmd: ['sleep', '9'], timeoutMs: 1_000 }), /timed out/)
+    assert.equal(slow.calls.length, 1)
+})
+
+test('an exec carries its directory and the roots that admit it', async () => {
+    const { run, calls } = buildExec([async () => ({ exitCode: 0 })])
+
+    await run({
+        cmd: ['bash', '-lc', 'pwd'],
+        timeoutMs: 1_000,
+        dir: '/work/repo',
+        roots: ['/work/repo'],
+        env: { A: '1' }
+    })
+
+    const payload = calls[0].payload as Record<string, unknown>
+    assert.equal(payload.dir, '/work/repo')
+    assert.deepEqual(payload.roots, ['/work/repo'])
+    assert.deepEqual(payload.env, { A: '1' })
 })

@@ -15,10 +15,8 @@ import type {
     RuntimeProvider
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
-import {
-    RunnerManagerService,
-    parseRunnerStatus
-} from '../src/modules/chat/runner/runner-manager.service'
+import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostCliTooOldError } from '../src/modules/chat/runner/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -51,14 +49,14 @@ interface HarnessOptions {
     // wake, whether the thawed process reconnects on its own.
     connects?: boolean
     reconnectsOnWake?: boolean
-    // What `mf daemon status --json` answers.
-    status?: string
     logTail?: string
     registerExit?: number
     registerOutput?: string
     // A bootstrap that throws before anything ran (the exec endpoint).
     inspectError?: Error
     rpc?: (args: { method: string; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>
+    // The CLI update an admission asks for when the daemon lacks a feature.
+    hostCli?: { ensure: (host: RuntimeHostRow, need: { features?: readonly string[] }) => Promise<HostDaemonRow> }
 }
 
 const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
@@ -229,10 +227,6 @@ const buildHarness = (opts: HarnessOptions = {}) => {
                 }
                 return { exitCode: 0, stdout: s.includes('herdr') ? 'MF_HERDR_OK' : '', stderr: '' }
             }
-            if (s.includes('daemon status --json')) {
-                calls.push('status')
-                return { exitCode: 0, stdout: opts.status ?? '{"configured":false}', stderr: '' }
-            }
             if (s.includes('daemon start') || s.includes('pkill')) {
                 calls.push('start')
                 state.started += 1
@@ -294,7 +288,8 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             },
             onConnected: () => () => {}
         } as never,
-        awake as never
+        awake as never,
+        opts.hostCli as never
     )
 
     return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, bumps: () => bumps, dialIn }
@@ -589,14 +584,85 @@ test('a bring-up superseded by a newer generation drops out instead of racing it
     assert.ok(!h.calls.includes('start'))
 })
 
-test('a daemon lacking a required feature is refused rather than handed out', async () => {
-    const h = buildHarness({ daemon: daemonRow({ clientFeatures: [] }) })
+// A hosted machine's daemon is the platform's to keep current (R11): one
+// lacking what the work needs is updated during the admission, under its hold.
+test('a hosted daemon lacking a required feature is updated under the hold, then admitted', async () => {
+    const seen: Array<{ features: readonly string[]; releasedBefore: number }> = []
+    const h: ReturnType<typeof buildHarness> = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (_host, need) => {
+                // Looked at after a tick: a hold released when the admission
+                // promise was made, not when it settled, is gone by then.
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                seen.push({ features: need.features ?? [], releasedBefore: h.releases.length })
+                return daemonRow({ clientFeatures: ['exec.roots.v1'], rpcInstanceId: 'api-2' })
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.deepEqual(seen, [{ features: ['exec.roots.v1'], releasedBefore: 0 }])
+    assert.equal(res.handle?.started, true)
+    assert.match(String(res.handle?.generation), /^api-2:/)
+    assert.equal(h.releases.length, 1, 'the hold is released once the update is done')
+})
+
+test('an update that cannot bring the feature answers runner_cli_too_old', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (host) => {
+                throw new HostCliTooOldError(host, 'already on the latest')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_cli_too_old')
+})
+
+test('an update that failed for another reason stays retryable', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async () => {
+                throw new Error('daemon upgrade failed: socket closed')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+})
+
+test('a self-owned computer lacking a feature is told its CLI is too old, and not updated', async () => {
+    let asked = false
+    const h = buildHarness({
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: daemonRow({ hostId: 'dh_1', clientFeatures: [] }),
+        hostCli: {
+            ensure: async () => {
+                asked = true
+                throw new Error("a self-owned computer is its user's to update")
+            }
+        }
+    })
     const res = await h.service.ensureHostDaemon({
         host: h.state.host,
         requiredFeatures: ['auth-context.v1']
     })
     assert.equal(res.handle, null)
-    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.equal(res.fallbackReason, 'runner_cli_too_old')
+    assert.equal(asked, false)
 })
 
 test('a host that is failed, deleting or retired is never brought up', async () => {
@@ -606,75 +672,6 @@ test('a host that is failed, deleting or retired is never brought up', async () 
         assert.equal(res.handle, null)
         assert.deepEqual(h.calls, [])
     }
-})
-
-test('requireHostDaemon throws a coded 503 when the daemon cannot be reached', async () => {
-    const h = buildHarness({
-        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
-        daemon: null
-    })
-    await assert.rejects(
-        h.service.requireHostDaemon(h.state.host),
-        (err: { getResponse?: () => { code?: string } }) =>
-            err.getResponse?.().code === 'DAEMON_OFFLINE'
-    )
-    const online = buildHarness({ daemon: daemonRow() })
-    const daemon = await online.service.requireHostDaemon(online.state.host)
-    assert.equal(daemon.hostId, 'sbx_1')
-})
-
-// --- restart after a CLI upgrade -----------------------------------------------
-
-const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
-    JSON.stringify({ configured: true, localPid: pid, local })
-
-test('parseRunnerStatus: the running daemon, shell noise, and every way there is no answer', () => {
-    assert.deepEqual(
-        parseRunnerStatus(`motd\n${statusJson({ version: '1.2.3', activeExecs: 2, adoptableExecs: 1, activePtys: 0 })}`),
-        { kind: 'running', version: '1.2.3', activeExecs: 2, adoptableExecs: 1, activePtys: 0 }
-    )
-    assert.deepEqual(parseRunnerStatus(JSON.stringify({ configured: false })), { kind: 'not-running' })
-    assert.deepEqual(parseRunnerStatus(JSON.stringify({ configured: true, local: null })), { kind: 'not-running' })
-    assert.deepEqual(parseRunnerStatus(statusJson(null)), { kind: 'unknown' })
-    assert.deepEqual(parseRunnerStatus('garbage'), { kind: 'unknown' })
-})
-
-test('restart: no daemon row, no process, and a current build each end without a restart', async () => {
-    const none = buildHarness({ daemon: null })
-    assert.equal(await none.service.restartForInstalledCli({ host: none.state.host, installedVersion: '9.9.9' }), 'no-runner')
-    assert.deepEqual(none.calls, [])
-
-    const idle = buildHarness({ daemon: offlineDaemon(), status: JSON.stringify({ configured: false }) })
-    assert.equal(await idle.service.restartForInstalledCli({ host: idle.state.host, installedVersion: '9.9.9' }), 'not-running')
-
-    const current = buildHarness({
-        daemon: daemonRow(),
-        status: statusJson({ version: '9.9.9', activeExecs: 0, adoptableExecs: 0, activePtys: 0 })
-    })
-    assert.equal(await current.service.restartForInstalledCli({ host: current.state.host, installedVersion: '9.9.9' }), 'current')
-})
-
-test('restart: live sessions win, an idle daemon on the old build is restarted', async () => {
-    const busy = buildHarness({
-        daemon: daemonRow(),
-        status: statusJson({ version: '1.0.0', activeExecs: 1, adoptableExecs: 0, activePtys: 0 })
-    })
-    assert.equal(await busy.service.restartForInstalledCli({ host: busy.state.host, installedVersion: '9.9.9' }), 'busy')
-    assert.ok(!busy.calls.includes('start'))
-
-    const idle = buildHarness({
-        daemon: daemonRow(),
-        status: statusJson({ version: '1.0.0', activeExecs: 0, adoptableExecs: 0, activePtys: 0 })
-    })
-    const original = idle.adapter.bootstrap
-    idle.adapter.bootstrap = async (args) => {
-        const res = await original(args)
-        if (args.script.includes('daemon start'))
-            idle.state.daemon = daemonRow({ cliVersion: '9.9.9', rpcConnectedAt: NOW() })
-        return res
-    }
-    assert.equal(await idle.service.restartForInstalledCli({ host: idle.state.host, installedVersion: '9.9.9', waitMs: 50 }), 'restarted')
-    assert.ok(idle.calls.includes('start'))
 })
 
 test('the floor the bring-up enforces is the shared minimum', () => {

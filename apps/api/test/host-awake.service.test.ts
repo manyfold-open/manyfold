@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { RuntimeHostRow } from '@manyfold/db'
+import { isPlatformTaskName } from '@manyfold/shared'
 import {
     HostAwakeService,
     NOOP_HOLD
@@ -63,8 +64,10 @@ test('the first hold acquires the lease, the last release deletes it after the g
     assert.equal(calls.length, 1, 'one provider call for two holders')
     assert.equal(calls[0].op, 'hold')
     assert.equal(calls[0].ttl, '30m')
-    assert.match(calls[0].name, /^mf-agp2vxbm6vywzm6pt2xmxa6qi4-[0-9a-f]{8}$/)
-    assert.ok(calls[0].name.length <= 40)
+    assert.match(calls[0].name, /^mf-hold-[0-9a-f]{8}$/)
+    // The sandbox's Tasks surface must neither list it as the agent's nor
+    // delete it on a user's stop.
+    assert.ok(isPlatformTaskName(calls[0].name))
 
     await first.release()
     assert.equal(service.holders(h.id), 1)

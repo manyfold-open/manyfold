@@ -23,6 +23,7 @@ export const daemonPathsFor = (profile: ProfilePaths) => {
         errLogPath: join(dir, 'daemon.err.log'),
         workspaceRootsPath: join(dir, 'workspace-roots.json'),
         execDir: join(dir, 'exec'),
+        uploadsIndexPath: join(dir, 'uploads.json'),
         // ADR-0029 §5: a manual-install self-update that rolled back leaves
         // the target it refused to retry, and the report its successor sends
         // once.
@@ -61,6 +62,9 @@ export const daemonPaths = {
     },
     get execDir(): string {
         return current().execDir
+    },
+    get uploadsIndexPath(): string {
+        return current().uploadsIndexPath
     },
     get updateLatchPath(): string {
         return current().updateLatchPath

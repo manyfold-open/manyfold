@@ -34,6 +34,7 @@ import {
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
+import { NOOP_HOLD, type AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     ApiTokenService,
     API_TOKEN_SCOPE_FULL
@@ -397,7 +398,9 @@ export class DaemonTerminal {
                 payload: {
                     cmd: prepare.cmd,
                     env: prepare.env,
-                    ...(cwd ? { cwd } : {}),
+                    // exec.start reads `dir`; the daemon admits it through the
+                    // roots sent beside it.
+                    ...(cwd ? { dir: cwd } : {}),
                     ...(roots.length ? { roots } : {}),
                     timeoutMs: PI_VIEW_PREPARE_TIMEOUT_MS
                 },
@@ -516,12 +519,24 @@ export class DaemonTerminal {
         } = args
         let closed = false
         let stream: ReturnType<DaemonRegistryService['streamRpc']>
+        // The pty outlives the open: it keeps the machine awake for as long as
+        // a tab is attached to it, not only while it opens. A sprite suspends
+        // about a second after its last exec or task, and a pty is neither.
+        let attached: AwakeHold = NOOP_HOLD
+        let letGo = (): void => {
+            letGo = () => {}
+            void attached.release()
+        }
         try {
             // The pty is the session and stays on its stream; the open itself
             // runs under the machine's hold, so a hosted daemon that is not
             // connected is brought up rather than refused.
-            stream = await this.withHost(daemonId, 'terminal-open', async () =>
-                this.registry.streamRpc({
+            stream = await this.withHost(daemonId, 'terminal-open', async (session) => {
+                attached = this.hostAccess.hold(
+                    session.host,
+                    `terminal-${terminalId ?? 'pty'}`
+                )
+                return this.registry.streamRpc({
                 daemonId,
                 method: 'pty.open',
                 payload: {
@@ -562,8 +577,9 @@ export class DaemonTerminal {
                     } catch {}
                 }
                 })
-            )
+            })
         } catch (err) {
+            letGo()
             client.send(
                 JSON.stringify({
                     type: 'error',
@@ -638,6 +654,7 @@ export class DaemonTerminal {
             // shell keeps its token.
             if (terminalId) {
                 stream.cancel()
+                letGo()
                 onClose('detached')
                 return
             }
@@ -649,6 +666,7 @@ export class DaemonTerminal {
                 )
                 .finally(() => {
                     stream.cancel()
+                    letGo()
                     release()
                     onClose('client-closed')
                 })
@@ -687,6 +705,7 @@ export class DaemonTerminal {
                 } catch {}
             })
             .finally(() => {
+                letGo()
                 if (!closed) {
                     closed = true
                     if (endCause === 'detached') {

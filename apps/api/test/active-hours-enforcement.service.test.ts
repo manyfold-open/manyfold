@@ -100,6 +100,7 @@ const makeHarness = (opts: {
     stopResult?: (hostId: string) => Partial<SandboxStopResponse>
 }) => {
     const stops: Array<{ userId: string; hostId: string }> = []
+    const forced: boolean[] = []
     const events: Array<{ userId: string; code: string; usage: number }> = []
     const telemetry: Array<{ name: string; attrs: Record<string, unknown> }> =
         []
@@ -109,10 +110,13 @@ const makeHarness = (opts: {
         {
             stop: async (
                 userId: string,
-                hostId: string
+                hostId: string,
+                _isAdmin?: boolean,
+                stopOpts?: { force?: boolean }
             ): Promise<SandboxStopResponse> => {
                 if (opts.stopError?.(hostId)) throw new Error('stop failed')
                 stops.push({ userId, hostId })
+                forced.push(stopOpts?.force === true)
                 return {
                     status: 'pending',
                     stoppedAgents: 1,
@@ -158,7 +162,15 @@ const makeHarness = (opts: {
         log: (message: string) => logs.push({ level: 'log', message }),
         warn: (message: string) => logs.push({ level: 'warn', message })
     } as never
-    return { service, stops, events, telemetry, logs, flips: opts.db.flips }
+    return {
+        service,
+        stops,
+        forced,
+        events,
+        telemetry,
+        logs,
+        flips: opts.db.flips
+    }
 }
 
 const overQuota = (id = 'u-over'): LimitRow => ({
@@ -178,6 +190,9 @@ test('sweep force-sleeps running hosts of over-quota users and emits the hard ev
     await h.service.tick()
 
     assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'host-1' }])
+    // Forced: a task named like the platform's own hold cannot keep an
+    // over-quota sandbox up.
+    assert.deepEqual(h.forced, [true])
     // stop() already flipped the switch on the host it stopped.
     assert.deepEqual(h.flips, [])
     assert.deepEqual(h.events, [

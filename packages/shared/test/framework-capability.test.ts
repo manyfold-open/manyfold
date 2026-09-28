@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    isAwakeHoldTaskName,
     isPlatformTaskName,
     isServiceFrameworkName,
     PLATFORM_TASK_PREFIX
@@ -54,4 +55,18 @@ test('agent-registered task names are deletable', () => {
     assert.equal(isPlatformTaskName('claude-code-keepalive'), false)
     assert.equal(isPlatformTaskName(''), false)
     assert.equal(isPlatformTaskName('toString'), false)
+})
+
+// An API instance's awake hold (ADR-0038) is the platform's too: listed as
+// such, refused by the delete guard, and kept by a user's stop so work in
+// progress is not frozen under it. Only the exact shape counts, so an agent
+// task cannot pass for one by sharing the prefix.
+test('awake hold task names are the platform exact shape', () => {
+    assert.equal(isPlatformTaskName('mf-hold-0123abcd'), true)
+    assert.equal(isAwakeHoldTaskName('mf-hold-0123abcd'), true)
+    assert.equal(isAwakeHoldTaskName('mf-hold-0123abcd9'), false)
+    assert.equal(isAwakeHoldTaskName('mf-hold-XYZ12345'), false)
+    assert.equal(isPlatformTaskName('mf-hold-'), false)
+    assert.equal(isPlatformTaskName('mf-agp2vxbm6vywzm6pt2xmxa6qi4-0123abcd'), false)
+    assert.equal(isAwakeHoldTaskName('nca-host-abc-1-0f'), false)
 })

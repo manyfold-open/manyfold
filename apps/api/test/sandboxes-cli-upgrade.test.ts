@@ -81,7 +81,6 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         {} as never,
-        { rpc } as never,
         {
             getCachedLatest: async () => ({ channel: 'dev', version: NEW })
         } as never,

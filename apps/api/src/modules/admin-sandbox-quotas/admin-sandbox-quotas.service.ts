@@ -18,11 +18,11 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
-import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
-
-// The raw-SQL twin of liveHostedHosts('sprites') for the per-user scalar
-// subqueries below.
-const LIVE_SPRITES_HOST_SQL = `h.kind = 'hosted' and h.status in ('provisioning', 'ready', 'deleting') and exists (select 1 from runtime_providers p where p.id = h.provider_id and p.kind = 'sprites')`
+import {
+    LIVE_SPRITES_HOST_SQL,
+    RUNNING_SPRITES_HOST_SQL,
+    liveHostedHosts
+} from '@/modules/runtime-access/runtime-usage-counts'
 
 const DEFAULT_USERS_LIMIT = 50
 const MAX_USERS_LIMIT = 200
@@ -114,7 +114,7 @@ export class AdminSandboxQuotasService {
         // NOT as a scalar subquery — the window logic lives once, in
         // usage-period, and raw SQL would silently survive schema renames.
         const provisionedSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)})::int`
-        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)} and h.power_state = 'running')::int`
+        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(RUNNING_SPRITES_HOST_SQL)})::int`
         const storageBytesSql = sql<number>`(select coalesce(sum(h.storage_bytes), 0) from runtime_hosts h where h.user_id = ${users.id} and ${sql.raw(LIVE_SPRITES_HOST_SQL)})::bigint`
         const rows = await this.db
             .select({

@@ -118,7 +118,7 @@ test('a host whose CLI predates services has it updated first', async () => {
         cli as never
     )
     await services.start(HOST, 'openclaw')
-    assert.deepEqual(ensured, [['pdh_1', { feature: DAEMON_FEATURE_SERVICES }]])
+    assert.deepEqual(ensured, [['pdh_1', { features: [DAEMON_FEATURE_SERVICES] }]])
     // The daemon is the host's: the routing key stays the host id.
     assert.deepEqual(calls, [['pdh_1', 'service.start']])
 })
