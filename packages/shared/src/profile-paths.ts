@@ -111,3 +111,48 @@ export const machineSkillsDir = (configRoot: string): string =>
 // so two control planes on one machine never read each other's credentials.
 export const runtimeAuthRoot = (configRoot: string): string =>
     `${configRoot}/runtime-auth`
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+// Names an agent setup guide must never pick for a deployment of its own: the
+// profiles a binary selects by itself, the legacy dev-channel name, the
+// profile the plugin README uses for the hosted API, and the runner profiles.
+const RESERVED_DEPLOYMENT_PROFILES = new Set([
+    'default',
+    'dev',
+    'staging',
+    'manyfold',
+    RUNNER_PROFILE,
+    POD_RUNNER_PROFILE
+])
+
+// FNV-1a: stable across runtimes and free of node:crypto, because this module
+// also ships to the browser.
+const shortHash = (value: string): string => {
+    let hash = 0x811c9dc5
+    for (let i = 0; i < value.length; i += 1) {
+        hash ^= value.charCodeAt(i)
+        hash = Math.imul(hash, 0x01000193)
+    }
+    return (hash >>> 0).toString(36).slice(0, 6)
+}
+
+// The CLI profile an agent setup guide signs in to for a deployment other than
+// the default API: one profile per API host (and port), so two deployments
+// never share credentials and the same deployment always lands on the same
+// profile. `https://api.example.com/api` → `example-com`,
+// `http://localhost:7180/api` → `localhost-7180`.
+export const cliProfileForApiUrl = (apiUrl: string): string => {
+    const url = new URL(apiUrl)
+    const host = url.hostname.toLowerCase()
+    const base =
+        LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost')
+            ? 'localhost'
+            : host.replace(/^api[.-]/, '')
+    const raw = [base, url.port].filter(Boolean).join('-')
+    let name =
+        raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'deployment'
+    if (name.length > 32)
+        name = `${name.slice(0, 25).replace(/-+$/, '')}-${shortHash(raw)}`
+    return RESERVED_DEPLOYMENT_PROFILES.has(name) ? `${name}-api` : name
+}
