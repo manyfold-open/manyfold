@@ -143,7 +143,7 @@ export class HostAwakeService {
         clearInterval(lease.renew)
         this.leases.delete(lease.host.id)
         // Whatever create or renew was last in flight lands first: a release
-        // settled early would otherwise race its own DELETE past the POST and
+        // settled early would otherwise race its own DELETE past the PUT and
         // leave a full-TTL lease that nobody renews and nothing needs.
         await lease.pending
         try {
