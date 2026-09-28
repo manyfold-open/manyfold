@@ -928,6 +928,12 @@ const zh: Translations = {
                 framework: '框架',
                 provider: '提供方',
                 cli: 'mf CLI',
+                managedSkills: '托管的 Agent Skills',
+                accessInstalled: '已安装',
+                accessInstalledBlurb:
+                    '让这个 Agent 通过 mf CLI 替你管理渠道、自动化、技能、文件与备份，行动范围以你授予的权限为界。',
+                accessMissingBlurb:
+                    '想让这个 Agent 替你操作 Manyfold？这个技能会教它通过 mf CLI 管理渠道、自动化、技能、文件与备份。新建 Agent 时默认安装，缺失时可在此补装。',
                 channelCount: '已连接 {{count}} 个',
                 channelErrors: '{{count}} 个报错',
                 channelsBroken: '{{name}} 无法认证',

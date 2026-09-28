@@ -1,4 +1,5 @@
 import {
+    MANYFOLD_CLI_USAGE_SKILL_ID,
     frameworkKind,
     frameworkUpgradeMode,
     isSkillFramework,
@@ -207,6 +208,11 @@ const BannerStack: FC<{ banners: OverviewBanner[] }> = ({
 // One overview fact in the settings-card row anatomy the rest of Settings uses:
 // what it is on the left (a title, and a line saying more when there is more
 // to say), its value or the action on it on the right.
+// What the platform's CLI skill is called wherever skills are listed: the
+// last segment of its id.
+const MANYFOLD_CLI_USAGE_SKILL_NAME =
+    MANYFOLD_CLI_USAGE_SKILL_ID.split('/').at(-1) ?? MANYFOLD_CLI_USAGE_SKILL_ID
+
 const OverviewRow: FC<{
     title: string
     description?: ReactNode
@@ -267,6 +273,8 @@ const AgentSettingsContent: FC = (): ReactNode => {
     const readBackups = storageSupported && activeTab === 'storage'
     const overviewAgentId =
         activeTab === 'overview' ? currentAgent?.id : undefined
+    const readCliSkill =
+        !!overviewAgentId && !!currentAgent && supportsSection(currentAgent, 'skills')
     const mounted = useRef(true)
     const requestScope = useRef({
         model: readModel,
@@ -302,6 +310,13 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // the user go look.
     const [channels, setChannels] = useState<ChannelSummary[] | null>(null)
     const [a2aEnabled, setA2aEnabled] = useState<boolean | null>(null)
+    // Whether the platform's own skill — the one that lets the agent drive
+    // Manyfold on your behalf — is installed. null while unknown, so the card
+    // stays quiet rather than claiming "not installed" before it has looked.
+    const [cliSkillInstalled, setCliSkillInstalled] = useState<boolean | null>(
+        null
+    )
+    const [cliSkillInstalling, setCliSkillInstalling] = useState(false)
     const [restarting, setRestarting] = useState(false)
     const [backups, setBackups] = useState<AgentBackupSummary[]>([])
     const [lastRestore, setLastRestore] =
@@ -652,6 +667,51 @@ const AgentSettingsContent: FC = (): ReactNode => {
             active = false
         }
     }, [client, overviewAgentId])
+
+    // Overview only asks "is the platform skill there", so it reads the
+    // recorded installs without the runtime inventory probe the Skills section
+    // pays for — that skill is always installed through Manyfold, so the
+    // record is the answer.
+    const refreshCliSkill = useCallback(async (): Promise<void> => {
+        if (!id || !readCliSkill || !mounted.current) return
+        try {
+            const groups = await client.skills.installed(id)
+            if (!mounted.current) return
+            setCliSkillInstalled(
+                (groups[0]?.skills ?? []).some(
+                    (skill) => skill.skillId === MANYFOLD_CLI_USAGE_SKILL_ID
+                )
+            )
+        } catch {
+            // Unknown is not the same as missing: leave the card off rather
+            // than inviting an install that may already exist.
+            setCliSkillInstalled(null)
+        }
+    }, [client, id, readCliSkill])
+
+    // Keyed on what the answer depends on, not on the agent object: the status
+    // poll replaces that object every few seconds, and the install record does
+    // not change under it.
+    useEffect(() => {
+        void refreshCliSkill()
+    }, [refreshCliSkill])
+
+    const installCliSkill = useCallback(async (): Promise<void> => {
+        if (!id || !readCliSkill || !mounted.current || cliSkillInstalling) return
+        setCliSkillInstalling(true)
+        setActionError(null)
+        try {
+            await client.skills.install({
+                skillId: MANYFOLD_CLI_USAGE_SKILL_ID,
+                agentId: id
+            })
+            await refreshCliSkill()
+        } catch (err) {
+            setActionError(apiErrorMessage(err))
+        } finally {
+            setCliSkillInstalling(false)
+        }
+    }, [client, cliSkillInstalling, id, readCliSkill, refreshCliSkill])
 
     const handleRestart = useCallback(async (): Promise<void> => {
         if (!agent || restarting) return
@@ -1094,6 +1154,12 @@ const AgentSettingsContent: FC = (): ReactNode => {
                     ) : null
                 const showCli =
                     !!agent.runtimeId && agent.runtime !== 'external'
+                // Unknown is not missing: until the lookup answers, nothing
+                // here invites an install that may already be there.
+                const showManagedSkills =
+                    isSkillFramework(agent.framework) &&
+                    !!agent.runtimeId &&
+                    cliSkillInstalled !== null
 
                 return (
                     <section className='space-y-5'>
@@ -1424,6 +1490,56 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                 />
                             ) : null}
                         </div>
+
+                        {/* The skills Manyfold itself provides the agent: the
+                            one that lets it operate Manyfold for you through
+                            the mf CLI. Installed it looks like any other row
+                            in the Skills list, so whether it is there was
+                            invisible. */}
+                        {showManagedSkills ? (
+                            <Section
+                                title={t(
+                                    'web.agentSettings.overview.managedSkills'
+                                )}
+                            >
+                                <div className='settings-card'>
+                                    <OverviewRow
+                                        title={MANYFOLD_CLI_USAGE_SKILL_NAME}
+                                        description={t(
+                                            cliSkillInstalled
+                                                ? 'web.agentSettings.overview.accessInstalledBlurb'
+                                                : 'web.agentSettings.overview.accessMissingBlurb'
+                                        )}
+                                    >
+                                        {cliSkillInstalled ? (
+                                            <StatusTag
+                                                tone='success'
+                                                label={t(
+                                                    'web.agentSettings.overview.accessInstalled'
+                                                )}
+                                            />
+                                        ) : (
+                                            <button
+                                                type='button'
+                                                disabled={cliSkillInstalling}
+                                                onClick={() =>
+                                                    void installCliSkill()
+                                                }
+                                                className='workbench-button-secondary'
+                                            >
+                                                {cliSkillInstalling
+                                                    ? t(
+                                                          'web.skills.statusInstalling'
+                                                      )
+                                                    : t(
+                                                          'web.skills.installAction'
+                                                      )}
+                                            </button>
+                                        )}
+                                    </OverviewRow>
+                                </div>
+                            </Section>
+                        ) : null}
 
                         {/* Look-it-up facts, kept apart from the ones above. */}
                         <Section

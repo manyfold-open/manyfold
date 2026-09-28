@@ -951,6 +951,12 @@ const en = {
                 framework: 'Framework',
                 provider: 'Provider',
                 cli: 'mf CLI',
+                managedSkills: 'Managed Agent Skills',
+                accessInstalled: 'Installed',
+                accessInstalledBlurb:
+                    'Lets this agent manage channels, automations, skills, files and backups for you through the mf CLI, within the permissions you grant it.',
+                accessMissingBlurb:
+                    'Want this agent to operate Manyfold for you? This skill teaches it to manage channels, automations, skills, files and backups through the mf CLI. New agents get it by default — add it back if it is missing.',
                 channelCount: '{{count}} connected',
                 channelErrors: '{{count}} error',
                 channelsBroken: '{{name}} cannot authenticate',
