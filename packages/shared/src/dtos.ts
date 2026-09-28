@@ -2481,6 +2481,12 @@ export interface InstallSandboxFrameworkBody {
     targetVersion?: string
 }
 
+export interface DetectSandboxFrameworksBody {
+    // Probe the sandbox now, through its daemon, instead of reading the
+    // inventory the daemon last reported. Wakes the sandbox.
+    probe?: boolean
+}
+
 export interface CreateSandboxBody {
     name?: string
     // The sprites provider to place it on; omit to let placement choose.

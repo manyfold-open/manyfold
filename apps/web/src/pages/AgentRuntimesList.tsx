@@ -832,7 +832,9 @@ const TaskRow: FC<{
 const HostDetailPanel: FC<{
     vm: RuntimeVM
     onSelectRuntime: (runtimeId: string) => void
-    onDetect?: (hostId: string) => void
+    // `probe` asks the sandbox now (the Runtimes refresh); without it the
+    // page reads what the daemon last reported, as it does on open.
+    onDetect?: (hostId: string, opts?: { probe?: boolean }) => void
     detecting?: boolean
     onRefreshStatus?: (hostId: string) => Promise<void>
     // Re-reads the runtimes and sandboxes after the sandbox's Runtimes
@@ -1167,15 +1169,6 @@ const HostDetailPanel: FC<{
             label: t('web.agentRuntimesList.rename'),
             onSelect: () => setRenameOpen(true)
         })
-    // The page detects once on open; this re-reads what the sandbox has.
-    if (vm.kind === 'sprites' && sandboxHostId && onDetect)
-        menuItems.push({
-            label: detecting
-                ? t('web.agentRuntimesList.detecting')
-                : t('web.agentRuntimesList.detectFrameworks'),
-            disabled: detecting,
-            onSelect: () => onDetect(sandboxHostId)
-        })
     if (vm.kind === 'sprites' && sandboxHostId && onStop)
         menuItems.push({
             label: stopping
@@ -1292,6 +1285,12 @@ const HostDetailPanel: FC<{
                     catalog={catalog}
                     onSelectRuntime={onSelectRuntime}
                     onChanged={onRuntimesChanged}
+                    onDetect={
+                        onDetect
+                            ? () => onDetect(sandbox.id, { probe: true })
+                            : undefined
+                    }
+                    detecting={Boolean(detecting)}
                 />
             ) : (
                 <Section
@@ -2356,10 +2355,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
     }, [client])
 
     const runDetectFrameworks = useCallback(
-        async (hostId: string): Promise<void> => {
+        async (hostId: string, opts?: { probe?: boolean }): Promise<void> => {
             setDetectingHostId(hostId)
             try {
-                const updated = await client.sandboxes.detectFrameworks(hostId)
+                const updated = await client.sandboxes.detectFrameworks(
+                    hostId,
+                    opts
+                )
                 setSandboxRows((prev) =>
                     prev.map((s) => (s.id === hostId ? updated : s))
                 )

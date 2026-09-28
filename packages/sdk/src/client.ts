@@ -90,6 +90,7 @@ import type {
     SandboxTaskSummary,
     CliVersionCatalog,
     CreateSandboxBody,
+    DetectSandboxFrameworksBody,
     CreatePodHostBody,
     PodHostSummary,
     SetSandboxTerminalBody,
@@ -656,7 +657,12 @@ export interface SandboxesClient {
         id: string,
         enabled: boolean
     ) => Promise<SandboxSummary>
-    detectFrameworks: (id: string) => Promise<SandboxSummary>
+    // `probe` probes the sandbox now instead of reading what its daemon last
+    // reported; it wakes the sandbox.
+    detectFrameworks: (
+        id: string,
+        opts?: DetectSandboxFrameworksBody
+    ) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
     // Install or upgrade herdr inside the sandbox (ADR-0031).
@@ -2630,10 +2636,13 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         } as SetSandboxTerminalModelCredentialsBody)
                     }
                 ),
-            detectFrameworks: (id) =>
+            detectFrameworks: (id, opts) =>
                 request<SandboxSummary>(
                     apiPaths.SANDBOX_DETECT_FRAMEWORKS(id),
-                    { method: 'POST' }
+                    {
+                        method: 'POST',
+                        ...(opts ? { body: JSON.stringify(opts) } : {})
+                    }
                 ),
             refreshStatus: (id) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_REFRESH_STATUS(id), {

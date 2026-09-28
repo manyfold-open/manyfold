@@ -13,6 +13,7 @@ import {
     DAEMON_FEATURE_HERDR_AGY,
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
+    DAEMON_DETECTABLE_FRAMEWORKS,
     DAEMON_FEATURE_MANUAL_UPDATE,
     SANDBOX_PREINSTALLED_FRAMEWORKS,
     frameworkCapability,
@@ -103,16 +104,17 @@ const SPRITES_AUTO_SLEEP_SEC = 35
 
 export const SANDBOX_DAEMON_OFFLINE_CODE = 'SANDBOX_DAEMON_OFFLINE'
 
-// One probe for everything a sandbox can host: each coding CLI's version and
-// the mf CLI's. Shared by the post-install re-probe so "installed" always
-// looks the same.
+// One probe for everything a sandbox can host: each framework's own version
+// probe (the one an agent's version refresh runs), the mf CLI's and herdr's.
+// Shared by the post-install re-probe and the probe a user asks for, so
+// "installed" always looks the same.
 const frameworkProbeShell = (): string =>
     [
+        ...DAEMON_DETECTABLE_FRAMEWORKS.map(
+            (f) =>
+                `echo "${f}=$( (${frameworkVersionDescriptor(f).probeShell}) 2>/dev/null | head -1)"`
+        ),
         'export PATH="$HOME/.local/bin:$PATH"',
-        ...SANDBOX_PREINSTALLED_FRAMEWORKS.map((f) => {
-            const bin = frameworkVersionDescriptor(f).binName
-            return `echo "${f}=$(${bin} --version 2>/dev/null | head -1)"`
-        }),
         'echo "mf=$(mf --version 2>/dev/null | head -1)"',
         'echo "herdr=$(herdr --version 2>/dev/null | head -1)"'
     ].join('; ')
@@ -356,15 +358,56 @@ export class SandboxesService {
     async detectFrameworks(
         userId: string,
         hostId: string,
-        isAdmin = false
+        isAdmin = false,
+        opts: { probe?: boolean } = {}
     ): Promise<SandboxSummary> {
         const r = await this.requireSandbox(userId, hostId, isAdmin)
+        if (opts.probe) return this.probeFrameworks(r)
         if (r.daemon)
             await this.runtimes.applyDetectedVersionsToHostRuntimes(
                 hostId,
                 r.daemon.detectedFrameworks
             )
         return this.get(r.host.userId, hostId)
+    }
+
+    // The detect a user asks for: every framework probed now, through the
+    // daemon, instead of the inventory it last reported (it re-detects only
+    // every few minutes, and not while the sandbox sleeps). The answers are
+    // recorded as probed, so the daemon's cached report cannot write an older
+    // one back (probed-inventory). Wakes the sandbox.
+    private async probeFrameworks(r: SandboxHostView): Promise<SandboxSummary> {
+        const { host } = r
+        return this.withSandboxDaemon(
+            r,
+            'detect-frameworks',
+            async ({ daemon }) => {
+                const probed = await this.daemonExec(host.id)({
+                    cmd: ['bash', '-lc', frameworkProbeShell()],
+                    stdin: '',
+                    timeoutMs: DETECT_TIMEOUT_MS
+                }).catch((err: Error) => {
+                    throw new ServiceUnavailableException(
+                        `framework probe failed: ${err.message}`
+                    )
+                })
+                const probe = parseSpriteFrameworkProbe(
+                    `${probed.stdout}\n${probed.stderr}`
+                )
+                await this.hostDaemons.patch(host.id, {
+                    detectedFrameworks: recordProbedEntries(
+                        daemon.detectedFrameworks,
+                        probe.frameworks,
+                        new Date()
+                    )
+                })
+                await this.runtimes.applyDetectedVersionsToHostRuntimes(
+                    host.id,
+                    probe.frameworks
+                )
+                return this.get(host.userId, host.id)
+            }
+        )
     }
 
     // On-demand refresh of the sandbox's provider power state, backing the
@@ -1178,7 +1221,7 @@ export const parseSpriteFrameworkProbe = (
 } => {
     const lines = output.split('\n')
     const frameworks: DetectedFramework[] = []
-    for (const f of SANDBOX_PREINSTALLED_FRAMEWORKS) {
+    for (const f of DAEMON_DETECTABLE_FRAMEWORKS) {
         const line = lines.find((l) => l.startsWith(`${f}=`))
         const version = parseProbedSemver(line ? line.slice(f.length + 1) : '')
         if (version)

@@ -10,7 +10,8 @@ import EmptyState from '@/components/EmptyState'
 import { Spinner } from '@/components/Loading'
 import { Section, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
 import VersionPicker from '@/components/VersionPicker'
-import { ChevronRightIcon } from '@/components/icons'
+import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { ChevronRightIcon, RefreshIcon } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
@@ -105,12 +106,17 @@ const SandboxRuntimes: FC<{
     catalog: Catalog
     onSelectRuntime: (runtimeId: string) => void
     onChanged: () => Promise<void>
+    // Probes the sandbox for what it has now; it wakes the sandbox.
+    onDetect?: () => void
+    detecting?: boolean
 }> = ({
     sandbox,
     runtimes,
     catalog,
     onSelectRuntime,
-    onChanged
+    onChanged,
+    onDetect,
+    detecting = false
 }): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
@@ -207,34 +213,67 @@ const SandboxRuntimes: FC<{
         <Section
             title={t('web.agentRuntimesList.runtimesTitle')}
             action={
-                options.length > 0 ? (
-                    <CreateMenu
-                        variant='icon'
-                        triggerLabel={t(
-                            'web.agentRuntimesList.installFramework'
-                        )}
-                        sheetTitle={t('web.agentRuntimesList.installFramework')}
-                        options={options.map((option) => ({
-                            key: option.framework,
-                            lead: (
-                                <FrameworkLogo
-                                    framework={option.framework}
-                                    size={16}
-                                />
-                            ),
-                            label: frameworkLabel(option.framework),
-                            disabled: option.blockedBy !== null,
-                            detail: option.blockedBy
-                                ? t('web.agentRuntimesList.alreadyRuns', {
-                                      framework: frameworkLabel(
-                                          option.blockedBy
+                <span className='flex items-center gap-1'>
+                    {onDetect && sandbox.status === 'ready' && (
+                        <ShortcutTooltip
+                            label={
+                                detecting
+                                    ? t('web.agentRuntimesList.detecting')
+                                    : t(
+                                          'web.agentRuntimesList.detectFrameworks'
                                       )
-                                  })
-                                : undefined,
-                            onSelect: () => void install(option.framework)
-                        }))}
-                    />
-                ) : undefined
+                            }
+                            className='shrink-0'
+                        >
+                            <button
+                                type='button'
+                                onClick={onDetect}
+                                disabled={detecting}
+                                aria-label={t(
+                                    'web.agentRuntimesList.detectFrameworks'
+                                )}
+                                className='text-muted hover:bg-surface-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors disabled:cursor-progress'
+                            >
+                                <RefreshIcon
+                                    className={[
+                                        'h-4 w-4',
+                                        detecting ? 'loading-spin' : ''
+                                    ].join(' ')}
+                                />
+                            </button>
+                        </ShortcutTooltip>
+                    )}
+                    {options.length > 0 && (
+                        <CreateMenu
+                            variant='icon'
+                            triggerLabel={t(
+                                'web.agentRuntimesList.installFramework'
+                            )}
+                            sheetTitle={t(
+                                'web.agentRuntimesList.installFramework'
+                            )}
+                            options={options.map((option) => ({
+                                key: option.framework,
+                                lead: (
+                                    <FrameworkLogo
+                                        framework={option.framework}
+                                        size={16}
+                                    />
+                                ),
+                                label: frameworkLabel(option.framework),
+                                disabled: option.blockedBy !== null,
+                                detail: option.blockedBy
+                                    ? t('web.agentRuntimesList.alreadyRuns', {
+                                          framework: frameworkLabel(
+                                              option.blockedBy
+                                          )
+                                      })
+                                    : undefined,
+                                onSelect: () => void install(option.framework)
+                            }))}
+                        />
+                    )}
+                </span>
             }
         >
             {error && <div className='workbench-alert-error mb-3'>{error}</div>}

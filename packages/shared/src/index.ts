@@ -210,6 +210,7 @@ export type {
     CliVersionCatalog,
     CliUpgradeBody,
     InstallSandboxFrameworkBody,
+    DetectSandboxFrameworksBody,
     CreateSandboxBody,
     PodHostStatus,
     PodHostSummary,

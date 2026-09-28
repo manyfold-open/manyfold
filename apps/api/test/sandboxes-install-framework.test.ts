@@ -177,6 +177,60 @@ test('installing a framework runs the staged npm shell for the catalog latest th
     assert.ok(h.persisted.applied)
 })
 
+// The page's automatic detect reads what the daemon last reported; the
+// refresh a user asks for probes the machine now, every framework through
+// its own probe, and records the answers as probed.
+test('a plain detect reads the reported inventory and never touches the machine', async () => {
+    const h = buildHarness({})
+    h.svc.execResults = []
+    await h.svc.detectFrameworks('user_1', 'sbx_1')
+    assert.equal(h.svc.execCalls.length, 0)
+    assert.deepEqual(h.persisted.applied, [
+        { framework: 'pi', version: '1.0.0', path: '~/.local/bin/pi' }
+    ])
+})
+
+test('a detect the user asks for probes every framework through the daemon', async () => {
+    const h = buildHarness({})
+    h.svc.execResults = [
+        {
+            exitCode: 0,
+            stdout: [
+                'claude-code=2.1.300 (Claude Code)',
+                'codex=',
+                'gemini-cli=',
+                'pi=0.90.0',
+                'antigravity-cli=1.2.12',
+                'openclaw=',
+                'hermes=',
+                'mf=0.34.0',
+                ''
+            ].join('\n'),
+            stderr: ''
+        }
+    ]
+    await h.svc.detectFrameworks('user_1', 'sbx_1', false, { probe: true })
+    assert.equal(h.svc.execCalls.length, 1)
+    const shell = h.svc.execCalls[0].cmd.join(' ')
+    assert.match(shell, /claude --version/)
+    assert.match(shell, /PI_OFFLINE=1 pi --version/)
+    assert.match(shell, /hermes-agent" describe --tags/)
+    const recorded = h.persisted.frameworks as Array<{
+        framework: string
+        version: string
+        probedAt?: string
+    }>
+    assert.deepEqual(
+        recorded.map((f) => `${f.framework}@${f.version}`),
+        ['claude-code@2.1.300', 'pi@0.90.0', 'antigravity-cli@1.2.12']
+    )
+    assert.ok(
+        recorded.every((f) => f.probedAt),
+        'recorded as probed'
+    )
+    assert.ok(h.persisted.applied)
+})
+
 test('a competing framework install returns 409 before touching the machine', async () => {
     const h = buildHarness({ upgradeInProgress: true })
     await assert.rejects(h.svc.installFramework('user_1', 'sbx_1', 'claude-code'),

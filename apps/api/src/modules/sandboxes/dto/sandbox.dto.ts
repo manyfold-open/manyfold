@@ -1,6 +1,7 @@
 import type {
     CliUpgradeBody,
     CreateSandboxBody,
+    DetectSandboxFrameworksBody,
     InstallSandboxFrameworkBody,
     RenameBody,
     SetKeepAliveBody,
@@ -62,4 +63,10 @@ export class InstallSandboxFrameworkDto implements InstallSandboxFrameworkBody {
     @IsString()
     @Length(1, 64)
     targetVersion?: string
+}
+
+export class DetectSandboxFrameworksDto implements DetectSandboxFrameworksBody {
+    @IsOptional()
+    @IsBoolean()
+    probe?: boolean
 }

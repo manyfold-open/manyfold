@@ -24,6 +24,7 @@ import {
     CliUpgradeDto,
     CreateSandboxDto,
     InstallSandboxFrameworkDto,
+    DetectSandboxFrameworksDto,
     RenameSandboxDto,
     SetSandboxKeepAwakeDto,
     SetSandboxTerminalDto,
@@ -110,14 +111,20 @@ export class SandboxesController {
         return this.sandboxes.rename(user.userId, id, body.name)
     }
 
+    // What the sandbox has. Without `probe` this reads the inventory its
+    // daemon last reported and costs nothing; with it, the sandbox is probed
+    // now through its daemon, which wakes it.
     @Post(':id/detect-frameworks')
     @HttpCode(200)
     @RequireApiTokenScope('sandboxes:read')
     async detectFrameworks(
         @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
+        @Param('id') id: string,
+        @Body() body?: DetectSandboxFrameworksDto
     ): Promise<SandboxSummary> {
-        return this.sandboxes.detectFrameworks(user.userId, id)
+        return this.sandboxes.detectFrameworks(user.userId, id, false, {
+            probe: body?.probe === true
+        })
     }
 
     @Post(':id/refresh-status')
