@@ -865,7 +865,6 @@ const zh: Translations = {
             sandboxActivityBody: '当前没有任务在运行或排队，沙箱将自动暂停。',
             runtimesTitle: '还没有运行时',
             hostRuntimesBody: '在下方安装框架，守护进程会自动检测。',
-            sandboxRuntimesBody: '在下方配置框架即可添加。',
             createRuntimeBody: '创建一个沙箱运行时即可开始。',
             createRuntimeAction: '创建运行时',
             runtimeNotFoundTitle: '未找到运行时',
@@ -4492,10 +4491,8 @@ const zh: Translations = {
                 installing: '安装中',
                 asleep: '休眠中'
             },
-            changeVersion: '更改版本',
             updating: '更新中…',
             endpoint: '端点',
-            version: '版本',
         },
         agentRuntimesList: {
             collapseHost: '收起主机',
@@ -4512,13 +4509,8 @@ const zh: Translations = {
                 '在 {{host}} 上运行此命令，守护进程会自动检测 — Manyfold 不会在你的电脑上安装 CLI。',
             latest: '最新',
             installedNotProvisioned: '已安装 · 未配置',
-            preinstalledReady: '预装 · 可配置',
             notInstalled: '未安装',
-            needsSandbox: '需要独立沙箱',
-            notProvisioned: '未配置',
-            noCliVersion: '尚未报告 CLI 版本 — 升级会安装 CLI。',
             versionUnknown: '版本未知',
-            changeCliVersion: '更改 mf CLI 版本',
             managedBy: '由 Manyfold 管理 — 请通过框架删除，而不是在此处操作。',
             managed: '已管理',
             active: '活跃',
@@ -4539,15 +4531,12 @@ const zh: Translations = {
             deletingSandbox: '删除沙箱中…',
             machineOffline: '机器离线',
             upgrading: '升级中…',
-            upgrade: '升级',
             runtimesTitle: '运行时',
             availableFrameworks: '可用框架',
             detecting: '检测中…',
             detectFrameworks: '检测框架',
             installDaemonHint:
                 '请在此机器上自行安装 Agent CLI，守护进程会自动检测。',
-            provisionHint:
-                '在此沙箱中配置另一个 Agent CLI。服务框架（openclaw/hermes）会运行在独立 sprite 中。',
             activity: '活动',
             deleteService: '删除服务',
             deleteTask: '删除任务',
@@ -4590,17 +4579,10 @@ const zh: Translations = {
             serviceStopped: '已停止',
             serviceFailed: '失败',
             sandbox: '沙箱',
-            provision: '配置',
             alreadyRuns: '{{framework}} 已在此运行',
-            unavailableAction: '不可用',
             leaseExpires: '保持唤醒租约到期时间 {{time}}',
             guideInstallMethods:
                 '任何安装方式都可以 — 守护进程会在 PATH（包括 Homebrew、原生安装器或 nvm/fnm/volta）中找到 CLI 并将其注册为运行时。',
-            versionPickerDaemon:
-                '选择要在“{{name}}”上安装的版本。守护进程会重启，此机器上的 Agent 会短暂停止。',
-            versionPickerSandbox:
-                '选择要在“{{name}}”上安装的版本。升级会原地完成，不会重启任何内容。',
-            latestVersion: '最新（v{{version}}）',
             activePeriod: '活跃 {{duration}}（本周期）',
             activityDescription: '让这个沙箱保持唤醒的东西：托管服务（例如开发服务器）和活动租约 — 保持唤醒开关会安装一个租约。保持唤醒租约由该开关管理；Agent 注册的任务可以在此删除。',
             loading: '加载中…',
@@ -4615,7 +4597,6 @@ const zh: Translations = {
             herdrLabel: 'herdr',
             sandboxHerdrDescription: '沙箱里的 herdr，交接过去的对话在这里打开。安装与升级都是原地进行，不会重启任何东西。',
             daemonHerdrDescription: '这台电脑上的 herdr。升级时运行 herdr 自己的更新器。',
-            installVersion: '安装 {{version}}',
             herdrUpgradedMessage: 'herdr 已升级到 v{{version}}',
             sandboxCliDescription:
                 '此沙箱中安装的平台 CLI。升级会原地完成，不会重启。',
@@ -4634,6 +4615,8 @@ const zh: Translations = {
             hostDeleting: '正在删除机器…',
             removingAgents: '请先删除其上的 Agent',
             refreshStatus: '刷新状态',
+            installFramework: '安装框架',
+            settingUp: '正在设置…',
             provider: '提供商',
             providerRef: '提供商引用',
             daemon: 'Daemon'

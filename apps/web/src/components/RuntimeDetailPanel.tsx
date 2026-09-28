@@ -671,11 +671,8 @@ const RuntimeDetailPanel: FC<{
                         </span>
                         <VersionTag
                             label={
-                                runtime.frameworkVersion
-                                    ? `v${runtime.frameworkVersion}`
-                                    : translate(
-                                          'web.runtimeDetails.versionPending'
-                                      )
+                                runtime.frameworkVersion ??
+                                translate('web.runtimeDetails.versionPending')
                             }
                             mono={!!runtime.frameworkVersion}
                             latest={
@@ -684,6 +681,7 @@ const RuntimeDetailPanel: FC<{
                                     : null
                             }
                             kind='framework'
+                            prefix=''
                         />
                         {fwUpgradeable && (
                             <>

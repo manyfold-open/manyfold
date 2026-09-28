@@ -887,7 +887,6 @@ const en = {
             runtimesTitle: 'No runtimes yet',
             hostRuntimesBody:
                 'Install a framework below and the daemon will detect it.',
-            sandboxRuntimesBody: 'Provision a framework below to add one.',
             createRuntimeBody: 'Create a sandbox runtime to get started.',
             createRuntimeAction: 'Create runtime',
             runtimeNotFoundTitle: 'Runtime not found',
@@ -4719,10 +4718,8 @@ const en = {
                 installing: 'Installing',
                 asleep: 'Asleep'
             },
-            changeVersion: 'change version',
             updating: 'Updating…',
             endpoint: 'Endpoint',
-            version: 'Version',
         },
         agentRuntimesList: {
             collapseHost: 'Collapse host',
@@ -4739,14 +4736,8 @@ const en = {
                 'Run this on {{host}}, then the daemon detects it automatically — Manyfold never installs CLIs on your own computer.',
             latest: 'latest',
             installedNotProvisioned: 'Installed · not provisioned',
-            preinstalledReady: 'Pre-installed · ready to provision',
             notInstalled: 'Not installed',
-            needsSandbox: 'Needs its own sandbox',
-            notProvisioned: 'Not provisioned',
-            noCliVersion:
-                'No CLI version reported yet — upgrading installs one.',
             versionUnknown: 'Version unknown',
-            changeCliVersion: 'Change mf CLI version',
             managedBy:
                 'Managed by Manyfold — delete via the framework, not here.',
             managed: 'Managed',
@@ -4765,15 +4756,12 @@ const en = {
             deletingSandbox: 'Deleting sandbox…',
             machineOffline: 'Machine offline',
             upgrading: 'Upgrading…',
-            upgrade: 'Upgrade',
             runtimesTitle: 'Runtimes',
             availableFrameworks: 'Available frameworks',
             detecting: 'Detecting…',
             detectFrameworks: 'Detect frameworks',
             installDaemonHint:
                 'Install agent CLIs on this machine yourself — the daemon detects them automatically.',
-            provisionHint:
-                'Provision another agent CLI on this sandbox. Service frameworks (openclaw/hermes) run as their own sprite.',
             activity: 'Activity',
             deleteService: 'Delete service',
             deleteTask: 'Delete task',
@@ -4820,17 +4808,10 @@ const en = {
             serviceStopped: 'Stopped',
             serviceFailed: 'Failed',
             sandbox: 'Sandbox',
-            provision: 'Provision',
             alreadyRuns: '{{framework}} already runs here',
-            unavailableAction: 'unavailable',
             leaseExpires: 'keep-awake lease expires {{time}}',
             guideInstallMethods:
                 'Any install method works — the daemon finds the CLI on your PATH (including Homebrew, a native installer, or nvm/fnm/volta) and registers it as a runtime.',
-            versionPickerDaemon:
-                'Pick a version to install on "{{name}}". The daemon restarts and agents on this machine stop briefly.',
-            versionPickerSandbox:
-                'Pick a version to install on "{{name}}". The upgrade is in-place; nothing restarts.',
-            latestVersion: 'Latest (v{{version}})',
             activePeriod: 'active {{duration}} this period',
             activityDescription: 'What keeps this sandbox awake: managed services (e.g. a dev server) and activity leases — the keep-awake switch installs one. Keep-awake leases are managed from that switch; agent-registered tasks can be deleted here.',
             loading: 'Loading…',
@@ -4845,7 +4826,6 @@ const en = {
             herdrLabel: 'herdr',
             sandboxHerdrDescription: 'herdr inside this sandbox, where handed-off conversations open. Installs and upgrades are in-place; nothing restarts.',
             daemonHerdrDescription: 'herdr on this machine. Upgrading runs herdr’s own updater.',
-            installVersion: 'Install {{version}}',
             herdrUpgradedMessage: 'herdr upgraded to v{{version}}',
             sandboxCliDescription:
                 'Platform CLI installed in this sandbox. Upgrades are in-place; nothing restarts.',
@@ -4864,6 +4844,8 @@ const en = {
             hostDeleting: 'Deleting the machine…',
             removingAgents: 'Delete its agents first',
             refreshStatus: 'Refresh status',
+            installFramework: 'Install a framework',
+            settingUp: 'Setting up…',
             provider: 'Provider',
             providerRef: 'Provider reference',
             daemon: 'Daemon'
