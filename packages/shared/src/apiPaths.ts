@@ -105,6 +105,8 @@ export const apiPaths = {
     AGENT_RESTORES: (agentId: string) => `/agents/${agentId}/restores`,
     AGENT_STORAGE_USAGE: (agentId: string) =>
         `/agents/${agentId}/storage-usage`,
+    AGENT_STORAGE_USAGE_REFRESH: (agentId: string) =>
+        `/agents/${agentId}/storage-usage/refresh`,
     AGENT_FRAMEWORK_VERSION_REFRESH: (id: string) =>
         `/agents/${id}/framework-version/refresh`,
     AGENT_FRAMEWORK_VERSION_UPGRADE: (id: string) =>

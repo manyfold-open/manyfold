@@ -43,6 +43,7 @@ test(
                 storageBytes: 999999,
                 storageMeasuredAt: OLD,
                 storageBreakdown: {
+                    formatVersion: 1,
                     workspaceBytes: 1200,
                     homeBytes: 800,
                     totalBytes: 999999,
@@ -115,7 +116,9 @@ test(
                         'sleeping diagnostic must not contact provider'
                     )
                 }
-            } as never
+            } as never,
+            {} as never,
+            {} as never
         )
         const summarize = async (
             row: Parameters<typeof agentRowToSummary>[0]['agent']
@@ -387,13 +390,17 @@ test(
         assert.equal(diagnostic.code, 0, diagnostic.stderr)
         const paths = JSON.parse(diagnostic.stdout)
         assert.equal(paths.scope, 'agent-paths')
-        assert.equal(paths.totalBytes, null)
         assert.equal(paths.cachedSandbox.storageBytes, 9000)
         assert.equal(paths.cachedSandbox.scope, 'sandbox')
         assert.equal(paths.asleep, true)
-        assert(
-            paths.items.every((item: { bytes: unknown }) => item.bytes === null)
+        // A sleeping sandbox reports the paths its last measurement read,
+        // their total counted from them.
+        assert.deepEqual(
+            paths.items.map((item: { bytes: unknown }) => item.bytes),
+            [1200, 800]
         )
+        assert.equal(paths.totalBytes, 2000)
+        assert.equal(paths.measuredAt, OLD.toISOString())
         assert.equal(providerReads, 0)
         assert.equal(h.sockets.length, 0)
         await h.db.update(agents).set({ storageBreakdown: null, storageMeasuredAt: null }).where(eq(agents.id, own.id))

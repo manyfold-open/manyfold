@@ -254,7 +254,7 @@ const de: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': 'Wiederherstellung: {{status}}. Gestartet {{date}}.',
     'web.agents.detail.storage.restoreTitle': 'Sicherung wiederherstellen',
     'web.agents.detail.storage.starting': 'Wird gestartet…',
-    'web.agents.detail.storage.title': 'Eigene Pfade des Agenten',
+    'web.agents.detail.storage.title': 'Speicher',
     'web.agents.detail.storage.total': 'Gesamtgröße der Agentenpfade',
     'web.agents.detail.storage.cachedSandbox': 'Gespeichertes Sandbox-Dateisystem: {{value}} · gemessen {{date}}',
     'web.agents.detail.storage.asleep': 'Sandbox im Ruhezustand',

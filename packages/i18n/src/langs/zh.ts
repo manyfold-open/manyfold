@@ -430,7 +430,7 @@ const zh: Translations = {
                     unavailableExternal:
                         '外部 Agent 在 Manyfold 上没有工作区，因此这里没有可备份的内容。',
                     starting: '启动中...',
-                    title: 'Agent 路径用量',
+                    title: '存储',
                     total: 'Agent 路径合计',
                     cachedSandbox: '沙箱文件系统缓存：{{value}} · 测量于 {{date}}',
                     asleep: '沙箱休眠中'

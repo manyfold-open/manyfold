@@ -254,7 +254,7 @@ const ko: Record<string, string> = {
     "web.agents.detail.storage.restoreStatus": "복원 {{status}}. {{date}}에 시작됨.",
     "web.agents.detail.storage.restoreTitle": "백업 복원",
     "web.agents.detail.storage.starting": "시작 중...",
-    "web.agents.detail.storage.title": "에이전트 소유 경로",
+    "web.agents.detail.storage.title": "스토리지",
     "web.agents.detail.storage.total": "에이전트 경로 합계",
     "web.agents.detail.storage.cachedSandbox": "캐시된 샌드박스 파일 시스템: {{value}} · 측정 {{date}}",
     "web.agents.detail.storage.asleep": "샌드박스 절전 상태",

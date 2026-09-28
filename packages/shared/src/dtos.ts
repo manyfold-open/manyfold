@@ -2261,6 +2261,9 @@ export interface AgentStorageUsageResponse {
     unit: 'bytes'
     agentId: string
     checkedAt: string
+    // When the items were measured: a sandbox's come from its last storage
+    // measurement, any other machine's from this report. null = never.
+    measuredAt: string | null
     asleep: boolean
     items: AgentStorageUsageItem[]
     totalBytes: number | null

@@ -254,7 +254,7 @@ const fr: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': 'Restaurez {{status}}. Démarrage de {{date}}.',
     'web.agents.detail.storage.restoreTitle': 'Restaurer la sauvegarde',
     'web.agents.detail.storage.starting': 'Démarrage…',
-    'web.agents.detail.storage.title': 'Chemins de l’agent',
+    'web.agents.detail.storage.title': 'Stockage',
     'web.agents.detail.storage.total': 'Total des chemins de l’agent',
     'web.agents.detail.storage.cachedSandbox': 'Système de fichiers du bac à sable en cache : {{value}} · mesuré le {{date}}',
     'web.agents.detail.storage.asleep': 'Bac à sable en veille',

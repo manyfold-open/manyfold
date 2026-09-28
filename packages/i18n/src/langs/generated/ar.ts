@@ -667,7 +667,7 @@ const ar: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': 'استعادة {{status}}. بدأت في {{date}}.',
     'web.agents.detail.storage.restoreTitle': 'استعادة النسخة الاحتياطية',
     'web.agents.detail.storage.starting': 'جارٍ البدء...',
-    'web.agents.detail.storage.title': 'المسارات الخاصة بالوكيل',
+    'web.agents.detail.storage.title': 'التخزين',
     'web.agents.detail.storage.total': 'إجمالي مسارات الوكيل',
     'web.agents.detail.storage.cachedSandbox': 'نظام ملفات البيئة المعزولة المخزّن مؤقتًا: {{value}} · تم القياس {{date}}',
     'web.agents.detail.storage.asleep': 'البيئة المعزولة في وضع السكون',

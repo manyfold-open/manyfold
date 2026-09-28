@@ -254,7 +254,7 @@ const pt: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': 'Restaure {{status}}. Iniciado {{date}}.',
     'web.agents.detail.storage.restoreTitle': 'Restaurar cópia de segurança',
     'web.agents.detail.storage.starting': 'Começando...',
-    'web.agents.detail.storage.title': 'Caminhos do agente',
+    'web.agents.detail.storage.title': 'Armazenamento',
     'web.agents.detail.storage.total': 'Total dos caminhos do agente',
     'web.agents.detail.storage.cachedSandbox': 'Sistema de arquivos do sandbox em cache: {{value}} · medido em {{date}}',
     'web.agents.detail.storage.asleep': 'Sandbox em repouso',

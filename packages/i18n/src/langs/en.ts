@@ -439,7 +439,7 @@ const en = {
                     unavailableExternal:
                         'External agents have no workspace on Manyfold, so there is nothing to back up here.',
                     starting: 'Starting...',
-                    title: 'Agent-owned paths',
+                    title: 'Storage',
                     total: 'Agent path total',
                     cachedSandbox: 'Cached sandbox filesystem: {{value}} · measured {{date}}',
                     asleep: 'Sandbox asleep'

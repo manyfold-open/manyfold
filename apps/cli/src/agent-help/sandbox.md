@@ -27,6 +27,8 @@ only the current agent's identity and attribution, while its host total still
 describes the whole sandbox.
 
 `mf agent storage-usage <agentId> --json` is a different diagnostic: its scope
-is `agent-paths`. It inspects workspace/config paths when the sandbox is awake.
-When asleep, path values stay unknown and `cachedSandbox` carries the separate
-cached whole-sandbox reading.
+is `agent-paths`. For an agent in a sandbox it reports the workspace/config
+readings of the sandbox's last storage measurement, as of `measuredAt`, and
+never wakes the sandbox; `cachedSandbox` carries the separate cached
+whole-sandbox reading. On any other machine it inspects the paths while the
+machine is reachable.

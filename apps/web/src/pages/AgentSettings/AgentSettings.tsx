@@ -269,7 +269,12 @@ const AgentSettingsContent: FC = (): ReactNode => {
         !!currentAgent && supportsSection(currentAgent, 'storage')
     const readModel =
         modelSupported && (activeTab === 'model' || activeTab === 'overview')
-    const readStorage = storageSupported && activeTab === 'storage'
+    // Overview shows a sandbox's filesystem size from the same report, which
+    // for a sandbox only reads what its last measurement kept.
+    const readStorage =
+        storageSupported &&
+        (activeTab === 'storage' ||
+            (activeTab === 'overview' && currentAgent?.runtime === 'sprites'))
     const readBackups = storageSupported && activeTab === 'storage'
     const overviewAgentId =
         activeTab === 'overview' ? currentAgent?.id : undefined
@@ -408,7 +413,8 @@ const AgentSettingsContent: FC = (): ReactNode => {
         navigate(agentSettingsPath(id, 'overview'), { replace: true })
     }, [id, navigate, section])
 
-    const refreshStorage = useCallback(async (): Promise<void> => {
+    // measure = the Refresh button: measure now rather than read the report.
+    const refreshStorage = useCallback(async (measure = false): Promise<void> => {
         if (!id || !readStorage || !canRequest('storage')) return
         const request = ++storageRequest.current
         const current = () =>
@@ -416,7 +422,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
         setStorageLoading(true)
         setStorageError(null)
         try {
-            const next = await client.agents.storageUsage(id)
+            const next = measure
+                ? await client.agents.refreshStorageUsage(id)
+                : await client.agents.storageUsage(id)
             if (current()) setStorage(next)
         } catch (err) {
             if (current()) setStorageError((err as Error).message)
@@ -1575,6 +1583,22 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             : '-'}
                                     </span>
                                 </OverviewRow>
+                                {agent.runtime === 'sprites' && (
+                                    // The sandbox's whole filesystem, as its
+                                    // last storage measurement read it.
+                                    <OverviewRow
+                                        title={t(
+                                            'web.agents.detail.storage.title'
+                                        )}
+                                    >
+                                        <span className='text-ui text-fg tabular-nums'>
+                                            {formatBytesDecimal(
+                                                storage?.cachedSandbox
+                                                    ?.storageBytes ?? null
+                                            )}
+                                        </span>
+                                    </OverviewRow>
+                                )}
                             </div>
                         </Section>
 
@@ -1621,7 +1645,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     type='button'
                                     disabled={storageLoading}
                                     onClick={() => {
-                                        void refreshStorage()
+                                        void refreshStorage(true)
                                     }}
                                     className='workbench-button-secondary shrink-0 gap-2'
                                 >
@@ -1677,11 +1701,11 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             {formatBytes(storage.totalBytes)}
                                         </div>
                                         <div className='text-caption text-subtle mt-2'>
-                                            {storage.totalBytes === null ? t('web.agents.detail.storage.notMeasured') : t(
+                                            {storage.totalBytes === null || !storage.measuredAt ? t('web.agents.detail.storage.notMeasured') : t(
                                                 'web.agents.detail.storage.measured',
                                                 {
                                                     date: formatDate(
-                                                        storage.checkedAt
+                                                        storage.measuredAt
                                                     )
                                                 }
                                             )}

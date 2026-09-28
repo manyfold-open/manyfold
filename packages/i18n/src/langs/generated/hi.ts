@@ -254,7 +254,7 @@ const hi: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': '{{status}} पुनर्स्थापित करें। {{date}} प्रारंभ किया गया।',
     'web.agents.detail.storage.restoreTitle': 'बैकअप बहाल',
     'web.agents.detail.storage.starting': 'प्रारंभ...',
-    'web.agents.detail.storage.title': 'एजेंट के अपने पथ',
+    'web.agents.detail.storage.title': 'भंडारण',
     'web.agents.detail.storage.total': 'एजेंट पथों का कुल उपयोग',
     'web.agents.detail.storage.cachedSandbox': 'कैश किया गया सैंडबॉक्स फ़ाइल सिस्टम: {{value}} · माप का समय {{date}}',
     'web.agents.detail.storage.asleep': 'सैंडबॉक्स सुप्त अवस्था में है',

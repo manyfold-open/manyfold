@@ -254,7 +254,7 @@ const ru: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': 'Восстановление: {{status}}. Начато {{date}}.',
     'web.agents.detail.storage.restoreTitle': 'Восстановить резервную копию',
     'web.agents.detail.storage.starting': 'Запуск...',
-    'web.agents.detail.storage.title': 'Пути агента',
+    'web.agents.detail.storage.title': 'Хранилище',
     'web.agents.detail.storage.total': 'Общий объём путей агента',
     'web.agents.detail.storage.cachedSandbox': 'Кэш файловой системы песочницы: {{value}} · измерено {{date}}',
     'web.agents.detail.storage.asleep': 'Песочница в спящем режиме',

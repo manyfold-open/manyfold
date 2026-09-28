@@ -254,7 +254,7 @@ const ja: Record<string, string> = {
     'web.agents.detail.storage.restoreStatus': '{{status}} を復元します。 {{date}}始めました。',
     'web.agents.detail.storage.restoreTitle': 'バックアップを復元する',
     'web.agents.detail.storage.starting': '起動中…',
-    'web.agents.detail.storage.title': 'エージェントのパス',
+    'web.agents.detail.storage.title': 'ストレージ',
     'web.agents.detail.storage.total': 'エージェントのパス合計',
     'web.agents.detail.storage.cachedSandbox': 'サンドボックスのファイルシステムのキャッシュ: {{value}} · 測定日時 {{date}}',
     'web.agents.detail.storage.asleep': 'サンドボックスはスリープ中',

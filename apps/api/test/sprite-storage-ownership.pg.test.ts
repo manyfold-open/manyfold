@@ -467,3 +467,81 @@ test(
         assert.equal(h.events.length, 1)
     }
 )
+
+// WHY: the Refresh a user presses has to measure: inside the interval, past a
+// failed attempt's backoff, and on a sandbox that sleeps (its caller admits
+// that wake). The timer and the turns still leave a sleeping host alone.
+test(
+    'a refresh measures a sleeping host inside the interval and past a backoff',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await fixture(t)
+        await h.db
+            .update(runtimeHosts)
+            .set({
+                powerState: 'stopped',
+                storageMeasuredAt: sql`clock_timestamp()`,
+                storageRetryAt: sql`clock_timestamp() + interval '5 minutes'`,
+                storageFailureCount: 3
+            })
+            .where(eq(runtimeHosts.id, h.hostId))
+        await h.service().measureHostIfDue(h.hostId)
+        assert.equal(h.sockets.length, 0)
+        const refreshed = h.service().measureHostNow(h.hostId)
+        await waitFor(() => h.sockets.length === 1)
+        h.finish(h.sockets[0], 15000)
+        assert.equal(await refreshed, true)
+        const [host] = await h.db
+            .select()
+            .from(runtimeHosts)
+            .where(eq(runtimeHosts.id, h.hostId))
+        assert.equal(host.storageBytes, 15000)
+        assert.equal(host.storageFailureCount, 0)
+        assert.equal(
+            h.observations.find(
+                (event) => event.name === 'sprite_storage_measured'
+            )?.attrs.trigger,
+            'manual'
+        )
+    }
+)
+
+test(
+    'a refresh while a measurement is in flight settles on its reading',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await fixture(t)
+        const due = h.service().measureHostIfDue(h.hostId)
+        await waitFor(() => h.sockets.length === 1)
+        const refreshed = h.service().measureHostNow(h.hostId)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        h.finish(h.sockets[0], 22000)
+        await due
+        assert.equal(await refreshed, true)
+        assert.equal(h.sockets.length, 1, 'no second measurement')
+    }
+)
+
+test(
+    'a refresh that fails to measure says so and keeps the reading',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await fixture(t)
+        const refreshed = h.service().measureHostNow(h.hostId)
+        await waitFor(() => h.sockets.length === 1)
+        h.finish(h.sockets[0], 0, 1)
+        assert.equal(await refreshed, false)
+        const [host] = await h.db
+            .select()
+            .from(runtimeHosts)
+            .where(eq(runtimeHosts.id, h.hostId))
+        assert.equal(host.storageBytes, 9000)
+        assert.equal(host.storageMeasuredAt?.toISOString(), OLD.toISOString())
+        assert.equal(
+            await h.service(true).measureHostNow(h.hostId),
+            false,
+            'an exec known to be down is not tried'
+        )
+        assert.equal(h.sockets.length, 1)
+    }
+)
