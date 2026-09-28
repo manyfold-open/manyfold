@@ -39,6 +39,7 @@ import {
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import {
     RuntimeContextService,
     type RuntimeContext
@@ -97,7 +98,10 @@ export class FrameworkUpgradeService {
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
         // Appended last + @Optional; absent, pod service frameworks cannot be
         // rebuilt.
-        @Optional() private readonly podServices?: PodHostServices
+        @Optional() private readonly podServices?: PodHostServices,
+        // Same convention; present, a sandbox is held awake for the whole
+        // upgrade.
+        @Optional() private readonly hostAccess?: HostDaemonAccess
     ) {}
 
     async upgrade(
@@ -144,7 +148,7 @@ export class FrameworkUpgradeService {
             catalog.blocked
         )
 
-        return withRuntimeUpgradeLock(
+        return this.held(host, () => withRuntimeUpgradeLock(
             this.db,
             upgradeLockTarget(runtime, agent.framework),
             async () => {
@@ -205,7 +209,7 @@ export class FrameworkUpgradeService {
 
                 return this.agents.get(agentId, callerUserId, isAdmin)
             }
-        )
+        ))
     }
 
     // Heavy "rebuild" upgrade: stop service → re-clone+build at the target tag
@@ -291,7 +295,7 @@ export class FrameworkUpgradeService {
                 }
             )
 
-        return withRuntimeUpgradeLock(
+        return this.held(host, () => withRuntimeUpgradeLock(
             this.db,
             upgradeLockTarget(runtime, agent.framework),
             async () => {
@@ -408,7 +412,7 @@ export class FrameworkUpgradeService {
 
                 return this.agents.get(agentId, callerUserId, isAdmin)
             }
-        )
+        ))
     }
 
     // Per-framework rebuild + rollback shells for the streamed upgrade. Both
@@ -613,5 +617,25 @@ export class FrameworkUpgradeService {
                 `the machine is ${ctx.host.status}; retry once it is ready`
             )
         return ctx as HostedRuntime
+    }
+
+    // The whole upgrade runs under the machine's awake hold (ADR-0038). A
+    // command holds it only while it runs, and the service calls between
+    // commands — the restart after an install, a rebuild's stop and start —
+    // are no activity to a sprite: released, the machine froze under them.
+    // Seen on staging [2026-09-28]: a hermes rebuild finished, then its
+    // startService timed out after 15s and left the service down.
+    private async held<T>(
+        host: RuntimeHostRow,
+        work: () => Promise<T>
+    ): Promise<T> {
+        if (!this.hostAccess) return work()
+        const hold = this.hostAccess.hold(host, 'framework-upgrade')
+        try {
+            await hold.settled
+            return await work()
+        } finally {
+            void hold.release()
+        }
     }
 }
