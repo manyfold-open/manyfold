@@ -101,9 +101,10 @@ const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
 // How long a stopped sprite takes to read as asleep once nothing holds it
 // awake. Measured on staging [2026-09-27]: a sprite with no exec and no task
-// suspends about 1s after the last one; the status sync's 3s fast cadence
-// comes on top before the listing shows it.
-const SPRITES_AUTO_SLEEP_SEC = 5
+// suspended about 1s after the last one. Measured on local [2026-09-28]: a
+// dev-org sprite ran on for 10–13s. The status sync's 3s fast cadence comes
+// on top before the listing shows it.
+const SPRITES_AUTO_SLEEP_SEC = 16
 
 export const SANDBOX_DAEMON_OFFLINE_CODE = 'SANDBOX_DAEMON_OFFLINE'
 

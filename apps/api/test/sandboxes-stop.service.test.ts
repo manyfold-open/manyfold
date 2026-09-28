@@ -313,7 +313,7 @@ test('a forced stop deletes the platform awake holds too', async () => {
 
 test('stop defaults the estimate to the auto-sleep floor and keeps the larger release estimate', async () => {
     const floor = await makeStop({}).svc.stop('u1', 'sbx_1')
-    assert.equal(floor.estimatedReadyInSec, 5)
+    assert.equal(floor.estimatedReadyInSec, 16)
 
     const degraded = makeStop({
         host: baseHost({ keepAwake: true }),
