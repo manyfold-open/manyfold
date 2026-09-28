@@ -38,6 +38,7 @@ mf setup                      # one command: sign in, register this machine, sta
 mf --help                     # grouped commands, examples, and environment
 mf login                      # browser-based auth
 mf login --no-launch-browser  # print URL and paste auth code
+mf login --print-auth-url     # print URL and exit; then mf login --auth-code <code>
 mf whoami
 mf agent list
 mf agent get <agent-id>

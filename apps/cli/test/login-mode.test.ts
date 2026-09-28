@@ -13,7 +13,28 @@ test('resolveLoginMode picks token, auth-code, headless and browser', () => {
 test('headless mode requires a TTY without an auth code', () => {
     assert.throws(
         () => resolveLoginMode({ launchBrowser: false }, false),
-        /--no-launch-browser requires an interactive terminal/
+        /--no-launch-browser requires an interactive terminal.*--print-auth-url/
+    )
+})
+
+// A coding agent's shell may or may not be a PTY, so the two-step flow is an
+// explicit flag rather than something inferred from stdin.
+test('--print-auth-url resolves the same with or without a TTY', () => {
+    assert.equal(
+        resolveLoginMode({ printAuthUrl: true }, false),
+        'print-auth-url'
+    )
+    assert.equal(
+        resolveLoginMode({ printAuthUrl: true }, true),
+        'print-auth-url'
+    )
+    assert.equal(
+        resolveLoginMode({ printAuthUrl: true, launchBrowser: false }, true),
+        'print-auth-url'
+    )
+    assert.throws(
+        () => resolveLoginMode({ printAuthUrl: true }, false, true),
+        /agent runtimes are already authenticated/
     )
 })
 
