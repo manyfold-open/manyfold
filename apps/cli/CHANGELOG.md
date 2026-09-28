@@ -1,5 +1,17 @@
 # @manyfold/cli
 
+## 5.4.0
+
+### Minor Changes
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - File operations and terminals on the daemon now accept the folders Manyfold vouches for, the way commands already do, so a hosted machine's files and shells are reachable without registering each folder first. No folder, vouched for or registered, reaches into the daemon's own settings folder, where its tokens and command records live, beyond its workspaces and sign-ins. A terminal whose folder is refused no longer keeps the sign-in it was about to use locked.
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - The daemon takes a file larger than one message in parts: each part is appended in order to a private file next to the destination, and the file replaces the destination only once it is complete and its size and checksum match. An interrupted upload never leaves a half-written file behind, and the parts of an upload nobody finishes are cleaned up within two hours or when the daemon restarts.
+
+### Patch Changes
+
+- [#590](https://github.com/manyfold-open/manyfold/pull/590) [`a007e4b`](https://github.com/manyfold-open/manyfold/commit/a007e4bfa0abb80c6341452115fea387f0bcf1e5) Thanks [@yingca1](https://github.com/yingca1)! - The daemon no longer keeps a command's input on disk. A script sent as a command's input was saved with the command's record for up to a day; now it is only held until the command has read it.
+
 ## 5.3.0
 
 ### Minor Changes
