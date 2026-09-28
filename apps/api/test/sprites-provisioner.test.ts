@@ -270,7 +270,6 @@ test('a machine whose daemon never comes up is a failed host', async () => {
 const wakeProvisioner = (
     lease: {
         ensureServiceRunning: (runtime: AgentRuntimeRow) => Promise<{ started: boolean }>
-        ensureLease: (runtime: AgentRuntimeRow) => Promise<void>
     },
     keepAwake: boolean
 ): SpritesProvisioner =>
@@ -297,78 +296,28 @@ const wakeProvisioner = (
         { settleHostNotRunning: async () => {} } as never
     )
 
-test('SpritesProvisioner delegates wakes to the keep-alive lease', async () => {
-    const calls: string[] = []
-    const provisioner = wakeProvisioner(
-        {
-            ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
-                calls.push(runtime.id)
-                return { started: true }
-            },
-            ensureLease: async () => {}
-        },
-        false
-    )
-    await provisioner.wakeSpriteRuntime(runtimeRow({ framework: 'hermes', status: 'ready' }))
-    assert.deepEqual(calls, ['art_test'])
-})
-
 // wakeSpriteRuntime is the seam every traffic entry funnels through (chat,
-// channels, automations via markRuntimeActive). Getting it wrong either
-// re-fuses wake+lease (a billing task per chat message) or drops the lease on
-// cold wakes (the pre-start cleanup deleted the task, so a paid-for slot
-// silently vanishes). The switch is the host's keep_awake (ADR-0037 R7).
-
-test('wakeSpriteRuntime never leases for a host that is not kept awake, even on cold start', async () => {
-    const calls: string[] = []
-    const provisioner = wakeProvisioner(
-        {
-            ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureServiceRunning:${runtime.id}`)
-                return { started: true }
-            },
-            ensureLease: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureLease:${runtime.id}`)
-            }
-        },
-        false
-    )
-    await provisioner.wakeSpriteRuntime(runtimeRow({ framework: 'hermes', status: 'ready' }))
-    assert.deepEqual(calls, ['ensureServiceRunning:art_test'])
-})
-
-test('wakeSpriteRuntime re-establishes the lease when a kept-awake host cold-starts', async () => {
-    const calls: string[] = []
-    const provisioner = wakeProvisioner(
-        {
-            ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureServiceRunning:${runtime.id}`)
-                return { started: true }
-            },
-            ensureLease: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureLease:${runtime.id}`)
-            }
-        },
-        true
-    )
-    await provisioner.wakeSpriteRuntime(runtimeRow({ framework: 'hermes', status: 'ready' }))
-    assert.deepEqual(calls, ['ensureServiceRunning:art_test', 'ensureLease:art_test'])
-})
-
-test('wakeSpriteRuntime skips the lease when the kept-awake service was already running', async () => {
-    const calls: string[] = []
-    const provisioner = wakeProvisioner(
-        {
-            ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureServiceRunning:${runtime.id}`)
-                return { started: false }
-            },
-            ensureLease: async (runtime: AgentRuntimeRow) => {
-                calls.push(`ensureLease:${runtime.id}`)
-            }
-        },
-        true
-    )
-    await provisioner.wakeSpriteRuntime(runtimeRow({ framework: 'hermes', status: 'ready' }))
-    assert.deepEqual(calls, ['ensureServiceRunning:art_test'])
+// channels, automations via markRuntimeActive). Holding the machine awake
+// there would place a billing task per chat message; the keep-awake switch is
+// the host's (HostKeepAwakeService), and a service's pre-start cleanup never
+// touches the switch's hold, so a cold start has nothing to re-establish.
+test('wakeSpriteRuntime wakes the framework service and holds nothing, switch on or off', async () => {
+    for (const keepAwake of [false, true]) {
+        for (const started of [true, false]) {
+            const calls: string[] = []
+            const provisioner = wakeProvisioner(
+                {
+                    ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
+                        calls.push(`ensureServiceRunning:${runtime.id}`)
+                        return { started }
+                    }
+                },
+                keepAwake
+            )
+            await provisioner.wakeSpriteRuntime(
+                runtimeRow({ framework: 'hermes', status: 'ready' })
+            )
+            assert.deepEqual(calls, ['ensureServiceRunning:art_test'])
+        }
+    }
 })

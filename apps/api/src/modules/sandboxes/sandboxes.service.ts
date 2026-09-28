@@ -65,6 +65,10 @@ import {
 import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { providerRefLabel, spritesRef } from '@/modules/agent-runtimes/host-ref'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import {
+    HostKeepAwakeService,
+    KEEP_AWAKE_TTL_SEC
+} from '@/modules/hosts/host-keep-awake.service'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
@@ -167,7 +171,11 @@ export class SandboxesService {
         // Same convention; present, a CLI upgrade holds the machine until the
         // updated daemon reports.
         @Optional()
-        private readonly hostCli?: HostCliService
+        private readonly hostCli?: HostCliService,
+        // Same convention; absent, the switch is recorded and the keep-awake
+        // reconcile (on the status-sync leader) brings the machine in line.
+        @Optional()
+        private readonly keepAwake?: HostKeepAwakeService
     ) {}
 
     private async latestHerdr(): Promise<string | null> {
@@ -332,10 +340,10 @@ export class SandboxesService {
     }
 
     // The host's keep-awake switch (ADR-0037 R7). The flag write is the
-    // commitment (enable is quota-gated and atomic in enableKeepAlive);
-    // sprite-side lease ops are best-effort — the lease sweep converges a
-    // degraded toggle within ~60s, so the API returns the committed flag even
-    // when the sprite ops fail.
+    // commitment (enable is quota-gated and atomic in enableKeepAlive); the
+    // hold on the machine follows best-effort, and the keep-awake reconcile
+    // converges a degraded toggle on its next tick, so the API returns the
+    // committed flag even when the provider call fails.
     async setKeepAwake(
         userId: string,
         hostId: string,
@@ -354,18 +362,11 @@ export class SandboxesService {
         else await this.runtimes.setHostKeepAwake(owner, hostId, false)
         const fresh = await this.hosts.findById(hostId)
         if (!fresh) throw new NotFoundException(`sandbox ${hostId} not found`)
-        try {
-            if (enabled) await this.keepAliveLease.ensureLease(fresh)
-            // The release is an exec, and an exec resumes a sleeping sprite:
-            // exactly what switching keep-awake off must not do. A frozen
-            // renewer is released by the lease sweep once the VM runs again.
-            else if (fresh.powerState === 'running')
-                await this.keepAliveLease.releaseLease(fresh, 'user-toggle')
-        } catch (err) {
+        const outcome = await this.keepAwake?.converge(fresh)
+        if (outcome?.state === 'failed')
             this.log.warn(
-                `keep-awake ${enabled ? 'enable' : 'disable'} sprite ops degraded for host ${hostId}: ${(err as Error).message}`
+                `keep-awake ${enabled ? 'enable' : 'disable'} degraded for host ${hostId}: ${outcome.message}`
             )
-        }
         return this.get(owner, hostId)
     }
 
@@ -908,12 +909,12 @@ export class SandboxesService {
         name: string,
         isAdmin = false
     ): Promise<void> {
-        // Platform keep-awake leases are lifecycle-managed by the host's
-        // switch — never deletable from this surface (the sweep would
-        // re-register them anyway).
+        // The platform's holds are the API's to place and release: the
+        // keep-awake switch's and the ones work in progress takes. Deleting one
+        // here would only be undone by the next reconcile or renewal.
         if (isPlatformTaskName(name))
             throw new BadRequestException(
-                `task '${name}' is a Manyfold keep-awake lease — turn keep-awake off on the sandbox instead`
+                `task '${name}' belongs to Manyfold: keep-awake or work in progress holds the sandbox with it — turn keep-awake off, or let the work finish`
             )
         const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
@@ -955,6 +956,10 @@ export class SandboxesService {
         const r = await this.requireSandbox(userId, hostId, isAdmin)
         const { host } = r
         const ref = spritesRef(host)
+        // The switch goes off first, a sleeping machine included (a flag, no
+        // exec): a stopped sandbox must not be woken again by the reconcile.
+        if (host.keepAwake)
+            await this.runtimes.setHostKeepAwake(host.userId, hostId, false)
         // A non-running sprite has nothing pinning it awake, and the task
         // sweep's exec would wake it — the one thing a stop must never do.
         if (host.powerState !== 'running' || !ref)
@@ -973,23 +978,12 @@ export class SandboxesService {
         const agentsOnHost = await this.runtimes.listAgentsByHost(hostId)
         const closedSessions = this.sessions.closeForHost(hostId, 'sandbox-stop')
 
-        // The switch goes off first so the lease sweep cannot re-arm what is
-        // released below; a degraded release is a warning, not a failure.
-        if (host.keepAwake)
-            await this.runtimes.setHostKeepAwake(host.userId, hostId, false)
-        try {
-            const release = await this.keepAliveLease.stopAndRelease(
-                { ...host, keepAwake: false },
-                'sandbox-stop'
-            )
-            if (release.state !== 'not_applicable')
-                estimate = Math.max(estimate, release.maxStaleSec)
-            if (release.state === 'degraded' && release.message)
-                warnings.push(`keep-awake: ${release.message}`)
-        } catch (err) {
-            warnings.push(
-                `keep-awake release failed: ${(err as Error).message}`
-            )
+        // The switch is already off, so nothing holds again what this lets go;
+        // a release that failed is a warning, and the hold ends with its TTL.
+        const released = await this.keepAwake?.converge(host)
+        if (released?.state === 'failed') {
+            estimate = Math.max(estimate, KEEP_AWAKE_TTL_SEC)
+            warnings.push(`keep-awake: ${released.message}`)
         }
 
         const runtimesOnHost = await this.runtimes.listRuntimesByHost(hostId)

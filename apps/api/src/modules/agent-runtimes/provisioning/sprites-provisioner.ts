@@ -886,19 +886,13 @@ export class SpritesProvisioner {
     }
 
     /**
-     * Wake the sprite-side framework service. Lease-free: the keep-awake
-     * lease is owned by the host's `keep_awake` switch, not by traffic, so a
-     * wake never re-instates a lease the user turned off. The one exception:
-     * when this call actually cold-started the service, the pre-start cleanup
-     * just cleared any existing tasks, so a kept-awake host must re-establish
-     * its lease in the same call.
+     * Wake the sprite-side framework service. Never holds the machine
+     * awake: the host's keep-awake switch does (HostKeepAwakeService), not
+     * traffic, and the service's pre-start cleanup leaves the switch's hold
+     * alone.
      */
     async wakeSpriteRuntime(runtime: AgentRuntimeRow): Promise<void> {
-        const { started } =
-            await this.keepAliveLease.ensureServiceRunning(runtime)
-        if (!started || !runtime.hostId) return
-        const host = await this.hosts.findById(runtime.hostId)
-        if (host?.keepAwake) await this.keepAliveLease.ensureLease(runtime)
+        await this.keepAliveLease.ensureServiceRunning(runtime)
     }
 
     // Delete a runtime. Refused while a ready agent still lives on it (R8);

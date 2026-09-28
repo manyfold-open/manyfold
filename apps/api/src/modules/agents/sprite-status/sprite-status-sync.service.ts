@@ -52,7 +52,7 @@ import {
     runningHostedHosts
 } from '@/modules/runtime-access/runtime-usage-counts'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { HostKeepAwakeService } from '@/modules/hosts/host-keep-awake.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { k8sRef, spritesRef } from '@/modules/agent-runtimes/host-ref'
@@ -235,7 +235,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         private readonly spriteStorage: SpriteStorageService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly adminSettings: AdminSettingsService,
-        private readonly keepAliveLease: SpriteKeepAliveLeaseService,
+        private readonly keepAwake: HostKeepAwakeService,
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly lifecycle: HostedHostLifecycleService,
         @Optional() private readonly serviceLeases?: ServiceLeaseService,
@@ -334,7 +334,9 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         if (now < this.nextKeepAliveReconcileAt) return
         this.nextKeepAliveReconcileAt = now + KEEPALIVE_RECONCILE_INTERVAL_MS
         try {
-            await this.keepAliveLease.reconcileLeases()
+            await this.keepAwake.reconcile({
+                headroom: () => this.runtimeAccess.spritesWholesaleHeadroom()
+            })
         } catch (err) {
             this.log.warn(
                 `keep-alive reconcile failed: ${(err as Error).message}`

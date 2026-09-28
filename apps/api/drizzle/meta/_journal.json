@@ -197,6 +197,13 @@
       "when": 1790462487696,
       "tag": "0027_host_runtime_daemon_model",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790636136915,
+      "tag": "0028_keep_awake_lease_reset",
+      "breakpoints": true
     }
   ]
 }

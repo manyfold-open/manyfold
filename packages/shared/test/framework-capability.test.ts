@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    AWAKE_KEEP_TASK_NAME,
     isAwakeHoldTaskName,
     isPlatformTaskName,
     isServiceFrameworkName,
@@ -69,4 +70,12 @@ test('awake hold task names are the platform exact shape', () => {
     assert.equal(isPlatformTaskName('mf-hold-'), false)
     assert.equal(isPlatformTaskName('mf-agp2vxbm6vywzm6pt2xmxa6qi4-0123abcd'), false)
     assert.equal(isAwakeHoldTaskName('nca-host-abc-1-0f'), false)
+})
+
+// The keep-awake switch's hold is one per host, so only its exact name counts.
+test('the keep-awake hold is the platform exact name', () => {
+    assert.equal(AWAKE_KEEP_TASK_NAME, 'mf-keep')
+    assert.equal(isPlatformTaskName('mf-keep'), true)
+    assert.equal(isPlatformTaskName('mf-keep-1'), false)
+    assert.equal(isPlatformTaskName('mf-keeper'), false)
 })

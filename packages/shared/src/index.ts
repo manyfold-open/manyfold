@@ -553,6 +553,7 @@ export {
     frameworkMcpSupport,
     isKnownMcpScope,
     AWAKE_HOLD_TASK_PREFIX,
+    AWAKE_KEEP_TASK_NAME,
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
     PLATFORM_TASK_PREFIX
