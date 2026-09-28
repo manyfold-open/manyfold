@@ -2,7 +2,6 @@ const en = {
     common: {
         appName: 'Manyfold',
         loading: 'Loading…',
-        loadingShort: 'Loading…',
         saving: 'Saving…',
         creating: 'Creating…',
         installing: 'Installing…',
@@ -320,20 +319,12 @@ const en = {
                     title: 'Files'
                 },
                 framework: {
-                    changeTitle: 'Change framework version',
-                    changeVersionEllipsis: 'Change version…',
-                    chooseVersion:
-                        'Choose a {{framework}} version to install. Upgrades run in the sandbox and may take up to a minute.',
-                    latest: 'latest {{version}}',
                     notDetected: 'not detected',
                     refreshVersion: 'Refresh version',
-                    upgrade: 'Upgrade',
-                    upgradeTitle: 'Upgrade framework',
                     upgrading: 'Upgrading…',
                     upgradingStep: 'Upgrading… {{step}}',
                     versionBlocked:
-                        'This {{framework}} version has a known defect',
-                    versionLabel: 'Version'
+                        'This {{framework}} version has a known defect'
                 },
                 lastMessage: 'Last message',
                 mcp: {

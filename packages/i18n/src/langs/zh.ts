@@ -9,7 +9,6 @@ const zh: Translations = {
         installing: '安装中…',
         importing: '导入中…',
         copying: '复制中…',
-        loadingShort: '加载中…',
         save: '保存',
         confirm: '确认',
         typeToConfirmPrefix: '输入',
@@ -315,19 +314,11 @@ const zh: Translations = {
                     title: '文件'
                 },
                 framework: {
-                    changeTitle: '切换框架版本',
-                    changeVersionEllipsis: '切换版本…',
-                    chooseVersion:
-                        '选择要安装的 {{framework}} 版本。升级会在 sandbox 内执行，最多约一分钟。',
-                    latest: '最新 {{version}}',
                     notDetected: '未检测到',
                     refreshVersion: '刷新版本',
-                    upgrade: '升级',
-                    upgradeTitle: '升级框架',
                     upgrading: '升级中…',
                     upgradingStep: '升级中… {{step}}',
-                    versionBlocked: '当前 {{framework}} 版本存在已知缺陷',
-                    versionLabel: '版本'
+                    versionBlocked: '当前 {{framework}} 版本存在已知缺陷'
                 },
                 lastMessage: '最近消息',
                 mcp: {

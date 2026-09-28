@@ -38,10 +38,8 @@ import {
 import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
 import RuntimeAuthBindingRow from '@/pages/AgentSettings/RuntimeAuthBindingRow'
-import ProductDialog from '@/components/ProductDialog'
 import RenameAgentDialog from '@/components/RenameAgentDialog'
 import { CopyButton } from '@/components/RuntimeDetailPanel'
-import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { AgentPermissions } from '@/pages/agents/AgentPermissions'
 import { AgentA2a } from '@/pages/agents/AgentA2a'
@@ -51,7 +49,7 @@ import { AgentChannels } from '@/pages/agents/AgentChannels'
 import { AgentContextDoc } from '@/pages/agents/AgentContextDoc'
 import { AgentMcpTools } from '@/pages/agents/AgentMcpTools'
 import { AgentSkills } from '@/pages/agents/AgentSkills'
-import { Ghost, Spinner } from '@/components/Loading'
+import { Ghost } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
 import { waitForSettled } from '@/lib/backupProgress'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -100,7 +98,9 @@ import {
     dashboardStatePendingLabel
 } from '@/components/ControlRow'
 import { StatusTag, statusLabel, statusTone } from '@/components/Tag'
+import VersionPicker from '@/components/VersionPicker'
 import { VersionTag } from '@/components/VersionTag'
+import { versionChoices } from '@/lib/sandboxRuntimes'
 
 
 const openNativeUi = (
@@ -351,9 +351,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     >(null)
     const [fwUpgrading, setFwUpgrading] = useState(false)
     const [fwError, setFwError] = useState<string | null>(null)
-    const [fwPickerOpen, setFwPickerOpen] = useState(false)
     const [fwVersions, setFwVersions] = useState<string[] | null>(null)
-    const [fwTarget, setFwTarget] = useState<string>('')
     const [fwStep, setFwStep] = useState<string | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
@@ -813,26 +811,29 @@ const AgentSettingsContent: FC = (): ReactNode => {
         }
     }
 
-    const handleOpenVersionPicker = async (): Promise<void> => {
-        setFwPickerOpen(true)
-        setFwError(null)
-        if (fwVersions || !agent) return
-        try {
-            const catalog = await client.frameworkVersions.get(agent.framework)
-            setFwVersions(catalog.versions)
-            setFwTarget(
-                agent.frameworkLatestVersion ??
-                    catalog.latest ??
-                    catalog.versions[0] ??
-                    ''
-            )
-        } catch (err) {
-            setFwError(apiErrorMessage(err))
+    // The catalog up front: the Framework row's version opens straight into
+    // the list of versions to move to.
+    useEffect(() => {
+        if (
+            !agentFramework ||
+            agentRuntime !== 'sprites' ||
+            !isUpgradeableFramework(agentFramework)
+        )
+            return
+        let cancelled = false
+        client.frameworkVersions
+            .get(agentFramework)
+            .then((catalog) => {
+                if (!cancelled) setFwVersions(catalog.versions)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
         }
-    }
+    }, [client, agentFramework, agentRuntime])
 
-    const handleUpgradeFramework = async (): Promise<void> => {
-        if (!id || !fwTarget || !agent || fwUpgrading) return
+    const handleUpgradeFramework = async (version: string): Promise<void> => {
+        if (!id || !agent || fwUpgrading) return
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
@@ -841,16 +842,15 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 // heavy rebuild — stream phase events for liveness
                 const next = await client.agents.upgradeFrameworkStream(
                     id,
-                    fwTarget,
+                    version,
                     (ev) => {
                         if (ev.type === 'step') setFwStep(ev.step)
                     }
                 )
                 setAgent(next)
             } else {
-                setAgent(await client.agents.upgradeFramework(id, fwTarget))
+                setAgent(await client.agents.upgradeFramework(id, version))
             }
-                        setFwPickerOpen(false)
         } catch (err) {
             setFwError(apiErrorMessage(err))
         } finally {
@@ -1015,19 +1015,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 const fwUpdateAvailable =
                     agent.frameworkUpgradeAvailable &&
                     !!agent.frameworkLatestVersion
-                // The picker is the affordance while there is nothing newer to
-                // install; once there is, the badge takes the row over and the
-                // Update Center is where the version gets chosen.
-                const fwPickVersion = fwUpgradeable && !fwUpdateAvailable
-                // Only the up-to-date half: an available upgrade is the badge's
-                // job on every surface, and this caption used to be the one
-                // place that still spelled the newer version out in prose.
-                const fwLatestLabel =
-                    agent.frameworkLatestVersion && !fwUpdateAvailable
-                        ? t('web.agents.detail.framework.latest', {
-                              version: agent.frameworkLatestVersion
-                          })
-                        : null
                 const hasEndpoint =
                     (nativeUiAlwaysOn(agent.framework) && !!agent.runtimeId) ||
                     !!agent.endpointUrl
@@ -1079,18 +1066,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             'web.agents.detail.framework.versionBlocked',
                             { framework: frameworkLabel(agent.framework) }
                         ),
-                        detail: agent.frameworkVersionBlockedReason,
-                        action: fwUpgradeable ? (
-                            <button
-                                type='button'
-                                onClick={() => void handleOpenVersionPicker()}
-                                className='workbench-button-secondary shrink-0'
-                            >
-                                {t(
-                                    'web.agents.detail.framework.changeVersionEllipsis'
-                                )}
-                            </button>
-                        ) : undefined
+                        detail: agent.frameworkVersionBlockedReason
                     })
                 const envPending = readEnvPendingRestart(
                     agent.id,
@@ -1237,31 +1213,55 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         ? 'web.agentSettings.overview.provider'
                                         : 'web.agentSettings.overview.framework'
                                 )}
-                                description={[
-                                    frameworkLabel(agent.framework),
-                                    fwLatestLabel
-                                ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
+                                description={frameworkLabel(agent.framework)}
                             >
                                 {fwVersioned ? (
-                                    agent.frameworkVersion ? (
-                                        <VersionTag
-                                            label={agent.frameworkVersion}
-                                            latest={
-                                                fwUpdateAvailable
-                                                    ? agent.frameworkLatestVersion
-                                                    : null
+                                    <VersionPicker
+                                        current={agent.frameworkVersion}
+                                        unknownLabel={t(
+                                            'web.agents.detail.framework.notDetected'
+                                        )}
+                                        groups={[
+                                            {
+                                                label: null,
+                                                versions: versionChoices(
+                                                    fwVersions ?? [],
+                                                    agent.frameworkLatestVersion
+                                                )
                                             }
-                                            kind='framework'
-                                        />
-                                    ) : (
-                                        <span className='text-caption text-subtle'>
-                                            {t(
-                                                'web.agents.detail.framework.notDetected'
-                                            )}
-                                        </span>
-                                    )
+                                        ]}
+                                        latest={agent.frameworkLatestVersion}
+                                        update={
+                                            fwUpdateAvailable
+                                                ? agent.frameworkLatestVersion
+                                                : null
+                                        }
+                                        kind='framework'
+                                        busy={fwUpgrading}
+                                        busyLabel={
+                                            fwStep
+                                                ? t(
+                                                      'web.agents.detail.framework.upgradingStep',
+                                                      {
+                                                          step: fwStep.replace(
+                                                              /_/g,
+                                                              ' '
+                                                          )
+                                                      }
+                                                  )
+                                                : t(
+                                                      'web.agents.detail.framework.upgrading'
+                                                  )
+                                        }
+                                        onPick={
+                                            fwUpgradeable
+                                                ? (version) =>
+                                                      void handleUpgradeFramework(
+                                                          version
+                                                      )
+                                                : null
+                                        }
+                                    />
                                 ) : null}
                                 {fwSprite && (
                                     <ShortcutTooltip
@@ -1290,19 +1290,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         </button>
                                     </ShortcutTooltip>
                                 )}
-                                {fwPickVersion ? (
-                                    <button
-                                        type='button'
-                                        onClick={() =>
-                                            void handleOpenVersionPicker()
-                                        }
-                                        className='workbench-button-secondary'
-                                    >
-                                        {t(
-                                            'web.agents.detail.framework.changeVersionEllipsis'
-                                        )}
-                                    </button>
-                                ) : null}
                             </OverviewRow>
                             {hasEndpoint ? (
                                 <OverviewRow
@@ -1573,7 +1560,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             </div>
                         </div>
 
-                        {fwError && !fwPickerOpen ? (
+                        {fwError ? (
                             <p className='text-caption text-error'>
                                 {fwError}
                             </p>
@@ -1601,111 +1588,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     : t('web.agents.detail.delete.button')}
                             </button>
                         </div>
-
-                        {fwPickerOpen ? (
-                            <ProductDialog
-                                title={
-                                    agent.frameworkUpgradeAvailable
-                                        ? t(
-                                              'web.agents.detail.framework.upgradeTitle'
-                                          )
-                                        : t(
-                                              'web.agents.detail.framework.changeTitle'
-                                          )
-                                }
-                                description={t(
-                                    'web.agents.detail.framework.chooseVersion',
-                                    {
-                                        framework: frameworkLabel(
-                                            agent.framework
-                                        )
-                                    }
-                                )}
-                                size='sm'
-                                onClose={() => {
-                                    if (!fwUpgrading) setFwPickerOpen(false)
-                                }}
-                                closeDisabled={fwUpgrading}
-                                bodyClassName='flex flex-col gap-4'
-                                footer={
-                                    <>
-                                        <button
-                                            type='button'
-                                            className='workbench-button-secondary'
-                                            onClick={() =>
-                                                setFwPickerOpen(false)
-                                            }
-                                            disabled={fwUpgrading}
-                                        >
-                                            {t('common.cancel')}
-                                        </button>
-                                        <button
-                                            type='button'
-                                            className='workbench-button-primary'
-                                            disabled={
-                                                fwUpgrading ||
-                                                !fwTarget ||
-                                                fwTarget ===
-                                                    agent.frameworkVersion
-                                            }
-                                            onClick={() =>
-                                                void handleUpgradeFramework()
-                                            }
-                                        >
-                                            {fwUpgrading ? (
-                                                <span className='inline-flex items-center gap-2'>
-                                                    <Spinner size={16} />
-                                                    {fwStep
-                                                        ? t(
-                                                              'web.agents.detail.framework.upgradingStep',
-                                                              {
-                                                                  step: fwStep.replace(
-                                                                      /_/g,
-                                                                      ' '
-                                                                  )
-                                                              }
-                                                          )
-                                                        : t(
-                                                              'web.agents.detail.framework.upgrading'
-                                                          )}
-                                                </span>
-                                            ) : (
-                                                t(
-                                                    'web.agents.detail.framework.upgrade'
-                                                )
-                                            )}
-                                        </button>
-                                    </>
-                                }
-                            >
-                                <div>
-                                    <label
-                                        htmlFor='fw-version-select'
-                                        className='text-caption text-subtle mb-1.5 block'
-                                    >
-                                        {t(
-                                            'web.agents.detail.framework.versionLabel'
-                                        )}
-                                    </label>
-                                    <WorkbenchSelect
-                                        id='fw-version-select'
-                                        mono
-                                        value={fwTarget}
-                                        disabled={fwUpgrading || !fwVersions}
-                                        onChange={setFwTarget}
-                                        placeholder={t('common.loadingShort')}
-                                        options={(fwVersions ?? []).map(
-                                            (v) => ({ value: v, label: v })
-                                        )}
-                                    />
-                                </div>
-                                {fwError ? (
-                                    <div className='workbench-alert-error'>
-                                        {fwError}
-                                    </div>
-                                ) : null}
-                            </ProductDialog>
-                        ) : null}
                     </section>
                 )
             }
