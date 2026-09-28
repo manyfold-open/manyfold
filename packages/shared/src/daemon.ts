@@ -819,6 +819,12 @@ export const DAEMON_FEATURE_SERVICES = 'services.v1'
 // RPC ahead of it that could race the machine's sleep (ADR-0038); a daemon
 // without this feature is asked to update before a turn that needs them.
 export const DAEMON_FEATURE_EXEC_ROOTS = 'exec.roots.v1'
+// fs.*, pty.open and terminal.herdr.open carry `roots` too, admitted the
+// same way for that one call: a file operation or a shell under a directory
+// the platform vouches for (a hosted machine's home). No root, vouched or
+// registered, reaches into the daemon's own config dir beyond its workspaces
+// and runtime auth.
+export const DAEMON_FEATURE_FS_ROOTS = 'fs.roots.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -848,5 +854,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_PI_LOCAL,
     DAEMON_FEATURE_ANTIGRAVITY_LOCAL,
-    DAEMON_FEATURE_EXEC_ROOTS
+    DAEMON_FEATURE_EXEC_ROOTS,
+    DAEMON_FEATURE_FS_ROOTS
 ]

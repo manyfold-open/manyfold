@@ -246,29 +246,54 @@ const allowedRoots = (): string[] => {
 // and require the result to stay inside an allowed root. Roots are resolved too:
 // a root behind a symlink (/var on macOS) would otherwise reject its own children.
 export const assertRealPathContained = (abs: string, roots: string[]): void => {
-    const resolvedRoots = roots.map((root) => {
-        try {
-            return realpathSync(expandHome(root))
-        } catch {
-            return resolve(expandHome(root))
-        }
-    })
-    let real: string
-    try {
-        real = realpathSync(abs)
-    } catch {
-        try {
-            real = join(realpathSync(dirname(abs)), basename(abs))
-        } catch {
-            // neither the path nor its parent exists yet: nothing to resolve, so
-            // the lexical check is all there is
-            return
-        }
-    }
+    const resolvedRoots = roots.map(realOrResolved)
+    const real = resolvedTarget(abs)
+    // neither the path nor its parent exists yet: nothing to resolve, so the
+    // lexical check is all there is
+    if (real === null) return
     if (resolvedRoots.some((root) => isInsideRoot(real, root))) return
     throw new Error(
         `path ${abs} resolves outside allowed roots (${real}); refusing`
     )
+}
+
+const realOrResolved = (path: string): string => {
+    try {
+        return realpathSync(expandHome(path))
+    } catch {
+        return resolve(expandHome(path))
+    }
+}
+
+// What the path resolves to, or its parent for a path being created.
+const resolvedTarget = (abs: string): string | null => {
+    try {
+        return realpathSync(abs)
+    } catch {
+        try {
+            return join(realpathSync(dirname(abs)), basename(abs))
+        } catch {
+            return null
+        }
+    }
+}
+
+// A root the platform vouches for or registered can hold the daemon's own
+// config dir (a hosted machine's home does), where its tokens and exec
+// buffers live. Inside that dir only the daemon's own roots admit a path —
+// the managed workspaces and runtime auth — checked on the path and on what
+// it resolves to, so a link planted in a workspace cannot reach a token.
+const assertOutsideOwnConfig = (abs: string): void => {
+    const within = (path: string, root: string): boolean =>
+        isInsideRoot(path, root) || isInsideRoot(path, realOrResolved(root))
+    const own = [managedWorkspaceRoot(), authRoot()]
+    for (const path of [abs, resolvedTarget(abs)]) {
+        if (path === null || !within(path, resolveConfigDir())) continue
+        if (!own.some((root) => within(path, root)))
+            throw new Error(
+                `path ${abs} is inside the daemon's config dir; refusing`
+            )
+    }
 }
 
 export const ensureUnderAllowedRoot = (
@@ -293,6 +318,7 @@ export const ensureUnderAllowedRoot = (
             `path ${abs} is outside allowed roots (workspace + framework configs); refusing`
         )
     assertRealPathContained(abs, [...allowedRoots(), ...extraRoots])
+    assertOutsideOwnConfig(abs)
     return abs
 }
 
@@ -370,10 +396,11 @@ interface ExecPayload {
     temporarySettings?: 'gemini-platform'
 }
 
-// The platform is the authority for where its turns run; the daemon only
+// The platform is the authority for where its work runs; the daemon only
 // insists the declaration is unambiguous. Never persisted or merged into the
-// registered roots: they are this exec's.
-const execRoots = (raw: unknown): string[] => {
+// registered roots: they are this call's (exec.start, fs.*, pty.open,
+// terminal.herdr.open).
+const vouchedRoots = (raw: unknown): string[] => {
     if (raw === undefined) return []
     if (!Array.isArray(raw) || !raw.every((r) => typeof r === 'string' && isAbsolute(r)))
         throw new Error('roots must be absolute paths')
@@ -1167,7 +1194,7 @@ const execStart = async (
     let cwd: string
     try {
         cwd = payload.dir
-            ? ensureUnderAllowedRoot(payload.dir, execRoots(payload.roots))
+            ? ensureUnderAllowedRoot(payload.dir, vouchedRoots(payload.roots))
             : process.cwd()
     } catch (err) {
         return {
@@ -1987,7 +2014,10 @@ const handlers: Partial<
     'exec.input': async (payload) => execInput(payload),
     'exec.eof': async (payload) => execEof(payload),
     'fs.list': async (payload) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         const entries = await readdir(abs, { withFileTypes: true })
         return {
             ok: true,
@@ -2000,7 +2030,10 @@ const handlers: Partial<
         }
     },
     'fs.stat': async (payload) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         const s = await stat(abs)
         return {
             ok: true,
@@ -2012,7 +2045,10 @@ const handlers: Partial<
         }
     },
     'fs.read': async (payload, ctx) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         const st = await stat(abs)
         if (st.isDirectory()) return { ok: false, error: 'path is a directory' }
         if (payload.chunked === false) {
@@ -2045,12 +2081,15 @@ const handlers: Partial<
         }
     },
     'fs.write': async (payload, ctx) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         if (payload.configCommit !== undefined) {
             if (payload.encoding !== undefined || payload.mode !== '600') return { ok: false, error: 'config_commit_invalid' }
             try {
                 if (payload.content !== null && typeof payload.content !== 'string') return { ok: false, error: 'config_commit_invalid' }
-                const status = await commitConfigFile({ path: abs, content: payload.content as string | null, commit: payload.configCommit, ctx, validatePath: () => ensureUnderAllowedRoot(abs) })
+                const status = await commitConfigFile({ path: abs, content: payload.content as string | null, commit: payload.configCommit, ctx, validatePath: () => ensureUnderAllowedRoot(abs, vouchedRoots(payload.roots)) })
                 return { ok: true, payload: { status } }
             } catch (error) {
                 const message = (error as Error).message
@@ -2076,18 +2115,25 @@ const handlers: Partial<
         return { ok: true }
     },
     'fs.mkdir': async (payload) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         await mkdir(abs, { recursive: true, mode: 0o755 })
         return { ok: true }
     },
     'fs.mv': async (payload) => {
-        const from = ensureUnderAllowedRoot(String(payload.from ?? ''))
-        const to = ensureUnderAllowedRoot(String(payload.to ?? ''))
+        const roots = vouchedRoots(payload.roots)
+        const from = ensureUnderAllowedRoot(String(payload.from ?? ''), roots)
+        const to = ensureUnderAllowedRoot(String(payload.to ?? ''), roots)
         await rename(from, to)
         return { ok: true }
     },
     'fs.rm': async (payload) => {
-        const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        const abs = ensureUnderAllowedRoot(
+            String(payload.path ?? ''),
+            vouchedRoots(payload.roots)
+        )
         await rm(abs, { recursive: !!payload.recursive, force: true })
         return { ok: true }
     },
@@ -2165,11 +2211,20 @@ const handlers: Partial<
             authContext = null
             void pending?.release()
         }
-        const cwd = login
-            ? login.cwd
-            : payload.cwd
-              ? ensureUnderAllowedRoot(String(payload.cwd))
-              : homedir()
+        let cwd: string
+        try {
+            cwd = login
+                ? login.cwd
+                : payload.cwd
+                  ? ensureUnderAllowedRoot(
+                        String(payload.cwd),
+                        vouchedRoots(payload.roots)
+                    )
+                  : homedir()
+        } catch (err) {
+            releaseAuth()
+            return { ok: false, error: (err as Error).message }
+        }
         const env: Record<string, string> = {}
         const baseEnv = login
             ? login.env
@@ -2350,7 +2405,10 @@ const handlers: Partial<
         let cwd: string
         try {
             cwd = payload.cwd
-                ? ensureUnderAllowedRoot(String(payload.cwd))
+                ? ensureUnderAllowedRoot(
+                      String(payload.cwd),
+                      vouchedRoots(payload.roots)
+                  )
                 : homedir()
         } catch (err) {
             return { ok: false, error: (err as Error).message }
