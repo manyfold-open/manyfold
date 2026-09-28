@@ -131,6 +131,12 @@ import { inspectPiModels } from './pi-inspect'
 import { inspectAntigravityModels } from './antigravity-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
 import { commitConfigFile } from './config-commit'
+import {
+    abortUpload,
+    beginUpload,
+    commitUpload,
+    writeUploadChunk
+} from './fs-upload'
 import type { ServiceSupervisor } from './services'
 
 interface TerminalSession {
@@ -2114,6 +2120,19 @@ const handlers: Partial<
         if (mode !== null) await chmod(abs, mode)
         return { ok: true }
     },
+    // DAEMON_FEATURE_FS_WRITE_STREAM: a file larger than one frame.
+    'fs.write.begin': async (payload) => {
+        const roots = vouchedRoots(payload.roots)
+        const target = ensureUnderAllowedRoot(String(payload.path ?? ''), roots)
+        return beginUpload({
+            target,
+            mode: payload.mode,
+            revalidate: () => ensureUnderAllowedRoot(target, roots)
+        })
+    },
+    'fs.write.chunk': async (payload) => writeUploadChunk(payload),
+    'fs.write.commit': async (payload) => commitUpload(payload),
+    'fs.write.abort': async (payload) => abortUpload(payload),
     'fs.mkdir': async (payload) => {
         const abs = ensureUnderAllowedRoot(
             String(payload.path ?? ''),

@@ -259,6 +259,10 @@ export type DaemonRpcMethod =
     | 'fs.stat'
     | 'fs.read'
     | 'fs.write'
+    | 'fs.write.begin'
+    | 'fs.write.chunk'
+    | 'fs.write.commit'
+    | 'fs.write.abort'
     | 'fs.mkdir'
     | 'fs.mv'
     | 'fs.rm'
@@ -480,7 +484,8 @@ export const DAEMON_MIN_CLI_VERSION = '4.6.1'
 export const DAEMON_FRAMEWORK_DETECT_INTERVAL_MS = 5 * 60_000
 
 // Cap on a single daemon WebSocket frame. fs.write puts the whole file,
-// base64-encoded, in one RPC frame, so this is what bounds a daemon upload.
+// base64-encoded, in one RPC frame, so this is what bounds one fs.write; a
+// larger file goes in chunks (DAEMON_FEATURE_FS_WRITE_STREAM).
 export const DAEMON_WS_MAX_PAYLOAD_BYTES = 10 * 1024 * 1024
 // Room for the JSON envelope (method, id, absolute path) around the payload.
 const DAEMON_RPC_ENVELOPE_HEADROOM_BYTES = 64 * 1024
@@ -489,6 +494,8 @@ const DAEMON_RPC_ENVELOPE_HEADROOM_BYTES = 64 * 1024
 export const DAEMON_FS_WRITE_MAX_BYTES = Math.floor(
     ((DAEMON_WS_MAX_PAYLOAD_BYTES - DAEMON_RPC_ENVELOPE_HEADROOM_BYTES) * 3) / 4
 )
+// One fs.write.chunk, well inside the frame limit once base64-encoded.
+export const DAEMON_FS_WRITE_CHUNK_MAX_BYTES = 4 * 1024 * 1024
 
 // turn.start: the daemon runs a whole turn itself and appends every upstream
 // frame to the exec buffer under the RPC's refId, one frame per line. The
@@ -825,6 +832,12 @@ export const DAEMON_FEATURE_EXEC_ROOTS = 'exec.roots.v1'
 // registered, reaches into the daemon's own config dir beyond its workspaces
 // and runtime auth.
 export const DAEMON_FEATURE_FS_ROOTS = 'fs.roots.v1'
+// fs.write.begin / chunk / commit / abort: a file larger than one RPC frame,
+// sent in chunks of at most chunkMaxBytes (begin says how many) into an
+// owner-only part beside the target, checked against its size and sha256 and
+// renamed over the target at commit. begin takes `path`, `mode` and `roots`
+// like fs.write.
+export const DAEMON_FEATURE_FS_WRITE_STREAM = 'fs.write.stream.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -855,5 +868,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_PI_LOCAL,
     DAEMON_FEATURE_ANTIGRAVITY_LOCAL,
     DAEMON_FEATURE_EXEC_ROOTS,
-    DAEMON_FEATURE_FS_ROOTS
+    DAEMON_FEATURE_FS_ROOTS,
+    DAEMON_FEATURE_FS_WRITE_STREAM
 ]
