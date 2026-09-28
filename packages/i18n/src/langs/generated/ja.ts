@@ -489,7 +489,6 @@ const ja: Record<string, string> = {
     'web.settingsLayout.externalAgentProviders': '外部エージェント',
     'web.settingsLayout.channels': 'チャンネル',
     'web.settingsLayout.kicker': 'ワークスペースの設定',
-    'web.settingsLayout.body': 'ランタイム コントロール、使用状況レポート、プロバイダー管理は、専用のワークスペース サーフェスに存在します。',
     'web.settingsLayout.backToChat': 'チャットに戻る',
     'web.settingsLayout.backToChatWith': '{{name}} とのチャットに戻る',
     'web.settingsLayout.backToWorkspace': 'ワークスペースに戻る',

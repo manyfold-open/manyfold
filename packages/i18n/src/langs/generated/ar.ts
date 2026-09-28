@@ -2014,7 +2014,6 @@ const ar: Record<string, string> = {
     'web.selfOwned.tokensTitle': 'الرموز المميزة',
     'web.settingsLayout.account': 'الحساب',
     'web.settingsLayout.apiTokens': 'رموز API المميزة',
-    'web.settingsLayout.body': 'توجد عناصر التحكم في بيئة التشغيل وتقارير الاستخدام وإدارة الموفّرين هنا في مساحة عمل مخصصة.',
     'web.settingsLayout.channels': 'القنوات',
     'web.settingsLayout.cloudComputers': 'أجهزة الكمبيوتر السحابية',
     'web.settingsLayout.externalAgentProviders': 'الوكلاء الخارجيون',

@@ -1117,8 +1117,7 @@ const zh: Translations = {
             account: '账号',
             externalAgentProviders: '外部 Agent',
             channels: '渠道',
-            kicker: '工作区设置',
-            body: 'Runtime 控制、用量报表和模型厂商管理都放在这个独立的工作区界面。'
+            kicker: '工作区设置'
         },
         general: {
             title: '通用',

@@ -489,7 +489,6 @@ const ko: Record<string, string> = {
     "web.settingsLayout.externalAgentProviders": "외부 에이전트",
     "web.settingsLayout.channels": "채널",
     "web.settingsLayout.kicker": "작업공간 설정",
-    "web.settingsLayout.body": "런타임 제어, 사용량 보고 및 공급자 관리는 전용 작업 공간에서 이용할 수 있습니다.",
     "web.settingsLayout.backToChat": "채팅으로 돌아가기",
     "web.settingsLayout.backToChatWith": "{{name}}과(와)의 채팅으로 돌아가기",
     "web.settingsLayout.backToWorkspace": "워크스페이스로 돌아가기",

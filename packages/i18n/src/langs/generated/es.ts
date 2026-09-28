@@ -489,7 +489,6 @@ const es: Record<string, string> = {
     'web.settingsLayout.externalAgentProviders': 'Agentes externos',
     'web.settingsLayout.channels': 'Canales',
     'web.settingsLayout.kicker': 'Configuración del espacio de trabajo',
-    'web.settingsLayout.body': 'Los controles de tiempo de ejecución, los informes de uso y la gestión de proveedores se encuentran aquí en una superficie de espacio de trabajo dedicada.',
     'web.settingsLayout.backToChat': 'Volver al chat',
     'web.settingsLayout.backToChatWith': 'Volver al chat con {{name}}',
     'web.settingsLayout.backToWorkspace': 'Volver al espacio de trabajo',

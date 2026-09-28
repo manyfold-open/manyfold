@@ -489,7 +489,6 @@ const hi: Record<string, string> = {
     'web.settingsLayout.externalAgentProviders': 'बाहरी एजेंट',
     'web.settingsLayout.channels': 'चैनल',
     'web.settingsLayout.kicker': 'कार्यस्थल सेटिंग्स',
-    'web.settingsLayout.body': 'रनटाइम नियंत्रण, उपयोग रिपोर्टिंग और प्रदाता प्रबंधन यहां एक समर्पित कार्यक्षेत्र सतह पर रहते हैं।',
     'web.settingsLayout.backToChat': 'चैट पर वापस',
     'web.settingsLayout.backToChatWith': '{{name}} के साथ चैट पर वापस',
     'web.settingsLayout.backToWorkspace': 'कार्यक्षेत्र पर वापस',

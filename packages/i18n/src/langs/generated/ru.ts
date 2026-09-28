@@ -489,7 +489,6 @@ const ru: Record<string, string> = {
     'web.settingsLayout.externalAgentProviders': 'Внешние агенты',
     'web.settingsLayout.channels': 'Каналы',
     'web.settingsLayout.kicker': 'Настройки рабочей области',
-    'web.settingsLayout.body': 'Элементы управления средами выполнения, отчёты об использовании и управление поставщиками находятся здесь, на выделенной поверхности рабочего пространства.',
     'web.settingsLayout.backToChat': 'Назад к чату',
     'web.settingsLayout.backToChatWith': 'Назад к чату с {{name}}',
     'web.settingsLayout.backToWorkspace': 'Назад в рабочее пространство',

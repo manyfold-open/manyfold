@@ -164,15 +164,6 @@ const SettingsLayout: FC = (): ReactNode => {
                     )
                 })}
             </nav>
-
-            <div className='shadow-ring-light bg-surface mt-auto rounded-md px-3.5 py-3.5'>
-                <div className='workbench-kicker'>
-                    {t('web.settingsLayout.kicker')}
-                </div>
-                <p className='text-ui text-muted mt-2'>
-                    {t('web.settingsLayout.body')}
-                </p>
-            </div>
         </div>
     )
 

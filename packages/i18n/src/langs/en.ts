@@ -1146,8 +1146,7 @@ const en = {
             account: 'Account',
             externalAgentProviders: 'External agents',
             channels: 'Channels',
-            kicker: 'Workspace settings',
-            body: 'Runtime controls, usage reporting, and provider management live here in a dedicated workspace surface.'
+            kicker: 'Workspace settings'
         },
         general: {
             title: 'General',
