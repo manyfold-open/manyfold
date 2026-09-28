@@ -16,6 +16,7 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostCliTooOldError } from '../src/modules/chat/runner/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -54,6 +55,8 @@ interface HarnessOptions {
     // A bootstrap that throws before anything ran (the exec endpoint).
     inspectError?: Error
     rpc?: (args: { method: string; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>
+    // The CLI update an admission asks for when the daemon lacks a feature.
+    hostCli?: { ensure: (host: RuntimeHostRow, need: { features?: readonly string[] }) => Promise<HostDaemonRow> }
 }
 
 const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
@@ -285,7 +288,8 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             },
             onConnected: () => () => {}
         } as never,
-        awake as never
+        awake as never,
+        opts.hostCli as never
     )
 
     return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, bumps: () => bumps, dialIn }
@@ -580,14 +584,85 @@ test('a bring-up superseded by a newer generation drops out instead of racing it
     assert.ok(!h.calls.includes('start'))
 })
 
-test('a daemon lacking a required feature is refused rather than handed out', async () => {
-    const h = buildHarness({ daemon: daemonRow({ clientFeatures: [] }) })
+// A hosted machine's daemon is the platform's to keep current (R11): one
+// lacking what the work needs is updated during the admission, under its hold.
+test('a hosted daemon lacking a required feature is updated under the hold, then admitted', async () => {
+    const seen: Array<{ features: readonly string[]; releasedBefore: number }> = []
+    const h: ReturnType<typeof buildHarness> = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (_host, need) => {
+                // Looked at after a tick: a hold released when the admission
+                // promise was made, not when it settled, is gone by then.
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                seen.push({ features: need.features ?? [], releasedBefore: h.releases.length })
+                return daemonRow({ clientFeatures: ['exec.roots.v1'], rpcInstanceId: 'api-2' })
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.deepEqual(seen, [{ features: ['exec.roots.v1'], releasedBefore: 0 }])
+    assert.equal(res.handle?.started, true)
+    assert.match(String(res.handle?.generation), /^api-2:/)
+    assert.equal(h.releases.length, 1, 'the hold is released once the update is done')
+})
+
+test('an update that cannot bring the feature answers runner_cli_too_old', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (host) => {
+                throw new HostCliTooOldError(host, 'already on the latest')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_cli_too_old')
+})
+
+test('an update that failed for another reason stays retryable', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async () => {
+                throw new Error('daemon upgrade failed: socket closed')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+})
+
+test('a self-owned computer lacking a feature is told its CLI is too old, and not updated', async () => {
+    let asked = false
+    const h = buildHarness({
+        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
+        daemon: daemonRow({ hostId: 'dh_1', clientFeatures: [] }),
+        hostCli: {
+            ensure: async () => {
+                asked = true
+                throw new Error("a self-owned computer is its user's to update")
+            }
+        }
+    })
     const res = await h.service.ensureHostDaemon({
         host: h.state.host,
         requiredFeatures: ['auth-context.v1']
     })
     assert.equal(res.handle, null)
-    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.equal(res.fallbackReason, 'runner_cli_too_old')
+    assert.equal(asked, false)
 })
 
 test('a host that is failed, deleting or retired is never brought up', async () => {

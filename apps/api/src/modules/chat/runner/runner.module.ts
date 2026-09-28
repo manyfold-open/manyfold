@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
-import { PodHostCliService } from './pod-host-cli.service'
+import { HostCliService } from './host-cli.service'
 import { RunnerManagerService } from './runner-manager.service'
 
 // The host daemon bring-up has callers with nothing else in common: the turn
@@ -11,7 +11,7 @@ import { RunnerManagerService } from './runner-manager.service'
 // others' modules.
 @Module({
     imports: [DaemonModule, HostsModule],
-    providers: [RunnerManagerService, PodHostCliService],
-    exports: [RunnerManagerService, PodHostCliService]
+    providers: [RunnerManagerService, HostCliService],
+    exports: [RunnerManagerService, HostCliService]
 })
 export class RunnerModule {}

@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import 'reflect-metadata'
-import { DAEMON_FEATURE_SERVICES, DAEMON_MIN_CLI_VERSION } from '@manyfold/shared'
-import { PodHostCliService } from '../src/modules/chat/runner/pod-host-cli.service'
+import {
+    DAEMON_FEATURE_EXEC_ROOTS,
+    DAEMON_FEATURE_MANUAL_UPDATE,
+    DAEMON_FEATURE_SERVICES,
+    DAEMON_MIN_CLI_VERSION
+} from '@manyfold/shared'
+import { HostCliService } from '../src/modules/chat/runner/host-cli.service'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
-// A cloud computer's mf CLI (ADR-0035 §5): how it is updated, and how a
-// caller that needs more of it than the host has gets it updated first. The
-// pod's daemon is the host's daemon (ADR-0037): host_daemons for the host.
+// A hosted machine's mf CLI (ADR-0035 §5, ADR-0038): how it is updated, and
+// how a caller that needs more of it than the host has gets it updated first.
+// The machine's daemon is the host's daemon (ADR-0037): host_daemons for the
+// host.
 
 const host = () =>
     ({
@@ -38,7 +44,7 @@ const daemon = (over: Record<string, unknown> = {}) =>
 // has none, however fresh its last heartbeat.
 const offline = { rpcInstanceId: null, rpcConnectedAt: null }
 
-class InstantPodHostCli extends PodHostCliService {
+class InstantHostCli extends HostCliService {
     delays = 0
 
     protected override delay(): Promise<void> {
@@ -81,7 +87,7 @@ const build = (
             return { exitCode: 0, stdout: 'mf-upgraded=4.6.0\n', stderr: '' }
         }
     }
-    const cli = new InstantPodHostCli(
+    const cli = new InstantHostCli(
         daemonHosts as never,
         hostDaemons as never,
         { bumpGeneration: async () => ++generation } as never,
@@ -115,7 +121,7 @@ test('a daemon from an older image is installed over, then left to the boot loop
 test('a daemon that has what the caller needs is used as it is', async () => {
     const current = daemon({ clientFeatures: [DAEMON_FEATURE_SERVICES] })
     const rig = build({ registrations: [current] })
-    const got = await rig.cli.ensure(host(), { feature: DAEMON_FEATURE_SERVICES })
+    const got = await rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] })
     assert.equal(got, current)
     assert.deepEqual(rig.upgrades, [])
     assert.equal(rig.cli.delays, 0)
@@ -128,7 +134,7 @@ test('a daemon without what the caller needs is updated, and used once it is bac
     })
     // The first reads still find the old registration.
     const rig = build({ registrations: [daemon(), daemon(), daemon(), back] })
-    const got = await rig.cli.ensure(host(), { feature: DAEMON_FEATURE_SERVICES })
+    const got = await rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] })
     assert.equal(got, back)
     assert.equal(rig.upgrades.length, 1)
     assert.equal(rig.cli.delays, 2)
@@ -155,7 +161,7 @@ test('a daemon already on the latest CLI has nothing to update to', async () => 
         latest: { version: '3.0.1', channel: 'stable' }
     })
     await assert.rejects(
-        rig.cli.ensure(host(), { feature: DAEMON_FEATURE_SERVICES }),
+        rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] }),
         (err: { response?: { code?: string } }) =>
             err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
     )
@@ -165,7 +171,7 @@ test('a daemon already on the latest CLI has nothing to update to', async () => 
 test('an update that does not bring what is needed is refused', async () => {
     const rig = build({ registrations: [daemon(), daemon(), daemon({ cliVersion: '4.5.0' })] })
     await assert.rejects(
-        rig.cli.ensure(host(), { feature: DAEMON_FEATURE_SERVICES }),
+        rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] }),
         (err: { response?: { code?: string } }) =>
             err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
     )
@@ -175,7 +181,7 @@ test('an update that does not bring what is needed is refused', async () => {
 test('a daemon that never comes back is given about three minutes', async () => {
     const rig = build({ registrations: [daemon()] })
     await assert.rejects(
-        rig.cli.ensure(host(), { feature: DAEMON_FEATURE_SERVICES }),
+        rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] }),
         (err: { response?: { code?: string } }) =>
             err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
     )
@@ -188,7 +194,7 @@ test('callers that need the same host updated share one update', async () => {
         clientFeatures: [DAEMON_FEATURE_SERVICES]
     })
     const rig = build({ registrations: [daemon(), daemon(), back] })
-    const need = { feature: DAEMON_FEATURE_SERVICES }
+    const need = { features: [DAEMON_FEATURE_SERVICES] }
     const [a, b] = await Promise.all([
         rig.cli.ensure(host(), need),
         rig.cli.ensure(host(), need)
@@ -196,4 +202,71 @@ test('callers that need the same host updated share one update', async () => {
     assert.equal(a, back)
     assert.equal(b, back)
     assert.equal(rig.upgrades.length, 1)
+})
+
+// A sprite has no boot loop: its daemon updates by handing off to its
+// successor (daemon.update.manual), and nothing would restart one installed
+// over, so there is no install-over to fall back to.
+const spriteHost = () =>
+    ({
+        id: 'sbx_1',
+        userId: 'usr_1',
+        kind: 'hosted',
+        providerId: 'rtp_sprites',
+        providerRef: { kind: 'sprites', spriteName: 'sbx-1', spriteId: 'spr_1' },
+        name: 'sandbox-1',
+        status: 'ready',
+        generation: 1
+    }) as never
+
+const spriteDaemon = (over: Record<string, unknown> = {}) =>
+    daemon({
+        hostId: 'sbx_1',
+        startupMethod: 'manual',
+        clientFeatures: [DAEMON_FEATURE_MANUAL_UPDATE],
+        ...over
+    })
+
+test('a connected sprite daemon updates itself by handing off', async () => {
+    const rig = build({ registrations: [spriteDaemon()] })
+    await rig.cli.update({ host: spriteHost(), actorId: 'usr_1' })
+    assert.deepEqual(rig.upgrades, [{ host: spriteHost(), actorId: 'usr_1', targetVersion: undefined }])
+    assert.deepEqual(rig.scripts, [])
+})
+
+test('a sprite daemon that cannot update itself is too old, and nothing is installed over it', async () => {
+    const rig = build({ registrations: [spriteDaemon({ clientFeatures: [] })] })
+    await assert.rejects(
+        rig.cli.update({ host: spriteHost(), actorId: 'usr_1' }),
+        (err: { response?: { code?: string } }) =>
+            err.response?.code === 'SANDBOX_DAEMON_TOO_OLD'
+    )
+    assert.deepEqual(rig.upgrades, [])
+    assert.deepEqual(rig.scripts, [])
+})
+
+test('a sprite daemon without a feature is updated and used once its successor has it', async () => {
+    const back = spriteDaemon({
+        cliVersion: '4.6.0',
+        clientFeatures: [DAEMON_FEATURE_MANUAL_UPDATE, DAEMON_FEATURE_EXEC_ROOTS]
+    })
+    const rig = build({ registrations: [spriteDaemon(), spriteDaemon(), back] })
+    const got = await rig.cli.ensure(spriteHost(), { features: [DAEMON_FEATURE_EXEC_ROOTS] })
+    assert.equal(got, back)
+    assert.equal(rig.upgrades.length, 1)
+})
+
+test('every feature a caller needs has to be there', async () => {
+    const partial = spriteDaemon({
+        cliVersion: '4.6.0',
+        clientFeatures: [DAEMON_FEATURE_MANUAL_UPDATE, DAEMON_FEATURE_EXEC_ROOTS]
+    })
+    const rig = build({ registrations: [spriteDaemon(), partial] })
+    await assert.rejects(
+        rig.cli.ensure(spriteHost(), {
+            features: [DAEMON_FEATURE_EXEC_ROOTS, DAEMON_FEATURE_SERVICES]
+        }),
+        (err: { response?: { code?: string } }) =>
+            err.response?.code === 'SANDBOX_DAEMON_TOO_OLD'
+    )
 })

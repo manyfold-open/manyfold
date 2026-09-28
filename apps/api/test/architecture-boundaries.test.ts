@@ -31,7 +31,7 @@ const ALLOWED: Record<string, string> = {
     'modules/daemon/daemon-fs.ts':
         'config delivery, held by DaemonConfigDeliveryService (holdForDelivery)',
     'modules/daemon/daemon-host.service.ts':
-        'daemon.update and herdr.update for self-owned computers, which never sleep',
+        'daemon.update and herdr.update: a self-owned computer never sleeps, and a hosted daemon is updated inside the bring-up\'s hold',
     'modules/terminal/daemon-terminal.ts':
         'the pty: opened in a session, then held for as long as a tab is attached',
     'modules/agent-runtimes/auth/runtime-auth-profiles.service.ts':

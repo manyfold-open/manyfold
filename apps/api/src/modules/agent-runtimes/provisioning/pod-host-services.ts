@@ -17,7 +17,7 @@ import {
 } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
-import { PodHostCliService } from '@/modules/chat/runner/pod-host-cli.service'
+import { HostCliService } from '@/modules/chat/runner/host-cli.service'
 import { podScriptRunner, type PodScriptRunner } from './pod-framework-setup'
 
 const SERVICE_RPC_TIMEOUT_MS = 60_000
@@ -40,7 +40,7 @@ export class PodHostServices {
         private readonly access: HostDaemonAccess,
         // Absent in tests that build the service positionally: a daemon
         // without services is then refused rather than updated.
-        @Optional() private readonly cli?: PodHostCliService
+        @Optional() private readonly cli?: HostCliService
     ) {}
 
     private async withDaemon<T>(
@@ -70,7 +70,7 @@ export class PodHostServices {
                             code: 'POD_HOST_DAEMON_TOO_OLD',
                             message: `the Manyfold CLI on cloud computer ${host.id} is too old to run services; update it first`
                         })
-                    await this.cli.ensure(row, { feature: DAEMON_FEATURE_SERVICES })
+                    await this.cli.ensure(row, { features: [DAEMON_FEATURE_SERVICES] })
                     return work(session)
                 }
             )

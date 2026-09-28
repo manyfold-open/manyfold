@@ -9,7 +9,7 @@ import {
     isCliVersionTooOld,
     profilePaths
 } from '@manyfold/shared'
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
 import type {
     HostDaemonRow,
     RuntimeHostRow,
@@ -45,6 +45,7 @@ import {
 import { recordPower } from '@/modules/hosts/providers/generation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+import { HostCliService, HostCliTooOldError } from './host-cli.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
 // inside the machine — can go through the daemon protocol (ADR-0037 R11):
@@ -243,7 +244,10 @@ export class RunnerManagerService {
         private readonly clients: HostProviderClients,
         private readonly tokens: DaemonTokenService,
         private readonly registry: DaemonRegistryService,
-        private readonly awake: HostAwakeService
+        private readonly awake: HostAwakeService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, a daemon lacking a feature is refused as too old.
+        @Optional() private readonly hostCli?: HostCliService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -280,7 +284,10 @@ export class RunnerManagerService {
             return unavailable('runner_unavailable')
         const hold = this.awake.hold(host, `ensure-${args.agentId ?? host.id}`)
         try {
-            if (hasRpcLease(daemon)) return this.admit(host, daemon, args, false)
+            // Awaited, not returned: the admission can update the daemon, and
+            // the hold has to outlast that, not end when the promise is made.
+            if (hasRpcLease(daemon))
+                return await this.admit(host, daemon, args, false)
             const resolved = await this.singleFlightBringUp(args, hold)
             if (!resolved.handle)
                 return {
@@ -296,7 +303,7 @@ export class RunnerManagerService {
                         : {})
                 }
             const fresh = await this.hostDaemons.findByHostId(host.id)
-            return this.admit(host, fresh, args, resolved.handle.started)
+            return await this.admit(host, fresh, args, resolved.handle.started)
         } finally {
             void hold.release()
         }
@@ -330,19 +337,48 @@ export class RunnerManagerService {
         const missing = (args.requiredFeatures ?? []).filter(
             (feature) => !features.includes(feature)
         )
-        if (missing.length) {
-            this.logger.warn(
-                `daemon on host ${host.id} lacks required features ${missing.join(',')} for agent ${args.agentId ?? '-'}`
+        if (!missing.length)
+            return {
+                handle: {
+                    daemonId: host.id,
+                    started,
+                    generation: leaseGeneration(daemon)
+                }
+            }
+        // A hosted machine's daemon is the platform's to keep current (R11):
+        // it is updated here, under the admission's hold, and the work goes on
+        // once it is back with what the work needs. A self-owned computer is
+        // its user's to update, so the answer says the CLI is too old.
+        if (host.kind === 'hosted' && daemon && this.hostCli) {
+            this.logger.log(
+                `daemon on host ${host.id} lacks ${missing.join(',')} for agent ${args.agentId ?? '-'}; updating its CLI`
             )
-            return unavailable('runner_unavailable')
-        }
-        return {
-            handle: {
-                daemonId: host.id,
-                started,
-                generation: leaseGeneration(daemon)
+            try {
+                const fresh = await this.hostCli.ensure(host, {
+                    features: missing
+                })
+                return {
+                    handle: {
+                        daemonId: host.id,
+                        started: true,
+                        generation: leaseGeneration(fresh)
+                    }
+                }
+            } catch (err) {
+                this.logger.warn(
+                    `daemon on host ${host.id} was not updated for ${missing.join(',')}: ${(err as Error).message}`
+                )
+                return unavailable(
+                    err instanceof HostCliTooOldError
+                        ? 'runner_cli_too_old'
+                        : 'runner_unavailable'
+                )
             }
         }
+        this.logger.warn(
+            `daemon on host ${host.id} lacks required features ${missing.join(',')} for agent ${args.agentId ?? '-'}`
+        )
+        return unavailable('runner_cli_too_old')
     }
 
     private singleFlightBringUp(
