@@ -1,9 +1,11 @@
 import {
     K8S_HOME_BASE,
+    SANDBOX_PREINSTALLED_FRAMEWORKS,
     SPRITE_HOME_BASE,
     externalSteps,
     brandFor,
     credentialsManagedByRuntime,
+    frameworkUpgradeAvailable,
     frameworkUpgradeMode,
     isModelConfigFramework,
     lookupBuiltIn,
@@ -150,6 +152,7 @@ import {
     installedFrameworkVersion,
     serviceSlotOccupant
 } from '@/lib/agentCreate/frameworkInstall'
+import { versionChoices } from '@/lib/sandboxRuntimes'
 import {
     HostFrameworkIcons,
     type HostFrameworkAction,
@@ -397,7 +400,8 @@ const RuntimeTargetCard: FC<{
     populationLabelFor: (entry: RuntimeTargetPopulation) => string
     onFrameworkAction?: (
         framework: AgentFramework,
-        action: HostFrameworkAction
+        action: HostFrameworkAction,
+        version?: string
     ) => void
     frameworkBusy?: string | null
     frameworkError?: { framework: string; message: string } | null
@@ -491,11 +495,8 @@ const RuntimeTargetCard: FC<{
 // The coding CLIs every sprite image ships; the only frameworks a sandbox
 // installs or upgrades in place. The other sandbox frameworks (the service
 // ones) arrive with their first agent.
-const SANDBOX_CLI_FRAMEWORKS: AgentFramework[] = [
-    'claude-code',
-    'codex',
-    'gemini-cli'
-]
+const shippedCli = (framework: AgentFramework): boolean =>
+    (SANDBOX_PREINSTALLED_FRAMEWORKS as readonly string[]).includes(framework)
 // Every framework a sandbox can hold, in the order the cards show them.
 const sandboxFrameworks = (): AgentFramework[] =>
     listVersionedFrameworks().filter((framework) =>
@@ -859,9 +860,10 @@ const AgentNew: FC = (): ReactNode => {
         useState(false)
     const [modelProviderHelpOpen, setModelProviderHelpOpen] = useState(false)
     const [advancedConfigHelpOpen, setAdvancedConfigHelpOpen] = useState(false)
-    // The catalog's latest per coding CLI, for the sandbox cards' icons.
-    const [frameworkLatestByFramework, setFrameworkLatestByFramework] =
-        useState<ReadonlyMap<string, string | null>>(new Map())
+    // The catalog per framework, for the sandbox cards' versions.
+    const [frameworkCatalog, setFrameworkCatalog] = useState<
+        ReadonlyMap<string, { latest: string | null; versions: string[] }>
+    >(new Map())
     const [hostFrameworkBusy, setHostFrameworkBusy] = useState<{
         hostId: string
         framework: string
@@ -1684,9 +1686,12 @@ const AgentNew: FC = (): ReactNode => {
             .list()
             .then((catalog) => {
                 if (cancelled) return
-                setFrameworkLatestByFramework(
+                setFrameworkCatalog(
                     new Map(
-                        catalog.map((entry) => [entry.framework, entry.latest])
+                        catalog.map((entry) => [
+                            entry.framework,
+                            { latest: entry.latest, versions: entry.versions }
+                        ])
                     )
                 )
             })
@@ -1720,7 +1725,7 @@ const AgentNew: FC = (): ReactNode => {
         return sandboxFrameworks().map((fw) => {
             // A coding CLI is known from the sandbox probe; a service framework
             // only from the runtime that installed it.
-            const coding = SANDBOX_CLI_FRAMEWORKS.includes(fw)
+            const coding = shippedCli(fw)
             const probedVersion = installedFrameworkVersion(sandbox, fw)
             const runtime = onHostRuntimes.find((r) => r.framework === fw)
             const present = probedVersion !== null || runtime !== undefined
@@ -1728,12 +1733,30 @@ const AgentNew: FC = (): ReactNode => {
                 !coding && !present && occupant !== null && occupant !== fw
                     ? frameworkLabel(occupant)
                     : null
+            const catalog = frameworkCatalog.get(fw)
+            const latest = catalog?.latest ?? null
+            const version = probedVersion ?? runtime?.frameworkVersion ?? null
             return {
                 framework: fw,
                 label: frameworkLabel(fw),
                 present,
-                version: probedVersion ?? runtime?.frameworkVersion ?? null,
-                latest: frameworkLatestByFramework.get(fw) ?? null,
+                version,
+                latest,
+                versions: versionChoices(catalog?.versions ?? [], latest),
+                // The same rows the Update Center lists: a runtime's, and a
+                // CLI the image ships.
+                update:
+                    present &&
+                    (runtime !== undefined || coding) &&
+                    frameworkUpgradeAvailable(version, latest)
+                        ? latest
+                        : null,
+                changeable:
+                    present &&
+                    (coding ||
+                        Boolean(
+                            runtime?.primaryAgentId && frameworkUpgradeMode(fw)
+                        )),
                 installable: blockedBy === null,
                 blockedBy,
                 probed:
@@ -1758,7 +1781,8 @@ const AgentNew: FC = (): ReactNode => {
     const handleHostFrameworkAction = async (
         hostId: string,
         fw: AgentFramework,
-        action: HostFrameworkAction
+        action: HostFrameworkAction,
+        version?: string
     ): Promise<void> => {
         if (hostFrameworkBusy) return
         setHostFrameworkBusy({ hostId, framework: fw })
@@ -1769,7 +1793,8 @@ const AgentNew: FC = (): ReactNode => {
                 await refetchSandboxes()
                 return
             }
-            const latest = frameworkLatestByFramework.get(fw) ?? null
+            // A version picked from the icon's list, else the catalog's latest.
+            const latest = version ?? frameworkCatalog.get(fw)?.latest ?? null
             const runtime = runtimes.find(
                 (r) => r.hostId === hostId && r.framework === fw
             )
@@ -1790,7 +1815,7 @@ const AgentNew: FC = (): ReactNode => {
                 await Promise.all([refetchRuntimes(), refetchSandboxes()])
                 return
             }
-            if (!SANDBOX_CLI_FRAMEWORKS.includes(fw)) {
+            if (!shippedCli(fw)) {
                 await client.sandboxes.prepareRuntime(hostId, fw)
                 await Promise.all([refetchRuntimes(), refetchSandboxes()])
                 return
@@ -1845,7 +1870,7 @@ const AgentNew: FC = (): ReactNode => {
                 await client.sandboxes.installFramework(
                     hostId,
                     forFramework,
-                    frameworkLatestByFramework.get(forFramework) ?? undefined
+                    frameworkCatalog.get(forFramework)?.latest ?? undefined
                 )
                 await refetchSandboxes()
             }
@@ -2094,9 +2119,59 @@ const AgentNew: FC = (): ReactNode => {
         }
     }
 
+    // What a sandbox does not have yet, installed from its card's menu rather
+    // than shown as a greyed icon: one item per framework, or one check while
+    // the sandbox was never probed for its CLIs.
+    const frameworkInstallItems = (hostId: string): OverflowMenuEntry[] => {
+        const absent = hostFrameworkEntries(hostId).filter(
+            (entry) => !entry.present
+        )
+        const busyWith = (fw: string): boolean =>
+            hostFrameworkBusy?.hostId === hostId &&
+            hostFrameworkBusy.framework === fw
+        const items: OverflowMenuEntry[] = []
+        const unchecked = absent.find((entry) => !entry.probed)
+        if (unchecked)
+            items.push({
+                label: busyWith(unchecked.framework)
+                    ? t('web.agentNew.frameworkChecking')
+                    : t('web.agentNew.checkSandbox'),
+                disabled: hostFrameworkBusy !== null,
+                onSelect: () =>
+                    void handleHostFrameworkAction(
+                        hostId,
+                        unchecked.framework,
+                        'check'
+                    )
+            })
+        for (const entry of absent) {
+            if (!entry.probed) continue
+            items.push({
+                label: busyWith(entry.framework)
+                    ? t('web.agentNew.frameworkInstalling')
+                    : t('web.agentNew.installFrameworkOnSandbox', {
+                          framework: entry.label
+                      }),
+                disabled: hostFrameworkBusy !== null || !entry.installable,
+                disabledReason: entry.blockedBy
+                    ? t('web.agentNew.frameworkServiceSlotTaken', {
+                          framework: entry.blockedBy
+                      })
+                    : undefined,
+                onSelect: () =>
+                    void handleHostFrameworkAction(
+                        hostId,
+                        entry.framework,
+                        'install'
+                    )
+            })
+        }
+        return items.length > 0 ? [...items, { separator: true }] : []
+    }
+
     // What a card's menu offers. A sandbox card — bare, or the runtime on
-    // it — renames the runtime and the sandbox and deletes the sandbox once
-    // nothing runs there. A cloud computer renames and deletes its runtime
+    // it — installs what the sandbox lacks, renames the runtime and the
+    // sandbox and deletes the sandbox once nothing runs there. A cloud computer renames and deletes its runtime
     // when no agent is left; a daemon's runtimes are the daemon's own and
     // only rename.
     const runtimeTargetMenu = (
@@ -2106,6 +2181,7 @@ const AgentNew: FC = (): ReactNode => {
         const items: OverflowMenuEntry[] = [renameRuntimeItem(runtime)]
         if (runtime.kind === 'sprites' && runtime.hostId) {
             const name = sandboxNameFor(runtime.hostId, runtime.hostName)
+            items.unshift(...frameworkInstallItems(runtime.hostId))
             items.push(
                 renameSandboxItem(runtime.hostId, name),
                 deleteSandboxItem(runtime.hostId, name, key)
@@ -2133,6 +2209,7 @@ const AgentNew: FC = (): ReactNode => {
     ): OverflowMenuEntry[] => {
         const name = target.name ?? target.hostId
         return [
+            ...frameworkInstallItems(target.hostId),
             renameSandboxItem(target.hostId, name),
             deleteSandboxItem(target.hostId, name, key)
         ]
@@ -3221,13 +3298,15 @@ const AgentNew: FC = (): ReactNode => {
                                                         }
                                                         onFrameworkAction={(
                                                             fw,
-                                                            action
+                                                            action,
+                                                            version
                                                         ) => {
                                                             if (target.hostId)
                                                                 void handleHostFrameworkAction(
                                                                     target.hostId,
                                                                     fw,
-                                                                    action
+                                                                    action,
+                                                                    version
                                                                 )
                                                         }}
                                                         frameworkBusy={
