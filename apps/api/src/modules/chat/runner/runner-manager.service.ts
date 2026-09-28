@@ -165,6 +165,9 @@ export interface RunnerResolution {
 interface RunnerMachineState {
     installed: boolean
     registered: boolean
+    // The API the daemon config was registered against; null when there is no
+    // config or it does not say.
+    apiUrl: string | null
     version: string | null
     // herdr present on the machine (ADR-0031); null when the probe did not say.
     herdr: boolean | null
@@ -507,7 +510,19 @@ export class RunnerManagerService {
         // machine without it still chats, it just cannot hand a session to
         // herdr until the Update Center installs it.
         if (state.herdr === false) await this.installHerdr(adapter, call)
-        if (!state.registered) {
+        // Seen on a local stack [2026-09-28]: a sandbox registered through a
+        // quick tunnel kept dialing it after the tunnel was replaced, and every
+        // bring-up ended in `daemon did not come online` with the sandbox held
+        // awake. Registering again is what rewrites the saved address.
+        const registeredElsewhere =
+            state.registered &&
+            state.apiUrl !== null &&
+            state.apiUrl.replace(/\/+$/, '') !== this.apiUrl()
+        if (registeredElsewhere)
+            this.logger.warn(
+                `daemon registered against ${state.apiUrl}, re-registering against ${this.apiUrl()} hostId=${call.host.id}`
+            )
+        if (!state.registered || registeredElsewhere) {
             let registered = await this.register(adapter, call)
             // A CLI that predates `--token -` takes the dash LITERALLY and
             // rejects it as a malformed token: `~/.local/bin/mf` is there (so
@@ -543,6 +558,11 @@ export class RunnerManagerService {
         const script = [
             `test -x ${MF_BIN} && echo installed=1 || echo installed=0`,
             `test -f "${layout.probePath}" && echo registered=1 || echo registered=0`,
+            // `daemon start` dials the address saved at register time whatever
+            // `--api-url` says (ADR-0014), so once this deployment's public URL
+            // moves, a registered daemon never connects again until it is
+            // registered anew. Only the URL is read: the file holds a token.
+            `echo apiUrl=$(grep -o '"apiUrl": *"[^"]*"' "${layout.probePath}" 2>/dev/null | head -n 1 | cut -d '"' -f 4)`,
             // Free: we are already paying for this exec. Without it the daemon
             // keeps whatever CLI it was first given, forever.
             `echo version=$(${MF_BIN} --version 2>/dev/null | tr -d '[:space:]')`,
@@ -578,6 +598,7 @@ export class RunnerManagerService {
             state: {
                 installed: res.stdout.includes('installed=1'),
                 registered: res.stdout.includes('registered=1'),
+                apiUrl: /^apiUrl=(\S+)$/m.exec(res.stdout)?.[1] ?? null,
                 version: /version=([^\s]+)/.exec(res.stdout)?.[1] ?? null,
                 herdr: res.stdout.includes('herdr=1')
                     ? true
