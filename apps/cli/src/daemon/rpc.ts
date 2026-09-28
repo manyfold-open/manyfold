@@ -1176,11 +1176,17 @@ const execStart = async (
             error: (err as Error).message
         }
     }
-    // env stays out of meta.json: it can carry credentials (connection tokens
-    // and MF_API_TOKEN since #781), and nothing ever reads it back out of the
-    // buffer — a resume re-attaches to the live child. Same rationale as the
-    // turn.start meta in acp-turn.
-    const { env: _env, authSelection: _sel, ...metaPayload } = payload
+    // env and stdin stay out of meta.json: env can carry credentials
+    // (connection tokens and MF_API_TOKEN since #781), stdin is a whole
+    // script, and nothing ever reads either back out of the buffer — a resume
+    // re-attaches to the live child. Same rationale as the turn.start meta in
+    // acp-turn.
+    const {
+        env: _env,
+        authSelection: _sel,
+        stdin: _stdin,
+        ...metaPayload
+    } = payload
     let authContext: Awaited<ReturnType<typeof resolveAuthContext>> = null
     try {
         authContext = await resolveAuthContext(

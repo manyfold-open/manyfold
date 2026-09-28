@@ -71,12 +71,17 @@ const EXIT_CODE_KILLED = 137
 // its exit status (128+n for a signal). SIGKILL takes the wrapper too; the
 // daemon then sees a gone group with no exit line and fills in 137 itself.
 // A background job in a non-interactive shell gets /dev/null as stdin, so
-// the stdin file is redirected explicitly on the child.
+// the stdin file is redirected explicitly on the child. The wrapper opens it
+// and unlinks it before the fork: the child reads the open file, and a
+// script handed over as stdin does not stay on disk while it runs.
 export const EXEC_WRAPPER_SCRIPT = [
     'd=$1',
     'shift',
-    `"$@" <"$d/${STDIN_FILE}" >>"$d/${STDOUT_FILE}" 2>>"$d/${STDERR_FILE}" &`,
+    `exec 3<"$d/${STDIN_FILE}"`,
+    `rm -f "$d/${STDIN_FILE}"`,
+    `"$@" <&3 3<&- >>"$d/${STDOUT_FILE}" 2>>"$d/${STDERR_FILE}" &`,
     'p=$!',
+    'exec 3<&-',
     "trap '' TERM INT HUP",
     'wait "$p"',
     'c=$?',
