@@ -75,13 +75,11 @@ import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     HostDaemonAccess,
     HostDaemonOfflineError,
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
-import { DaemonFrameworkExec } from '@/modules/agents/adapters/framework-exec'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import {
     buildNpmLatestInstallShell,
@@ -135,7 +133,6 @@ export class SandboxesService {
         private readonly hostClients: HostProviderClients,
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly daemonRegistry: DaemonRegistryService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
         private readonly spriteStatusSync: SpriteStatusSyncService,
@@ -390,8 +387,9 @@ export class SandboxesService {
         return this.withSandboxDaemon(
             r,
             'detect-frameworks',
-            async ({ daemon }) => {
-                const probed = await this.daemonExec(host.id)({
+            async (session) => {
+                const { daemon } = session
+                const probed = await this.daemonExec(session)({
                     cmd: ['bash', '-lc', frameworkProbeShell()],
                     stdin: '',
                     timeoutMs: DETECT_TIMEOUT_MS
@@ -623,12 +621,13 @@ export class SandboxesService {
         const shell = target
             ? buildNpmUpgradeShell(descriptor, target)
             : buildNpmLatestInstallShell(descriptor)
-        return this.withSandboxDaemon(r, `install-${framework}`, ({ daemon }) =>
+        return this.withSandboxDaemon(r, `install-${framework}`, (session) =>
             withRuntimeUpgradeLock(
             this.db,
             this.upgradeLockKey(host, framework),
             async () => {
-                const exec = this.daemonExec(host.id)
+                const { daemon } = session
+                const exec = this.daemonExec(session)
                 const result = await exec({
                     cmd: ['bash', '-lc', shell],
                     stdin: '',
@@ -1186,16 +1185,16 @@ export class SandboxesService {
         return execSprite(client, spriteName, opts)
     }
 
-    // Seam so tests can fake the daemon exec.
+    // Seam so tests can fake the daemon exec: the session's, under the hold
+    // withSandboxDaemon took.
     protected daemonExec(
-        hostId: string
+        session: HostSession
     ): (args: {
         cmd: string[]
         stdin?: string
         timeoutMs: number
     }) => Promise<ExecResult> {
-        const exec = new DaemonFrameworkExec(this.daemonRegistry, hostId)
-        return (args) => exec.run(args)
+        return (args) => session.exec(args)
     }
 }
 

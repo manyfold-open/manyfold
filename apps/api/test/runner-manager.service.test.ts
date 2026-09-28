@@ -599,21 +599,6 @@ test('a host that is failed, deleting or retired is never brought up', async () 
     }
 })
 
-test('requireHostDaemon throws a coded 503 when the daemon cannot be reached', async () => {
-    const h = buildHarness({
-        host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
-        daemon: null
-    })
-    await assert.rejects(
-        h.service.requireHostDaemon(h.state.host),
-        (err: { getResponse?: () => { code?: string } }) =>
-            err.getResponse?.().code === 'DAEMON_OFFLINE'
-    )
-    const online = buildHarness({ daemon: daemonRow() })
-    const daemon = await online.service.requireHostDaemon(online.state.host)
-    assert.equal(daemon.hostId, 'sbx_1')
-})
-
 test('the floor the bring-up enforces is the shared minimum', () => {
     assert.ok(DAEMON_MIN_CLI_VERSION.length > 0)
 })

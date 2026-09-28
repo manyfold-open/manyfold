@@ -84,16 +84,13 @@ import { HostProviderClients } from '@/modules/hosts/providers/host-provider-cli
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { recordPower } from '@/modules/hosts/providers/generation'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+import { daemonScriptRunner } from '@/modules/agents/adapters/framework-exec'
 import {
-    RunnerManagerService,
-    type RunnerResolution
-} from '@/modules/chat/runner/runner-manager.service'
-import {
-    DaemonFrameworkExec,
-    daemonScriptRunner
-} from '@/modules/agents/adapters/framework-exec'
+    HostDaemonAccess,
+    HostDaemonOfflineError,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
 
 // How long a failed exec-readiness probe stays on a sandbox host as a diagnostic
 // marker. Short enough that a recovered VM's record clears without an operator.
@@ -185,8 +182,7 @@ export class SpritesProvisioner {
         private readonly clients: HostProviderClients,
         private readonly placement: HostPlacementService,
         private readonly providers: SandboxProviderRegistry,
-        private readonly runnerManager: RunnerManagerService,
-        private readonly registry: DaemonRegistryService,
+        private readonly hostAccess: HostDaemonAccess,
         private readonly tokens: DaemonTokenService,
         private readonly runtimes: AgentRuntimesService,
         private readonly claudeBootstrap: ClaudeCodeBootstrap,
@@ -447,9 +443,7 @@ export class SpritesProvisioner {
                 hostId: created.id,
                 logger: this.spritesLogger()
             })
-            await this.runnerManager.requireHostDaemon(created, {
-                agentId: '-'
-            })
+            await this.onHostDaemon(created, '-', 'provision-sandbox', async () => undefined)
             const ready = await this.requireHost(created.id)
             if (ready.status === 'provisioning')
                 return (await this.hosts.setStatus(ready.id, 'ready')) ?? ready
@@ -498,42 +492,51 @@ export class SpritesProvisioner {
         )
     }
 
-    // The host's daemon, online, for a runtime about to be installed or
-    // bootstrapped on it. On an attach the VM may have no liveness signal at
-    // all — a sprite whose exec endpoint is chronically 502ing would
-    // otherwise fail deep inside bootstrap — so an exec-endpoint verdict from
-    // the bring-up quarantines the host and answers a clean 503. There is no
-    // failover: the caller named one sandbox.
-    private async requireDaemon(
+    // Work on the host's daemon, for a runtime about to be installed or
+    // bootstrapped on it, under the machine's awake hold for the whole of it
+    // (ADR-0038). On an attach the VM may have no liveness signal at all — a
+    // sprite whose exec endpoint is chronically 502ing would otherwise fail
+    // deep inside bootstrap — so an exec-endpoint verdict from the bring-up
+    // quarantines the host and answers a clean 503. There is no failover: the
+    // caller named one sandbox.
+    private async onHostDaemon<T>(
         host: RuntimeHostRow,
-        agentId: string
-    ): Promise<RunnerResolution> {
-        const resolution = await this.runnerManager.ensureHostDaemon({
-            host,
-            agentId
-        })
-        if (resolution.handle) return resolution
-        if (resolution.execFailure) {
-            const detail = `exec ${resolution.execFailure.failureClass}${
-                resolution.execFailure.upstreamStatus
-                    ? ` HTTP ${resolution.execFailure.upstreamStatus}`
-                    : ''
-            }`
-            await this.quarantineHost(host.id, detail)
+        agentId: string,
+        reason: string,
+        work: (session: HostSession) => Promise<T>
+    ): Promise<T> {
+        try {
+            return await this.hostAccess.withHost(
+                { host, daemon: null, placement: 'sprites', agentId, reason },
+                work
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
+            if (err.execFailure) {
+                const detail = `exec ${err.execFailure.failureClass}${
+                    err.execFailure.upstreamStatus
+                        ? ` HTTP ${err.execFailure.upstreamStatus}`
+                        : ''
+                }`
+                await this.quarantineHost(host.id, detail)
+                throw new ServiceUnavailableException({
+                    message: `sandbox is not accepting commands (${detail})`,
+                    code: 'SANDBOX_EXEC_UNAVAILABLE'
+                })
+            }
             throw new ServiceUnavailableException({
-                message: `sandbox is not accepting commands (${detail})`,
-                code: 'SANDBOX_EXEC_UNAVAILABLE'
+                message: `sandbox ${host.id} has no reachable daemon (${err.reason})`,
+                code: 'SANDBOX_DAEMON_OFFLINE'
             })
         }
-        throw new ServiceUnavailableException({
-            message: `sandbox ${host.id} has no reachable daemon (${resolution.fallbackReason ?? 'offline'})`,
-            code: 'SANDBOX_DAEMON_OFFLINE'
-        })
     }
 
-    private daemonRunner(host: RuntimeHostRow): HostScriptRunner {
+    private daemonRunner(
+        host: RuntimeHostRow,
+        session: HostSession
+    ): HostScriptRunner {
         return daemonScriptRunner(
-            new DaemonFrameworkExec(this.registry, host.id),
+            { run: session.exec },
             (event, fields) =>
                 this.log.warn(`${event} ${JSON.stringify({ hostId: host.id, ...fields })}`)
         )
@@ -587,7 +590,7 @@ export class SpritesProvisioner {
                 emitter.step('creating_sprite')
                 host = await this.provisionSandbox({ host })
             } else {
-                await this.requireDaemon(host, agentId)
+                await this.onHostDaemon(host, agentId, 'provision-attach', async () => undefined)
             }
             const { client, spriteName } = await this.spriteHost(host)
 
@@ -772,49 +775,57 @@ export class SpritesProvisioner {
             })
         const runtimeId = reserved.id
         try {
-            await this.requireDaemon(host, '-')
-            const ctx: BootstrapContext = {
-                // No agent yet; the bootstraps only read this for per-agent
-                // paths, none of which a prepare touches.
-                agentId: '',
-                runtimeId,
-                userId,
-                spriteName,
-                mountPath,
-                client,
-                logger: this.spritesLogger(),
-                execTimeoutMs: 60_000,
-                frameworkVersion: input.frameworkVersion ?? null,
-                frameworkVersionSource: input.frameworkVersionSource ?? 'none',
-                frameworkRepo: input.frameworkRepo ?? null,
-                frameworkArtifacts: input.frameworkArtifacts ?? null
-            }
-            let endpointUrl: string | null | undefined
-            let generatedCredentials: Record<string, string> | undefined
-            let installedVersion: string | null = null
-            if (codingFramework) {
-                installedVersion = await this.installCodingFramework(
-                    ctx,
-                    codingFramework,
-                    this.daemonRunner(host)
+            const { endpointUrl, generatedCredentials, installedVersion } =
+                await this.onHostDaemon(
+                    host,
+                    '-',
+                    `prepare-${framework}`,
+                    async (session) => {
+                        let endpointUrl: string | null | undefined
+                        let generatedCredentials: Record<string, string> | undefined
+                        let installedVersion: string | null = null
+                        const ctx: BootstrapContext = {
+                            // No agent yet; the bootstraps only read this for per-agent
+                            // paths, none of which a prepare touches.
+                            agentId: '',
+                            runtimeId,
+                            userId,
+                            spriteName,
+                            mountPath,
+                            client,
+                            logger: this.spritesLogger(),
+                            execTimeoutMs: 60_000,
+                            frameworkVersion: input.frameworkVersion ?? null,
+                            frameworkVersionSource: input.frameworkVersionSource ?? 'none',
+                            frameworkRepo: input.frameworkRepo ?? null,
+                            frameworkArtifacts: input.frameworkArtifacts ?? null
+                        }
+                        if (codingFramework) {
+                            installedVersion = await this.installCodingFramework(
+                                ctx,
+                                codingFramework,
+                                this.daemonRunner(host, session)
+                            )
+                            await this.prepareCodingSandbox(ctx, codingFramework)
+                        } else if (serviceBootstrap) {
+                            const result = await this.runServiceBootstrap(
+                                serviceBootstrap,
+                                ctx,
+                                input.credentials ?? {}
+                            )
+                            endpointUrl = result.endpointUrl
+                            generatedCredentials = result.generatedCredentials
+                            installedVersion = result.installedVersion
+                        }
+                        await this.installHostSelfHelpers({
+                            client,
+                            spriteName,
+                            hostId: host.id,
+                            logger: this.spritesLogger()
+                        })
+                        return { endpointUrl, generatedCredentials, installedVersion }
+                    }
                 )
-                await this.prepareCodingSandbox(ctx, codingFramework)
-            } else if (serviceBootstrap) {
-                const result = await this.runServiceBootstrap(
-                    serviceBootstrap,
-                    ctx,
-                    input.credentials ?? {}
-                )
-                endpointUrl = result.endpointUrl
-                generatedCredentials = result.generatedCredentials
-                installedVersion = result.installedVersion
-            }
-            await this.installHostSelfHelpers({
-                client,
-                spriteName,
-                hostId: host.id,
-                logger: this.spritesLogger()
-            })
             if (installedVersion)
                 await this.runtimes.applyProvisioningPatch(runtimeId, {
                     frameworkVersion: installedVersion,

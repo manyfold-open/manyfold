@@ -28,7 +28,6 @@ const emptyProvisioner = (): SpritesProvisioner =>
         none,
         none,
         none,
-        none,
         new SpriteServiceBootstraps({} as never, {} as never),
         none,
         none,

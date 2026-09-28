@@ -128,7 +128,6 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
         db as never,
         frameworkVersions as never,
         crypto as never

@@ -141,18 +141,17 @@ const buildHarness = (opts: {
         { selectProvider: async () => provider } as never,
         { for: () => adapter } as never,
         {
-            requireHostDaemon: async (host: RuntimeHostRow) => {
+            withHost: async (
+                args: { host: RuntimeHostRow },
+                work: (session: unknown) => Promise<unknown>
+            ) => {
                 calls.push('daemon')
                 if (opts.daemonComesUp === false) throw new Error('daemon never came up')
+                // The daemon registering is what flips a new sandbox ready.
                 state.host = { ...state.host, status: 'ready' }
-                return { hostId: host.id }
-            },
-            ensureHostDaemon: async (args: { host: RuntimeHostRow }) => {
-                calls.push('daemon')
-                return { handle: { daemonId: args.host.id, started: false, generation: null } }
+                return work({ host: args.host, daemonId: args.host.id })
             }
         } as never,
-        {} as never,
         {
             revokeForHost: async (hostId: string) => {
                 revokedForHosts.push(hostId)
@@ -280,7 +279,6 @@ const wakeProvisioner = (
         { findById: async () => hostRow({ status: 'ready', keepAwake }) } as never,
         {} as never,
         { spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} }) } as never,
-        {} as never,
         {} as never,
         {} as never,
         {} as never,

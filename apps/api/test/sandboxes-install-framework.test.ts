@@ -122,7 +122,6 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         hostDaemons as never,
-        {} as never,
         {
             getCachedLatest: async () => ({
                 channel: 'stable',

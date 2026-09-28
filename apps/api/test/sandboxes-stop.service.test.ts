@@ -148,7 +148,6 @@ const makeStop = (opts: {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
         spriteStatusSync as never,
         {} as never,
         {} as never,

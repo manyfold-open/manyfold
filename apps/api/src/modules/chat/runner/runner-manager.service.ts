@@ -9,11 +9,7 @@ import {
     isCliVersionTooOld,
     profilePaths
 } from '@manyfold/shared'
-import {
-    Injectable,
-    Logger,
-    ServiceUnavailableException
-} from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import type {
     HostDaemonRow,
     RuntimeHostRow,
@@ -322,29 +318,6 @@ export class RunnerManagerService {
     // between the two.
     holdAwake(host: RuntimeHostRow, reason: string): AwakeHold {
         return this.awake.hold(host, reason)
-    }
-
-    // The throwing form for callers that cannot proceed without the daemon
-    // (a sandbox operation, a framework install).
-    async requireHostDaemon(
-        host: RuntimeHostRow,
-        args: Omit<HostDaemonArgs, 'host'> = {}
-    ): Promise<HostDaemonRow> {
-        const resolution = await this.ensureHostDaemon({ ...args, host })
-        const daemon = resolution.handle
-            ? await this.hostDaemons.findByHostId(host.id)
-            : null
-        if (!resolution.handle || !daemon)
-            throw new ServiceUnavailableException({
-                code:
-                    host.kind === 'local'
-                        ? 'DAEMON_OFFLINE'
-                        : 'SANDBOX_DAEMON_OFFLINE',
-                message: `${host.name} is not reachable (${resolution.fallbackReason ?? 'daemon offline'})`,
-                hostId: host.id,
-                reason: resolution.fallbackReason ?? 'runner_unavailable'
-            })
-        return daemon
     }
 
     private async admit(

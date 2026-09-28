@@ -69,7 +69,6 @@ const makeService = (host: Record<string, unknown> = baseHost()) => {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
         {} as never
     )
 }

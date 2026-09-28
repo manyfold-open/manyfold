@@ -42,7 +42,6 @@ const build = (row: Record<string, unknown>) => {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
         {
             ensureLease: async () => {
                 leaseCalls.push('ensure')

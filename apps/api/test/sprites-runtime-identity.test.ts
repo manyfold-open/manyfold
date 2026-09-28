@@ -256,8 +256,7 @@ const provisionerWith = (opts: {
         {} as never, // clients
         {} as never, // placement
         {} as never, // providers
-        {} as never, // runnerManager
-        {} as never, // registry
+        {} as never, // hostAccess
         {} as never, // tokens
         {} as never, // runtimes
         {} as never, // claudeBootstrap
