@@ -3983,7 +3983,6 @@ const hi: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} प्रमाणित नहीं हो सका',
     'web.agentSettings.overview.channelsBrokenMore': '+{{count}} और प्रभावित',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'अद्यतित',
     'web.agentSettings.overview.deleteBlurb': 'कार्यक्षेत्र, चैनल और संग्रहीत क्रेडेंशियल हटा देता है। इसे पूर्ववत नहीं किया जा सकता।',
     'web.agentSettings.overview.details': 'विवरण',
     'web.agentSettings.overview.fixInChannels': 'चैनल में ठीक करें',

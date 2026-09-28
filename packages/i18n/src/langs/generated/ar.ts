@@ -3981,7 +3981,6 @@ const ar: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': 'تعذّرت مصادقة {{name}}',
     'web.agentSettings.overview.channelsBrokenMore': '+{{count}} أخرى متأثرة',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'محدّثة',
     'web.agentSettings.overview.deleteBlurb': 'يحذف مساحة العمل والقنوات وبيانات الاعتماد المخزّنة. لا يمكن التراجع عن ذلك.',
     'web.agentSettings.overview.details': 'التفاصيل',
     'web.agentSettings.overview.fixInChannels': 'الإصلاح في القنوات',

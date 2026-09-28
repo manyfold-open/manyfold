@@ -15,7 +15,8 @@ import type {
     AgentModelConfigView,
     AgentProbeStatus,
     AgentStorageUsageResponse,
-    ChannelSummary
+    ChannelSummary,
+    CliVersionCatalog
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -99,7 +100,6 @@ import {
 } from '@/components/ControlRow'
 import { StatusTag, statusLabel, statusTone } from '@/components/Tag'
 import VersionPicker from '@/components/VersionPicker'
-import { VersionTag } from '@/components/VersionTag'
 import { versionChoices } from '@/lib/sandboxRuntimes'
 
 
@@ -353,6 +353,8 @@ const AgentSettingsContent: FC = (): ReactNode => {
     const [fwError, setFwError] = useState<string | null>(null)
     const [fwVersions, setFwVersions] = useState<string[] | null>(null)
     const [fwStep, setFwStep] = useState<string | null>(null)
+    const [cliCatalog, setCliCatalog] = useState<CliVersionCatalog | null>(null)
+    const [cliUpgrading, setCliUpgrading] = useState(false)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
     const applyModelConfigView = useCallback(
@@ -832,6 +834,37 @@ const AgentSettingsContent: FC = (): ReactNode => {
         }
     }, [client, agentFramework, agentRuntime])
 
+    // A sandbox's mf CLI moves in place, to any version either channel lists;
+    // a self-owned computer's is its own and updates from the Update Center.
+    useEffect(() => {
+        if (agentRuntime !== 'sprites') return
+        let cancelled = false
+        client.cliVersions
+            .list()
+            .then((catalog) => {
+                if (!cancelled) setCliCatalog(catalog)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [client, agentRuntime])
+
+    const handleUpgradeCli = async (version: string): Promise<void> => {
+        const hostId = agent?.hostId
+        if (!hostId || cliUpgrading) return
+        setCliUpgrading(true)
+        setFwError(null)
+        try {
+            await client.sandboxes.upgradeCli(hostId, version)
+            await refreshAgentSummary()
+        } catch (err) {
+            setFwError(apiErrorMessage(err))
+        } finally {
+            setCliUpgrading(false)
+        }
+    }
+
     const handleUpgradeFramework = async (version: string): Promise<void> => {
         if (!id || !agent || fwUpgrading) return
         setFwUpgrading(true)
@@ -927,12 +960,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
     const canRestart =
         frameworkKind(agent.framework) === 'service' &&
         agent.runtime === 'sprites'
-    // "up to date" is a comparison, so it takes both sides. With no latest
-    // release read, the honest render is the installed version and nothing else.
-    const cliUpToDate =
-        !!agent.cliVersion &&
-        !!agent.cliLatestVersion &&
-        !agent.cliUpdateAvailable
     const modelProviderType =
         credentials?.provider ?? defaultProviderForFramework(agent.framework)
     const usesFrameworkModelConfig = frameworkUsesModelConfig(
@@ -1213,8 +1240,10 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         ? 'web.agentSettings.overview.provider'
                                         : 'web.agentSettings.overview.framework'
                                 )}
-                                description={frameworkLabel(agent.framework)}
                             >
+                                <span className='text-ui text-fg'>
+                                    {frameworkLabel(agent.framework)}
+                                </span>
                                 {fwVersioned ? (
                                     <VersionPicker
                                         current={agent.frameworkVersion}
@@ -1301,31 +1330,48 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             {showCli ? (
                                 <OverviewRow
                                     title={t('web.agentSettings.overview.cli')}
-                                    description={
-                                        cliUpToDate
-                                            ? t(
-                                                  'web.agentSettings.overview.cliUpToDate'
-                                              )
-                                            : undefined
-                                    }
                                 >
-                                    {agent.cliVersion ? (
-                                        <VersionTag
-                                            label={agent.cliVersion}
-                                            latest={
-                                                agent.cliUpdateAvailable
-                                                    ? agent.cliLatestVersion
-                                                    : null
+                                    <VersionPicker
+                                        current={agent.cliVersion}
+                                        unknownLabel={t(
+                                            'web.agents.detail.framework.notDetected'
+                                        )}
+                                        groups={[
+                                            {
+                                                label: t(
+                                                    'web.agentRuntimesList.stable'
+                                                ),
+                                                versions:
+                                                    cliCatalog?.stable ?? []
+                                            },
+                                            {
+                                                label: t(
+                                                    'web.agentRuntimesList.staging'
+                                                ),
+                                                versions: cliCatalog?.dev ?? []
                                             }
-                                            kind='cli'
-                                        />
-                                    ) : (
-                                        <span className='text-caption text-subtle'>
-                                            {t(
-                                                'web.agents.detail.framework.notDetected'
-                                            )}
-                                        </span>
-                                    )}
+                                        ]}
+                                        latest={agent.cliLatestVersion}
+                                        update={
+                                            agent.cliUpdateAvailable
+                                                ? agent.cliLatestVersion
+                                                : null
+                                        }
+                                        kind='cli'
+                                        busy={cliUpgrading}
+                                        busyLabel={t(
+                                            'web.agents.detail.framework.upgrading'
+                                        )}
+                                        onPick={
+                                            agent.runtime === 'sprites' &&
+                                            agent.hostId
+                                                ? (version) =>
+                                                      void handleUpgradeCli(
+                                                          version
+                                                      )
+                                                : null
+                                        }
+                                    />
                                 </OverviewRow>
                             ) : null}
                             {/* The platform's own skill decides whether this

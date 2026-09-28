@@ -3975,7 +3975,6 @@ const ko: Record<string, string> = {
     "web.agentSettings.overview.channelsBroken": "{{name}}이(가) 인증할 수 없습니다",
     "web.agentSettings.overview.channelsBrokenMore": "{{count}}개 더 영향받음",
     "web.agentSettings.overview.cli": "mf CLI",
-    "web.agentSettings.overview.cliUpToDate": "최신",
     "web.agentSettings.overview.deleteBlurb": "워크스페이스, 채널, 저장된 자격 증명을 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
     "web.agentSettings.overview.details": "세부",
     "web.agentSettings.overview.fixInChannels": "채널에서 수정",

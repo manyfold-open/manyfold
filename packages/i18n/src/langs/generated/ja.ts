@@ -3975,7 +3975,6 @@ const ja: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} は認証できません',
     'web.agentSettings.overview.channelsBrokenMore': '他に {{count}} 件が影響を受けています',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': '最新',
     'web.agentSettings.overview.deleteBlurb': 'ワークスペース、チャンネル、保存された認証情報を削除します。この操作は取り消せません。',
     'web.agentSettings.overview.details': '詳細',
     'web.agentSettings.overview.fixInChannels': 'チャンネルで修正',

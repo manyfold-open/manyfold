@@ -3984,7 +3984,6 @@ const de: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} kann sich nicht authentifizieren',
     'web.agentSettings.overview.channelsBrokenMore': '+{{count}} weitere betroffen',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'aktuell',
     'web.agentSettings.overview.deleteBlurb': 'Löscht den Workspace, die Kanäle und gespeicherte Zugangsdaten. Dies kann nicht rückgängig gemacht werden.',
     'web.agentSettings.overview.details': 'Details',
     'web.agentSettings.overview.fixInChannels': 'In Kanälen beheben',

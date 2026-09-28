@@ -953,7 +953,6 @@ const en = {
                 framework: 'Framework',
                 provider: 'Provider',
                 cli: 'mf CLI',
-                cliUpToDate: 'up to date',
                 accessSkill: 'Manyfold CLI skill',
                 accessInstalled: 'Installed',
                 accessInstalledBlurb:

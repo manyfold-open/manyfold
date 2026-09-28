@@ -3985,7 +3985,6 @@ const fr: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} ne peut pas s\'authentifier',
     'web.agentSettings.overview.channelsBrokenMore': '+{{count}} autres concernés',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'à jour',
     'web.agentSettings.overview.deleteBlurb': 'Supprime l\'espace de travail, les canaux et les identifiants enregistrés. Cette action est irréversible.',
     'web.agentSettings.overview.details': 'Détails',
     'web.agentSettings.overview.fixInChannels': 'Corriger dans Canaux',

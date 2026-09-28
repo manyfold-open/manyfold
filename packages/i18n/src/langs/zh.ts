@@ -930,7 +930,6 @@ const zh: Translations = {
                 framework: '框架',
                 provider: '提供方',
                 cli: 'mf CLI',
-                cliUpToDate: '已是最新',
                 accessSkill: 'Manyfold CLI 技能',
                 accessInstalled: '已安装',
                 accessInstalledBlurb:

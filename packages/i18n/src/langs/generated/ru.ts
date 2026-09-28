@@ -3986,7 +3986,6 @@ const ru: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} не может пройти аутентификацию',
     'web.agentSettings.overview.channelsBrokenMore': 'Затронуто ещё {{count}}',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'актуальна',
     'web.agentSettings.overview.deleteBlurb': 'Удаляет рабочее пространство, каналы и сохранённые учётные данные. Это действие нельзя отменить.',
     'web.agentSettings.overview.details': 'Подробности',
     'web.agentSettings.overview.fixInChannels': 'Исправить в каналах',

@@ -3985,7 +3985,6 @@ const pt: Record<string, string> = {
     'web.agentSettings.overview.channelsBroken': '{{name}} não consegue autenticar',
     'web.agentSettings.overview.channelsBrokenMore': '+{{count}} outros afetados',
     'web.agentSettings.overview.cli': 'mf CLI',
-    'web.agentSettings.overview.cliUpToDate': 'atualizado',
     'web.agentSettings.overview.deleteBlurb': 'Exclui o espaço de trabalho, os canais e as credenciais armazenadas. Isso não pode ser desfeito.',
     'web.agentSettings.overview.details': 'Detalhes',
     'web.agentSettings.overview.fixInChannels': 'Corrigir em Canais',
