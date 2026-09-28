@@ -1,11 +1,13 @@
 import {
     MANYFOLD_CLI_USAGE_SKILL_ID,
+    SANDBOX_PREINSTALLED_FRAMEWORKS,
     cliChannelOfVersion,
     compareSemverPrecedence,
     findBlockedVersionRange,
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
     isVersionedFramework,
+    parseProbedSemver,
     upgradesInPlace
 } from '@manyfold/shared'
 import type {
@@ -43,6 +45,14 @@ export type UpdateExec =
     // which is what the endpoints do with an absent `targetVersion`.
     | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
     | { type: 'sandboxCli'; hostId: string; targetVersion: string | null }
+    // One of a sandbox's pre-installed CLIs with no agent to address: the
+    // sandbox moves it in place, runtime or not.
+    | {
+          type: 'sandboxFramework'
+          hostId: string
+          framework: AgentFramework
+          targetVersion: string
+      }
     // A cloud computer's daemon updates itself; the host restarts it.
     | { type: 'podHostCli'; podHostId: string }
     // herdr rides herdr's own updater, always to its latest (ADR-0031).
@@ -360,11 +370,15 @@ const frameworkRows = (
             runtime.kind === 'sprites' ||
             (runtime.kind === 'k8s' && upgradesInPlace(mode))
         const remote = onOurs && mode !== null && runtime.primaryAgentId
-        const blocker: UpdateBlocker | null = remote
-            ? null
-            : onOurs
-              ? 'noAgent'
-              : 'manual'
+        // With no agent to address, a sandbox still moves the CLIs its image
+        // ships in place.
+        const inPlace =
+            !remote &&
+            runtime.kind === 'sprites' &&
+            runtime.hostId !== null &&
+            preinstalledOnSandbox(runtime.framework)
+        const blocker: UpdateBlocker | null =
+            remote || inPlace ? null : onOurs ? 'noAgent' : 'manual'
         const blocked = findBlockedVersionRange(
             runtime.frameworkVersion,
             entry.blocked
@@ -380,7 +394,7 @@ const frameworkRows = (
             installedVersion: runtime.frameworkVersion,
             latestVersion: entry.latest,
             targetChoices:
-                remote && mode
+                (remote && mode) || inPlace
                     ? frameworkTargets(runtime.frameworkVersion, entry)
                     : [],
             severity: blocked ? 'required' : 'recommended',
@@ -395,21 +409,92 @@ const frameworkRows = (
                           mode,
                           targetVersion: entry.latest
                       }
-                    : {
-                          type: 'none',
-                          // A daemon runtime runs on the user's own machine, so
-                          // the only honest affordance is the command to run
-                          // there; anything else needs the runtime page.
-                          guideFramework:
-                              runtime.kind === 'daemon'
-                                  ? runtime.framework
-                                  : null,
-                          href:
-                              runtime.kind === 'daemon'
-                                  ? null
-                                  : `/settings/runtimes/${runtime.id}`
-                      }
+                    : inPlace
+                      ? {
+                            type: 'sandboxFramework',
+                            hostId: runtime.hostId as string,
+                            framework: runtime.framework,
+                            targetVersion: entry.latest
+                        }
+                      : {
+                            type: 'none',
+                            // A daemon runtime runs on the user's own machine,
+                            // so the only honest affordance is the command to
+                            // run there; anything else needs the runtime page.
+                            guideFramework:
+                                runtime.kind === 'daemon'
+                                    ? runtime.framework
+                                    : null,
+                            href:
+                                runtime.kind === 'daemon'
+                                    ? null
+                                    : `/settings/runtimes/${runtime.id}`
+                        }
         })
+    }
+    return rows
+}
+
+const preinstalledOnSandbox = (framework: AgentFramework): boolean =>
+    (SANDBOX_PREINSTALLED_FRAMEWORKS as readonly string[]).includes(framework)
+
+export const sandboxFrameworkUpdateId = (
+    hostId: string,
+    framework: AgentFramework
+): string => `framework:host:${hostId}:${framework}`
+
+// A sandbox's pre-installed CLIs that no runtime has claimed yet. They are on
+// the machine and can fall behind like any other, but only the sandbox lists
+// them, so without these rows an outdated one had nowhere to be updated.
+const sandboxFrameworkRows = (
+    inputs: UpdateCenterInputs,
+    frameworkLabel: (framework: AgentFramework) => string
+): UpdateRow[] => {
+    const catalog = new Map(
+        inputs.frameworkCatalog.map((entry) => [entry.framework, entry])
+    )
+    const claimed = new Set(
+        inputs.runtimes.map(
+            (runtime) => `${runtime.hostId}:${runtime.framework}`
+        )
+    )
+    const rows: UpdateRow[] = []
+    for (const sandbox of inputs.sandboxes) {
+        if (sandbox.status !== 'ready') continue
+        for (const detected of sandbox.detectedFrameworks) {
+            const { framework } = detected
+            // What `--version` printed, e.g. "2.1.251 (Claude Code)".
+            const version = detected.version
+                ? parseProbedSemver(detected.version)
+                : null
+            if (!preinstalledOnSandbox(framework)) continue
+            if (claimed.has(`${sandbox.id}:${framework}`)) continue
+            const entry = catalog.get(framework)
+            if (!entry?.latest) continue
+            if (!frameworkUpgradeAvailable(version, entry.latest)) continue
+            const blocked = findBlockedVersionRange(version, entry.blocked)
+            rows.push({
+                id: sandboxFrameworkUpdateId(sandbox.id, framework),
+                kind: 'framework',
+                subjectLabel: frameworkLabel(framework),
+                framework,
+                targetKind: 'sandbox',
+                targetKey: hostKey(sandbox.id),
+                targetLabel: sandbox.name,
+                installedVersion: version,
+                latestVersion: entry.latest,
+                targetChoices: frameworkTargets(version, entry),
+                severity: blocked ? 'required' : 'recommended',
+                blockedReason: blocked?.reason ?? null,
+                blocker: null,
+                exec: {
+                    type: 'sandboxFramework',
+                    hostId: sandbox.id,
+                    framework,
+                    targetVersion: entry.latest
+                }
+            })
+        }
     }
     return rows
 }
@@ -485,6 +570,7 @@ export const buildUpdateRows = (
         ...cliRows(inputs),
         ...herdrRows(inputs),
         ...frameworkRows(inputs, frameworkLabel),
+        ...sandboxFrameworkRows(inputs, frameworkLabel),
         ...skillRows(inputs)
     ].sort(compareRows)
 
@@ -671,6 +757,13 @@ export type BatchStep =
           hostId: string
           targetVersion: string | null
       }
+    | {
+          type: 'sandboxFramework'
+          rowId: string
+          hostId: string
+          framework: AgentFramework
+          targetVersion: string
+      }
     | { type: 'podHostCli'; rowId: string; podHostId: string }
     | { type: 'daemonHerdr'; rowId: string; hostId: string }
     | { type: 'sandboxHerdr'; rowId: string; hostId: string }
@@ -688,6 +781,8 @@ const stepOrder = (step: BatchStep): number => {
         case 'daemonHerdr':
         case 'podHostCli':
             return 2
+        case 'sandboxFramework':
+            return 3
         case 'framework':
             // A rebuild takes minutes while every other step takes seconds, so
             // it goes last: a queue that starts with one holds up everything
@@ -764,6 +859,15 @@ export const planBatch = (
                     type: 'sandboxHerdr',
                     rowId: row.id,
                     hostId: row.exec.hostId
+                })
+                break
+            case 'sandboxFramework':
+                steps.push({
+                    type: 'sandboxFramework',
+                    rowId: row.id,
+                    hostId: row.exec.hostId,
+                    framework: row.exec.framework,
+                    targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
             case 'agentFramework':

@@ -367,10 +367,12 @@ test('an unversioned framework is never offered an update', () => {
 })
 
 test('a sprite runtime with no primary agent has no endpoint to address', () => {
-    const runtime = makeRuntime({ primaryAgentId: null })
+    // pi is not one of the CLIs the sprite image ships, which the sandbox
+    // can move in place without an agent (below).
+    const runtime = makeRuntime({ framework: 'pi', primaryAgentId: null })
     const rows = build({
         runtimes: [runtime],
-        frameworkCatalog: [catalogEntry()]
+        frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
     assert.equal(rows[0].blocker, 'noAgent')
     assert.deepEqual(rows[0].exec, {
@@ -378,6 +380,114 @@ test('a sprite runtime with no primary agent has no endpoint to address', () => 
         guideFramework: null,
         href: `/settings/runtimes/${runtime.id}`
     })
+})
+
+test('a sandbox moves a pre-installed CLI in place when no agent can', () => {
+    const runtime = makeRuntime({ hostId: 'sbx_1', primaryAgentId: null })
+    const rows = build({
+        runtimes: [runtime],
+        frameworkCatalog: [catalogEntry()]
+    })
+    assert.equal(rows[0].id, `framework:${runtime.id}`)
+    assert.equal(rows[0].blocker, null)
+    assert.deepEqual(rows[0].targetChoices, ['2.1.0'])
+    assert.deepEqual(rows[0].exec, {
+        type: 'sandboxFramework',
+        hostId: 'sbx_1',
+        framework: 'claude-code',
+        targetVersion: '2.1.0'
+    })
+})
+
+// Seen on a local stack [2026-09-28]: a sandbox's pre-installed Claude Code sat
+// at 2.1.251 with 2.1.283 out, and nothing listed it, because no runtime had
+// claimed it yet.
+test("a sandbox's unclaimed pre-installed CLI gets a row of its own", () => {
+    const sandbox = makeSandbox({
+        id: 'sbx_1',
+        name: 'sandbox-001',
+        cliUpdateAvailable: false,
+        // what the daemon reports: the CLI's own `--version` line
+        detectedFrameworks: [
+            {
+                framework: 'claude-code',
+                version: '2.0.0 (Claude Code)',
+                path: '~/.local/bin/claude'
+            },
+            {
+                framework: 'codex',
+                version: 'codex-cli 0.9.0',
+                path: '~/.local/bin/codex'
+            }
+        ]
+    })
+    const rows = build({
+        sandboxes: [sandbox],
+        // codex has a runtime already: its row is the runtime's, not a second
+        runtimes: [
+            makeRuntime({
+                framework: 'codex',
+                hostId: 'sbx_1',
+                frameworkVersion: '0.9.0'
+            })
+        ],
+        frameworkCatalog: [
+            catalogEntry(),
+            catalogEntry({
+                framework: 'codex',
+                latest: '0.9.0',
+                versions: ['0.9.0']
+            })
+        ]
+    })
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].id, 'framework:host:sbx_1:claude-code')
+    assert.equal(rows[0].targetKey, 'host:sbx_1')
+    assert.equal(rows[0].targetLabel, 'sandbox-001')
+    assert.equal(rows[0].installedVersion, '2.0.0')
+    assert.deepEqual(rows[0].exec, {
+        type: 'sandboxFramework',
+        hostId: 'sbx_1',
+        framework: 'claude-code',
+        targetVersion: '2.1.0'
+    })
+    assert.deepEqual(planBatch(rows, { [rows[0].id]: '2.1.0' }), [
+        {
+            type: 'sandboxFramework',
+            rowId: 'framework:host:sbx_1:claude-code',
+            hostId: 'sbx_1',
+            framework: 'claude-code',
+            targetVersion: '2.1.0'
+        }
+    ])
+})
+
+test("a detected CLI gets no row when it is current, unknown, or not the image's", () => {
+    const rows = build({
+        sandboxes: [
+            makeSandbox({
+                cliUpdateAvailable: false,
+                detectedFrameworks: [
+                    { framework: 'claude-code', version: '2.1.0', path: 'a' },
+                    { framework: 'codex', version: null, path: 'b' },
+                    { framework: 'pi', version: '0.1.0', path: 'c' }
+                ]
+            }),
+            makeSandbox({
+                status: 'provisioning',
+                cliUpdateAvailable: false,
+                detectedFrameworks: [
+                    { framework: 'claude-code', version: '2.0.0', path: 'a' }
+                ]
+            })
+        ],
+        frameworkCatalog: [
+            catalogEntry(),
+            catalogEntry({ framework: 'codex' }),
+            catalogEntry({ framework: 'pi', latest: '0.2.0' })
+        ]
+    })
+    assert.deepEqual(rows, [])
 })
 
 test("a framework on the user's own machine offers the command, not a mutation", () => {
@@ -939,8 +1049,8 @@ test('rows the platform cannot drive are dropped from the plan, not failed', () 
             makeHost({ canRemoteUpgrade: false }),
             makeHost({ online: false })
         ],
-        runtimes: [makeRuntime({ primaryAgentId: null })],
-        frameworkCatalog: [catalogEntry()]
+        runtimes: [makeRuntime({ framework: 'pi', primaryAgentId: null })],
+        frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
     assert.equal(rows.length, 3)
     assert.deepEqual(planBatch(rows), [])
@@ -1029,8 +1139,8 @@ test('the default target is always one of the offered versions', () => {
 
 test('a framework nobody can drive remotely offers no target', () => {
     const rows = build({
-        runtimes: [makeRuntime({ primaryAgentId: null })],
-        frameworkCatalog: [catalogEntry()]
+        runtimes: [makeRuntime({ framework: 'pi', primaryAgentId: null })],
+        frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
     assert.equal(rows[0].blocker, 'noAgent')
     assert.deepEqual(rows[0].targetChoices, [])
