@@ -23,7 +23,6 @@ import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-boot
 import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
-import { podScriptRunner } from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 
@@ -131,16 +130,15 @@ export class AgentServiceRestartService {
                 `${agent.framework} has no service to restart on a cloud computer`
             )
         const creds = await this.decryptCreds(runtime.id)
-        const exec = await this.hostClients.podExecForHost(host)
-        const setup = await recipe.configure(
-            podScriptRunner(exec, (event, fields) =>
-                this.log.warn(`${event} ${JSON.stringify(fields)}`)
-            ),
-            {
-                credentials: creds,
-                envText: envTextFromExtras(agent.extras) ?? null,
-                controlUiEnabled: runtime.controlUiEnabled
-            }
+        const setup = await this.podServices.runScripts(
+            host,
+            'service-restart',
+            (runner) =>
+                recipe.configure(runner, {
+                    credentials: creds,
+                    envText: envTextFromExtras(agent.extras) ?? null,
+                    controlUiEnabled: runtime.controlUiEnabled
+                })
         )
         this.log.log(
             `restarting ${agent.framework} service on pod host ${host.id} for agent ${agent.id}`
