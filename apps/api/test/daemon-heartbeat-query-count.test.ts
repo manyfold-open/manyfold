@@ -391,6 +391,40 @@ test('changed daemon metadata is written alongside the presence column', async (
     assert.equal(hostReads.count, 1)
 })
 
+// A sandbox's daemon re-detects every few minutes and sends its cached list
+// in between; a version the API probed after moving a CLI must survive that.
+test("a heartbeat keeps a version the API just probed over the daemon's cache", async () => {
+    const probedAt = new Date(Date.now() - 60_000).toISOString()
+    const row = daemon({
+        detectedFrameworks: [
+            {
+                framework: 'codex',
+                version: '0.158.0',
+                path: '/home/sprite/.local/bin/codex',
+                probedAt
+            }
+        ],
+        startupMethod: 'launchd-user',
+        clientFeatures: ['exec.resume'],
+        terminalPty: null
+    })
+    const { service, patches } = hostService(row)
+
+    await service.heartbeat({
+        ...heartbeatArgs,
+        detectedFrameworks: [
+            {
+                framework: 'codex',
+                version: 'codex-cli 0.151.0',
+                path: '/home/sprite/.local/bin/codex'
+            }
+        ]
+    })
+
+    assert.deepEqual(Object.keys(patches[0]), ['lastSeenAt'])
+    assert.equal(row.detectedFrameworks[0].version, '0.158.0')
+})
+
 test('the heartbeat route resolves its host with a single read', async () => {
     const reads: string[] = []
     const hostRow = host()

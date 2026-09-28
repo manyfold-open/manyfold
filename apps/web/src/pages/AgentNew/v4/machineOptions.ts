@@ -137,10 +137,26 @@ export const buildMachineOptions = (args: {
             continue
         }
         if (target.type === 'attach') {
+            // The attach targets include every sandbox, whatever its own
+            // state. One whose build failed, or has not finished, cannot take
+            // an install — the API answers "not reachable" — so it stays
+            // listed with the reason, as a cloud computer in that state does.
+            // Seen on a local stack [2026-09-27]: the sandbox left behind by
+            // a failed build was offered as an empty machine to install onto.
+            const status = sandboxes.find((s) => s.id === target.hostId)?.status
+            const unavailableReason =
+                status === 'failed'
+                    ? 'failed'
+                    : status === 'provisioning'
+                      ? 'starting'
+                      : undefined
             rows.push({
                 id: hostKey(target.hostId),
                 title: target.name ?? target.hostId,
-                state: 'needs-install',
+                state:
+                    unavailableReason !== undefined
+                        ? 'unavailable'
+                        : 'needs-install',
                 runtimeId: null,
                 sandboxId: target.hostId,
                 podHostId: null,
@@ -149,7 +165,10 @@ export const buildMachineOptions = (args: {
                 agentsCount: 0,
                 signInCost: 'after',
                 idle: target.runtimeCount === 0,
-                disabled: false
+                ...(unavailableReason !== undefined
+                    ? { unavailableReason }
+                    : {}),
+                disabled: unavailableReason !== undefined
             })
             continue
         }

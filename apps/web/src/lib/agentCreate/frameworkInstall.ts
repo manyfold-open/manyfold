@@ -1,5 +1,9 @@
 import type { AgentFramework, SandboxSummary } from '@manyfold/shared'
-import { compareSemverPrecedence, frameworkKind } from '@manyfold/shared'
+import {
+    compareSemverPrecedence,
+    frameworkKind,
+    parseProbedSemver
+} from '@manyfold/shared'
 
 // What the create form says about the picked framework on the picked sandbox:
 // absent, behind the catalog, current, or installed with no catalog to judge
@@ -22,13 +26,18 @@ export const frameworkOnHostState = (
     return { kind: 'outdated', installed, latest }
 }
 
-// The version the sandbox's last probe saw for a framework, if any.
+// The version the sandbox's last probe saw for a framework, if any. The
+// daemon reports the CLI's own `--version` line ("2.1.251 (Claude Code)");
+// a line with no version in it is kept, as the framework is still there.
 export const installedFrameworkVersion = (
     sandbox: Pick<SandboxSummary, 'detectedFrameworks'> | null | undefined,
     framework: string
-): string | null =>
-    sandbox?.detectedFrameworks.find((f) => f.framework === framework)
-        ?.version ?? null
+): string | null => {
+    const line =
+        sandbox?.detectedFrameworks.find((f) => f.framework === framework)
+            ?.version ?? null
+    return line ? (parseProbedSemver(line) ?? line) : null
+}
 
 // A sprite exposes one public port, and every service framework serves its
 // gateway on it, so a sandbox holds at most one of them: the one already

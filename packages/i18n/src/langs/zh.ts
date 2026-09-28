@@ -9,7 +9,6 @@ const zh: Translations = {
         installing: '安装中…',
         importing: '导入中…',
         copying: '复制中…',
-        loadingShort: '加载中…',
         save: '保存',
         confirm: '确认',
         typeToConfirmPrefix: '输入',
@@ -261,6 +260,7 @@ const zh: Translations = {
                     working: '处理中…'
                 },
                 copyAgentId: '复制 Agent ID',
+                copyHostId: '复制主机 ID',
                 copyWorkspacePath: '复制工作区路径',
                 created: '创建时间',
                 dashboard: {
@@ -315,22 +315,13 @@ const zh: Translations = {
                     title: '文件'
                 },
                 framework: {
-                    changeTitle: '切换框架版本',
-                    changeVersion: '切换版本',
-                    changeVersionEllipsis: '切换版本…',
-                    chooseVersion:
-                        '选择要安装的 {{framework}} 版本。升级会在 sandbox 内执行，最多约一分钟。',
-                    latest: '最新 {{version}}',
                     notDetected: '未检测到',
                     refreshVersion: '刷新版本',
-                    upgrade: '升级',
-                    upgradeTitle: '升级框架',
                     upgrading: '升级中…',
                     upgradingStep: '升级中… {{step}}',
-                    versionBlocked: '当前 {{framework}} 版本存在已知缺陷',
-                    versionLabel: '版本'
+                    versionBlocked: '当前 {{framework}} 版本存在已知缺陷'
                 },
-                lastActive: '最近活跃',
+                hostId: '主机 ID',
                 lastMessage: '最近消息',
                 mcp: {
                     alreadySynced: '已与 Runtime 同步。',
@@ -406,7 +397,6 @@ const zh: Translations = {
                     title: '权限'
                 },
                 refresh: '刷新',
-                runtime: '运行时',
                 saving: '保存中…',
                 skills: {
                     description:
@@ -426,12 +416,9 @@ const zh: Translations = {
                     deleteAction: '删除',
                     deleteConfirm: '删除 {{date}} 的备份吗？',
                     deleteTitle: '删除备份',
-                    manage: '管理 →',
                     measured: '测量于 {{date}}',
-                    measuredInline: ' · 测量于 {{date}}',
                     noBackups: '暂无工作区备份。',
                     notMeasured: '尚未测量存储用量。',
-                    notMeasuredInline: ' · 尚未测量',
                     restoreAction: '恢复',
                     restoreConfirm:
                         '恢复 {{date}} 的备份吗？当前工作区文件会被替换。',
@@ -445,7 +432,7 @@ const zh: Translations = {
                     unavailableExternal:
                         '外部 Agent 在 Manyfold 上没有工作区，因此这里没有可备份的内容。',
                     starting: '启动中...',
-                    title: 'Agent 路径用量',
+                    title: '存储',
                     total: 'Agent 路径合计',
                     cachedSandbox: '沙箱文件系统缓存：{{value}} · 测量于 {{date}}',
                     asleep: '沙箱休眠中'
@@ -610,7 +597,8 @@ const zh: Translations = {
                 available: '可用',
                 wakeable: '休眠中',
                 offline: '离线',
-                unavailable: '不可用'
+                unavailable: '不可用',
+                notConnected: '未连接'
             },
             lifecycle: {
                 provisioning: '准备中',
@@ -634,6 +622,18 @@ const zh: Translations = {
                 sprites: '有状态沙箱',
                 k8s: '云端计算机',
                 external: '外部 API'
+            },
+            sandboxLegend: {
+                button: '状态颜色说明',
+                title: '状态颜色',
+                intro: '同一台沙箱在各处颜色一致：这里、运行时列表，以及聊天中其上的 Agent。',
+                running: '已开机，daemon 已连接，Agent 会立即回复。计入运行时间。',
+                suspended: '休眠中，下一条消息会唤醒它。不计入运行时间。',
+                stopped: '休眠且已关机，下一条消息会唤醒它，比从“已挂起”唤醒更慢。不计入运行时间。',
+                notConnected: '已开机，但 daemon 未连接：刚被唤醒，或 daemon 已停止。下一条消息会重新连接。计入运行时间。',
+                deleting: '正在删除，其上的所有内容会一并删除。',
+                provisioning: '正在创建。',
+                failed: '未能创建，或其机器已不存在。原因见下方。'
             }
         },
         controlRow: {
@@ -659,8 +659,6 @@ const zh: Translations = {
             stopped: '已停止',
             unknown: '未知',
             failed: '失败',
-            online: '在线',
-            offline: '离线',
             checked: '检查于 {{time}}',
             failedToOpenControlUi: '打开控制 UI 失败',
             failedToOpenDashboard: '打开 Dashboard 失败',
@@ -675,7 +673,6 @@ const zh: Translations = {
             rename: '重命名',
             deleting: '删除中…',
             runtimeFailed: '运行时失败',
-            upgrade: '升级',
             agents: 'Agent（{{count}}）',
             controls: '控制',
             controlUi: '控制 UI',
@@ -697,13 +694,7 @@ const zh: Translations = {
             service: '服务',
             phase: '阶段',
             created: '创建于',
-            upgradeFramework: '升级框架',
-            changeFrameworkVersion: '更换框架版本',
-            chooseVersion:
-                '选择要安装的 {{framework}} 版本。升级在沙箱中进行，最多需要一分钟。',
-            cancel: '取消',
             upgrading: '升级中…',
-            version: '版本',
             renameRuntime: '重命名运行时',
             account: {
                 title: '账号',
@@ -859,7 +850,6 @@ const zh: Translations = {
             sandboxActivityBody: '当前没有任务在运行或排队，沙箱将自动暂停。',
             runtimesTitle: '还没有运行时',
             hostRuntimesBody: '在下方安装框架，守护进程会自动检测。',
-            sandboxRuntimesBody: '在下方配置框架即可添加。',
             createRuntimeBody: '创建一个沙箱运行时即可开始。',
             createRuntimeAction: '创建运行时',
             runtimeNotFoundTitle: '未找到运行时',
@@ -937,27 +927,22 @@ const zh: Translations = {
             overview: {
                 keepAwakeOn: '保持唤醒中',
                 details: '详细信息',
-                interfaces: '接口',
                 framework: '框架',
                 provider: '提供方',
                 cli: 'mf CLI',
-                cliUpToDate: '已是最新',
-                access: 'Manyfold 操作能力',
-                accessSkill: 'Manyfold CLI 技能',
-                accessSkillMeta: 'manyfold-cli-usage · 平台托管 · 新 Agent 默认安装',
+                managedSkills: '托管的 Agent Skills',
                 accessInstalled: '已安装',
-                accessMissing: '未安装',
                 accessInstalledBlurb:
                     '让这个 Agent 通过 mf CLI 替你管理渠道、自动化、技能、文件与备份，行动范围以你授予的权限为界。',
                 accessMissingBlurb:
                     '想让这个 Agent 替你操作 Manyfold？这个技能会教它通过 mf CLI 管理渠道、自动化、技能、文件与备份。新建 Agent 时默认安装，缺失时可在此补装。',
-                channelCount: '{{count}} 个渠道',
+                channelCount: '已连接 {{count}} 个',
                 channelErrors: '{{count}} 个报错',
                 channelsBroken: '{{name}} 无法认证',
                 channelsBrokenMore: '另有 {{count}} 个受影响',
                 fixInChannels: '去 Channels 修复',
-                a2aOn: 'A2A 已开启',
-                a2aOff: 'A2A 未开启',
+                a2aOn: '已开启',
+                a2aOff: '已关闭',
                 deleteBlurb: '将删除 workspace、渠道与已保存的凭证，且不可恢复。'
             },
             sections: {
@@ -1122,8 +1107,7 @@ const zh: Translations = {
             account: '账号',
             externalAgentProviders: '外部 Agent',
             channels: '渠道',
-            kicker: '工作区设置',
-            body: 'Runtime 控制、用量报表和模型厂商管理都放在这个独立的工作区界面。'
+            kicker: '工作区设置'
         },
         general: {
             title: '通用',
@@ -3548,6 +3532,7 @@ const zh: Translations = {
                 slotTaken: '已经在跑 {{other}}，而一个沙箱只有一个公网端口',
                 podHostStarting: '还在启动，就绪后才能加入 agent',
                 podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
+                sandboxFailed: '启动失败；请在 设置 › 运行时 中删除它',
                 podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
             },
             newMachine: {
@@ -3641,7 +3626,10 @@ const zh: Translations = {
                 createFine: '几秒',
                 createFineAsleep: '约一分钟 · 这台机器要先唤醒',
                 creating: '正在创建…',
-                tookLonger: '比平常久了 · 失败不会留下半个 agent'
+                tookLonger: '比平常久了 · 失败不会留下半个 agent',
+                building: '正在准备机器…',
+                installing: '正在安装 {{cli}}…',
+                longerThanUsual: '比平常久了'
             }
         },
         agentNew: {
@@ -3912,16 +3900,9 @@ const zh: Translations = {
             waitingForSlot: '等待另一台沙箱进入休眠…',
             modelProviderSection: '模型 Provider',
             advancedConfig: '高级配置',
-            frameworkNotInstalled: '尚未安装在这台沙箱上',
-            installFramework: '安装',
-            upgradeFrameworkTo: '升级到 v{{version}}',
-            frameworkUpToDate: '最新',
             frameworkInstalling: '安装中…',
             frameworkUpgrading: '升级中…',
-            frameworkNotChecked: '尚未在这台沙箱上检测',
-            checkFramework: '检测',
             frameworkChecking: '检测中…',
-            frameworkInstalled: '已安装',
             frameworkServiceSlotTaken:
                 '这台沙箱已在运行 {{framework}}；OpenClaw、Hermes 同一时间只能装一个。',
             deleteHasAgents: '先删除其上的 agent',
@@ -4485,10 +4466,8 @@ const zh: Translations = {
                 installing: '安装中',
                 asleep: '休眠中'
             },
-            changeVersion: '更改版本',
             updating: '更新中…',
             endpoint: '端点',
-            version: '版本',
         },
         agentRuntimesList: {
             collapseHost: '收起主机',
@@ -4505,13 +4484,8 @@ const zh: Translations = {
                 '在 {{host}} 上运行此命令，守护进程会自动检测 — Manyfold 不会在你的电脑上安装 CLI。',
             latest: '最新',
             installedNotProvisioned: '已安装 · 未配置',
-            preinstalledReady: '预装 · 可配置',
             notInstalled: '未安装',
-            needsSandbox: '需要独立沙箱',
-            notProvisioned: '未配置',
-            noCliVersion: '尚未报告 CLI 版本 — 升级会安装 CLI。',
             versionUnknown: '版本未知',
-            changeCliVersion: '更改 mf CLI 版本',
             managedBy: '由 Manyfold 管理 — 请通过框架删除，而不是在此处操作。',
             managed: '已管理',
             active: '活跃',
@@ -4532,15 +4506,12 @@ const zh: Translations = {
             deletingSandbox: '删除沙箱中…',
             machineOffline: '机器离线',
             upgrading: '升级中…',
-            upgrade: '升级',
             runtimesTitle: '运行时',
             availableFrameworks: '可用框架',
             detecting: '检测中…',
             detectFrameworks: '检测框架',
             installDaemonHint:
                 '请在此机器上自行安装 Agent CLI，守护进程会自动检测。',
-            provisionHint:
-                '在此沙箱中配置另一个 Agent CLI。服务框架（openclaw/hermes）会运行在独立 sprite 中。',
             activity: '活动',
             deleteService: '删除服务',
             deleteTask: '删除任务',
@@ -4583,17 +4554,10 @@ const zh: Translations = {
             serviceStopped: '已停止',
             serviceFailed: '失败',
             sandbox: '沙箱',
-            provision: '配置',
             alreadyRuns: '{{framework}} 已在此运行',
-            unavailableAction: '不可用',
             leaseExpires: '保持唤醒租约到期时间 {{time}}',
             guideInstallMethods:
                 '任何安装方式都可以 — 守护进程会在 PATH（包括 Homebrew、原生安装器或 nvm/fnm/volta）中找到 CLI 并将其注册为运行时。',
-            versionPickerDaemon:
-                '选择要在“{{name}}”上安装的版本。守护进程会重启，此机器上的 Agent 会短暂停止。',
-            versionPickerSandbox:
-                '选择要在“{{name}}”上安装的版本。升级会原地完成，不会重启任何内容。',
-            latestVersion: '最新（v{{version}}）',
             activePeriod: '活跃 {{duration}}（本周期）',
             activityDescription: '让这个沙箱保持唤醒的东西：托管服务（例如开发服务器）和活动租约 — 保持唤醒开关会安装一个租约。保持唤醒租约由该开关管理；Agent 注册的任务可以在此删除。',
             loading: '加载中…',
@@ -4608,7 +4572,6 @@ const zh: Translations = {
             herdrLabel: 'herdr',
             sandboxHerdrDescription: '沙箱里的 herdr，交接过去的对话在这里打开。安装与升级都是原地进行，不会重启任何东西。',
             daemonHerdrDescription: '这台电脑上的 herdr。升级时运行 herdr 自己的更新器。',
-            installVersion: '安装 {{version}}',
             herdrUpgradedMessage: 'herdr 已升级到 v{{version}}',
             sandboxCliDescription:
                 '此沙箱中安装的平台 CLI。升级会原地完成，不会重启。',
@@ -4627,6 +4590,8 @@ const zh: Translations = {
             hostDeleting: '正在删除机器…',
             removingAgents: '请先删除其上的 Agent',
             refreshStatus: '刷新状态',
+            installFramework: '安装框架',
+            settingUp: '正在设置…',
             provider: '提供商',
             providerRef: '提供商引用',
             daemon: 'Daemon'

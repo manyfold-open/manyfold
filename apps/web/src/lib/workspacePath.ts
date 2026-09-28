@@ -5,12 +5,10 @@ export const workspacePathOf = (agent: SdkAgent): string => {
     return path || '/workspace'
 }
 
-// The directory's own name, for the chat header's daemon chip. A sandbox path is
-// plumbing (every agent's differs only by an opaque id), but a daemon agent's
-// directory says which of your projects it acts on — and the basename is the
-// part that carries that, so the header shows it rather than the full path.
-// Returns null when there is no meaningful name, so the caller can render
-// nothing instead of an empty chip.
+// The directory's own name, for the chat header's second line: the basename is
+// the part that says which folder the agent acts on, so the header shows it and
+// leaves the full path to the hover. Returns null when there is no meaningful
+// name, so the caller can render nothing instead of an empty label.
 export const workspaceDirNameOf = (agent: SdkAgent): string | null => {
     const trimmed = workspacePathOf(agent).replace(/[/\\]+$/, '')
     const name = trimmed.split(/[/\\]/).pop()?.trim()

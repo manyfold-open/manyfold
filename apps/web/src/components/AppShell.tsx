@@ -67,12 +67,11 @@ import { useAppAuth } from '@/lib/auth'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import SignupBetaBadge from '@/components/signup-gate/BetaBadge'
 import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
-import AgentStatusDot from '@/components/AgentStatusDot'
+import { AgentIconStatus } from '@/components/AgentStatusDot'
 import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import ConcurrencyIndicator from '@/components/ConcurrencyIndicator'
 import { extraShellOverlays, extraSidebarMeters } from '@/shell-extra'
-import { countActiveSandboxes } from '@/lib/concurrencySlots'
 import AgentSidebarControls from '@/components/AgentSidebarControls'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
 import { useSidebarResize } from '@/lib/useSidebarResize'
@@ -1428,17 +1427,18 @@ const CollapsedAgentSessionsMenu: FC<CollapsedAgentSessionsMenuProps> = ({
                       style={panelStyle}
                   >
                       <div className='shadow-ring-light bg-soft mb-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2'>
-                          <FrameworkLogoIcon
-                              framework={agent.framework}
-                              className='h-[1.125rem] w-[1.125rem]'
+                          <AgentIconStatus
+                              agent={agent}
+                              icon={
+                                  <FrameworkLogoIcon
+                                      framework={agent.framework}
+                                      className='h-[1.125rem] w-[1.125rem]'
+                                  />
+                              }
+                              ring='border-soft'
                           />
-                          <div className='min-w-0 flex-1'>
-                              <div className='flex items-center gap-2'>
-                                  <div className='text-ui text-fg truncate font-medium'>
-                                      {agent.name}
-                                  </div>
-                                  <AgentStatusDot agent={agent} />
-                              </div>
+                          <div className='text-ui text-fg min-w-0 flex-1 truncate font-medium'>
+                              {agent.name}
                           </div>
                       </div>
 
@@ -3123,10 +3123,6 @@ const AppShell: FC = (): ReactNode => {
         const channelsLabel = t('web.agents.detail.channels.title')
         const automationsLabel = t('web.shell.automations')
         const readOnlyLabel = t('web.shell.readOnly')
-        const concurrencyLimit = runtimeAccess?.plan.maxConcurrentActive ?? null
-        const concurrencyFull =
-            concurrencyLimit != null &&
-            countActiveSandboxes(agents, sandboxes) >= concurrencyLimit
 
         return (
             <div
@@ -3657,11 +3653,6 @@ const AppShell: FC = (): ReactNode => {
                                         const agentSessionsError =
                                             sessionErrorByAgent[agent.id] ??
                                             null
-                                        const occupiesSlot =
-                                            agent.runtime === 'sprites' &&
-                                            agent.powerState === 'running'
-                                        const isReleasing =
-                                            releasingAgentIds.has(agent.id)
                                         const agentTitle = `${agent.name} · ${frameworkDisplayLabel(
                                             agent.framework
                                         )} · ${agentStatusDotLabel(agent)}${showReadOnlyBadge ? ` · ${readOnlyLabel}` : ''}`
@@ -3789,27 +3780,28 @@ const AppShell: FC = (): ReactNode => {
                                                                     }
                                                                     className={agentToggleClass()}
                                                                 >
-                                                                    <FrameworkLogoIcon
-                                                                        framework={
-                                                                            agent.framework
+                                                                    <AgentIconStatus
+                                                                        agent={
+                                                                            agent
+                                                                        }
+                                                                        icon={
+                                                                            <FrameworkLogoIcon
+                                                                                framework={
+                                                                                    agent.framework
+                                                                                }
+                                                                            />
+                                                                        }
+                                                                        ring={
+                                                                            menuOpenAgentId ===
+                                                                            agent.id
+                                                                                ? 'border-rail-hover'
+                                                                                : 'border-rail group-hover/row:border-rail-hover'
                                                                         }
                                                                     />
-                                                                    <div className='flex min-w-0 flex-1 items-center gap-2'>
-                                                                        <div className='text-ui text-subtle truncate font-medium'>
-                                                                            {
-                                                                                agent.name
-                                                                            }
-                                                                        </div>
-                                                                        <AgentStatusDot
-                                                                            agent={
-                                                                                agent
-                                                                            }
-                                                                            tone={
-                                                                                occupiesSlot
-                                                                                    ? `${concurrencyFull ? 'bg-warning' : 'bg-success'}${isReleasing ? ' animate-pulse' : ''}`
-                                                                                    : undefined
-                                                                            }
-                                                                        />
+                                                                    <div className='text-ui text-subtle min-w-0 flex-1 truncate font-medium'>
+                                                                        {
+                                                                            agent.name
+                                                                        }
                                                                     </div>
                                                                     <span className='sr-only'>
                                                                         {frameworkDisplayLabel(

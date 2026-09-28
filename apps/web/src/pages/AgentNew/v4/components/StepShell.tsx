@@ -4,6 +4,7 @@ import type {
     ReactNode
 } from 'react'
 import { InfoIcon } from '@/components/icons'
+import { Spinner } from '@/components/Loading'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useI18n } from '@/lib/i18n'
 import { StepBar } from '@/pages/AgentNew/v4/components/StepBar'
@@ -92,6 +93,7 @@ export const StepShell: FC<{
                 current={current}
                 reached={reached}
                 values={values}
+                locked={busy}
                 onJump={onJump}
             />
             <h2 className='text-h3 text-fg flex items-center gap-1.5 font-medium'>
@@ -135,7 +137,9 @@ export const StepShell: FC<{
                     }
                     onClick={onNext}
                     disabled={busy || blocked}
+                    aria-busy={busy}
                 >
+                    {busy && <Spinner size={16} className='mr-2' />}
                     {primary.label}
                 </button>
                 {(primary.blockedReason ?? primary.fine) !== undefined && (

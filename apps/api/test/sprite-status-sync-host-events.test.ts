@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { runtimeHosts } from '@manyfold/db'
+import { agentRuntimes, hostDaemons, runtimeHosts } from '@manyfold/db'
 import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
 
 const HOST_SPRITE = 'nca-user-abc-sandbox'
@@ -21,12 +21,23 @@ const fakeHost = (over: Record<string, unknown> = {}) => ({
     ...over
 })
 
-const makeDb = (hostRows: Array<Record<string, unknown>>) => {
+const makeDb = (
+    hostRows: Array<Record<string, unknown>>,
+    agentRows: Array<Record<string, unknown>> = [],
+    daemonRows: Array<Record<string, unknown>> = []
+) => {
     const chain = (table: unknown) => {
         const self = {
             innerJoin: () => self,
             leftJoin: () => self,
-            where: async () => (table === runtimeHosts ? hostRows : [])
+            where: async () =>
+                table === runtimeHosts
+                    ? hostRows
+                    : table === agentRuntimes
+                      ? agentRows
+                      : table === hostDaemons
+                        ? daemonRows
+                        : []
         }
         return self
     }
@@ -55,6 +66,7 @@ const makeService = (
         userId: string
         update: Record<string, unknown>
     }> = []
+    const agentEmits: Array<Record<string, unknown>> = []
     const svc = new SpriteStatusSyncService(
         db as never,
         {
@@ -67,7 +79,9 @@ const makeService = (
         } as never,
         {} as never,
         {
-            emit: () => {},
+            emit: (_userId: string, event: Record<string, unknown>) => {
+                agentEmits.push(event)
+            },
             emitHostUpdate: (
                 userId: string,
                 update: Record<string, unknown>
@@ -88,7 +102,7 @@ const makeService = (
         {} as never
     )
     svc['clientFor' as never] = (() => client) as never
-    return { svc, powerWrites, hostEmits }
+    return { svc, powerWrites, hostEmits, agentEmits }
 }
 
 const sync = async (svc: SpriteStatusSyncService) =>
@@ -115,6 +129,93 @@ test('syncHosts broadcasts a host-update when the listing state changes', async 
     assert.equal(hostEmits[0]?.userId, 'u-1')
     assert.equal(hostEmits[0]?.update.hostId, 'host-1')
     assert.equal(hostEmits[0]?.update.powerState, 'suspended')
+})
+
+// WHY: a sprite that goes warm freezes its daemon, whose last heartbeat stays
+// inside the 45s presence window. Seen on a local stack [2026-09-28]: the
+// broadcast derived the agent from the row as it was before the write (still
+// running) plus that heartbeat, so a green agent sat beside a
+// concurrent-sandbox count that had already let its sandbox go.
+test('a sandbox going warm broadcasts its agents as wakeable', async () => {
+    const heardAt = new Date(Date.now() - 30_000)
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [
+            {
+                agent: { id: 'agent-1', userId: 'u-1', status: 'ready' },
+                runtime: { status: 'ready' },
+                daemon: { lastSeenAt: heardAt, rpcConnectedAt: heardAt }
+            }
+        ],
+        [{ hostId: 'host-1', lastSeenAt: heardAt }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'warm' }]
+    })
+    const { svc, hostEmits, agentEmits } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.equal(hostEmits[0]?.update.daemonOnline, true, 'heartbeat still fresh')
+    assert.equal(agentEmits[0]?.powerState, 'suspended')
+    assert.equal(agentEmits[0]?.availability, 'wakeable')
+})
+
+// WHY: the listing lags a wake and can stick on a stale state, while a
+// daemon heartbeats every 15s and a frozen VM sends none. Seen on a local
+// stack [2026-09-28]: a sprite listed `cold` for minutes as its daemon kept
+// heartbeating, and every turn that published `running` was undone by the
+// next pass.
+test('a fresh heartbeat keeps a sandbox running that the listing calls cold', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 5_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'cold' }]
+    })
+    const { svc, powerWrites, hostEmits } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.equal(powerWrites.length, 0)
+    assert.equal(hostEmits.length, 0)
+})
+
+test('a heartbeating sandbox the listing calls cold is published running', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'stopped' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 5_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'cold' }]
+    })
+    const { svc, powerWrites, hostEmits } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.deepEqual(powerWrites, [{ id: 'host-1', state: 'running' }])
+    assert.equal(hostEmits[0]?.update.powerState, 'running')
+})
+
+// WHY: once the daemon has gone quiet past one missed heartbeat, the machine
+// may really be asleep; the listing decides again.
+test('a quiet daemon leaves the power state to the listing', async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [],
+        [{ hostId: 'host-1', lastSeenAt: new Date(Date.now() - 60_000) }]
+    )
+    const client = makeClient({
+        sprites: [{ name: HOST_SPRITE, status: 'warm' }]
+    })
+    const { svc, powerWrites } = makeService(db, client)
+
+    await sync(svc)
+
+    assert.deepEqual(powerWrites, [{ id: 'host-1', state: 'suspended' }])
 })
 
 // WHY: the sync loop re-samples every few seconds — an unchanged state must

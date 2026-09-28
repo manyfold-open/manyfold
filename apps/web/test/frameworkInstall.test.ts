@@ -55,6 +55,42 @@ test('the sandbox probe is read per framework', () => {
     assert.equal(installedFrameworkVersion(null, 'codex'), null)
 })
 
+// Seen on a local stack [2026-09-28]: the daemon's report is the CLI's own
+// `--version` line, and read as is it neither showed as a version nor ever
+// compared as older than the catalog's: "2.1.251 (Claude Code) · Latest".
+test('a probed version is the version in the line the CLI printed', () => {
+    const sandbox = {
+        detectedFrameworks: [
+            {
+                framework: 'claude-code' as const,
+                version: '2.1.251 (Claude Code)',
+                path: '~/.local/bin/claude'
+            },
+            {
+                framework: 'codex' as const,
+                version: 'codex-cli 0.151.0',
+                path: '~/.local/bin/codex'
+            },
+            {
+                framework: 'pi' as const,
+                version: 'no version here',
+                path: '~/.local/bin/pi'
+            }
+        ]
+    }
+    assert.equal(installedFrameworkVersion(sandbox, 'claude-code'), '2.1.251')
+    assert.equal(installedFrameworkVersion(sandbox, 'codex'), '0.151.0')
+    // still installed, so still reported
+    assert.equal(installedFrameworkVersion(sandbox, 'pi'), 'no version here')
+    assert.deepEqual(
+        frameworkOnHostState(
+            installedFrameworkVersion(sandbox, 'claude-code'),
+            '2.1.283'
+        ),
+        { kind: 'outdated', installed: '2.1.251', latest: '2.1.283' }
+    )
+})
+
 test('a sandbox holds one service framework: the occupant blocks the other two, coding CLIs never do', () => {
     assert.equal(serviceSlotOccupant([]), null)
     assert.equal(serviceSlotOccupant(['claude-code', 'codex']), null)

@@ -1,14 +1,11 @@
 import {
     DAEMON_DETECTABLE_FRAMEWORKS,
-    frameworkCapability,
-    frameworkKind,
     frameworkUpgradeAvailable,
     isDevCliVersion,
     isVersionedFramework,
-    listVersionedFrameworks
+    parseProbedSemver
 } from '@manyfold/shared'
 import type {
-    AgentFramework,
     AgentRuntimeSummary,
     CliVersionCatalog,
     DaemonHostSummary,
@@ -31,7 +28,7 @@ import EmptyState from '@/components/EmptyState'
 import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu } from '@/components/CreateMenu'
 import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
-import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
+import { GhostRailRows, SheenText } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import OverflowMenu, { type OverflowMenuItem } from '@/components/OverflowMenu'
@@ -43,12 +40,10 @@ import RuntimeDetailPanel, {
     Section,
     StatusTag,
     type TagTone,
-    daemonOnlineBadge,
     formatDate,
+    machineStatusTag,
     monoCopyValue,
-    powerStateTag,
     relative,
-    runtimeAvailabilityTag,
     runtimeStatusTag
 } from '@/components/RuntimeDetailPanel'
 import { formatDuration } from '@/lib/usageFormat'
@@ -58,19 +53,17 @@ import {
     ChevronDownIcon,
     ChevronRightIcon,
     ChevronUpIcon,
-    CloudComputerIcon,
     CodeIcon,
-    GlobeIcon,
     ListViewIcon,
-    LocalDaemonIcon,
-    type LucideIcon,
     RefreshIcon,
     ZapIcon
 } from '@/components/icons'
+import HostKindIcon, { HOST_KIND_ICON } from '@/components/HostKindIcon'
+import SandboxRuntimes from '@/components/SandboxRuntimes'
+import SandboxStatusHelp from '@/components/SandboxStatusHelp'
+import VersionPicker from '@/components/VersionPicker'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
-import ProductDialog from '@/components/ProductDialog'
 import RenameDialog from '@/components/RenameDialog'
-import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useApiClient } from '@/lib/apiClient'
 import { updateRunStore, useIsTargetUpdating } from '@/lib/updateRunStore'
 import {
@@ -82,12 +75,13 @@ import {
 } from '@/lib/cascade'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import {
+    TONE_DOT,
+    availabilityTone,
     daemonPresenceLabel,
     hostKey,
-    hostLifecycleLabel,
-    hostLifecycleTone,
+    machineTone,
     placementLabel,
-    powerStateTone
+    type MachineFacts
 } from '@/lib/hostStatus'
 import { updatesPath } from '@/lib/updateCenter'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
@@ -145,21 +139,7 @@ const STATUS_ORDER: EffStatus[] = [
     'ready'
 ]
 
-const EFF_DOT: Record<EffStatus, string> = {
-    failed: 'bg-error',
-    offline: 'bg-error',
-    installing: 'bg-warning',
-    asleep: 'bg-idle',
-    ready: 'bg-success'
-}
 
-export const TONE_DOT: Record<TagTone, string> = {
-    info: 'bg-info',
-    success: 'bg-success',
-    warning: 'bg-warning',
-    error: 'bg-error',
-    idle: 'bg-idle'
-}
 
 const RUNTIME_DIMS = ['none', 'kind', 'status', 'framework'] as const
 
@@ -368,20 +348,33 @@ const buildVMs = (
     })
 }
 
-// A machine's dot is the machine, not its runtimes: a failed host is red, a
-// self-owned computer is its daemon's presence, a hosted one its power state
-// (a ready runtime on a suspended machine is still asleep).
-const vmDotClass = (vm: RuntimeVM): string => {
-    if (vm.hostStatus === 'failed') return TONE_DOT.error
-    if (vm.kind === 'daemon')
-        return vm.online === false
-            ? TONE_DOT.error
-            : vm.online
-              ? TONE_DOT.success
-              : TONE_DOT.idle
-    if (vm.hostId !== null) return TONE_DOT[powerStateTone(vm.powerState)]
-    return vm.status === null ? TONE_DOT.idle : EFF_DOT[vm.status]
-}
+// A runtime's dot: its install state until it is installed, then what its
+// machine lets it do — the same tones the machine and its agents draw.
+const runtimeDotClass = (r: AgentRuntimeSummary): string =>
+    TONE_DOT[
+        r.status === 'failed'
+            ? 'error'
+            : r.status === 'installing'
+              ? 'warning'
+              : availabilityTone(r.availability)
+    ]
+
+export const vmMachine = (vm: RuntimeVM): MachineFacts => ({
+    kind: vm.kind === 'daemon' ? 'local' : 'hosted',
+    status: vm.hostStatus,
+    powerState: vm.powerState,
+    daemonOnline: vm.online
+})
+
+// A machine's dot is the machine, not its runtimes, drawn by the one
+// machineTone the chat's agent badges use too. An external runtime has no
+// machine, so its dot is the runtime's.
+export const vmDotClass = (vm: RuntimeVM): string =>
+    vm.hostId === null
+        ? vm.runtimes[0]
+            ? runtimeDotClass(vm.runtimes[0])
+            : TONE_DOT.idle
+        : TONE_DOT[machineTone(vmMachine(vm))]
 
 const vmContaining = (vms: RuntimeVM[], runtimeId: string): RuntimeVM | null =>
     vms.find((v) => v.runtimes.some((r) => r.id === runtimeId)) ?? null
@@ -492,7 +485,7 @@ const RuntimeLeaf: FC<{
             <span
                 className={[
                     'h-2 w-2 shrink-0 rounded-full',
-                    EFF_DOT[effStatus(r)]
+                    runtimeDotClass(r)
                 ].join(' ')}
             />
         )}
@@ -537,16 +530,15 @@ const HostRuntimeRow: FC<{
                             linked pill of its own. */}
                         <VersionTag
                             label={
-                                r.frameworkVersion
-                                    ? `v${r.frameworkVersion}`
-                                    : t('web.runtimeDetail.versionPending')
+                                r.frameworkVersion ??
+                                t('web.runtimeDetail.versionPending')
                             }
                             mono={!!r.frameworkVersion}
                             latest={upgradeAvailable ? latest : null}
                             kind='framework'
+                            prefix=''
                             linked={false}
                         />
-                        {runtimeAvailabilityTag(r)}
                     </span>
                     <span className='settings-card-copy block truncate'>
                         <span className='font-mono'>{r.name}</span>
@@ -554,8 +546,8 @@ const HostRuntimeRow: FC<{
                             {' '}
                             · {r.agentsCount}{' '}
                             {r.agentsCount === 1
-                                ? t('web.agentRuntimesList.runtime')
-                                : t('web.agentRuntimesList.runtimes')}
+                                ? t('web.agentRuntimesList.agent')
+                                : t('web.agentRuntimesList.agents')}
                         </span>
                     </span>
                 </span>
@@ -573,153 +565,43 @@ const HostRuntimeRow: FC<{
     )
 }
 
-const HOST_ICON: Record<RuntimeKind, LucideIcon> = {
-    daemon: LocalDaemonIcon,
-    sprites: BoxIcon,
-    k8s: CloudComputerIcon,
-    external: GlobeIcon
-}
-
-const HostKindIcon: FC<{ kind: RuntimeKind; className?: string }> = ({
-    kind,
-    className
-}): ReactNode => {
-    const Icon = HOST_ICON[kind]
-    return (
-        <Icon
-            role='img'
-            aria-label={placementLabel(kind)}
-            className={className}
-        />
-    )
-}
-
-// A framework NOT yet provisioned on this host. Any framework can be provisioned
-// into a sandbox in place, with one exception: a sprite exposes a single public
-// port, so it hosts at most one service framework — `serviceOccupant` names
-// the one already there. Self-owned machines are
-// detect-only, so we point at the official install guide instead. Empty version
-// selection = latest. Provisioned frameworks live in "Runtimes".
+// A framework the self-owned machine can run but has no runtime for yet.
+// These machines are detect-only: we never install or upgrade CLIs on someone's
+// own computer, so the row points at the official install guide, and the
+// daemon picks the CLI up once it is on PATH. Updating an installed one is a
+// reminder like any other, so it goes through the Update Center. Runtimes the
+// machine already has live in "Runtimes".
 const AvailableFrameworkRow: FC<{
     framework: VersionedFramework
-    kind: RuntimeKind
     installed: boolean
     version: string | null
-    versions: string[]
-    latest: string | null
-    serviceOccupant: AgentFramework | null
-    provisionHostId: string | null
     onGuide?: (
         framework: VersionedFramework,
         mode: 'install' | 'upgrade'
     ) => void
-}> = ({
-    framework,
-    kind,
-    installed,
-    version,
-    versions,
-    latest,
-    serviceOccupant,
-    provisionHostId,
-    onGuide
-}): ReactNode => {
+}> = ({ framework, installed, version, onGuide }): ReactNode => {
     const { t } = useI18n()
-    const [ver, setVer] = useState('')
-    const isDaemon = kind === 'daemon'
-    const serviceSlotTaken =
-        frameworkCapability(framework).kind === 'service' &&
-        serviceOccupant !== null &&
-        serviceOccupant !== framework
-    const target = ver || latest || ''
-
-    let action: ReactNode
-    if (isDaemon) {
-        // Self-owned machines are detect-only: we never install/upgrade CLIs on
-        // someone's own computer. Point them at the official install guide
-        // instead; the daemon picks the CLI up automatically once it's on PATH.
-        // Updating an already-installed one is a reminder like any other, so it
-        // goes through the Update Center rather than opening the guide here.
-        action = installed ? (
-            <Link
-                to={updatesPath('framework')}
-                className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
-            >
-                {`${t('web.agentRuntimesList.update')}…`}
-            </Link>
-        ) : (
-            <button
-                type='button'
-                onClick={(): void => onGuide?.(framework, 'install')}
-                className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
-            >
-                {`${t('web.agentRuntimesList.install')}…`}
-            </button>
-        )
-    } else {
-        const verQuery = target ? `&version=${encodeURIComponent(target)}` : ''
-        // Provision into this sandbox; without a host id (or when the sandbox's
-        // one service slot is taken) fall back to plain agent creation on a new VM.
-        const href = serviceSlotTaken
-            ? null
-            : provisionHostId
-              ? `/agents/new?hostId=${encodeURIComponent(provisionHostId)}&framework=${framework}${verQuery}`
-              : `/agents/new?framework=${framework}${verQuery}`
-        action = (
-            <>
-                {versions.length > 0 && (
-                    <WorkbenchSelect
-                        size='sm'
-                        mono
-                        className='w-44 shrink-0'
-                        ariaLabel={`${frameworkLabel(framework)} version`}
-                        value={ver}
-                        onChange={setVer}
-                        options={[
-                            {
-                                value: '',
-                                label: latest
-                                    ? `${t('web.agentRuntimesList.latest')} (${latest})`
-                                    : t('web.agentRuntimesList.latest')
-                            },
-                            ...versions.map((v) => ({ value: v, label: v }))
-                        ]}
-                    />
-                )}
-                {href ? (
-                    <Link
-                        to={href}
-                        className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
-                    >
-                        {t('web.agentRuntimesList.provision')}
-                    </Link>
-                ) : (
-                    <span className='text-caption text-subtle shrink-0'>
-                        {serviceOccupant
-                            ? t('web.agentRuntimesList.alreadyRuns', {
-                                  framework: frameworkLabel(serviceOccupant)
-                              })
-                            : t('web.agentRuntimesList.unavailableAction')}
-                    </span>
-                )}
-            </>
-        )
-    }
-
-    const versionChip = version
-        ? `v${version}`
-        : installed
-          ? t('web.agentRuntimesList.versionUnknown').toLowerCase()
-          : t('web.agentRuntimesList.notInstalled').toLowerCase()
-    const stateCopy = installed
-        ? isDaemon
-            ? t('web.agentRuntimesList.installedNotProvisioned')
-            : t('web.agentRuntimesList.preinstalledReady')
-        : isDaemon
-          ? t('web.agentRuntimesList.notInstalled')
-          : serviceSlotTaken
-            ? t('web.agentRuntimesList.needsSandbox')
-            : t('web.agentRuntimesList.notProvisioned')
+    const action = installed ? (
+        <Link
+            to={updatesPath('framework')}
+            className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
+        >
+            {`${t('web.agentRuntimesList.update')}…`}
+        </Link>
+    ) : (
+        <button
+            type='button'
+            onClick={(): void => onGuide?.(framework, 'install')}
+            className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
+        >
+            {`${t('web.agentRuntimesList.install')}…`}
+        </button>
+    )
+    const versionChip =
+        version ??
+        (installed
+            ? t('web.agentRuntimesList.versionUnknown').toLowerCase()
+            : t('web.agentRuntimesList.notInstalled').toLowerCase())
 
     return (
         <div className='border-divider/60 flex items-center gap-3 border-t px-4 py-3 first:border-t-0'>
@@ -735,19 +617,20 @@ const AvailableFrameworkRow: FC<{
                         {versionChip}
                     </span>
                 </span>
-                <span className='settings-card-copy block'>{stateCopy}</span>
+                <span className='settings-card-copy block'>
+                    {installed
+                        ? t('web.agentRuntimesList.installedNotProvisioned')
+                        : t('web.agentRuntimesList.notInstalled')}
+                </span>
             </span>
             <span className='flex shrink-0 items-center gap-2'>{action}</span>
         </div>
     )
 }
 
-// mf CLI version, on the shared version-management grammar: mono version
-// tag + latest hint + a quiet "change version…" link that opens the picker
-// dialog. The dialog is the confirmation surface — its description carries
-// herdr's version on a machine or inside a sandbox (ADR-0031): one target,
-// the newest release, so a pill and one action are the whole control. An
-// absent herdr reads as an install.
+// herdr's version on the product's version control (VersionPicker). herdr
+// rides its own updater, which only goes to its latest release (ADR-0031), so
+// that is the one version to pick; an absent herdr picks it as an install.
 const HerdrVersionValue: FC<{
     current: string | null
     latest: string | null
@@ -756,193 +639,62 @@ const HerdrVersionValue: FC<{
     onUpgrade?: () => void
 }> = ({ current, latest, updateAvailable, busy, onUpgrade }): ReactNode => {
     const { t } = useI18n()
-    const target = latest && updateAvailable ? latest : null
+    const update = latest && updateAvailable ? latest : null
     return (
-        <span className='flex flex-wrap items-center gap-2'>
-            <VersionTag
-                label={
-                    current
-                        ? `v${current}`
-                        : t('web.agentRuntimesList.notInstalled')
-                }
-                mono={!!current}
-                latest={target}
-                kind='herdr'
-            />
-            {latest && !target && (
-                <span className='text-caption text-subtle'>
-                    {t('web.agentRuntimesList.latest')}
-                </span>
-            )}
-            {target && onUpgrade ? (
-                busy ? (
-                    <span className='text-caption text-muted inline-flex items-center gap-1.5'>
-                        <Spinner size={12} />
-                        {t('web.agentRuntimesList.upgrading')}
-                    </span>
-                ) : (
-                    <button
-                        type='button'
-                        onClick={(): void => onUpgrade()}
-                        className='text-caption text-subtle hover:text-fg transition-colors'
-                    >
-                        {current
-                            ? t('web.updates.badgeCta', { version: `v${target}` })
-                            : t('web.agentRuntimesList.installVersion', {
-                                  version: `v${target}`
-                              })}
-                    </button>
-                )
-            ) : null}
-        </span>
+        <VersionPicker
+            current={current}
+            unknownLabel={t('web.agentRuntimesList.notInstalled')}
+            groups={[{ label: null, versions: update ? [update] : [] }]}
+            latest={latest}
+            update={update}
+            kind='herdr'
+            busy={busy}
+            busyLabel={t('web.agentRuntimesList.upgrading')}
+            onPick={onUpgrade ? () => onUpgrade() : null}
+        />
     )
 }
 
-// the restart warning, so there is no separate confirm step. Empty
-// selection = latest. Used for both daemon hosts and sandboxes.
+// The mf CLI's version on the same control: the stable channel, and staging
+// where the machine can take it. Picking a version installs it at once; the
+// row's description says whether that restarts anything. Used for both
+// daemon hosts and sandboxes.
 const CliVersionValue: FC<{
     current: string | null
     latest: string | null
     updateAvailable: boolean
     stable: string[]
     dev: string[]
-    targetName: string
-    restarts: boolean
     busy: boolean
-    onUpgrade: (targetVersion: string | undefined) => void
+    onUpgrade: (targetVersion: string) => void
 }> = ({
     current,
     latest,
     updateAvailable,
     stable,
     dev,
-    targetName,
-    restarts,
     busy,
     onUpgrade
 }): ReactNode => {
     const { t } = useI18n()
-    const [open, setOpen] = useState(false)
-    const [sel, setSel] = useState('')
     // An unreported version is an update too: the upgrade installs the first
     // one, so the pill announces it rather than sitting neutral on "Unknown".
-    const updateTarget = latest && (updateAvailable || !current) ? latest : null
+    const update = latest && (updateAvailable || !current) ? latest : null
     return (
-        <span className='flex flex-wrap items-center gap-2'>
-            <VersionTag
-                label={
-                    current
-                        ? `v${current}`
-                        : t('web.agentRuntimesList.versionUnknown')
-                }
-                mono={!!current}
-                latest={updateTarget}
-                kind='cli'
-                hint={
-                    current
-                        ? undefined
-                        : t('web.agentRuntimesList.noCliVersion')
-                }
-            />
-            {latest && !updateTarget && (
-                <span className='text-caption text-subtle'>
-                    {t('web.agentRuntimesList.latest')}
-                </span>
-            )}
-            {busy ? (
-                <span className='text-caption text-muted inline-flex items-center gap-1.5'>
-                    <Spinner size={12} />
-                    {t('web.agentRuntimesList.upgrading')}
-                </span>
-            ) : (
-                <button
-                    type='button'
-                    onClick={(): void => setOpen(true)}
-                    className='text-caption text-subtle hover:text-fg transition-colors'
-                >
-                    {t('web.runtimeDetail.changeVersion')}…
-                </button>
-            )}
-            {open && (
-                <ProductDialog
-                    title={t('web.agentRuntimesList.changeCliVersion')}
-                    description={
-                        restarts
-                            ? t('web.agentRuntimesList.versionPickerDaemon', {
-                                  name: targetName
-                              })
-                            : t('web.agentRuntimesList.versionPickerSandbox', {
-                                  name: targetName
-                              })
-                    }
-                    size='sm'
-                    onClose={() => setOpen(false)}
-                    bodyClassName='flex flex-col gap-4'
-                    footer={
-                        <>
-                            <button
-                                type='button'
-                                className='workbench-button-secondary'
-                                onClick={() => setOpen(false)}
-                            >
-                                {t('common.cancel')}
-                            </button>
-                            <button
-                                type='button'
-                                className='workbench-button-primary'
-                                onClick={(): void => {
-                                    onUpgrade(sel || undefined)
-                                    setOpen(false)
-                                }}
-                                disabled={busy}
-                            >
-                                {t('web.agentRuntimesList.upgrade')}
-                            </button>
-                        </>
-                    }
-                >
-                    <div>
-                        <label
-                            htmlFor='cli-version-select'
-                            className='text-caption text-subtle mb-1.5 block'
-                        >
-                            {t('web.runtimeDetail.version')}
-                        </label>
-                        <WorkbenchSelect
-                            id='cli-version-select'
-                            mono
-                            ariaLabel={t(
-                                'web.agentRuntimesList.changeCliVersion'
-                            )}
-                            value={sel}
-                            disabled={busy}
-                            onChange={setSel}
-                            options={[
-                                {
-                                    value: '',
-                                    label: latest
-                                        ? t(
-                                              'web.agentRuntimesList.latestVersion',
-                                              { version: latest }
-                                          )
-                                        : t('web.agentRuntimesList.latest')
-                                },
-                                ...stable.map((v) => ({
-                                    value: v,
-                                    label: v,
-                                    group: t('web.agentRuntimesList.stable')
-                                })),
-                                ...dev.map((v) => ({
-                                    value: v,
-                                    label: v,
-                                    group: t('web.agentRuntimesList.staging')
-                                }))
-                            ]}
-                        />
-                    </div>
-                </ProductDialog>
-            )}
-        </span>
+        <VersionPicker
+            current={current}
+            unknownLabel={t('web.agentRuntimesList.versionUnknown')}
+            groups={[
+                { label: t('web.agentRuntimesList.stable'), versions: stable },
+                { label: t('web.agentRuntimesList.staging'), versions: dev }
+            ]}
+            latest={latest}
+            update={update}
+            kind='cli'
+            busy={busy}
+            busyLabel={t('web.agentRuntimesList.upgrading')}
+            onPick={onUpgrade}
+        />
     )
 }
 
@@ -1080,9 +832,14 @@ const TaskRow: FC<{
 const HostDetailPanel: FC<{
     vm: RuntimeVM
     onSelectRuntime: (runtimeId: string) => void
-    onDetect?: (hostId: string) => void
+    // `probe` asks the sandbox now (the Runtimes refresh); without it the
+    // page reads what the daemon last reported, as it does on open.
+    onDetect?: (hostId: string, opts?: { probe?: boolean }) => void
     detecting?: boolean
     onRefreshStatus?: (hostId: string) => Promise<void>
+    // Re-reads the runtimes and sandboxes after the sandbox's Runtimes
+    // section installed a framework or moved one to another version.
+    onRuntimesChanged: () => Promise<void>
     catalog: Record<string, { versions: string[]; latest: string | null }>
     cliCatalog: CliVersionCatalog
     onUpgradeCli?: (
@@ -1128,6 +885,7 @@ const HostDetailPanel: FC<{
     onDetect,
     detecting,
     onRefreshStatus,
+    onRuntimesChanged,
     catalog,
     cliCatalog,
     onUpgradeCli,
@@ -1212,53 +970,28 @@ const HostDetailPanel: FC<{
         }
     }, [serviceHostId, onLoadServices, onLoadTasks, t])
     const detected = host?.detectedFrameworks ?? []
-    const detectedByFramework = new Map<string, string | null>(
-        (vm.sandbox?.detectedFrameworks ?? []).map((d) => [
-            d.framework,
-            d.version
-        ])
-    )
-    const Icon = HOST_ICON[vm.kind]
-    // Every sprite image ships claude-code / codex / gemini-cli pre-installed, and
-    // a sandbox can host any framework it hasn't provisioned yet. Surface those as
-    // one-click "provision here" targets.
+    const Icon = HOST_KIND_ICON[vm.kind]
     const sandboxHostId = vm.sandbox?.id ?? vm.runtimes[0]?.hostId ?? null
-    // Per-framework state for the "Available frameworks" section: whether the
-    // CLI is installed on the host and its detected version. Sprites pre-install
-    // every coding CLI; daemons report installs via detection. Provisioned
-    // frameworks are excluded up front (they live in the Runtimes list).
+    // A self-owned machine's "Available frameworks": every framework its daemon
+    // can detect and run that has no runtime there yet, with whether the CLI
+    // is installed and its detected version. A sandbox lists what it has under
+    // Runtimes instead (SandboxRuntimes).
     const frameworkAvailability = (
         f: VersionedFramework
     ): { installed: boolean; version: string | null } => {
-        const detectedVersion = host
-            ? (detected.find((d) => d.framework === f)?.version ?? null)
-            : (detectedByFramework.get(f) ?? null)
-        const installed = host
-            ? detected.some((d) => d.framework === f)
-            : frameworkCapability(f).kind === 'coding' ||
-              detectedByFramework.has(f)
-        return { installed, version: detectedVersion }
+        // The daemon reports the CLI's `--version` line as printed.
+        const line = detected.find((d) => d.framework === f)?.version ?? null
+        return {
+            installed: detected.some((d) => d.framework === f),
+            version: line ? parseProbedSemver(line) : null
+        }
     }
-    // The one service framework already live on this sandbox, if any — it owns the
-    // sprite's single public port, so no second one can join.
-    const serviceOccupant =
-        vm.runtimes.find(
-            (r) =>
-                frameworkKind(r.framework) === 'service' &&
-                r.status !== 'failed'
-        )?.framework ?? null
-    // A daemon lists every framework it can detect + run (5); a sandbox lists
-    // every framework that runs on a sprite (every versioned one — the coding
-    // CLIs plus the service frameworks), so nothing provisioned stays hidden.
-    const frameworkList: VersionedFramework[] = host
-        ? DAEMON_DETECTABLE_FRAMEWORKS
-        : [...listVersionedFrameworks()]
-    const availableFrameworks = frameworkList.filter(
+    const availableFrameworks = DAEMON_DETECTABLE_FRAMEWORKS.filter(
         (f) => !vm.runtimes.some((r) => r.framework === f)
     )
-    // The machine's badge: lifecycle while it is not ready; then its daemon's
-    // presence for a self-owned computer and its power state for a hosted
-    // one. A sandbox's power badge doubles as its refresh control.
+    // The machine's badge says what its dot says everywhere. A sandbox's
+    // badge is followed by its "?" legend and, once ready, its refresh
+    // control.
     const refreshStatus = (): void => {
         if (!onRefreshStatus || !sandboxHostId || refreshingStatus) return
         setRefreshingStatus(true)
@@ -1266,22 +999,17 @@ const HostDetailPanel: FC<{
             .catch(() => undefined)
             .finally(() => setRefreshingStatus(false))
     }
+    const refreshable =
+        Boolean(onRefreshStatus && sandboxHostId) &&
+        (vm.hostStatus === null || vm.hostStatus === 'ready')
     const badge =
-        vm.hostStatus !== null && vm.hostStatus !== 'ready' ? (
-            <StatusTag
-                tone={hostLifecycleTone(vm.hostStatus)}
-                label={hostLifecycleLabel(vm.hostStatus)}
-                pulse={
-                    vm.hostStatus === 'provisioning' ||
-                    vm.hostStatus === 'deleting'
-                }
-            />
-        ) : vm.kind === 'daemon' ? (
-            daemonOnlineBadge(vm.online)
+        vm.hostId === null ? (
+            vm.status && runtimeStatusTag(vm.status)
         ) : vm.kind === 'sprites' && sandbox ? (
             <span className='flex items-center gap-1.5'>
-                {powerStateTag(vm.powerState)}
-                {onRefreshStatus && sandboxHostId && (
+                {machineStatusTag(vmMachine(vm))}
+                <SandboxStatusHelp />
+                {refreshable && (
                     <ShortcutTooltip
                         label={t('web.agentRuntimesList.refreshStatus')}
                         className='shrink-0'
@@ -1305,11 +1033,9 @@ const HostDetailPanel: FC<{
                     </ShortcutTooltip>
                 )}
             </span>
-        ) : vm.hostId !== null ? (
-            powerStateTag(vm.powerState)
-        ) : vm.status ? (
-            runtimeStatusTag(vm.status)
-        ) : null
+        ) : (
+            machineStatusTag(vmMachine(vm))
+        )
     // mf CLI version property-row value. When the daemon supports remote upgrade
     // we offer a version picker constrained to its OWN channel (a daemon can only
     // self-update from the channel it was installed from). Otherwise it's a
@@ -1327,8 +1053,6 @@ const HostDetailPanel: FC<{
                     updateAvailable={h.updateAvailable}
                     stable={cross || !onDev ? cliCatalog.stable : []}
                     dev={cross || onDev ? cliCatalog.dev : []}
-                    targetName={vm.label}
-                    restarts
                     busy={Boolean(upgradingCli)}
                     onUpgrade={(target) => void onUpgradeCli(h.id, target)}
                 />
@@ -1344,13 +1068,13 @@ const HostDetailPanel: FC<{
                     it, since two nested tooltips would both open at once. */}
                 <VersionTag
                     label={
-                        h.cliVersion
-                            ? `v${h.cliVersion}`
-                            : t('web.agentRuntimesList.versionUnknown')
+                        h.cliVersion ??
+                        t('web.agentRuntimesList.versionUnknown')
                     }
                     mono={!!h.cliVersion}
                     latest={remoteUpdate}
                     kind='cli'
+                    prefix=''
                     hint={
                         remoteUpdate
                             ? t('web.agentRuntimesList.remoteUpgradeHint')
@@ -1359,11 +1083,6 @@ const HostDetailPanel: FC<{
                               : t('web.agentRuntimesList.noCliVersionShort')
                     }
                 />
-                {!remoteUpdate && h.latestCliVersion && (
-                    <span className='text-subtle text-caption'>
-                        {t('web.agentRuntimesList.latest')}
-                    </span>
-                )}
             </span>
         )
     }
@@ -1379,8 +1098,6 @@ const HostDetailPanel: FC<{
                     updateAvailable={sb.cliUpdateAvailable}
                     stable={cliCatalog.stable}
                     dev={cliCatalog.dev}
-                    targetName={sb.name}
-                    restarts={false}
                     busy={Boolean(upgradingSandboxCli)}
                     onUpgrade={(target) =>
                         void onUpgradeSandboxCli(sb.id, target)
@@ -1391,19 +1108,14 @@ const HostDetailPanel: FC<{
             <span className='flex flex-wrap items-center gap-2'>
                 <VersionTag
                     label={
-                        sb.cliVersion
-                            ? `v${sb.cliVersion}`
-                            : t('web.agentRuntimesList.versionUnknown')
+                        sb.cliVersion ??
+                        t('web.agentRuntimesList.versionUnknown')
                     }
                     mono={!!sb.cliVersion}
                     latest={sb.cliUpdateAvailable ? sb.latestCliVersion : null}
                     kind='cli'
+                    prefix=''
                 />
-                {!sb.cliUpdateAvailable && sb.latestCliVersion && (
-                    <span className='text-subtle text-caption'>
-                        {t('web.agentRuntimesList.latest')}
-                    </span>
-                )}
             </span>
         )
     }
@@ -1566,81 +1278,79 @@ const HostDetailPanel: FC<{
                 badge beside it, so a strip here said the same thing twice and
                 pushed the rest of the panel down. */}
 
-            <Section
-                title={t('web.agentRuntimesList.runtimesTitle')}
-                action={
-                    vm.runtimes.length > 0 ? (
-                        <span className='text-caption text-muted'>
-                            {vm.agentsCount}{' '}
-                            {vm.agentsCount === 1
-                                ? t('web.agentRuntimesList.agent')
-                                : t('web.agentRuntimesList.agents')}
-                        </span>
-                    ) : undefined
-                }
-            >
-                {vm.runtimes.length === 0 ? (
-                    <EmptyState
-                        kind='first-use'
-                        tier='stack'
-                        title={t('web.emptyState.runtimesTitle')}
-                        body={
-                            host
-                                ? t('web.emptyState.hostRuntimesBody')
-                                : sandbox
-                                  ? t('web.emptyState.sandboxRuntimesBody')
-                                  : t('web.emptyState.createRuntimeBody')
-                        }
-                        action={
-                            host || sandbox
-                                ? undefined
-                                : {
-                                      label: t(
-                                          'web.emptyState.createRuntimeAction'
-                                      ),
-                                      onClick: () =>
-                                          navigate('/settings/runtimes/sandbox')
-                                  }
-                        }
-                    />
-                ) : (
-                    <div className='settings-card'>
-                        {vm.runtimes.map((r) => (
-                            <HostRuntimeRow
-                                key={r.id}
-                                runtime={r}
-                                latest={catalog[r.framework]?.latest ?? null}
-                                onSelect={() => onSelectRuntime(r.id)}
-                            />
-                        ))}
-                    </div>
-                )}
-            </Section>
-
-            {(host || sandbox) && availableFrameworks.length > 0 && (
+            {sandbox ? (
+                <SandboxRuntimes
+                    sandbox={sandbox}
+                    runtimes={vm.runtimes}
+                    catalog={catalog}
+                    onSelectRuntime={onSelectRuntime}
+                    onChanged={onRuntimesChanged}
+                    onDetect={
+                        onDetect
+                            ? () => onDetect(sandbox.id, { probe: true })
+                            : undefined
+                    }
+                    detecting={Boolean(detecting)}
+                />
+            ) : (
                 <Section
-                    title={t('web.agentRuntimesList.availableFrameworks')}
+                    title={t('web.agentRuntimesList.runtimesTitle')}
                     action={
-                        vm.kind === 'sprites' && sandboxHostId && onDetect ? (
-                            <button
-                                type='button'
-                                disabled={detecting}
-                                onClick={() => onDetect(sandboxHostId)}
-                                className='text-caption text-link hover:text-fg disabled:text-muted font-medium disabled:cursor-not-allowed'
-                            >
-                                {detecting
-                                    ? t('web.agentRuntimesList.detecting')
-                                    : t(
-                                          'web.agentRuntimesList.detectFrameworks'
-                                      )}
-                            </button>
+                        vm.runtimes.length > 0 ? (
+                            <span className='text-caption text-muted'>
+                                {vm.agentsCount}{' '}
+                                {vm.agentsCount === 1
+                                    ? t('web.agentRuntimesList.agent')
+                                    : t('web.agentRuntimesList.agents')}
+                            </span>
                         ) : undefined
                     }
                 >
+                    {vm.runtimes.length === 0 ? (
+                        <EmptyState
+                            kind='first-use'
+                            tier='stack'
+                            title={t('web.emptyState.runtimesTitle')}
+                            body={
+                                host
+                                    ? t('web.emptyState.hostRuntimesBody')
+                                    : t('web.emptyState.createRuntimeBody')
+                            }
+                            action={
+                                host
+                                    ? undefined
+                                    : {
+                                          label: t(
+                                              'web.emptyState.createRuntimeAction'
+                                          ),
+                                          onClick: () =>
+                                              navigate(
+                                                  '/settings/runtimes/sandbox'
+                                              )
+                                      }
+                            }
+                        />
+                    ) : (
+                        <div className='settings-card'>
+                            {vm.runtimes.map((r) => (
+                                <HostRuntimeRow
+                                    key={r.id}
+                                    runtime={r}
+                                    latest={
+                                        catalog[r.framework]?.latest ?? null
+                                    }
+                                    onSelect={() => onSelectRuntime(r.id)}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </Section>
+            )}
+
+            {host && availableFrameworks.length > 0 && (
+                <Section title={t('web.agentRuntimesList.availableFrameworks')}>
                     <p className='text-caption text-muted mb-3'>
-                        {host
-                            ? t('web.agentRuntimesList.installDaemonHint')
-                            : t('web.agentRuntimesList.provisionHint')}
+                        {t('web.agentRuntimesList.installDaemonHint')}
                     </p>
                     <div className='settings-card'>
                         {availableFrameworks.map((f) => {
@@ -1649,13 +1359,8 @@ const HostDetailPanel: FC<{
                                 <AvailableFrameworkRow
                                     key={f}
                                     framework={f}
-                                    kind={vm.kind}
                                     installed={info.installed}
                                     version={info.version}
-                                    versions={catalog[f]?.versions ?? []}
-                                    latest={catalog[f]?.latest ?? null}
-                                    serviceOccupant={serviceOccupant}
-                                    provisionHostId={sandboxHostId}
                                     onGuide={(framework, mode): void =>
                                         setGuide({ framework, mode })
                                     }
@@ -2640,11 +2345,23 @@ const AgentRuntimesList: FC = (): ReactNode => {
         [client, handleRefreshSandboxStatus]
     )
 
+    const reloadRuntimes = useCallback(async (): Promise<void> => {
+        const [rows, sandboxes] = await Promise.all([
+            client.agentRuntimes.list(),
+            client.sandboxes.list()
+        ])
+        setRuntimeRows(rows)
+        setSandboxRows(sandboxes)
+    }, [client])
+
     const runDetectFrameworks = useCallback(
-        async (hostId: string): Promise<void> => {
+        async (hostId: string, opts?: { probe?: boolean }): Promise<void> => {
             setDetectingHostId(hostId)
             try {
-                const updated = await client.sandboxes.detectFrameworks(hostId)
+                const updated = await client.sandboxes.detectFrameworks(
+                    hostId,
+                    opts
+                )
                 setSandboxRows((prev) =>
                     prev.map((s) => (s.id === hostId ? updated : s))
                 )
@@ -2947,6 +2664,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         onSelectRuntime={selectRuntime}
                         onDetect={runDetectFrameworks}
                         detecting={detectingHostId === selectedVM.sandbox?.id}
+                        onRuntimesChanged={reloadRuntimes}
                         onRefreshStatus={handleRefreshSandboxStatus}
                         catalog={versionCatalog}
                         cliCatalog={cliCatalog}

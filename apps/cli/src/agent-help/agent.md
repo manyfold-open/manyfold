@@ -58,8 +58,9 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
   Use `mf sandbox storage-usage --account --json` for account storage totals.
 - `storage-usage` and `credentials get` always emit pretty-printed JSON
   (`--json` accepted but already the default).
-- `storage-usage` states `scope: "agent-paths"`; sleeping paths remain unknown,
-  while `cachedSandbox` carries the separate cached filesystem reading. See
+- `storage-usage` states `scope: "agent-paths"`; a sandbox agent's paths come
+  from the sandbox's last storage measurement (`measuredAt`), while
+  `cachedSandbox` carries the separate cached filesystem reading. See
   `mf help sandbox --agent` for storage units, freshness and attribution.
 - `credentials reveal` masks the apiKey (first 4 + last 4 chars) unless
   `--show` is passed; never paste a revealed value into chat. `--json`

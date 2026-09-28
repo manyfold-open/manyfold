@@ -1,4 +1,9 @@
-import { daemonOnline, placementOf, runtimeAvailability } from '@manyfold/shared'
+import {
+    daemonOnline,
+    parseProbedSemver,
+    placementOf,
+    runtimeAvailability
+} from '@manyfold/shared'
 import type {
     AgentCreateStep,
     AgentRuntimeStatus,
@@ -521,17 +526,23 @@ export class AgentRuntimesService {
     // Fold a host daemon's inventory into the runtimes installed on it: the
     // probed CLI version IS the installed version for that framework on the
     // machine, so the runtime rows carry it too (no per-agent refresh needed).
+    // A daemon reports what `<bin> --version` printed ("2.1.251 (Claude
+    // Code)", "codex-cli 0.151.0"); the column holds the version in it, as the
+    // local runtime sync writes it. An unparseable line leaves the column be.
+    // Seen on a local stack [2026-09-28]: the raw line stored here read as
+    // "vcodex-cli 0.151.0" and never compared as older than the catalog's.
     async applyDetectedVersionsToHostRuntimes(
         hostId: string,
         detected: Array<{ framework: string; version: string | null }>
     ): Promise<void> {
         const now = new Date()
         for (const d of detected) {
-            if (!d.version) continue
+            const version = d.version ? parseProbedSemver(d.version) : null
+            if (!version) continue
             await this.db
                 .update(agentRuntimes)
                 .set({
-                    frameworkVersion: d.version,
+                    frameworkVersion: version,
                     frameworkVersionCheckedAt: now,
                     updatedAt: now
                 })

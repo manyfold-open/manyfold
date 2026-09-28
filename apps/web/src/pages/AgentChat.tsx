@@ -39,6 +39,7 @@ import {
     useSearchParams
 } from 'react-router-dom'
 import { MenuIcon } from '@/components/icons'
+import AgentPlaceLine from '@/components/AgentPlaceLine'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
@@ -49,7 +50,6 @@ import {
     writeStoredPermissionMode,
     type ComposerPermissionMode
 } from '@/lib/permissionModes'
-import { workspaceDirNameOf, workspacePathOf } from '@/lib/workspacePath'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import EmptyState from '@/components/EmptyState'
 import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
@@ -65,7 +65,8 @@ import { subscribeSessionsChanged } from '@/lib/sessionOwnershipEvents'
 import { lazyChunk } from '@/lib/lazyChunk'
 import { buildQuotaConflictRequest } from '@/lib/quotaConflict'
 import { useAppAuth } from '@/lib/auth'
-import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { agentStatusDotLabel } from '@/lib/agentStatusDot'
+import { AgentIconStatus } from '@/components/AgentStatusDot'
 import { getAgentChatAvailability } from '@/lib/chatAgents'
 import {
     CHAT_SCROLL_BOTTOM,
@@ -3149,8 +3150,23 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
 }): ReactNode => {
     const { t } = useI18n()
     const navigate = useNavigate()
-    const workspacePath = workspacePathOf(agent)
-    const workspaceDirName = workspaceDirNameOf(agent)
+    const identityLabel = `${agentStatusDotLabel(agent)} · ${t('web.shell.agentSettings')}`
+    // The avatar and the name lead out of the chat area into the agent's
+    // settings, so they take the rail transition; a modified click still opens
+    // a tab the browser's way.
+    const openForward =
+        (path: string) =>
+        (event: ReactMouseEvent<HTMLAnchorElement>): void => {
+            if (
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+            )
+                return
+            event.preventDefault()
+            navigateWithRailTransition(navigate, path, 'forward')
+        }
     const actionButtonClass = (active = false): string =>
         [
             'shadow-ring-light h-9 w-9 shrink-0 items-center justify-center rounded-pill transition-colors disabled:cursor-not-allowed disabled:opacity-45',
@@ -3253,69 +3269,59 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                     and inside the area, so the avatar does not impersonate an
                     overflow menu. No chevron: per DESIGN.md that glyph
                     promises a list, and this navigates. */}
-                <ShortcutTooltip
-                    label={t('web.shell.agentSettings')}
-                    placement='bottom-start'
-                    className='min-w-0'
-                >
-                    <Link
-                        to={agentSettingsPath(agent.id)}
-                        onClick={(event: ReactMouseEvent<HTMLAnchorElement>) => {
-                            // Let modified clicks open a tab the browser's way.
-                            if (
-                                event.metaKey ||
-                                event.ctrlKey ||
-                                event.shiftKey ||
-                                event.altKey
-                            )
-                                return
-                            event.preventDefault()
-                            navigateWithRailTransition(
-                                navigate,
-                                agentSettingsPath(agent.id),
-                                'forward'
-                            )
-                        }}
-                        className='hover:bg-soft flex min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 py-1 transition-colors'
-                    >
-                        <span className='hidden shrink-0 sm:inline-flex'>
-                            <FrameworkLogo
-                                framework={agent.framework}
-                                size={28}
-                            />
-                        </span>
-                        <h1 className='text-ui text-fg min-w-0 truncate font-medium'>
-                            {agent.name}
-                        </h1>
-                        <span className='text-caption text-muted hidden shrink-0 items-center gap-1.5 sm:inline-flex'>
-                            <span
-                                className={[
-                                    'h-1.5 w-1.5 rounded-full',
-                                    agentStatusDotClass(agent)
-                                ].join(' ')}
-                                aria-hidden='true'
-                            />
-                            {agentStatusDotLabel(agent)}
-                        </span>
-                    </Link>
-                </ShortcutTooltip>
-                {/* A sandbox path is plumbing — every agent's differs only by
-                    an opaque id, and Terminal and Files already open inside it.
-                    A daemon agent's directory is not plumbing but identity: it
-                    answers which of your projects this agent acts on, with your
-                    permissions, and it is a choice you can get wrong. Only that
-                    case earns a permanent place, and only as the basename. */}
-                {agent.runtime === 'daemon' && workspaceDirName ? (
+                <div className='flex min-w-0 items-center gap-2'>
+                    {/* The avatar opens the same page as the name; only the
+                        name is the link a keyboard or a screen reader meets. */}
                     <ShortcutTooltip
-                        label={workspacePath}
+                        label={identityLabel}
                         placement='bottom-start'
-                        className='hidden min-w-0 shrink sm:block'
+                        className='hidden shrink-0 sm:inline-flex'
                     >
-                        <span className='text-caption text-muted bg-soft shadow-ring-light block max-w-[14rem] truncate rounded-sm px-2 py-0.5 font-mono'>
-                            {workspaceDirName}
-                        </span>
+                        <Link
+                            to={agentSettingsPath(agent.id)}
+                            onClick={openForward(agentSettingsPath(agent.id))}
+                            tabIndex={-1}
+                            aria-hidden='true'
+                            className='rounded-pill inline-flex'
+                        >
+                            {/* No tooltip of its own: it would open on top of
+                                the link's, so the state is named there. */}
+                            <AgentIconStatus
+                                agent={agent}
+                                size='md'
+                                tooltip={false}
+                                icon={
+                                    <FrameworkLogo
+                                        framework={agent.framework}
+                                        size={28}
+                                    />
+                                }
+                                ring='border-main'
+                            />
+                        </Link>
                     </ShortcutTooltip>
-                ) : null}
+                    <div className='min-w-0'>
+                        <ShortcutTooltip
+                            label={identityLabel}
+                            placement='bottom-start'
+                            className='min-w-0 max-w-full'
+                        >
+                            <Link
+                                to={agentSettingsPath(agent.id)}
+                                onClick={openForward(agentSettingsPath(agent.id))}
+                                className='hover:bg-soft -mx-1 block min-w-0 rounded-sm px-1 transition-colors'
+                            >
+                                <h1 className='text-ui text-fg truncate font-medium'>
+                                    {agent.name}
+                                </h1>
+                                <span className='sr-only'>
+                                    {agentStatusDotLabel(agent)}
+                                </span>
+                            </Link>
+                        </ShortcutTooltip>
+                        <AgentPlaceLine agent={agent} />
+                    </div>
+                </div>
             </div>
 
             <div className='flex shrink-0 items-center gap-1.5'>

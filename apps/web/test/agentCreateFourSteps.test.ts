@@ -22,6 +22,7 @@ import {
     costFull,
     costShort,
     creatingPrimary,
+    preparingPrimary,
     runtimeFull,
     runtimeShort
 } from '../src/pages/AgentNew/v4/summaryLabels'
@@ -219,6 +220,31 @@ test('a sandbox without the CLI offers to install it, and flags an empty one', (
     assert.equal(rows[0].state, 'needs-install')
     assert.equal(rows[0].signInCost, 'after')
     assert.equal(rows[0].idle, true)
+})
+
+// A failed build leaves its sandbox behind, marked failed until the user
+// deletes it, and the API answers "not reachable" to an install onto it — or
+// onto one still being built. Both stay in the list and say why.
+test('a sandbox that failed or is still building cannot be installed onto', () => {
+    const rows = buildMachineOptions({
+        framework: 'claude-code',
+        runtimes: [],
+        sandboxes: [
+            { ...sandbox('h1', 'sandbox-001'), status: 'failed' },
+            { ...sandbox('h2', 'sandbox-002'), status: 'provisioning' },
+            { ...sandbox('h3', 'sandbox-003'), status: 'ready' }
+        ],
+        daemonHosts: [],
+        podHosts: []
+    })
+    assert.deepEqual(
+        rows.map((row) => [row.title, row.state, row.unavailableReason, row.disabled]),
+        [
+            ['sandbox-001', 'unavailable', 'failed', true],
+            ['sandbox-002', 'unavailable', 'starting', true],
+            ['sandbox-003', 'needs-install', undefined, false]
+        ]
+    )
 })
 
 test('your own computer is never installed onto, and says so in place', () => {
@@ -518,6 +544,33 @@ test('overrunning replaces the cost line rather than adding a second one', () =>
     // Past it, the same slot says something different. Because that line had
     // been constant, changing it is the signal.
     assert.equal(creatingPrimary(76, 75, cost, tt).fine, 'web.agentNewV4.primary.tookLonger')
+})
+
+// The wait after "Build one and install …" at step ②. It is two requests, the
+// build and then the install, so the label can name the one in flight; the
+// count and the cost line keep the create's rules across both.
+test('step ② names the request in flight and counts across both', () => {
+    const cost = 'about 2 minutes · sign in once afterwards · 0 of 5 used'
+    assert.equal(
+        preparingPrimary('build', 'Pi', 1, 150, cost, tt).label,
+        'web.agentNewV4.primary.building'
+    )
+    assert.equal(
+        preparingPrimary('build', 'Pi', 12, 150, cost, tt).label,
+        'web.agentNewV4.primary.building · 12s'
+    )
+    // The install picks up the build's count: one wait, a new verb.
+    assert.equal(
+        preparingPrimary('install', 'Pi', 13, 150, cost, tt).label,
+        'web.agentNewV4.primary.installing(Pi) · 13s'
+    )
+    assert.equal(preparingPrimary('install', 'Pi', 150, 150, cost, tt).fine, cost)
+    // A build that fails leaves its machine behind, marked failed, so the
+    // overrun line cannot borrow the create's "nothing half-made".
+    assert.equal(
+        preparingPrimary('install', 'Pi', 151, 150, cost, tt).fine,
+        'web.agentNewV4.primary.longerThanUsual'
+    )
 })
 
 // A service framework (OpenClaw, Hermes, an edition's) is installed at

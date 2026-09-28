@@ -14,7 +14,7 @@ export type StorageMeasurementPhase =
     | 'home_du'
     | 'persist'
 export type StorageMeasurementTrigger =
-    'chat' | 'status_sync' | 'terminal' | 'unspecified'
+    'chat' | 'status_sync' | 'terminal' | 'manual' | 'unspecified'
 
 export const STORAGE_PHASE_MARKER = '__NCA_STORAGE_PHASE__'
 export const MEASUREMENT_FORMAT_VERSION = 1

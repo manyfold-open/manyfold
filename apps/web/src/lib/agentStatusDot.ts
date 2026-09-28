@@ -1,8 +1,7 @@
-import type { RuntimeAvailability } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
 import type { TagTone } from '@/components/Tag'
-import { availabilityLabel, availabilityTone } from '@/lib/hostStatus'
+import { TONE_DOT, availabilityLabel, availabilityTone } from '@/lib/hostStatus'
 
 // The agent's own lifecycle comes first (a pending or failed agent has no
 // machine story yet); a ready agent reads as its derived availability
@@ -12,42 +11,26 @@ export type AgentStatusFacts = Pick<
     'status' | 'availability' | 'powerState'
 >
 
-const RED = 'bg-[#fb7185]'
-const AMBER = 'bg-[#f59e0b]'
-const GREEN = 'bg-[#22c55e]'
-const BLUE = 'bg-[#60a5fa]'
-const SLATE = 'bg-[#94a3b8]'
-
-const AVAILABILITY_DOT: Record<RuntimeAvailability, string> = {
-    available: GREEN,
-    wakeable: BLUE,
-    offline: SLATE,
-    unavailable: RED
-}
-
 const STATUS_LABEL_KEY: Record<SdkAgent['status'], string> = {
     pending: 'web.tags.status.pending',
     ready: 'web.tags.status.ready',
     failed: 'web.tags.status.failed'
 }
 
-const STATUS_TONE: Record<Exclude<SdkAgent['status'], 'ready'>, TagTone> = {
-    pending: 'warning',
-    failed: 'error'
-}
+// The same tones, and so the same colours, as the machine under Settings ›
+// Runtimes (hostStatus); a pending agent is in progress, as a host being
+// provisioned is.
+const agentStatusTone = (agent: AgentStatusFacts): TagTone =>
+    agent.status === 'failed'
+        ? 'error'
+        : agent.status === 'pending'
+          ? 'info'
+          : availabilityTone(agent.availability)
 
-export const agentStatusDotClass = (agent: AgentStatusFacts): string => {
-    if (agent.status === 'failed') return RED
-    if (agent.status === 'pending') return AMBER
-    return AVAILABILITY_DOT[agent.availability]
-}
-
-export const agentStatusTone = (agent: AgentStatusFacts): TagTone =>
-    agent.status === 'ready'
-        ? availabilityTone(agent.availability)
-        : STATUS_TONE[agent.status]
+export const agentStatusDotClass = (agent: AgentStatusFacts): string =>
+    TONE_DOT[agentStatusTone(agent)]
 
 export const agentStatusDotLabel = (agent: AgentStatusFacts): string =>
     agent.status === 'ready'
-        ? availabilityLabel(agent.availability)
+        ? availabilityLabel(agent.availability, agent.powerState)
         : t(STATUS_LABEL_KEY[agent.status])
