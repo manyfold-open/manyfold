@@ -20,7 +20,7 @@ const MARGIN = 8
 // Break opportunities after each separator that add nothing to the text: a
 // zero-width space would ride along into a selection or a copy and break the
 // path wherever it is pasted.
-const withBreaks = (path: string): ReactNode[] =>
+export const withBreaks = (path: string): ReactNode[] =>
     path.split(/(?<=[\\/])/).map((part, index) => (
         <Fragment key={index}>
             {part}

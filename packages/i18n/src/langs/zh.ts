@@ -260,6 +260,7 @@ const zh: Translations = {
                     working: '处理中…'
                 },
                 copyAgentId: '复制 Agent ID',
+                copyHostId: '复制主机 ID',
                 copyWorkspacePath: '复制工作区路径',
                 created: '创建时间',
                 dashboard: {
@@ -320,6 +321,7 @@ const zh: Translations = {
                     upgradingStep: '升级中… {{step}}',
                     versionBlocked: '当前 {{framework}} 版本存在已知缺陷'
                 },
+                hostId: '主机 ID',
                 lastMessage: '最近消息',
                 mcp: {
                     alreadySynced: '已与 Runtime 同步。',

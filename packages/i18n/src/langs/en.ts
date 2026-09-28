@@ -263,6 +263,7 @@ const en = {
                     working: 'Working…'
                 },
                 copyAgentId: 'Copy agent ID',
+                copyHostId: 'Copy host ID',
                 copyWorkspacePath: 'Copy workspace path',
                 created: 'Created',
                 dashboard: {
@@ -326,6 +327,7 @@ const en = {
                     versionBlocked:
                         'This {{framework}} version has a known defect'
                 },
+                hostId: 'Host ID',
                 lastMessage: 'Last message',
                 mcp: {
                     alreadySynced: 'Already in sync with the runtime.',

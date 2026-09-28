@@ -668,7 +668,7 @@ test('quick section changes discard older storage responses and preserve refresh
     }
 })
 
-test('a sandbox overview shows its filesystem size without measuring', async () => {
+test('a sandbox overview details its host, workspace and filesystem size without measuring', async () => {
     const f = await fixture({ a: agent('a', 'sprites') })
     try {
         f.responses.set('/api/agents/a/storage-usage', {
@@ -688,6 +688,11 @@ test('a sandbox overview shows its filesystem size without measuring', async () 
         })
         await f.page.goto(origin + '/agents/a/settings/overview')
         await f.page.getByText('1.24 GB', { exact: true }).waitFor()
+        for (const value of ['host-a', '/workspace'])
+            assert.equal(
+                await f.page.getByText(value, { exact: true }).count(),
+                1
+            )
         assert.equal(
             f.special().some((call) => call.path.endsWith('/refresh')),
             false

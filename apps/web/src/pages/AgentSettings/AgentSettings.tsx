@@ -72,10 +72,12 @@ import { useDeleteAgent } from '@/lib/useDeleteAgent'
 import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import { AgentIconStatus } from '@/components/AgentStatusDot'
 import AgentPlaceLine from '@/components/AgentPlaceLine'
+import { withBreaks } from '@/components/PathPopover'
 import { formatDateTime } from '@/lib/dateFormat'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { useI18n } from '@/lib/i18n'
 import { timeAgo } from '@/lib/timeAgo'
+import { workspacePathOf } from '@/lib/workspacePath'
 import { subscribeAgentCredentialsUpdates } from '@/lib/agentCredentialsEvents'
 import {
     FrameworkLogo,
@@ -1567,6 +1569,45 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         )}
                                     />
                                 </OverviewRow>
+                                {agent.hostId && (
+                                    <OverviewRow
+                                        title={t('web.agents.detail.hostId')}
+                                    >
+                                        <span className='text-ui text-fg min-w-0 truncate font-mono'>
+                                            {agent.hostId}
+                                        </span>
+                                        <CopyButton
+                                            value={agent.hostId}
+                                            label={t(
+                                                'web.agents.detail.copyHostId'
+                                            )}
+                                        />
+                                    </OverviewRow>
+                                )}
+                                {agent.runtime !== 'external' && (
+                                    // A path can be too long to sit beside
+                                    // its name, so this row wraps: the path
+                                    // stays on the right while it fits and
+                                    // drops under the name when it does not.
+                                    <div className='settings-card-row flex flex-wrap items-center justify-between'>
+                                        <div className='settings-card-label'>
+                                            {t('web.agents.detail.workspace')}
+                                        </div>
+                                        <div className='flex min-w-0 items-center gap-2'>
+                                            <span className='text-ui text-fg min-w-0 break-words font-mono'>
+                                                {withBreaks(
+                                                    workspacePathOf(agent)
+                                                )}
+                                            </span>
+                                            <CopyButton
+                                                value={workspacePathOf(agent)}
+                                                label={t(
+                                                    'web.agents.detail.copyWorkspacePath'
+                                                )}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                                 <OverviewRow
                                     title={t('web.agents.detail.created')}
                                 >
