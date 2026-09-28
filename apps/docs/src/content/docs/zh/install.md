@@ -73,6 +73,13 @@ mf login --no-launch-browser
 
 CLI 会打印一个 URL 和一个 code，然后停在 `Paste auth code:` 提示符等待输入。在任意一台机器的浏览器里打开这个 URL（CLI 跑在远程主机时，用你自己的笔记本打开即可），核对 code 一致后点击授权，把页面显示的授权码粘回终端。会话有效期 15 分钟。
 
+coding agent 和脚本没有可以粘贴的终端，所以分两次登录：第一次打印 URL 后直接退出；你授权之后，第二次用授权码完成登录：
+
+```sh
+mf login --print-auth-url
+mf login --auth-code <code>
+```
+
 通过 SSH 初始化远程机器时，`mf setup` 支持同一个参数：
 
 ```sh

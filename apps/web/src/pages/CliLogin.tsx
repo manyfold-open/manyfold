@@ -46,6 +46,7 @@ const CliLoginContent: FC<{
     )
     const [loadError, setLoadError] = useState<string | null>(null)
     const [authCode, setAuthCode] = useState<string | null>(null)
+    const [authCodeCopied, setAuthCodeCopied] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [approve, setApprove] = useState<ApproveState>({ state: 'idle' })
 
@@ -149,8 +150,23 @@ const CliLoginContent: FC<{
                     <p className='text-fg text-ui'>
                         {t('web.cliLogin.authCodeHint')}
                     </p>
-                    <div className='bg-surface-subtle border-divider rounded-md border px-4 py-3 font-mono text-sm break-all'>
-                        {authCode}
+                    <div className='flex items-start gap-2'>
+                        <div className='bg-surface-subtle border-divider min-w-0 flex-1 rounded-md border px-4 py-3 font-mono text-sm break-all'>
+                            {authCode}
+                        </div>
+                        <button
+                            type='button'
+                            onClick={() => {
+                                void navigator.clipboard
+                                    ?.writeText(authCode)
+                                    .then(() => setAuthCodeCopied(true))
+                            }}
+                            className='workbench-button-secondary text-ui h-9 shrink-0 px-3'
+                        >
+                            {authCodeCopied
+                                ? t('common.copied')
+                                : t('common.copy')}
+                        </button>
                     </div>
                 </div>
             </Shell>

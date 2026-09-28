@@ -73,6 +73,13 @@ mf login --no-launch-browser
 
 The CLI prints a URL and a code, then waits at a `Paste auth code:` prompt. Open the URL in a browser on any machine — your laptop works fine when the CLI is on a remote host — check that the code matches, approve, and paste the authorization code the page shows back into the terminal. The session is valid for 15 minutes.
 
+Coding agents and scripts have no terminal to paste into, so they sign in in two runs. The first prints the URL and exits; after you approve, the second exchanges the authorization code:
+
+```sh
+mf login --print-auth-url
+mf login --auth-code <code>
+```
+
 `mf setup` takes the same flag when you are onboarding a remote machine over SSH:
 
 ```sh

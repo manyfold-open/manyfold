@@ -14,8 +14,21 @@ and any explicit API endpoint consistent on subsequent commands.
 If authentication is missing, run `mf --profile <name> login`. This starts
 a loopback callback server and opens the user's browser; keep the process
 alive until it finishes. It works in a non-interactive shell when the
-browser and CLI share a machine. When they do not, follow the current
-`mf login --help` headless flow; do not ask for a long-lived token in chat.
+browser and CLI share a machine.
+
+When they do not (a remote container, an SSH session, a cloud coding
+agent), sign in in two runs:
+
+```sh
+mf --profile <name> login --api-url <url> --print-auth-url --json
+```
+
+It prints `{ status: "pending", authUrl, userCode, next }` and exits. Give
+the user `authUrl`; after they approve, the page shows a one-time auth code
+(`mf_auth_…`, valid for 15 minutes). Ask them to send that code, then run
+`next` with the code in place of `<code>`. Never ask for an API token
+instead. If `mf login --help` lacks `--print-auth-url`, the CLI predates
+it: update it first.
 
 Login currently grants `api.full`. An externally supplied narrow token may
 have less access. `mf auth ensure` changes a managed agent's grants; it does

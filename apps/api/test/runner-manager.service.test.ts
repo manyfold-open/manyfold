@@ -43,6 +43,8 @@ interface HarnessOptions {
     // The machine as the inspect finds it.
     installed?: boolean
     registered?: boolean
+    // The API its daemon config names; omitted = a config that does not say.
+    registeredApiUrl?: string
     version?: string | null
     herdr?: boolean
     // Whether a started daemon dials in (the fake heartbeat) — and, for a
@@ -207,6 +209,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
                     stdout: [
                         `installed=${state.installed ? 1 : 0}`,
                         `registered=${state.registered ? 1 : 0}`,
+                        `apiUrl=${opts.registeredApiUrl ?? ''}`,
                         `version=${state.version ?? ''}`,
                         `herdr=${opts.herdr === false ? 0 : 1}`
                     ].join('\n'),
@@ -297,6 +300,17 @@ const buildHarness = (opts: HarnessOptions = {}) => {
 
 const scriptsOf = (h: ReturnType<typeof buildHarness>) => h.execs.map((e) => e.script)
 
+const withPublicApi = async (base: string, fn: () => Promise<void>): Promise<void> => {
+    const previous = process.env.PUBLIC_API_BASE_URL
+    process.env.PUBLIC_API_BASE_URL = base
+    try {
+        await fn()
+    } finally {
+        if (previous === undefined) delete process.env.PUBLIC_API_BASE_URL
+        else process.env.PUBLIC_API_BASE_URL = previous
+    }
+}
+
 test('a local host whose daemon is online is admitted with no adapter call', async () => {
     const h = buildHarness({
         host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
@@ -355,6 +369,7 @@ test('the inspect probes the ADR-0014 profile layout of the machine kind', async
     await sprite.service.ensureHostDaemon({ host: sprite.state.host, waitOnlineMs: 50 })
     const spriteProbe = profilePaths('$HOME/.manyfold', RUNNER_PROFILE).daemonConfigPath
     assert.ok(scriptsOf(sprite)[0].includes(`test -f "${spriteProbe}"`))
+    assert.ok(scriptsOf(sprite)[0].includes(`grep -o '"apiUrl": *"[^"]*"' "${spriteProbe}"`))
 
     const pod = buildHarness({ providerKind: 'k8s', registered: true })
     await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
@@ -421,6 +436,30 @@ test('a daemon whose credential is rejected is re-registered once', async () => 
     assert.equal(res.handle, null)
     assert.deepEqual(h.calls, ['power', 'inspect', 'start', 'tail', 'register', 'start'])
     assert.equal(h.mints.length, 1)
+})
+
+// Seen on a local stack [2026-09-28]: `daemon start` keeps dialing the address
+// saved at register time, so a sandbox registered before this deployment's
+// public URL moved never connects again unless it is registered anew.
+test('a daemon registered against another API address is registered again before it starts', async () => {
+    await withPublicApi('https://api.example.com', async () => {
+        const h = buildHarness({ registered: true, registeredApiUrl: 'https://old-tunnel.example.com/api' })
+        const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+        assert.equal(res.handle?.daemonId, 'sbx_1')
+        assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'start'])
+        const register = h.execs.find((e) => e.script.includes('daemon register'))!
+        assert.match(register.script, /--api-url https:\/\/api\.example\.com\/api daemon register/)
+        assert.equal(h.mints.length, 1)
+    })
+})
+
+test('a daemon registered against this API is left as it is', async () => {
+    await withPublicApi('https://api.example.com/', async () => {
+        const h = buildHarness({ registered: true, registeredApiUrl: 'https://api.example.com/api/' })
+        await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+        assert.deepEqual(h.calls, ['power', 'inspect', 'start'])
+        assert.equal(h.mints.length, 0)
+    })
 })
 
 test('a CLI below the floor is upgraded before the daemon is used', async () => {

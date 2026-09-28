@@ -5,7 +5,12 @@ import type { AddressInfo } from 'node:net'
 import type { Command } from 'commander'
 import kleur from 'kleur'
 import { DEFAULT_API_URL } from '@/client'
-import { clearPendingLogin, loadConfig, saveConfig } from '@/config'
+import {
+    clearPendingLogin,
+    loadConfig,
+    resolveProfile,
+    saveConfig
+} from '@/config'
 import { printJson } from '@/output'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliClient } from '@/transport'
@@ -17,6 +22,7 @@ interface LoginOptions {
     // negated name never reaches us.
     launchBrowser?: boolean
     authCode?: string
+    printAuthUrl?: boolean
     json?: boolean
 }
 
@@ -26,7 +32,15 @@ interface RootOptions {
     agentId?: string
 }
 
-export type LoginMode = 'token' | 'auth-code' | 'browser' | 'headless'
+export type LoginMode =
+    | 'token'
+    | 'auth-code'
+    | 'print-auth-url'
+    | 'browser'
+    | 'headless'
+
+const AGENT_CONTEXT_LOGIN_ERROR =
+    'agent runtimes are already authenticated; run `mf auth ensure --scopes <list>` to add capabilities'
 
 export const resolveLoginMode = (
     opts: LoginOptions,
@@ -35,17 +49,18 @@ export const resolveLoginMode = (
 ): LoginMode => {
     if (opts.authCode) return 'auth-code'
     if (opts.token) return 'token'
+    if (opts.printAuthUrl) {
+        if (agentContext) throw new Error(AGENT_CONTEXT_LOGIN_ERROR)
+        return 'print-auth-url'
+    }
     if (opts.launchBrowser === false) {
         if (!stdinIsTTY)
             throw new Error(
-                '--no-launch-browser requires an interactive terminal or --auth-code <code>'
+                '--no-launch-browser requires an interactive terminal; without one, run `mf login --print-auth-url` and finish with `mf login --auth-code <code>`'
             )
         return 'headless'
     }
-    if (agentContext)
-        throw new Error(
-            'agent runtimes are already authenticated; run `mf auth ensure --scopes <list>` to add capabilities'
-        )
+    if (agentContext) throw new Error(AGENT_CONTEXT_LOGIN_ERROR)
     return 'browser'
 }
 
@@ -76,6 +91,10 @@ export const registerLogin = (program: Command): void => {
             'print the auth URL instead of launching a browser'
         )
         .option('--auth-code <code>', 'auth code copied from the browser')
+        .option(
+            '--print-auth-url',
+            'print the auth URL and exit, then finish with --auth-code (for agents and remote shells)'
+        )
         .option('--json', 'output the result as JSON (token is never echoed)', false)
         .action(async (opts: LoginOptions) => {
             const current = await loadConfig()
@@ -104,6 +123,11 @@ export const registerLogin = (program: Command): void => {
                     loginOpts.authCode!
                 )
                 await saveAndConfirm(apiUrl, token, json)
+                return
+            }
+
+            if (mode === 'print-auth-url') {
+                await runPrintAuthUrl(apiUrl, json)
                 return
             }
 
@@ -153,6 +177,36 @@ export const runHeadlessLogin = async (
     const token = await exchangeAuthCode(apiUrl, authCode)
     await saveAndConfirm(apiUrl, token, json)
 }
+
+// `mf login --print-auth-url`: the headless flow split across two runs, for
+// callers with no interactive stdin (coding agents). Nothing is kept in
+// between — the consent page shows the auth code, and
+// `mf login --auth-code <code>` exchanges it on its own.
+const runPrintAuthUrl = async (
+    apiUrl: string,
+    json: boolean
+): Promise<void> => {
+    const started = await startCliLogin(apiUrl)
+    const profile = resolveProfile()
+    const next = `mf --profile ${profile} login --api-url ${shellArg(apiUrl)} --auth-code <code>`
+    if (json) {
+        printJson({
+            status: 'pending',
+            authUrl: started.authUrl,
+            userCode: started.userCode,
+            expiresAt: started.expiresAt,
+            apiUrl,
+            profile,
+            next
+        })
+        return
+    }
+    printLoginStart(started.authUrl, started.userCode)
+    console.log(`After approving, run: ${next}`)
+}
+
+const shellArg = (value: string): string =>
+    /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 
 const startCliLogin = async (
     apiUrl: string,

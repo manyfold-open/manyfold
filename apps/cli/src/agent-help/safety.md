@@ -17,7 +17,9 @@ any other guide.
 - During `mf auth ensure`, share only the consent URL with the
   user. The URL alone is safe; everything else (codes, tokens, config) is
   not.
-- Never ask the user to paste a token into chat.
+- Never ask the user to paste a token into chat. The one exception is the
+  one-time `mf_auth_…` code from `mf login --print-auth-url`: ask for it,
+  pass it straight to `mf login --auth-code`, and never repeat it.
 
 ## Scope grants
 

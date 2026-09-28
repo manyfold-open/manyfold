@@ -1183,6 +1183,8 @@ export {
     PROFILE_NAME_RE,
     RUNNER_PROFILE,
     buildPodRunnerEnv,
+    cliProfileForApiUrl,
+    isLoopbackHostname,
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,
@@ -1191,6 +1193,8 @@ export {
     runtimeAuthRoot
 } from './profile-paths'
 export type { ProfilePaths } from './profile-paths'
+export { renderAgentSetupGuide } from './agentSetupGuide'
+export type { AgentSetupGuideInput } from './agentSetupGuide'
 export {
     RUNTIME_AUTH_METHODS,
     RUNTIME_AUTH_LIFECYCLES,

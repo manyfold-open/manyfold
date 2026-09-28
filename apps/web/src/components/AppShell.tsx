@@ -30,6 +30,7 @@ import {
 import { createPortal } from 'react-dom'
 import { Plus as LucidePlusIcon } from 'lucide-react'
 import {
+    AgentIcon,
     CheckIcon,
     ChevronDownIcon,
     ChevronRightIcon,
@@ -125,6 +126,7 @@ import RenameAgentDialog from '@/components/RenameAgentDialog'
 import RenameChannelDisplayNameDialog from '@/components/RenameChannelDisplayNameDialog'
 import RenameChatSessionDialog from '@/components/RenameChatSessionDialog'
 import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
+import UseInAgentDialog from '@/components/UseInAgentDialog'
 import SessionStreamingDot from '@/components/chat/SessionStreamingDot'
 import SessionContextMenu from '@/components/chat/SessionContextMenu'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -1665,9 +1667,10 @@ const useAvailableUpdateCount = (
     }, [inputs])
 }
 
-const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
-    collapsed = false
-}): ReactNode => {
+const SidebarSettingsMenu: FC<{
+    collapsed?: boolean
+    onUseInAgent: (trigger: HTMLButtonElement | null) => void
+}> = ({ collapsed = false, onUseInAgent }): ReactNode => {
     const navigate = useNavigate()
     const location = useLocation()
     const { signOut, user } = useAppAuth()
@@ -1682,6 +1685,7 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
     const [languageOpen, setLanguageOpen] = useState(false)
     const [learnMoreOpen, setLearnMoreOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement | null>(null)
+    const triggerRef = useRef<HTMLButtonElement | null>(null)
 
     const openLearnMore = useCallback((): void => {
         setLanguageOpen(false)
@@ -2040,6 +2044,18 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                         </span>
                     </button>
 
+                    <button
+                        type='button'
+                        role='menuitem'
+                        onClick={() => {
+                            runAction(() => onUseInAgent(triggerRef.current))
+                        }}
+                        className={sidebarMenuItemClass()}
+                    >
+                        <AgentIcon className='h-4 w-4 shrink-0' />
+                        {t('web.settingsMenu.useInAgent')}
+                    </button>
+
                     <div className='relative'>
                         <button
                             type='button'
@@ -2152,6 +2168,7 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                 <div className='flex w-full flex-col items-center gap-2'>
                     <ShortcutTooltip label={accountName} placement='right'>
                         <button
+                            ref={triggerRef}
                             type='button'
                             aria-label={accountName}
                             aria-haspopup='menu'
@@ -2168,6 +2185,7 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                 </div>
             ) : (
                 <button
+                    ref={triggerRef}
                     type='button'
                     aria-label={accountName}
                     aria-haspopup='menu'
@@ -2312,6 +2330,21 @@ const AppShell: FC = (): ReactNode => {
     )
     const [renameAgent, setRenameAgent] = useState<SdkAgent | null>(null)
     const [menuOpenAgentId, setMenuOpenAgentId] = useState<string | null>(null)
+    // Held here, not in SidebarSettingsMenu: the desktop rail and the mobile
+    // drawer each mount a menu, and the dialog must exist once.
+    const [useInAgentOpen, setUseInAgentOpen] = useState(false)
+    const useInAgentTriggerRef = useRef<HTMLButtonElement | null>(null)
+    const openUseInAgent = useCallback(
+        (trigger: HTMLButtonElement | null): void => {
+            useInAgentTriggerRef.current = trigger
+            setUseInAgentOpen(true)
+        },
+        []
+    )
+    const closeUseInAgent = useCallback((): void => {
+        setUseInAgentOpen(false)
+        useInAgentTriggerRef.current?.focus()
+    }, [])
 
     const currentAgent = useMemo(
         () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -4133,7 +4166,10 @@ const AppShell: FC = (): ReactNode => {
                         ))}
                     </div>
                     <div className={collapsed ? 'flex justify-center' : ''}>
-                        <SidebarSettingsMenu collapsed={collapsed} />
+                        <SidebarSettingsMenu
+                            collapsed={collapsed}
+                            onUseInAgent={openUseInAgent}
+                        />
                     </div>
                 </div>
             </div>
@@ -4313,6 +4349,9 @@ const AppShell: FC = (): ReactNode => {
                             )
                         }
                     />
+                )}
+                {useInAgentOpen && (
+                    <UseInAgentDialog onClose={closeUseInAgent} />
                 )}
             </div>
         </div>
