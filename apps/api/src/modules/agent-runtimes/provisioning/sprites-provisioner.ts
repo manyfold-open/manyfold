@@ -361,20 +361,17 @@ export class SpritesProvisioner {
     async installRuntimeIdentity(args: {
         userId: string
         agentId: string
-        client: SpritesClient
-        spriteName: string
-        logger?: SpritesLogger
     }): Promise<void> {
         const apiBaseUrl = this.config?.get<string>('PUBLIC_API_BASE_URL')
         if (!apiBaseUrl) {
             this.log.warn(
-                `skipping runtime identity for ${args.spriteName}: PUBLIC_API_BASE_URL not configured`
+                `skipping runtime identity for ${args.agentId}: PUBLIC_API_BASE_URL not configured`
             )
             return
         }
         if (!this.runtimeToken)
             throw new Error(
-                `runtime identity required for ${args.spriteName} (PUBLIC_API_BASE_URL is set) but RuntimeTokenService is not wired`
+                `runtime identity required for ${args.agentId} (PUBLIC_API_BASE_URL is set) but RuntimeTokenService is not wired`
             )
         // Mint + encrypt-store the per-agent identity. It is injected per-exec
         // from the encrypted copy, NOT written to the shared sprite profile, so
