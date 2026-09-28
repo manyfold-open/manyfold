@@ -6,7 +6,8 @@ import { AgentCredentialsService } from '../src/modules/agents/credentials/agent
 import {
     contextOf,
     k8sHostRow,
-    runtimeRow
+    runtimeRow,
+    spritesHostRow
 } from './helpers/runtime-context-fixture'
 
 // A framework prepared bare on a cloud computer (ADR-0035) has no credentials
@@ -136,4 +137,98 @@ test('a bare hosted agent exposes an empty provider view before its first bindin
     assert.equal(view.savedProvider, null)
     assert.equal(view.apiKeyMasked, null)
     assert.equal(view.unsupported, undefined)
+})
+
+// Codex reads its endpoint and MCP servers from config.toml, so a credential
+// update rewrites it — through the machine's daemon, whatever provider made
+// the machine, with the file carried in the exec's env. The key itself is not
+// logged in: every turn carries it.
+test('a codex credential update rewrites config.toml through the daemon on a sandbox as on a cloud computer', async () => {
+    for (const host of [
+        spritesHostRow({ id: 'sbx_1', userId: 'usr_1' }),
+        k8sHostRow({ id: 'pdh_1', userId: 'usr_1' })
+    ]) {
+        const { db } = fakeDb()
+        const agent = {
+            id: 'agt_1',
+            userId: 'usr_1',
+            framework: 'codex',
+            runtimeId: 'art_1',
+            model: null,
+            modelProviderId: null,
+            extras: {}
+        }
+        const sessions: string[] = []
+        const execs: Array<{ stdin?: string; env?: Record<string, string> }> = []
+        const slots: string[] = []
+        const service = new AgentCredentialsService(
+            db as never,
+            {
+                encrypt: (plain: string) => ({ ciphertext: plain, keyVersion: 1 })
+            } as never,
+            {
+                findForCaller: async () => agent,
+                contextForCaller: async () =>
+                    contextOf({
+                        agent: agent as never,
+                        runtime: runtimeRow({
+                            id: 'art_1',
+                            userId: 'usr_1',
+                            hostId: host.id,
+                            framework: 'codex'
+                        }),
+                        host
+                    })
+            } as never,
+            {
+                resolve: async () => ({
+                    framework: 'codex',
+                    providerId: 'ump_1',
+                    value: {
+                        openaiApiKey: 'sk-fixture-provider-key',
+                        openaiBaseUrl: 'https://gateway.example/v1'
+                    }
+                })
+            } as never,
+            { findByApiKey: async () => null } as never,
+            {
+                withHost: async (
+                    args: { host: { id: string }; reason: string },
+                    work: (session: unknown) => Promise<unknown>
+                ) => {
+                    sessions.push(`${args.host.id}:${args.reason}`)
+                    return work({
+                        exec: async (req: { stdin?: string; env?: Record<string, string> }) => {
+                            execs.push(req)
+                            return { exitCode: 0, stdout: '', stderr: '' }
+                        }
+                    })
+                }
+            } as never,
+            {
+                reserveActiveSlot: async (input: { hostId: string }) => {
+                    slots.push(input.hostId)
+                    return {}
+                }
+            } as never
+        )
+        await service.update(
+            'usr_1',
+            'agt_1',
+            { codexCredentials: { providerId: 'ump_1' } } as never,
+            false
+        )
+        assert.deepEqual(sessions, [`${host.id}:codex-credentials`])
+        assert.equal(execs.length, 1)
+        const [rewrite] = execs
+        assert.doesNotMatch(rewrite.stdin ?? '', /codex login|sk-fixture-provider-key/)
+        const toml = Buffer.from(
+            rewrite.env?.MF_CODEX_CONFIG_B64 ?? '',
+            'base64'
+        ).toString('utf8')
+        assert.match(toml, /base_url = "https:\/\/gateway\.example\/v1"/)
+        assert.doesNotMatch(toml, /sk-fixture-provider-key/)
+        // A sandbox woken for the rewrite takes an active slot first.
+        assert.deepEqual(slots, host.id === 'sbx_1' ? ['sbx_1'] : [])
+    }
 })

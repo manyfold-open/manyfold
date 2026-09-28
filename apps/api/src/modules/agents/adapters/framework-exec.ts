@@ -1,7 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import type { AgentRuntimeRow } from '@manyfold/db'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
-import type { HostScriptRunner } from '@/modules/agents/bootstrap/framework-version-install'
 import {
     HostDaemonAccess,
     HostDaemonOfflineError,
@@ -16,18 +15,6 @@ export type FrameworkExecRunResult = HostExecResult
 export interface FrameworkExec {
     run(req: FrameworkExecRunRequest): Promise<FrameworkExecRunResult>
 }
-
-// The staged framework install (installFrameworkVersionOn) runs login-shell
-// scripts; this is that runner over a daemon exec, so a framework installs
-// the same way on every kind of host.
-export const daemonScriptRunner = (
-    exec: FrameworkExec,
-    warn: HostScriptRunner['warn']
-): HostScriptRunner => ({
-    run: (script, timeoutMs) =>
-        exec.run({ cmd: ['bash', '-lc', script], timeoutMs }),
-    warn
-})
 
 @Injectable()
 export class FrameworkExecResolver {

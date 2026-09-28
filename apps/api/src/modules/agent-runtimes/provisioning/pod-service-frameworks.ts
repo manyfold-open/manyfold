@@ -30,10 +30,10 @@ import {
 import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
 import {
-    runPodStep,
+    runHostStep,
     secretFileStep,
-    type PodScriptRunner
-} from './pod-framework-setup'
+    type SessionScriptRunner
+} from '@/modules/agents/bootstrap/host-framework-setup'
 
 // The service frameworks a pod host runs (ADR-0035 P2): installed into the
 // home volume with the recipes a sprite uses, and kept up by the host's
@@ -62,13 +62,13 @@ export interface PodServiceRecipe {
     readonly home: string
     readonly port: number
     install(
-        runner: PodScriptRunner,
+        runner: SessionScriptRunner,
         request: PodInstallRequest
     ): Promise<string | null>
     // Writes the framework's config for these credentials and returns its
     // service. Rerun on a credential or env change.
     configure(
-        runner: PodScriptRunner,
+        runner: SessionScriptRunner,
         args: {
             credentials: unknown
             envText: string | null
@@ -93,7 +93,7 @@ const openclawRecipe: PodServiceRecipe = {
             request,
             'openclaw'
         )
-        await runPodStep(
+        await runHostStep(
             runner,
             'openclaw-browser',
             'npx --yes playwright install chromium',
@@ -115,7 +115,7 @@ const openclawRecipe: PodServiceRecipe = {
                 controlUiEnabled: args.controlUiEnabled
             })
         )
-        await runPodStep(
+        await runHostStep(
             runner,
             'openclaw-config',
             [
@@ -154,7 +154,7 @@ const hermesRecipe: PodServiceRecipe = {
     // NousResearch's installer, pinned to the resolved tag as on a sprite;
     // what landed is read back from the checkout.
     install: async (runner, request) => {
-        await runPodStep(
+        await runHostStep(
             runner,
             'hermes-install',
             buildHermesInstallScript(request.frameworkVersion ?? null),
@@ -174,7 +174,7 @@ const hermesRecipe: PodServiceRecipe = {
             'MF_HERMES_CONFIG_B64',
             hermesConfigYamlFor(creds)
         )
-        await runPodStep(runner, 'hermes-config', config.script, {
+        await runHostStep(runner, 'hermes-config', config.script, {
             env: config.env
         })
         return {

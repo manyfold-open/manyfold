@@ -84,7 +84,8 @@ export const githubSource = (
 
 export interface FrameworkVersionDescriptor {
     framework: VersionedFramework
-    // 'coding' = FrameworkBootstrap (no long-running service to restart);
+    // 'coding' = a CLI set up by setUpHostFramework (no long-running service
+    // to restart);
     // 'daemon' = SpriteServiceBootstrap (service must restart after upgrade).
     runtimeKind: 'coding' | 'daemon'
     source: FrameworkVersionSource

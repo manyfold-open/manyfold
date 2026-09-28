@@ -18,7 +18,7 @@ import {
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { HostCliService } from '@/modules/chat/runner/host-cli.service'
-import { podScriptRunner, type PodScriptRunner } from './pod-framework-setup'
+import { sessionScriptRunner, type SessionScriptRunner } from '@/modules/agents/bootstrap/host-framework-setup'
 
 const SERVICE_RPC_TIMEOUT_MS = 60_000
 const HEALTH_POLL_MS = 3_000
@@ -103,7 +103,7 @@ export class PodHostServices {
     async runScripts<T>(
         host: PodHostRef,
         reason: string,
-        work: (runner: PodScriptRunner) => Promise<T>
+        work: (runner: SessionScriptRunner) => Promise<T>
     ): Promise<T> {
         const row = await this.hosts.findById(host.id)
         if (!row || row.userId !== host.userId)
@@ -115,7 +115,7 @@ export class PodHostServices {
                 { host: row, daemon: null, placement: 'k8s', reason },
                 (session) =>
                     work(
-                        podScriptRunner({ run: session.exec }, (event, fields) =>
+                        sessionScriptRunner({ run: session.exec }, (event, fields) =>
                             this.log.warn(
                                 `${event} ${JSON.stringify({ hostId: host.id, ...fields })}`
                             )

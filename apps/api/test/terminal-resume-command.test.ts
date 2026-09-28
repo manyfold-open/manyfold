@@ -53,9 +53,11 @@ test('a blank session ref yields no command', () => {
 
 // Only claude needs the sandbox opt-in: codex logs in on the sprite at
 // bootstrap and its auth lives on disk.
-test('only claude-code needs the model-credential opt-in', () => {
-    assert.equal(terminalResumeNeedsModelCredentials('claude-code'), true)
-    assert.equal(terminalResumeNeedsModelCredentials('codex'), false)
+// None of these CLIs is logged in on the machine: each turn carries its own
+// key, so a TUI resumed in the terminal has one only if the sandbox lends it.
+test('every resumable CLI needs the model-credential opt-in', () => {
+    for (const framework of ['claude-code', 'codex', 'pi', 'antigravity-cli'] as const)
+        assert.equal(terminalResumeNeedsModelCredentials(framework), true, framework)
 })
 
 test('no resume asked for leaves the plain login shell', () => {

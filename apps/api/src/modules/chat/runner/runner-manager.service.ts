@@ -21,6 +21,7 @@ import {
     buildCliInstallScript,
     cliInstallChannelForDeployEnv,
     buildHerdrInstallScript,
+    buildShellEnvScript,
     HERDR_INSTALL_MARKER
 } from '@/modules/agent-self/sprite-shell-env.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
@@ -192,6 +193,11 @@ interface RunnerLayout {
     probePath: string
     logPath: string | null
     start: (mf: string, keepExecs: boolean) => string
+    // Whether registering also writes the profile block every shell on the
+    // machine reads (MF_API_URL, MF_DEPLOY_ENV), so `mf` run by an agent or
+    // in a terminal talks to the API its daemon does. A pod's shells get
+    // both from the pod's env.
+    writesShellEnv: boolean
 }
 
 const SPRITE_LAYOUT: RunnerLayout = {
@@ -209,7 +215,8 @@ const SPRITE_LAYOUT: RunnerLayout = {
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
         `setsid nohup ${mf} daemon start --foreground >> "$HOME/.manyfold/runner.log" 2>&1 < /dev/null & disown; sleep 2; ` +
-        'pgrep -c -x mf || echo 0'
+        'pgrep -c -x mf || echo 0',
+    writesShellEnv: true
 }
 
 const POD_CONFIG_ROOT = `${K8S_HOME_BASE}/.manyfold`
@@ -221,7 +228,8 @@ const POD_LAYOUT: RunnerLayout = {
     logPath: null,
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
-        'pkill -TERM -x mf >/dev/null 2>&1 || true; sleep 2; pgrep -c -x mf || echo 0'
+        'pkill -TERM -x mf >/dev/null 2>&1 || true; sleep 2; pgrep -c -x mf || echo 0',
+    writesShellEnv: false
 }
 
 const layoutFor = (provider: RuntimeProvider): RunnerLayout =>
@@ -670,11 +678,18 @@ export class RunnerManagerService {
             ...(provider.kind === 'k8s' ? {} : { expiresInDays: TOKEN_TTL_DAYS }),
             hostId: host.id
         })
+        // In a subshell reading nothing: the token after it is on stdin.
+        const shellEnv = layout.writesShellEnv
+            ? `(\n${buildShellEnvScript({
+                  apiBaseUrl: this.apiUrl(),
+                  deployEnv: process.env.MF_DEPLOY_ENV
+              })}\n) </dev/null >/dev/null 2>&1 || echo 'mf shell env not written' >&2\n`
+            : ''
         const res = await adapter
             .bootstrap({
                 ...call,
                 script:
-                    `${layout.envPrefix} ${MF_BIN} --api-url ${this.apiUrl()} ` +
+                    `${shellEnv}${layout.envPrefix} ${MF_BIN} --api-url ${this.apiUrl()} ` +
                     `daemon register --token - --name ${shellQuote(host.name)}`,
                 stdin: minted.plaintext,
                 timeoutMs: 180_000

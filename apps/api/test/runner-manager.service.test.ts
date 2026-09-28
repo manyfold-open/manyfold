@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
     DAEMON_FEATURE_EXEC_FILES,
@@ -362,6 +363,29 @@ test('a cold machine is inspected, installed, registered with a bound token, sta
     assert.match(register.script, /--token -/)
     assert.match(register.script, new RegExp(`MF_PROFILE=${RUNNER_PROFILE}`))
     assert.match(register.script, /--name 'sandbox-001'/)
+})
+
+// Every shell on a sprite reads MF_API_URL and MF_DEPLOY_ENV from a profile
+// block, so `mf` run by an agent or in a terminal talks to the API its daemon
+// does. Registering writes it: in a subshell that reads nothing, because the
+// token rides the same exec's stdin. A pod's shells get both from its env.
+test('registering a sprite daemon writes the shell env block first, reading nothing from stdin', async () => {
+    const h = buildHarness({ installed: true, registered: false })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    const register = h.execs.find((e) => e.script.includes('daemon register'))!
+    const [shellEnv, command] = register.script.split("\n) </dev/null >/dev/null 2>&1 || echo 'mf shell env not written' >&2\n")
+    assert.ok(command, 'the block runs in its own subshell before the register')
+    assert.match(shellEnv, /export MF_API_URL=/)
+    assert.match(shellEnv, /export MF_DEPLOY_ENV=/)
+    assert.match(command, /daemon register --token -/)
+    assert.ok(!shellEnv.includes('ldt_secret_value'))
+    const syntax = spawnSync('bash', ['-n'], { input: register.script })
+    assert.equal(syntax.status, 0, syntax.stderr.toString())
+
+    const pod = buildHarness({ providerKind: 'k8s', registered: false })
+    await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
+    const podRegister = pod.execs.find((e) => e.script.includes('daemon register'))!
+    assert.doesNotMatch(podRegister.script, /MF_API_URL/)
 })
 
 test('the inspect probes the ADR-0014 profile layout of the machine kind', async () => {

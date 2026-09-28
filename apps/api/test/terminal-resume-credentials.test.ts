@@ -23,7 +23,7 @@ const dbReturning = (rows: unknown[][]): never => {
 }
 
 const resolveWith = (
-    framework: 'pi' | 'claude-code' | 'antigravity-cli',
+    framework: 'pi' | 'claude-code' | 'antigravity-cli' | 'codex',
     payload: Record<string, unknown> | null,
     workspacePath?: string,
     model?: string | null
@@ -115,6 +115,29 @@ test('claude still gets its token, endpoint and persistence flag', async () => {
         resolved.resume?.env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE,
         '1'
     )
+})
+
+// codex is not logged in on the machine: its TUI resumes on the provider its
+// turns run on, the key in the env and the endpoint in `-c` overrides.
+test('a codex TUI resumes on the platform provider with the key in its env', async () => {
+    const resolved = await resolveWith('codex', {
+        openaiApiKey: 'sk-fixture-codex-key',
+        openaiBaseUrl: 'https://gw.example/v1'
+    })
+    assert.equal(resolved.outcome, 'applied')
+    const command = resolved.resume?.command ?? []
+    assert.deepEqual(command.slice(0, 3), ['codex', 'resume', 'ref-1'])
+    assert.ok(command.includes('model_provider="Manyfold"'))
+    assert.ok(command.includes('model_providers.Manyfold.base_url="https://gw.example/v1"'))
+    assert.ok(command.includes('model_providers.Manyfold.env_key="OPENAI_API_KEY"'))
+    assert.ok(!command.some((arg) => arg.includes('sk-fixture-codex-key')))
+    assert.equal(resolved.resume?.env.OPENAI_API_KEY, 'sk-fixture-codex-key')
+})
+
+test('a codex credential without a key leaves a plain shell', async () => {
+    const resolved = await resolveWith('codex', { openaiBaseUrl: 'https://gw.example/v1' })
+    assert.equal(resolved.outcome, 'unavailable')
+    assert.equal(resolved.resume, null)
 })
 
 const AGY_REF = '6bce3054-1614-4b63-b9b5-9590cdfc8458'

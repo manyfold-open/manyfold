@@ -10,8 +10,8 @@ import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/s
 import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // A sprites host (ADR-0037): the adapter makes the machine under a fresh
-// generation, the runner manager brings its daemon up, and the framework
-// bootstrap runs against the sprite the host's provider_ref names. A create
+// generation, the runner manager brings its daemon up, and a coding framework
+// is set up through that daemon, in one session holding the machine. A create
 // that fails on a fresh host takes the host with it — through `deleting`,
 // tokens revoked, adapter.destroy — and a destroy that fails leaves the host
 // `deleting` for a retry.
@@ -54,6 +54,7 @@ const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         generation: 1,
         powerState: null,
         keepAwake: false,
+        homeDir: '/home/sprite',
         createdAt: new Date('2026-05-06T00:00:00.000Z'),
         updatedAt: new Date('2026-05-06T00:00:00.000Z'),
         ...overrides
@@ -62,7 +63,7 @@ const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
 const noopBootstrap = { run: async () => ({ homeDir: undefined }) } as never
 
 const buildHarness = (opts: {
-    bootstrap?: (ctx: { spriteName: string }) => Promise<{ homeDir: string }>
+    setupFails?: boolean
     destroyFails?: boolean
     daemonComesUp?: boolean
 } = {}) => {
@@ -76,8 +77,21 @@ const buildHarness = (opts: {
     const powers: string[] = []
     const revokedForHosts: string[] = []
     const deletes: string[] = []
-    const bootstrappedOn: string[] = []
-    const shellEnv = { deployEnv: undefined as string | undefined, channel: undefined as string | undefined }
+    const sessions: string[] = []
+    const rpcs: string[] = []
+    const scripts: string[] = []
+    const session = {
+        rpc: async (req: { method: string; payload: { path: string; create: boolean } }) => {
+            rpcs.push(`${req.method}:${req.payload.path}:${req.payload.create}`)
+            return {}
+        },
+        exec: async (req: { stdin: string }) => {
+            scripts.push(req.stdin)
+            if (opts.setupFails && req.stdin.includes('.codex'))
+                return { exitCode: 1, stdout: '', stderr: 'disk full' }
+            return { exitCode: 0, stdout: 'codex-cli 0.130.0', stderr: '' }
+        }
+    }
 
     const adapter = {
         create: async (args: { host: RuntimeHostRow; generation: number }) => {
@@ -142,14 +156,15 @@ const buildHarness = (opts: {
         { for: () => adapter } as never,
         {
             withHost: async (
-                args: { host: RuntimeHostRow },
+                args: { host: RuntimeHostRow; reason: string },
                 work: (session: unknown) => Promise<unknown>
             ) => {
                 calls.push('daemon')
+                sessions.push(args.reason)
                 if (opts.daemonComesUp === false) throw new Error('daemon never came up')
                 // The daemon registering is what flips a new sandbox ready.
                 state.host = { ...state.host, status: 'ready' }
-                return work({ host: args.host, daemonId: args.host.id })
+                return work(session)
             }
         } as never,
         {
@@ -173,16 +188,6 @@ const buildHarness = (opts: {
                 state.runtime = runtimeRow({ ...state.runtime, ...patch })
             }
         } as never,
-        noopBootstrap,
-        {
-            run: async (ctx: { spriteName: string }) => {
-                bootstrappedOn.push(ctx.spriteName)
-                return opts.bootstrap ? opts.bootstrap(ctx) : { homeDir: '/home/sprite' }
-            }
-        } as never,
-        noopBootstrap,
-        noopBootstrap,
-        noopBootstrap,
         new SpriteServiceBootstraps(noopBootstrap, noopBootstrap),
         {
             reserveSpriteRuntime: async (input: Partial<AgentRuntimeRow>) => {
@@ -195,18 +200,10 @@ const buildHarness = (opts: {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL' ? 'http://api.test' : undefined
         } as never,
-        {
-            write: async (input: { deployEnv?: string }) => {
-                shellEnv.deployEnv = input.deployEnv
-            },
-            installCli: async (input: { channel: string }) => {
-                shellEnv.channel = input.channel
-            }
-        } as never,
         {} as never,
         { settleHostNotRunning: async () => {} } as never
     )
-    return { provisioner, state, calls, hostPatches, powers, revokedForHosts, deletes, bootstrappedOn, shellEnv }
+    return { provisioner, state, calls, hostPatches, powers, revokedForHosts, deletes, sessions, rpcs, scripts }
 }
 
 const provision = (h: ReturnType<typeof buildHarness>) =>
@@ -220,43 +217,56 @@ const provision = (h: ReturnType<typeof buildHarness>) =>
         agentId: 'agt_test'
     })
 
-test('a fresh host is made by the adapter under a new generation, its daemon brought up, and the bootstrap runs on its sprite', async () => {
+test('a fresh host is made by the adapter under a new generation, its daemon brought up, and the framework set up through it', async () => {
     const h = buildHarness()
     const result = await provision(h)
 
     assert.ok(h.state.reserved?.id)
     assert.match(h.state.reserved!.id, /^art_[a-z2-7]{26}$/)
-    assert.deepEqual(h.calls, ['create@2', 'daemon'])
+    assert.deepEqual(h.calls, ['create@2', 'daemon', 'daemon'])
+    assert.deepEqual(h.sessions, ['provision-sandbox', 'create-codex'])
     assert.deepEqual(h.powers, ['running'])
-    assert.deepEqual(h.bootstrappedOn, ['sbx-test-host'])
-    assert.equal(h.shellEnv.deployEnv, 'local')
-    assert.equal(h.shellEnv.channel, 'stable')
+    // The agent's managed workspace is the daemon's to create.
+    assert.deepEqual(h.rpcs, [
+        'workspace.ensure:/home/sprite/.manyfold/workspaces/agt_test:true'
+    ])
+    assert.match(h.scripts[0], /mkdir -p "\$HOME\/\.codex"/)
     assert.equal(result.host.id, 'sbx_testhost')
     assert.equal(result.host.status, 'ready')
     assert.equal(result.provider.id, 'rtp_test')
     assert.equal(result.homeDir, '/home/sprite')
     assert.equal(result.runtime.hostId, 'sbx_testhost')
+    assert.equal(result.runtime.frameworkVersion, '0.130.0')
 })
 
-test('a bootstrap failure on a fresh host takes the host down; a destroy that fails leaves it deleting', async () => {
-    const stuck = buildHarness({
-        bootstrap: async () => {
-            throw new Error('bootstrap failed')
-        },
-        destroyFails: true
+// Agent create behaves like a pod's: no key-based login and no paid verify
+// turn run on the machine, and no platform key is written to it.
+test('a coding create logs nothing in, verifies nothing with money and keeps no key on the machine', async () => {
+    const h = buildHarness()
+    await h.provisioner.provisionRuntime({
+        userId: 'user-1',
+        framework: 'codex',
+        providerId: null,
+        isAdmin: false,
+        credentials: { openaiApiKey: 'sk-fixture-provider-key' },
+        emitter: { step: () => {} },
+        agentId: 'agt_test'
     })
-    await assert.rejects(() => provision(stuck), /bootstrap failed/)
-    assert.deepEqual(stuck.calls, ['create@2', 'daemon', 'destroy@2'])
+    const all = h.scripts.join('\n')
+    assert.doesNotMatch(all, /codex login|claude --print/)
+    assert.doesNotMatch(all, /sk-fixture-provider-key/)
+})
+
+test('a setup failure on a fresh host takes the host down; a destroy that fails leaves it deleting', async () => {
+    const stuck = buildHarness({ setupFails: true, destroyFails: true })
+    await assert.rejects(() => provision(stuck), /codex-setup-dirs exited 1/)
+    assert.deepEqual(stuck.calls, ['create@2', 'daemon', 'daemon', 'destroy@2'])
     assert.deepEqual(stuck.revokedForHosts, ['sbx_testhost'])
     assert.ok(stuck.hostPatches.some((p) => p.status === 'deleting'))
     assert.deepEqual(stuck.deletes, [], 'the rows stay as the retry record until the VM is confirmed gone')
 
-    const gone = buildHarness({
-        bootstrap: async () => {
-            throw new Error('bootstrap failed')
-        }
-    })
-    await assert.rejects(() => provision(gone), /bootstrap failed/)
+    const gone = buildHarness({ setupFails: true })
+    await assert.rejects(() => provision(gone), /codex-setup-dirs exited 1/)
     assert.deepEqual(gone.deletes, ['agent_runtimes', 'host_daemons', 'runtime_hosts'])
 })
 
@@ -283,15 +293,9 @@ const wakeProvisioner = (
         {} as never,
         {} as never,
         {} as never,
-        noopBootstrap,
-        noopBootstrap,
-        noopBootstrap,
-        noopBootstrap,
-        noopBootstrap,
         new SpriteServiceBootstraps({} as never, {} as never),
         {} as never,
         { get: () => undefined } as never,
-        {} as never,
         lease as never,
         { settleHostNotRunning: async () => {} } as never
     )

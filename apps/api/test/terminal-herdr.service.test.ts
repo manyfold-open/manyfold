@@ -425,9 +425,9 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     // sandbox TUI gets them injected as the browser terminal does.
     assert.equal(h.resolves[0].modelCredentialsAllowed, true)
     assert.equal(h.resolves[0].injectModelCredentials, true)
-    // Without that opt-in a Claude Code TUI has nothing to answer with,
-    // and the refusal names the setting instead of "nothing to resume";
-    // codex needs no model credentials and goes ahead.
+    // Without that opt-in a TUI has nothing to answer with — no CLI is
+    // logged in on the machine — and the refusal names the setting instead
+    // of "nothing to resume".
     const noLending = harness({
         agent: SPRITES_AGENT,
         sandbox: { ...SANDBOX, terminalModelCredentials: false },
@@ -442,9 +442,18 @@ test('a sprites agent hands off through its sandbox runner, with the row address
             )
     )
     assert.equal(noLending.created.length, 0)
-    const codex = harness({
+    const codexNoLending = harness({
         agent: { ...SPRITES_AGENT, framework: 'codex' },
         sandbox: { ...SANDBOX, terminalModelCredentials: false },
+        daemon: RUNNER
+    })
+    await assert.rejects(
+        codexNoLending.service.open('u1', 'agt-1', 'cs-1', {}),
+        (err: unknown) => codeOf(err) === HERDR_UNAVAILABLE_CODE
+    )
+    const codex = harness({
+        agent: { ...SPRITES_AGENT, framework: 'codex' },
+        sandbox: SANDBOX,
         daemon: RUNNER,
         resolve: {
             resume: { command: ['codex', 'resume', 'ref-1'], env: {} },
@@ -453,7 +462,8 @@ test('a sprites agent hands off through its sandbox runner, with the row address
         }
     })
     await codex.service.open('u1', 'agt-1', 'cs-1', {})
-    assert.equal(codex.resolves[0].modelCredentialsAllowed, false)
+    assert.equal(codex.resolves[0].modelCredentialsAllowed, true)
+    assert.equal(codex.resolves[0].injectModelCredentials, true)
 })
 
 test('a sandbox needs herdr installed, its terminal enabled and a ready runner that can reach it', async () => {

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-    applyCodexCredentialsOnPod,
-    podScriptRunner,
+    applyCodexCredentials,
+    sessionScriptRunner,
     secretFileStep
-} from '../src/modules/agent-runtimes/provisioning/pod-framework-setup'
+} from '../src/modules/agents/bootstrap/host-framework-setup'
 import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod-service-frameworks'
 
-// A pod's scripts run through its daemon, which keeps every command's stdin in
+// A machine's scripts run through its daemon, which keeps every command's stdin in
 // its exec buffer on disk (for 1–24h) but never its env. So a secret a script
 // needs rides the exec's env, and a file holding one is decoded from there.
 
@@ -21,7 +21,7 @@ interface Recorded {
 
 const recordingRunner = () => {
     const execs: Recorded[] = []
-    const runner = podScriptRunner(
+    const runner = sessionScriptRunner(
         {
             run: async (req) => {
                 execs.push(req)
@@ -36,7 +36,7 @@ const recordingRunner = () => {
 const decoded = (env: Record<string, string> | undefined, name: string) =>
     Buffer.from(env?.[name] ?? '', 'base64').toString('utf8')
 
-test('a pod script carries its env in the exec env, never in its stdin', async () => {
+test('a host script carries its env in the exec env, never in its stdin', async () => {
     const { execs, runner } = recordingRunner()
 
     await runner.run('echo "$TOKEN"', 1_000, { TOKEN: SECRET })
@@ -56,10 +56,10 @@ test('a secret file is decoded from the env into an owner-only file, never writt
     assert.equal(decoded(step.env, 'MF_APP_CONFIG_B64'), `{"key":"${SECRET}"}`)
 })
 
-test('the codex config rewrite on a pod keeps the Composio key out of its script', async () => {
+test('the codex config rewrite keeps the Composio key out of its script', async () => {
     const { execs, runner } = recordingRunner()
 
-    await applyCodexCredentialsOnPod({ runner, composioKey: SECRET })
+    await applyCodexCredentials({ runner, composioKey: SECRET })
 
     assert.equal(execs.length, 1)
     assert.equal(execs[0].stdin?.includes(SECRET), false)

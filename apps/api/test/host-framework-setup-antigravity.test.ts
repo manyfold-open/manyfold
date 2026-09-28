@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-    isPodHostFramework,
-    setUpPodFramework,
-    type PodScriptRunner
-} from '../src/modules/agent-runtimes/provisioning/pod-framework-setup'
+    isCodingHostFramework,
+    setUpHostFramework,
+    type SessionScriptRunner
+} from '../src/modules/agents/bootstrap/host-framework-setup'
 
-// A pod host installs agy on demand like the other coding CLIs (ADR-0035):
+// A hosted machine installs agy on demand like the other coding CLIs (ADR-0035):
 // its directories, the pinned release binary checked against its digest, and
 // a version check that runs with agy's self-updater off.
-test('a pod host sets up Antigravity CLI from its release binary', async () => {
-    assert.equal(isPodHostFramework('antigravity-cli'), true)
+test('a hosted machine sets up Antigravity CLI from its release binary', async () => {
+    assert.equal(isCodingHostFramework('antigravity-cli'), true)
     const runs: Array<{ script: string; env?: Record<string, string> }> = []
     let installed = false
-    const runner: PodScriptRunner = {
+    const runner: SessionScriptRunner = {
         run: async (script, _timeoutMs, env) => {
             runs.push({ script, env })
             if (script.includes('releases/download/')) installed = true
@@ -26,7 +26,7 @@ test('a pod host sets up Antigravity CLI from its release binary', async () => {
         },
         warn: () => undefined
     }
-    const result = await setUpPodFramework({
+    const result = await setUpHostFramework({
         runner,
         framework: 'antigravity-cli',
         workspaceBase: '/home/node/.manyfold/workspaces',

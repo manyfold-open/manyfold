@@ -12,29 +12,33 @@ import { piAgentDirSetupScript } from '@/modules/agents/credentials/pi-agent-dir
 import type { ResolvedCodexCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
 
-// The frameworks a pod host installs on demand (ADR-0035). Service frameworks
-// (OpenClaw, Hermes, an edition's services) join once the host's daemon
-// supervises in-pod services; until then a pod host refuses them.
-const POD_HOST_FRAMEWORKS = [
+// The coding CLIs a hosted machine installs on demand, whatever provider made
+// it (ADR-0035, ADR-0037 R6). The service frameworks come from their recipes
+// (pod-service-frameworks.ts) or a sprite's service bootstraps instead.
+const CODING_HOST_FRAMEWORKS = [
     'claude-code',
     'codex',
     'gemini-cli',
     'pi',
     'antigravity-cli'
 ] as const
-export type PodHostFramework = (typeof POD_HOST_FRAMEWORKS)[number]
+export type CodingHostFramework = (typeof CODING_HOST_FRAMEWORKS)[number]
 
-export const isPodHostFramework = (
+export const isCodingHostFramework = (
     framework: AgentFramework
-): framework is PodHostFramework =>
-    (POD_HOST_FRAMEWORKS as readonly string[]).includes(framework)
+): framework is CodingHostFramework =>
+    (CODING_HOST_FRAMEWORKS as readonly string[]).includes(framework)
 
 const SETUP_TIMEOUT_MS = 60_000
+// Covers a first package install (an apt update included): pi's find and grep
+// tools run fd and ripgrep, which its setup installs.
+const PI_SETUP_TIMEOUT_MS = 180_000
 
-// A login-shell script run inside the pod by its daemon. A secret the script
-// needs rides the exec's env: the daemon keeps a command's stdin in its exec
-// buffer on disk, and its argv is in the pod's /proc, but never its env.
-export interface PodScriptRunner extends HostScriptRunner {
+// A login-shell script run inside the machine by its daemon. A secret the
+// script needs rides the exec's env: the daemon keeps a command's stdin in its
+// exec buffer on disk, and its argv is in the machine's /proc, but never its
+// env.
+export interface SessionScriptRunner extends HostScriptRunner {
     run(
         script: string,
         timeoutMs: number,
@@ -44,7 +48,7 @@ export interface PodScriptRunner extends HostScriptRunner {
 
 // What runs the script: a host session's exec through the daemon
 // (ADR-0037 R6).
-export interface PodScriptExec {
+export interface SessionScriptExec {
     run(req: {
         cmd: string[]
         stdin?: string
@@ -53,10 +57,10 @@ export interface PodScriptExec {
     }): Promise<ExecResult>
 }
 
-export const podScriptRunner = (
-    exec: PodScriptExec,
+export const sessionScriptRunner = (
+    exec: SessionScriptExec,
     warn: HostScriptRunner['warn']
-): PodScriptRunner => ({
+): SessionScriptRunner => ({
     run: (script, timeoutMs, env) =>
         exec.run({
             cmd: ['bash', '-l', '-s'],
@@ -86,8 +90,8 @@ export const secretFileStep = (
     env: { [envName]: Buffer.from(content, 'utf8').toString('base64') }
 })
 
-export const runPodStep = async (
-    runner: PodScriptRunner,
+export const runHostStep = async (
+    runner: SessionScriptRunner,
     step: string,
     script: string,
     options: { env?: Record<string, string>; timeoutMs?: number } = {}
@@ -110,15 +114,15 @@ export const runPodStep = async (
     return result
 }
 
-// What a framework runtime on a pod host needs before its first agent: its
-// directories, its configuration, and its CLI at the resolved version. The
-// same staged install a sprite uses (installFrameworkVersionOn); the steps
-// around it mirror the sprite bootstraps, minus what a pod does elsewhere —
-// skills and the context doc are written when an agent attaches. No provider
-// key is written to the host: every turn carries its own (ADR-0035).
-export const setUpPodFramework = async (args: {
-    runner: PodScriptRunner
-    framework: PodHostFramework
+// What a coding framework's runtime needs on a machine before its first
+// agent: its directories, its configuration, and its CLI at the resolved
+// version (installFrameworkVersionOn). The agent's own workspace, skills and
+// context doc are written when the agent attaches. No provider key is written
+// to the machine and none is logged in with: every turn carries its own
+// (ADR-0035), so nothing here spends money or keeps a key on disk.
+export const setUpHostFramework = async (args: {
+    runner: SessionScriptRunner
+    framework: CodingHostFramework
     workspaceBase: string
     credentials: unknown
     modelConfigSource: AgentModelConfigSource | null
@@ -129,28 +133,29 @@ export const setUpPodFramework = async (args: {
     const mkWorkspace = `mkdir -p ${shellQuote(workspaceBase)}`
     switch (framework) {
         case 'claude-code':
-            await runPodStep(
+            await runHostStep(
                 runner,
                 'claude-code-setup-dirs',
                 ['set -eu', mkWorkspace, 'mkdir -p "$HOME/.claude"'].join('\n')
             )
             break
         case 'gemini-cli':
-            await runPodStep(
+            await runHostStep(
                 runner,
                 'gemini-cli-setup-dirs',
                 ['set -eu', mkWorkspace, 'mkdir -p "$HOME/.gemini"'].join('\n')
             )
             break
         case 'pi':
-            await runPodStep(
+            await runHostStep(
                 runner,
                 'pi-setup-dirs',
-                [piAgentDirSetupScript(), mkWorkspace].join('\n')
+                [piAgentDirSetupScript(), mkWorkspace].join('\n'),
+                { timeoutMs: PI_SETUP_TIMEOUT_MS }
             )
             break
         case 'antigravity-cli':
-            await runPodStep(
+            await runHostStep(
                 runner,
                 'antigravity-setup-dirs',
                 [
@@ -168,7 +173,7 @@ export const setUpPodFramework = async (args: {
             const configToml = buildCodexConfigToml(
                 creds?.openaiBaseUrl?.trim() || OFFICIAL_PROVIDER_BASE_URL.openai
             )
-            await runPodStep(
+            await runHostStep(
                 runner,
                 'codex-setup-dirs',
                 [
@@ -191,22 +196,22 @@ export const setUpPodFramework = async (args: {
     )
 
     if (framework === 'pi')
-        await runPodStep(runner, 'pi-verify', 'pi --version', {
+        await runHostStep(runner, 'pi-verify', 'pi --version', {
             env: { PI_OFFLINE: '1' }
         })
     if (framework === 'antigravity-cli')
-        await runPodStep(runner, 'antigravity-verify', 'agy --version', {
+        await runHostStep(runner, 'antigravity-verify', 'agy --version', {
             env: { ...AGY_MANAGED_HOST_ENV }
         })
     return { frameworkVersion }
 }
 
-// A credential update for codex on a pod host: the config.toml rewrite a
-// sprite gets (applyCodexCredentialsOnSprite), which carries the endpoint and
-// the MCP servers. The key itself is not logged in — it rides each turn — and
-// the other coding frameworks keep nothing a credential decides on the host.
-export const applyCodexCredentialsOnPod = async (args: {
-    runner: PodScriptRunner
+// A credential update for codex: the config.toml rewrite that carries the
+// endpoint and the MCP servers. The key itself is not logged in — it rides
+// each turn — and the other coding frameworks keep nothing a credential
+// decides on the machine.
+export const applyCodexCredentials = async (args: {
+    runner: SessionScriptRunner
     baseUrl?: string | null
     mcpToml?: string | null
     composioKey?: string | null
@@ -222,7 +227,7 @@ export const applyCodexCredentialsOnPod = async (args: {
         'MF_CODEX_CONFIG_B64',
         configToml
     )
-    await runPodStep(args.runner, 'codex-config', step.script, {
+    await runHostStep(args.runner, 'codex-config', step.script, {
         env: step.env
     })
 }

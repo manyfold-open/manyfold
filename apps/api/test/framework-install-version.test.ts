@@ -1,16 +1,12 @@
 import type { FrameworkInstallSource } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { ExecOptions, ExecResult } from '@manyfold/sprites'
-import { installFrameworkVersion } from '../src/modules/agents/bootstrap/framework-version-install'
+import type { ExecResult } from '@manyfold/sprites'
+import {
+    installFrameworkVersionOn,
+    type HostScriptRunner
+} from '../src/modules/agents/bootstrap/framework-version-install'
 import { BootstrapError } from '../src/modules/agents/bootstrap/framework-bootstrap'
-
-const silentLogger = {
-    debug: (): void => {},
-    info: (): void => {},
-    warn: (): void => {},
-    error: (): void => {}
-}
 
 interface Harness {
     run: () => Promise<string | null>
@@ -33,12 +29,7 @@ const buildHarness = (opts: {
     const warnings: string[] = []
     const probes = [...opts.probes]
 
-    const exec = async (
-        _client: unknown,
-        _spriteName: string,
-        execOpts: ExecOptions
-    ): Promise<ExecResult> => {
-        const shell = execOpts.cmd?.[2] ?? ''
+    const run = async (shell: string): Promise<ExecResult> => {
         if (shell.includes('npm install')) {
             shells.push(shell)
             if (opts.install instanceof Error) throw opts.install
@@ -50,26 +41,23 @@ const buildHarness = (opts: {
             : ({ exitCode: 1, stdout: '', stderr: 'not found' } as ExecResult)
     }
 
-    const ctx = {
-        agentId: 'agent_1',
-        runtimeId: 'rt_1',
-        userId: 'user_1',
-        spriteName: 'sprite-1',
-        mountPath: '/workspace',
-        client: {} as never,
-        logger: {
-            ...silentLogger,
-            warn: (msg: string): void => {
-                warnings.push(msg)
-            }
-        },
-        frameworkVersion: opts.version,
-        frameworkVersionSource: opts.source
+    const runner: HostScriptRunner = {
+        run,
+        warn: (event) => {
+            warnings.push(event)
+        }
     }
 
     return {
         run: () =>
-            installFrameworkVersion(ctx as never, 'claude-code', exec as never),
+            installFrameworkVersionOn(
+                runner,
+                {
+                    frameworkVersion: opts.version,
+                    frameworkVersionSource: opts.source
+                },
+                'claude-code'
+            ),
         shells,
         warnings
     }
