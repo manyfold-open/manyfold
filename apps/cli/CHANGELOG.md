@@ -1,5 +1,17 @@
 # @manyfold/cli
 
+## 5.3.0
+
+### Minor Changes
+
+- [#586](https://github.com/manyfold-open/manyfold/pull/586) [`60d28ae`](https://github.com/manyfold-open/manyfold/commit/60d28ae99603ff33c0ce52d742e9823ee8b60c2c) Thanks [@yingca1](https://github.com/yingca1)! - An agent's Storage page (titled Storage) shows its workspace and config sizes for a sandbox from the sandbox's last storage measurement, so they are there while the sandbox sleeps, with when they were measured. Refresh measures the sandbox now: admitted like any other wake, it wakes a sleeping sandbox and updates the paths and the sandbox filesystem size together, even within minutes of the last measurement. An agent on a sandbox shows that filesystem size as Storage in its Overview's Details. `POST /agents/:id/storage-usage/refresh` (`agents:edit`) is the new measuring call, `POST /agents/:id/storage-usage` never execs for a sandbox, and its report carries `measuredAt`; `mf agent storage-usage` reports a sleeping sandbox's cached paths instead of unknowns.
+
+## 5.2.0
+
+### Minor Changes
+
+- [#579](https://github.com/manyfold-open/manyfold/pull/579) [`85898dd`](https://github.com/manyfold-open/manyfold/commit/85898ddeb468d6cec8c30fd741511cd6941448c9) Thanks [@yingca1](https://github.com/yingca1)! - Show subscription quota windows for Codex, Claude Code, and Antigravity accounts in runtime account cards and the composer model-source panel.
+
 ## 5.1.0
 
 ### Minor Changes

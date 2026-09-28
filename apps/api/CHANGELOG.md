@@ -1,5 +1,27 @@
 # @manyfold/api
 
+## 8.3.0
+
+### Minor Changes
+
+- [#586](https://github.com/manyfold-open/manyfold/pull/586) [`60d28ae`](https://github.com/manyfold-open/manyfold/commit/60d28ae99603ff33c0ce52d742e9823ee8b60c2c) Thanks [@yingca1](https://github.com/yingca1)! - An agent's Storage page (titled Storage) shows its workspace and config sizes for a sandbox from the sandbox's last storage measurement, so they are there while the sandbox sleeps, with when they were measured. Refresh measures the sandbox now: admitted like any other wake, it wakes a sleeping sandbox and updates the paths and the sandbox filesystem size together, even within minutes of the last measurement. An agent on a sandbox shows that filesystem size as Storage in its Overview's Details. `POST /agents/:id/storage-usage/refresh` (`agents:edit`) is the new measuring call, `POST /agents/:id/storage-usage` never execs for a sandbox, and its report carries `measuredAt`; `mf agent storage-usage` reports a sleeping sandbox's cached paths instead of unknowns.
+
+- [#586](https://github.com/manyfold-open/manyfold/pull/586) [`60d28ae`](https://github.com/manyfold-open/manyfold/commit/60d28ae99603ff33c0ce52d742e9823ee8b60c2c) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox runtime's framework version is stored as the version itself ("2.1.251"), not the line the CLI printed ("2.1.251 (Claude Code)", "codex-cli 0.151.0"), so it compares with the catalog and an update is offered when one is out. A version the platform just installed or upgraded in place no longer reverts to the old one while the sandbox's daemon still reports its cached inventory.
+
+- [#586](https://github.com/manyfold-open/manyfold/pull/586) [`60d28ae`](https://github.com/manyfold-open/manyfold/commit/60d28ae99603ff33c0ce52d742e9823ee8b60c2c) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox's agents and the concurrent-sandboxes count now agree on whether it is running: a suspended or stopped sandbox reads as wakeable even while its daemon's last heartbeat is recent, a daemon that connects marks its sandbox running at once, and a sandbox whose daemon is heartbeating counts as running even when sprites.dev lags or misreports its status.
+
+- [#586](https://github.com/manyfold-open/manyfold/pull/586) [`60d28ae`](https://github.com/manyfold-open/manyfold/commit/60d28ae99603ff33c0ce52d742e9823ee8b60c2c) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox's Runtimes section has a refresh button beside "+" that probes the sandbox for every framework on it now, through its daemon, instead of showing what the daemon last reported, which could be minutes old, or older while the sandbox slept. The probe wakes the sandbox; opening the page still only reads the last report. `POST /sandboxes/:id/detect-frameworks` takes `{ "probe": true }` for this, and Detect frameworks left the sandbox's "…" menu.
+
+### Patch Changes
+
+- [#585](https://github.com/manyfold-open/manyfold/pull/585) [`ea584d9`](https://github.com/manyfold-open/manyfold/commit/ea584d93bd286949ec96c247d7b0c9d0ba186c5a) Thanks [@yingca1](https://github.com/yingca1)! - A Claude Code chat session whose saved conversation can no longer be loaded on its runtime recovers on the next message instead of failing every turn with `error_during_execution`.
+
+## 8.2.0
+
+### Minor Changes
+
+- [#579](https://github.com/manyfold-open/manyfold/pull/579) [`85898dd`](https://github.com/manyfold-open/manyfold/commit/85898ddeb468d6cec8c30fd741511cd6941448c9) Thanks [@yingca1](https://github.com/yingca1)! - Show subscription quota windows for Codex, Claude Code, and Antigravity accounts in runtime account cards and the composer model-source panel.
+
 ## 8.1.2
 
 ### Patch Changes

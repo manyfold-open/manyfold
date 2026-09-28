@@ -1,6 +1,6 @@
 {
     "name": "@manyfold/web",
-    "version": "2.11.2",
+    "version": "2.13.0",
     "private": true,
     "type": "module",
     "scripts": {
