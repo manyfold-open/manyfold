@@ -407,6 +407,9 @@ export const RuntimeAccountList: FC<{
     // wake failed): the runner line says why instead of offering a start.
     wakeRefusal?: WakeRefusal | null
     onRetryWake?: () => void
+    // The surface's own control wakes the runner (the runtime page's
+    // Refresh), so an asleep runner gets no second wake button here.
+    surfaceWakes?: boolean
 }> = ({
     runtime,
     list,
@@ -422,7 +425,8 @@ export const RuntimeAccountList: FC<{
     prewarming = false,
     autoAdd = null,
     wakeRefusal = null,
-    onRetryWake
+    onRetryWake,
+    surfaceWakes = false
 }): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
@@ -952,6 +956,7 @@ export const RuntimeAccountList: FC<{
                     />
                 )
             }
+            if (surfaceWakes) return null
             return (
                 <NoticeRow
                     title={
