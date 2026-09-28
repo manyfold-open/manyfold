@@ -324,7 +324,8 @@ export const daemonOnlineBadge = (online: boolean | null): ReactNode => {
     return online ? (
         <StatusTag tone='success' label={translate('web.runtimeDetails.online')} />
     ) : (
-        <StatusTag tone='error' label={translate('web.runtimeDetails.offline')} />
+        // An unplugged computer is quiet, not failed: the tone its dot has too.
+        <StatusTag tone='idle' label={translate('web.runtimeDetails.offline')} />
     )
 }
 

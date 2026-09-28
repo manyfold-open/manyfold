@@ -20,8 +20,7 @@ import { FrameworkLogo } from '@/lib/frameworkMeta'
 import {
     hostLifecycleLabel,
     placementLabel,
-    powerStateLabel,
-    powerStateTone
+    powerStateLabel
 } from '@/lib/hostStatus'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
@@ -34,7 +33,7 @@ import {
 } from '@/lib/dashboardView'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { formatDuration } from '@/lib/usageFormat'
-import { TONE_DOT, type RuntimeVM } from '@/pages/AgentRuntimesList'
+import { vmDotClass, type RuntimeVM } from '@/pages/AgentRuntimesList'
 
 type RuntimeKind = RuntimeVM['kind']
 
@@ -107,9 +106,7 @@ const vmLead = (vm: RuntimeVM): ReactNode => {
             <span
                 className={[
                     'h-2 w-2 shrink-0 rounded-full',
-                    vm.hostStatus === 'failed'
-                        ? TONE_DOT.error
-                        : TONE_DOT[powerStateTone(vm.powerState)]
+                    vmDotClass(vm)
                 ].join(' ')}
             />
         )

@@ -1,6 +1,8 @@
+import { runtimeAvailability } from '@manyfold/shared'
 import type {
     AgentRuntime,
     RuntimeAvailability,
+    RuntimeHostKind,
     RuntimeHostPowerState,
     RuntimeHostStatus
 } from '@manyfold/shared'
@@ -9,12 +11,14 @@ import type { TagTone } from '@/components/Tag'
 
 // The four independent host facts of ADR-0037 — lifecycle, power, daemon
 // presence and the derived availability — rendered the same way everywhere.
-// Tones follow DESIGN.md §10.6: a sleeping machine is quiet, not a fault.
+// Tones follow DESIGN.md §10.6: a sleeping machine is paused (warning) and an
+// unplugged computer quiet (idle); neither is a fault.
 
 const POWER_TONE: Record<RuntimeHostPowerState, TagTone> = {
     running: 'success',
     suspended: 'warning',
-    stopped: 'idle',
+    // Cold is asleep too, only slower to wake: the same state to the user.
+    stopped: 'warning',
     unknown: 'idle'
 }
 
@@ -32,6 +36,43 @@ const LIFECYCLE_TONE: Record<RuntimeHostStatus, TagTone> = {
     deleting: 'warning',
     retired: 'idle'
 }
+
+// The dot a tone draws.
+export const TONE_DOT: Record<TagTone, string> = {
+    info: 'bg-info',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    error: 'bg-error',
+    idle: 'bg-idle'
+}
+
+export interface MachineFacts {
+    kind: RuntimeHostKind
+    status: RuntimeHostStatus | null
+    powerState: RuntimeHostPowerState | null
+    daemonOnline: boolean | null
+}
+
+// One machine, one colour, wherever it is drawn: an agent's badge in the
+// chat, a row or a card under Settings › Runtimes. A machine being built or
+// taken down shows that; otherwise it reads what a ready runtime on it would.
+// Seen on a local stack [2026-09-28]: one sleeping sandbox was blue in the
+// chat and amber in Settings, and an unplugged computer grey in one and red
+// in the other.
+export const machineTone = (machine: MachineFacts): TagTone =>
+    machine.status !== null && machine.status !== 'ready'
+        ? LIFECYCLE_TONE[machine.status]
+        : AVAILABILITY_TONE[
+              runtimeAvailability({
+                  runtime: { status: 'ready' },
+                  host: {
+                      kind: machine.kind,
+                      status: 'ready',
+                      powerState: machine.powerState
+                  },
+                  daemonOnline: machine.daemonOnline === true
+              })
+          ]
 
 export const powerStateTone = (state: RuntimeHostPowerState | null): TagTone =>
     POWER_TONE[state ?? 'unknown']

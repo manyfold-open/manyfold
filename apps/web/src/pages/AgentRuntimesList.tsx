@@ -78,12 +78,14 @@ import {
 } from '@/lib/cascade'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import {
+    TONE_DOT,
+    availabilityTone,
     daemonPresenceLabel,
     hostKey,
     hostLifecycleLabel,
     hostLifecycleTone,
-    placementLabel,
-    powerStateTone
+    machineTone,
+    placementLabel
 } from '@/lib/hostStatus'
 import { updatesPath } from '@/lib/updateCenter'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
@@ -141,21 +143,7 @@ const STATUS_ORDER: EffStatus[] = [
     'ready'
 ]
 
-const EFF_DOT: Record<EffStatus, string> = {
-    failed: 'bg-error',
-    offline: 'bg-error',
-    installing: 'bg-warning',
-    asleep: 'bg-idle',
-    ready: 'bg-success'
-}
 
-export const TONE_DOT: Record<TagTone, string> = {
-    info: 'bg-info',
-    success: 'bg-success',
-    warning: 'bg-warning',
-    error: 'bg-error',
-    idle: 'bg-idle'
-}
 
 const RUNTIME_DIMS = ['none', 'kind', 'status', 'framework'] as const
 
@@ -364,20 +352,33 @@ const buildVMs = (
     })
 }
 
-// A machine's dot is the machine, not its runtimes: a failed host is red, a
-// self-owned computer is its daemon's presence, a hosted one its power state
-// (a ready runtime on a suspended machine is still asleep).
-const vmDotClass = (vm: RuntimeVM): string => {
-    if (vm.hostStatus === 'failed') return TONE_DOT.error
-    if (vm.kind === 'daemon')
-        return vm.online === false
-            ? TONE_DOT.error
-            : vm.online
-              ? TONE_DOT.success
-              : TONE_DOT.idle
-    if (vm.hostId !== null) return TONE_DOT[powerStateTone(vm.powerState)]
-    return vm.status === null ? TONE_DOT.idle : EFF_DOT[vm.status]
-}
+// A runtime's dot: its install state until it is installed, then what its
+// machine lets it do — the same tones the machine and its agents draw.
+const runtimeDotClass = (r: AgentRuntimeSummary): string =>
+    TONE_DOT[
+        r.status === 'failed'
+            ? 'error'
+            : r.status === 'installing'
+              ? 'warning'
+              : availabilityTone(r.availability)
+    ]
+
+// A machine's dot is the machine, not its runtimes, drawn by the one
+// machineTone the chat's agent badges use too. An external runtime has no
+// machine, so its dot is the runtime's.
+export const vmDotClass = (vm: RuntimeVM): string =>
+    vm.hostId === null
+        ? vm.runtimes[0]
+            ? runtimeDotClass(vm.runtimes[0])
+            : TONE_DOT.idle
+        : TONE_DOT[
+              machineTone({
+                  kind: vm.kind === 'daemon' ? 'local' : 'hosted',
+                  status: vm.hostStatus,
+                  powerState: vm.powerState,
+                  daemonOnline: vm.online
+              })
+          ]
 
 const vmContaining = (vms: RuntimeVM[], runtimeId: string): RuntimeVM | null =>
     vms.find((v) => v.runtimes.some((r) => r.id === runtimeId)) ?? null
@@ -488,7 +489,7 @@ const RuntimeLeaf: FC<{
             <span
                 className={[
                     'h-2 w-2 shrink-0 rounded-full',
-                    EFF_DOT[effStatus(r)]
+                    runtimeDotClass(r)
                 ].join(' ')}
             />
         )}
