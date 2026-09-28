@@ -1,5 +1,4 @@
 import {
-    MANYFOLD_CLI_USAGE_SKILL_ID,
     frameworkKind,
     frameworkUpgradeMode,
     isSkillFramework,
@@ -40,7 +39,7 @@ import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
 import RuntimeAuthBindingRow from '@/pages/AgentSettings/RuntimeAuthBindingRow'
 import RenameAgentDialog from '@/components/RenameAgentDialog'
-import { CopyButton } from '@/components/RuntimeDetailPanel'
+import { CopyButton, Section } from '@/components/RuntimeDetailPanel'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { AgentPermissions } from '@/pages/agents/AgentPermissions'
 import { AgentA2a } from '@/pages/agents/AgentA2a'
@@ -264,13 +263,10 @@ const AgentSettingsContent: FC = (): ReactNode => {
         !!currentAgent && supportsSection(currentAgent, 'storage')
     const readModel =
         modelSupported && (activeTab === 'model' || activeTab === 'overview')
-    const readStorage =
-        storageSupported && (activeTab === 'storage' || activeTab === 'overview')
+    const readStorage = storageSupported && activeTab === 'storage'
     const readBackups = storageSupported && activeTab === 'storage'
     const overviewAgentId =
         activeTab === 'overview' ? currentAgent?.id : undefined
-    const readCliSkill =
-        !!overviewAgentId && !!currentAgent && supportsSection(currentAgent, 'skills')
     const mounted = useRef(true)
     const requestScope = useRef({
         model: readModel,
@@ -306,13 +302,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // the user go look.
     const [channels, setChannels] = useState<ChannelSummary[] | null>(null)
     const [a2aEnabled, setA2aEnabled] = useState<boolean | null>(null)
-    // Whether the platform's own skill — the one that lets the agent drive
-    // Manyfold on your behalf — is installed. null while unknown, so the card
-    // stays quiet rather than claiming "not installed" before it has looked.
-    const [cliSkillInstalled, setCliSkillInstalled] = useState<boolean | null>(
-        null
-    )
-    const [cliSkillInstalling, setCliSkillInstalling] = useState(false)
     const [restarting, setRestarting] = useState(false)
     const [backups, setBackups] = useState<AgentBackupSummary[]>([])
     const [lastRestore, setLastRestore] =
@@ -663,51 +652,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
             active = false
         }
     }, [client, overviewAgentId])
-
-    // Overview only asks "is the platform skill there", so it reads the
-    // recorded installs without the runtime inventory probe the Skills section
-    // pays for — that skill is always installed through Manyfold, so the
-    // record is the answer.
-    const refreshCliSkill = useCallback(async (): Promise<void> => {
-        if (!id || !readCliSkill || !mounted.current) return
-        try {
-            const groups = await client.skills.installed(id)
-            if (!mounted.current) return
-            setCliSkillInstalled(
-                (groups[0]?.skills ?? []).some(
-                    (skill) => skill.skillId === MANYFOLD_CLI_USAGE_SKILL_ID
-                )
-            )
-        } catch {
-            // Unknown is not the same as missing: leave the card off rather
-            // than inviting an install that may already exist.
-            setCliSkillInstalled(null)
-        }
-    }, [client, id, readCliSkill])
-
-    // Keyed on what the answer depends on, not on the agent object: the status
-    // poll replaces that object every few seconds, and the install record does
-    // not change under it.
-    useEffect(() => {
-        void refreshCliSkill()
-    }, [refreshCliSkill])
-
-    const installCliSkill = useCallback(async (): Promise<void> => {
-        if (!id || !readCliSkill || !mounted.current || cliSkillInstalling) return
-        setCliSkillInstalling(true)
-        setActionError(null)
-        try {
-            await client.skills.install({
-                skillId: MANYFOLD_CLI_USAGE_SKILL_ID,
-                agentId: id
-            })
-            await refreshCliSkill()
-        } catch (err) {
-            setActionError(apiErrorMessage(err))
-        } finally {
-            setCliSkillInstalling(false)
-        }
-    }, [client, cliSkillInstalling, id, readCliSkill, refreshCliSkill])
 
     const handleRestart = useCallback(async (): Promise<void> => {
         if (!agent || restarting) return
@@ -1150,10 +1094,6 @@ const AgentSettingsContent: FC = (): ReactNode => {
                     ) : null
                 const showCli =
                     !!agent.runtimeId && agent.runtime !== 'external'
-                const cliSkillCard =
-                    isSkillFramework(agent.framework) &&
-                    !!agent.runtimeId &&
-                    cliSkillInstalled !== null
 
                 return (
                     <section className='space-y-5'>
@@ -1374,104 +1314,27 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     />
                                 </OverviewRow>
                             ) : null}
-                            {/* The platform's own skill decides whether this
-                                agent can act on Manyfold for you. Installed it
-                                looks like any other row in the Skills list, so
-                                its absence — and its presence — were both
-                                invisible there. */}
-                            {cliSkillCard ? (
-                                <OverviewRow
-                                    title={t(
-                                        'web.agentSettings.overview.accessSkill'
-                                    )}
-                                    description={t(
-                                        cliSkillInstalled
-                                            ? 'web.agentSettings.overview.accessInstalledBlurb'
-                                            : 'web.agentSettings.overview.accessMissingBlurb'
-                                    )}
-                                >
-                                    {cliSkillInstalled ? (
-                                        <StatusTag
-                                            tone='success'
-                                            label={t(
-                                                'web.agentSettings.overview.accessInstalled'
-                                            )}
-                                        />
-                                    ) : (
-                                        <button
-                                            type='button'
-                                            disabled={cliSkillInstalling}
-                                            onClick={() =>
-                                                void installCliSkill()
-                                            }
-                                            className='workbench-button-secondary'
-                                        >
-                                            {cliSkillInstalling
-                                                ? t(
-                                                      'web.skills.statusInstalling'
-                                                  )
-                                                : t('web.skills.installAction')}
-                                        </button>
-                                    )}
-                                </OverviewRow>
-                            ) : null}
-                            {agent.runtime !== 'external' ? (
-                                <OverviewRow
-                                    title={t('web.agents.detail.storage.title')}
-                                    description={
-                                        // A sleeping sandbox is not woken to
-                                        // be measured, so a check can come
-                                        // back with no total; saying when it
-                                        // was "measured" then claimed a number
-                                        // that is not there.
-                                        storage?.totalBytes != null
-                                            ? t(
-                                                  'web.agents.detail.storage.measured',
-                                                  {
-                                                      date: formatDate(
-                                                          storage.checkedAt
-                                                      )
-                                                  }
-                                              )
-                                            : storage?.asleep
-                                              ? t(
-                                                    'web.agents.detail.storage.asleep'
-                                                )
-                                              : t(
-                                                    'web.agents.detail.storage.notMeasured'
-                                                )
-                                    }
-                                >
-                                    {storage?.totalBytes != null ? (
-                                        <span className='text-ui text-fg tabular-nums'>
-                                            {formatBytes(storage.totalBytes)}
-                                        </span>
-                                    ) : null}
-                                    <button
-                                        type='button'
-                                        onClick={() => selectTab('storage')}
-                                        className='text-link hover:text-fg text-ui'
-                                    >
-                                        {t('web.agents.detail.storage.manage')}
-                                    </button>
-                                </OverviewRow>
-                            ) : null}
-                            {/* How this agent can be reached, with the counts
-                                that matter and a way into each. */}
+                            {/* How this agent can be reached, each with a way
+                                into its section. */}
                             <OverviewRow
-                                title={t(
-                                    'web.agentSettings.overview.interfaces'
-                                )}
+                                title={t('web.agentSettings.sections.channels')}
                             >
+                                {brokenChannels.length > 0 && (
+                                    <StatusTag
+                                        tone='error'
+                                        label={t(
+                                            'web.agentSettings.overview.channelErrors',
+                                            { count: brokenChannels.length }
+                                        )}
+                                    />
+                                )}
                                 <button
                                     type='button'
                                     onClick={() => selectTab('channels')}
                                     className='text-link hover:text-fg text-ui'
                                 >
                                     {channels === null
-                                        ? t(
-                                              'web.agentSettings.sections.channels'
-                                          )
+                                        ? '—'
                                         : t(
                                               'web.agentSettings.overview.channelCount',
                                               {
@@ -1483,38 +1346,23 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                               }
                                           )}
                                 </button>
-                                {brokenChannels.length > 0 && (
-                                    <StatusTag
-                                        tone='error'
-                                        label={t(
-                                            'web.agentSettings.overview.channelErrors',
-                                            { count: brokenChannels.length }
-                                        )}
-                                    />
-                                )}
-                                <span className='text-subtle'>·</span>
+                            </OverviewRow>
+                            <OverviewRow
+                                title={t('web.agentSettings.sections.a2a')}
+                            >
                                 <button
                                     type='button'
                                     onClick={() => selectTab('a2a')}
                                     className='text-link hover:text-fg text-ui'
                                 >
                                     {a2aEnabled === null
-                                        ? t('web.agentSettings.sections.a2a')
+                                        ? '—'
                                         : t(
                                               a2aEnabled
                                                   ? 'web.agentSettings.overview.a2aOn'
                                                   : 'web.agentSettings.overview.a2aOff'
                                           )}
                                 </button>
-                            </OverviewRow>
-                            <OverviewRow
-                                title={t('web.agents.detail.lastMessage')}
-                            >
-                                <span className='text-ui text-fg'>
-                                    {agent.lastMessageAt
-                                        ? timeAgo(agent.lastMessageAt)
-                                        : '-'}
-                                </span>
                             </OverviewRow>
                             {(agent.framework === 'openclaw' ||
                                 (agent.framework === 'hermes' &&
@@ -1578,10 +1426,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
                         </div>
 
                         {/* Look-it-up facts, kept apart from the ones above. */}
-                        <div>
-                            <div className='workbench-kicker mb-1.5'>
-                                {t('web.agentSettings.overview.details')}
-                            </div>
+                        <Section
+                            title={t('web.agentSettings.overview.details')}
+                        >
                             <div className='settings-card'>
                                 <OverviewRow
                                     title={t('web.agents.detail.agentId')}
@@ -1603,8 +1450,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                         {formatDate(agent.createdAt)}
                                     </span>
                                 </OverviewRow>
+                                <OverviewRow
+                                    title={t('web.agents.detail.lastMessage')}
+                                >
+                                    <span className='text-ui text-fg'>
+                                        {agent.lastMessageAt
+                                            ? timeAgo(agent.lastMessageAt)
+                                            : '-'}
+                                    </span>
+                                </OverviewRow>
                             </div>
-                        </div>
+                        </Section>
 
                         {fwError ? (
                             <p className='text-caption text-error'>

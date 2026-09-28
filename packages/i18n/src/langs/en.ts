@@ -423,7 +423,6 @@ const en = {
                     deleteAction: 'Delete',
                     deleteConfirm: 'Delete backup from {{date}}?',
                     deleteTitle: 'Delete backup',
-                    manage: 'Manage →',
                     measured: 'Measured {{date}}',
                     noBackups: 'No workspace backups yet.',
                     notMeasured: 'Storage usage has not been measured yet.',
@@ -949,23 +948,16 @@ const en = {
             overview: {
                 keepAwakeOn: 'kept awake',
                 details: 'Details',
-                interfaces: 'Interfaces',
                 framework: 'Framework',
                 provider: 'Provider',
                 cli: 'mf CLI',
-                accessSkill: 'Manyfold CLI skill',
-                accessInstalled: 'Installed',
-                accessInstalledBlurb:
-                    'Lets this agent manage channels, automations, skills, files and backups for you through the mf CLI, within the permissions you grant it.',
-                accessMissingBlurb:
-                    'Want this agent to operate Manyfold for you? This skill teaches it to manage channels, automations, skills, files and backups through the mf CLI. New agents get it by default — add it back if it is missing.',
-                channelCount: '{{count}} channels',
+                channelCount: '{{count}} connected',
                 channelErrors: '{{count}} error',
                 channelsBroken: '{{name}} cannot authenticate',
                 channelsBrokenMore: '+{{count}} more affected',
                 fixInChannels: 'Fix in Channels',
-                a2aOn: 'A2A on',
-                a2aOff: 'A2A off',
+                a2aOn: 'On',
+                a2aOff: 'Off',
                 deleteBlurb:
                     'Deletes the workspace, channels and stored credentials. This cannot be undone.'
             },

@@ -414,7 +414,6 @@ const zh: Translations = {
                     deleteAction: '删除',
                     deleteConfirm: '删除 {{date}} 的备份吗？',
                     deleteTitle: '删除备份',
-                    manage: '管理 →',
                     measured: '测量于 {{date}}',
                     noBackups: '暂无工作区备份。',
                     notMeasured: '尚未测量存储用量。',
@@ -926,23 +925,16 @@ const zh: Translations = {
             overview: {
                 keepAwakeOn: '保持唤醒中',
                 details: '详细信息',
-                interfaces: '接口',
                 framework: '框架',
                 provider: '提供方',
                 cli: 'mf CLI',
-                accessSkill: 'Manyfold CLI 技能',
-                accessInstalled: '已安装',
-                accessInstalledBlurb:
-                    '让这个 Agent 通过 mf CLI 替你管理渠道、自动化、技能、文件与备份，行动范围以你授予的权限为界。',
-                accessMissingBlurb:
-                    '想让这个 Agent 替你操作 Manyfold？这个技能会教它通过 mf CLI 管理渠道、自动化、技能、文件与备份。新建 Agent 时默认安装，缺失时可在此补装。',
-                channelCount: '{{count}} 个渠道',
+                channelCount: '已连接 {{count}} 个',
                 channelErrors: '{{count}} 个报错',
                 channelsBroken: '{{name}} 无法认证',
                 channelsBrokenMore: '另有 {{count}} 个受影响',
                 fixInChannels: '去 Channels 修复',
-                a2aOn: 'A2A 已开启',
-                a2aOff: 'A2A 未开启',
+                a2aOn: '已开启',
+                a2aOff: '已关闭',
                 deleteBlurb: '将删除 workspace、渠道与已保存的凭证，且不可恢复。'
             },
             sections: {
