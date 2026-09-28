@@ -66,6 +66,7 @@ import { DaemonTokenService } from './daemon-token.service'
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
 import { DaemonCliVersionService } from './daemon-cli-version.service'
 import { CliVersionCatalogService } from './cli-version-catalog.service'
+import { withProbedEntries } from './probed-inventory'
 
 const UPGRADE_RATE_LIMIT = 5
 const UPGRADE_RATE_WINDOW_MS = 60_000
@@ -409,10 +410,13 @@ export class DaemonHostService {
         const terminalPty = args.terminalPty ?? null
         const changed: Partial<HostDaemonRow> = {}
         // JSONB does not preserve object-key order; array order still matters.
-        if (
-            !isDeepStrictEqual(daemon.detectedFrameworks, args.detectedFrameworks)
+        const detectedFrameworks = withProbedEntries(
+            daemon.detectedFrameworks,
+            args.detectedFrameworks,
+            now
         )
-            changed.detectedFrameworks = args.detectedFrameworks
+        if (!isDeepStrictEqual(daemon.detectedFrameworks, detectedFrameworks))
+            changed.detectedFrameworks = detectedFrameworks
         if (daemon.cliVersion !== args.cliVersion)
             changed.cliVersion = args.cliVersion
         if (daemon.startupMethod !== args.startupMethod)

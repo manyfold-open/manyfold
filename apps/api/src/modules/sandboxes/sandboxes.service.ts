@@ -14,6 +14,7 @@ import {
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_MANUAL_UPDATE,
+    SANDBOX_PREINSTALLED_FRAMEWORKS,
     frameworkCapability,
     herdrFrameworksFor
 } from '@manyfold/shared'
@@ -91,15 +92,9 @@ import {
 } from '@/modules/daemon/daemon-cli-version.service'
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
+import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 
-// The coding-agent CLIs every sprite image ships pre-installed. Probed as a unit
-// so a bare sandbox can advertise what it can host before any runtime exists.
-const SPRITE_CODING_FRAMEWORKS: DetectedFramework['framework'][] = [
-    'claude-code',
-    'codex',
-    'gemini-cli'
-]
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
@@ -114,7 +109,7 @@ export const SANDBOX_DAEMON_OFFLINE_CODE = 'SANDBOX_DAEMON_OFFLINE'
 const frameworkProbeShell = (): string =>
     [
         'export PATH="$HOME/.local/bin:$PATH"',
-        ...SPRITE_CODING_FRAMEWORKS.map((f) => {
+        ...SANDBOX_PREINSTALLED_FRAMEWORKS.map((f) => {
             const bin = frameworkVersionDescriptor(f).binName
             return `echo "${f}=$(${bin} --version 2>/dev/null | head -1)"`
         }),
@@ -554,7 +549,7 @@ export class SandboxesService {
     ): Promise<SandboxSummary> {
         if (
             !isVersionedFramework(framework) ||
-            !SPRITE_CODING_FRAMEWORKS.includes(
+            !SANDBOX_PREINSTALLED_FRAMEWORKS.includes(
                 framework as DetectedFramework['framework']
             )
         )
@@ -614,14 +609,19 @@ export class SandboxesService {
                     throw new ServiceUnavailableException(
                         `${framework} install did not complete on ${providerRefLabel(host) ?? host.id}: sandbox reports ${installed ?? 'nothing'}`
                     )
-                // The daemon's next heartbeat re-reports its inventory; the
-                // probe's answer is folded in now so the summary does not lag.
+                // The probe's answer goes in now, stamped: the daemon re-reports
+                // its cached inventory with every heartbeat and re-detects only
+                // every few minutes (probed-inventory).
                 const others = daemon.detectedFrameworks.filter(
                     (f) =>
-                        !SPRITE_CODING_FRAMEWORKS.includes(f.framework)
+                        !SANDBOX_PREINSTALLED_FRAMEWORKS.includes(f.framework)
                 )
                 await this.hostDaemons.patch(host.id, {
-                    detectedFrameworks: [...others, ...probe.frameworks],
+                    detectedFrameworks: recordProbedEntries(
+                        others,
+                        probe.frameworks,
+                        new Date()
+                    ),
                     ...(probe.cliVersion ? { cliVersion: probe.cliVersion } : {})
                 })
                 await this.runtimes.applyDetectedVersionsToHostRuntimes(
@@ -664,7 +664,7 @@ export class SandboxesService {
         const existing = await this.runtimes.findRuntimeOnHost(hostId, framework)
         if (existing && existing.status !== 'failed')
             return this.runtimes.toSummary(existing)
-        const coding = SPRITE_CODING_FRAMEWORKS.includes(
+        const coding = SANDBOX_PREINSTALLED_FRAMEWORKS.includes(
             framework as DetectedFramework['framework']
         )
         if (!coding && !this.crypto)
@@ -1178,7 +1178,7 @@ export const parseSpriteFrameworkProbe = (
 } => {
     const lines = output.split('\n')
     const frameworks: DetectedFramework[] = []
-    for (const f of SPRITE_CODING_FRAMEWORKS) {
+    for (const f of SANDBOX_PREINSTALLED_FRAMEWORKS) {
         const line = lines.find((l) => l.startsWith(`${f}=`))
         const version = parseProbedSemver(line ? line.slice(f.length + 1) : '')
         if (version)

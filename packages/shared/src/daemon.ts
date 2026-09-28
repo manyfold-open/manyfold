@@ -50,10 +50,24 @@ export const DAEMON_DETECTABLE_FRAMEWORKS: DaemonDetectableFramework[] = [
     'hermes'
 ]
 
+// The coding CLIs every sprite image ships pre-installed. A sandbox probes them
+// as a unit, so it can advertise what it hosts before any runtime exists, and
+// can move each to another version in place without an agent.
+export const SANDBOX_PREINSTALLED_FRAMEWORKS: DaemonDetectableFramework[] = [
+    'claude-code',
+    'codex',
+    'gemini-cli'
+]
+
 export interface DetectedFramework {
     framework: DaemonDetectableFramework
     version: string | null
     path: string
+    // Set by the API on an entry it probed itself, right after an install or
+    // upgrade it ran through the daemon; a daemon never sends it. Until the
+    // daemon has re-detected, its heartbeats cannot write the older version
+    // back over this one.
+    probedAt?: string
     // openclaw only: the resident gateway the daemon DISCOVERED (never started)
     // from the host's own openclaw config. `reachable` is a loopback HTTP probe
     // at detection time, refreshed on the framework-detect interval rather than

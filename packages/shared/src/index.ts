@@ -985,7 +985,8 @@ export {
     DAEMON_FEATURE_HERDR_AGY,
     herdrFrameworksFor,
     DAEMON_CLIENT_FEATURES,
-    DAEMON_DETECTABLE_FRAMEWORKS
+    DAEMON_DETECTABLE_FRAMEWORKS,
+    SANDBOX_PREINSTALLED_FRAMEWORKS
 } from './daemon'
 export type { DaemonConfigCommit } from './daemon'
 export type {
