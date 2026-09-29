@@ -1,5 +1,19 @@
 # @manyfold/api
 
+## 9.0.0
+
+### Major Changes
+
+- [#600](https://github.com/manyfold-open/manyfold/pull/600) [`dd95865`](https://github.com/manyfold-open/manyfold/commit/dd95865edb66b70938773a5ff16c415bbd928ad7) Thanks [@yingca1](https://github.com/yingca1)! - OpenClaw, Hermes and other service frameworks on a sandbox now run as services of the sandbox's daemon, as they do on a cloud computer: the daemon starts them, restarts them after a crash and starts them again when the sandbox restarts, and the sandbox's public address reaches them through a stub the platform registers. Their configuration, which holds the provider key and the gateway token, is written readable by its owner only; it was readable by every user of the sandbox. Deleting a service framework's runtime now removes its services and the sandbox's public route, which before stayed running. Changing an OpenClaw runtime's credentials rewrites its configuration too, and the Hermes dashboard's services and front proxy run under the daemon beside the gateway. A sandbox stop stops a framework's services through the daemon, and the next message starts them again. An admin can restart a runtime's service with its own settings (`POST /api/admin/agent-runtimes/:id/service/restart`).
+
+    A framework module now registers one `serviceRecipe` for both kinds of host in place of `spriteService` and `podService`, and its install and configure steps receive the host's home and whether it sleeps. The service-start report route (`POST /api/internal/runtime-reports`) is gone: a service is ready when the daemon reports it healthy, which Manyfold announces as the `runtime.service.ready` event, formerly `runtime.report.ready`.
+
+### Minor Changes
+
+- [#600](https://github.com/manyfold-open/manyfold/pull/600) [`dd95865`](https://github.com/manyfold-open/manyfold/commit/dd95865edb66b70938773a5ff16c415bbd928ad7) Thanks [@yingca1](https://github.com/yingca1)! - A service framework prepared on a sandbox or a cloud computer before its first agent now works end to end. An OpenClaw runtime with no model provider yet starts its gateway without one; before, its setup failed on "cannot resolve base_url". The gateway's built-in profile is left for the first agent that joins instead of being listed as an agent of its own, which OpenClaw would then refuse to delete, leaving the runtime undeletable. Deleting a service framework's runtime now also removes its services and the machine's route to it; before, only the record went and the service kept running.
+
+- [#600](https://github.com/manyfold-open/manyfold/pull/600) [`dd95865`](https://github.com/manyfold-open/manyfold/commit/dd95865edb66b70938773a5ff16c415bbd928ad7) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox's daemon now runs under the sandbox's own service supervisor, in a loop that restarts it whenever it exits. Before, the daemon was started from a command and did not survive the sandbox's environment restarting (a cold boot or a checkpoint restore), so the next action on the sandbox had to start it again first. A daemon started the old way is handed over to the loop the next time Manyfold brings it up. Updating a sandbox's Manyfold CLI now applies by the daemon exiting and the loop starting the new version. The daemon's loop and the stub that routes the sandbox's public address are listed as managed on the sandbox's services, and a sandbox stop or a service delete leaves both alone. A sandbox's public address is now the one the sandbox reports: the address derived from its name lacked the organisation's suffix and did not answer.
+
 ## 8.5.0
 
 ### Minor Changes

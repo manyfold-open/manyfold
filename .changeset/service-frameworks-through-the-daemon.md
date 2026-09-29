@@ -1,7 +1,0 @@
----
-'@manyfold/api': major
----
-
-OpenClaw, Hermes and other service frameworks on a sandbox now run as services of the sandbox's daemon, as they do on a cloud computer: the daemon starts them, restarts them after a crash and starts them again when the sandbox restarts, and the sandbox's public address reaches them through a stub the platform registers. Their configuration, which holds the provider key and the gateway token, is written readable by its owner only; it was readable by every user of the sandbox. Deleting a service framework's runtime now removes its services and the sandbox's public route, which before stayed running. Changing an OpenClaw runtime's credentials rewrites its configuration too, and the Hermes dashboard's services and front proxy run under the daemon beside the gateway. A sandbox stop stops a framework's services through the daemon, and the next message starts them again. An admin can restart a runtime's service with its own settings (`POST /api/admin/agent-runtimes/:id/service/restart`).
-
-A framework module now registers one `serviceRecipe` for both kinds of host in place of `spriteService` and `podService`, and its install and configure steps receive the host's home and whether it sleeps. The service-start report route (`POST /api/internal/runtime-reports`) is gone: a service is ready when the daemon reports it healthy, which Manyfold announces as the `runtime.service.ready` event, formerly `runtime.report.ready`.
