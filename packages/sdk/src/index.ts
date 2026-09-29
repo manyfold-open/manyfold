@@ -7,6 +7,7 @@ export type {
     AgentRuntimesClient,
     AgentsClient,
     AutomationsClient,
+    ChatStreamOptions,
     ClientOptions,
     FilesClient,
     FilesListOptions,
