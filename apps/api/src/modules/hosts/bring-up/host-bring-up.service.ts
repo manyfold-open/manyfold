@@ -50,7 +50,8 @@ import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 import {
     HostCliService,
     HostCliTooOldError,
-    HostCliUpdatingError
+    HostCliUpdatingError,
+    type HostCliRefusal
 } from './host-cli.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
@@ -153,6 +154,9 @@ export interface BringUpResolution {
     // Present only with `sprite_exec_unavailable`: what the inspect proved about
     // the sprite exec endpoint, for the caller to quarantine on (#730).
     execFailure?: ExecEndpointFailure
+    // With `runner_cli_too_old` after an update was tried: why it did not
+    // give the daemon what was needed, and on which versions.
+    cliRefusal?: HostCliRefusal
 }
 
 interface BringUpMachineState {
@@ -471,12 +475,15 @@ export class HostBringUpService {
                 this.logger.warn(
                     `daemon on host ${host.id} was not updated for ${missing.join(',')}: ${(err as Error).message}`
                 )
+                if (err instanceof HostCliTooOldError)
+                    return {
+                        ...unavailable('runner_cli_too_old'),
+                        cliRefusal: err.refusal
+                    }
                 return unavailable(
                     err instanceof HostCliUpdatingError
                         ? 'runner_updating'
-                        : err instanceof HostCliTooOldError
-                          ? 'runner_cli_too_old'
-                          : 'runner_unavailable'
+                        : 'runner_unavailable'
                 )
             }
         }

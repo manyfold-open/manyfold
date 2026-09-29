@@ -366,9 +366,10 @@ test('recovery reads leave the Sprite lease released, not renewed', async () => 
     assert.deepEqual(provider, ['hold', 'release'])
 })
 
-test('managed Sprite upgrade errors direct operators to the managed runner', () => {
+test('a sandbox whose runner is too old for a turn points its owner at the update', () => {
     const error = new TurnDaemonError('sprites', 'missing feature', true)
-    assert.match(error.chatError.message, /administrator.*managed Sprite runner/)
+    // A sandbox's CLI is its owner's to update, not an administrator's.
+    assert.match(error.chatError.message, /Update the sandbox's Manyfold CLI from the Update Center \(or mf sandbox update\)/)
     assert.doesNotMatch(error.chatError.message, /Run mf update/)
 })
 

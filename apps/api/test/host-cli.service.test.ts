@@ -7,7 +7,10 @@ import {
     DAEMON_FEATURE_SERVICES,
     DAEMON_MIN_CLI_VERSION
 } from '@manyfold/shared'
-import { HostCliService } from '../src/modules/hosts/bring-up/host-cli.service'
+import {
+    HostCliService,
+    type HostCliRefusal
+} from '../src/modules/hosts/bring-up/host-cli.service'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 // A hosted machine's mf CLI (ADR-0035 §5, ADR-0038): how it is updated, and
@@ -166,8 +169,17 @@ test('a daemon already on the latest CLI has nothing to update to', async () => 
     })
     await assert.rejects(
         rig.cli.ensure(host(), { features: [DAEMON_FEATURE_SERVICES] }),
-        (err: { response?: { code?: string } }) =>
-            err.response?.code === 'POD_HOST_DAEMON_TOO_OLD'
+        (err: { response?: { code?: string }; refusal: HostCliRefusal }) => {
+            assert.equal(err.response?.code, 'POD_HOST_DAEMON_TOO_OLD')
+            // Kept for a caller that reports it under its own code.
+            assert.match(
+                err.refusal.message,
+                /already runs the latest Manyfold CLI \(3\.0\.1\)/
+            )
+            assert.equal(err.refusal.cliVersion, '3.0.1')
+            assert.equal(err.refusal.latestCliVersion, '3.0.1')
+            return true
+        }
     )
     assert.deepEqual(rig.upgrades, [])
 })

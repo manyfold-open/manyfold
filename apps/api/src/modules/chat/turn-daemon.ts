@@ -22,7 +22,7 @@ export class TurnDaemonError extends Error {
             ? runtime === 'k8s'
                 ? 'Update the Pod image with a current mf daemon runner.'
                 : runtime === 'sprites'
-                  ? 'Ask an administrator to update the managed Sprite runner.'
+                  ? "Update the sandbox's Manyfold CLI from the Update Center (or mf sandbox update)."
                   : 'Run mf update and restart the daemon runner.'
             : reason === 'runner_updating'
               ? 'The machine is updating its Manyfold CLI once its current work finishes; retry in a few minutes.'

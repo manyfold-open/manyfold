@@ -8,7 +8,10 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
-import { HostDaemonOfflineError } from '@/modules/agents/adapters/host-daemon-access'
+import {
+    HostDaemonOfflineError,
+    sandboxCliTooOld
+} from '@/modules/agents/adapters/host-daemon-access'
 
 // A failure on the machine's side is not an HttpException, so unmapped it
 // reaches the caller as a 500 internal_error that hides what went wrong.
@@ -18,10 +21,13 @@ import { HostDaemonOfflineError } from '@/modules/agents/adapters/host-daemon-ac
 export const daemonFilesError = (err: unknown): never => {
     if (err instanceof HttpException) throw err
     if (err instanceof HostDaemonOfflineError)
-        throw new ServiceUnavailableException({
-            code: 'runtime_unavailable',
-            message: err.message
-        })
+        throw (
+            sandboxCliTooOld(err) ??
+            new ServiceUnavailableException({
+                code: 'runtime_unavailable',
+                message: err.message
+            })
+        )
     const message = (err as Error)?.message ?? String(err)
     if (err instanceof DaemonRpcResponseError) {
         if (/\bENOENT\b/.test(message))
