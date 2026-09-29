@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.14.0
+
+### Minor Changes
+
+- [#595](https://github.com/manyfold-open/manyfold/pull/595) [`5b8faf4`](https://github.com/manyfold-open/manyfold/commit/5b8faf4284a20c2e869af75df8b631271f04ada6) Thanks [@yingca1](https://github.com/yingca1)! - Add "Use it in your agent" to the account menu in the sidebar. It opens a dialog with a one-line prompt to paste into Claude Code, Codex or any agent that can run shell commands; the prompt points the agent at this deployment's `/api/agent-setup.md`. Outside production it adds a sentence naming the deployment (a local dev stack, or the API host) so the agent keeps it in a separate `mf` profile. The prompt follows the interface language. The CLI sign-in page now has a Copy button next to the one-time auth code.
+
 ## 2.13.0
 
 ### Minor Changes

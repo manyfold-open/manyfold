@@ -1,5 +1,13 @@
 # @manyfold/cli
 
+## 5.5.0
+
+### Minor Changes
+
+- [#595](https://github.com/manyfold-open/manyfold/pull/595) [`5b8faf4`](https://github.com/manyfold-open/manyfold/commit/5b8faf4284a20c2e869af75df8b631271f04ada6) Thanks [@yingca1](https://github.com/yingca1)! - Add `mf login --print-auth-url`, a two-step sign-in for coding agents and other callers without an interactive terminal. It prints the sign-in URL and exits (`--json` adds the API URL, profile and the follow-up command); after the user approves, `mf login --auth-code <code>` completes it. Nothing is stored in between. `--no-launch-browser` without a terminal now points to this flow, and the agent guide allows the one-time `mf_auth_` code — never a token — to be passed on.
+
+- [#596](https://github.com/manyfold-open/manyfold/pull/596) [`531abbb`](https://github.com/manyfold-open/manyfold/commit/531abbbc92c356c7640ae028b6c39d492a85be6c) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox or cloud computer whose daemon has work in progress when it needs a newer Manyfold CLI now answers "updating once its current work finishes; retry in a few minutes" within seconds. Before, the caller waited three minutes and was told the daemon did not come back. The update is asked for once: a daemon that is draining for an update now keeps its first deadline, so asking again no longer puts the update off.
+
 ## 5.4.0
 
 ### Minor Changes
