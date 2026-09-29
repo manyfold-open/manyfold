@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 9.1.2
+
+### Patch Changes
+
+- [#612](https://github.com/manyfold-open/manyfold/pull/612) [`c33ff97`](https://github.com/manyfold-open/manyfold/commit/c33ff976c527e90aa6764bf3eb5427c3a0acaf98) Thanks [@yingca1](https://github.com/yingca1)! - Deleting the last agent on a sandbox runtime works again: the runtime is removed with it and the sandbox is kept for reuse. It answered 409 "runtime still has agents" because the check counted the agent being deleted, and the sandbox then could not be deleted either.
+
 ## 9.1.1
 
 ### Patch Changes
