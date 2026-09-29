@@ -29,7 +29,6 @@ import {
     type RuntimeHostRow,
     type RuntimeProvider
 } from '@manyfold/db'
-import { SpritesError } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import {
     isCodingHostFramework,
@@ -48,7 +47,7 @@ import { isWorkspacePreflightUserError } from '@/modules/agents/workspace/worksp
 import { HostServices } from '@/modules/agent-runtimes/provisioning/host-services'
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { recordPower } from '@/modules/hosts/providers/generation'
@@ -148,7 +147,7 @@ export class SpritesProvisioner {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly placement: HostPlacementService,
         private readonly providers: SandboxProviderRegistry,
         private readonly hostAccess: HostDaemonAccess,
@@ -210,8 +209,7 @@ export class SpritesProvisioner {
             !host ||
             host.kind !== 'hosted' ||
             host.status !== 'ready' ||
-            host.providerRef?.kind !== 'sprites' ||
-            !host.providerRef.spriteId
+            !host.providerRef
         )
             throw new NotFoundException({
                 message: `sandbox ${hostId} not available`,
@@ -516,11 +514,14 @@ export class SpritesProvisioner {
             } else {
                 // A reused host survives (it still owns its other runtimes);
                 // the runtime keeps its slot as `failed` so a retry reuses
-                // it. A transient sprite failure here would otherwise leave
-                // the host first in line for the next create — the exact
-                // loop the readiness probe exists to break. Quarantine it
-                // too; the probe only covers the window before bootstrap.
-                if (isTransientSpriteError(err))
+                // it. An exec whose endpoint failed before its connection
+                // opened would otherwise leave the host first in line for the
+                // next create — the exact loop the readiness probe exists to
+                // break. Quarantine it too; the probe only covers the window
+                // before bootstrap. Auth, quota, not_found and a framework's
+                // own non-zero exit are the agent's problem, not the
+                // machine's, and keep it in rotation.
+                if (this.providers.describeError(err)?.beforeOpen)
                     await this.quarantineHost(
                         host.id,
                         'exec endpoint unavailable before connection opened'
@@ -827,20 +828,8 @@ export class SpritesProvisioner {
     }
 }
 
-// Only a transient sprite failure says anything about host health. Auth, quota,
-// not_found and a framework's own non-zero exit are the agent's problem, not the
-// VM's, and must not take a working host out of rotation.
-const isTransientSpriteError = (err: unknown): boolean =>
-    err instanceof SpritesError &&
-    err.code === 'transient' &&
-    err.execPhase === 'pre_open'
-
 const errorClass = (err: unknown): string =>
-    err instanceof SpritesError
-        ? `SpritesError:${err.code}`
-        : err instanceof Error && err.name
-          ? err.name
-          : typeof err
+    err instanceof Error && err.name ? err.name : typeof err
 
 const describeError = (err: unknown): string =>
     ((err as Error)?.message ?? 'unknown error')

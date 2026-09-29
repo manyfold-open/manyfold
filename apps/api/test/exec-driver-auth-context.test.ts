@@ -34,7 +34,7 @@ test('per-turn auth selection controls the actual driver, and local/profile oper
     const daemon = daemonRow({ hostId: 'daemon', clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] })
     const ctx = contextOf({ agent, host: hostRow({ id: 'daemon', userId: 'user' }), daemon })
     const factory = new ExecDriverFactory(db as never, fakeRuntimeContext(ctx) as never, { decrypt: () => { throw new Error('unused stale provider') } } as never, {} as never, {} as never, {} as never,
-        { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, {} as never, fakeHostAccess() as never)
+        { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, fakeHostAccess() as never)
     const local = await factory.forAgent(agent.id, agent, 'runtime-local')
     assert.equal(local.authContext?.profileId, ref.profileId)
     const platform = await factory.forAgent(agent.id, agent, 'platform')
@@ -112,7 +112,7 @@ test('a runtime-local sandbox turn needs no stored credential; a platform one st
     const daemon = daemonRow({ hostId: 'host', clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] })
     const ctx = contextOf({ agent, host: spritesHostRow({ id: 'host', userId: 'user' }), daemon })
     const factory = new ExecDriverFactory(db as never, fakeRuntimeContext(ctx) as never, { decrypt: () => '{}' } as never, {} as never, {} as never,
-        { measureIfDue: async () => {} } as never, { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, {} as never, fakeHostAccess() as never)
+        { measureIfDue: async () => {} } as never, { resolveAgentEnv: async () => ({}) } as never, { findByHostId: async () => daemon } as never, fakeHostAccess() as never)
     const local = await factory.forAgent(agent.id, agent, undefined, 'dh_runner')
     assert.equal(local.creds, null)
     await assert.rejects(

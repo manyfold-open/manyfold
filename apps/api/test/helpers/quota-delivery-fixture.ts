@@ -6,7 +6,7 @@ import type { AuthPrincipal } from '../../src/common/guards/auth.guard'
 import type { UsagePeriodPort } from '../../src/common/ports/usage-period.ports'
 import { SpriteStatusBus } from '../../src/modules/agents/sprite-status/sprite-status-bus'
 import { SpriteStatusBroadcaster } from '../../src/modules/agents/sprite-status/sprite-status-broadcaster'
-import { SpriteStatusSyncService } from '../../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../../src/modules/agents/sprite-status/host-power-sync.service'
 import { createQuotaFixture } from './quota-fixture'
 import { createQuotaHttpFixture } from './quota-http-fixture'
 
@@ -124,7 +124,7 @@ const buildDeliveryFixture = async (
         broadcasterB,
         principals
     )
-    const sync = new SpriteStatusSyncService(
+    const sync = new HostPowerSyncService(
         first,
         {} as never,
         {} as never,

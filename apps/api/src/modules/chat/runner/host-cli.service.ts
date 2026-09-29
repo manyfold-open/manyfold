@@ -23,7 +23,7 @@ import {
     HostDaemonsService,
     hasRpcLease
 } from '@/modules/hosts/host-daemons.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 
 const CLI_INSTALL_TIMEOUT_MS = 180_000
@@ -101,7 +101,7 @@ export class HostCliService {
         private readonly hosts: HostsService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry
     ) {}
 

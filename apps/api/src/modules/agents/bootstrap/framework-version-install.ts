@@ -4,7 +4,7 @@ import {
     shouldInstallFrameworkVersion,
     type FrameworkInstallSource
 } from '@manyfold/shared'
-import type { ExecResult } from '@manyfold/sprites'
+import type { HostExecResult } from '@/modules/agents/adapters/host-daemon-access'
 import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
     buildNpmLatestInstallShell,
@@ -20,7 +20,7 @@ const PROBE_TIMEOUT_MS = 30_000
 // a login-shell script, and somewhere to report an install that degraded.
 // Every machine runs it through its daemon (ADR-0037 R6).
 export interface HostScriptRunner {
-    run(script: string, timeoutMs: number): Promise<ExecResult>
+    run(script: string, timeoutMs: number): Promise<HostExecResult>
     warn(event: string, fields: Record<string, unknown>): void
 }
 

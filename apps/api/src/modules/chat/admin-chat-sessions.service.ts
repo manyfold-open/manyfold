@@ -115,7 +115,7 @@ const toExecution = (
 ): AdminChatSessionTurn['execution'] => ({
     runtime: row.runtime,
     state: outcome ?? row.state,
-    spriteName: row.spriteName,
+    hostId: row.hostId,
     ownerId: row.ownerId,
     adoptCount: row.adoptCount,
     leaseExpiresAt: row.leaseExpiresAt.toISOString(),

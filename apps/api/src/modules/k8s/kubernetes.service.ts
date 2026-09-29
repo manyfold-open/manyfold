@@ -20,7 +20,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     AGENT_CONTAINER_NAME,
     podHostSelector
-} from '@/modules/agent-runtimes/provisioning/pod-host-resources'
+} from '@/modules/hosts/providers/pod-host-resources'
 
 const NAMESPACE_PREFIX = 'nca-user-'
 const ENV_CACHE_KEY = '__env__'

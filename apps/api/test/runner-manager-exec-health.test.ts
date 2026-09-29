@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { SpritesError, execSprite, type SpritesClient } from '@manyfold/sprites'
 import type { RuntimeHostRow } from '@manyfold/db'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 
 // #730. A sprite whose exec endpoint 502s the WebSocket UPGRADE fails the
 // daemon inspect, and `runner_unavailable` — "no daemon, try later" — is
@@ -145,6 +146,7 @@ const managerHarness = () => {
         capabilities: { suspend: true, publicService: true },
         power: async () => 'running',
         wake: async () => {},
+        describeError: spritesErrorFacts,
         bootstrap: (args: { script: string; stdin?: string; timeoutMs?: number }) =>
             exec({
                 cmd: ['bash', '-lc', args.script],

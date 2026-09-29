@@ -47,7 +47,7 @@ import {
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
-import { SpritesError } from '@manyfold/sprites'
+import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import {
     EXPERIMENT_ASSIGNMENT_PORT,
     type ExperimentAssignmentPort
@@ -226,7 +226,10 @@ export class AgentOrchestratorService {
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
         @Optional() private readonly changes?: ResourceChangesService,
-        @Optional() private readonly contextDoc?: AgentContextDocManageService
+        @Optional() private readonly contextDoc?: AgentContextDocManageService,
+        // Appended last + @Optional: names a provider's error in the create
+        // failure audit; absent, it reads as unknown.
+        @Optional() private readonly providers?: SandboxProviderRegistry
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -1252,7 +1255,7 @@ export class AgentOrchestratorService {
         } catch (err: unknown) {
             if (err instanceof HttpException) throw err
             const reason = sanitizeReason(err)
-            const errorClass = errorClassOf(err)
+            const errorClass = errorClassOf(err, this.providers)
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_CREATE_FAILED,
@@ -1450,7 +1453,7 @@ export class AgentOrchestratorService {
             return await this.summaryFor(agentId)
         } catch (err: unknown) {
             const reason = sanitizeReason(err)
-            const errorClass = errorClassOf(err)
+            const errorClass = errorClassOf(err, this.providers)
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_CREATE_FAILED,
@@ -1543,10 +1546,12 @@ const extractSpritesCredentials = (
     return resolved.value
 }
 
-const errorClassOf = (err: unknown): string => {
+const errorClassOf = (
+    err: unknown,
+    providers: SandboxProviderRegistry | undefined
+): string => {
     if (err instanceof BootstrapError) return `bootstrap:${err.step}`
-    if (err instanceof SpritesError) return `sprites:${err.code}`
-    return 'unknown'
+    return providers?.describeError(err)?.errorClass ?? 'unknown'
 }
 
 const sanitizeReason = (err: unknown): string => {

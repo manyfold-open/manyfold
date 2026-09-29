@@ -44,13 +44,12 @@ import {
     HostDaemonsService,
     hasRpcLease
 } from '@/modules/hosts/host-daemons.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import {
     SandboxProviderRegistry,
     type ProviderCall
 } from '@/modules/hosts/providers/sandbox-provider'
-import { ingressSuffixOf } from '@/modules/hosts/providers/k8s.provider'
 import { recordPower } from '@/modules/hosts/providers/generation'
 import {
     HostDaemonAccess,
@@ -64,7 +63,6 @@ import {
 } from '@/modules/agents/bootstrap/host-framework-setup'
 import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 import { HostServices } from './host-services'
-import { exposePodHostFramework } from './pod-host-network'
 import {
     describeK8sCreateError,
     K8S_CREATE_INITIAL_AGENT,
@@ -150,10 +148,9 @@ export function assertPodHostFramework(framework: AgentFramework): void {
 
 interface FrameworkOnHost {
     frameworkVersion: string | null
-    // A service framework's: minted tokens, where it lives, and its hostname.
+    // A service framework's: minted tokens, and where it lives.
     generatedCredentials?: Record<string, string>
     mountPath?: string
-    ingressHost?: string
 }
 
 interface PodFrameworkInstall {
@@ -184,7 +181,7 @@ export class K8sContainerProvisioner {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly placement: HostPlacementService,
         private readonly providers: SandboxProviderRegistry,
         private readonly hostAccess: HostDaemonAccess,
@@ -413,7 +410,7 @@ export class K8sContainerProvisioner {
                 : await provision()
         } catch (err) {
             const reason = input.agentCreateId
-                ? describeK8sCreateError(err)
+                ? describeK8sCreateError(err, this.providers)
                 : sanitizeReason(err)
             this.log.warn(
                 `pod host provision failed hostId=${host.id} runtimeId=${runtimeId} framework=${framework}: ${reason}`
@@ -801,7 +798,7 @@ export class K8sContainerProvisioner {
             })
         }
         // A service framework: installed and kept up by the host's daemon,
-        // and routed to a hostname of its own.
+        // and routed to a hostname of its own (the adapter's publishPort).
         const setup = await this.hostServices.setUp({
             host,
             session,
@@ -811,24 +808,10 @@ export class K8sContainerProvisioner {
             envText: null,
             install
         })
-        const ref = this.clients.k8sRef(host)
-        const client = await this.clients.k8sClientForProvider(args.provider)
-        const ingressHost = await exposePodHostFramework({
-            apis: client.apis,
-            host: {
-                hostId: host.id,
-                userId: host.userId,
-                namespace: ref.namespace
-            },
-            framework: args.framework,
-            port: recipe.port,
-            suffix: ingressSuffixOf(host.id, ref.ingressHost)
-        })
         return {
             frameworkVersion: setup.frameworkVersion,
             generatedCredentials: setup.generatedCredentials,
-            mountPath: setup.home,
-            ingressHost
+            mountPath: setup.home
         }
     }
 
@@ -869,7 +852,8 @@ export class K8sContainerProvisioner {
                         host: current,
                         provider: call.provider
                     })
-                    await recordPower(this.hosts, call.host.id, power)
+                    if (power !== 'gone')
+                        await recordPower(this.hosts, call.host.id, power)
                     running = power === 'running'
                 }
                 if (running && (await this.daemonRegistered(call.host.id)))

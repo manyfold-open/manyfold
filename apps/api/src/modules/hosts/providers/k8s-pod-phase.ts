@@ -1,6 +1,6 @@
 import type { V1Pod } from '@kubernetes/client-node'
 import type { K8sClient } from '@/modules/k8s/kubernetes.service'
-import { podHostSelector } from '@/modules/agent-runtimes/provisioning/pod-host-resources'
+import { podHostSelector } from './pod-host-resources'
 
 const FAILURE_REASONS = new Set<string>([
     'CrashLoopBackOff',

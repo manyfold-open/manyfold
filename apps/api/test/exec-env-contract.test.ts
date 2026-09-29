@@ -277,13 +277,6 @@ const buildFactory = (
             }
         } as never,
         { findByHostId: async () => daemon } as never,
-        {
-            spritesClientForHost: async () => ({
-                client: {},
-                spriteName: 'sprite-factory',
-                provider: {}
-            })
-        } as never,
         fakeHostAccess() as never,
         {
             get: (key: string) =>

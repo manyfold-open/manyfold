@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto'
 import test from 'node:test'
 import { inArray } from 'drizzle-orm'
 import { createDb, userApiUsageDays, users, userSessions } from '@manyfold/db'
-import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 
 // #615: quota warnings are SSE-only and unpersisted, so the candidate UNION in
 // usersForQuotaEvaluation only admits users with a live session used inside
@@ -69,7 +69,7 @@ test(
 
             // usersForQuotaEvaluation only touches this.db; the other deps are
             // never reached.
-            const svc = new SpriteStatusSyncService(
+            const svc = new HostPowerSyncService(
                 db as never,
                 {} as never,
                 {} as never,

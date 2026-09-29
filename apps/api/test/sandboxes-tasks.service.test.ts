@@ -5,35 +5,15 @@ import {
     ConflictException,
     ServiceUnavailableException
 } from '@nestjs/common'
-import type {
-    ExecOptions,
-    ExecResult,
-    SpritesClient
-} from '@manyfold/sprites'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
+import {
+    AwakeLeaseStillHeldError,
+    type AwakeLease
+} from '../src/modules/hosts/providers/sandbox-provider'
 
-const ok = (stdout: string): ExecResult => ({
-    exitCode: 0,
-    stdout,
-    stderr: ''
-})
-
-class TestSandboxes extends SandboxesService {
-    execCalls: ExecOptions[] = []
-    execResult: ExecResult = ok('{"tasks":[]}')
-    execError: Error | null = null
-
-    protected exec(
-        _client: SpritesClient,
-        _spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        this.execCalls.push(opts)
-        return this.execError
-            ? Promise.reject(this.execError)
-            : Promise.resolve(this.execResult)
-    }
-}
+// The sandbox's activity leases live behind its provider's adapter (the
+// sprites adapter's /v1/tasks); what the service owns is which ones a user may
+// touch and when reading them would wake the machine.
 
 const baseHost = (over: Record<string, unknown> = {}) => ({
     id: 'sbx_1',
@@ -46,19 +26,44 @@ const baseHost = (over: Record<string, unknown> = {}) => ({
     ...over
 })
 
-const makeService = (host: Record<string, unknown> = baseHost()) => {
+const fakeAdapter = (
+    opts: { leases?: AwakeLease[]; release?: 'held' | Error } = {}
+) => {
+    const calls: string[] = []
+    return {
+        calls,
+        listAwake: async () => {
+            calls.push('list')
+            return opts.leases ?? []
+        },
+        releaseAwake: async (_call: unknown, lease: { name: string }) => {
+            calls.push(`release:${lease.name}`)
+            if (opts.release === 'held')
+                throw new AwakeLeaseStillHeldError(lease.name)
+            if (opts.release) throw opts.release
+        }
+    }
+}
+
+const makeService = (
+    host: Record<string, unknown> = baseHost(),
+    adapter = fakeAdapter()
+) => {
     const runtimes = {
         getSandboxForUser: async () => ({ host, provider: null, daemon: null, agentsCount: 0 }),
         getSandboxById: async () => ({ host, provider: null, daemon: null, agentsCount: 0 })
     }
-    const hostClients = {
-        spritesClientForHost: async () => ({ client: {}, spriteName: 'sbx-sprite' })
+    const hostProviders = {
+        resolve: async () => ({
+            provider: { id: 'rtp_1', kind: 'sprites', name: 'org' },
+            adapter
+        })
     }
-    return new TestSandboxes(
+    return new SandboxesService(
         runtimes as never,
         {} as never,
         {} as never,
-        hostClients as never,
+        hostProviders as never,
         {} as never,
         {} as never,
         {} as never,
@@ -73,67 +78,49 @@ const makeService = (host: Record<string, unknown> = baseHost()) => {
     )
 }
 
-test('deleteTask refuses platform keep-alive leases before touching the sprite', async () => {
-    const svc = makeService()
+const lease = (name: string): AwakeLease => ({
+    name,
+    startedAt: null,
+    expiresAt: null
+})
+
+test('deleteTask refuses platform holds before touching the sandbox', async () => {
+    const adapter = fakeAdapter()
+    const svc = makeService(baseHost(), adapter)
 
     await assert.rejects(
-        svc.deleteTask('u1', 'sbx_1', 'nca-claude-code-ab12-1'),
+        svc.deleteTask('u1', 'sbx_1', 'mf-keep'),
         BadRequestException
     )
     await assert.rejects(
-        svc.deleteTask('u1', 'sbx_1', 'hermes-keepalive'),
+        svc.deleteTask('u1', 'sbx_1', 'mf-hold-0123abcd'),
         BadRequestException
     )
-    assert.equal(svc.execCalls.length, 0)
+    assert.deepEqual(adapter.calls, [])
 })
 
 test('deleteTask refuses when the sandbox is not running (never wakes it)', async () => {
-    const svc = makeService(baseHost({ powerState: 'suspended' }))
+    const adapter = fakeAdapter()
+    const svc = makeService(baseHost({ powerState: 'suspended' }), adapter)
 
     await assert.rejects(
         svc.deleteTask('u1', 'sbx_1', 'my-task'),
         ConflictException
     )
-    assert.equal(svc.execCalls.length, 0)
+    assert.deepEqual(adapter.calls, [])
 })
 
-test('deleteTask encodes the hostile task name and verifies via re-list', async () => {
-    const svc = makeService()
-    const name = 'web srv/№1'
-    svc.execResult = ok('{"tasks":[{"name":"other"}]}')
+test('deleteTask releases the lease through the adapter', async () => {
+    const adapter = fakeAdapter()
+    const svc = makeService(baseHost(), adapter)
 
-    await svc.deleteTask('u1', 'sbx_1', name)
+    await svc.deleteTask('u1', 'sbx_1', 'web srv/№1')
 
-    assert.equal(svc.execCalls.length, 1)
-    const opts = svc.execCalls[0]
-    assert.equal(opts.env?.NCA_TASK_NAME, encodeURIComponent(name))
-    assert.equal(opts.cmd[0], 'bash')
-    assert.match(
-        opts.cmd[2],
-        /-X DELETE "\/v1\/tasks\/\$NCA_TASK_NAME"/,
-        'delete must target the env-transported name'
-    )
-    assert.match(
-        opts.cmd[2],
-        /; sprite-env curl -s \/v1\/tasks$/,
-        'must end with the verify list'
-    )
-    assert.ok(!opts.cmd[2].includes(name), 'raw name must not reach the shell')
-    assert.equal(opts.timeoutMs, 20_000)
-    assert.equal(opts.keepAliveMs, 5_000)
-    assert.equal(opts.livenessTimeoutMs, 12_000)
-})
-
-test('deleteTask treats an already-absent task as success', async () => {
-    const svc = makeService()
-    svc.execResult = ok('{"tasks":[]}')
-
-    await svc.deleteTask('u1', 'sbx_1', 'my-task')
+    assert.deepEqual(adapter.calls, ['release:web srv/№1'])
 })
 
 test('deleteTask fails loud when the task survives the delete', async () => {
-    const svc = makeService()
-    svc.execResult = ok('{"tasks":[{"name":"my-task"}]}')
+    const svc = makeService(baseHost(), fakeAdapter({ release: 'held' }))
 
     await assert.rejects(
         svc.deleteTask('u1', 'sbx_1', 'my-task'),
@@ -143,9 +130,11 @@ test('deleteTask fails loud when the task survives the delete', async () => {
     )
 })
 
-test('deleteTask surfaces exec transport failures', async () => {
-    const svc = makeService()
-    svc.execError = new Error('socket hangup')
+test('deleteTask surfaces a release that could not be confirmed', async () => {
+    const svc = makeService(
+        baseHost(),
+        fakeAdapter({ release: new Error('socket hangup') })
+    )
 
     await assert.rejects(
         svc.deleteTask('u1', 'sbx_1', 'my-task'),
@@ -153,29 +142,14 @@ test('deleteTask surfaces exec transport failures', async () => {
     )
 })
 
-test('deleteTask refuses to report success when the verify list is unreadable', async () => {
-    const svc = makeService()
-    svc.execResult = { exitCode: 1, stdout: '', stderr: 'boom' }
-    await assert.rejects(
-        svc.deleteTask('u1', 'sbx_1', 'my-task'),
-        ServiceUnavailableException
-    )
-
-    svc.execResult = ok('not json')
-    await assert.rejects(
-        svc.deleteTask('u1', 'sbx_1', 'my-task'),
-        ServiceUnavailableException
-    )
-})
-
-test('listTasks flags platform leases as keepAlive', async () => {
-    const svc = makeService()
-    svc.execResult = ok(
-        JSON.stringify({
-            tasks: [
-                { name: 'nca-codex-ab12cd-3', expires_at: '2026-07-06T00:00:00Z' },
-                { name: 'hermes-keepalive' },
-                { name: 'my-http-server' }
+test('listTasks flags platform holds as keepAlive', async () => {
+    const svc = makeService(
+        baseHost(),
+        fakeAdapter({
+            leases: [
+                lease('mf-keep'),
+                lease('mf-hold-0123abcd'),
+                lease('my-http-server')
             ]
         })
     )
@@ -185,9 +159,17 @@ test('listTasks flags platform leases as keepAlive', async () => {
     assert.deepEqual(
         tasks.map((t) => [t.name, t.keepAlive]),
         [
-            ['nca-codex-ab12cd-3', true],
-            ['hermes-keepalive', true],
+            ['mf-keep', true],
+            ['mf-hold-0123abcd', true],
             ['my-http-server', false]
         ]
     )
+})
+
+test('listTasks reads nothing on a sandbox that is not running', async () => {
+    const adapter = fakeAdapter({ leases: [lease('my-http-server')] })
+    const svc = makeService(baseHost({ powerState: 'suspended' }), adapter)
+
+    assert.deepEqual(await svc.listTasks('u1', 'sbx_1'), [])
+    assert.deepEqual(adapter.calls, [])
 })

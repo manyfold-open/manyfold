@@ -32,7 +32,7 @@ import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcil
 import { AgentReconcileSweepService } from '@/modules/agents/reconcile/agent-reconcile-sweep.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { ResourceEventsModule } from '@/modules/resource-events/resource-events.module'
-import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { SpriteStatusController } from '@/modules/agents/sprite-status/sprite-status.controller'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
@@ -125,7 +125,7 @@ import {
         AgentCredentialsService,
         ExecDriverFactory,
         AgentModelConfigService,
-        SpriteStatusSyncService,
+        HostPowerSyncService,
         ServiceLeaseService,
         HostSessionRegistry,
         FrameworkVersionProbeService,
@@ -145,7 +145,7 @@ import {
         PodRunnerProvisioner,
         RuntimeAgentAttachService,
         ResourceEventsModule,
-        SpriteStatusSyncService,
+        HostPowerSyncService,
         HostSessionRegistry
     ]
 })

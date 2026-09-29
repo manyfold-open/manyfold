@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { SANDBOX_PORT_SERVICE } from '@manyfold/shared'
 import {
     SpritesError,
     parseTaskList,
+    type ExecSessionInfo,
     type ServiceDef,
+    type NetworkPolicy,
+    type ServiceListResponse,
     type ServiceObject,
     type Sprite,
     type SpriteTask,
@@ -13,16 +16,29 @@ import {
 import type {
     RuntimeHostPowerState,
     RuntimeHostProviderRef,
+    RuntimeHostRow,
+    RuntimeProvider,
+    RuntimeProviderConfig,
+    SpritesProviderConfig,
     SpritesProviderRef
 } from '@manyfold/db'
-import { defaultNetworkPolicy } from '@/modules/agents/orchestration/bootstrap-invariants'
 import { HostsService } from '../hosts.service'
 import { HostProviderClients } from './host-provider-clients.service'
 import {
+    AwakeLeaseStillHeldError,
     SandboxProviderRegistry,
+    type AwakeLease,
+    type CredentialHealth,
+    type ExecEndpointFailure,
     type HostCreateSpec,
     type ProviderCall,
+    type PreparedCredential,
+    type ProviderErrorFacts,
     type ProviderExecResult,
+    type ProviderObservation,
+    type ProviderPowerState,
+    type ProviderService,
+    type ReapedSession,
     type SandboxProvider,
     type SandboxProviderCapabilities,
     type SupervisedProcess
@@ -31,6 +47,7 @@ import { assertCurrentGeneration } from './generation'
 
 const WAKE_TIMEOUT_MS = 60_000
 const AWAKE_LEASE_TIMEOUT_MS = 60_000
+const AWAKE_LIST_TIMEOUT_MS = 20_000
 
 // A /v1/tasks `expire` value (`30m`) in ms; null for a form this does not read.
 const ttlMs = (ttl: string): number | null => {
@@ -48,6 +65,16 @@ const holdsFor = (task: SpriteTask, ttl: string, since: number): boolean => {
     return ms === null || !Number.isFinite(expiresAt) || expiresAt >= since + ms / 2
 }
 
+const toProviderService = (s: ServiceObject): ProviderService => ({
+    name: s.name,
+    command: [s.cmd, ...(s.args ?? [])].join(' '),
+    httpPort: s.http_port ?? null,
+    status: s.state.status,
+    pid: s.state.pid ?? null,
+    startedAt: s.state.started_at ?? null,
+    error: s.state.error ?? null
+})
+
 // What a stored service definition is compared on: a PUT never changes an
 // existing one, so a difference means delete and PUT again.
 const sameDefinition = (current: ServiceObject, next: ServiceDef): boolean =>
@@ -62,6 +89,9 @@ const sortedEnv = (
 ): Array<[string, string]> =>
     Object.entries(env ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
+// sprites.dev treats an empty rule list as wide-open outbound access.
+export const defaultNetworkPolicy = (): NetworkPolicy => ({ rules: [] })
+
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 180_000
@@ -73,6 +103,128 @@ export const spriteNameForHost = (hostId: string): string =>
 
 export const isSpritesNotFound = (err: unknown): boolean =>
     err instanceof SpritesError && err.code === 'not_found'
+
+// Which exec failures are the EXEC ENDPOINT's fault. Getting this wrong in the
+// generous direction is expensive: the caller quarantines on it, so a class
+// handed out for a sprite that answered takes a healthy VM out of the turn path.
+//
+// Only a transient SpritesError qualifies at all. `auth` is an account-wide fact
+// (a revoked account token would quarantine every sprite on that account at
+// once, none of them sick), and not_found / conflict / quota / permanent are
+// facts about the request. A structured `reason` — today `exec_session_gone` —
+// means the endpoint started and reaped a session, so it answered.
+const execEndpointFailure = (err: SpritesError): ExecEndpointFailure | null => {
+    if (err.code !== 'transient' || err.reason) return null
+    if (err.execPhase !== 'pre_open') return null
+    // The exec burned its whole budget without a result: nothing usable came
+    // back from the endpoint within a window many times what a healthy one needs.
+    if (/timed out after \d+ms/i.test(err.message))
+        return { failureClass: 'timeout' }
+    const status = err.status
+    // A non-101 upgrade response. 5xx only: the socket never opened AND the
+    // backend blamed itself.
+    if (status !== undefined && status >= 500 && /handshake/i.test(err.message))
+        return {
+            failureClass: 'handshake_5xx',
+            upstreamStatus: status
+        }
+    // `ws` reports a connection that died before the handshake completed as an
+    // error with no status. A socket that opened and then died surfaces as
+    // `closed without exit code` instead, which is deliberately NOT classified:
+    // a sprite suspending mid-exec does that and recovers by itself.
+    if (/transport error/i.test(err.message))
+        return { failureClass: 'transport_error' }
+    return null
+}
+
+export const spritesErrorFacts = (err: unknown): ProviderErrorFacts | null =>
+    err instanceof SpritesError
+        ? {
+              errorClass: `sprites:${err.code}`,
+              beforeOpen:
+                  err.code === 'transient' && err.execPhase === 'pre_open',
+              execFailure: execEndpointFailure(err)
+          }
+        : null
+
+// running_limit / warm_limit are optional in the listing's envelope; an older
+// or partial response records "unknown" (null) rather than a bogus 0, which
+// would clamp the org cap to zero and block every wake.
+const vendorLimit = (raw: unknown): number | null =>
+    typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null
+
+// sprites.dev reports "no activity recorded" as the zero time rather than
+// omitting the field, and it is genuinely absent on some sprites — a session
+// with no usable last_activity is aged from `created` instead.
+const EXEC_SESSION_EPOCH_FLOOR_MS = Date.UTC(1971, 0, 1)
+
+export interface AbandonedExecSession {
+    session: ExecSessionInfo
+    idleMs: number
+}
+
+// Last sign of life for an exec session. Read literally, year 1 would make
+// every session look infinitely idle and reap live turns.
+const execSessionLastSeenMs = (session: ExecSessionInfo): number | null => {
+    const stamps = [session.last_activity, session.created]
+        .map((raw) => (raw ? Date.parse(raw) : Number.NaN))
+        .filter(
+            (ms) => Number.isFinite(ms) && ms >= EXEC_SESSION_EPOCH_FLOOR_MS
+        )
+    return stamps.length > 0 ? Math.max(...stamps) : null
+}
+
+// Sessions sprites.dev still counts as active but that nothing has touched for
+// longer than any legitimate exec. A session with no usable timestamp at all is
+// deliberately left alone: with no age there is no evidence of abandonment, and
+// killing a live turn is far worse than waiting for the next tick.
+export const abandonedExecSessions = (
+    sessions: readonly ExecSessionInfo[],
+    now: number,
+    maxIdleMs: number
+): AbandonedExecSession[] => {
+    const out: AbandonedExecSession[] = []
+    for (const session of sessions) {
+        if (session.is_active !== true) continue
+        const lastSeen = execSessionLastSeenMs(session)
+        if (lastSeen === null) continue
+        const idleMs = now - lastSeen
+        if (idleMs > maxIdleMs) out.push({ session, idleMs })
+    }
+    return out
+}
+
+// Only the argv head. The arguments carry user file paths — the leak that
+// motivated the reaper was `cat > …/all_files 02.zip.mf-part` — while the
+// binary name alone is what identifies which exec path leaked.
+const execCommandHead = (command: string | undefined): string =>
+    (command ?? '').trim().split(/\s+/)[0] || 'unknown'
+
+interface SpritesVaultToken {
+    orgSlug: string
+    orgId: string
+    tokenId: string
+    fullToken: string
+}
+
+// A sprites.dev credential is `<orgSlug>/<orgId>/<tokenId>/<tokenValue>`; the
+// three ids are the non-secret half and go into `config`, the whole string is
+// the API token and goes into the envelope.
+export const parseSpritesVaultToken = (raw: string): SpritesVaultToken => {
+    const fullToken = raw.trim()
+    const parts = fullToken.split('/')
+    if (parts.length !== 4)
+        throw new BadRequestException(
+            'Sprites credential must be formatted "<orgSlug>/<orgId>/<tokenId>/<tokenValue>"'
+        )
+    const [orgSlug, orgId, tokenId, tokenValue] = parts
+    if (!orgSlug || !orgId || !tokenId || !tokenValue)
+        throw new BadRequestException('Sprites credential has an empty segment')
+    return { orgSlug, orgId, tokenId, fullToken }
+}
+
+const optionalString = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 
 // sprites.dev reports running / warm / cold; the host's power vocabulary is
 // provider-neutral.
@@ -107,6 +259,56 @@ export class SpritesProvider implements SandboxProvider {
         private readonly clients: HostProviderClients
     ) {
         registry.register(this)
+    }
+
+    // The token's shape is all that is checked here; checkCredential calls
+    // the API.
+    async prepareCredential(
+        credential: string,
+        config: Record<string, unknown>
+    ): Promise<PreparedCredential> {
+        const parsed = parseSpritesVaultToken(credential)
+        const spritesConfig: SpritesProviderConfig = {
+            orgSlug: parsed.orgSlug,
+            orgId: parsed.orgId,
+            tokenId: parsed.tokenId,
+            notes: optionalString(config.notes)
+        }
+        return {
+            secret: parsed.fullToken,
+            config: spritesConfig,
+            health: { ok: true, message: 'credential accepted' }
+        }
+    }
+
+    mergeConfig(
+        current: RuntimeProviderConfig,
+        patch: Record<string, unknown>
+    ): RuntimeProviderConfig {
+        const config = current as SpritesProviderConfig
+        return {
+            ...config,
+            notes:
+                patch.notes === undefined
+                    ? (config.notes ?? null)
+                    : optionalString(patch.notes)
+        }
+    }
+
+    async checkCredential(provider: RuntimeProvider): Promise<CredentialHealth> {
+        try {
+            const sprites = await this.client({ provider }).listSprites()
+            const n = sprites.sprites?.length ?? 0
+            return {
+                ok: true,
+                message: `reachable (listed ${n} sprite${n === 1 ? '' : 's'})`
+            }
+        } catch (err) {
+            return {
+                ok: false,
+                message: `api call failed: ${(err as Error).message.slice(0, 256)}`
+            }
+        }
     }
 
     private client(call: Pick<ProviderCall, 'provider'>): SpritesClient {
@@ -150,12 +352,14 @@ export class SpritesProvider implements SandboxProvider {
         return ref
     }
 
+    // A create that failed before it recorded the sprite may still have made
+    // it: the name is the host's either way.
     async destroy(args: ProviderCall): Promise<void> {
         await assertCurrentGeneration(this.hosts, args.host, args.generation)
-        const ref = this.ref(args)
-        if (!ref) return
+        const spriteName =
+            this.ref(args)?.spriteName ?? spriteNameForHost(args.host.id)
         await this.client(args)
-            .deleteSprite(ref.spriteName)
+            .deleteSprite(spriteName)
             .catch((err) => {
                 if (!isSpritesNotFound(err)) throw err
             })
@@ -163,16 +367,85 @@ export class SpritesProvider implements SandboxProvider {
 
     async power(
         args: Omit<ProviderCall, 'generation'>
-    ): Promise<RuntimeHostPowerState> {
+    ): Promise<ProviderPowerState> {
         const ref = this.ref(args)
         if (!ref) return 'unknown'
         try {
             const sprite = await this.client(args).getSprite(ref.spriteName)
             return spritePowerState(sprite.status)
         } catch (err) {
-            if (isSpritesNotFound(err)) return 'unknown'
+            if (isSpritesNotFound(err)) return 'gone'
             throw err
         }
+    }
+
+    // One listing for the whole organisation. Usage is counted from the fully
+    // paginated listing rather than the envelope's own running/warm/cold, which
+    // describe only the page they came with; the limits are account-level.
+    async observe(args: {
+        provider: RuntimeProvider
+        hosts: RuntimeHostRow[]
+    }): Promise<ProviderObservation> {
+        const list = await this.client(args).listSprites()
+        if (!list) throw new Error('sprites listing answered nothing')
+        const byName = new Map<string, RuntimeHostPowerState>()
+        const counts = { running: 0, suspended: 0, stopped: 0 }
+        for (const sprite of list.sprites) {
+            const name = (sprite as { name?: unknown }).name
+            if (typeof name !== 'string') continue
+            const power = spritePowerState(sprite.status)
+            byName.set(name, power)
+            if (power === 'running') counts.running += 1
+            else if (power === 'suspended') counts.suspended += 1
+            else if (power === 'stopped') counts.stopped += 1
+        }
+        const power = new Map<string, RuntimeHostPowerState>()
+        for (const host of args.hosts) {
+            const listed = byName.get(this.ref({ host })?.spriteName ?? '')
+            if (listed) power.set(host.id, listed)
+        }
+        return {
+            power,
+            capacity: {
+                ...counts,
+                runningLimit: vendorLimit(list.running_limit),
+                suspendedLimit: vendorLimit(list.warm_limit)
+            }
+        }
+    }
+
+    // sprites.dev keeps a session's process alive after the client socket
+    // goes away, so an exec that died without killing its session leaves the
+    // process running — and a live exec session pins the VM `running`.
+    async reapIdleSessions(
+        args: Omit<ProviderCall, 'generation'>,
+        opts: { maxIdleMs: number }
+    ): Promise<ReapedSession[]> {
+        const ref = this.ref(args)
+        if (!ref) return []
+        const client = this.client(args)
+        let sessions: ExecSessionInfo[]
+        try {
+            sessions = await client.listExecSessions(ref.spriteName)
+        } catch (err) {
+            if (isSpritesNotFound(err)) return []
+            throw err
+        }
+        const reaped: ReapedSession[] = []
+        for (const { session, idleMs } of abandonedExecSessions(
+            sessions,
+            Date.now(),
+            opts.maxIdleMs
+        )) {
+            await client.killExecSession(ref.spriteName, session.id)
+            reaped.push({
+                sessionId: session.id,
+                command: execCommandHead(session.command),
+                tty: session.tty === true,
+                idleMs
+            })
+        }
+        return reaped
     }
 
     // /v1/tasks is the platform's own activity lease, reachable only from
@@ -192,7 +465,8 @@ export class SpritesProvider implements SandboxProvider {
         const since = Date.now()
         const listed = await this.listAfter(
             args,
-            `sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${lease.name}`)} -d ${shellQuote(JSON.stringify({ expire: lease.ttl }))}`
+            `sprite-env curl -s -X PUT "/v1/tasks/$MF_TASK_NAME" -d ${shellQuote(JSON.stringify({ expire: lease.ttl }))}`,
+            lease.name
         )
         const held = listed?.find((task) => task.name === lease.name)
         if (!held)
@@ -205,26 +479,46 @@ export class SpritesProvider implements SandboxProvider {
             )
     }
 
-    // Confirmed the same way: by a listing without the name.
+    // Confirmed the same way: by a listing without the name. An unreadable
+    // listing is not a confirmation either way.
     async releaseAwake(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string }
     ): Promise<void> {
         const listed = await this.listAfter(
             args,
-            `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${lease.name}`)}`
+            `sprite-env curl -s -X DELETE "/v1/tasks/$MF_TASK_NAME"`,
+            lease.name
         )
-        if (!listed || listed.some((task) => task.name === lease.name))
+        if (!listed)
             throw new Error(
-                `sprite awake lease ${lease.name} is still listed after its delete`
+                `sprite task listing unreadable after releasing ${lease.name}`
             )
+        if (listed.some((task) => task.name === lease.name))
+            throw new AwakeLeaseStillHeldError(lease.name)
+    }
+
+    async listAwake(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<AwakeLease[]> {
+        const exec = await this.clients.spriteExecForHost(
+            args.host,
+            this.spritesLogger()
+        )
+        const res = await exec({
+            cmd: ['sprite-env', 'curl', '-s', '/v1/tasks'],
+            timeoutMs: AWAKE_LIST_TIMEOUT_MS
+        })
+        return parseTaskList(res.stdout) ?? []
     }
 
     // One exec: the task call, then the listing it is proven by (null when the
-    // output is not a listing).
+    // output is not a listing). The name may be an agent's, so it reaches the
+    // shell URL-encoded through the env, never in the command line.
     private async listAfter(
         args: Omit<ProviderCall, 'generation'>,
-        call: string
+        call: string,
+        name: string
     ): Promise<SpriteTask[] | null> {
         const exec = await this.clients.spriteExecForHost(
             args.host,
@@ -236,9 +530,56 @@ export class SpritesProvider implements SandboxProvider {
                 '-lc',
                 `${call} >/dev/null 2>&1; sprite-env curl -s /v1/tasks`
             ],
+            env: { MF_TASK_NAME: encodeURIComponent(name) },
             timeoutMs: AWAKE_LEASE_TIMEOUT_MS
         })
         return parseTaskList(res.stdout)
+    }
+
+    // Measured on local [2026-09-28]: the listing answers a bare array, not
+    // the { services } envelope its type names; both are read.
+    async listServices(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<ProviderService[]> {
+        const ref = this.requireRef(args)
+        const raw = (await this.client(args).listServices(
+            ref.spriteName
+        )) as unknown
+        const list = Array.isArray(raw)
+            ? (raw as ServiceObject[])
+            : ((raw as ServiceListResponse).services ?? [])
+        return list.map(toProviderService)
+    }
+
+    async removeService(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<void> {
+        const ref = this.requireRef(args)
+        await this.client(args)
+            .deleteService(ref.spriteName, name)
+            .catch((err) => {
+                if (!isSpritesNotFound(err)) throw err
+            })
+    }
+
+    // The supervisor silently refuses to stop a service another one `needs`:
+    // the state it answers with stays running.
+    async stopService(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<boolean> {
+        const ref = this.requireRef(args)
+        try {
+            const after = await this.client(args).stopService(
+                ref.spriteName,
+                name
+            )
+            return after.state.status === 'stopped'
+        } catch (err) {
+            if (isSpritesNotFound(err)) return true
+            throw err
+        }
     }
 
     // Any exec resumes a suspended sprite; a no-op command is the cheapest.
@@ -300,10 +641,11 @@ export class SpritesProvider implements SandboxProvider {
     // hostname carries the organisation's suffix.
     async publishPort(
         args: Omit<ProviderCall, 'generation'>,
-        port: number | null
+        route: { framework: string; port: number | null }
     ): Promise<void> {
         const ref = this.requireRef(args)
         const client = this.client(args)
+        const port = route.port
         if (port === null) {
             await client
                 .deleteService(ref.spriteName, SANDBOX_PORT_SERVICE)
@@ -349,6 +691,40 @@ export class SpritesProvider implements SandboxProvider {
         const ref = this.ref(args)
         if (!ref) throw new Error(`host ${args.host.id} has no sprite`)
         return ref
+    }
+
+    // A sprite this platform made is wide open (defaultNetworkPolicy); only one
+    // whose policy denies everything by default needs the domains allowed.
+    async allowEgress(
+        args: Omit<ProviderCall, 'generation'>,
+        domains: readonly string[]
+    ): Promise<void> {
+        const ref = this.requireRef(args)
+        const client = this.client(args)
+        const policy = await client.getNetworkPolicy(ref.spriteName)
+        const rules = Array.isArray(policy.rules) ? policy.rules : []
+        if (!rules.some((rule) => rule.domain === '*' && rule.action === 'deny'))
+            return
+        const missing = domains.filter(
+            (domain) =>
+                !rules.some(
+                    (rule) => rule.domain === domain && rule.action === 'allow'
+                )
+        )
+        if (missing.length === 0) return
+        await client.setNetworkPolicy(ref.spriteName, {
+            rules: [
+                ...rules,
+                ...missing.map((domain) => ({ domain, action: 'allow' as const }))
+            ]
+        })
+        this.log.log(
+            `sprite ${ref.spriteName} network policy opened to ${missing.join(', ')}`
+        )
+    }
+
+    describeError(err: unknown): ProviderErrorFacts | null {
+        return spritesErrorFacts(err)
     }
 
     // The URL the sprite reported when it was made or its port was published.

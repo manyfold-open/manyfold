@@ -1,4 +1,3 @@
-import { ApiException } from '@kubernetes/client-node'
 import {
     ConflictException,
     Inject,
@@ -20,7 +19,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import {
     K8S_CREATE_CLEANUP_PENDING,
@@ -34,9 +33,12 @@ export {
     K8S_CREATE_INITIAL_AGENT
 } from './k8s-create-ownership'
 
-export const describeK8sCreateError = (error: unknown): string => {
-    if (error instanceof ApiException)
-        return `ApiException: Kubernetes API HTTP ${error.code}`
+export const describeK8sCreateError = (
+    error: unknown,
+    providers: Pick<SandboxProviderRegistry, 'describeError'>
+): string => {
+    const summary = providers.describeError(error)?.summary
+    if (summary) return summary
     if (error instanceof Error)
         return redactCredentialText(`${error.name}: ${error.message}`).slice(
             0,
@@ -70,7 +72,7 @@ export class K8sCreateCleanupService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry
     ) {}
 
@@ -107,7 +109,7 @@ export class K8sCreateCleanupService {
         provider: RuntimeProvider
         requestsSettled?: boolean
     }): Promise<void> {
-        const failureReason = describeK8sCreateError(args.error)
+        const failureReason = describeK8sCreateError(args.error, this.providers)
         try {
             // Commit this marker before external cleanup; a lost process still
             // leaves a visible, owned runtime that explicit DELETE can retry.
@@ -165,7 +167,7 @@ export class K8sCreateCleanupService {
             await this.db
                 .update(agentRuntimes)
                 .set({
-                    failureReason: `${failureReason}; cleanup: ${describeK8sCreateError(cleanupError)}`,
+                    failureReason: `${failureReason}; cleanup: ${describeK8sCreateError(cleanupError, this.providers)}`,
                     updatedAt: new Date()
                 })
                 .where(
@@ -182,7 +184,7 @@ export class K8sCreateCleanupService {
             throw new K8sCreateCleanupPendingError(
                 args.runtimeId,
                 failureReason,
-                describeK8sCreateError(cleanupError)
+                describeK8sCreateError(cleanupError, this.providers)
             )
         }
     }
@@ -243,7 +245,7 @@ export class K8sCreateCleanupService {
                 redactCredentialText(
                     runtime.failureReason ?? 'Agent creation failed'
                 ).slice(0, 1024),
-                describeK8sCreateError(error)
+                describeK8sCreateError(error, this.providers)
             )
         }
     }

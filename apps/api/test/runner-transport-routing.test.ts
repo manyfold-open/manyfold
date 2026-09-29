@@ -130,12 +130,6 @@ const rig = (
         { measureIfDue: () => {} } as never,
         { resolveAgentEnv: async () => ({ CONNECTION: 'value' }) } as never,
         { findByHostId: async () => daemon } as never,
-        {
-            spritesClientForHost: async () => {
-                calls.push('account')
-                return { client: {}, spriteName: 'sprite-one', provider: {} }
-            }
-        } as never,
         hostAccess as never,
         { get: () => 'https://api.example.test' } as never,
         undefined,
@@ -265,12 +259,11 @@ test('the resolved roots reach the daemon on exec.start', async () => {
     assert.deepEqual(payloads[0].roots, [agent.workspacePath])
 })
 
-test('Sprite recovery reserves a slot and reads its account only once', async () => {
+test('Sprite recovery reserves a slot, holds the sandbox and builds no provider client', async () => {
     const { factory, agent, calls, awakeReleases } = rig('sprites', 'codex')
     const handle = await factory.recoveryFsForAgent(agent.id)
-    assert.ok(handle.spritesClient)
     assert.ok(handle.awakeHold)
-    assert.deepEqual(calls, ['reserve', 'resolve', 'account'])
+    assert.deepEqual(calls, ['reserve', 'resolve'])
     await handle.awakeHold?.release()
     assert.equal(awakeReleases(), 1)
 })
@@ -285,5 +278,5 @@ test('OpenClaw history reuses the filesystem carrier without a second Sprite wak
     const { factory, agent, calls } = rig('sprites', 'openclaw')
     const handle = await factory.recoveryFsForAgent(agent.id)
     assert.ok(await factory.openclawRpcForAgent(agent.id, handle.daemonId))
-    assert.deepEqual(calls, ['reserve', 'resolve', 'account'])
+    assert.deepEqual(calls, ['reserve', 'resolve'])
 })

@@ -29,6 +29,7 @@ const rig = (opts: { online?: boolean; listed?: Listed[] } = {}) => {
     const calls: Array<{ method: string; payload: Record<string, unknown> }> = []
     const sessions: Array<Record<string, unknown>> = []
     const published: Array<number | null> = []
+    const routes: string[] = []
     const patches: Array<Record<string, unknown>> = []
     const events: Array<[string, unknown]> = []
     let listed: Listed[] = opts.listed ?? []
@@ -68,8 +69,12 @@ const rig = (opts: { online?: boolean; listed?: Listed[] } = {}) => {
         access as never,
         {
             for: () => ({
-                publishPort: async (_call: unknown, port: number | null) => {
-                    published.push(port)
+                publishPort: async (
+                    _call: unknown,
+                    route: { framework: string; port: number | null }
+                ) => {
+                    published.push(route.port)
+                    routes.push(route.framework)
                 }
             })
         } as never,
@@ -87,6 +92,7 @@ const rig = (opts: { online?: boolean; listed?: Listed[] } = {}) => {
         calls,
         sessions,
         published,
+        routes,
         patches,
         events,
         list: (next: Listed[]) => {
@@ -270,6 +276,7 @@ test('applying a setup runs the main service healthy first, then its companions,
         ]
     )
     assert.deepEqual(r.published, [18642])
+    assert.deepEqual(r.routes, ['hermes'])
 
     // Switched off, the companions go and the gateway takes the port back.
     const plain = await recipe.configure(recorder().runner as never, configureArgs())
@@ -329,6 +336,7 @@ test('a removed runtime takes its services and the public route with it', async 
     await r.services.removeRuntime(runtime, SANDBOX)
     assert.deepEqual(r.methods().filter((m) => m.startsWith('service.delete')), ['service.delete openclaw'])
     assert.deepEqual(r.published, [null])
+    assert.deepEqual(r.routes, ['openclaw'])
 })
 
 // An implicit npm latest that will not install is retried unpinned: the

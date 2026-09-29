@@ -9,6 +9,7 @@ import type {
 } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
+import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 
 // Placement is explicit: no sandbox named means a fresh VM, and only an attach
 // lands on a VM that already exists. These tests own that boundary in the
@@ -215,7 +216,7 @@ const buildHarness = (opts: {
             spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} })
         } as never,
         { selectProvider: async () => provider } as never,
-        { for: () => adapter } as never,
+        { for: () => adapter, describeError: spritesErrorFacts } as never,
         {
             withHost: async (
                 args: { host: RuntimeHostRow },

@@ -88,7 +88,6 @@ test(
             {} as never,
             {} as never,
             daemons,
-            {} as never,
             new HostDaemonAccess(daemons, { rpc: async () => ({}) } as never)
         )
         // Another user's agent on the same runtime is refused: the machine

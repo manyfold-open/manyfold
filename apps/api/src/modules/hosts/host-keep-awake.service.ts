@@ -11,7 +11,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { liveHostedHosts } from '@/modules/runtime-access/runtime-usage-counts'
 import { HostsService } from './hosts.service'
-import { HostProviderClients } from './providers/host-provider-clients.service'
+import { HostProviderResolver } from './providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from './providers/sandbox-provider'
 import { AWAKE_TTL } from './host-awake.service'
 
@@ -55,7 +55,7 @@ export class HostKeepAwakeService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
         private readonly providers: SandboxProviderRegistry,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly telemetry: TelemetryService
     ) {}
 
