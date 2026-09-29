@@ -940,9 +940,9 @@ const en = {
             hint: 'Works with Claude Code, Codex and any agent that can run shell commands.',
             prompt: 'Connect this agent to Manyfold: fetch {{url}} with `curl` and follow it to the end.',
             promptLocal:
-                'This is my local Manyfold dev stack at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.',
+                'This is my local Manyfold dev stack at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.',
             promptOther:
-                'This is the Manyfold deployment at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.'
+                'This is the Manyfold deployment at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.'
         },
         agentSettings: {
             timing: {

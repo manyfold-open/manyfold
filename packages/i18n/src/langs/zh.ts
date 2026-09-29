@@ -917,9 +917,9 @@ const zh: Translations = {
             hint: '适用于 Claude Code、Codex，以及任何能运行 shell 命令的 agent。',
             prompt: '把这个 agent 接入 Manyfold：用 `curl` 读取 {{url}} ，按里面的步骤做完。',
             promptLocal:
-                '这是我本地的 Manyfold 开发环境（{{host}}）：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。',
+                '这是我本地的 Manyfold 开发环境（{{host}}）：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
             promptOther:
-                '这是位于 {{host}} 的 Manyfold 部署：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。'
+                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。'
         },
         agentSettings: {
             timing: {

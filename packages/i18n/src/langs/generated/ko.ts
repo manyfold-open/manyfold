@@ -4112,8 +4112,8 @@ const ko: Record<string, string> = {
     "web.useInAgent.description": "이 프롬프트를 사용 중인 AI 에이전트에 붙여 넣으세요. 필요하면 mf CLI를 설치하고, 브라우저로 로그인한 뒤 Manyfold 플러그인을 추가합니다.",
     "web.useInAgent.hint": "Claude Code, Codex 및 셸 명령을 실행할 수 있는 모든 에이전트에서 작동합니다.",
     "web.useInAgent.prompt": "이 에이전트를 Manyfold에 연결해 주세요. `curl`로 {{url}}을 가져와 끝까지 따라 해 주세요.",
-    "web.useInAgent.promptLocal": "이것은 {{host}}에 있는 내 로컬 Manyfold 개발 환경입니다. 전용 `mf` 프로필을 사용하고, 다른 `mf` 로그인과 설치된 `mf`는 건드리지 마세요.",
-    "web.useInAgent.promptOther": "이것은 {{host}}에 있는 Manyfold 배포입니다. 전용 `mf` 프로필을 사용하고, 다른 `mf` 로그인과 설치된 `mf`는 건드리지 마세요."
+    "web.useInAgent.promptLocal": "이것은 {{host}}에 있는 내 로컬 Manyfold 개발 환경입니다. 이 환경에만 쓰는 `mf` 프로필로 로그인하고, 다른 `mf` 로그인과 설치된 `mf`는 건드리지 마세요.",
+    "web.useInAgent.promptOther": "이것은 {{host}}에 있는 Manyfold 배포입니다. 이 배포에만 쓰는 `mf` 프로필로 로그인하고, 다른 `mf` 로그인과 설치된 `mf`는 건드리지 마세요."
 }
 
 export default ko

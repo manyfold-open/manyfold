@@ -4112,8 +4112,8 @@ const ja: Record<string, string> = {
     'web.useInAgent.description': 'このプロンプトを自分の AI エージェントに貼り付けてください。必要に応じて mf CLI をインストールし、ブラウザ経由でサインインして、Manyfold プラグインを追加します。',
     'web.useInAgent.hint': 'Claude Code、Codex、およびシェルコマンドを実行できるあらゆるエージェントで使えます。',
     'web.useInAgent.prompt': 'このエージェントを Manyfold に接続してください。`curl` で {{url}} を取得し、最後まで手順に従ってください。',
-    'web.useInAgent.promptLocal': 'これは {{host}} 上にある私のローカル Manyfold 開発環境です。専用の `mf` プロファイルを使い、ほかの `mf` ログインとインストール済みの `mf` には触れないでください。',
-    'web.useInAgent.promptOther': 'これは {{host}} 上の Manyfold デプロイメントです。専用の `mf` プロファイルを使い、ほかの `mf` ログインとインストール済みの `mf` には触れないでください。'
+    'web.useInAgent.promptLocal': 'これは {{host}} 上にある私のローカル Manyfold 開発環境です。この環境だけに使う `mf` プロファイルでサインインし、ほかの `mf` ログインとインストール済みの `mf` には触れないでください。',
+    'web.useInAgent.promptOther': 'これは {{host}} 上の Manyfold デプロイメントです。このデプロイメントだけに使う `mf` プロファイルでサインインし、ほかの `mf` ログインとインストール済みの `mf` には触れないでください。'
 }
 
 export default ja

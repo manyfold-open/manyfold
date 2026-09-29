@@ -4120,8 +4120,8 @@ const hi: Record<string, string> = {
     'web.useInAgent.description': 'यह प्रॉम्प्ट अपने AI एजेंट में कॉपी करें। ज़रूरत होने पर यह mf CLI इंस्टॉल करता है, आपके ब्राउज़र से साइन इन कराता है और Manyfold प्लगइन जोड़ता है।',
     'web.useInAgent.hint': 'Claude Code, Codex और शेल कमांड चला सकने वाले किसी भी एजेंट के साथ काम करता है।',
     'web.useInAgent.prompt': 'इस एजेंट को Manyfold से जोड़ो: `curl` से {{url}} लाओ और उसके सारे निर्देश अंत तक पूरे करो।',
-    'web.useInAgent.promptLocal': 'यह {{host}} पर मेरा लोकल Manyfold डेवलपमेंट स्टैक है: इसके लिए अलग `mf` प्रोफ़ाइल इस्तेमाल करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।',
-    'web.useInAgent.promptOther': 'यह {{host}} पर Manyfold डिप्लॉयमेंट है: इसके लिए अलग `mf` प्रोफ़ाइल इस्तेमाल करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।'
+    'web.useInAgent.promptLocal': 'यह {{host}} पर मेरा लोकल Manyfold डेवलपमेंट स्टैक है: सिर्फ़ इसी के लिए रखी गई `mf` प्रोफ़ाइल से साइन इन करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।',
+    'web.useInAgent.promptOther': 'यह {{host}} पर Manyfold डिप्लॉयमेंट है: सिर्फ़ इसी के लिए रखी गई `mf` प्रोफ़ाइल से साइन इन करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।'
 }
 
 export default hi

@@ -4122,8 +4122,8 @@ const pt: Record<string, string> = {
     'web.useInAgent.description': 'Copie este prompt para o seu próprio agente de IA. Ele instala a CLI mf se necessário, faz o seu login pelo navegador e adiciona o plugin do Manyfold.',
     'web.useInAgent.hint': 'Funciona com Claude Code, Codex e qualquer agente que consiga executar comandos de shell.',
     'web.useInAgent.prompt': 'Conecte este agente ao Manyfold: baixe {{url}} com `curl` e siga as instruções até o fim.',
-    'web.useInAgent.promptLocal': 'Este é o meu ambiente de desenvolvimento local do Manyfold em {{host}}: use um perfil `mf` separado para ele e não mexa nos meus outros logins do `mf` nem no `mf` instalado.',
-    'web.useInAgent.promptOther': 'Esta é a implantação do Manyfold em {{host}}: use um perfil `mf` separado para ela e não mexa nos meus outros logins do `mf` nem no `mf` instalado.'
+    'web.useInAgent.promptLocal': 'Este é o meu ambiente de desenvolvimento local do Manyfold em {{host}}: entre com um perfil `mf` só para ele e não mexa nos meus outros logins do `mf` nem no `mf` instalado.',
+    'web.useInAgent.promptOther': 'Esta é a implantação do Manyfold em {{host}}: entre com um perfil `mf` só para ela e não mexa nos meus outros logins do `mf` nem no `mf` instalado.'
 }
 
 export default pt

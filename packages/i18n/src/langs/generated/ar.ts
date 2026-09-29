@@ -4118,8 +4118,8 @@ const ar: Record<string, string> = {
     'web.useInAgent.description': 'انسخ هذا الموجّه إلى وكيل الذكاء الاصطناعي الخاص بك. يثبّت mf CLI عند الحاجة، ويسجّل دخولك عبر متصفحك، ويضيف إضافة Manyfold.',
     'web.useInAgent.hint': 'يعمل مع Claude Code و Codex وأي وكيل يستطيع تشغيل أوامر الطرفية.',
     'web.useInAgent.prompt': 'اربط هذا الوكيل بـ Manyfold: اجلب {{url}} باستخدام `curl` واتبع تعليماته حتى النهاية.',
-    'web.useInAgent.promptLocal': 'هذه بيئة تطوير Manyfold المحلية الخاصة بي على {{host}}: استخدم ملف تعريف `mf` منفصلًا لها، ولا تغيّر عمليات تسجيل الدخول الأخرى إلى `mf` ولا `mf` المثبّت لديّ.',
-    'web.useInAgent.promptOther': 'هذا نشر Manyfold على {{host}}: استخدم ملف تعريف `mf` منفصلًا له، ولا تغيّر عمليات تسجيل الدخول الأخرى إلى `mf` ولا `mf` المثبّت لديّ.'
+    'web.useInAgent.promptLocal': 'هذه بيئة تطوير Manyfold المحلية الخاصة بي على {{host}}: سجّل الدخول بملف تعريف `mf` مخصص لها وحدها، ولا تغيّر عمليات تسجيل الدخول الأخرى إلى `mf` ولا `mf` المثبّت لديّ.',
+    'web.useInAgent.promptOther': 'هذا نشر Manyfold على {{host}}: سجّل الدخول بملف تعريف `mf` مخصص له وحده، ولا تغيّر عمليات تسجيل الدخول الأخرى إلى `mf` ولا `mf` المثبّت لديّ.'
 }
 
 export default ar
