@@ -179,3 +179,65 @@ test('the public URL is the one the sprite reported, never derived from its name
         'https://sbx-1-bqqlb.sprites.app'
     )
 })
+
+const userServices = (
+    client: Record<string, unknown>
+): SpritesProvider =>
+    new SpritesProvider(
+        { register: () => {} } as never,
+        {} as never,
+        {
+            spritesClientForProvider: () => client,
+            spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} })
+        } as never
+    )
+
+const userCall = { host: host as never, provider: provider as never }
+
+// Measured on local [2026-09-28]: the listing answers a bare array.
+test('the service listing reads a bare array and the typed envelope alike', async () => {
+    const bare = userServices({
+        listServices: async () => [stored('http.server', { cmd: 'python3', args: ['-m', 'http.server'], http_port: 8000 })]
+    })
+    const wrapped = userServices({
+        listServices: async () => ({ services: [stored('idle', {}, 'stopped')] })
+    })
+
+    assert.deepEqual(await bare.listServices(userCall), [
+        {
+            name: 'http.server',
+            command: 'python3 -m http.server',
+            httpPort: 8000,
+            status: 'running',
+            pid: null,
+            startedAt: null,
+            error: null
+        }
+    ])
+    assert.deepEqual(
+        (await wrapped.listServices(userCall)).map((s) => [s.name, s.status]),
+        [['idle', 'stopped']]
+    )
+})
+
+test('removing or stopping a service already gone is done', async () => {
+    const gone = async () => {
+        throw new SpritesError('not_found', 'gone', 404)
+    }
+    const adapter = userServices({ deleteService: gone, stopService: gone })
+
+    await adapter.removeService(userCall, 'gone')
+    assert.equal(await adapter.stopService(userCall, 'gone'), true)
+})
+
+// WHY: the supervisor refuses to stop a service another one `needs` and says
+// so only through the state it answers with.
+test('a stop the supervisor refused reads as not stopped', async () => {
+    const adapter = userServices({
+        stopService: async (_sprite: string, name: string) =>
+            stored(name, {}, name === 'needed' ? 'running' : 'stopped')
+    })
+
+    assert.equal(await adapter.stopService(userCall, 'needed'), false)
+    assert.equal(await adapter.stopService(userCall, 'free'), true)
+})

@@ -5,6 +5,7 @@ import {
     parseTaskList,
     type ServiceDef,
     type NetworkPolicy,
+    type ServiceListResponse,
     type ServiceObject,
     type Sprite,
     type SpriteTask,
@@ -19,12 +20,15 @@ import type {
 import { HostsService } from '../hosts.service'
 import { HostProviderClients } from './host-provider-clients.service'
 import {
+    AwakeLeaseStillHeldError,
     SandboxProviderRegistry,
+    type AwakeLease,
     type ExecEndpointFailure,
     type HostCreateSpec,
     type ProviderCall,
     type ProviderErrorFacts,
     type ProviderExecResult,
+    type ProviderService,
     type SandboxProvider,
     type SandboxProviderCapabilities,
     type SupervisedProcess
@@ -33,6 +37,7 @@ import { assertCurrentGeneration } from './generation'
 
 const WAKE_TIMEOUT_MS = 60_000
 const AWAKE_LEASE_TIMEOUT_MS = 60_000
+const AWAKE_LIST_TIMEOUT_MS = 20_000
 
 // A /v1/tasks `expire` value (`30m`) in ms; null for a form this does not read.
 const ttlMs = (ttl: string): number | null => {
@@ -49,6 +54,16 @@ const holdsFor = (task: SpriteTask, ttl: string, since: number): boolean => {
     const expiresAt = task.expiresAt ? Date.parse(task.expiresAt) : Number.NaN
     return ms === null || !Number.isFinite(expiresAt) || expiresAt >= since + ms / 2
 }
+
+const toProviderService = (s: ServiceObject): ProviderService => ({
+    name: s.name,
+    command: [s.cmd, ...(s.args ?? [])].join(' '),
+    httpPort: s.http_port ?? null,
+    status: s.state.status,
+    pid: s.state.pid ?? null,
+    startedAt: s.state.started_at ?? null,
+    error: s.state.error ?? null
+})
 
 // What a stored service definition is compared on: a PUT never changes an
 // existing one, so a difference means delete and PUT again.
@@ -240,7 +255,8 @@ export class SpritesProvider implements SandboxProvider {
         const since = Date.now()
         const listed = await this.listAfter(
             args,
-            `sprite-env curl -s -X PUT ${shellQuote(`/v1/tasks/${lease.name}`)} -d ${shellQuote(JSON.stringify({ expire: lease.ttl }))}`
+            `sprite-env curl -s -X PUT "/v1/tasks/$MF_TASK_NAME" -d ${shellQuote(JSON.stringify({ expire: lease.ttl }))}`,
+            lease.name
         )
         const held = listed?.find((task) => task.name === lease.name)
         if (!held)
@@ -253,26 +269,46 @@ export class SpritesProvider implements SandboxProvider {
             )
     }
 
-    // Confirmed the same way: by a listing without the name.
+    // Confirmed the same way: by a listing without the name. An unreadable
+    // listing is not a confirmation either way.
     async releaseAwake(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string }
     ): Promise<void> {
         const listed = await this.listAfter(
             args,
-            `sprite-env curl -s -X DELETE ${shellQuote(`/v1/tasks/${lease.name}`)}`
+            `sprite-env curl -s -X DELETE "/v1/tasks/$MF_TASK_NAME"`,
+            lease.name
         )
-        if (!listed || listed.some((task) => task.name === lease.name))
+        if (!listed)
             throw new Error(
-                `sprite awake lease ${lease.name} is still listed after its delete`
+                `sprite task listing unreadable after releasing ${lease.name}`
             )
+        if (listed.some((task) => task.name === lease.name))
+            throw new AwakeLeaseStillHeldError(lease.name)
+    }
+
+    async listAwake(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<AwakeLease[]> {
+        const exec = await this.clients.spriteExecForHost(
+            args.host,
+            this.spritesLogger()
+        )
+        const res = await exec({
+            cmd: ['sprite-env', 'curl', '-s', '/v1/tasks'],
+            timeoutMs: AWAKE_LIST_TIMEOUT_MS
+        })
+        return parseTaskList(res.stdout) ?? []
     }
 
     // One exec: the task call, then the listing it is proven by (null when the
-    // output is not a listing).
+    // output is not a listing). The name may be an agent's, so it reaches the
+    // shell URL-encoded through the env, never in the command line.
     private async listAfter(
         args: Omit<ProviderCall, 'generation'>,
-        call: string
+        call: string,
+        name: string
     ): Promise<SpriteTask[] | null> {
         const exec = await this.clients.spriteExecForHost(
             args.host,
@@ -284,9 +320,56 @@ export class SpritesProvider implements SandboxProvider {
                 '-lc',
                 `${call} >/dev/null 2>&1; sprite-env curl -s /v1/tasks`
             ],
+            env: { MF_TASK_NAME: encodeURIComponent(name) },
             timeoutMs: AWAKE_LEASE_TIMEOUT_MS
         })
         return parseTaskList(res.stdout)
+    }
+
+    // Measured on local [2026-09-28]: the listing answers a bare array, not
+    // the { services } envelope its type names; both are read.
+    async listServices(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<ProviderService[]> {
+        const ref = this.requireRef(args)
+        const raw = (await this.client(args).listServices(
+            ref.spriteName
+        )) as unknown
+        const list = Array.isArray(raw)
+            ? (raw as ServiceObject[])
+            : ((raw as ServiceListResponse).services ?? [])
+        return list.map(toProviderService)
+    }
+
+    async removeService(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<void> {
+        const ref = this.requireRef(args)
+        await this.client(args)
+            .deleteService(ref.spriteName, name)
+            .catch((err) => {
+                if (!isSpritesNotFound(err)) throw err
+            })
+    }
+
+    // The supervisor silently refuses to stop a service another one `needs`:
+    // the state it answers with stays running.
+    async stopService(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<boolean> {
+        const ref = this.requireRef(args)
+        try {
+            const after = await this.client(args).stopService(
+                ref.spriteName,
+                name
+            )
+            return after.state.status === 'stopped'
+        } catch (err) {
+            if (isSpritesNotFound(err)) return true
+            throw err
+        }
     }
 
     // Any exec resumes a suspended sprite; a no-op command is the cheapest.

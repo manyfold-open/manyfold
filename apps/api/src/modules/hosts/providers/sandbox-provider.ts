@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
-import type { RuntimeProviderKind } from '@manyfold/shared'
+import type {
+    RuntimeProviderKind,
+    SandboxServiceStatus
+} from '@manyfold/shared'
 import type {
     RuntimeHostPowerState,
     RuntimeHostProviderRef,
@@ -84,6 +87,36 @@ export interface ProviderErrorFacts {
     execFailure: ExecEndpointFailure | null
 }
 
+// A process the provider's own supervisor keeps on the machine: one its owner
+// or an agent registered, or the platform's own (isPlatformServiceName).
+export interface ProviderService {
+    name: string
+    command: string
+    httpPort: number | null
+    status: SandboxServiceStatus
+    pid: number | null
+    startedAt: string | null
+    error: string | null
+}
+
+// An activity lease on the machine (ADR-0038): while it is listed the machine
+// is not suspended. The platform's holds are among them, next to any an agent
+// took.
+export interface AwakeLease {
+    name: string
+    startedAt: string | null
+    expiresAt: string | null
+}
+
+// A lease still listed after its release: something inside the machine took
+// it again, or the release did not go through.
+export class AwakeLeaseStillHeldError extends Error {
+    constructor(readonly leaseName: string) {
+        super(`awake lease ${leaseName} is still listed after its release`)
+        this.name = 'AwakeLeaseStillHeldError'
+    }
+}
+
 // The process the provider's own supervisor keeps running on the machine: the
 // daemon's restart loop. What it runs is the core's; how it is kept is the
 // provider's.
@@ -122,10 +155,30 @@ export interface SandboxProvider {
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string; ttl: string }
     ): Promise<void>
+    // Throws AwakeLeaseStillHeldError when the lease is listed after it.
     releaseAwake?(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string }
     ): Promise<void>
+    // The machine's activity leases. Reading them runs inside the machine,
+    // which resumes a suspended one; a held lease keeps the machine running,
+    // so a caller that must not wake it has nothing to read on one that is
+    // not.
+    listAwake?(args: Omit<ProviderCall, 'generation'>): Promise<AwakeLease[]>
+    // The services the provider's own supervisor keeps on the machine, read
+    // from its control plane (no wake). A provider without such a supervisor
+    // leaves these out. Removing one ends its processes; stopping keeps its
+    // definition and answers false when the supervisor refused (another
+    // service needs it). A service already gone counts as removed or stopped.
+    listServices?(args: Omit<ProviderCall, 'generation'>): Promise<ProviderService[]>
+    removeService?(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<void>
+    stopService?(
+        args: Omit<ProviderCall, 'generation'>,
+        name: string
+    ): Promise<boolean>
     // Keeps the daemon's restart loop running under the provider's own
     // supervisor, which is what starts it again after the machine's
     // environment restarts. A machine whose main process is that loop (a

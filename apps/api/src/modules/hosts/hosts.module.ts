@@ -5,6 +5,7 @@ import { RuntimeContextService } from './runtime-context.service'
 import { RuntimeProvidersService } from './runtime-providers.service'
 import { SandboxProviderRegistry } from './providers/sandbox-provider'
 import { HostProviderClients } from './providers/host-provider-clients.service'
+import { HostProviderResolver } from './providers/host-provider-resolver.service'
 import { HostPlacementService } from './providers/host-placement.service'
 import { SpritesProvider } from './providers/sprites.provider'
 import { K8sProvider } from './providers/k8s.provider'
@@ -24,6 +25,7 @@ import { HostKeepAwakeService } from './host-keep-awake.service'
         RuntimeProvidersService,
         SandboxProviderRegistry,
         HostProviderClients,
+        HostProviderResolver,
         HostPlacementService,
         SpritesProvider,
         K8sProvider,
@@ -37,6 +39,7 @@ import { HostKeepAwakeService } from './host-keep-awake.service'
         RuntimeProvidersService,
         SandboxProviderRegistry,
         HostProviderClients,
+        HostProviderResolver,
         HostPlacementService,
         HostAwakeService,
         HostKeepAwakeService

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SpritesProvider } from '../src/modules/hosts/providers/sprites.provider'
+import { AwakeLeaseStillHeldError } from '../src/modules/hosts/providers/sandbox-provider'
 
 // ADR-0038's awake hold is a /v1/tasks entry inside the sprite, reached with
 // `sprite-env curl`. A PUT creates or renews it (measured on a real sprite), and
@@ -26,6 +27,7 @@ const listing = (tasks: Array<{ name: string; expiresInMs?: number }>) =>
 
 const build = (stdouts: string[]) => {
     const scripts: string[] = []
+    const execs: Array<{ cmd: string[]; env?: Record<string, string>; timeoutMs: number }> = []
     const clients = {
         spritesLoggerFor: () => ({
             debug: () => {},
@@ -33,7 +35,12 @@ const build = (stdouts: string[]) => {
             warn: () => {},
             error: () => {}
         }),
-        spriteExecForHost: async () => async (args: { cmd: string[] }) => {
+        spriteExecForHost: async () => async (args: {
+            cmd: string[]
+            env?: Record<string, string>
+            timeoutMs: number
+        }) => {
+            execs.push(args)
             scripts.push(args.cmd[2] ?? '')
             return { exitCode: 0, stdout: stdouts.shift() ?? '', stderr: '' }
         }
@@ -43,18 +50,19 @@ const build = (stdouts: string[]) => {
         {} as never,
         clients as never
     )
-    return { adapter, scripts }
+    return { adapter, scripts, execs }
 }
 
 const call = { host: host as never, provider: provider as never }
 
 test('a hold is one PUT, proven by the listing after it', async () => {
-    const { adapter, scripts } = build([listing([{ name: 'mf-hold-0123abcd' }])])
+    const { adapter, scripts, execs } = build([listing([{ name: 'mf-hold-0123abcd' }])])
 
     await adapter.holdAwake(call, { name: 'mf-hold-0123abcd', ttl: '30m' })
 
     assert.equal(scripts.length, 1)
-    assert.match(scripts[0], /-X PUT '\/v1\/tasks\/mf-hold-0123abcd' -d '\{"expire":"30m"\}'/)
+    assert.match(scripts[0], /-X PUT "\/v1\/tasks\/\$MF_TASK_NAME" -d '\{"expire":"30m"\}'/)
+    assert.equal(execs[0].env?.MF_TASK_NAME, 'mf-hold-0123abcd')
     assert.match(scripts[0], /sprite-env curl -s \/v1\/tasks$/)
     assert.doesNotMatch(scripts[0], /-X POST/)
 })
@@ -96,7 +104,46 @@ test('a release is done once the listing no longer shows the hold', async () => 
     await adapter.releaseAwake(call, { name: 'mf-hold-0123abcd' })
 
     assert.equal(scripts.length, 1)
-    assert.match(scripts[0], /-X DELETE '\/v1\/tasks\/mf-hold-0123abcd'/)
+    assert.match(scripts[0], /-X DELETE "\/v1\/tasks\/\$MF_TASK_NAME"/)
+})
+
+// WHY: a task name is an agent's to pick; it must never reach the shell.
+test('a release carries a hostile name URL-encoded through the env', async () => {
+    const { adapter, scripts, execs } = build([listing([{ name: 'other' }])])
+    const name = 'web srv/№1; rm -rf ~'
+
+    await adapter.releaseAwake(call, { name })
+
+    assert.equal(execs[0].env?.MF_TASK_NAME, encodeURIComponent(name))
+    assert.ok(!scripts[0].includes(name), 'raw name must not reach the shell')
+    assert.match(scripts[0], /; sprite-env curl -s \/v1\/tasks$/, 'must end with the verify list')
+})
+
+// WHY: an unreadable verify list is no proof the lease went; reporting it as
+// gone would hide a lease that keeps the VM running.
+test('a release whose listing is unreadable is not confirmed either way', async () => {
+    const { adapter } = build(['not json'])
+
+    await assert.rejects(
+        adapter.releaseAwake(call, { name: 'my-task' }),
+        (err: Error) =>
+            !(err instanceof AwakeLeaseStillHeldError) &&
+            /listing unreadable/.test(err.message)
+    )
+})
+
+test('the listing reads every lease, the platform holds among them', async () => {
+    const { adapter, execs } = build([
+        listing([{ name: 'mf-keep' }, { name: 'my-http-server' }])
+    ])
+
+    const leases = await adapter.listAwake(call)
+
+    assert.deepEqual(
+        leases.map((lease) => lease.name),
+        ['mf-keep', 'my-http-server']
+    )
+    assert.deepEqual(execs[0].cmd, ['sprite-env', 'curl', '-s', '/v1/tasks'])
 })
 
 // WHY: a hold left behind keeps the VM running, and billed, for its full TTL.
@@ -105,6 +152,6 @@ test('a release the listing still shows fails loudly', async () => {
 
     await assert.rejects(
         adapter.releaseAwake(call, { name: 'mf-hold-0123abcd' }),
-        /still listed after its delete/
+        AwakeLeaseStillHeldError
     )
 })

@@ -19,12 +19,12 @@ import { PodExec, PodExecFactory } from '@/modules/k8s/pod-exec'
 import { RuntimeProvidersService } from '../runtime-providers.service'
 import { HostsService } from '../hosts.service'
 
-// The `{ cmd, stdin?, timeoutMs }` exec shape the runner manager and the
-// sandbox callers share: one login-shell command on the machine, answered
-// with exit code and output.
+// One command on the machine through the provider's own exec, answered with
+// exit code and output.
 export interface HostExecFn {
     (args: {
         cmd: string[]
+        env?: Record<string, string>
         stdin?: string
         timeoutMs: number
     }): Promise<{ exitCode: number; stdout: string; stderr: string }>
@@ -158,6 +158,7 @@ export class HostProviderClients {
                 spriteName,
                 {
                     cmd: args.cmd,
+                    ...(args.env ? { env: args.env } : {}),
                     stdin: args.stdin ?? '',
                     timeoutMs: args.timeoutMs
                 },
