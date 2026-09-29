@@ -120,6 +120,10 @@ agent's workspace and attaches it, images included; a message takes up to
 10 files of 25 MiB each. `--json` prints the turn as one object. Ctrl-C
 stops the turn.
 
+`mf agent chat agt_xxx` is the same conversation at a prompt in your
+terminal, one message per line: `/new` starts a new session, `/exit` or
+Ctrl-D leaves.
+
 ## Update or delete an agent
 
 ```sh

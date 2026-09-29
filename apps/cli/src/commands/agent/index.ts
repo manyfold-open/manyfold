@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import { registerAgentChat } from '@/commands/agent/chat'
 import { registerAgentCreate } from '@/commands/agent/create'
 import { registerAgentCredentials } from '@/commands/agent/credentials'
 import { registerAgentDelete } from '@/commands/agent/delete'
@@ -19,6 +20,7 @@ export const registerAgent = (program: Command): void => {
     registerAgentCreate(cmd, program)
     registerAgentUpdate(cmd, program)
     registerAgentSend(cmd, program)
+    registerAgentChat(cmd, program)
     registerAgentDelete(cmd, program)
     registerAgentDiag(cmd, program)
     registerAgentModelConfig(cmd, program)

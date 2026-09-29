@@ -22,6 +22,7 @@ order: 5
 | [`mf agent create`](#mf-agent-create) | Create a coding agent on a new sandbox, or add one to a sandbox you have |
 | [`mf agent update`](#mf-agent-update) | Update agent name or model |
 | [`mf agent send`](#mf-agent-send) | Send a message to an agent and print its reply ("-" or a pipe: the message from stdin) |
+| [`mf agent chat`](#mf-agent-chat) | Talk to an agent in this terminal, one message per line (/new, /exit) |
 | [`mf agent delete`](#mf-agent-delete) | Delete an agent (irreversible) |
 | [`mf agent storage-usage`](#mf-agent-storage-usage) | Report agent-owned path usage, separate from sandbox and account storage |
 | [`mf agent model-config`](#mf-agent-model-config) | Manage agent model config |
@@ -137,6 +138,26 @@ Send a message to an agent and print its reply ("-" or a pipe: the message from 
 | `-c, --continue` | continue the agent's most recent session |
 | `--file <path>` | attach a local file, uploaded to the agent's workspace (repeatable) 默认值: ``. |
 | `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
+
+## `mf agent chat`
+
+Talk to an agent in this terminal, one message per line (/new, /exit)
+
+**用法:** `mf agent chat [options] <agentId>`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<agentId>` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--session <id>` | continue this session (default: a new one) |
+| `-c, --continue` | continue the agent's most recent session |
 | `-h, --help` | display help for command |
 
 ## `mf agent delete`

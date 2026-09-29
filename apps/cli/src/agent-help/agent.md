@@ -22,8 +22,8 @@ documented in `mf help model-config --agent`.
   `agent-runtimes:read` for `--sandbox`
 - `secrets:read` — `credentials get`, `credentials reveal`
 - `secrets:edit` — `credentials update`
-- `chat:edit` — `send`; `chat:read` for its reply and `--continue`;
-  `files:edit` for `--file`
+- `chat:edit` — `send`, `chat`; `chat:read` for the reply and
+  `--continue`; `files:edit` for `--file`
 
 For a scope denial, follow `mf help auth --agent` for the current identity.
 
@@ -122,6 +122,13 @@ mf agent send <agent-id> "what is in it?" --file ./screenshot.png
   130 after Ctrl-C, which stops the turn on the server (a second Ctrl-C
   leaves at once). A dropped stream is picked up again; when it cannot be,
   the turn goes on on the server and the chat link says where to follow it.
+
+`chat` is the same conversation at a prompt in a terminal:
+`mf agent chat <agent-id> [--session <id> | -c]`, one message per line.
+`/new` starts a new session, `/exit` or Ctrl-D leaves; any other line
+(slash commands included) goes to the agent. Ctrl-C during a reply stops
+the turn; at the prompt it leaves. It needs a terminal: from a script,
+use `send`.
 
 ## Output
 

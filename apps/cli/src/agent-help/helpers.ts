@@ -40,7 +40,7 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     connections: 'external accounts (GitHub, Cloudflare, Composio) linked to the agent',
     runtime: 'runtime lifecycle, control UI, dashboard',
     sandbox: 'list and delete sandboxes; storage readings and attribution',
-    agent: 'create (model source, sandbox reuse), list, update, send (talk to an agent), delete, credentials',
+    agent: 'create (model source, sandbox reuse), list, update, send and chat (talk to an agent), delete, credentials',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',
     a2a: 'call A2A servers or manage this agent’s A2A exposure and callers'
