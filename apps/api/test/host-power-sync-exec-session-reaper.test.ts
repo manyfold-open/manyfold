@@ -1,10 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SpritesError, type ExecSessionInfo } from '@manyfold/sprites'
-import {
-    abandonedExecSessions,
-    SpriteStatusSyncService
-} from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../src/modules/agents/sprite-status/host-power-sync.service'
+import { abandonedExecSessions } from '../src/modules/hosts/providers/sprites.provider'
+import { spritesResolver } from './helpers/power-sync-fakes'
 
 const NOW = Date.parse('2026-09-03T12:00:00Z')
 const SIX_HOURS = 6 * 60 * 60_000
@@ -121,19 +120,23 @@ const makeService = (hosts: HostRow[], spec: ClientSpec = {}) => {
     const kills: Array<{ spriteName: string; sessionId: string }> = []
     const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
     const warnings: string[] = []
-    const svc = new SpriteStatusSyncService(
+    const client = {
+        listExecSessions: async (spriteName: string) => {
+            listed.push(spriteName)
+            if (spec.listError) throw spec.listError
+            return spec.sessions ?? []
+        },
+        killExecSession: async (spriteName: string, sessionId: string) => {
+            kills.push({ spriteName, sessionId })
+        }
+    }
+    const svc = new HostPowerSyncService(
         makeDb(hosts) as never,
         {} as never,
         {
             findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
         } as never,
-        {
-            providerForHost: async () => ({
-                id: 'acc-1',
-                kind: 'sprites',
-                name: 'acct'
-            })
-        } as never,
+        spritesResolver(client).resolver as never,
         { emit: () => {}, emitHostUpdate: () => {} } as never,
         {
             event: (name: string, attrs: Record<string, unknown>) => {
@@ -154,16 +157,6 @@ const makeService = (hosts: HostRow[], spec: ClientSpec = {}) => {
         } as never,
         {} as never
     )
-    svc['clientFor' as never] = (() => ({
-        listExecSessions: async (spriteName: string) => {
-            listed.push(spriteName)
-            if (spec.listError) throw spec.listError
-            return spec.sessions ?? []
-        },
-        killExecSession: async (spriteName: string, sessionId: string) => {
-            kills.push({ spriteName, sessionId })
-        }
-    })) as never
     svc['log' as never] = {
         warn: (msg: string) => warnings.push(msg),
         log: () => {}
@@ -171,7 +164,7 @@ const makeService = (hosts: HostRow[], spec: ClientSpec = {}) => {
     return { svc, listed, kills, events, warnings }
 }
 
-const reap = async (svc: SpriteStatusSyncService) =>
+const reap = async (svc: HostPowerSyncService) =>
     (svc['tickExecSessionReaper' as never] as () => Promise<void>).call(svc)
 
 const host = (over: Partial<HostRow> = {}): HostRow => ({

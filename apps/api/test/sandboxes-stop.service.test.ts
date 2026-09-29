@@ -140,7 +140,7 @@ const makeStop = (opts: {
         }
     }
     const spriteStatusSync = {
-        refreshSandboxHost: async () => {
+        refreshHost: async () => {
             refreshCalls.push(1)
             if (opts.refreshFails) throw new Error('refresh boom')
         }

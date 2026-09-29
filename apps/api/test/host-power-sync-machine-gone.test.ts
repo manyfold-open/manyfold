@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import { agents, runtimeHosts } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import {
-    SpriteStatusSyncService,
-    spriteGoneReason
-} from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+    HostPowerSyncService,
+    HOST_GONE_REASON
+} from '../src/modules/agents/sprite-status/host-power-sync.service'
+import { spritesResolver } from './helpers/power-sync-fakes'
 
 const SPRITE = 'nca-user-abc-main'
-const GONE_REASON = spriteGoneReason(SPRITE)
+const GONE_REASON = HOST_GONE_REASON
 
 const fakeHost = (over: Record<string, unknown> = {}) => ({
     id: 'host-1',
@@ -98,7 +99,7 @@ const makeService = (
         []
     const deleted: string[] = []
     const powerWrites: Array<{ id: string; state: string }> = []
-    const svc = new SpriteStatusSyncService(
+    const svc = new HostPowerSyncService(
         db as never,
         {
             setPower: async (id: string, state: string) => {
@@ -108,7 +109,7 @@ const makeService = (
         {
             findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
         } as never,
-        {} as never,
+        spritesResolver(client).resolver as never,
         {
             emit: () => {},
             emitHostUpdate: (userId: string, update: Record<string, unknown>) => {
@@ -135,11 +136,10 @@ const makeService = (
             }
         } as never
     )
-    svc['clientFor' as never] = (() => client) as never
     return { svc, hostEmits, events, deleted, powerWrites }
 }
 
-const sync = async (svc: SpriteStatusSyncService) =>
+const sync = async (svc: HostPowerSyncService) =>
     (svc['syncProvider' as never] as (id: string) => Promise<boolean>).call(
         svc,
         'acc-1'
@@ -148,8 +148,8 @@ const sync = async (svc: SpriteStatusSyncService) =>
 const hostUpdates = (db: ReturnType<typeof makeDb>) =>
     db.updates.filter((u) => u.table === runtimeHosts)
 
-const missingSince = (svc: SpriteStatusSyncService) =>
-    svc['hostSpriteMissingSince' as never] as Map<string, number>
+const missingSince = (svc: HostPowerSyncService) =>
+    svc['hostMissingSince' as never] as Map<string, number>
 
 // WHY: one absent listing is indistinguishable from a transient control-plane
 // inconsistency — it must never trigger a confirmation call or a DB write.

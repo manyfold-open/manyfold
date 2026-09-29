@@ -1,12 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../src/modules/agents/sprite-status/host-power-sync.service'
 
 // #615: tickQuotaWarnings rode the 1.5s status wakeup — the 4-table candidate
 // UNION ran 40x/min and every candidate paid the full ~14-query runtime-access
 // summary chain once a minute, 24/7, with the wholesale soft-cap COUNT along
 // for the ride. The pass now runs on its own 60s cadence. Drives the private
-// method directly, like the other sprite-status-sync tests.
+// method directly, like the other host-power-sync tests.
 
 interface Emitted {
     userId: string
@@ -30,7 +30,7 @@ const makeHarness = (opts: { due?: Array<Record<string, unknown>> } = {}) => {
             }
         }
     }
-    const svc = new SpriteStatusSyncService(
+    const svc = new HostPowerSyncService(
         db as never,
         {} as never,
         {} as never,

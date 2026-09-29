@@ -54,6 +54,15 @@ export class HostProviderResolver {
         return { provider, adapter: this.registry.for(provider.kind) }
     }
 
+    adapterFor(provider: Pick<RuntimeProvider, 'kind'>): SandboxProvider {
+        return this.registry.for(provider.kind)
+    }
+
+    // Every registered adapter, for the passes that go over all providers.
+    adapters(): SandboxProvider[] {
+        return this.registry.kinds().map((kind) => this.registry.for(kind))
+    }
+
     // After the provider row or its credential changed.
     invalidate(providerId: string): void {
         this.cache.delete(providerId)

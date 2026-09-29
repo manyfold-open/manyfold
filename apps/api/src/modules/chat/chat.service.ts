@@ -119,7 +119,7 @@ import {
     FilesContextBuilder,
     resolveSafePath
 } from '@/modules/agents/files/files-context'
-import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
@@ -617,7 +617,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         private readonly adapters: ChatAdapterRegistry,
         private readonly usage: UsageService,
         private readonly files: FilesContextBuilder,
-        private readonly spriteStatusSync: SpriteStatusSyncService,
+        private readonly powerSync: HostPowerSyncService,
         private readonly telemetry: TelemetryService,
         private readonly daemonResume: DaemonExecResumeService,
         private readonly spritesProvisioner: SpritesProvisioner,
@@ -6577,7 +6577,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 return
             }
             if (host.powerState !== 'running')
-                await this.spriteStatusSync.markHostRunning(host.id)
+                await this.powerSync.markHostRunning(host.id)
             // Always nudge the sprite-side service on chat activity. The
             // sprite VM can stay `running` while the service process inside
             // it has stopped. The nudge restarts the service WITHOUT

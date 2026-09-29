@@ -3,6 +3,7 @@ import { SANDBOX_PORT_SERVICE } from '@manyfold/shared'
 import {
     SpritesError,
     parseTaskList,
+    type ExecSessionInfo,
     type ServiceDef,
     type NetworkPolicy,
     type ServiceListResponse,
@@ -15,6 +16,8 @@ import {
 import type {
     RuntimeHostPowerState,
     RuntimeHostProviderRef,
+    RuntimeHostRow,
+    RuntimeProvider,
     SpritesProviderRef
 } from '@manyfold/db'
 import { HostsService } from '../hosts.service'
@@ -28,7 +31,10 @@ import {
     type ProviderCall,
     type ProviderErrorFacts,
     type ProviderExecResult,
+    type ProviderObservation,
+    type ProviderPowerState,
     type ProviderService,
+    type ReapedSession,
     type SandboxProvider,
     type SandboxProviderCapabilities,
     type SupervisedProcess
@@ -137,6 +143,59 @@ export const spritesErrorFacts = (err: unknown): ProviderErrorFacts | null =>
           }
         : null
 
+// running_limit / warm_limit are optional in the listing's envelope; an older
+// or partial response records "unknown" (null) rather than a bogus 0, which
+// would clamp the org cap to zero and block every wake.
+const vendorLimit = (raw: unknown): number | null =>
+    typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null
+
+// sprites.dev reports "no activity recorded" as the zero time rather than
+// omitting the field, and it is genuinely absent on some sprites — a session
+// with no usable last_activity is aged from `created` instead.
+const EXEC_SESSION_EPOCH_FLOOR_MS = Date.UTC(1971, 0, 1)
+
+export interface AbandonedExecSession {
+    session: ExecSessionInfo
+    idleMs: number
+}
+
+// Last sign of life for an exec session. Read literally, year 1 would make
+// every session look infinitely idle and reap live turns.
+const execSessionLastSeenMs = (session: ExecSessionInfo): number | null => {
+    const stamps = [session.last_activity, session.created]
+        .map((raw) => (raw ? Date.parse(raw) : Number.NaN))
+        .filter(
+            (ms) => Number.isFinite(ms) && ms >= EXEC_SESSION_EPOCH_FLOOR_MS
+        )
+    return stamps.length > 0 ? Math.max(...stamps) : null
+}
+
+// Sessions sprites.dev still counts as active but that nothing has touched for
+// longer than any legitimate exec. A session with no usable timestamp at all is
+// deliberately left alone: with no age there is no evidence of abandonment, and
+// killing a live turn is far worse than waiting for the next tick.
+export const abandonedExecSessions = (
+    sessions: readonly ExecSessionInfo[],
+    now: number,
+    maxIdleMs: number
+): AbandonedExecSession[] => {
+    const out: AbandonedExecSession[] = []
+    for (const session of sessions) {
+        if (session.is_active !== true) continue
+        const lastSeen = execSessionLastSeenMs(session)
+        if (lastSeen === null) continue
+        const idleMs = now - lastSeen
+        if (idleMs > maxIdleMs) out.push({ session, idleMs })
+    }
+    return out
+}
+
+// Only the argv head. The arguments carry user file paths — the leak that
+// motivated the reaper was `cat > …/all_files 02.zip.mf-part` — while the
+// binary name alone is what identifies which exec path leaked.
+const execCommandHead = (command: string | undefined): string =>
+    (command ?? '').trim().split(/\s+/)[0] || 'unknown'
+
 // sprites.dev reports running / warm / cold; the host's power vocabulary is
 // provider-neutral.
 export const spritePowerState = (status: string | null | undefined): RuntimeHostPowerState => {
@@ -226,16 +285,85 @@ export class SpritesProvider implements SandboxProvider {
 
     async power(
         args: Omit<ProviderCall, 'generation'>
-    ): Promise<RuntimeHostPowerState> {
+    ): Promise<ProviderPowerState> {
         const ref = this.ref(args)
         if (!ref) return 'unknown'
         try {
             const sprite = await this.client(args).getSprite(ref.spriteName)
             return spritePowerState(sprite.status)
         } catch (err) {
-            if (isSpritesNotFound(err)) return 'unknown'
+            if (isSpritesNotFound(err)) return 'gone'
             throw err
         }
+    }
+
+    // One listing for the whole organisation. Usage is counted from the fully
+    // paginated listing rather than the envelope's own running/warm/cold, which
+    // describe only the page they came with; the limits are account-level.
+    async observe(args: {
+        provider: RuntimeProvider
+        hosts: RuntimeHostRow[]
+    }): Promise<ProviderObservation> {
+        const list = await this.client(args).listSprites()
+        if (!list) throw new Error('sprites listing answered nothing')
+        const byName = new Map<string, RuntimeHostPowerState>()
+        const counts = { running: 0, suspended: 0, stopped: 0 }
+        for (const sprite of list.sprites) {
+            const name = (sprite as { name?: unknown }).name
+            if (typeof name !== 'string') continue
+            const power = spritePowerState(sprite.status)
+            byName.set(name, power)
+            if (power === 'running') counts.running += 1
+            else if (power === 'suspended') counts.suspended += 1
+            else if (power === 'stopped') counts.stopped += 1
+        }
+        const power = new Map<string, RuntimeHostPowerState>()
+        for (const host of args.hosts) {
+            const listed = byName.get(this.ref({ host })?.spriteName ?? '')
+            if (listed) power.set(host.id, listed)
+        }
+        return {
+            power,
+            capacity: {
+                ...counts,
+                runningLimit: vendorLimit(list.running_limit),
+                suspendedLimit: vendorLimit(list.warm_limit)
+            }
+        }
+    }
+
+    // sprites.dev keeps a session's process alive after the client socket
+    // goes away, so an exec that died without killing its session leaves the
+    // process running — and a live exec session pins the VM `running`.
+    async reapIdleSessions(
+        args: Omit<ProviderCall, 'generation'>,
+        opts: { maxIdleMs: number }
+    ): Promise<ReapedSession[]> {
+        const ref = this.ref(args)
+        if (!ref) return []
+        const client = this.client(args)
+        let sessions: ExecSessionInfo[]
+        try {
+            sessions = await client.listExecSessions(ref.spriteName)
+        } catch (err) {
+            if (isSpritesNotFound(err)) return []
+            throw err
+        }
+        const reaped: ReapedSession[] = []
+        for (const { session, idleMs } of abandonedExecSessions(
+            sessions,
+            Date.now(),
+            opts.maxIdleMs
+        )) {
+            await client.killExecSession(ref.spriteName, session.id)
+            reaped.push({
+                sessionId: session.id,
+                command: execCommandHead(session.command),
+                tty: session.tty === true,
+                idleMs
+            })
+        }
+        return reaped
     }
 
     // /v1/tasks is the platform's own activity lease, reachable only from

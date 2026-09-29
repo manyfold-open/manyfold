@@ -61,7 +61,7 @@ import {
 } from '@/modules/hosts/host-keep-awake.service'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
-import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { HostsService } from '@/modules/hosts/hosts.service'
@@ -149,7 +149,7 @@ export class SandboxesService {
         private readonly hostDaemons: HostDaemonsService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
-        private readonly spriteStatusSync: SpriteStatusSyncService,
+        private readonly powerSync: HostPowerSyncService,
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly hostServices: HostServices,
@@ -443,8 +443,8 @@ export class SandboxesService {
     ): Promise<SandboxSummary> {
         const r = await this.requireSandbox(userId, hostId, isAdmin)
         if (r.host.providerRef)
-            await this.spriteStatusSync
-                .refreshSandboxHost(r.host)
+            await this.powerSync
+                .refreshHost(r.host)
                 .catch((err: Error) => {
                     throw new ServiceUnavailableException(
                         `failed to refresh sandbox status: ${err.message}`
@@ -1055,8 +1055,8 @@ export class SandboxesService {
                 'work in progress is holding the sandbox awake; it sleeps once that work finishes'
             )
 
-        await this.spriteStatusSync
-            .refreshSandboxHost(host)
+        await this.powerSync
+            .refreshHost(host)
             .catch((err: Error) => {
                 warnings.push(`status refresh failed: ${err.message}`)
             })

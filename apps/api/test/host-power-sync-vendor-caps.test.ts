@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../src/modules/agents/sprite-status/host-power-sync.service'
+import { spritesResolver } from './helpers/power-sync-fakes'
 
 interface Recorded {
     accountId: string
@@ -26,13 +27,19 @@ const makeService = (
 ) => {
     const records: Recorded[] = []
     const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
-    const svc = new SpriteStatusSyncService(
+    const client = {
+        listSprites: async () => listResponse,
+        getSprite: async () => {
+            throw new Error('unexpected getSprite call')
+        }
+    }
+    const svc = new HostPowerSyncService(
         makeDb() as never,
         {} as never,
         {
             findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
         } as never,
-        {} as never,
+        spritesResolver(client).resolver as never,
         { emit: () => {}, emitHostUpdate: () => {} } as never,
         {
             event: (name: string, attrs: Record<string, unknown>) => {
@@ -62,16 +69,10 @@ const makeService = (
         } as never,
         {} as never
     )
-    svc['clientFor' as never] = (() => ({
-        listSprites: async () => listResponse,
-        getSprite: async () => {
-            throw new Error('unexpected getSprite call')
-        }
-    })) as never
     return { svc, records, events }
 }
 
-const sync = async (svc: SpriteStatusSyncService) =>
+const sync = async (svc: HostPowerSyncService) =>
     (svc['syncProvider' as never] as (id: string) => Promise<boolean>).call(
         svc,
         'acc-1'

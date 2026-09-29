@@ -563,6 +563,10 @@ export class RunnerManagerService {
             const since = new Date()
             await hold.settled
             const power = await adapter.power({ host, provider })
+            if (power === 'gone') {
+                this.logger.warn(`daemon bring-up found the machine gone ${tag}`)
+                return { handle: null }
+            }
             await recordPower(this.hosts, host.id, power)
             if (power === 'suspended' || power === 'stopped') {
                 await adapter.wake({ host, provider, generation: host.generation })

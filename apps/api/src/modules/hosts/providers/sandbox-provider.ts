@@ -56,6 +56,38 @@ export interface ProviderCall {
     fence?: ProviderCallFence
 }
 
+// What the provider reports about a machine's power: the host vocabulary,
+// or `gone` when the provider has no such machine any more.
+export type ProviderPowerState = RuntimeHostPowerState | 'gone'
+
+// One control-plane read of every machine a provider account holds, waking
+// none of them: each host's listed power by host id — a host the listing does
+// not show is absent — and the account's capacity where the provider reports
+// one.
+export interface ProviderObservation {
+    power: Map<string, RuntimeHostPowerState>
+    capacity: ProviderCapacity | null
+}
+
+// Counted over everything the account lists, ours or not; a limit the
+// provider does not report is null, never 0 (which would read as "no room").
+export interface ProviderCapacity {
+    running: number
+    suspended: number
+    stopped: number
+    runningLimit: number | null
+    suspendedLimit: number | null
+}
+
+// A provider-native exec session nothing is attached to any more, ended.
+export interface ReapedSession {
+    sessionId: string
+    // The argv head only: the arguments may carry user paths.
+    command: string
+    tty: boolean
+    idleMs: number
+}
+
 export interface ProviderExecResult {
     exitCode: number
     stdout: string
@@ -133,7 +165,21 @@ export interface SandboxProvider {
         args: ProviderCall & { spec: HostCreateSpec }
     ): Promise<RuntimeHostProviderRef>
     destroy(args: ProviderCall): Promise<void>
-    power(args: Omit<ProviderCall, 'generation'>): Promise<RuntimeHostPowerState>
+    // The machine's power from the provider's control plane; never wakes it.
+    power(args: Omit<ProviderCall, 'generation'>): Promise<ProviderPowerState>
+    // A provider whose account lists all its machines in one read offers it,
+    // and the power sync reads that instead of one power() per host.
+    observe?(args: {
+        provider: RuntimeProvider
+        hosts: RuntimeHostRow[]
+    }): Promise<ProviderObservation>
+    // Ends the provider-native exec sessions nothing has touched for longer
+    // than any legitimate exec: a live one can keep the machine running, and
+    // billed, forever. A machine the provider no longer has has none.
+    reapIdleSessions?(
+        args: Omit<ProviderCall, 'generation'>,
+        opts: { maxIdleMs: number }
+    ): Promise<ReapedSession[]>
     wake(args: ProviderCall): Promise<void>
     suspend?(args: ProviderCall): Promise<void>
     // The provider-native exec: a login-shell script run inside the machine.

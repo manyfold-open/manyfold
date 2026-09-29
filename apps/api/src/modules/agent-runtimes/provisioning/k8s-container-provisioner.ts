@@ -869,7 +869,8 @@ export class K8sContainerProvisioner {
                         host: current,
                         provider: call.provider
                     })
-                    await recordPower(this.hosts, call.host.id, power)
+                    if (power !== 'gone')
+                        await recordPower(this.hosts, call.host.id, power)
                     running = power === 'running'
                 }
                 if (running && (await this.daemonRegistered(call.host.id)))

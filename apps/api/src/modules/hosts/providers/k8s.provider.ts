@@ -32,6 +32,7 @@ import {
     type SandboxProviderCapabilities
 } from './sandbox-provider'
 import { assertCurrentGeneration, patchProviderRef } from './generation'
+import { derivePodPhase, fetchPodForHost } from './k8s-pod-phase'
 
 const DEFAULT_HOST_SUFFIX = '18.135.81.53.nip.io'
 const DEFAULT_STORAGE_CLASS = 'standard'
@@ -194,18 +195,18 @@ export class K8sProvider implements SandboxProvider {
         })
     }
 
+    // One pod per host (ADR-0035): its phase — waiting reasons and readiness
+    // folded in — is the host's power, whichever framework runs on it. A
+    // Deployment makes a missing pod again, so a pod host is never gone.
     async power(
         args: Omit<ProviderCall, 'generation'>
     ): Promise<RuntimeHostPowerState> {
         const ref = this.ref(args)
         if (!ref) return 'unknown'
         const client = await this.client(args)
-        const pod = await this.k8s.findHostPodIfAny(
-            client,
-            args.host.id,
-            ref.namespace
+        const phase = derivePodPhase(
+            await fetchPodForHost(client, ref.namespace, args.host.id)
         )
-        const phase = pod?.phase ?? null
         if (phase !== ref.podPhase)
             await patchProviderRef<K8sProviderRef>(this.hosts, args.host.id, {
                 podPhase: phase

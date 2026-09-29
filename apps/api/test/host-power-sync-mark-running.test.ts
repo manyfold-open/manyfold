@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runtimeHosts } from '@manyfold/db'
-import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../src/modules/agents/sprite-status/host-power-sync.service'
+import { spritesResolver } from './helpers/power-sync-fakes'
 
 const fakeHost = (over: Record<string, unknown> = {}) => ({
     id: 'host-1',
@@ -44,14 +45,15 @@ const makeService = (
     db: ReturnType<typeof makeDb>,
     host: Record<string, unknown> | null,
     findError?: Error,
-    registry?: unknown
+    registry?: unknown,
+    resolver: unknown = spritesResolver({}).resolver
 ) => {
     const emits: Array<{ userId: string; event: Record<string, unknown> }> = []
     const hostEmits: Array<{
         userId: string
         update: Record<string, unknown>
     }> = []
-    const svc = new SpriteStatusSyncService(
+    const svc = new HostPowerSyncService(
         db as never,
         {
             findById: async () => {
@@ -60,7 +62,7 @@ const makeService = (
             }
         } as never,
         {} as never,
-        {} as never,
+        resolver as never,
         {
             emit: (userId: string, event: Record<string, unknown>) => {
                 emits.push({ userId, event })
@@ -89,7 +91,7 @@ const makeService = (
     return { svc, emits, hostEmits }
 }
 
-const nextEligible = (svc: SpriteStatusSyncService, providerId: string) =>
+const nextEligible = (svc: HostPowerSyncService, providerId: string) =>
     (svc['providerNextEligibleAt' as never] as Map<string, number>).get(
         providerId
     )
@@ -183,6 +185,27 @@ test('markHostRunning ignores hosts that are not sandboxes', async () => {
 
     assert.equal(hostEmits.length, 0)
     assert.equal(db.updates.length, 0)
+})
+
+// WHY: a machine that never suspends has no running time to meter and no
+// fast cadence to kick.
+test('markHostRunning ignores hosts whose provider never suspends them', async () => {
+    const pod = fakeHost({
+        providerRef: { kind: 'k8s', namespace: 'u-1', ingressHost: null, podPhase: 'Running' }
+    })
+    const db = makeDb(pod)
+    const { svc, hostEmits } = makeService(db, pod, undefined, undefined, {
+        resolve: async () => ({
+            provider: { id: 'rtp-1', kind: 'k8s' },
+            adapter: { kind: 'k8s', capabilities: { suspend: false, publicService: true } }
+        })
+    })
+
+    await svc.markHostRunning('host-1')
+
+    assert.equal(hostEmits.length, 0)
+    assert.equal(db.updates.length, 0)
+    assert.equal(nextEligible(svc, 'rtp-1'), undefined)
 })
 
 // WHY: the call site is fire-and-forget — a DB error must be swallowed,
