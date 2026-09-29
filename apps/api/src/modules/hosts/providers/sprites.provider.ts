@@ -170,6 +170,10 @@ const EXEC_SESSION_EPOCH_FLOOR_MS = Date.UTC(1971, 0, 1)
 export interface AbandonedExecSession {
     session: ExecSessionInfo
     idleMs: number
+    // Since it started; null without a usable start.
+    ageMs: number | null
+    // Idle past the window, or a TTY session older than it.
+    reason: 'idle' | 'age'
 }
 
 // Read literally, year 1 would make every session look infinitely idle and
@@ -209,13 +213,12 @@ export const abandonedExecSessions = (
         const lastSeen = execSessionLastSeenMs(session)
         if (lastSeen === null) continue
         const idleMs = now - lastSeen
-        const startedMs =
-            session.tty === true ? usableStampMs(session.created) : null
-        if (
-            idleMs > maxIdleMs ||
-            (startedMs !== null && now - startedMs > maxIdleMs)
-        )
-            out.push({ session, idleMs })
+        const startedMs = usableStampMs(session.created)
+        const ageMs = startedMs === null ? null : now - startedMs
+        if (idleMs > maxIdleMs)
+            out.push({ session, idleMs, ageMs, reason: 'idle' })
+        else if (session.tty === true && ageMs !== null && ageMs > maxIdleMs)
+            out.push({ session, idleMs, ageMs, reason: 'age' })
     }
     return out
 }
@@ -460,7 +463,7 @@ export class SpritesProvider implements SandboxProvider {
             throw err
         }
         const reaped: ReapedSession[] = []
-        for (const { session, idleMs } of abandonedExecSessions(
+        for (const { session, idleMs, ageMs, reason } of abandonedExecSessions(
             sessions,
             Date.now(),
             opts.maxIdleMs
@@ -470,7 +473,9 @@ export class SpritesProvider implements SandboxProvider {
                 sessionId: session.id,
                 command: execCommandHead(session.command),
                 tty: session.tty === true,
-                idleMs
+                idleMs,
+                ageMs,
+                reason
             })
         }
         return reaped

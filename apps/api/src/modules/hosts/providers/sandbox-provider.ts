@@ -101,6 +101,10 @@ export interface ReapedSession {
     command: string
     tty: boolean
     idleMs: number
+    // Since it started; null without a usable start.
+    ageMs: number | null
+    // Idle past the window, or a TTY session older than it.
+    reason: 'idle' | 'age'
 }
 
 export interface ProviderExecResult {

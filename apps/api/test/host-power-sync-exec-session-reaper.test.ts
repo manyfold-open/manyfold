@@ -37,6 +37,7 @@ test('an is_active session idle past the window is abandoned, a finished one is 
         ['live-cat']
     )
     assert.ok(abandoned[0].idleMs > SIX_HOURS)
+    assert.equal(abandoned[0].reason, 'idle')
 })
 
 // WHY: the reaper must never truncate a healthy long turn. The turn watchdog's
@@ -116,6 +117,8 @@ test('a TTY session older than the window is abandoned however recently it drew'
         abandoned.map((a) => a.session.id),
         ['tui']
     )
+    assert.equal(abandoned[0].reason, 'age')
+    assert.equal(abandoned[0].ageMs, SIX_HOURS + 60_000)
 })
 
 test('a young TTY session is left alone while it draws', () => {
@@ -284,7 +287,9 @@ test('the tick ends a TTY session left by the retired terminal', async () => {
     assert.deepEqual(kills, [{ spriteName: 'sbx-1', sessionId: 'tui' }])
     assert.equal(events[0].attrs.tty, true)
     assert.equal(events[0].attrs.command, 'node')
-    assert.match(warnings[0], /cmd=node tty idle=0m/)
+    assert.equal(events[0].attrs.reason, 'age')
+    // Ended for its age: the line says so rather than a bare idle=0m.
+    assert.match(warnings[0], /cmd=node tty reason=age idle=0m age=28800m\)/)
 })
 
 // WHY: the argv tail carries user file paths — the prod session's command was

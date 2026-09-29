@@ -386,8 +386,12 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
             // warn, not log: each one is a session that got past the
             // client-side kill in the provider's own client, so it wants to be
             // findable
+            const age =
+                session.ageMs === null
+                    ? ''
+                    : ` age=${Math.round(session.ageMs / 60_000)}m`
             this.log.warn(
-                `killed abandoned exec session ${session.sessionId} on ${machine} (host=${host.id} cmd=${session.command}${session.tty ? ' tty' : ''} idle=${Math.round(session.idleMs / 60_000)}m)`
+                `killed abandoned exec session ${session.sessionId} on ${machine} (host=${host.id} cmd=${session.command}${session.tty ? ' tty' : ''} reason=${session.reason} idle=${Math.round(session.idleMs / 60_000)}m${age})`
             )
             this.telemetry.event('sprite_exec_session.reaped', {
                 hostId: host.id,
@@ -396,7 +400,9 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                 sessionId: session.sessionId,
                 command: session.command,
                 tty: session.tty,
-                idleMs: session.idleMs
+                reason: session.reason,
+                idleMs: session.idleMs,
+                ageMs: session.ageMs
             })
         }
     }
