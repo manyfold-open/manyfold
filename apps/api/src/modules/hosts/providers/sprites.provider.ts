@@ -172,21 +172,32 @@ export interface AbandonedExecSession {
     idleMs: number
 }
 
-// Last sign of life for an exec session. Read literally, year 1 would make
-// every session look infinitely idle and reap live turns.
+// Read literally, year 1 would make every session look infinitely idle and
+// reap live turns.
+const usableStampMs = (raw: string | undefined): number | null => {
+    const ms = raw ? Date.parse(raw) : Number.NaN
+    return Number.isFinite(ms) && ms >= EXEC_SESSION_EPOCH_FLOOR_MS ? ms : null
+}
+
+// Last sign of life for an exec session.
 const execSessionLastSeenMs = (session: ExecSessionInfo): number | null => {
     const stamps = [session.last_activity, session.created]
-        .map((raw) => (raw ? Date.parse(raw) : Number.NaN))
-        .filter(
-            (ms) => Number.isFinite(ms) && ms >= EXEC_SESSION_EPOCH_FLOOR_MS
-        )
+        .map(usableStampMs)
+        .filter((ms): ms is number => ms !== null)
     return stamps.length > 0 ? Math.max(...stamps) : null
 }
 
 // Sessions sprites.dev still counts as active but that nothing has touched for
 // longer than any legitimate exec. A session with no usable timestamp at all is
 // deliberately left alone: with no age there is no evidence of abandonment, and
-// killing a live turn is far worse than waiting for the next tick.
+// killing a live turn is far worse than waiting for the next tick. A TTY
+// session is also abandoned once it is older than the window, however recently
+// it drew: nothing on the platform opens one any more (every terminal is a
+// daemon pty), and a TUI left in one redraws often enough to look active
+// forever.
+// Seen on staging [2026-09-29]: a codex TUI the retired sprites terminal
+// opened on 2026-09-09 still drew about 53 B/s, and its sandbox ran about
+// 21 h a day.
 export const abandonedExecSessions = (
     sessions: readonly ExecSessionInfo[],
     now: number,
@@ -198,7 +209,13 @@ export const abandonedExecSessions = (
         const lastSeen = execSessionLastSeenMs(session)
         if (lastSeen === null) continue
         const idleMs = now - lastSeen
-        if (idleMs > maxIdleMs) out.push({ session, idleMs })
+        const startedMs =
+            session.tty === true ? usableStampMs(session.created) : null
+        if (
+            idleMs > maxIdleMs ||
+            (startedMs !== null && now - startedMs > maxIdleMs)
+        )
+            out.push({ session, idleMs })
     }
     return out
 }

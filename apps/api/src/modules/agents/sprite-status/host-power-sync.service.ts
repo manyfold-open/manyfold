@@ -387,7 +387,7 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
             // client-side kill in the provider's own client, so it wants to be
             // findable
             this.log.warn(
-                `killed abandoned exec session ${session.sessionId} on ${machine} (host=${host.id} cmd=${session.command} idle=${Math.round(session.idleMs / 60_000)}m)`
+                `killed abandoned exec session ${session.sessionId} on ${machine} (host=${host.id} cmd=${session.command}${session.tty ? ' tty' : ''} idle=${Math.round(session.idleMs / 60_000)}m)`
             )
             this.telemetry.event('sprite_exec_session.reaped', {
                 hostId: host.id,

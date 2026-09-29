@@ -92,6 +92,70 @@ test('a session with no usable timestamp is never reaped', () => {
     )
 })
 
+// Seen on staging [2026-09-29]: a codex TUI the retired sprites terminal left
+// in a TTY session on 2026-09-09 still redrew about 53 B/s, so it never read
+// as idle and its sandbox ran about 21 h a day. Nothing opens a TTY exec any
+// more (every terminal is a daemon pty), so a TTY session is aged from its
+// start instead.
+test('a TTY session older than the window is abandoned however recently it drew', () => {
+    const abandoned = abandonedExecSessions(
+        [
+            session({
+                id: 'tui',
+                command: 'node /home/sprite/.local/bin/codex',
+                tty: true,
+                created: new Date(NOW - SIX_HOURS - 60_000).toISOString(),
+                last_activity: new Date(NOW - 5_000).toISOString(),
+                bytes_per_second: 53
+            })
+        ],
+        NOW,
+        SIX_HOURS
+    )
+    assert.deepEqual(
+        abandoned.map((a) => a.session.id),
+        ['tui']
+    )
+})
+
+test('a young TTY session is left alone while it draws', () => {
+    assert.deepEqual(
+        abandonedExecSessions(
+            [
+                session({
+                    tty: true,
+                    created: new Date(NOW - 60 * 60_000).toISOString(),
+                    last_activity: new Date(NOW - 5_000).toISOString()
+                })
+            ],
+            NOW,
+            SIX_HOURS
+        ),
+        []
+    )
+})
+
+// WHY: read literally, the zero time would age a TTY session opened a moment
+// ago from year 1 and kill it.
+test('a TTY session with no usable start is judged by its activity alone', () => {
+    const drawing = new Date(NOW - 5_000).toISOString()
+    assert.deepEqual(
+        abandonedExecSessions(
+            [
+                session({
+                    tty: true,
+                    created: '0001-01-01T00:00:00Z',
+                    last_activity: drawing
+                }),
+                session({ tty: true, created: undefined, last_activity: drawing })
+            ],
+            NOW,
+            SIX_HOURS
+        ),
+        []
+    )
+})
+
 interface HostRow {
     id: string
     userId: string
@@ -200,6 +264,27 @@ test('the tick kills the abandoned session and leaves the live one running', asy
     assert.equal(ev.name, 'sprite_exec_session.reaped')
     assert.equal(ev.attrs.sessionId, 'stale')
     assert.equal(ev.attrs.hostId, 'sbx_1')
+})
+
+test('the tick ends a TTY session left by the retired terminal', async () => {
+    const { svc, kills, events, warnings } = makeService([host()], {
+        sessions: [
+            session({
+                id: 'tui',
+                command: 'node /home/sprite/.local/bin/codex',
+                tty: true,
+                created: new Date(Date.now() - 20 * 24 * 3600_000).toISOString(),
+                last_activity: new Date(Date.now() - 5_000).toISOString()
+            })
+        ]
+    })
+
+    await reap(svc)
+
+    assert.deepEqual(kills, [{ spriteName: 'sbx-1', sessionId: 'tui' }])
+    assert.equal(events[0].attrs.tty, true)
+    assert.equal(events[0].attrs.command, 'node')
+    assert.match(warnings[0], /cmd=node tty idle=0m/)
 })
 
 // WHY: the argv tail carries user file paths — the prod session's command was
