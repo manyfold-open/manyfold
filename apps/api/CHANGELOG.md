@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 9.1.0
+
+### Minor Changes
+
+- [#604](https://github.com/manyfold-open/manyfold/pull/604) [`ccb4d42`](https://github.com/manyfold-open/manyfold/commit/ccb4d42dad41c01b92c2afde36e30605f9d560cc) Thanks [@yingca1](https://github.com/yingca1)! - Everything the API does on a sandbox or a cloud computer now goes through that provider's adapter or through the machine's daemon. Skills are written through the daemon on every kind of machine, and the Hermes skill list on a cloud computer is read the same way. A sandbox or cloud computer still provisioning 30 minutes after it was created is marked failed so it can be deleted; before, only cloud computers were. A host whose machine is gone from its provider fails with "the machine is gone from its provider". With the Hermes dashboard on, a cloud computer routes its hostname through the dashboard proxy, the way a sandbox does. The sandbox stop audit records the machine under `machine`.
+
+- [#604](https://github.com/manyfold-open/manyfold/pull/604) [`ccb4d42`](https://github.com/manyfold-open/manyfold/commit/ccb4d42dad41c01b92c2afde36e30605f9d560cc) Thanks [@yingca1](https://github.com/yingca1)! - Bringing up a sandbox's daemon now gives a registered daemon a moment to reconnect by itself after the sandbox thaws, as it already did after an explicit wake. Before, when the sandbox already read as running, the daemon was restarted even if it had just reconnected, which ended the work it was still carrying.
+
+- [#604](https://github.com/manyfold-open/manyfold/pull/604) [`ccb4d42`](https://github.com/manyfold-open/manyfold/commit/ccb4d42dad41c01b92c2afde36e30605f9d560cc) Thanks [@yingca1](https://github.com/yingca1)! - The admin chat session detail names the host that ran each turn instead of its sprite, so turns on a cloud computer are identified too. The turn record keeps the host id from the start of the turn; the sprite name and the exec session id it used to keep are gone, since nothing read the session id any more. Turns recorded before the update show only their placement.
+
 ## 9.0.0
 
 ### Major Changes
