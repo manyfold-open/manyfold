@@ -167,11 +167,13 @@ export const providerRowVerdict = (
 // "Manyfold managed" is one choice on screen and several channels underneath
 // (one per vendor). The API needs a concrete one, so the choice resolves to
 // the best-ranked channel this framework may use that has a model to offer.
-// The ranking is the edition's: without one, rows keep the order given.
+// The ranking is the edition's, as the API reports it on each row unless the
+// caller brings its own; without one, rows keep the order given.
 export const managedChannelFor = (
     framework: AgentFramework,
     providers: readonly UserModelProviderSummary[],
-    rank: (row: UserModelProviderSummary) => number = () => 0
+    rank: (row: UserModelProviderSummary) => number = (row) =>
+        row.managedRank ?? 0
 ): UserModelProviderSummary | null =>
     providers
         .filter((row) => row.source === 'managed' && !row.channelDisabled)

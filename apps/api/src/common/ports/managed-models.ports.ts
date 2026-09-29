@@ -47,6 +47,10 @@ export interface ManagedModelsPort {
     // Channels an admin has toggled off for NEW bindings (empty on the open
     // default). Existing keys keep working either way.
     disabledManagedChannels(): Promise<Set<UserModelProvider>>
+    // Where a channel stands when several can serve one agent, lowest first:
+    // what "Manyfold managed" resolves to in every client. Optional, and
+    // absent on the open default, which ranks every channel equal.
+    managedChannelRank?(brand: UserModelProvider): number
     // Returns true when the id names a managed provider it deleted; false
     // lets the caller fall through to the BYO delete path.
     deleteManagedProvider(userId: string, id: string): Promise<boolean>

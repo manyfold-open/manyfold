@@ -71,6 +71,14 @@ test('managed picks the best-ranked usable channel, else keeps the given order',
         'm-anthropic'
     )
     assert.equal(managedChannelFor('codex', rows, rank)?.id, 'm-openai')
+    const rankedByApi = [
+        { ...managedClaudeViaOther, managedRank: 4 },
+        { ...managedAnthropic, managedRank: 1 }
+    ]
+    assert.equal(
+        managedChannelFor('claude-code', rankedByApi)?.id,
+        'm-anthropic'
+    )
 })
 
 test('managed skips closed channels and ones the framework cannot use', () => {

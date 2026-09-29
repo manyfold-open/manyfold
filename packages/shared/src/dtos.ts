@@ -866,6 +866,9 @@ export interface UserModelProviderSummary {
     // an admin has switched off. The key still works — pickers hide it so users
     // stop binding new agents to a dead upstream.
     channelDisabled?: boolean
+    // Derived at read time: this managed row's place when several channels can
+    // serve one agent, lowest first. Absent where the edition ranks none.
+    managedRank?: number
     createdAt: string
     updatedAt: string
 }
