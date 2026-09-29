@@ -1,4 +1,4 @@
-import { DEFAULT_API_BASE_URL } from '@/common/brand'
+import { runnerApiUrl } from '@/common/public-api-url'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     DAEMON_FEATURE_EXEC_FILES,
@@ -996,8 +996,7 @@ export class HostBringUpService {
     }
 
     private apiUrl(): string {
-        const base = process.env.PUBLIC_API_BASE_URL?.replace(/\/+$/, '')
-        return base ? `${base}/api` : DEFAULT_API_BASE_URL
+        return runnerApiUrl()
     }
 }
 

@@ -268,6 +268,7 @@ export class SandboxesService {
             providerId: body.providerId ?? null,
             callerIsAdmin: isAdmin
         })
+        this.spritesProvisioner.assertSandboxCanReachApi()
         const host = await this.runtimeAccess.reserveStandaloneSandbox({
             userId,
             name: body.name,
