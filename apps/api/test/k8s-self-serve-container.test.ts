@@ -7,7 +7,9 @@ import {
     InternalServerErrorException,
     ServiceUnavailableException
 } from '@nestjs/common'
+import { stepsFor } from '@manyfold/shared'
 import { contextOf, k8sHostRow } from './helpers/runtime-context-fixture'
+import { assertStepsFollow } from './helpers/create-steps'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import {
@@ -413,6 +415,45 @@ test('attach passes the pod host identity to the port and an async denial still 
         [{ podHostId: 'pdh_owned', isAdmin: false }],
         'a purchase buys a pod host, so the adapter resolves it by host id (ADR-0035)'
     )
+})
+
+test('a k8s create reports only steps on its list, in order', async () => {
+    const run = async (
+        framework: 'codex' | 'hermes',
+        context: { runtimeId?: string } = {}
+    ): Promise<string[]> => {
+        const steps: string[] = []
+        const h = makeService({
+            cloudComputer: openCloudComputerPort,
+            ...(context.runtimeId ? { runtime: ownedRuntime } : {})
+        })
+        await h.service.create(
+            {
+                userId: 'usr_1',
+                dto: { ...dto, framework, ...context },
+                isAdmin: false
+            } as never,
+            { step: (step) => steps.push(step) }
+        )
+        assertStepsFollow(steps, stepsFor(framework, 'k8s'))
+        return steps
+    }
+    assert.deepEqual(await run('codex'), [
+        'validating',
+        'checking_quota',
+        'creating_deployment',
+        'inserting_agent'
+    ])
+    assert.deepEqual(await run('hermes'), [
+        'validating',
+        'checking_quota',
+        'creating_deployment',
+        'inserting_agent'
+    ])
+    assert.deepEqual(await run('codex', { runtimeId: 'art_owned' }), [
+        'validating',
+        'inserting_agent'
+    ])
 })
 
 test('an async null denial attaches — the promise itself must not be truthy-checked', async () => {

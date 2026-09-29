@@ -243,7 +243,12 @@ export class SpritesProvisioner {
     // then the daemon — whose register with a token bound to the host is what
     // makes the host `ready`. A failure leaves the host `failed` with the
     // reason, its machine torn down best-effort so nothing bills.
-    async provisionSandbox(args: { host: RuntimeHostRow }): Promise<RuntimeHostRow> {
+    // `onMachineUp` marks the hand-over from the VM to its daemon, which is
+    // most of the wait.
+    async provisionSandbox(args: {
+        host: RuntimeHostRow
+        onMachineUp?: () => void
+    }): Promise<RuntimeHostRow> {
         const provider = await this.clients.providerForHost(args.host)
         const adapter = this.providers.for(provider.kind)
         try {
@@ -261,6 +266,7 @@ export class SpritesProvisioner {
                 }
             })
             await recordPower(this.hosts, args.host.id, 'running')
+            args.onMachineUp?.()
             const created = await this.requireHost(args.host.id)
             await this.onHostDaemon(created, '-', 'provision-sandbox', async () => undefined)
             const ready = await this.requireHost(created.id)
@@ -427,7 +433,10 @@ export class SpritesProvisioner {
         try {
             if (hostCreated) {
                 emitter.step('creating_sprite')
-                host = await this.provisionSandbox({ host })
+                host = await this.provisionSandbox({
+                    host,
+                    onMachineUp: () => emitter.step('starting_runner')
+                })
             }
             const coding = isCodingHostFramework(framework) ? framework : null
             await this.runtimes.setPhase(runtimeId, 'bootstrapping')

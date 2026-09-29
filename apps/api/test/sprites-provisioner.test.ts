@@ -6,7 +6,9 @@ import type {
     RuntimeHostRow,
     RuntimeProvider
 } from '@manyfold/db'
+import { stepsFor } from '@manyfold/shared'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { assertStepsFollow } from './helpers/create-steps'
 
 // A sprites host (ADR-0037): the adapter makes the machine under a fresh
 // generation, the runner manager brings its daemon up, and a coding framework
@@ -234,6 +236,38 @@ test('a fresh host is made by the adapter under a new generation, its daemon bro
     assert.equal(result.homeDir, '/home/sprite')
     assert.equal(result.runtime.hostId, 'sbx_testhost')
     assert.equal(result.runtime.frameworkVersion, '0.130.0')
+})
+
+// The runner is most of a fresh sandbox's wait, so it is a step of its own,
+// reported once the VM exists and before anything runs through the runner.
+test('a fresh sandbox reports the VM, then its runner, then the framework, in list order', async () => {
+    const h = buildHarness()
+    await h.provisioner.provisionRuntime({
+        userId: 'user-1',
+        framework: 'codex',
+        providerId: null,
+        isAdmin: false,
+        credentials: {},
+        emitter: { step: (step) => h.calls.push(`step:${step}`) },
+        agentId: 'agt_test'
+    })
+    assert.deepEqual(h.calls, [
+        'step:selecting_account',
+        'step:checking_quota',
+        'step:creating_sprite',
+        'create@2',
+        'step:starting_runner',
+        'daemon',
+        'step:bootstrapping',
+        'daemon',
+        'step:installing_framework'
+    ])
+    assertStepsFollow(
+        h.calls
+            .filter((call) => call.startsWith('step:'))
+            .map((call) => call.slice('step:'.length)),
+        stepsFor('codex', 'sprites')
+    )
 })
 
 // Agent create behaves like a pod's: no key-based login and no paid verify

@@ -7,8 +7,7 @@ import {
     frameworkUpgradeMode,
     isUpgradeableFramework,
     isVersionedFramework,
-    k8sSteps,
-    spritesSteps
+    stepsFor
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -36,9 +35,6 @@ import UsageTab from './components/UsageTab'
 import { AgentModelConfigPanel } from './components/AgentModelConfigPanel'
 
 type DetailTab = 'overview' | 'files' | 'usage' | 'model'
-
-const stepsFor = (agent: SdkAgent): AgentCreateStep[] =>
-    agent.runtime === 'sprites' ? spritesSteps : k8sSteps
 
 const isKnownStep = (
     phase: string | null,
@@ -371,7 +367,10 @@ const AgentDetail: FC = (): ReactNode => {
                     {tab === 'overview' &&
                         agent.status === 'pending' &&
                         (() => {
-                            const steps = stepsFor(agent)
+                            const steps = stepsFor(
+                                agent.framework,
+                                agent.runtime
+                            )
                             const phase = agent.currentPhase
                             const currentIndex = isKnownStep(phase, steps)
                                 ? steps.indexOf(phase)

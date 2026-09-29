@@ -520,7 +520,6 @@ export {
     spritesSteps,
     spritesServiceSteps,
     k8sSteps,
-    k8sCliSteps,
     externalSteps,
     stepsFor
 } from './agent-progress'
