@@ -35,9 +35,7 @@ const ALLOWED: Record<string, string> = {
     'modules/terminal/daemon-terminal.ts':
         'the pty: opened in a session, then held for as long as a tab is attached',
     'modules/agent-runtimes/auth/runtime-auth-profiles.service.ts':
-        'auth profile calls, under the auth flow\'s own hold on the machine',
-    'modules/skills/skill-materializer.service.ts':
-        'the daemon skill path, which serves self-owned computers only today'
+        'auth profile calls, under the auth flow\'s own hold on the machine'
 }
 
 const SRC = join(__dirname, '../src')

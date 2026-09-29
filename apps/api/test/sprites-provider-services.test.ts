@@ -241,3 +241,44 @@ test('a stop the supervisor refused reads as not stopped', async () => {
     assert.equal(await adapter.stopService(userCall, 'needed'), false)
     assert.equal(await adapter.stopService(userCall, 'free'), true)
 })
+
+// A sprite made before the policy went wide open may still deny everything by
+// default; a github download on it needs the domains allowed.
+test('egress repairs a deny-by-default policy with the missing domains', async () => {
+    let written: { rules: Array<{ domain: string; action: string }> } | null = null
+    const adapter = userServices({
+        getNetworkPolicy: async () => ({
+            rules: [
+                { domain: '*', action: 'deny' },
+                { domain: 'github.com', action: 'allow' }
+            ]
+        }),
+        setNetworkPolicy: async (_sprite: string, policy: typeof written) => {
+            written = policy
+        }
+    })
+
+    await adapter.allowEgress(userCall, ['github.com', 'codeload.github.com'])
+
+    assert.deepEqual(written, {
+        rules: [
+            { domain: '*', action: 'deny' },
+            { domain: 'github.com', action: 'allow' },
+            { domain: 'codeload.github.com', action: 'allow' }
+        ]
+    })
+})
+
+test('egress leaves an open policy alone', async () => {
+    let wrote = false
+    const adapter = userServices({
+        getNetworkPolicy: async () => ({ rules: [] }),
+        setNetworkPolicy: async () => {
+            wrote = true
+        }
+    })
+
+    await adapter.allowEgress(userCall, ['codeload.github.com'])
+
+    assert.equal(wrote, false)
+})

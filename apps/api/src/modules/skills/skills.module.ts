@@ -4,6 +4,7 @@ import { AdminGuard } from '@/common/guards/admin.guard'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { AdminSkillsCatalogController } from './admin-skills-catalog.controller'
 import { LibrarySkillSharesService } from './library-skill-shares.service'
@@ -17,7 +18,7 @@ import { SkillsController } from './skills.controller'
 import { SkillsService } from './skills.service'
 
 @Module({
-    imports: [AuthModule, HostsModule, DaemonModule, AdminSettingsModule, ResourceEventsModule],
+    imports: [AuthModule, HostsModule, DaemonModule, HostDaemonAccessModule, AdminSettingsModule, ResourceEventsModule],
     controllers: [
         SkillsController,
         LibrarySkillsController,

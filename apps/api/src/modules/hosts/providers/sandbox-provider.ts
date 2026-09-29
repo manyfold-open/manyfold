@@ -244,6 +244,12 @@ export interface SandboxProvider {
             port: number
         }
     ): string | null
+    // Opens the machine's outbound access to these domains where its network
+    // policy restricts it; a policy that already allows them is left alone.
+    allowEgress?(
+        args: Omit<ProviderCall, 'generation'>,
+        domains: readonly string[]
+    ): Promise<void>
     // Facts about an error this adapter's client threw; null for one it does
     // not recognize as its own.
     describeError?(err: unknown): ProviderErrorFacts | null

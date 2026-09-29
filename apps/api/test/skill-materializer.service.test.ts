@@ -1,17 +1,11 @@
 import type { SkillFramework } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { HostExecResult } from '../src/modules/agents/adapters/host-daemon-access'
 import type {
-    ExecOptions,
-    ExecResult,
-    SpriteReadFileResult,
-    SpriteRmOptions,
-    SpriteWriteFileArgs,
-    SpritesClient,
-    SpritesLogger
-} from '@manyfold/sprites'
-import type { PodExec } from '../src/modules/k8s/pod-exec'
-import type { DesiredSkill } from '../src/modules/skills/skill-materializer.service'
+    DesiredSkill,
+    MaterializeTarget
+} from '../src/modules/skills/skill-materializer.service'
 import { SkillMaterializerService } from '../src/modules/skills/skill-materializer.service'
 import {
     isManagedSkillWorkspace,
@@ -84,7 +78,7 @@ test('isManagedSkillWorkspace recognizes only managed workspaces', () => {
 test('host store: downloads each skill once into ~/.manyfold/skills (claude-code)', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     const key = skillStoreKey(desiredSkill)
     const download = materializer
@@ -106,7 +100,7 @@ test('host store: downloads each skill once into ~/.manyfold/skills (claude-code
 test('host store: github download sparse-fetches the subtree, keeps a tarball fallback', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     const download = materializer
         .scripts()
@@ -124,7 +118,7 @@ test('host store: github download sparse-fetches the subtree, keeps a tarball fa
 test('host store: sweeps stale .tmp* leftovers before downloading', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     assert.ok(
         materializer
@@ -141,7 +135,7 @@ test('host store: sweeps stale .tmp* leftovers before downloading', async () => 
 test('per-agent activation: symlinks the store skill into the workspace (claude-code)', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     const key = skillStoreKey(desiredSkill)
     const link = materializer
@@ -161,7 +155,7 @@ test('per-agent activation: removes only our symlink for a no-longer-desired ski
     const materializer = new TestMaterializer([desiredSkill])
     materializer.activationListing = 'stale-skill\tstale-key\n'
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     const remove = materializer
         .scripts()
@@ -179,7 +173,7 @@ test('per-agent activation: re-links when the desired store key changes (revisio
     // workspace currently points at a stale store key for the same installDir
     materializer.activationListing = 'pdf-toolkit\tstale-key\n'
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     assert.ok(
         materializer.scripts().some((script) => script.includes('tar.gz/rev-2'))
@@ -196,7 +190,7 @@ test('per-agent activation: re-links when the desired store key changes (revisio
 test('per-agent activation: codex copies real dirs (no symlink) into .agents/skills', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input('codex'))
+    await materializer.materializeOn(materializer.target({ framework: 'codex' }))
 
     const copy = materializer
         .scripts()
@@ -223,7 +217,7 @@ test('per-agent activation: codex copies real dirs (no symlink) into .agents/ski
 test('per-agent activation: gemini symlinks into .agents/skills', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input('gemini-cli'))
+    await materializer.materializeOn(materializer.target({ framework: 'gemini-cli' }))
 
     const link = materializer
         .scripts()
@@ -238,7 +232,7 @@ test('per-agent activation: gemini symlinks into .agents/skills', async () => {
 test('activation no longer mutates the shared Claude home skill directory', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     const rmLegacy = materializer
         .scripts()
@@ -254,7 +248,7 @@ test('activation no longer mutates the shared Claude home skill directory', asyn
 test('activation no longer mutates the shared .agents home skill directory', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input('codex'))
+    await materializer.materializeOn(materializer.target({ framework: 'codex' }))
 
     const rmLegacy = materializer
         .scripts()
@@ -270,12 +264,12 @@ test('activation no longer mutates the shared .agents home skill directory', asy
 test('daemon: claude routes to host store + workspace symlink over the daemon RPC', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForDaemon(daemonInput())
+    await materializer.materializeOn(materializer.daemonTarget())
 
     const key = skillStoreKey(desiredSkill)
     // same host store, downloaded over the daemon RPC
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) =>
                 s.includes('codeload.github.com') &&
                 s.includes('/Users/daemon/.manyfold/skills')
@@ -283,7 +277,7 @@ test('daemon: claude routes to host store + workspace symlink over the daemon RP
     )
     // symlinked into the agent's managed workspace
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) =>
                 s.includes('ln -s') &&
                 s.includes(`/Users/daemon/.manyfold/skills/${key}`) &&
@@ -294,7 +288,7 @@ test('daemon: claude routes to host store + workspace symlink over the daemon RP
     )
     // Activation is scoped to this workspace, never the personal home clone.
     assert.ok(
-        !materializer.daemonScripts.some(
+        !materializer.scripts().some(
             (s) =>
                 s.includes('/Users/daemon/.claude/skills/nca-pdf-toolkit') &&
                 s.includes('rm -rf')
@@ -309,21 +303,21 @@ test('daemon: a registration-declared skills dir overrides the homeDir default (
         fakeDbWithSkillsDir(declared)
     )
 
-    await materializer.materializeForDaemon(daemonInput())
+    await materializer.materializeOn(materializer.daemonTarget())
 
     const key = skillStoreKey(desiredSkill)
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) => s.includes('codeload.github.com') && s.includes(declared)
         )
     )
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) => s.includes('ln -s') && s.includes(`${declared}/${key}`)
         )
     )
     assert.ok(
-        materializer.daemonScripts.every(
+        materializer.scripts().every(
             (s) => !s.includes('/Users/daemon/.manyfold/skills/')
         )
     )
@@ -332,12 +326,12 @@ test('daemon: a registration-declared skills dir overrides the homeDir default (
 test('daemon: codex copies the store skill into the workspace .agents/skills (no symlink) over the daemon RPC', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForDaemon(daemonInput('codex'))
+    await materializer.materializeOn(materializer.daemonTarget('codex'))
 
     const key = skillStoreKey(desiredSkill)
     // same host store, downloaded over the daemon RPC
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) =>
                 s.includes('codeload.github.com') &&
                 s.includes('/Users/daemon/.manyfold/skills')
@@ -346,7 +340,7 @@ test('daemon: codex copies the store skill into the workspace .agents/skills (no
     // codex activation uses real-dir copies (not symlinks) into the agent's
     // managed workspace, with a `.mf-skillkey` marker
     assert.ok(
-        materializer.daemonScripts.some(
+        materializer.scripts().some(
             (s) =>
                 s.includes('cp -a') &&
                 s.includes(`/Users/daemon/.manyfold/skills/${key}`) &&
@@ -357,14 +351,14 @@ test('daemon: codex copies the store skill into the workspace .agents/skills (no
         )
     )
     assert.ok(
-        !materializer.daemonScripts.some(
+        !materializer.scripts().some(
             (s) =>
                 s.includes('ln -s') && s.includes('/.agents/skills/pdf-toolkit')
         )
     )
     // Activation is scoped to this workspace, never the personal home clone.
     assert.ok(
-        !materializer.daemonScripts.some(
+        !materializer.scripts().some(
             (s) =>
                 s.includes('/Users/daemon/.agents/skills/nca-pdf-toolkit') &&
                 s.includes('rm -rf')
@@ -372,57 +366,37 @@ test('daemon: codex copies the store skill into the workspace .agents/skills (no
     )
 })
 
-test('SkillMaterializerService repairs stale sprite download network policy', async () => {
+// WHY: a machine whose provider restricts outbound access must be opened to
+// GitHub before a download, or every github skill on it fails.
+test('a github download opens the machine to GitHub first', async () => {
     const materializer = new TestMaterializer([desiredSkill])
-    let writtenPolicy:
-        | { rules: Array<{ domain: string; action: 'allow' | 'deny' }> }
-        | undefined
-    const client = {
-        getNetworkPolicy: async () => ({
-            rules: [
-                { domain: '*', action: 'deny' as const },
-                { domain: 'github.com', action: 'allow' as const }
-            ]
-        }),
-        setNetworkPolicy: async (
-            _name: string,
-            policy: {
-                rules: Array<{ domain: string; action: 'allow' | 'deny' }>
-            }
-        ) => {
-            writtenPolicy = policy
-        }
-    } as unknown as SpritesClient
 
-    await materializer.materializeForSprite({
-        ...input(),
-        client
-    })
+    await materializer.materializeOn(materializer.target())
 
-    assert.ok(
-        writtenPolicy?.rules.some(
-            (rule) =>
-                rule.domain === 'codeload.github.com' && rule.action === 'allow'
-        )
+    assert.equal(materializer.downloadsOpened, 1)
+    const opened = materializer.order.indexOf('open-downloads')
+    const download = materializer.order.findIndex((entry) =>
+        entry.includes('codeload.github.com')
     )
+    assert.ok(opened >= 0 && opened < download)
 })
 
-test('SkillMaterializerService leaves open sprite network policy unchanged', async () => {
-    const materializer = new TestMaterializer([desiredSkill])
-    let wrotePolicy = false
-    const client = {
-        getNetworkPolicy: async () => ({ rules: [] }),
-        setNetworkPolicy: async () => {
-            wrotePolicy = true
+test('library skills alone never touch the network policy', async () => {
+    const materializer = new TestMaterializer([
+        {
+            kind: 'library',
+            userSkillId: 'user-skill-lib',
+            skillId: 'lib-1',
+            installDir: 'house-style',
+            librarySkillId: 'lib-1',
+            name: 'house-style',
+            revision: 'hash-1'
         }
-    } as unknown as SpritesClient
+    ])
 
-    await materializer.materializeForSprite({
-        ...input(),
-        client
-    })
+    await materializer.materializeOn(materializer.target())
 
-    assert.equal(wrotePolicy, false)
+    assert.equal(materializer.downloadsOpened, 0)
 })
 
 test('SkillMaterializerService takes the host-store then per-agent lock (two phases)', async () => {
@@ -432,7 +406,7 @@ test('SkillMaterializerService takes the host-store then per-agent lock (two pha
         fakeDbWithLock(events)
     )
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     // Phase A (store population) under the host-store lock, then Phase B
     // (workspace activation) under the per-agent lock — never nested.
@@ -458,7 +432,7 @@ test('host store: one skill failing to download does not block its siblings', as
     const materializer = new TestMaterializer([desiredSkill, sibling])
     materializer.failDownloadRevision = 'rev-2' // desiredSkill (pdf) fails
 
-    const outcomes = await materializer.materializeForSprite(input())
+    const outcomes = await materializer.materializeOn(materializer.target())
 
     // per-skill: the failing skill is reported failed, the sibling installed —
     // one bad download never aborts its co-desired siblings (#341 ④).
@@ -487,7 +461,7 @@ test('host store: one skill failing to download does not block its siblings', as
 test('per-agent activation: verifies the activated skill is loadable', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForSprite(input())
+    await materializer.materializeOn(materializer.target())
 
     // AC#4 + dangling-symlink guard ⑦: activation is followed by a test -e on
     // the workspace SKILL.md.
@@ -507,32 +481,31 @@ test('per-agent activation: verifies the activated skill is loadable', async () 
 test('SkillMaterializerService materializes k8s Codex skills through home config symlink', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForK8sPod({
-        agentId: 'agent-1',
-        runtimeId: 'runtime-1',
-        userId: 'user-1',
-        framework: 'codex',
-        exec: {} as PodExec,
-        homeDir: '/home/node'
-    })
+    await materializer.materializeOn(
+        materializer.target({
+            placement: 'k8s',
+            framework: 'codex',
+            homeDir: '/home/node'
+        })
+    )
 
     assert.ok(
-        materializer.k8sScripts.some((script) =>
+        materializer.scripts().some((script) =>
             script.includes("mkdir -p '/home/node/.agents/skills'")
         )
     )
     assert.ok(
-        materializer.k8sScripts.some((script) =>
+        materializer.scripts().some((script) =>
             script.includes(
                 'codeload.github.com/anthropics/skills/tar.gz/rev-2'
             )
         )
     )
     assert.equal(
-        materializer.k8sWrites[0].absPath,
+        materializer.writes[0].absPath,
         '/home/node/.agents/.skill-lock.json'
     )
-    const lock = JSON.parse(materializer.k8sWrites[0].body)
+    const lock = JSON.parse(materializer.writes[0].body)
     assert.equal(lock.skills['pdf-toolkit'].skillId, desiredSkill.skillId)
     assert.deepEqual(materializer.loadDesiredCalls, ['agent-1'])
 })
@@ -540,30 +513,29 @@ test('SkillMaterializerService materializes k8s Codex skills through home config
 test('SkillMaterializerService materializes Hermes skills under HERMES_HOME', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForK8sPod({
-        agentId: 'agent-1',
-        runtimeId: 'runtime-1',
-        userId: 'user-1',
-        framework: 'hermes',
-        exec: {} as PodExec,
-        homeDir: '/home/node/.hermes'
-    })
+    await materializer.materializeOn(
+        materializer.target({
+            placement: 'k8s',
+            framework: 'hermes',
+            homeDir: '/home/node/.hermes'
+        })
+    )
 
     assert.ok(
-        materializer.k8sScripts.some((script) =>
+        materializer.scripts().some((script) =>
             script.includes("mkdir -p '/home/node/.hermes/skills'")
         )
     )
     assert.ok(
-        materializer.k8sScripts.some((script) =>
+        materializer.scripts().some((script) =>
             script.includes("'/home/node/.hermes/skills/pdf-toolkit/SKILL.md'")
         )
     )
     assert.equal(
-        materializer.k8sWrites[0].absPath,
+        materializer.writes[0].absPath,
         '/home/node/.hermes/.skill-lock.json'
     )
-    const lock = JSON.parse(materializer.k8sWrites[0].body)
+    const lock = JSON.parse(materializer.writes[0].body)
     assert.equal(lock.skills['pdf-toolkit'].skillId, desiredSkill.skillId)
     assert.deepEqual(materializer.loadDesiredCalls, ['agent-1'])
 })
@@ -571,62 +543,109 @@ test('SkillMaterializerService materializes Hermes skills under HERMES_HOME', as
 test('SkillMaterializerService materializes named Hermes profile skills under profile home', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
-    await materializer.materializeForK8sPod({
-        agentId: 'agent-profile',
-        runtimeId: 'runtime-1',
-        userId: 'user-1',
-        framework: 'hermes',
-        exec: {} as PodExec,
-        homeDir: '/home/node/.hermes/profiles/research'
-    })
+    await materializer.materializeOn(
+        materializer.target({
+            agentId: 'agent-profile',
+            placement: 'k8s',
+            framework: 'hermes',
+            homeDir: '/home/node/.hermes/profiles/research'
+        })
+    )
 
     assert.ok(
-        materializer.k8sScripts.some((script) =>
+        materializer.scripts().some((script) =>
             script.includes(
                 "mkdir -p '/home/node/.hermes/profiles/research/skills'"
             )
         )
     )
     assert.equal(
-        materializer.k8sWrites[0].absPath,
+        materializer.writes[0].absPath,
         '/home/node/.hermes/profiles/research/.skill-lock.json'
     )
     assert.deepEqual(materializer.loadDesiredCalls, ['agent-profile'])
 })
 
+// The production path: a runtime's agents, each through the host's daemon
+// under its hold, each hermes profile into its own home.
 test('SkillMaterializerService materializes every Hermes profile for a k8s runtime', async () => {
+    const hosted = {
+        id: 'host-1',
+        kind: 'hosted',
+        status: 'ready',
+        homeDir: '/home/node'
+    }
+    const withHosts: string[] = []
+    const holder: { materializer: TestMaterializer | null } = {
+        materializer: null
+    }
     const materializer = new TestMaterializer(
         [desiredSkill],
         fakeDbWithAgents([
             { id: 'agent-default', internalId: 'default' },
             { id: 'agent-research', internalId: 'research' }
-        ])
+        ]),
+        {
+            runtimeContext: {
+                forRuntime: async () => ({
+                    host: hosted,
+                    daemon: null,
+                    placement: 'k8s',
+                    daemonOnline: true
+                })
+            },
+            // A pod's provider leaves its network open: nothing to allow.
+            hostProviders: {
+                resolve: async () => ({
+                    provider: { id: 'rtp_1', kind: 'k8s' },
+                    adapter: { kind: 'k8s' }
+                })
+            },
+            hostAccess: {
+                withHost: async (
+                    args: { host: { id: string }; reason: string },
+                    work: (session: unknown) => Promise<unknown>
+                ) => {
+                    withHosts.push(`${args.host.id}:${args.reason}`)
+                    return work({
+                        exec: (req: { cmd: string[]; timeoutMs: number }) =>
+                            holder.materializer!.run(req.cmd[2], req.timeoutMs)
+                    })
+                }
+            }
+        }
     )
+    holder.materializer = materializer
 
-    await materializer.materializeK8sRuntimeAgents({
-        runtimeId: 'runtime-hermes',
+    await materializer.materializeRuntimeForTest({
+        id: 'runtime-hermes',
         userId: 'user-1',
         framework: 'hermes',
-        exec: {} as PodExec,
-        homeDir: '/home/node/.hermes'
+        status: 'ready',
+        hostId: 'host-1',
+        mountPath: '/home/node/.hermes'
     })
 
-    assert.deepEqual(materializer.loadDesiredCalls, [
-        'agent-default',
-        'agent-research'
-    ])
     assert.deepEqual(
-        materializer.k8sWrites.map((write) => write.absPath),
+        [...materializer.loadDesiredCalls].sort(),
+        ['agent-default', 'agent-research']
+    )
+    assert.deepEqual(
+        materializer.writes.map((write) => write.absPath).sort(),
         [
             '/home/node/.hermes/.skill-lock.json',
             '/home/node/.hermes/profiles/research/.skill-lock.json'
         ]
     )
+    assert.deepEqual(withHosts.sort(), [
+        'host-1:skills-agent-default',
+        'host-1:skills-agent-research'
+    ])
 })
 
 test('SkillMaterializerService scans Hermes skills with python fallback', async () => {
     const materializer = new TestMaterializer([])
-    materializer.k8sExecResult = {
+    materializer.execResult = {
         exitCode: 0,
         stdout: JSON.stringify([
             {
@@ -647,48 +666,127 @@ test('SkillMaterializerService scans Hermes skills with python fallback', async 
     assert.equal(items.length, 1)
     assert.equal(items[0].installDir, 'runtime-skill')
     assert.equal(items[0].name, 'Runtime Skill')
-    assert.match(materializer.k8sScripts[0], /candidate in python3 python/)
+    assert.match(materializer.scripts()[0], /candidate in python3 python/)
     assert.match(
-        materializer.k8sScripts[0],
+        materializer.scripts()[0],
         /\/opt\/hermes\/hermes-agent\/\.venv\/bin\/python/
     )
     assert.match(
-        materializer.k8sScripts[0],
+        materializer.scripts()[0],
         /HERMES_SCAN_SKILLS="\$root" "\$py" - <<'MF_HERMES_SCAN_PY'/
     )
 })
+
+const ok = (stdout = ''): HostExecResult => ({ exitCode: 0, stdout, stderr: '' })
 
 class TestMaterializer extends SkillMaterializerService {
     lock: string | null = null
     skillMdExists = false
     activationListing = ''
-    daemonScripts: string[] = []
-    daemonListing = ''
-    execs: ExecOptions[] = []
-    rms: Array<{ absPath: string; recursive: boolean }> = []
-    writes: Array<{ absPath: string; body: string }> = []
-    statPaths: string[] = []
-    loadDesiredCalls: string[] = []
-    k8sScripts: string[] = []
-    k8sWrites: Array<{ absPath: string; body: string }> = []
-    k8sExecResult?: { exitCode: number; stdout: string; stderr: string }
+    execResult?: HostExecResult
     failDownloadRevision?: string
+    runs: string[] = []
+    // Scripts and download openings, in the order they happened.
+    order: string[] = []
+    statPaths: string[] = []
+    writes: Array<{ absPath: string; body: string }> = []
+    loadDesiredCalls: string[] = []
+    downloadsOpened = 0
 
     constructor(
         private readonly desired: DesiredSkill[],
-        db: unknown = fakeDbWithLock()
+        db: unknown = fakeDbWithLock(),
+        deps: {
+            runtimeContext?: unknown
+            hostProviders?: unknown
+            hostAccess?: unknown
+        } = {}
     ) {
-        super(db as never, {} as never, {} as never, {} as never, {} as never)
-    }
-
-    installScripts(): string[] {
-        return this.execs
-            .map((exec) => exec.cmd[2] ?? '')
-            .filter((script) => script.includes('codeload.github.com'))
+        super(
+            db as never,
+            (deps.runtimeContext ?? {}) as never,
+            (deps.hostProviders ?? {}) as never,
+            (deps.hostAccess ?? {}) as never
+        )
     }
 
     scripts(): string[] {
-        return this.execs.map((exec) => exec.cmd[2] ?? '')
+        return this.runs
+    }
+
+    installScripts(): string[] {
+        return this.runs.filter((script) =>
+            script.includes('codeload.github.com')
+        )
+    }
+
+    // The host's daemon, as the materializer sees it: one bash script per call.
+    run = async (script: string, _timeoutMs: number): Promise<HostExecResult> => {
+        this.runs.push(script)
+        this.order.push(script)
+        if (this.execResult) return this.execResult
+        if (script.includes('|| exit 66; cat'))
+            return this.lock
+                ? ok(this.lock)
+                : { exitCode: 66, stdout: '', stderr: '' }
+        const stat = /^test -f '([^']+)'$/.exec(script)
+        if (stat) {
+            this.statPaths.push(stat[1])
+            return {
+                exitCode: this.skillMdExists ? 0 : 1,
+                stdout: '',
+                stderr: ''
+            }
+        }
+        // The activation-scan script (`for e in "$dir"/*`) is the only one that
+        // reads existing entries; feed it the configured listing.
+        if (script.includes('for e in ')) return ok(this.activationListing)
+        // Simulate a download failure for a specific revision so per-skill
+        // isolation can be exercised.
+        if (
+            this.failDownloadRevision &&
+            script.includes('codeload.github.com') &&
+            script.includes(`tar.gz/${this.failDownloadRevision}`)
+        )
+            return { exitCode: 1, stdout: '', stderr: 'download failed' }
+        const write = /printf '%s' '([^']+)' \| base64 -d > '([^']+)'/.exec(
+            script
+        )
+        if (write)
+            this.writes.push({
+                absPath: write[2],
+                body: Buffer.from(write[1], 'base64').toString('utf8')
+            })
+        return ok()
+    }
+
+    target(over: Partial<MaterializeTarget> = {}): MaterializeTarget {
+        return {
+            agentId: 'agent-1',
+            runtimeId: 'runtime-1',
+            userId: 'user-1',
+            framework: 'claude-code',
+            placement: 'sprites',
+            hostId: 'host-1',
+            homeDir: '/home/test',
+            run: this.run,
+            beforeDownload: async () => {
+                this.downloadsOpened += 1
+                this.order.push('open-downloads')
+            },
+            ...over
+        }
+    }
+
+    daemonTarget(framework: SkillFramework = 'claude-code'): MaterializeTarget {
+        return this.target({
+            framework,
+            placement: 'daemon',
+            hostId: 'daemon-1',
+            homeDir: '/Users/daemon',
+            workspacePath: '/Users/daemon/.manyfold/workspaces/agent-1',
+            beforeDownload: undefined
+        })
     }
 
     scanHermesSkillsForTest(
@@ -702,7 +800,15 @@ class TestMaterializer extends SkillMaterializerService {
             sourcePath: string
         }>
     > {
-        return this.scanHermesSkills({} as PodExec, profileHome, timeoutMs)
+        return this.scanHermesSkills(this.run, profileHome, timeoutMs)
+    }
+
+    materializeRuntimeForTest(runtime: Record<string, unknown>): Promise<void> {
+        return (
+            this as unknown as {
+                materializeRuntimeRow: (r: unknown) => Promise<void>
+            }
+        ).materializeRuntimeRow(runtime)
     }
 
     protected override async loadDesired(
@@ -711,140 +817,7 @@ class TestMaterializer extends SkillMaterializerService {
         this.loadDesiredCalls.push(agentId)
         return this.desired
     }
-
-    protected override async execSprite(
-        _client: SpritesClient,
-        _spriteName: string,
-        opts: ExecOptions
-    ): Promise<ExecResult> {
-        this.execs.push(opts)
-        const script = opts.cmd[2] ?? ''
-        // The activation-scan script (`for e in "$dir"/*`) is the only one that
-        // reads existing entries; feed it the configured listing.
-        if (script.includes('for e in '))
-            return { exitCode: 0, stdout: this.activationListing, stderr: '' }
-        // Simulate a download failure for a specific revision so per-skill
-        // isolation can be exercised.
-        if (
-            this.failDownloadRevision &&
-            script.includes('codeload.github.com') &&
-            script.includes(`tar.gz/${this.failDownloadRevision}`)
-        )
-            return { exitCode: 1, stdout: '', stderr: 'download failed' }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-
-    protected override async runDaemonBash(
-        _daemonId: string,
-        bashScript: string,
-        _timeoutMs: number
-    ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-        this.daemonScripts.push(bashScript)
-        // legacy lock probe → absent (66); activation scan → listing; store
-        // presence probe (`test -f`) → absent (1) so the skill downloads.
-        if (bashScript.includes('|| exit 66; cat'))
-            return { exitCode: 66, stdout: '', stderr: '' }
-        if (bashScript.includes('for e in '))
-            return { exitCode: 0, stdout: this.daemonListing, stderr: '' }
-        if (/^test -f /.test(bashScript))
-            return { exitCode: 1, stdout: '', stderr: '' }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
-
-    protected override async spriteReadFile(): Promise<SpriteReadFileResult | null> {
-        if (!this.lock) return null
-        const bytes = Buffer.from(this.lock)
-        return {
-            stream: (async function* (): AsyncGenerator<Buffer> {
-                yield bytes
-            })(),
-            size: bytes.length,
-            contentType: 'application/json',
-            done: Promise.resolve()
-        }
-    }
-
-    protected override async spriteStatFile(
-        _client: SpritesClient,
-        _spriteName: string,
-        absPath: string
-    ): Promise<{ size: number; contentType: string } | null> {
-        this.statPaths.push(absPath)
-        if (absPath.endsWith('/SKILL.md') && this.skillMdExists)
-            return { size: 1, contentType: 'text/markdown' }
-        return null
-    }
-
-    protected override async spriteWriteFile(
-        _client: SpritesClient,
-        _spriteName: string,
-        args: SpriteWriteFileArgs
-    ): Promise<void> {
-        const chunks: Buffer[] = []
-        if (Buffer.isBuffer(args.body)) {
-            chunks.push(args.body)
-        } else {
-            for await (const chunk of args.body) chunks.push(chunk)
-        }
-        this.writes.push({
-            absPath: args.absPath,
-            body: Buffer.concat(chunks).toString('utf8')
-        })
-    }
-
-    protected override async spriteRm(
-        _client: SpritesClient,
-        _spriteName: string,
-        absPath: string,
-        opts?: SpriteRmOptions
-    ): Promise<void> {
-        this.rms.push({ absPath, recursive: !!opts?.recursive })
-    }
-
-    protected override async runK8sExec(
-        _exec: PodExec,
-        opts: { cmd: string[]; timeoutMs: number }
-    ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-        const script = opts.cmd[2] ?? ''
-        this.k8sScripts.push(script)
-        if (this.k8sExecResult) return this.k8sExecResult
-        if (script.includes('|| exit 66; cat'))
-            return { exitCode: 66, stdout: '', stderr: '' }
-        if (script.startsWith('test -f '))
-            return { exitCode: 1, stdout: '', stderr: '' }
-        const write = script.match(
-            /printf '%s' '([^']+)' \| base64 -d > '([^']+)'/
-        )
-        if (write) {
-            this.k8sWrites.push({
-                absPath: write[2],
-                body: Buffer.from(write[1], 'base64').toString('utf8')
-            })
-        }
-        return { exitCode: 0, stdout: '', stderr: '' }
-    }
 }
-
-const input = (framework: SkillFramework = 'claude-code') => ({
-    agentId: 'agent-1',
-    runtimeId: 'runtime-1',
-    userId: 'user-1',
-    framework,
-    spriteName: 'sprite-1',
-    client: {} as SpritesClient,
-    logger: logger(),
-    homeDir: '/home/test'
-})
-
-const daemonInput = (framework: SkillFramework = 'claude-code') => ({
-    agentId: 'agent-1',
-    runtimeId: 'runtime-1',
-    userId: 'user-1',
-    framework,
-    daemonId: 'daemon-1',
-    homeDir: '/Users/daemon',
-    workspacePath: '/Users/daemon/.manyfold/workspaces/agent-1'
-})
 
 const fakeDbWithSkillsDir = (skillsDir: string): unknown => ({
     ...(fakeDbWithLock() as Record<string, unknown>),
@@ -864,7 +837,14 @@ const fakeDbWithAgents = (
             return this
         },
         where() {
-            return Promise.resolve(rows)
+            return Promise.resolve(
+                rows.map((row) => ({
+                    userId: 'user-1',
+                    framework: 'hermes',
+                    workspacePath: null,
+                    ...row
+                }))
+            )
         }
     })
 })
@@ -896,11 +876,4 @@ const fakeDbWithLock = (events: string[] = []): unknown => ({
             throw err
         }
     }
-})
-
-const logger = (): SpritesLogger => ({
-    debug: () => undefined,
-    info: () => undefined,
-    warn: () => undefined,
-    error: () => undefined
 })

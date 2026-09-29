@@ -610,6 +610,36 @@ export class SpritesProvider implements SandboxProvider {
         return ref
     }
 
+    // A sprite this platform made is wide open (defaultNetworkPolicy); only one
+    // whose policy denies everything by default needs the domains allowed.
+    async allowEgress(
+        args: Omit<ProviderCall, 'generation'>,
+        domains: readonly string[]
+    ): Promise<void> {
+        const ref = this.requireRef(args)
+        const client = this.client(args)
+        const policy = await client.getNetworkPolicy(ref.spriteName)
+        const rules = Array.isArray(policy.rules) ? policy.rules : []
+        if (!rules.some((rule) => rule.domain === '*' && rule.action === 'deny'))
+            return
+        const missing = domains.filter(
+            (domain) =>
+                !rules.some(
+                    (rule) => rule.domain === domain && rule.action === 'allow'
+                )
+        )
+        if (missing.length === 0) return
+        await client.setNetworkPolicy(ref.spriteName, {
+            rules: [
+                ...rules,
+                ...missing.map((domain) => ({ domain, action: 'allow' as const }))
+            ]
+        })
+        this.log.log(
+            `sprite ${ref.spriteName} network policy opened to ${missing.join(', ')}`
+        )
+    }
+
     describeError(err: unknown): ProviderErrorFacts | null {
         return spritesErrorFacts(err)
     }
