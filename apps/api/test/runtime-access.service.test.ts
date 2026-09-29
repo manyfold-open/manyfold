@@ -860,11 +860,8 @@ test('RuntimeAccessService.reserveSpriteRuntime always creates a host when no sa
     assert.equal(host.providerId, 'rtp-1')
     assert.equal(host.status, 'provisioning')
     assert.equal(host.generation, 1)
-    assert.deepEqual(host.providerRef, {
-        kind: 'sprites',
-        spriteName: String(host.id).replace(/_/g, '-'),
-        spriteId: null
-    })
+    // The adapter records the machine once it has made it.
+    assert.equal(host.providerRef, null)
     assert.equal(host.emptiedAt, null)
 })
 
@@ -901,7 +898,7 @@ test('RuntimeAccessService.reserveStandaloneSandbox creates an empty provisionin
     assert.equal(host.name, 'Research Sandbox')
     assert.equal(host.providerId, 'rtp-1')
     assert.equal(host.status, 'provisioning')
-    assert.equal(host.providerRef?.kind, 'sprites')
+    assert.equal(host.providerRef, null)
     assert.ok(host.emptiedAt instanceof Date)
     assert.deepEqual(
         db.lockNamespaces,

@@ -20,7 +20,7 @@ import {
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { AppEventsService } from '@/common/events/app-events.service'
@@ -67,7 +67,7 @@ export class HostServices {
         private readonly hosts: HostsService,
         private readonly access: HostDaemonAccess,
         private readonly providers: SandboxProviderRegistry,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly runtimes: AgentRuntimesService,
         private readonly config: ConfigService,
         @Optional() private readonly events?: AppEventsService

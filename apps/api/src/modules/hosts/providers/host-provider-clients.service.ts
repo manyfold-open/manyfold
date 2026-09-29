@@ -1,6 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type {
-    K8sProviderRef,
     RuntimeHostRow,
     RuntimeProvider,
     SpritesProviderRef
@@ -15,9 +14,7 @@ import {
 } from '@manyfold/sprites'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { KubernetesService, type K8sClient } from '@/modules/k8s/kubernetes.service'
-import { PodExec, PodExecFactory } from '@/modules/k8s/pod-exec'
 import { RuntimeProvidersService } from '../runtime-providers.service'
-import { HostsService } from '../hosts.service'
 
 // One command on the machine through the provider's own exec, answered with
 // exit code and output.
@@ -34,12 +31,10 @@ export interface HostExecFn {
 // decrypted on every client build, and the turn path asks for one per exec.
 const PROVIDER_CACHE_TTL_MS = 60_000
 
-// Provider-native handles for the operations other modules still perform
-// outside the daemon protocol (a sprite's Services API, its storage
-// measurement, a pod exec for a terminal). Everything here is keyed by the
-// HOST: the provider row, its credential and the machine identity in
-// providerRef are resolved for the caller, which never sees an account or a
-// cluster again.
+// The provider-native clients the adapters are built on: a sprites
+// organisation's REST and exec client, a cluster's Kubernetes client, each
+// from the provider row's credential. Only the adapters (hosts/providers)
+// use them; the rest of the API reaches a provider through its adapter.
 @Injectable()
 export class HostProviderClients {
     private readonly log = new Logger(HostProviderClients.name)
@@ -50,10 +45,8 @@ export class HostProviderClients {
 
     constructor(
         private readonly providers: RuntimeProvidersService,
-        private readonly hosts: HostsService,
         private readonly crypto: CryptoService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory
+        private readonly k8s: KubernetesService
     ) {}
 
     credentialFor(provider: RuntimeProvider): string {
@@ -86,20 +79,11 @@ export class HostProviderClients {
         this.providerCache.delete(providerId)
     }
 
-    spritesRef(host: RuntimeHostRow): SpritesProviderRef {
+    private spritesRef(host: RuntimeHostRow): SpritesProviderRef {
         const ref = host.providerRef
         if (!ref || ref.kind !== 'sprites')
             throw new NotFoundException(
                 `host ${host.id} has no sprite (provider ref ${ref?.kind ?? 'none'})`
-            )
-        return ref
-    }
-
-    k8sRef(host: RuntimeHostRow): K8sProviderRef {
-        const ref = host.providerRef
-        if (!ref || ref.kind !== 'k8s')
-            throw new NotFoundException(
-                `host ${host.id} has no pod (provider ref ${ref?.kind ?? 'none'})`
             )
         return ref
     }
@@ -170,28 +154,6 @@ export class HostProviderClients {
         if (provider.kind !== 'k8s')
             throw new Error(`runtime provider ${provider.id} is not k8s`)
         return this.k8s.getClient(provider.id)
-    }
-
-    async k8sClientForHost(host: RuntimeHostRow): Promise<K8sClient> {
-        return this.k8sClientForProvider(await this.providerForHost(host))
-    }
-
-    async podExecForHost(host: RuntimeHostRow): Promise<PodExec> {
-        const ref = this.k8sRef(host)
-        const client = await this.k8sClientForHost(host)
-        const pod = await this.k8s.findHostPod(client, host.id, ref.namespace)
-        return this.podExecFactory.forClient(
-            client,
-            ref.namespace,
-            pod.podName,
-            pod.containerName
-        )
-    }
-
-    async hostById(hostId: string): Promise<RuntimeHostRow> {
-        const host = await this.hosts.findById(hostId)
-        if (!host) throw new NotFoundException(`host ${hostId} not found`)
-        return host
     }
 
     spritesLoggerFor(log: Logger = this.log): SpritesLogger {

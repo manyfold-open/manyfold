@@ -45,6 +45,7 @@ import { RuntimeContextService } from '../src/modules/hosts/runtime-context.serv
 import { RuntimeProvidersService } from '../src/modules/hosts/runtime-providers.service'
 import { SandboxProviderRegistry } from '../src/modules/hosts/providers/sandbox-provider'
 import { HostProviderClients } from '../src/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '../src/modules/hosts/providers/host-provider-resolver.service'
 import { HostPlacementService } from '../src/modules/hosts/providers/host-placement.service'
 import { K8sProvider } from '../src/modules/hosts/providers/k8s.provider'
 import { K8sContainerProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
@@ -145,16 +146,12 @@ const fixture = async (t: TestContext) => {
     const hostDaemonsService = new HostDaemonsService(db)
     const runtimeContext = new RuntimeContextService(db)
     const podExec = new PodExecFactory(new GatewayExecClient(config))
-    const clients = new HostProviderClients(
-        new RuntimeProvidersService(db),
-        hosts,
-        crypto,
-        k8s,
-        podExec
-    )
+    const providerRows = new RuntimeProvidersService(db)
+    const clients = new HostProviderClients(providerRows, crypto, k8s)
     const providers = new SandboxProviderRegistry()
     new K8sProvider(providers, hosts, config, k8s, podExec, clients)
-    const cleanup = new K8sCreateCleanupService(db, hosts, clients, providers)
+    const resolver = new HostProviderResolver(providerRows, providers, clients)
+    const cleanup = new K8sCreateCleanupService(db, hosts, resolver, providers)
     const runtimes = new AgentRuntimesService(db, { event() {} } as never)
     const tokens = new DaemonTokenService(db)
     const podRunner = new PodRunnerProvisioner(tokens, config)
@@ -178,7 +175,7 @@ const fixture = async (t: TestContext) => {
         hosts,
         hostDaemonsService,
         providers,
-        clients,
+        resolver,
         tokens,
         daemonRegistry as never,
         { hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} }) } as never
@@ -257,7 +254,7 @@ const fixture = async (t: TestContext) => {
     const k8sProvisioner = new K8sProvisioner(
         db,
         hosts,
-        clients,
+        resolver,
         providers,
         tokens,
         runtimes,
@@ -268,7 +265,7 @@ const fixture = async (t: TestContext) => {
         db,
         hosts,
         hostDaemonsService,
-        clients,
+        resolver,
         new HostPlacementService(db),
         providers,
         new HostDaemonAccess(

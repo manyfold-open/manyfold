@@ -34,7 +34,7 @@ import {
     HostAwakeService,
     type AwakeHold
 } from '@/modules/hosts/host-awake.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import {
     SandboxProviderRegistry,
     StaleGenerationError,
@@ -285,7 +285,7 @@ export class RunnerManagerService {
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
         private readonly providers: SandboxProviderRegistry,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly tokens: DaemonTokenService,
         private readonly registry: DaemonRegistryService,
         private readonly awake: HostAwakeService,

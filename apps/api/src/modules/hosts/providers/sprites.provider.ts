@@ -352,12 +352,14 @@ export class SpritesProvider implements SandboxProvider {
         return ref
     }
 
+    // A create that failed before it recorded the sprite may still have made
+    // it: the name is the host's either way.
     async destroy(args: ProviderCall): Promise<void> {
         await assertCurrentGeneration(this.hosts, args.host, args.generation)
-        const ref = this.ref(args)
-        if (!ref) return
+        const spriteName =
+            this.ref(args)?.spriteName ?? spriteNameForHost(args.host.id)
         await this.client(args)
-            .deleteSprite(ref.spriteName)
+            .deleteSprite(spriteName)
             .catch((err) => {
                 if (!isSpritesNotFound(err)) throw err
             })

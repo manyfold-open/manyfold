@@ -32,7 +32,7 @@ export class HostProviderResolver {
         private readonly clients: HostProviderClients
     ) {}
 
-    async providerFor(host: RuntimeHostRow): Promise<RuntimeProvider> {
+    async providerForHost(host: RuntimeHostRow): Promise<RuntimeProvider> {
         if (host.kind !== 'hosted' || !host.providerId)
             throw new NotFoundException(`host ${host.id} is not a hosted host`)
         const cached = this.cache.get(host.providerId)
@@ -50,7 +50,7 @@ export class HostProviderResolver {
     }
 
     async resolve(host: RuntimeHostRow): Promise<ResolvedHostProvider> {
-        const provider = await this.providerFor(host)
+        const provider = await this.providerForHost(host)
         return { provider, adapter: this.registry.for(provider.kind) }
     }
 

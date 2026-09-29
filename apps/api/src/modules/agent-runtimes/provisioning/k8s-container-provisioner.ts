@@ -44,7 +44,7 @@ import {
     HostDaemonsService,
     hasRpcLease
 } from '@/modules/hosts/host-daemons.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { HostPlacementService } from '@/modules/hosts/providers/host-placement.service'
 import {
     SandboxProviderRegistry,
@@ -181,7 +181,7 @@ export class K8sContainerProvisioner {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly placement: HostPlacementService,
         private readonly providers: SandboxProviderRegistry,
         private readonly hostAccess: HostDaemonAccess,

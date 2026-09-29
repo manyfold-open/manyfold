@@ -16,7 +16,8 @@ import { HostKeepAwakeService } from './host-keep-awake.service'
 // the runtime context imports this one, so it must import none of them.
 // SecretsModule and K8sModule are global, which is what lets the provider
 // adapters live here. Each adapter registers itself with the registry from
-// its constructor.
+// its constructor. The provider clients stay inside: everything else reaches
+// a provider through its adapter (HostProviderResolver).
 @Module({
     providers: [
         HostsService,
@@ -38,7 +39,6 @@ import { HostKeepAwakeService } from './host-keep-awake.service'
         RuntimeContextService,
         RuntimeProvidersService,
         SandboxProviderRegistry,
-        HostProviderClients,
         HostProviderResolver,
         HostPlacementService,
         HostAwakeService,

@@ -19,7 +19,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import {
     K8S_CREATE_CLEANUP_PENDING,
@@ -72,7 +72,7 @@ export class K8sCreateCleanupService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry
     ) {}
 

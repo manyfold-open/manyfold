@@ -18,7 +18,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 import {
@@ -40,7 +40,7 @@ export class K8sProvisioner {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry,
         private readonly tokens: DaemonTokenService,
         private readonly runtimes: AgentRuntimesService,

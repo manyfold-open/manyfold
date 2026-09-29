@@ -73,7 +73,6 @@ import {
 } from '@/common/ports/usage-period.ports'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { nextFreeLabel } from '@/modules/agent-runtimes/runtime-label'
-import { spriteNameForHost } from '@/modules/hosts/providers/sprites.provider'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { buildSandboxUsageBreakdown } from './sandbox-usage-breakdown'
@@ -1039,9 +1038,9 @@ export class RuntimeAccessService {
 
     // The host row a new sandbox starts as (ADR-0037): hosted on the chosen
     // sprites provider, `provisioning` until the adapter has created the VM
-    // and its daemon has registered. The sprite is named after the host so a
-    // retry under the same generation finds the machine it already made; the
-    // adapter fills in spriteId.
+    // and its daemon has registered. The adapter records the machine it made
+    // (providerRef); it names it after the host, so a retry under the same
+    // generation finds the machine it already made.
     private async insertSandboxHost(
         tx: Tx,
         input: {
@@ -1059,11 +1058,7 @@ export class RuntimeAccessService {
                 userId: input.userId,
                 kind: 'hosted',
                 providerId: input.providerId,
-                providerRef: {
-                    kind: 'sprites',
-                    spriteName: spriteNameForHost(hostId),
-                    spriteId: null
-                },
+                providerRef: null,
                 name: input.name,
                 status: 'provisioning',
                 generation: 1,

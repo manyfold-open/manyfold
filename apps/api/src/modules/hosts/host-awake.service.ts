@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import { AWAKE_HOLD_TASK_PREFIX } from '@manyfold/shared'
 import type { RuntimeHostRow } from '@manyfold/db'
-import { HostProviderClients } from './providers/host-provider-clients.service'
+import { HostProviderResolver } from './providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from './providers/sandbox-provider'
 
 // ADR-0038: a machine that can sleep is kept awake by a lease for exactly as
@@ -65,7 +65,7 @@ export class HostAwakeService implements OnModuleDestroy {
 
     constructor(
         private readonly providers: SandboxProviderRegistry,
-        private readonly clients: HostProviderClients
+        private readonly clients: HostProviderResolver
     ) {}
 
     // A hold on the machine behind `host`. A machine that never sleeps (a pod,
