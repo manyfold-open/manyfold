@@ -270,6 +270,27 @@ test('a spared turn leaves no adoption lease and no resume ref behind', async ()
     }
 })
 
+// The turn's hold used to be taken before the turn was stamped and settled
+// only by the try after it, so a stamp that failed left it held, and the
+// sandbox awake, until the API restarted.
+test('a turn whose stamp fails leaves no hold on its sandbox', async () => {
+    const ok = await startExitingServer()
+    const dispatched = makeHarness({ port: ok.port })
+    const unstamped = makeHarness({ port: ok.port, stampFails: true })
+    try {
+        await dispatched.send()
+        await unstamped.send()
+
+        assert.equal(dispatched.adapterCalls.length, 1)
+        assert.deepEqual(dispatched.openHolds(), [])
+        assert.equal(unstamped.calls.upsertTurnExecution, 1)
+        assert.equal(unstamped.adapterCalls.length, 0)
+        assert.deepEqual(unstamped.openHolds(), [])
+    } finally {
+        await ok.close()
+    }
+})
+
 test('a blocked verdict is decided before the turn touches the endpoint', async () => {
     const server = await startRejectingServer(502)
     const h = makeHarness({
@@ -458,6 +479,8 @@ interface HarnessOptions {
     unavailable?: boolean
     recordProbe?: 'recorded' | 'not_owner' | 'unavailable'
     markUnavailable?: boolean
+    // The turn's execution row cannot be written.
+    stampFails?: boolean
 }
 
 interface Harness {
@@ -474,6 +497,8 @@ interface Harness {
         forAgent: number
     }
     lease: Date
+    // Awake holds taken and not yet released or detached, by reason.
+    openHolds: () => string[]
     named: (name: string) => Array<Record<string, unknown>>
     send: () => Promise<void>
     prewarm: () => Promise<void>
@@ -551,6 +576,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             ownerId: string
         }) => {
             calls.upsertTurnExecution += 1
+            if (opts.stampFails) throw new Error('turn execution write failed')
             return {
                 messageId: row.messageId,
                 ownerId: row.ownerId,
@@ -697,6 +723,23 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             return Promise.resolve()
         }
     }
+    const heldReasons: string[] = []
+    const awake = {
+        hold: (_host: unknown, reason: string) => {
+            heldReasons.push(reason)
+            let done = false
+            const settle = () => {
+                if (done) return
+                done = true
+                heldReasons.splice(heldReasons.indexOf(reason), 1)
+            }
+            return {
+                settled: Promise.resolve(true),
+                release: async () => settle(),
+                detach: settle
+            }
+        }
+    }
     // The sprites adapter's exec is the sprite's own socket: what the runner
     // inspect rides on, and what fails the way the staging sprite did.
     const sandboxProvider = {
@@ -741,7 +784,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             deleteUnbound: async () => true
         } as never,
         { rpc: async () => ({}), onConnected: () => () => {} } as never,
-        { hold: () => ({ settled: Promise.resolve(true), release: async () => {}, detach: () => {} }) } as never
+        awake as never
     )
 
     const service = new ChatService(
@@ -811,6 +854,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         terminals,
         calls,
         lease,
+        openHolds: () => [...heldReasons],
         named: (name) =>
             events.filter((e) => e.name === name).map((e) => e.props),
         send: () =>

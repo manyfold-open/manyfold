@@ -5639,17 +5639,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerExecFailure)
                 : null)
         const turnHostId = runner?.hostId ?? null
-        // A runner turn produces no platform-visible activity, so the sprite
-        // would suspend under it. Held for the turn's whole life and released
-        // at the terminal; if THIS instance dies mid-turn the lease survives on
-        // its TTL, which is what keeps the runner executing and the turn
-        // resumable.
-        // Only a sprite host suspends: a pod never does, so there is nothing
-        // to hold awake and no lease to pay for.
-        const awakeHold =
-            runner && this.bringUp && agentCtx.runtime === 'sprites' && agentCtx.host
-                ? this.bringUp.holdAwake(agentCtx.host, assistantMessageId)
-                : null
         const carryingDaemonId = turnHostId
         // A fail-fast turn never reaches a daemon and is terminal within
         // milliseconds, so it needs neither a resume ref nor an adoption lease:
@@ -5856,6 +5845,19 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 assistantMessageId,
                 streamEvent(type, payload)
             )
+        // A runner turn produces no platform-visible activity, so the sprite
+        // would suspend under it. Held for the turn's whole life and released
+        // at the terminal; if THIS instance dies mid-turn the lease survives on
+        // its TTL, which is what keeps the runner executing and the turn
+        // resumable. Taken here, next to the try that settles it: a stamp
+        // above that throws would otherwise leave it held until the API
+        // restarts. The admission's hold outlives the stamping by its grace.
+        // Only a sprite host suspends: a pod never does, so there is nothing
+        // to hold awake and no lease to pay for.
+        const awakeHold =
+            runner && this.bringUp && agentCtx.runtime === 'sprites' && agentCtx.host
+                ? this.bringUp.holdAwake(agentCtx.host, assistantMessageId)
+                : null
         try {
             // Substituting the stream rather than short-circuiting the method
             // is the whole trick: a fail-fast turn then walks the exact same

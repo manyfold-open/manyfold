@@ -750,18 +750,11 @@ export class PiAdapter implements ApiChatAdapter {
         let cursor: number | null = null
         try {
             const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
-            try {
-                cursor = parsePiSessionLineCount(
-                    await handle.fs.exec(
-                        piSessionLineCountScript(
-                            ref,
-                            handle.agent.workspacePath
-                        )
-                    )
+            cursor = parsePiSessionLineCount(
+                await handle.fs.exec(
+                    piSessionLineCountScript(ref, handle.agent.workspacePath)
                 )
-            } finally {
-                await handle.awakeHold?.release()
-            }
+            )
         } catch (err) {
             this.logger.warn(
                 `pi session line count failed agent=${ctx.agentId} session=${ctx.sessionId}: ${(err as Error).message}`
