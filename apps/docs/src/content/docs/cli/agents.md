@@ -148,7 +148,9 @@ mf model-config refresh-models agt_xxx
 ```
 
 `--source` accepts `platform` or `runtime-local`. A JSON config can be passed
-inline or with `--config @file.json`.
+inline or with `--config @file.json`. `--clear-model` puts the agent back on
+the model the framework runs by default: on a model provider, the one a new
+agent there gets; on a subscription sign-in, the CLI's own default.
 
 ## See also
 

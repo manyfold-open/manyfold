@@ -130,7 +130,9 @@ mf model-config refresh-models agt_xxx
 ```
 
 `--source` 可选 `platform` 或 `runtime-local`。JSON config 可 inline 传入，也可使用
-`--config @file.json`。
+`--config @file.json`。`--clear-model` 让 Agent 回到 framework 的默认 model：
+使用 model provider 时，是新 Agent 在该 provider 上会得到的 model；使用订阅登录时，
+是 CLI 自己的默认 model。
 
 ## 另请参阅
 
