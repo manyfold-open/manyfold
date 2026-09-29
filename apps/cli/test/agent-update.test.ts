@@ -81,6 +81,11 @@ test('a Claude Code model goes to the model settings, named as people write it',
         run.out.join('\n'),
         /\n {2}model {2}haiku \(claude-haiku-4-5-20251001\)$/
     )
+    // The tester took it that a session already open kept the old model.
+    assert.match(
+        run.err.join('\n'),
+        /Every session runs it from its next turn, including sessions already open/
+    )
 })
 
 test('a rename with the model is sent to the agent after the model', async () => {
@@ -145,6 +150,7 @@ test('a framework without model settings keeps the model on the agent', async ()
         'PATCH /agents/agt_h {"model":"gpt-6"}'
     ])
     assert.match(run.out.join('\n'), /model {2}gpt-6$/)
+    assert.doesNotMatch(run.err.join('\n'), /next turn/)
 })
 
 test('a rename alone does not read the model settings', async () => {

@@ -136,7 +136,8 @@ mf agent delete agt_xxx --yes
 `sonnet`, an id, or a name such as `"Sonnet 5"`. A coding agent keeps its
 model in its model settings, so for one the change goes there, as
 `mf model-config update --model` makes it. A model those settings do not
-offer is refused with a list of the ones they do.
+offer is refused with a list of the ones they do. The new model runs from
+the next message in every session, including conversations already open.
 
 > **Warning:** Deletion is irreversible. The CLI refuses to proceed without
 > `--yes`; it does not open an interactive prompt. Pass it only after

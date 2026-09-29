@@ -45,7 +45,8 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
   `--model` takes the names `create --model` takes. A coding agent keeps
   its model in its model settings, so for one the change goes there, as
   `mf model-config update --model` makes it; a model those settings do not
-  offer is a usage error that lists the ones they do.
+  offer is a usage error that lists the ones they do. The new model runs
+  from the next turn of every session, sessions already open included.
 - `delete` (alias `rm`) is irreversible and refuses without `--yes`/`-y`.
 
 ## Creating an agent

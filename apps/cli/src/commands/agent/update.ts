@@ -92,6 +92,14 @@ const runUpdate = async (
                 : kleur.dim(`${agent.framework}'s default`)
         }`
     )
+    // Each of these frameworks' turns names its model, so open sessions
+    // switch too; a hermes session keeps the one it started with.
+    if (inSettings)
+        console.error(
+            kleur.dim(
+                'Every session runs it from its next turn, including sessions already open.'
+            )
+        )
 }
 
 // The name changes after the model, whose checks are the likelier to fail.
