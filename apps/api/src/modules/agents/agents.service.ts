@@ -399,9 +399,11 @@ export class AgentsService {
         }
         if (body.model !== undefined) {
             if (isModelConfigFramework(existing.framework))
-                throw new BadRequestException(
-                    `Use /agents/${agentId}/model-config to update ${existing.framework} models`
-                )
+                throw new BadRequestException({
+                    message: `Use /agents/${agentId}/model-config to update ${existing.framework} models`,
+                    code: 'AGENT_MODEL_IN_MODEL_CONFIG',
+                    details: { agentId, framework: existing.framework }
+                })
             const model =
                 typeof body.model === 'string' ? body.model.trim() : ''
             patch.model = model.length > 0 ? model : null

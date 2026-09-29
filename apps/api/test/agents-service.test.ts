@@ -121,18 +121,29 @@ test('AgentsService ignores transform-added undefined model on name-only updates
 })
 
 test('AgentsService still rejects explicit model updates for configurable frameworks', async () => {
-    const { service } = makeService()
+    const { service, lastPatch } = makeService()
 
     await assert.rejects(
         () =>
             service.update(
                 baseAgent.id,
                 baseAgent.userId,
-                { model: 'sonnet' },
+                { name: 'renamed', model: 'sonnet' },
                 false
             ),
-        BadRequestException
+        (err: unknown) => {
+            assert.ok(err instanceof BadRequestException)
+            // The code lets a client send the model to the model settings
+            // instead (the CLI names mf model-config update).
+            assert.deepEqual(err.getResponse(), {
+                message: `Use /agents/${baseAgent.id}/model-config to update claude-code models`,
+                code: 'AGENT_MODEL_IN_MODEL_CONFIG',
+                details: { agentId: baseAgent.id, framework: 'claude-code' }
+            })
+            return true
+        }
     )
+    assert.equal(lastPatch(), null, 'the rename must not be written either')
 })
 
 // MCP config must be validated against the agent's framework before it lands in
