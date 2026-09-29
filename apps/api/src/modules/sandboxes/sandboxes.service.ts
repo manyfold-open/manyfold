@@ -1032,13 +1032,19 @@ export class SandboxesService {
             )
 
         // Delete non-platform activity tasks. The keep-awake hold was let go
-        // above; a work hold stays unless the stop is forced.
+        // above; a work hold stays unless the stop is forced. Tasks that could
+        // not be read are unknown, not absent: the rest of the stop still runs.
         const deletedTasks: string[] = []
-        const leases = await this.readAwakeLeases(on)
-        const heldForWork = leases.filter(
+        let leases: AwakeLease[] | null = null
+        try {
+            leases = await this.readAwakeLeases(on)
+        } catch (err) {
+            warnings.push(`tasks were not checked: ${(err as Error).message}`)
+        }
+        const heldForWork = (leases ?? []).filter(
             (t) => isAwakeHoldTaskName(t.name) && !opts.force
         )
-        for (const t of leases) {
+        for (const t of leases ?? []) {
             if (
                 isPlatformTaskName(t.name) &&
                 !(opts.force && isAwakeHoldTaskName(t.name))
@@ -1075,7 +1081,7 @@ export class SandboxesService {
             !host.keepAwake &&
             runtimesOnHost.length === 0 &&
             userServices.length === 0 &&
-            leases.length === 0
+            leases?.length === 0
         if (hasNoLevers) {
             warnings.push(
                 'nothing on this sandbox could be stopped: it is running with no sessions, runtimes, services or tasks registered on it, so something out of reach is holding it awake and it will not sleep'

@@ -104,6 +104,7 @@ import { CredentialsResolverService } from '@/modules/agents/credentials/credent
 import type { ResolvedAgentCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { BackupsService } from '@/modules/backups/backups.service'
 import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
+import { isBuiltInProfileAgent } from '@/modules/agents/reconcile/agent-reconcile.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import {
     resolveWorkspaceSelection,
@@ -1051,11 +1052,12 @@ export class AgentOrchestratorService {
             }
         )
         try {
-            await adapter.removeAgent({
-                ...ctx,
-                agent: row,
-                primaryAgentId: runtime.primaryAgentId ?? null
-            })
+            if (!isBuiltInProfileAgent(ctx, row))
+                await adapter.removeAgent({
+                    ...ctx,
+                    agent: row,
+                    primaryAgentId: runtime.primaryAgentId ?? null
+                })
         } catch (err) {
             const reason = sanitizeReason(err)
             await this.audit(

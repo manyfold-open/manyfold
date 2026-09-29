@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm'
 import { agents, auditLogs, type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
+import { isBuiltInProfileAgent } from '@/modules/agents/reconcile/agent-reconcile.service'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 
 // Removes a non-primary agent from its k8s runtime. Pod hosts and their
@@ -43,11 +44,12 @@ export class K8sAgentOrchestrator {
             }
         )
         try {
-            await adapter.removeAgent({
-                ...ctx,
-                agent: row,
-                primaryAgentId: runtime.primaryAgentId ?? null
-            })
+            if (!isBuiltInProfileAgent(ctx, row))
+                await adapter.removeAgent({
+                    ...ctx,
+                    agent: row,
+                    primaryAgentId: runtime.primaryAgentId ?? null
+                })
         } catch (err) {
             const reason = sanitizeReason(err)
             await this.audit(

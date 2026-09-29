@@ -61,6 +61,8 @@ const makeStop = (opts: {
     // Whether the supervisor stopped it; a throw is a failed call.
     stopService?: (name: string, call: number) => boolean
     leases?: string[]
+    // The task listing could not be read.
+    listAwakeError?: string
     // Leases still listed after their release.
     sticky?: string[]
     refreshFails?: boolean
@@ -90,6 +92,7 @@ const makeStop = (opts: {
         },
         listAwake: async () => {
             adapterCalls.push('listAwake')
+            if (opts.listAwakeError) throw new Error(opts.listAwakeError)
             return (opts.leases ?? []).map((name) => ({
                 name,
                 startedAt: null,
@@ -376,6 +379,23 @@ test('a sandbox with a session, a lease or a runtime on it gets no such warning'
         assert.deepEqual(res.warnings, [], JSON.stringify(Object.keys(opts)))
         assert.equal(auditMeta(h).hasNoLevers, false)
     }
+})
+
+// WHY: a listing that could not be read failed the whole stop after its
+// services were already stopped, or, read as empty, let it claim that nothing
+// on the sandbox could be stopped.
+test('a stop whose tasks cannot be read finishes and says they were not checked', async () => {
+    const h = makeStop({
+        listAwakeError: 'sprite task listing unreadable (exit 7)'
+    })
+    const res = await h.svc.stop('u1', 'sbx_1')
+    assert.equal(res.status, 'pending')
+    assert.deepEqual(res.deletedTasks, [])
+    assert.deepEqual(res.warnings, [
+        'tasks were not checked: failed to read tasks: sprite task listing unreadable (exit 7)'
+    ])
+    assert.equal(auditMeta(h).hasNoLevers, false)
+    assert.equal(h.refreshCalls.length, 1)
 })
 
 test('an admin stop records who it was on behalf of', async () => {
