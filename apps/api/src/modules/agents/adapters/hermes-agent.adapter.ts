@@ -3,7 +3,7 @@ import {
     K8S_HOME_BASE
 } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
-import { sanitizeMessage } from '@/modules/agents/create-stream'
+import { sanitizeMessage } from '@/modules/agents/failure-report'
 import {
     FrameworkExecResolver,
     type FrameworkExec

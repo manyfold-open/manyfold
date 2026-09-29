@@ -52,9 +52,9 @@ import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.serv
 import {
     headerValue,
     resolveCreateStreamPlan,
-    sanitizeMessage,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
+import { sanitizeMessage } from '@/modules/agents/failure-report'
 import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'

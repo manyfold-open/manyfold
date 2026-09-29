@@ -7,12 +7,16 @@ import {
     type AgentSummary,
     type RuntimePlacement
 } from '@manyfold/shared'
-import { HttpException, type Logger } from '@nestjs/common'
+import type { Logger } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { corsHeadersForOrigin } from '@/common/cors-headers'
-import { describeHttpException } from '@/common/filters/http-exception.filter'
 import type { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
+import {
+    classifyError,
+    errorEventFields,
+    sanitizeMessage
+} from '@/modules/agents/failure-report'
 import {
     resolveRuntime,
     type AgentProgressEmitter
@@ -52,44 +56,6 @@ export const resolveCreateStreamPlan = async (
         userOverrides
     )
     return { runtime, steps: stepsFor(dto.framework, runtime) }
-}
-
-export const classifyError = (err: unknown): string => {
-    const resp = (err as { response?: unknown })?.response
-    if (resp && typeof resp === 'object' && 'errorClass' in resp)
-        return String((resp as { errorClass: unknown }).errorClass)
-    const name = (err as { name?: string })?.name
-    const code = (err as { code?: string })?.code
-    if (code) return String(code)
-    if (name) return String(name)
-    return 'unknown'
-}
-
-export const sanitizeMessage = (err: unknown): string => {
-    const raw = (err as Error)?.message ?? 'unknown error'
-    const resp = (err as { response?: unknown })?.response
-    const msg =
-        resp && typeof resp === 'object' && 'message' in resp
-            ? String((resp as { message: unknown }).message)
-            : raw
-    return msg
-        .slice(0, 512)
-        .replace(/Bearer\s+\S+/g, 'Bearer [REDACTED]')
-        .replace(/eyJ[A-Za-z0-9._-]+/g, '[REDACTED_JWT]')
-}
-
-type ErrorEvent = Extract<AgentCreateEvent, { type: 'error' }>
-
-// The code, status and details the same failure would carry as a plain HTTP
-// response, so a client can act on RUNTIME_LIMIT_REACHED and the like
-// instead of parsing the message.
-export const errorEventFields = (
-    err: unknown
-): Pick<ErrorEvent, 'code' | 'status' | 'details'> => {
-    if (!(err instanceof HttpException))
-        return { code: 'internal_error', status: 500 }
-    const { code, status, details } = describeHttpException(err)
-    return details === undefined ? { code, status } : { code, status, details }
 }
 
 // The request id a client sends back to resume a create; a header repeated

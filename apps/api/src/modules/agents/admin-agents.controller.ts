@@ -37,9 +37,9 @@ import {
 import {
     headerValue,
     resolveCreateStreamPlan,
-    sanitizeMessage,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
+import { sanitizeMessage } from '@/modules/agents/failure-report'
 import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'

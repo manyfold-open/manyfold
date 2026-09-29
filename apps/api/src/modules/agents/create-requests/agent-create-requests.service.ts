@@ -24,7 +24,7 @@ import { DRIZZLE } from '@/db/tokens'
 import {
     errorEventFields,
     sanitizeMessage
-} from '@/modules/agents/create-stream'
+} from '@/modules/agents/failure-report'
 import type { AgentProgressEmitter } from '@/modules/agents/orchestration/agent-orchestrator.service'
 
 // A running create touches its row this often...

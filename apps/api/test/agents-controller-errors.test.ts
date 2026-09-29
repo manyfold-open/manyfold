@@ -4,7 +4,7 @@ import { InternalServerErrorException } from '@nestjs/common'
 import {
     classifyError,
     sanitizeMessage
-} from '../src/modules/agents/create-stream'
+} from '../src/modules/agents/failure-report'
 
 test('classifyError preserves orchestrator errorClass from HTTP exception response', () => {
     const err = new InternalServerErrorException({
@@ -86,7 +86,7 @@ test('the stream error event carries the code, status and details a response wou
 
 test('a failure that is not an HTTP error streams as internal_error', async () => {
     const { errorEventFields } =
-        await import('../src/modules/agents/create-stream')
+        await import('../src/modules/agents/failure-report')
     assert.deepEqual(errorEventFields(new Error('boom')), {
         code: 'internal_error',
         status: 500
