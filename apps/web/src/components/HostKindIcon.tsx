@@ -1,4 +1,4 @@
-import type { AgentRuntime } from '@manyfold/shared'
+import type { RuntimePlacement } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import {
     BoxIcon,
@@ -11,14 +11,14 @@ import { placementLabel } from '@/lib/hostStatus'
 
 // One glyph per kind of machine, so the runtimes page and the chat header
 // draw a sandbox, an own computer and a cloud computer the same way.
-export const HOST_KIND_ICON: Record<AgentRuntime, LucideIcon> = {
+export const HOST_KIND_ICON: Record<RuntimePlacement, LucideIcon> = {
     daemon: LocalDaemonIcon,
     sprites: BoxIcon,
     k8s: CloudComputerIcon,
     external: GlobeIcon
 }
 
-const HostKindIcon: FC<{ kind: AgentRuntime; className?: string }> = ({
+const HostKindIcon: FC<{ kind: RuntimePlacement; className?: string }> = ({
     kind,
     className
 }): ReactNode => {

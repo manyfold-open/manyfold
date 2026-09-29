@@ -6,7 +6,7 @@ import {
     frameworkCapability,
     listFrameworks,
     type AgentFramework,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
@@ -29,7 +29,7 @@ const features = [
     'auth-context.v1',
     'exec.roots.v1'
 ]
-const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
+const hostFor = (runtime: RuntimePlacement): RuntimeHostRow =>
     runtime === 'daemon'
         ? hostRow({ id: 'dh_one', userId: 'usr_one' })
         : runtime === 'k8s'
@@ -37,7 +37,7 @@ const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
           : spritesHostRow({ id: 'dh_one', userId: 'usr_one' })
 
 const rig = (
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     framework: AgentFramework,
     options: {
         missing?: boolean

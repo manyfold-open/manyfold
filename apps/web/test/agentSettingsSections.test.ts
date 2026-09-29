@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { makeAgentSummary, makeDaemonAgentSummary } from './hostModelFixtures'
-import { agentRuntime, listFrameworks } from '@manyfold/shared'
+import { listFrameworks, runtimePlacements } from '@manyfold/shared'
 import type { AgentSettingsSectionId } from '../src/lib/agentSettingsSections'
 import {
     isAgentSettingsSection,
@@ -221,7 +221,7 @@ const ALL_SECTIONS = Object.keys({
     a2a: true
 } satisfies Record<AgentSettingsSectionId, true>) as AgentSettingsSectionId[]
 
-const RUNTIMES = Object.values(agentRuntime)
+const RUNTIMES = Object.values(runtimePlacements)
 const FRAMEWORKS = listFrameworks()
 
 // Every shape a URL can be asked about, not only the ones the API can mint. The

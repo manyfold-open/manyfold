@@ -5,7 +5,7 @@ import {
     daemonOnline,
     placementOf,
     runtimeAvailability,
-    type AgentRuntime,
+    type RuntimePlacement,
     type RuntimeAvailability,
     type RuntimeProviderKind
 } from '@manyfold/shared'
@@ -33,7 +33,7 @@ export interface RuntimeContext {
     host: RuntimeHostRow | null
     daemon: HostDaemonRow | null
     providerKind: RuntimeProviderKind | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
     daemonOnline: boolean
     availability: RuntimeAvailability
 }

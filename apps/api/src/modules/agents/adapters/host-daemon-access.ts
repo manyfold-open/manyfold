@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable, Optional } from '@nestjs/common'
 import type {
-    AgentRuntime,
+    RuntimePlacement,
     DaemonRpcMethod,
     DaemonStreamKind
 } from '@manyfold/shared'
@@ -28,7 +28,7 @@ import {
 export interface EnsureHostDaemonArgs {
     host: RuntimeHostRow
     daemon: HostDaemonRow | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
     agentId?: string
     workspacePath?: string | null
     extraRoots?: readonly string[]

@@ -1,4 +1,4 @@
-import type { AgentRuntime, ChatError } from '@manyfold/shared'
+import type { RuntimePlacement, ChatError } from '@manyfold/shared'
 import type { RunnerExecFailure } from './runner-manager.service'
 
 // The daemon a turn was resolved to: the host id is its routing key.
@@ -13,7 +13,7 @@ export class ChatRunnerError extends Error {
     readonly chatError: ChatError
 
     constructor(
-        runtime: AgentRuntime,
+        runtime: RuntimePlacement,
         reason: string,
         upgradeRequired = false,
         readonly execFailure?: RunnerExecFailure

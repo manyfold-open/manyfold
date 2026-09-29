@@ -5,7 +5,7 @@ import type { Agent, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
     DAEMON_FEATURE_FS_ROOTS,
     DAEMON_FEATURE_FS_WRITE_STREAM,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import {
     RuntimeContextService,
@@ -45,7 +45,7 @@ const EXEC_TIMEOUT_MS = 10 * 60_000
 // The machine a workspace operation runs on (ADR-0037): the agent's host and
 // the placement that decides which transport carries the bytes.
 interface WorkspaceTarget {
-    placement: Exclude<AgentRuntime, 'external'>
+    placement: Exclude<RuntimePlacement, 'external'>
     host: RuntimeHostRow
     daemon: HostDaemonRow | null
 }
@@ -78,7 +78,7 @@ export class WorkspaceRuntimeService {
 
     // The one admission rule for a backup or restore (ADR-0037): an installed
     // runtime on a ready host. Returns the placement the row snapshots.
-    async admit(agent: Agent): Promise<AgentRuntime> {
+    async admit(agent: Agent): Promise<RuntimePlacement> {
         const ctx = await this.runtimeContext.forAgent(agent.id)
         if (!ctx?.agent)
             throw new NotFoundException(`agent ${agent.id} not found`)
@@ -296,7 +296,7 @@ const workspaceRoot = (agent: Agent): string =>
 // the machine's later fate (ADR-0037): the placement and the host id.
 export const workspaceOperationKey = (
     agent: Agent,
-    target: { placement: AgentRuntime; host: { id: string } | null }
+    target: { placement: RuntimePlacement; host: { id: string } | null }
 ): string =>
     createHash('sha256')
         .update(

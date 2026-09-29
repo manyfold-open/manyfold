@@ -18,7 +18,7 @@ import type {
     AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource,
-    AgentRuntime,
+    RuntimePlacement,
     RuntimeHostKind,
     RuntimeHostPowerState,
     ChatAttachmentBlock,
@@ -3198,7 +3198,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // runner. A daemon-runtime turn runs on the user's machine and has no
     // sprite to keep awake.
     private async holdRunnerSpriteAwake(
-        agentCtx: { runtime: AgentRuntime; host: RuntimeHostRow | null },
+        agentCtx: { runtime: RuntimePlacement; host: RuntimeHostRow | null },
         args: { turnId: string }
     ): Promise<AwakeHold | null> {
         if (!this.runnerManager) return null
@@ -4515,7 +4515,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // turn fleet-wide the right to go look.
     private async gateSpriteExec(args: {
         agentId: string
-        runtime: AgentRuntime
+        runtime: RuntimePlacement
         hostId: string | null
     }): Promise<SpriteExecTerminal | null> {
         if (!this.spriteExecHealth) return null
@@ -6406,7 +6406,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // dispatch-only percentiles stay separable.
     private emitTurnTerminalTelemetry(args: {
         session: DbChatSession
-        agentCtx: { framework: AgentFramework; runtime: AgentRuntime }
+        agentCtx: { framework: AgentFramework; runtime: RuntimePlacement }
         assistantMessageId: string
         outcome: TurnTerminalOutcome
         errorCode: string | null
@@ -6705,7 +6705,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             framework: AgentFramework
             userId: string
             // The product placement, derived from the host (ADR-0037).
-            runtime: AgentRuntime
+            runtime: RuntimePlacement
             runtimeId: string | null
             model: string | null
             modelProviderId: string | null
@@ -6788,7 +6788,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // awake holds and exec health key on. Without a context service the agent
     // is read as having no machine.
     private async machineFacts(agentId: string): Promise<{
-        runtime: AgentRuntime
+        runtime: RuntimePlacement
         hostId: string | null
         hostKind: RuntimeHostKind | null
         powerState: RuntimeHostPowerState | null

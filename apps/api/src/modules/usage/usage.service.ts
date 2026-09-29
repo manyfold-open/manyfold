@@ -1,6 +1,6 @@
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     ChatUsage,
     UsageBucket,
     UsageEventsPage,
@@ -23,7 +23,7 @@ export interface RecordUsageInput {
     sessionId: string | null
     messageId: string | null
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     modelProviderId: string | null
     usage: ChatUsage
     fence?: TurnExecutionFence

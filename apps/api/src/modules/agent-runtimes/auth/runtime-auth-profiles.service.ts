@@ -12,7 +12,7 @@ import {
 import { and, eq, ne } from 'drizzle-orm'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
-    type AgentRuntime,
+    type RuntimePlacement,
     runtimeLocalInspectFeature,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_AUTH_PROFILES,
@@ -119,7 +119,7 @@ const takesStoredApiKey = (framework: string): boolean => framework !== 'pi'
 export interface ResolvedHost {
     host: RuntimeHostRow | null
     daemon: HostDaemonRow | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
     availability: RuntimeAuthAvailability
 }
 
@@ -1052,7 +1052,7 @@ export class RuntimeAuthProfilesService {
     ): Promise<{
         host: RuntimeHostRow
         daemon: HostDaemonRow
-        placement: AgentRuntime
+        placement: RuntimePlacement
         runtime: AgentRuntimeRow
         authLogin: DaemonPtyAuthLogin
     }> {

@@ -5,7 +5,7 @@ import {
     frameworkCapability,
     isModelConfigFramework
 } from '@manyfold/shared'
-import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import type { AgentFramework, RuntimePlacement } from '@manyfold/shared'
 import {
     listFrameworkPresentations,
     presentedWorkspacePath,
@@ -163,7 +163,7 @@ export const hasWorkspace = (framework: AgentFramework): boolean =>
 // `hasWorkspace` above.
 export const defaultWorkspacePath = (
     framework: AgentFramework,
-    hostKind: AgentRuntime,
+    hostKind: RuntimePlacement,
     homeDir: string | null
 ): string => {
     const home =

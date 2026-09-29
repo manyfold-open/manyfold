@@ -68,7 +68,7 @@ import {
     type RuntimeLocalCredentialContext,
     type RuntimeLocalCredentialFacts,
     type RuntimeLocalCredentialStatus,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import {
     ConflictException,
@@ -2011,7 +2011,7 @@ export class AgentModelConfigService {
 
 // An agent row with its placement and host id resolved (ADR-0037).
 export type PlacedAgent = Agent & {
-    placement: AgentRuntime
+    placement: RuntimePlacement
     hostId: string | null
 }
 
@@ -2032,7 +2032,7 @@ const isFrameworkModelConfigurable = (
 // computer is one we provisioned: its framework config dir comes from our own
 // bootstrap, so it is never evidence of a login.
 export const credentialContextFor = (
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): RuntimeLocalCredentialContext => ({
     configPresenceIsEvidence: runtime === 'daemon'
 })
@@ -2041,7 +2041,7 @@ const defaultModelConfigSource = (agent: PlacedAgent): AgentModelConfigSource =>
     agent.placement === 'daemon' ? 'runtime-local' : 'platform'
 
 const runtimeLocalCacheSource = (
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): AgentRuntimeLocalModelConfigSource => {
     if (runtime === 'daemon') return 'daemon-local'
     if (runtime === 'k8s') return 'k8s-local'

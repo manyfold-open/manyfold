@@ -12,7 +12,7 @@ import {
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
     DAEMON_FEATURE_EXEC_RESOURCES,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import type { AgentModelConfigSource } from '@manyfold/shared'
 import { Inject, Injectable, Optional } from '@nestjs/common'
@@ -70,7 +70,7 @@ import {
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 
-export type ExecPlacement = Exclude<AgentRuntime, 'external'>
+export type ExecPlacement = Exclude<RuntimePlacement, 'external'>
 
 export interface ExecDriverHandle {
     driver: ExecDriver
@@ -479,7 +479,7 @@ const agentBaseEnv = (
 // roots: its workspace (a gateway-backed framework resolves its own on the
 // first turn and declares none) and the framework's home roots for the
 // placement.
-const turnRoots = (agent: Agent, placement: AgentRuntime): readonly string[] => {
+const turnRoots = (agent: Agent, placement: RuntimePlacement): readonly string[] => {
     const facts = frameworkDefinition(agent.framework)?.runner
     const workspace = facts?.lazyWorkspace
         ? null

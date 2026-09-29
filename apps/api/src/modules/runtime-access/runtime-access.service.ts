@@ -10,8 +10,8 @@ import {
     frameworkCapability,
     listFrameworks,
     placementOf,
-    runtimeKindLabel,
-    type AgentRuntime,
+    runtimePlacementLabel,
+    type RuntimePlacement,
     type RuntimeProviderKind
 } from '@manyfold/shared'
 import {
@@ -835,7 +835,7 @@ export class RuntimeAccessService {
     private async placementFor(
         hostId: string | null | undefined,
         db: Pick<Database, 'select'> = this.db
-    ): Promise<AgentRuntime> {
+    ): Promise<RuntimePlacement> {
         if (!hostId) return 'external'
         const [row] = await db
             .select({
@@ -992,7 +992,7 @@ export class RuntimeAccessService {
         )
         if (current >= limit)
             throw new ForbiddenException({
-                message: `${runtimeKindLabel(input.kind)} limit reached (${limit} for ${input.planName} plan)`,
+                message: `${runtimePlacementLabel(input.kind)} limit reached (${limit} for ${input.planName} plan)`,
                 code: 'RUNTIME_LIMIT_REACHED',
                 kind: input.kind,
                 current,

@@ -5,7 +5,7 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     ChatContentBlock,
     ChatMessage,
     ChatSessionOrigin,
@@ -118,7 +118,7 @@ interface RawSourceComparison {
     degraded: boolean
 }
 
-type RecoveryAgent = Agent & { runtime: AgentRuntime; hostId: string | null }
+type RecoveryAgent = Agent & { runtime: RuntimePlacement; hostId: string | null }
 
 @Injectable()
 export class SessionRecoveryService {
@@ -1763,7 +1763,7 @@ const buildLocalRecoverySourceRows = (input: {
     existingRows: DbChatMessage[]
     sessionId: string
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     sourceRef: string
     sourceFile: string | null
 }): NewChatMessageSource[] => {
@@ -1793,7 +1793,7 @@ const buildRecoverySourceRowsForMessages = (input: {
     messageRows: NewChatMessage[]
     sessionId: string
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     sourceRef: string
     sourceFile: string | null
 }): NewChatMessageSource[] => {
@@ -1846,7 +1846,7 @@ const buildSourcesForMessage = (
     input: {
         sessionId: string
         framework: AgentFramework
-        runtime: AgentRuntime
+        runtime: RuntimePlacement
         sourceRef: string
         sourceFile: string | null
     },

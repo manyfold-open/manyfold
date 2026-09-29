@@ -1,7 +1,7 @@
 import { frameworkCapability, supportsRuntime } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     AgentRuntimeSummary,
     DaemonHostSummary,
     PodHostSummary,
@@ -66,7 +66,7 @@ export interface MachineOption {
     // The cloud computer the row is, when the framework still has to be
     // installed on it.
     podHostId: string | null
-    hostKind: AgentRuntime
+    hostKind: RuntimePlacement
     ownComputer: boolean
     agentsCount: number
     signInCost: SignInCost

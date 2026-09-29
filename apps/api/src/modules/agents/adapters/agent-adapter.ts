@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime, RuntimeProviderKind } from '@manyfold/shared'
+import type { AgentFramework, RuntimePlacement, RuntimeProviderKind } from '@manyfold/shared'
 import type {
     Agent,
     AgentRuntimeRow,
@@ -15,7 +15,7 @@ export interface RuntimeTarget {
     host: RuntimeHostRow | null
     daemon: HostDaemonRow | null
     providerKind: RuntimeProviderKind | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
 }
 
 export interface AgentAdapterContext extends RuntimeTarget {

@@ -3,7 +3,7 @@ import {
     frameworkCapability,
     listFrameworks
 } from '@manyfold/shared'
-import type { AgentRuntime } from '@manyfold/shared'
+import type { RuntimePlacement } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -212,14 +212,14 @@ test('every transport observed at the seam has a declared surface', async () => 
     // the runtime's direct transport, a runner stream is the swap, a gateway
     // call and each RPC method name themselves. A new kind of seam event must
     // extend this observer, or its transport ships unswept.
-    const factoryTransport: Partial<Record<AgentRuntime, ExecTransport>> = {
+    const factoryTransport: Partial<Record<RuntimePlacement, ExecTransport>> = {
         sprites: 'runner-exec',
         daemon: 'daemon-exec',
         k8s: 'runner-exec'
     }
     const observedFor = (
         seam: Seam,
-        runtime: AgentRuntime
+        runtime: RuntimePlacement
     ): ExecTransport[] => {
         const seen = new Set<ExecTransport>()
         for (const stream of seam.streams) {
@@ -240,7 +240,7 @@ test('every transport observed at the seam has a declared surface', async () => 
     for (const framework of listFrameworks()) {
         const capability = frameworkCapability(framework)
         if (capability.kind === 'external') continue
-        for (const runtime of capability.runtimes as AgentRuntime[]) {
+        for (const runtime of capability.runtimes as RuntimePlacement[]) {
             // A sprite turn reaches different transports with and without a
             // carrying runner, so both variants are swept; daemon and k8s
             // have a single shape.

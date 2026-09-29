@@ -1,6 +1,6 @@
 import {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     createObjectId
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
@@ -15,7 +15,7 @@ export interface BuildChatMessageSourceInput {
     sessionId: string
     messageId: string | null
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     source: RawMessageSourcePayload
     runnerSeq?: number
 }

@@ -2,7 +2,7 @@ import { ChatRunnerError } from '../runner/chat-runner'
 import {
     DAEMON_FEATURE_TURN_OPENCLAW,
     placementOf,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -115,7 +115,7 @@ interface OpenAIError {
 // The agent's placement (derived from its host, ADR-0037) and the host id
 // that routes to its daemon.
 export interface GatewayAgentRow {
-    placement: AgentRuntime
+    placement: RuntimePlacement
     internalId: string | null
     hostId: string | null
 }

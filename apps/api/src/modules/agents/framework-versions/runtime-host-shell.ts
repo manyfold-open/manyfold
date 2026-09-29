@@ -1,5 +1,5 @@
 import type { AgentRuntimeRow } from '@manyfold/db'
-import type { AgentRuntime } from '@manyfold/shared'
+import type { RuntimePlacement } from '@manyfold/shared'
 import type {
     FrameworkExec,
     FrameworkExecRunResult
@@ -9,7 +9,7 @@ import type {
 // (ADR-0037). The version probe and the in-place upgrade run the same login
 // shell through the host's daemon on every provider; a local machine's CLI
 // is the user's own to upgrade.
-export const hostsFrameworkCli = (placement: AgentRuntime): boolean =>
+export const hostsFrameworkCli = (placement: RuntimePlacement): boolean =>
     placement === 'sprites' || placement === 'k8s'
 
 export const runOnRuntimeHost = async (

@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import type { AgentFramework, RuntimePlacement } from '@manyfold/shared'
 
 // Test-only mirror of what a chat turn's process is launched with, declared per
 // execution surface. It stays outside src so the API build does not ship a
@@ -92,7 +92,7 @@ export type AuthResolution = 'host-resolved' | 'ambient' | 'none'
 
 export interface ExecEnvSurface {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     transport: ExecTransport
     auth: AuthResolution
     // Flags and daemon capabilities that must all hold for this cell to be
@@ -406,7 +406,7 @@ export const terminalEnvSurfaces: readonly TerminalEnvSurface[] = [
 
 export const execEnvSurface = (
     framework: AgentFramework,
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     transport: ExecTransport
 ): ExecEnvSurface | undefined =>
     execEnvSurfaces.find(
@@ -418,7 +418,7 @@ export const execEnvSurface = (
 
 export const execEnvSurfacesFor = (
     framework: AgentFramework,
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): readonly ExecEnvSurface[] =>
     execEnvSurfaces.filter(
         (surface) =>
@@ -427,6 +427,6 @@ export const execEnvSurfacesFor = (
 
 export const execEnvSurfaceKey = (surface: {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     transport: ExecTransport
 }): string => `${surface.framework} × ${surface.runtime} × ${surface.transport}`
