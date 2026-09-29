@@ -1211,6 +1211,16 @@ export type { ProfilePaths } from './profile-paths'
 export { renderAgentSetupGuide } from './agentSetupGuide'
 export type { AgentSetupGuideInput } from './agentSetupGuide'
 export {
+    bindingProtocolFor,
+    managedChannelFor,
+    preferredPrimaryModelDefault,
+    providerBindingFor,
+    providerRowVerdict,
+    testedModelsFor
+} from './provider-binding'
+export type { ProviderBinding, ProviderRowVerdict } from './provider-binding'
+export { runtimeSignInCommandFor } from './runtime-sign-in'
+export {
     RUNTIME_AUTH_METHODS,
     RUNTIME_AUTH_LIFECYCLES,
     RUNTIME_AUTH_CREDENTIAL_STATUSES,

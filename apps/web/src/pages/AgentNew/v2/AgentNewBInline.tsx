@@ -6,6 +6,7 @@ import type {
 import {
     K8S_HOME_BASE,
     OFFICIAL_PROVIDER_BASE_URL,
+    preferredPrimaryModelDefault,
     SPRITE_HOME_BASE,
     externalSteps,
     isModelConfigFramework,
@@ -63,7 +64,6 @@ import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { presentedWorkspacePath } from '@/lib/frameworkPresentation'
 import { preferredSavedProviderFor } from '@/lib/agentCreate/providerHelpers'
 import { flattenSavedModels } from '@/lib/agentCreate/savedModels'
-import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
 import {
     computeSpriteTargets,
     type SpriteAttachTarget

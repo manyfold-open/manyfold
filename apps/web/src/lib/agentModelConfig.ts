@@ -445,34 +445,6 @@ export const providerModelIdsForSummary = (
     )
 }
 
-// Configurable frameworks (hermes/openclaw) auto-fill a primary model from the
-// provider's list. Default to the economical tier per family instead of the
-// first arbitrary id: gpt-5.x-mini for OpenAI, Haiku for Anthropic.
-const economicalPrimaryModelDefaults: Partial<
-    Record<UserModelProvider, { exact: string; keyword: string }>
-> = {
-    anthropic: { exact: 'claude-haiku-4-5', keyword: 'haiku' },
-    openai: { exact: 'gpt-5.4-mini', keyword: 'mini' }
-}
-
-export const preferredPrimaryModelDefault = (
-    options: readonly string[],
-    provider: UserModelProvider
-): string | undefined => {
-    if (options.length === 0) return undefined
-    const preference = economicalPrimaryModelDefaults[provider]
-    if (preference) {
-        const exact = options.find((o) => o === preference.exact)
-        if (exact) return exact
-        const keyword = preference.keyword.toLowerCase()
-        const partial = options.find((o) =>
-            o.toLowerCase().includes(keyword)
-        )
-        if (partial) return partial
-    }
-    return options[0]
-}
-
 // Maps the server's credential verdict onto a localized string. `unknown` gets
 // none on purpose: it means "we could not judge", which is the normal state on
 // a macOS host whose token lives in the keychain, and a warning there would be

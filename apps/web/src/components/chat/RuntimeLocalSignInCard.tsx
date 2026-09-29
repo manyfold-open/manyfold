@@ -1,13 +1,11 @@
 import { useEffect, useRef } from 'react'
 import type { FC, ReactNode } from 'react'
 import type { AgentModelConfigView } from '@manyfold/shared'
+import { runtimeSignInCommandFor } from '@manyfold/shared'
 import { Spinner } from '@/components/Loading'
 import { useI18n } from '@/lib/i18n'
 import { profileDisplayName } from '@/lib/runtimeAuth'
-import {
-    runtimeSignInCommandFor,
-    runtimeSignInHintKey
-} from '@/lib/runtimeSignIn'
+import { runtimeSignInHintKey } from '@/lib/runtimeSignIn'
 
 interface Props {
     view: AgentModelConfigView
