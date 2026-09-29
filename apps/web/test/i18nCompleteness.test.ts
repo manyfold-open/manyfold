@@ -660,6 +660,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     ],
     'components/chat/Composer.tsx': [
         'Claude',
+        'Fable',
         'Haiku',
         'Opus',
         'Sonnet'

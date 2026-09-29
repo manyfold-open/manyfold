@@ -807,6 +807,14 @@ const claudeCodeEffortProfileForModel = (
         return { defaultEffort: 'high', efforts: claudeCodeFullEfforts }
     }
 
+    // Measured on Claude Code 2.1.284 [2026-09-29]: its model catalog starts
+    // Opus 5.5 and Sonnet 5.5 at medium effort, every earlier 5.x at high.
+    if (
+        (family === 'opus' || family === 'sonnet') &&
+        isFutureClaudeModelVersion(major, minor, 5, 4)
+    )
+        return { defaultEffort: 'medium', efforts: claudeCodeFullEfforts }
+
     if (family === 'opus') {
         if (major === 4 && minor === 7)
             return { defaultEffort: 'high', efforts: claudeCodeFullEfforts }

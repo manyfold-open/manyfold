@@ -737,6 +737,24 @@ test('Claude effort helpers keep xhigh model-specific', () => {
     ])
 })
 
+test('Claude effort helpers start the 5.5 generation at medium', () => {
+    assert.equal(claudeCodeDefaultEffortForModel('claude-opus-5-5'), 'medium')
+    assert.equal(
+        claudeCodeDefaultEffortForModel('anthropic/claude-sonnet-5-5'),
+        'medium'
+    )
+    assert.equal(claudeCodeDefaultEffortForModel('claude-opus-5'), 'high')
+    assert.equal(claudeCodeDefaultEffortForModel('claude-sonnet-5'), 'high')
+    assert.equal(
+        normalizeClaudeCodeEffortForModel(null, 'claude-opus-5-5'),
+        'medium'
+    )
+    assert.equal(
+        normalizeClaudeCodeEffortForModel('xhigh', 'claude-sonnet-5-5'),
+        'xhigh'
+    )
+})
+
 test('Claude effort labels cover every advertised level', () => {
     assert.equal(formatClaudeEffortLabel('xhigh', testT), 'Extra high')
     assert.equal(formatClaudeEffortLabel('max', testT), 'Maximum')

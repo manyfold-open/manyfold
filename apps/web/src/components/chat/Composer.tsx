@@ -2957,6 +2957,7 @@ const claudeModelFamily = (
     alias?: string
 ): string => {
     const normalized = model?.toLowerCase() ?? ''
+    if (normalized.includes('fable')) return 'Fable'
     if (normalized.includes('opus')) return 'Opus'
     if (normalized.includes('sonnet')) return 'Sonnet'
     if (normalized.includes('haiku')) return 'Haiku'
