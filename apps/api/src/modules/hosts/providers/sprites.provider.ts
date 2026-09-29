@@ -92,6 +92,15 @@ const sortedEnv = (
 // sprites.dev treats an empty rule list as wide-open outbound access.
 export const defaultNetworkPolicy = (): NetworkPolicy => ({ rules: [] })
 
+// The power sync lists every organisation every few seconds; a request log
+// line per page of that would bury everything else.
+const QUIET: SpritesLogger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {}
+}
+
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 180_000
@@ -386,7 +395,9 @@ export class SpritesProvider implements SandboxProvider {
         provider: RuntimeProvider
         hosts: RuntimeHostRow[]
     }): Promise<ProviderObservation> {
-        const list = await this.client(args).listSprites()
+        const list = await this.clients
+            .spritesClientForProvider(args.provider, QUIET)
+            .listSprites()
         if (!list) throw new Error('sprites listing answered nothing')
         const byName = new Map<string, RuntimeHostPowerState>()
         const counts = { running: 0, suspended: 0, stopped: 0 }

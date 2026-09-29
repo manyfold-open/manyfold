@@ -282,3 +282,38 @@ test('egress leaves an open policy alone', async () => {
 
     assert.equal(wrote, false)
 })
+
+// Seen on staging [2026-09-29]: the power sync's listing, every few seconds,
+// logged a request line per page once it went through the adapter.
+test('the account listing the power sync polls logs nothing', async () => {
+    const lines: string[] = []
+    const loggers: unknown[] = []
+    const noisy = {
+        debug: (m: string) => lines.push(m),
+        info: (m: string) => lines.push(m),
+        warn: (m: string) => lines.push(m),
+        error: (m: string) => lines.push(m)
+    }
+    const adapter = new SpritesProvider(
+        { register: () => {} } as never,
+        {} as never,
+        {
+            spritesClientForProvider: (_provider: unknown, logger: typeof noisy) => {
+                loggers.push(logger)
+                return {
+                    listSprites: async () => {
+                        logger.debug('sprites.request')
+                        return { sprites: [] }
+                    }
+                }
+            },
+            spritesLoggerFor: () => noisy
+        } as never
+    )
+
+    await adapter.observe({ provider: provider as never, hosts: [] })
+
+    assert.equal(loggers.length, 1)
+    assert.notEqual(loggers[0], noisy)
+    assert.deepEqual(lines, [])
+})
