@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 9.1.1
+
+### Patch Changes
+
+- [#610](https://github.com/manyfold-open/manyfold/pull/610) [`ed34953`](https://github.com/manyfold-open/manyfold/commit/ed34953951e13b9b3f91ed26c34bc7ed38b07c19) Thanks [@yingca1](https://github.com/yingca1)! - The power sync's sprites listing, polled every few seconds, no longer writes a debug log line for every page it reads.
+
 ## 9.1.0
 
 ### Minor Changes
