@@ -57,7 +57,7 @@ const frameworkMeta = {
         iconSrc: null,
         iconSrcDark: null,
         supportsModelOverride: true,
-        modelPresets: ['gpt-5.6-sol', 'gpt-5.5'],
+        modelPresets: ['gpt-6-sol', 'gpt-5.6-sol'],
         defaultProvider: 'openai'
     },
     'gemini-cli': {

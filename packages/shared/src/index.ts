@@ -645,6 +645,7 @@ export {
     claudeCodeDefaultEffortForModel,
     normalizeClaudeCodeEffortForModel,
     codexCanonicalModelId,
+    codexModelDisplayName,
     isCodexSupportedModel,
     codexModelSupportsFast,
     uniqueTrimmedModelIds,
@@ -753,6 +754,17 @@ export type {
     UpdateFrameworkEnumBody,
     UpdateFrameworkModelBody
 } from './framework-catalog'
+export {
+    frameworkModelCatalogRows,
+    parseFrameworkModelCatalog
+} from './framework-model-catalog'
+export type {
+    FrameworkEnumCatalogRowSpec,
+    FrameworkModelCatalog,
+    FrameworkModelCatalogRowSpec,
+    FrameworkModelCatalogRows
+} from './framework-model-catalog'
+export { builtInFrameworkModelCatalog } from './framework-model-catalog.generated'
 export {
     blockedVersionMessage,
     findBlockedVersionRange,

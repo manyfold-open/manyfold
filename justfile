@@ -41,6 +41,14 @@ db-migrate: env
 db-studio:
     pnpm db:studio
 
+# apply the model catalog file (default: the built-in one); --file x.yaml, --dry-run
+catalog-import *args: env
+    pnpm --filter @manyfold/api catalog:import {{args}}
+
+# write the database's model catalog as YAML; --file x.yaml
+catalog-export *args: env
+    pnpm --filter @manyfold/api catalog:export {{args}}
+
 db-psql:
     docker compose exec postgres psql -U postgres -d nca
 

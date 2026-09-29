@@ -24,6 +24,14 @@ test('buildCodexConfigToml writes only keys codex reads', () => {
     assert.deepEqual(Object.keys(parsed).sort(), ['model', 'model_provider', 'model_providers'])
 })
 
+// The pin applies with no provider check and is inherited by a sign-in
+// profile's turns on the same host, so it must be a model every channel
+// serves and ChatGPT sign-in keeps (gpt-5.5 leaves it on 2026-10-14).
+test('buildCodexConfigToml pins the catalog config default', () => {
+    const parsed = parseToml(buildCodexConfigToml('https://api.openai.com/v1'))
+    assert.equal(parsed.model, 'gpt-5.6-sol')
+})
+
 test('buildCodexConfigToml appends the MCP block last, wrapped in sentinels', () => {
     const toml = buildCodexConfigToml('https://x/v1', MCP)
     assert.ok(toml.includes('[mcp_servers.fs]'))
