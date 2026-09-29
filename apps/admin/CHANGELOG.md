@@ -1,5 +1,11 @@
 # @manyfold/admin
 
+## 2.6.0
+
+### Minor Changes
+
+- [#604](https://github.com/manyfold-open/manyfold/pull/604) [`ccb4d42`](https://github.com/manyfold-open/manyfold/commit/ccb4d42dad41c01b92c2afde36e30605f9d560cc) Thanks [@yingca1](https://github.com/yingca1)! - The admin chat session detail names the host that ran each turn instead of its sprite, so turns on a cloud computer are identified too. The turn record keeps the host id from the start of the turn; the sprite name and the exec session id it used to keep are gone, since nothing read the session id any more. Turns recorded before the update show only their placement.
+
 ## 2.5.0
 
 ### Minor Changes
