@@ -191,6 +191,7 @@ test('a daemon attach gates the managed provider inherited by the new agent', as
     await assert.rejects(
         attach.attach({
             runtime: runtime({ primaryAgentId: 'agt_primary' }),
+            expectedOwnerUserId: 'u1',
             name: 'attached'
         }),
         /managed channel unavailable/

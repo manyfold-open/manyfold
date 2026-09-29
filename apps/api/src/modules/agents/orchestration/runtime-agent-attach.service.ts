@@ -15,6 +15,7 @@ import {
     Inject,
     Injectable,
     Logger,
+    NotFoundException,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -89,6 +90,9 @@ const builtInProfileAgent = async (
 
 export interface AttachAgentInput {
     runtime: AgentRuntimeRow
+    // Whose account the agent lands in: the caller's own user, or the user an
+    // admin acts for. The runtime must belong to them.
+    expectedOwnerUserId: string
     name: string
     workspace?: string
     model?: string
@@ -123,9 +127,13 @@ export class RuntimeAgentAttachService {
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
         const ctx = await this.runtimeContext.forRuntime(input.runtime.id)
-        if (!ctx || ctx.runtime.userId !== input.runtime.userId)
+        if (!ctx)
             throw new ConflictException(
                 `runtime ${input.runtime.id} is not attachable`
+            )
+        if (ctx.runtime.userId !== input.expectedOwnerUserId)
+            throw new NotFoundException(
+                `agent runtime ${input.runtime.id} not found`
             )
         const runtime = ctx.runtime
         if (!supportsLiveAgents(runtime.framework) || ctx.placement === 'external')

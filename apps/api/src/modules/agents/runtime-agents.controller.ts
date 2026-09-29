@@ -60,6 +60,7 @@ export class RuntimeAgentsController {
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
         const summary = await this.attach.attach({
             runtime,
+            expectedOwnerUserId: user.userId,
             name: dto.name,
             workspace: dto.workspace,
             model: dto.model,
@@ -109,8 +110,10 @@ export class AdminRuntimeAgentsController {
         const runtime = await this.runtimes.findById(runtimeId)
         if (!runtime)
             throw new NotFoundException(`agent runtime ${runtimeId} not found`)
+        // Admin on-behalf: the agent lands in the runtime owner's account.
         return this.attach.attach({
             runtime,
+            expectedOwnerUserId: runtime.userId,
             name: dto.name,
             workspace: dto.workspace,
             model: dto.model,

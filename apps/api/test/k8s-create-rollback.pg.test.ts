@@ -997,7 +997,13 @@ test(
         await bounded(gate.entered)
         const stale = { ...pendingRuntime, status: 'ready' as const }
         await assert.rejects(
-            bounded(h.attach.attach({ runtime: stale, name: 'foreign' })),
+            bounded(
+                h.attach.attach({
+                    runtime: stale,
+                    expectedOwnerUserId: stale.userId,
+                    name: 'foreign'
+                })
+            ),
             /container is not ready/
         )
         let listed = false
@@ -1606,6 +1612,7 @@ for (const provisionStage of ['secrets', 'deployments'] as const)
                         currentPhase: null,
                         status: 'ready'
                     },
+                    expectedOwnerUserId: runtime.userId,
                     name: 'foreign'
                 }),
                 /container is not ready/

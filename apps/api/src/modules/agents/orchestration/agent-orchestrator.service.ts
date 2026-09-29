@@ -571,6 +571,7 @@ export class AgentOrchestratorService {
                 emitter.step('inserting_agent')
                 const summary = await this.attach.attach({
                     runtime: runtimeRow,
+                    expectedOwnerUserId: userId,
                     name: dto.name,
                     workspace: dto.workspace,
                     model: undefined,
@@ -1178,9 +1179,14 @@ export class AgentOrchestratorService {
         // existing instance send no credentials, and resolving first would reject
         // them for that. A failed install keeps its slot and is retried below.
         if (dto.sandboxId) {
+            await this.spritesProvisioner.assertSandboxAttachable(
+                userId,
+                dto.sandboxId
+            )
             const instance = await this.runtimes.findRuntimeOnHost(
                 dto.sandboxId,
-                dto.framework
+                dto.framework,
+                userId
             )
             if (instance && instance.status !== 'failed') {
                 if (instance.status !== 'ready')
@@ -1192,6 +1198,7 @@ export class AgentOrchestratorService {
                 emitter.step('inserting_agent')
                 const joined = await this.attach.attach({
                     runtime: instance,
+                    expectedOwnerUserId: userId,
                     name: dto.name,
                     workspace: dto.workspace,
                     modelConfigSource: dto.modelConfigSource,

@@ -79,7 +79,11 @@ const attachWith = async (
             }
         } as never
     )
-    await attach.attach({ runtime: runtimeRow as never, name: 'second' })
+    await attach.attach({
+        runtime: runtimeRow as never,
+        expectedOwnerUserId: 'user-1',
+        name: 'second'
+    })
     return written
 }
 

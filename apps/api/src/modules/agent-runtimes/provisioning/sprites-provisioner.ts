@@ -198,6 +198,15 @@ export class SpritesProvisioner {
         })
     }
 
+    // For callers that join an instance already on the sandbox: the same
+    // owner, kind and readiness rules an install onto it gets.
+    async assertSandboxAttachable(
+        userId: string,
+        hostId: string
+    ): Promise<void> {
+        await this.resolveAttachHost(userId, hostId)
+    }
+
     // Attach uses the sandbox's own provider (the VM already lives there), not
     // a freshly-selected one. Validates ownership, kind and a ready host.
     private async resolveAttachHost(
