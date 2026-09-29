@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 9.4.0
+
+### Minor Changes
+
+- [#628](https://github.com/manyfold-open/manyfold/pull/628) [`e0090e6`](https://github.com/manyfold-open/manyfold/commit/e0090e6460b97ac549615a29e2e783d139f3bbc4) Thanks [@yingca1](https://github.com/yingca1)! - Deleting an agent that stands for its runtime's built-in profile (a Hermes `default` or OpenClaw `main` row on a sandbox or cloud computer) now removes the agent without asking the framework to delete that profile. The framework refused ("Cannot delete the default profile"), so neither that agent nor its runtime and sandbox could be deleted. The profile stays, because the runtime's primary agent runs as it.
+
+- [#628](https://github.com/manyfold-open/manyfold/pull/628) [`e0090e6`](https://github.com/manyfold-open/manyfold/commit/e0090e6460b97ac549615a29e2e783d139f3bbc4) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox whose activity tasks cannot be read no longer shows an empty task list. `GET /api/sandboxes/:id/tasks` and its admin route answer 503 with the reason. A stop that cannot read the tasks finishes its other steps and warns that the tasks were not checked. Before, it failed after the services were already stopped, or reported that nothing on the sandbox could be stopped.
+
 ## 9.3.0
 
 ### Minor Changes
