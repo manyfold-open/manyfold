@@ -3,7 +3,7 @@ import type { ExecEndpointFailure } from '@/modules/hosts/providers/sandbox-prov
 
 // The daemon a turn was resolved to: the host id is its routing key.
 export interface TurnDaemon {
-    daemonId: string
+    hostId: string
     // The directories this agent's turns run in beyond the daemon's own
     // roots; they travel on every exec.start (DAEMON_FEATURE_EXEC_ROOTS).
     roots: readonly string[]

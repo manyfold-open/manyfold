@@ -348,7 +348,7 @@ test('a local host whose daemon is online is admitted with no adapter call', asy
         daemon: daemonRow({ hostId: 'dh_1' })
     })
     const res = await h.service.ensureHostDaemon({ host: h.state.host })
-    assert.equal(res.handle?.daemonId, 'dh_1')
+    assert.equal(res.handle?.hostId, 'dh_1')
     assert.equal(res.handle?.started, false)
     assert.equal(res.handle?.generation, `api-1:${h.state.daemon!.rpcConnectedAt!.getTime()}`)
     assert.deepEqual(h.calls, [])
@@ -369,7 +369,7 @@ test('a local host whose daemon is offline is runner_unavailable: only the user 
 test('an already-connected hosted daemon is a single-lookup no-op', async () => {
     const h = buildHarness({ daemon: daemonRow() })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1' })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.equal(res.handle?.started, false)
     assert.deepEqual(h.calls, [])
     assert.equal(h.bumps(), 0)
@@ -378,7 +378,7 @@ test('an already-connected hosted daemon is a single-lookup no-op', async () => 
 test('a cold machine is inspected, installed, registered with a bound token, started, then awaited', async () => {
     const h = buildHarness({ installed: false, registered: false, version: null })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1', waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.equal(res.handle?.started, true)
     assert.deepEqual(h.calls, ['power', 'inspect', 'install-cli', 'register', 'start'])
     assert.equal(h.bumps(), 1, 'the bootstrap runs under a fresh generation')
@@ -436,7 +436,7 @@ test('the inspect probes the ADR-0014 profile layout of the machine kind', async
 test('a pod host is restarted through its boot loop and registered without a token expiry', async () => {
     const h = buildHarness({ providerKind: 'k8s', registered: false })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'pdh_1')
+    assert.equal(res.handle?.hostId, 'pdh_1')
     assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'start'])
     assert.equal('expiresInDays' in h.mints[0], false)
     assert.equal(h.mints[0].hostId, 'pdh_1')
@@ -456,7 +456,7 @@ test('a pod host is restarted through its boot loop and registered without a tok
 test('a sprite daemon is stopped for its supervised loop to take over, not started detached', async () => {
     const h = buildHarness({ registered: true, daemon: offlineDaemon() })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     const start = scriptsOf(h).find((s) => s.includes('daemon stop'))!
     assert.ok(!start.includes('setsid') && !start.includes('daemon start'), 'the exec only stops what runs')
     assert.equal(h.supervised.length, 1)
@@ -515,7 +515,7 @@ test('a connected sprite daemon started by an exec is handed to its supervised l
         requiredFeatures: [DAEMON_FEATURE_SERVICES],
         waitOnlineMs: 50
     })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.equal(h.supervised.length, 1, 'the loop took the daemon over')
     assert.ok(scriptsOf(h).some((s) => s.includes('daemon stop')))
     assert.deepEqual(ensured, [], 'no CLI update was asked for')
@@ -530,7 +530,7 @@ test('a suspended sprite with a registered daemon is woken, and a fresh lease is
         reconnectsOnWake: true
     })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.deepEqual(h.calls, ['power', 'wake'], 'no bootstrap when the thawed daemon dials back in')
     assert.deepEqual(h.powers, ['suspended'])
     assert.equal(h.bumps(), 0)
@@ -547,7 +547,7 @@ test('a thawed machine whose registered daemon dials back in is not restarted', 
         reconnectsOnThaw: true
     })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.deepEqual(h.calls, ['power'], 'no inspect, no restart')
     assert.equal(h.bumps(), 0)
 })
@@ -590,7 +590,7 @@ test('a daemon registered against another API address is registered again before
     await withPublicApi('https://api.example.com', async () => {
         const h = buildHarness({ registered: true, registeredApiUrl: 'https://old-tunnel.example.com/api' })
         const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-        assert.equal(res.handle?.daemonId, 'sbx_1')
+        assert.equal(res.handle?.hostId, 'sbx_1')
         assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'start'])
         const register = h.execs.find((e) => e.script.includes('daemon register'))!
         assert.match(register.script, /--api-url https:\/\/api\.example\.com\/api daemon register/)
@@ -625,7 +625,7 @@ test('a CLI too old to read the token from stdin is reinstalled and the register
         return original(args)
     }
     const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'install-cli', 'register', 'start'])
     assert.deepEqual(h.revoked, ['ldt_new'], 'the credential the old CLI never read is revoked')
     assert.equal(h.mints.length, 2)
@@ -675,7 +675,7 @@ test('a heartbeat is not a socket: presence within the window but no rpc lease i
         reconnectsOnWake: true
     })
     const res = await h.service.ensureHostDaemon({ host: h.state.host, agentId: 'agt_1', waitOnlineMs: 50 })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.deepEqual(h.calls, ['power', 'wake'])
     assert.deepEqual(h.holds, ['ensure-agt_1'], 'held before the machine is touched')
 })
@@ -683,7 +683,7 @@ test('a heartbeat is not a socket: presence within the window but no rpc lease i
 test('a socket is a socket: an rpc lease is admitted even when the heartbeat is stale', async () => {
     const h = buildHarness({ daemon: daemonRow({ lastSeenAt: new Date(Date.now() - 120_000) }) })
     const res = await h.service.ensureHostDaemon({ host: h.state.host })
-    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(res.handle?.hostId, 'sbx_1')
     assert.deepEqual(h.calls, [])
 })
 
@@ -704,7 +704,7 @@ test('awaitReconnect answers on the fresh lease a thawed daemon writes', async (
     const waiting = h.service.awaitReconnect(h.state.host, since, 500)
     h.dialIn()
     const handle = await waiting
-    assert.equal(handle?.daemonId, 'sbx_1')
+    assert.equal(handle?.hostId, 'sbx_1')
     assert.equal(await h.service.awaitReconnect(h.state.host, new Date(Date.now() + 60_000), 10), null, 'a lease older than `since` is not the reconnect')
 })
 
@@ -748,7 +748,7 @@ test('concurrent turns on one host share a single bring-up', async () => {
         h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 }),
         h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
     ])
-    for (const res of results) assert.equal(res.handle?.daemonId, 'sbx_1')
+    for (const res of results) assert.equal(res.handle?.hostId, 'sbx_1')
     assert.equal(h.calls.filter((c) => c === 'register').length, 1)
     assert.equal(h.mints.length, 1)
 })

@@ -210,7 +210,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             authContext,
             creds,
             resolvePriceScope,

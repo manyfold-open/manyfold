@@ -158,8 +158,8 @@ for (const framework of listFrameworks()) {
                 framework as AgentFramework
             )
             const resolved = await factory.resolveTurnDaemon(agent)
-            assert.equal(resolved.daemonId, 'dh_one')
-            const driver = factory.daemonDriverFor(resolved.daemonId)
+            assert.equal(resolved.hostId, 'dh_one')
+            const driver = factory.daemonDriverFor(resolved.hostId)
             assert.ok(driver instanceof DaemonExecDriver)
             const handle = driver.stream({ cmd: ['true'], timeoutMs: 1000 })
             await handle.result
@@ -252,7 +252,7 @@ test('a workspace outside the managed tree needs exec.roots.v1; under it the dae
 test('the resolved roots reach the daemon on exec.start', async () => {
     const { factory, agent, payloads } = rig('sprites', 'codex')
     const resolved = await factory.resolveTurnDaemon(agent)
-    const driver = factory.daemonDriverFor(resolved.daemonId, undefined, null, {
+    const driver = factory.daemonDriverFor(resolved.hostId, undefined, null, {
         roots: resolved.roots
     })
     await driver.stream({ cmd: ['true'], dir: agent.workspacePath!, timeoutMs: 1000 }).result
@@ -277,6 +277,6 @@ test('managed Sprite upgrade errors direct operators to the managed runner', () 
 test('OpenClaw history reuses the filesystem carrier without a second Sprite wake', async () => {
     const { factory, agent, calls } = rig('sprites', 'openclaw')
     const handle = await factory.recoveryFsForAgent(agent.id)
-    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.daemonId))
+    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.hostId))
     assert.deepEqual(calls, ['reserve', 'resolve'])
 })

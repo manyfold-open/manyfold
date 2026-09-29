@@ -75,7 +75,7 @@ export type ExecPlacement = Exclude<RuntimePlacement, 'external'>
 export interface ExecDriverHandle {
     driver: ExecDriver
     // The host id: the routing key of the daemon that carries the turn.
-    daemonId: string
+    hostId: string
     creds: unknown
     resolvePriceScope?: () => Promise<ServedPriceScope>
     supportsExecResources?: () => Promise<boolean>
@@ -87,7 +87,7 @@ export interface ExecDriverHandle {
 }
 
 export interface RecoveryFsHandle {
-    daemonId: string
+    hostId: string
     fs: RecoveryFs
     runtime: ExecPlacement
     agent: Agent
@@ -160,9 +160,9 @@ export class ExecDriverFactory {
         )
 
         const runner = carryingDaemonId
-            ? { daemonId: carryingDaemonId, roots: turnRoots(agent, placement) }
+            ? { hostId: carryingDaemonId, roots: turnRoots(agent, placement) }
             : await this.resolveTurnDaemon(ctx)
-        const daemonId = runner.daemonId
+        const hostId = runner.hostId
         const coding = frameworkCapability(agent.framework).kind === 'coding'
         // A turn on the CLI's own sign-in needs no stored credential, and a
         // sandbox runtime prepared bare has none until a provider is bound —
@@ -187,22 +187,22 @@ export class ExecDriverFactory {
         if (selectedAuthContext)
             assertHostHonoursAuthContext(
                 selectedAuthContext,
-                await this.hostFeatures(daemonId),
+                await this.hostFeatures(hostId),
                 'this runner'
             )
         if (placement === 'sprites')
             void this.spriteStorage.measureIfDue(agent.id, 'chat')
         return {
-            driver: this.daemonDriverFor(daemonId, baseEnv, selectedAuthContext, {
+            driver: this.daemonDriverFor(hostId, baseEnv, selectedAuthContext, {
                 roots: runner.roots,
                 reconnect: this.reconnectFor(ctx.host)
             }),
-            daemonId,
+            hostId,
             creds,
             resolvePriceScope: () =>
                 this.priceScopeForCredentials(agent, creds),
             supportsExecResources: async () =>
-                (await this.hostFeatures(daemonId))?.clientFeatures.includes(
+                (await this.hostFeatures(hostId))?.clientFeatures.includes(
                     DAEMON_FEATURE_EXEC_RESOURCES
                 ) ?? false,
             runtime: placement,
@@ -282,7 +282,7 @@ export class ExecDriverFactory {
                 'runner version or capability',
                 true
             )
-        return { daemonId: host.id, roots }
+        return { hostId: host.id, roots }
     }
 
     // A turn's first exec.start retries once after the daemon reconnects on
@@ -357,8 +357,8 @@ export class ExecDriverFactory {
         )
         const runner = await this.resolveTurnDaemon(ctx)
         return {
-            daemonId: runner.daemonId,
-            fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
+            hostId: runner.hostId,
+            fs: new DaemonRecoveryFs(this.daemonRegistry, runner.hostId),
             runtime: ctx.placement as ExecPlacement,
             agent: ctx.agent,
             ...(ctx.placement === 'sprites' && this.bringUp
@@ -381,7 +381,7 @@ export class ExecDriverFactory {
         if (ctx.agent.framework !== 'openclaw') return null
         const daemonId =
             carryingDaemonId ??
-            (await this.resolveTurnDaemon(ctx as RuntimeContext & { agent: Agent })).daemonId
+            (await this.resolveTurnDaemon(ctx as RuntimeContext & { agent: Agent })).hostId
         return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
     }
 

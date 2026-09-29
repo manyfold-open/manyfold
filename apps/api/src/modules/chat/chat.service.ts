@@ -5638,7 +5638,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             (runnerExecFailure
                 ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerExecFailure)
                 : null)
-        const turnHostId = runner?.daemonId ?? null
+        const turnHostId = runner?.hostId ?? null
         // A runner turn produces no platform-visible activity, so the sprite
         // would suspend under it. Held for the turn's whole life and released
         // at the terminal; if THIS instance dies mid-turn the lease survives on

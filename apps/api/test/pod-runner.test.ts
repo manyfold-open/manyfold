@@ -184,7 +184,7 @@ const buildResolver = (opts: { daemon?: Partial<HostDaemonRow> | null }) => {
 test('an online pod daemon is admitted with no RPC and no provider call', async () => {
     const { service, rpcCalls, adapterCalls } = buildResolver({})
     const resolution = await service.ensureHostDaemon({ host: podHost() })
-    assert.equal(resolution.handle?.daemonId, 'pdh_1')
+    assert.equal(resolution.handle?.hostId, 'pdh_1')
     assert.deepEqual(rpcCalls, [], 'the turn carries its own roots (ADR-0038); nothing to register first')
     assert.equal(resolution.handle?.started, false)
     assert.equal(adapterCalls(), 0, 'no provider call for a daemon that is already connected')

@@ -100,7 +100,7 @@ export interface HostSession {
     host: RuntimeHostRow
     daemon: HostDaemonRow
     // The host id: the daemon's routing key.
-    daemonId: string
+    hostId: string
     // An RPC to the daemon that survives the one thing a held machine still
     // does on its own — reconnect after a thaw: a call lost to a closed,
     // replaced or frozen socket waits for the fresh lease and goes once more.
@@ -220,7 +220,7 @@ export class HostDaemonAccess {
             return await work({
                 host: args.host,
                 daemon: ensured.daemon,
-                daemonId: args.host.id,
+                hostId: args.host.id,
                 rpc: (call) => this.rpc(args.host, call),
                 exec: (req) => this.exec(args.host, req),
                 stream: (call) =>

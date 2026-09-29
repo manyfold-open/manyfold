@@ -122,7 +122,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
               : undefined
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             agent,
             creds,
             runtime,

@@ -82,7 +82,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         const tAdapterStart = Date.now()
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             creds,
             runtime,
             agent

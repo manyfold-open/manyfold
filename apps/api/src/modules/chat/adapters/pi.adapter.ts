@@ -98,7 +98,7 @@ export class PiAdapter implements ApiChatAdapter {
               : undefined
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             agent,
             creds,
             runtime,

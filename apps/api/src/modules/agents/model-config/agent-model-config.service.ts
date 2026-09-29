@@ -1802,7 +1802,7 @@ export class AgentModelConfigService {
             throw new BadRequestException('daemon runner unavailable')
         const runner = await this.execDrivers.resolveTurnDaemon(agent)
         return this.modelInspectViaDaemon(
-            runner.daemonId,
+            runner.hostId,
             agent,
             authContextRefFor(agent, agent.placement),
             30_000

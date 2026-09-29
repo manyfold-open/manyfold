@@ -688,7 +688,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             })
             if (!resolution.handle)
                 throw new TurnDaemonError('sprites', resolution.fallbackReason ?? 'runner unavailable', false, resolution.execFailure)
-            return { daemonId: resolution.handle.daemonId }
+            return { daemonId: resolution.handle.hostId }
         }
     }
 

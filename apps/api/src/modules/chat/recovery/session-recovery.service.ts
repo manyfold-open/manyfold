@@ -166,7 +166,7 @@ export class SessionRecoveryService {
 
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -390,7 +390,7 @@ export class SessionRecoveryService {
                     )
                     openclawRpc =
                         agent.framework === 'openclaw'
-                            ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                            ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                             : null
                     const listing = await reader.listCandidates({
                         fs: handle.fs,
@@ -441,7 +441,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         try {
             // A caller that names the session already has the list; scanning
@@ -633,7 +633,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -753,7 +753,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -914,7 +914,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: ReaderResult
         try {

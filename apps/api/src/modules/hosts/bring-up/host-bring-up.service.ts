@@ -121,7 +121,7 @@ export interface HostDaemonArgs {
 
 export interface BringUpHandle {
     // The host id: the daemon's routing key (ADR-0037).
-    daemonId: string
+    hostId: string
     // false when the daemon was already connected (the common case).
     started: boolean
     // The rpc-lease generation the handle was resolved against
@@ -418,7 +418,7 @@ export class HostBringUpService {
         if (!missing.length)
             return {
                 handle: {
-                    daemonId: host.id,
+                    hostId: host.id,
                     started,
                     generation: leaseGeneration(daemon)
                 }
@@ -441,7 +441,7 @@ export class HostBringUpService {
             )
                 return {
                     handle: {
-                        daemonId: host.id,
+                        hostId: host.id,
                         started: true,
                         generation: leaseGeneration(back)
                     }
@@ -462,7 +462,7 @@ export class HostBringUpService {
                 })
                 return {
                     handle: {
-                        daemonId: host.id,
+                        hostId: host.id,
                         started: true,
                         generation: leaseGeneration(fresh)
                     }
@@ -1006,7 +1006,7 @@ const handleFor = (
     daemon: HostDaemonRow,
     started: boolean
 ): BringUpHandle => ({
-    daemonId: host.id,
+    hostId: host.id,
     started,
     generation: leaseGeneration(daemon)
 })

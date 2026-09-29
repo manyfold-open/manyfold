@@ -93,7 +93,7 @@ test(
         // Another user's agent on the same runtime is refused: the machine
         // is the runtime owner's, and an agent never inherits it.
         await assert.rejects(factory.resolveTurnDaemon(otherAgent), TurnDaemonError)
-        assert.equal((await factory.resolveTurnDaemon(ownAgent)).daemonId, hostId)
+        assert.equal((await factory.resolveTurnDaemon(ownAgent)).hostId, hostId)
         // The socket is gone: a heartbeat, however fresh, is not reachability
         // (ADR-0038).
         await db
