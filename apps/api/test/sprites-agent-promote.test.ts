@@ -230,11 +230,12 @@ test('delete primary with no secondary tears down the runtime, preserving the sa
     await svc.delete('agent-1', 'u-1', false)
 
     assert.ok(torndown, 'teardownRuntime should run for the last agent')
-    assert.equal(
-        (torndown as { opts: unknown } | null)?.opts,
-        undefined,
-        'default (preserve) teardown — empty sandbox kept, not eagerly deleted'
-    )
+    // The default (preserve) teardown — the empty sandbox is kept, not eagerly
+    // deleted — naming the leaving agent, which its emptiness guard must not
+    // count (it answered 409 RUNTIME_NOT_EMPTY before).
+    assert.deepEqual((torndown as { opts: unknown } | null)?.opts, {
+        leavingAgentId: 'agent-1'
+    })
 })
 
 test('delete secondary detaches and removes the row, leaves runtime alone', async () => {
