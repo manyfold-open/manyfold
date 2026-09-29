@@ -42,6 +42,11 @@ export type AgentCreateEvent =
           step: AgentCreateStep | null
           errorClass: string
           message: string
+          // The API error envelope's fields, as a non-stream response would
+          // carry them. Absent from APIs older than these fields.
+          code?: string
+          status?: number
+          details?: unknown
       }
 
 /**

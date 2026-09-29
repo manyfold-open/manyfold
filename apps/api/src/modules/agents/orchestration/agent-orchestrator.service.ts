@@ -140,6 +140,20 @@ const isConfigurableRuntimeDefaultFramework = (
         framework
     )
 
+// Whether a create request names credentials of its own, in any framework's
+// shape.
+const carriesCredentials = (dto: CreateAgentDto): boolean =>
+    Boolean(
+        dto.claudeCodeCredentials ||
+        dto.codexCredentials ||
+        dto.geminiCliCredentials ||
+        dto.piCredentials ||
+        dto.antigravityCliCredentials ||
+        dto.openclawCredentials ||
+        dto.hermesCredentials ||
+        dto.saveCredentialAs
+    )
+
 export const resolveRuntime = (
     framework: AgentFramework,
     userChoice?: RuntimePlacement,
@@ -1149,9 +1163,11 @@ export class AgentOrchestratorService {
             .where(and(eq(agents.userId, userId), eq(agents.name, displayName)))
             .limit(1)
         if (existing[0])
-            throw new ConflictException(
-                `agent "${displayName}" already exists for this user`
-            )
+            throw new ConflictException({
+                message: `agent "${displayName}" already exists for this user`,
+                code: 'AGENT_NAME_TAKEN',
+                details: { agentId: existing[0].id }
+            })
     }
 
     private async createSprites(
@@ -1174,7 +1190,9 @@ export class AgentOrchestratorService {
         // config home and its globally-installed CLI are VM-wide). So "create an
         // agent for a framework this sandbox already runs" means "add an agent to
         // that instance" — the agent inherits the instance's credentials, pinned
-        // version and model provider, and any of those supplied here are ignored.
+        // version and model provider. Credentials sent anyway are refused rather
+        // than dropped: they belong to the instance, so honouring them would
+        // switch every agent on it.
         // Runs BEFORE credential resolution on purpose: callers targeting an
         // existing instance send no credentials, and resolving first would reject
         // them for that. A failed install keeps its slot and is retried below.
@@ -1194,6 +1212,11 @@ export class AgentOrchestratorService {
                         message: `sandbox ${dto.sandboxId} is still bringing up ${dto.framework} (status=${instance.status}); retry once it is ready`,
                         code: 'SANDBOX_FRAMEWORK_INSTANCE_NOT_READY',
                         status: instance.status
+                    })
+                if (carriesCredentials(dto))
+                    throw new BadRequestException({
+                        message: `sandbox ${dto.sandboxId} already runs ${dto.framework}; an agent added there uses that instance's credentials. Send none, or change them for every agent on it with PATCH /agents/:id/credentials`,
+                        code: 'JOIN_INHERITS_CREDENTIALS'
                     })
                 emitter.step('inserting_agent')
                 const joined = await this.attach.attach({

@@ -4,7 +4,7 @@ import {
     apiPaths,
     isObjectId
 } from '@manyfold/shared'
-import { buildApiError } from './errors.js'
+import { apiErrorFromStreamEvent, buildApiError } from './errors.js'
 import type {
     CapabilitiesResponse,
     A2aExposure,
@@ -1851,14 +1851,14 @@ const buildAgentsClient = (
             const decoder = new TextDecoder()
             let buffer = ''
             let completed: AgentSummary | null = null
-            let errored: { step: string | null; message: string } | null = null
+            let errored: Extract<AgentCreateEvent, { type: 'error' }> | null =
+                null
             const dispatch = (line: string): void => {
                 if (!line) return
                 const event = JSON.parse(line) as AgentCreateEvent
                 onEvent(event)
                 if (event.type === 'complete') completed = event.agent
-                if (event.type === 'error')
-                    errored = { step: event.step, message: event.message }
+                if (event.type === 'error') errored = event
             }
             while (true) {
                 const { value, done } = await reader.read()
@@ -1872,13 +1872,7 @@ const buildAgentsClient = (
                 }
             }
             if (buffer.trim()) dispatch(buffer.trim())
-            if (errored) {
-                const err = new Error(
-                    (errored as { message: string }).message
-                ) as Error & { step: string | null }
-                err.step = (errored as { step: string | null }).step
-                throw err
-            }
+            if (errored) throw apiErrorFromStreamEvent(errored)
             if (!completed)
                 throw new Error('stream ended without complete event')
             return completed

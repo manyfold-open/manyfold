@@ -4,7 +4,11 @@ import type { NewAgent } from '@manyfold/db'
 import assert from 'node:assert/strict'
 import type { AgentRuntimeRow } from '@manyfold/db'
 import test from 'node:test'
-import { ConflictException, NotFoundException } from '@nestjs/common'
+import {
+    BadRequestException,
+    ConflictException,
+    NotFoundException
+} from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
@@ -63,7 +67,10 @@ interface Harness {
 // lookup only finds the caller's own runtime.
 const makeHarness = (
     instance: ReturnType<typeof runtimeOnHost> | null,
-    { hostOwner = 'user-1' }: { hostOwner?: string } = {}
+    {
+        hostOwner = 'user-1',
+        nameTakenBy
+    }: { hostOwner?: string; nameTakenBy?: string } = {}
 ): Harness => {
     const state = {
         attachCalls: [] as Array<Record<string, unknown>>,
@@ -117,8 +124,20 @@ const makeHarness = (
             })
         ) as never
     )
+    const db = nameTakenBy
+        ? {
+              ...emptyDb,
+              select: () => ({
+                  from: () => ({
+                      where: () => ({
+                          limit: async () => [{ id: nameTakenBy }]
+                      })
+                  })
+              })
+          }
+        : emptyDb
     const service = new AgentOrchestratorService(
-        emptyDb as never,
+        db as never,
         {} as never,
         {} as never,
         {} as never,
@@ -218,11 +237,8 @@ test('AgentOrchestrator create adds an agent to the framework instance already o
                 runtime: 'sprites',
                 sandboxId: 'sbx_1',
                 workspace: '/repo/two',
-                // Runtime-scoped inputs a caller may still send. Credentials live
-                // on the runtime (agent_credentials.runtime_id is unique) and the
-                // CLI is installed VM-wide, so both belong to the instance and
-                // must not be re-resolved or re-pinned for the joining agent.
-                codexCredentials: { providerId: 'ump_other' },
+                // The CLI is installed VM-wide, so a pinned version belongs to
+                // the instance and is not re-pinned for the joining agent.
                 frameworkVersion: '9.9.9'
             } as never
         },
@@ -396,5 +412,64 @@ test('RuntimeAgentAttachService attach refuses a runtime its caller does not own
                 expectedOwnerUserId: 'user-1'
             } as never),
         (err) => err instanceof NotFoundException
+    )
+})
+
+// Credentials live on the runtime (agent_credentials.runtime_id is unique), so
+// honouring a joiner's would switch every agent on the instance, and dropping
+// them silently left the caller believing the agent ran on what it sent.
+test('AgentOrchestrator create refuses credentials for an agent joining an instance', async () => {
+    const h = makeHarness(runtimeOnHost())
+
+    await assert.rejects(
+        () =>
+            h.service.create({
+                userId: 'user-1',
+                actorUserId: 'user-1',
+                isAdmin: false,
+                dto: {
+                    name: 'Second Codex',
+                    framework: 'codex',
+                    runtime: 'sprites',
+                    sandboxId: 'sbx_1',
+                    codexCredentials: { providerId: 'ump_other' }
+                } as never
+            }),
+        (err) =>
+            err instanceof BadRequestException &&
+            (err.getResponse() as { code?: string }).code ===
+                'JOIN_INHERITS_CREDENTIALS'
+    )
+    assert.equal(h.attachCalls.length, 0)
+    assert.equal(h.credentialResolveCalls, 0)
+})
+
+test('AgentOrchestrator create names the agent that already has the name', async () => {
+    const h = makeHarness(null, { nameTakenBy: 'agt_taken' })
+
+    await assert.rejects(
+        () =>
+            h.service.create({
+                userId: 'user-1',
+                actorUserId: 'user-1',
+                isAdmin: false,
+                dto: {
+                    name: 'Taken',
+                    framework: 'codex',
+                    runtime: 'sprites',
+                    sandboxId: 'sbx_1'
+                } as never
+            }),
+        (err) => {
+            const body = (err as ConflictException).getResponse() as {
+                code?: string
+                details?: { agentId?: string }
+            }
+            return (
+                err instanceof ConflictException &&
+                body.code === 'AGENT_NAME_TAKEN' &&
+                body.details?.agentId === 'agt_taken'
+            )
+        }
     )
 })

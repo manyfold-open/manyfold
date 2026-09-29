@@ -40,6 +40,42 @@ const statusCode = (status: number): string => {
     return 'http_error'
 }
 
+// An agent-create stream reports its failure as an event after its 201. An
+// API older than the envelope fields on that event names only the Nest
+// exception class, which still says which status the failure would have had.
+const STATUS_FOR_EXCEPTION: Record<string, number> = {
+    BadRequestException: 400,
+    UnauthorizedException: 401,
+    ForbiddenException: 403,
+    NotFoundException: 404,
+    ConflictException: 409,
+    UnprocessableEntityException: 422,
+    InternalServerErrorException: 500,
+    ServiceUnavailableException: 503
+}
+
+export const apiErrorFromStreamEvent = (event: {
+    step: string | null
+    errorClass: string
+    message: string
+    code?: string
+    status?: number
+    details?: unknown
+}): ApiError & { step: string | null } => {
+    const status = event.status ?? STATUS_FOR_EXCEPTION[event.errorClass] ?? 500
+    const err = new ApiError({
+        status,
+        statusText: '',
+        code: event.code ?? statusCode(status),
+        message: event.message,
+        serverMessage: event.message,
+        body: JSON.stringify(event),
+        details: event.details
+    }) as ApiError & { step: string | null }
+    err.step = event.step
+    return err
+}
+
 interface ParsedEnvelope {
     code?: unknown
     message?: unknown

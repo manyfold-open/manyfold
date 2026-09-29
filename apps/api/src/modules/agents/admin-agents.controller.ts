@@ -1,13 +1,10 @@
 import {
-    AgentCreateEvent,
-    AgentCreateStep,
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
     FrameworkUpgradeEvent,
     FrameworkUpgradeStep,
-    RefreshAgentModelConfigModelsResponse,
-    stepsFor
+    RefreshAgentModelConfigModelsResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -32,15 +29,12 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { UsersService } from '@/modules/users/users.service'
 import { AgentsService } from '@/modules/agents/agents.service'
+import { AgentOrchestratorService } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import {
-    AgentOrchestratorService,
-    resolveRuntime,
-    type AgentProgressEmitter
-} from '@/modules/agents/orchestration/agent-orchestrator.service'
-import {
-    classifyError,
-    sanitizeMessage
-} from '@/modules/agents/agents.controller'
+    resolveCreateStreamPlan,
+    sanitizeMessage,
+    streamAgentCreate
+} from '@/modules/agents/create-stream'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
@@ -101,75 +95,27 @@ export class AdminAgentsController {
             return
         }
 
-        res.hijack()
-        const [defaults, userOverrides] = await Promise.all([
-            this.adminSettings.getCachedFrameworkRuntimeDefaults(),
-            this.users.getFrameworkRuntimeOverrides(ownerUserId)
-        ])
-        const runtime = resolveRuntime(
-            dto.framework,
-            dto.runtime,
-            defaults,
-            userOverrides
+        const plan = await resolveCreateStreamPlan(
+            { adminSettings: this.adminSettings, users: this.users },
+            ownerUserId,
+            dto
         )
-        const steps = stepsFor(dto.framework, runtime)
-        let lastIndex = -1
-        const indexOf = (s: AgentCreateStep): number => {
-            const idx = steps.indexOf(s)
-            if (idx === -1) {
-                this.log.warn(
-                    `progress step "${s}" not in stepsFor(${dto.framework}, ${runtime}); UI progress would reset — using fallback index ${lastIndex}`
+        await streamAgentCreate({
+            res,
+            framework: dto.framework,
+            plan,
+            log: this.log,
+            run: (emitter) =>
+                this.orchestrator.create(
+                    {
+                        userId: ownerUserId,
+                        actorUserId: user.userId,
+                        dto,
+                        isAdmin: true
+                    },
+                    emitter
                 )
-                return Math.max(lastIndex, 0)
-            }
-            lastIndex = idx
-            return idx
-        }
-        res.raw.writeHead(201, {
-            ...corsHeadersForOrigin(res.request.headers),
-            'content-type': 'application/x-ndjson',
-            'cache-control': 'no-cache',
-            'x-accel-buffering': 'no'
         })
-        const write = (ev: AgentCreateEvent): void => {
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-
-        let lastStep: AgentCreateStep | null = null
-        const emitter: AgentProgressEmitter = {
-            step: (s): void => {
-                lastStep = s
-                write({
-                    type: 'step',
-                    step: s,
-                    index: indexOf(s),
-                    total: steps.length,
-                    startedAt: new Date().toISOString()
-                })
-            }
-        }
-
-        try {
-            const agent = await this.orchestrator.create(
-                {
-                    userId: ownerUserId,
-                    actorUserId: user.userId,
-                    dto,
-                    isAdmin: true
-                },
-                emitter
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            write({
-                type: 'error',
-                step: lastStep,
-                errorClass: classifyError(err),
-                message: sanitizeMessage(err)
-            })
-        } finally {
-            res.raw.end()
-        }
     }
 
     @Delete(':id')

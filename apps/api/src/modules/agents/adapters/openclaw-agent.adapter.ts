@@ -1,6 +1,6 @@
 import type { AgentFramework } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
-import { sanitizeMessage } from '@/modules/agents/agents.controller'
+import { sanitizeMessage } from '@/modules/agents/create-stream'
 import { openclawDefaultWorkspace } from '@/modules/agents/bootstrap/openclaw-shared'
 import {
     assertWorkspaceUsableWithFrameworkExec,

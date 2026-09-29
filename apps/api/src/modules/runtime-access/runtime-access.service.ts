@@ -997,7 +997,15 @@ export class RuntimeAccessService {
                 kind: input.kind,
                 current,
                 limit,
-                planName: input.planName
+                planName: input.planName,
+                // What the error envelope carries to clients; the fields above
+                // are for callers in the API.
+                details: {
+                    kind: input.kind,
+                    current,
+                    limit,
+                    planName: input.planName
+                }
             })
     }
 

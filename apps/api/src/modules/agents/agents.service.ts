@@ -389,9 +389,11 @@ export class AgentsService {
                     )
                     .limit(1)
                 if (duplicate)
-                    throw new ConflictException(
-                        `agent "${name}" already exists for this user`
-                    )
+                    throw new ConflictException({
+                        message: `agent "${name}" already exists for this user`,
+                        code: 'AGENT_NAME_TAKEN',
+                        details: { agentId: duplicate.id }
+                    })
             }
             patch.name = name
         }
