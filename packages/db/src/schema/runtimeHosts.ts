@@ -69,6 +69,9 @@ export interface SpritesProviderRef {
     kind: 'sprites'
     spriteName: string
     spriteId: string | null
+    // The public URL the sprite reports; its hostname carries the
+    // organisation's suffix, so it is not derived from the name.
+    url?: string | null
 }
 
 export interface K8sProviderRef {

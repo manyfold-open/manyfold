@@ -52,9 +52,10 @@ const meets = (daemon: HostDaemonRow, need: HostCliNeed): boolean =>
     (!need.minVersion ||
         !isCliVersionTooOld(daemon.cliVersion, need.minVersion))
 
-// A daemon that updates itself and comes back on its own: a pod host's is
-// restarted by the boot loop, a sprite's hands off to its successor.
-const updatesItself = (daemon: HostDaemonRow): boolean =>
+// A daemon that updates itself and comes back on its own: one under a
+// supervisor's loop (a pod's boot script, a sprite's service) exits and is
+// restarted, one started by hand hands off to its successor.
+export const updatesItself = (daemon: HostDaemonRow): boolean =>
     daemon.startupMethod === 'container' ||
     daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
 

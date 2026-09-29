@@ -6,6 +6,7 @@ import {
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
     RUNNER_PROFILE,
+    SANDBOX_DAEMON_SERVICE,
     isCliVersionTooOld,
     profilePaths
 } from '@manyfold/shared'
@@ -41,7 +42,8 @@ import {
     SandboxProviderRegistry,
     StaleGenerationError,
     type ProviderCall,
-    type SandboxProvider
+    type SandboxProvider,
+    type SupervisedProcess
 } from '@/modules/hosts/providers/sandbox-provider'
 import { recordPower } from '@/modules/hosts/providers/generation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
@@ -62,7 +64,8 @@ import {
 // here.
 //   - a reverse WSS from inside a sprite to the API works (GET /api/daemon/ws
 //     answers 101), and `mf daemon` runs there — but the sprite has no systemd,
-//     so the daemon has to be started detached, by us;
+//     so the daemon runs under the sprite's own service supervisor, started
+//     by us (SPRITE_LAYOUT);
 //   - the WSS CANNOT survive sprite suspension: a frozen process misses pings
 //     and the API drops it (`ws closed code=4000 reason=pong timeout`) while the
 //     process is still alive. So a daemon is NOT durably resident: every
@@ -190,15 +193,18 @@ type RunnerInspection =
     | { state: null; execFailure?: RunnerExecFailure }
 
 // Where the daemon's profile lives on each kind of machine, and how its
-// process is (re)started there. A sprite has no supervisor, so the daemon is
-// started detached; a pod's boot loop restarts the daemon whenever it exits
-// (ADR-0035), so stopping it IS starting it.
+// process is (re)started there. On both, a loop restarts the daemon whenever
+// it exits — a pod's boot script (ADR-0035), a sprite's supervised service —
+// so stopping it IS starting it, and an update applies by exiting.
 interface RunnerLayout {
     profile: string
     envPrefix: string
     probePath: string
     logPath: string | null
     start: (mf: string, keepExecs: boolean) => string
+    // The loop the provider's own supervisor keeps running, when the machine's
+    // main process is not already that loop.
+    supervised: SupervisedProcess | null
     // Whether registering also writes the profile block every shell on the
     // machine reads (MF_API_URL, MF_DEPLOY_ENV), so `mf` run by an agent or
     // in a terminal talks to the API its daemon does. A pod's shells get
@@ -206,22 +212,56 @@ interface RunnerLayout {
     writesShellEnv: boolean
 }
 
+const SPRITE_RUNNER_LOG = '"$HOME/.manyfold/runner.log"'
+
+// A sprite's daemon runs as a sprites service, which starts it again after
+// the sprite's environment restarts (a cold boot): a daemon started by an
+// exec does not come back from that. The service runs this loop rather than
+// the daemon itself, because the service counts as running while any of its
+// processes is left, and the daemon's own services outlive a daemon that
+// exits. The pod's counterpart is docker/host/mf-host-boot.sh. `daemon start`
+// dials the API its registration saved (ADR-0014), so the loop carries no
+// URL of its own.
+const SPRITE_DAEMON_LOOP = [
+    `log=${SPRITE_RUNNER_LOG}`,
+    "child=''",
+    `trap 'trap "" TERM INT; [ -n "$child" ] && kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT`,
+    'while :; do',
+    '    "$HOME/.local/bin/mf" daemon start --foreground >>"$log" 2>&1 &',
+    '    child=$!',
+    '    wait "$child"',
+    '    status=$?',
+    "    child=''",
+    '    echo "$(date -u +%FT%TZ) mf-daemon: daemon exited ($status); restarting in 5s" >>"$log"',
+    '    sleep 5 &',
+    '    child=$!',
+    '    wait "$child"',
+    "    child=''",
+    'done'
+].join('\n')
+
 const SPRITE_LAYOUT: RunnerLayout = {
     profile: RUNNER_PROFILE,
     envPrefix: `export MF_PROFILE=${RUNNER_PROFILE};`,
     probePath: profilePaths('$HOME/.manyfold', RUNNER_PROFILE).daemonConfigPath,
-    logPath: '"$HOME/.manyfold/runner.log"',
+    logPath: SPRITE_RUNNER_LOG,
     // `daemon stop` first: we only get here because the daemon is NOT online,
-    // and a daemon frozen by sprite suspension leaves its pid/lock behind, so
-    // `daemon start` refuses and nothing ever connects. Stopping is a no-op
-    // when there is nothing to stop. setsid: no supervisor exists in a sprite,
-    // so the daemon has to outlive the exec session that starts it. The
-    // process NAME is matched, not the command line: `pgrep -f` also matches
-    // the bash wrapper running this very script.
+    // and one frozen by a suspension keeps running with a dead socket. The
+    // loop starts it again; a daemon an older bring-up started by an exec is
+    // stopped for the loop to take over. The process NAME is matched, not the
+    // command line: `pgrep -f` also matches the bash wrapper running this
+    // very script.
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
-        `setsid nohup ${mf} daemon start --foreground >> "$HOME/.manyfold/runner.log" 2>&1 < /dev/null & disown; sleep 2; ` +
         'pgrep -c -x mf || echo 0',
+    supervised: {
+        name: SANDBOX_DAEMON_SERVICE,
+        command: ['bash', '-lc', SPRITE_DAEMON_LOOP],
+        // The container marker is what the daemon reads as "a supervisor
+        // restarts me": it takes `daemon.update` by exiting and runs
+        // services (services.v1), as on a pod.
+        env: { MF_PROFILE: RUNNER_PROFILE, MF_DAEMON_SUPERVISOR: 'container' }
+    },
     writesShellEnv: true
 }
 
@@ -235,6 +275,7 @@ const POD_LAYOUT: RunnerLayout = {
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
         'pkill -TERM -x mf >/dev/null 2>&1 || true; sleep 2; pgrep -c -x mf || echo 0',
+    supervised: null,
     writesShellEnv: false
 }
 
@@ -760,6 +801,13 @@ export class RunnerManagerService {
             script: `${layout.envPrefix} ${layout.start(mf, keepExecs)}`,
             timeoutMs: 90_000
         })
+        if (layout.supervised) {
+            if (!adapter.superviseDaemon)
+                throw new Error(
+                    `${call.provider.kind} cannot supervise the daemon of host ${call.host.id}`
+                )
+            await adapter.superviseDaemon(call, layout.supervised)
+        }
         this.logger.log(
             `daemon start hostId=${call.host.id} exit=${res.exitCode} procs=${res.stdout.trim().slice(-4)}`
         )

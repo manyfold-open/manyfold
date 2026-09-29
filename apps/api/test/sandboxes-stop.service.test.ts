@@ -240,10 +240,14 @@ test('stop stops the framework services of every service runtime on the host', a
     assert.deepEqual(res.warnings, ['runtime rt-hermes: service hermes status=running'])
 })
 
-test('stop stops only non-managed, non-stopped services', async () => {
+// The daemon's loop and the public port stub are the platform's: stopping the
+// loop's service would take the daemon and every framework service under it
+// down.
+test('stop stops only the user\'s running services, never the daemon or its port', async () => {
     const h = makeStop({
         services: [
-            service('hermes', 'running'),
+            service('mf-daemon', 'running'),
+            service('mf-port', 'running'),
             service('http.server', 'running'),
             service('idle', 'stopped')
         ]

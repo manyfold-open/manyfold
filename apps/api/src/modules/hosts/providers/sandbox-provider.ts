@@ -59,6 +59,15 @@ export interface ProviderExecResult {
     stderr: string
 }
 
+// The process the provider's own supervisor keeps running on the machine: the
+// daemon's restart loop. What it runs is the core's; how it is kept is the
+// provider's.
+export interface SupervisedProcess {
+    name: string
+    command: string[]
+    env: Record<string, string>
+}
+
 export interface SandboxProvider {
     readonly kind: RuntimeProviderKind
     readonly capabilities: SandboxProviderCapabilities
@@ -91,6 +100,19 @@ export interface SandboxProvider {
     releaseAwake?(
         args: Omit<ProviderCall, 'generation'>,
         lease: { name: string }
+    ): Promise<void>
+    // Keeps the daemon's restart loop running under the provider's own
+    // supervisor, which is what starts it again after the machine's
+    // environment restarts. A machine whose main process is that loop (a
+    // pod's boot script) leaves it out. Idempotent: an unchanged definition
+    // that runs is left alone.
+    superviseDaemon?(args: ProviderCall, process: SupervisedProcess): Promise<void>
+    // Routes the machine's public URL to a port inside it, served by a service
+    // of the daemon; null withdraws the route. A provider that routes by a
+    // per-framework hostname (a pod's ingress) leaves it out.
+    publishPort?(
+        args: Omit<ProviderCall, 'generation'>,
+        port: number | null
     ): Promise<void>
     publicUrl?(
         args: Omit<ProviderCall, 'generation'> & {

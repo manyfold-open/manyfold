@@ -6,7 +6,6 @@ import {
     frameworkCapability,
     isExternal,
     isPlatformTaskName,
-    isServiceFrameworkName,
     supportsRuntime
 } from '../src/framework-capability'
 import {
@@ -73,7 +72,6 @@ test('an unregistered id is unavailable everywhere', () => {
     assert.equal(isVersionedFramework('fixture-gateway'), false)
     assert.equal(frameworkUpgradeMode('fixture-gateway'), null)
     assert.deepEqual(frameworkRepoCandidates('fixture-gateway'), [])
-    assert.equal(isServiceFrameworkName('fixture-gateway'), false)
     assert.equal(isPlatformTaskName('fixture-gateway-keepalive'), false)
     assert.equal(chatCapabilitiesFor('fixture-gateway').toolCalls, false)
     assert.equal(chatCapabilitiesFor('fixture-gateway').thinking, false)
@@ -123,8 +121,7 @@ test('a registered framework answers like a core one', () => {
         ['example/fixture-gateway', 'example-fork/fixture-gateway']
     )
     assert.equal(chatCapabilitiesFor('fixture-gateway').toolCalls, true)
-    // its sprite service and legacy keep-alive task stay platform-managed
-    assert.equal(isServiceFrameworkName('fixture-gateway'), true)
+    // its legacy keep-alive task stays platform-managed
     assert.equal(isPlatformTaskName('fixture-gateway-keepalive'), true)
 })
 
