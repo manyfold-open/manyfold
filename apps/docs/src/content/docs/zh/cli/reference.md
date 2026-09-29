@@ -24,7 +24,7 @@ order: 12
 | [`mf files`](/zh/docs/cli/reference/files/) | Read/write files on an agent runtime |
 | [`mf connections`](/zh/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/zh/docs/cli/reference/model-config/) | Read/update agent model configuration |
-| [`mf model-providers`](/zh/docs/cli/reference/model-providers/) | List the model providers agents can be created with |
+| [`mf model-providers`](/zh/docs/cli/reference/model-providers/) | List and test the model providers agents can be created with |
 | [`mf runtime`](/zh/docs/cli/reference/runtime/) | Manage agent runtimes (a framework on one of your computers) |
 | [`mf sandbox`](/zh/docs/cli/reference/sandbox/) | List, delete and inspect your sandboxes |
 | [`mf skills`](/zh/docs/cli/reference/skills/) | Manage installed agent skills |

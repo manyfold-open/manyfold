@@ -263,7 +263,8 @@ test('managed binds the best-ranked managed channel with its default model, and 
             kind: 'managed',
             providerId: 'ump_managed_anthropic',
             providerName: 'Managed Anthropic',
-            model: 'sonnet'
+            model: 'sonnet',
+            providerModel: 'claude-sonnet-4-6'
         },
         chatUrl: 'https://app.test/agents/agt_new/chat',
         signInCommand: null
@@ -315,7 +316,7 @@ test('a saved provider is named by id or name, and --model only from what it was
                 routes
             )
         ),
-        /Team OpenAI has not been tested with "gpt-4o"; pick one of: gpt-6-sol$/
+        /^error: Team OpenAI was not tested with a model "gpt-4o"\.\nIt can run:\n {2}gpt-6-sol\n/
     )
     assert.match(
         usageMessage(
@@ -324,7 +325,7 @@ test('a saved provider is named by id or name, and --model only from what it was
                 routes
             )
         ),
-        /Fresh key has not been tested.*Settings → Model providers/
+        /Fresh key has not been tested, so there is no model to run on it; test it: mf model-providers test "Fresh key"/
     )
     assert.match(
         usageMessage(
@@ -804,3 +805,31 @@ test(
         )
     }
 )
+
+// The id an alias stands for is saved as the alias, or the agent's model
+// settings read it back as unmapped.
+test('--model given the id an alias stands for binds the alias', async () => {
+    const run = await runMf(
+        [
+            'agent',
+            'create',
+            'demo',
+            '--model-provider',
+            'managed',
+            '--model',
+            'claude-sonnet-4-6',
+            '--json'
+        ],
+        {
+            'GET /me/model-providers': () => json([managedAnthropic])
+        }
+    )
+    const body = run.posts[0].body as { modelConfig: { model: string } }
+    assert.equal(body.modelConfig.model, 'sonnet')
+    const source = outputJson(run).create.modelSource as {
+        model: string
+        providerModel: string
+    }
+    assert.equal(source.model, 'sonnet')
+    assert.equal(source.providerModel, 'claude-sonnet-4-6')
+})

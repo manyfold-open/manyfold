@@ -70,7 +70,12 @@ const formatSandboxList = (
                   const state = [row.status, row.powerState]
                       .filter(Boolean)
                       .join(', ')
-                  return `${row.id}  ${kleur.cyan(row.name)}  ${state}  ${row.agentsCount} agent${row.agentsCount === 1 ? '' : 's'}  ${frameworks}  ${kleur.dim(`created ${row.createdAt.slice(0, 10)}`)}`
+                  const line = `${row.id}  ${kleur.cyan(row.name)}  ${state}  ${row.agentsCount} agent${row.agentsCount === 1 ? '' : 's'}  ${frameworks}  ${kleur.dim(`created ${row.createdAt.slice(0, 10)}`)}`
+                  // Why a sandbox that never came up failed; mf sandbox
+                  // delete clears it.
+                  return row.status === 'failed' && row.failureReason
+                      ? `${line}\n${kleur.red(`  ${row.failureReason}`)}`
+                      : line
               })
     lines.push(
         kleur.dim(

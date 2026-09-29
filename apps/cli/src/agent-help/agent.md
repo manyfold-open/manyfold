@@ -66,9 +66,15 @@ A new sandbox needs exactly one model source:
 printenv OPENAI_API_KEY | mf agent create reviewer --framework codex --openai-api-key -
 ```
 
-`--model <id>` picks one of the provider's tested models (listed by
-`mf model-providers list --framework <fw>`). With a pasted key it applies
-to gemini-cli, pi and antigravity-cli only.
+`--model` picks one of the provider's tested models, listed by
+`mf model-providers list --framework <fw>`. For claude-code an alias
+(`sonnet`, `opus`, `sonnet[1m]`, …) follows its family's newest tested
+model, and an id pins one. The id an alias stands for is saved as that
+alias. A name as people write it (`Sonnet 5`, `sonnet 4.5`) resolves when
+it matches exactly one model. A model the provider was not tested with is
+a usage error that lists what it can run; a model released since its
+last test needs `mf model-providers test <provider>` first. With a pasted
+key `--model` applies to gemini-cli, pi and antigravity-cli only.
 
 On `--sandbox` where the framework already runs, the agent shares that
 instance's credentials with every agent on it: pass no model source (or
@@ -118,6 +124,13 @@ command again attaches to it, or returns the agent it made.
   under way; wait, or pick another name
 - `AGENT_CREATE_INTERRUPTED` → the API restarted mid-create; run it again
   (`details.hostId` names a sandbox it may have left)
+- `SANDBOX_API_UNREACHABLE` → the API's address (`details.apiUrl`) cannot
+  be reached from a sandbox, so no sandbox was made: whoever runs the API
+  sets `PUBLIC_API_BASE_URL` to a public address (a tunnel URL for a local
+  stack)
+- `SANDBOX_RUNNER_NOT_CONNECTED` → the runner inside the new sandbox (not a
+  daemon on this computer) could not reach `details.apiUrl`; the sandbox
+  was removed. Check that the address is reachable, then run it again
 - "nothing to update" → pass at least one update flag (see above)
 - "refusing to delete … without --yes" → add `--yes` only after the
   user confirms the deletion

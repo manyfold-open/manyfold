@@ -69,7 +69,11 @@ printenv OPENAI_API_KEY | mf agent create review-bot --framework codex --openai-
   sandbox's terminal.
 - A provider id or name uses a model provider you saved and tested in the
   web app. `mf model-providers list --framework codex` shows which of yours
-  can serve a framework, and which models `--model` accepts from each.
+  can serve a framework, and which models `--model` accepts from each. For
+  Claude Code, an alias such as `sonnet` follows the newest tested Sonnet
+  and an id pins one; `--model "Sonnet 5"` or `--model "sonnet 4.5"` works
+  when it names exactly one model. If a model came out after the provider
+  was last tested, run `mf model-providers test <provider>` first.
 - A key flag uses your own key. `-` reads the key from stdin, which keeps it
   out of shell history. The CLI does not read keys from environment
   variables. Pi takes `--pi-api-key` together with

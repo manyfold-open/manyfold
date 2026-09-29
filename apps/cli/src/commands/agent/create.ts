@@ -153,6 +153,8 @@ type SourceReport =
           providerId: string
           providerName: string
           model: string | null
+          // The provider's id for `model`, where that is an alias.
+          providerModel: string | null
       }
     | { kind: 'key'; model: string | null }
     | { kind: 'subscription'; authProfileId: string | null }
@@ -320,7 +322,8 @@ const runCreate = async (
                       kind: source.kind,
                       providerId: source.row.id,
                       providerName: source.row.providerName,
-                      model: bound.model
+                      model: bound.model,
+                      providerModel: bound.providerModel
                   }
                 : source.kind === 'key'
                   ? { kind: 'key', model: bound.model }
@@ -558,7 +561,13 @@ const describeSource = (
         return report.authProfileId
             ? "your own subscription, the sandbox's default sign-in"
             : 'your own subscription, through its sign-in on the sandbox'
-    const model = report.model ? `, ${report.model}` : ''
+    const pinned =
+        report.kind !== 'key' &&
+        report.providerModel &&
+        report.providerModel !== report.model
+            ? ` (${report.providerModel})`
+            : ''
+    const model = report.model ? `, ${report.model}${pinned}` : ''
     if (report.kind === 'key') return `your own key${model}`
     if (report.kind === 'managed')
         return `Manyfold managed (${report.providerName})${model}`

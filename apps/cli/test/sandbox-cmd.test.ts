@@ -17,9 +17,16 @@ const sandbox = (
 
 const busy = sandbox({ id: 'sbx_busy', name: 'busy', agentsCount: 2 })
 const idle = sandbox({ id: 'sbx_idle', name: 'idle' })
+const broken = sandbox({
+    id: 'sbx_broken',
+    name: 'broken',
+    status: 'failed',
+    failureReason:
+        "the new sandbox's runner did not connect to this API at https://tunnel.example.com/api (runner_unavailable)"
+})
 
 const listRoutes = {
-    'GET /sandboxes': () => json([busy, idle]),
+    'GET /sandboxes': () => json([busy, idle, broken]),
     'GET /agent-runtimes': () =>
         json([
             {
@@ -56,6 +63,10 @@ test('sandbox list shows what runs on each sandbox and how many the plan include
         /sbx_idle {2}\S*idle\S* {2}ready, suspended {2}0 agents {2}nothing installed/
     )
     assert.match(text, /2 of 3 sandboxes in use \(Free plan\)/)
+    assert.match(
+        text,
+        /sbx_broken .*failed.*\n {2}\S*the new sandbox's runner did not connect to this API at https:\/\/tunnel\.example\.com\/api/
+    )
 
     const scripted = await runMf(['sandbox', 'list', '--json'], listRoutes)
     const result = JSON.parse(scripted.out.join('\n'))

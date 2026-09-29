@@ -60,7 +60,11 @@ printenv OPENAI_API_KEY | mf agent create review-bot --framework codex --openai-
   命令输出的登录命令。
 - Provider id 或名称使用你在网页中保存并测试过的 model provider。
   `mf model-providers list --framework codex` 列出哪些 provider 能服务该
-  framework，以及 `--model` 可以选哪些模型。
+  framework，以及 `--model` 可以选哪些模型。对 Claude Code，`sonnet` 这样的
+  别名始终指向测试过的最新 Sonnet，写具体 id 则固定为那一个；
+  `--model "Sonnet 5"`、`--model "sonnet 4.5"` 这类写法只要能唯一对应一个模型
+  也可以。如果模型是在 provider 上次测试之后才发布的，先运行
+  `mf model-providers test <provider>`。
 - Key flag 使用你自己的 key。传 `-` 时从 stdin 读取，key 不会进入 shell
   history。CLI 不读取环境变量中的 key。Pi 需要同时传 `--pi-api-key` 和
   `--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
