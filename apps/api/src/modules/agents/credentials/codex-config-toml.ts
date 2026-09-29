@@ -52,6 +52,9 @@ export const mergeComposioIntoCodexMcp = (
     return stringifyToml({ mcp_servers: servers }).trim()
 }
 
+// Seen on a local sandbox [2026-09-29]: codex 0.158 reported the top-level
+// `disable_response_storage` and `network_access` it once read as ignored, in
+// an error item on every turn, which the chat showed as two failed tool calls.
 export const buildCodexConfigToml = (
     baseUrl: string,
     mcpToml?: string | null,
@@ -60,8 +63,6 @@ export const buildCodexConfigToml = (
     [
         'model_provider = "OpenAI"',
         `model = "${codexDefaultModel}"`,
-        'disable_response_storage = true',
-        'network_access = "enabled"',
         '[model_providers.OpenAI]',
         'name = "OpenAI"',
         `base_url = "${baseUrl}"`,

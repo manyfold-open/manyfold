@@ -17,6 +17,13 @@ test('buildCodexConfigToml omits the managed block when no MCP is given', () => 
     assert.ok(!toml.includes('mcp_servers'))
 })
 
+// Current codex reads neither key at the top level and reports both, in an
+// error item on every turn that the chat renders as failed tool calls.
+test('buildCodexConfigToml writes only keys codex reads', () => {
+    const parsed = parseToml(buildCodexConfigToml('https://api.openai.com/v1'))
+    assert.deepEqual(Object.keys(parsed).sort(), ['model', 'model_provider', 'model_providers'])
+})
+
 test('buildCodexConfigToml appends the MCP block last, wrapped in sentinels', () => {
     const toml = buildCodexConfigToml('https://x/v1', MCP)
     assert.ok(toml.includes('[mcp_servers.fs]'))
