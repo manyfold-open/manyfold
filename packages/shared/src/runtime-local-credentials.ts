@@ -179,7 +179,7 @@ const evaluateClaude = (
     if (facts.oauthAccount) return evaluation('valid', 'login-record')
     // Seen on a self-hosted sandbox [2026-09-01]: the config dir alone read as
     // a sign-in, so every fresh runtime-local sandbox reported ready and its
-    // first turn died on the CLI's own "Not logged in". ClaudeCodeBootstrap
+    // first turn died on the CLI's own "Not logged in". The platform's setup
     // runs `mkdir -p "$HOME/.claude"`, so on a container this fact is one we
     // manufactured — only a runtime that can hide a session earns the doubt.
     const configEvidence =

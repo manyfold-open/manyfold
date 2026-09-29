@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto'
 import {
-    DAEMON_FEATURE_FS_WRITE_BINARY,
-    DAEMON_FS_WRITE_MAX_BYTES
+    DAEMON_FEATURE_FS_ROOTS,
+    DAEMON_FEATURE_FS_WRITE_STREAM,
+    FILES_UPLOAD_MAX_BYTES
 } from '@manyfold/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadGatewayException, NotFoundException } from '@nestjs/common'
 import type { Agent } from '@manyfold/db'
 import {
     FilesContextBuilder,
@@ -122,7 +124,7 @@ const frameworkAgent = (overrides: Partial<Agent> = {}): Agent =>
 
 // A framework that serves its own files (FrameworkDefinition.files): its
 // provider owns the roots, answers the ones it serves, and hands the rest back
-// to the runtime's own transport (here a sprites host).
+// to the runtime's own transport — the host's daemon (here a sprites host).
 const frameworkBuilder = (
     files: Record<string, Uint8Array> = {}
 ): FilesContextBuilder =>
@@ -133,25 +135,22 @@ const frameworkBuilder = (
                 host: spritesHostRow({ id: 'spa-1' })
             })
         ) as never,
+        {} as never,
         {
-            spritesClientForHost: async () => {
-                throw new NotFoundException('sprites account spa-1 not found')
+            withHost: async () => {
+                throw new Error('the daemon path was taken')
             }
         } as never,
-        {} as never,
-        {} as never,
-        {} as never,
         extensionsWith({ framework: FIXTURE, files: fixtureFiles(files) })
     )
 
-// With no sprite client wired, the runtime transport fails on the host
-// lookup, which proves the root took that path rather than the provider's.
-test('a root the framework does not serve goes through the runtime transport', async () => {
+test('a root the framework does not serve goes through the host daemon', async () => {
+    const ctx = await frameworkBuilder().build(frameworkAgent(), 'home')
     await assert.rejects(
-        () => frameworkBuilder().build(frameworkAgent(), 'home'),
+        () => ctx.list(ctx.mountPath),
         (err: unknown) =>
-            err instanceof NotFoundException &&
-            err.message === 'sprites account spa-1 not found'
+            err instanceof BadGatewayException &&
+            err.message.includes('the daemon path was taken')
     )
 })
 
@@ -172,8 +171,8 @@ test('a framework-served root is built by the framework provider', async () => {
 
 const DAEMON_WORKSPACE = '/Users/me/.manyfold/workspaces/agent-1'
 
-// keeping the stored roots in their current shape avoids the fileRoots backfill
-// write, so the db stub only has to serve the clientFeatures lookup
+// keeping the stored roots in their current shape avoids the fileRoots
+// backfill write
 const daemonAgent = (overrides: Partial<Agent> = {}): Agent =>
     agent({
         ...overrides,
@@ -202,6 +201,8 @@ interface DaemonCall {
 
 interface DaemonStub {
     calls: DaemonCall[]
+    sessions: Array<{ reason: string; requiredFeatures?: readonly string[] }>
+    holds: Array<{ released: boolean }>
     settleRead: (payload: Record<string, unknown>) => void
     failRead: (err: Error) => void
     builder: FilesContextBuilder
@@ -211,64 +212,87 @@ const daemonStub = (
     opts: {
         stat?: Record<string, unknown> | null
         chunks?: Buffer[]
-        features?: string[]
+        // a sandbox instead of a self-owned computer
+        hosted?: boolean
+        failMethod?: string
     } = {}
 ): DaemonStub => {
     const calls: DaemonCall[] = []
+    const sessions: DaemonStub['sessions'] = []
+    const holds: DaemonStub['holds'] = []
     let settle: (payload: Record<string, unknown>) => void = () => {}
     let fail: (err: Error) => void = () => {}
-    const registry = {
-        rpc: async (args: DaemonCall) => {
-            calls.push({ method: args.method, payload: args.payload })
-            if (args.method === 'fs.stat')
-                return opts.stat === undefined
-                    ? { size: 0, isDir: false }
-                    : opts.stat
-            return { ok: true }
-        },
-        streamRpc: (
-            args: DaemonCall & { onEvent: (k: string, d: string) => void }
-        ) => {
-            calls.push({ method: args.method, payload: args.payload })
-            const result = new Promise<Record<string, unknown>>(
-                (resolve, reject) => {
-                    settle = resolve
-                    fail = reject
-                }
-            )
-            // the daemon emits every fs.chunk before its final frame, which is
-            // exactly the ordering that used to win the size race and yield 0
-            for (const chunk of opts.chunks ?? [])
-                args.onEvent('fs.chunk', chunk.toString('base64'))
-            return { result }
-        }
+    const rpc = async (call: DaemonCall) => {
+        calls.push({ method: call.method, payload: call.payload })
+        if (call.method === opts.failMethod) throw new Error(`${call.method} failed`)
+        if (call.method === 'fs.stat')
+            return opts.stat === undefined ? { size: 0, isDir: false } : opts.stat
+        if (call.method === 'fs.write.begin')
+            return { uploadId: 'upl-1', chunkMaxBytes: 4 }
+        return {}
     }
-    const features = opts.features ?? [DAEMON_FEATURE_FS_WRITE_BINARY]
+    const stream = (call: DaemonCall & { onEvent: (k: string, d: string) => void }) => {
+        calls.push({ method: call.method, payload: call.payload })
+        const result = new Promise<Record<string, unknown>>((resolve, reject) => {
+            settle = resolve
+            fail = reject
+        })
+        // the daemon emits every fs.chunk before its final frame, which is
+        // exactly the ordering that used to win the size race and yield 0
+        for (const chunk of opts.chunks ?? [])
+            call.onEvent('fs.chunk', chunk.toString('base64'))
+        return { refId: 'ref-1', result, cancel: () => fail(new Error('cancelled')) }
+    }
+    const host = opts.hosted
+        ? spritesHostRow({ id: 'sbx-1', homeDir: '/home/sprite' })
+        : hostRow({ id: 'dh-1', homeDir: '/Users/me' })
     return {
         calls,
+        sessions,
+        holds,
         settleRead: (payload) => settle(payload),
         failRead: (err) => fail(err),
         builder: new FilesContextBuilder(
             fakeRuntimeContext((id) =>
-                localContext(daemonAgent({ id }), { features })
+                contextOf({
+                    agent: daemonAgent({ id }),
+                    host,
+                    daemon: daemonRow({ hostId: host.id })
+                })
             ) as never,
             {} as never,
-            registry as never,
-            {} as never,
-            // Every daemon call runs under the host session (ADR-0038); the
-            // session's rpc routes by the host id.
+            // Every daemon call runs under the host session (ADR-0038).
             {
                 withHost: async (
-                    args: { host: { id: string }; daemon: unknown },
+                    args: {
+                        host: { id: string }
+                        daemon: unknown
+                        reason: string
+                        requiredFeatures?: readonly string[]
+                    },
                     work: (session: Record<string, unknown>) => Promise<unknown>
-                ) =>
-                    work({
+                ) => {
+                    sessions.push({
+                        reason: args.reason,
+                        requiredFeatures: args.requiredFeatures
+                    })
+                    return work({
                         host: args.host,
                         daemon: args.daemon,
                         daemonId: args.host.id,
-                        rpc: (call: DaemonCall) =>
-                            registry.rpc({ daemonId: args.host.id, ...call } as never)
+                        rpc,
+                        stream
                     })
+                },
+                hold: () => {
+                    const hold = { released: false }
+                    holds.push(hold)
+                    return {
+                        release: async () => {
+                            hold.released = true
+                        }
+                    }
+                }
             } as never
         )
     }
@@ -300,23 +324,15 @@ test('a framework-served context infers image MIME for generic stat and read res
     assert.deepEqual(await drain(read.stream), body)
 })
 
-test('resolveRootsForSdk reports daemon capabilities from the host features', async () => {
-    const stale = daemonStub({ features: [] })
-    const staleRoots = await stale.builder.resolveRootsForSdk(daemonAgent())
-
+test('resolveRootsForSdk reports the daemon\'s streaming capabilities', async () => {
+    const roots = await daemonStub().builder.resolveRootsForSdk(daemonAgent())
     assert.deepEqual(
-        staleRoots.map((r) => r.id),
+        roots.map((r) => r.id),
         ['workspace', 'claude-home']
     )
-    assert.equal(staleRoots[0].capabilities?.binarySafe, false)
-    assert.equal(
-        staleRoots[0].capabilities?.maxUploadBytes,
-        DAEMON_FS_WRITE_MAX_BYTES
-    )
-
-    const current = daemonStub()
-    const currentRoots = await current.builder.resolveRootsForSdk(daemonAgent())
-    assert.equal(currentRoots[0].capabilities?.binarySafe, true)
+    assert.equal(roots[0].capabilities?.binarySafe, true)
+    assert.equal(roots[0].capabilities?.streamWrite, true)
+    assert.equal(roots[0].capabilities?.maxUploadBytes, FILES_UPLOAD_MAX_BYTES)
 })
 
 // fs.read reports size only in its final frame, so the old code raced that frame
@@ -343,6 +359,19 @@ test('daemon read reports the stat size before the transfer completes', async ()
     stub.settleRead({ size: body.byteLength, chunked: true })
     assert.deepEqual(await drain(result.stream), body)
     await result.done
+})
+
+// The download outlives the call that opened it, so it holds the machine
+// until it ends, and lets go then.
+test('a download holds its machine until the read ends', async () => {
+    const stub = daemonStub({ stat: { size: 1, isDir: false }, chunks: [Buffer.from('x')] })
+    const ctx = await stub.builder.build(daemonAgent(), 'workspace')
+    const result = await ctx.read(`${DAEMON_WORKSPACE}/x.txt`)
+    assert.ok(result)
+    assert.deepEqual(stub.holds, [{ released: false }])
+    stub.settleRead({})
+    await result.done
+    assert.deepEqual(stub.holds, [{ released: true }])
 })
 
 test('daemon context infers image MIME without additional filesystem RPCs', async () => {
@@ -403,47 +432,65 @@ test('daemon read propagates an rpc failure through done', async () => {
     )
 })
 
-// the legacy fs.write takes a UTF-8 string, so bytes that are not valid UTF-8
-// used to land on disk mangled with a 200 back to the caller
-test('daemon write refuses binary bodies when the daemon lacks fs.write.binary', async () => {
-    const stub = daemonStub({ features: [] })
-    const ctx = await stub.builder.build(daemonAgent(), 'workspace')
-
-    await assert.rejects(
-        () =>
-            ctx.write(
-                `${DAEMON_WORKSPACE}/logo.png`,
-                Buffer.from([0xff, 0xd8, 0xff])
-            ),
-        (err: unknown) => err instanceof BadRequestException
-    )
-    assert.equal(
-        stub.calls.some((c) => c.method === 'fs.write'),
-        false
-    )
-})
-
-// text still has to work on old daemons: that's the whole point of only
-// refusing what UTF-8 cannot represent
-test('daemon write still sends text as utf8 when the daemon lacks fs.write.binary', async () => {
-    const stub = daemonStub({ features: [] })
-    const ctx = await stub.builder.build(daemonAgent(), 'workspace')
-
-    await ctx.write(`${DAEMON_WORKSPACE}/notes.md`, Buffer.from('# 你好\n'))
-
-    const write = stub.calls.find((c) => c.method === 'fs.write')
-    assert.equal(write?.payload.content, '# 你好\n')
-    assert.equal(write?.payload.encoding, undefined)
-})
-
-test('daemon write sends base64 when the daemon advertises fs.write.binary', async () => {
+// A write streams into a part file in chunks and becomes the target at commit,
+// once its size and sha256 match; binary content is carried exactly.
+test('a write streams its body in chunks and commits it with its size and sha256', async () => {
     const stub = daemonStub()
     const ctx = await stub.builder.build(daemonAgent(), 'workspace')
-    const body = Buffer.from([0xff, 0xd8, 0xff])
+    const body = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02])
 
     await ctx.write(`${DAEMON_WORKSPACE}/logo.png`, body)
 
-    const write = stub.calls.find((c) => c.method === 'fs.write')
-    assert.equal(write?.payload.encoding, 'base64')
-    assert.equal(write?.payload.content, body.toString('base64'))
+    const writes = stub.calls.filter((c) => c.method.startsWith('fs.write'))
+    assert.deepEqual(
+        writes.map((c) => c.method),
+        ['fs.write.begin', 'fs.write.chunk', 'fs.write.chunk', 'fs.write.commit']
+    )
+    const sent = Buffer.concat(
+        writes
+            .filter((c) => c.method === 'fs.write.chunk')
+            .map((c) => Buffer.from(String(c.payload.data), 'base64'))
+    )
+    assert.deepEqual(sent, body)
+    assert.deepEqual(
+        writes.filter((c) => c.method === 'fs.write.chunk').map((c) => c.payload.seq),
+        [0, 1]
+    )
+    const commit = writes.at(-1)!.payload
+    assert.equal(commit.size, body.byteLength)
+    assert.equal(commit.sha256, createHash('sha256').update(body).digest('hex'))
+    // A self-owned computer admits what its daemon registered: nothing vouched.
+    assert.equal(writes[0].payload.roots, undefined)
+    const write = stub.sessions.find((s) => s.reason === 'files-write')
+    assert.deepEqual(write?.requiredFeatures, [DAEMON_FEATURE_FS_WRITE_STREAM])
+})
+
+test('a write that fails part way aborts its upload', async () => {
+    const stub = daemonStub({ failMethod: 'fs.write.chunk' })
+    const ctx = await stub.builder.build(daemonAgent(), 'workspace')
+
+    await assert.rejects(() => ctx.write(`${DAEMON_WORKSPACE}/x.bin`, Buffer.from('abc')))
+    assert.deepEqual(
+        stub.calls.filter((c) => c.method.startsWith('fs.write')).map((c) => c.method),
+        ['fs.write.begin', 'fs.write.chunk', 'fs.write.abort']
+    )
+})
+
+// The platform owns a sandbox's filesystem: every call vouches for the root it
+// works in, and needs a daemon that honours that.
+test('a sandbox vouches for the root on every call', async () => {
+    const stub = daemonStub({ hosted: true })
+    const ctx = await stub.builder.build(daemonAgent(), 'workspace')
+    await ctx.list(DAEMON_WORKSPACE)
+    await ctx.write(`${DAEMON_WORKSPACE}/a.txt`, Buffer.from('a'))
+    for (const call of stub.calls)
+        if (call.method !== 'fs.write.chunk' && call.method !== 'fs.write.commit')
+            assert.deepEqual(call.payload.roots, [DAEMON_WORKSPACE], call.method)
+    assert.ok(
+        stub.sessions.every((s) => s.requiredFeatures?.includes(DAEMON_FEATURE_FS_ROOTS))
+    )
+    assert.deepEqual(
+        stub.sessions.find((s) => s.reason === 'files-write')?.requiredFeatures,
+        [DAEMON_FEATURE_FS_ROOTS, DAEMON_FEATURE_FS_WRITE_STREAM]
+    )
 })

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
     DAEMON_FEATURE_EXEC_FILES,
@@ -16,7 +17,10 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
-import { HostCliTooOldError } from '../src/modules/chat/runner/host-cli.service'
+import {
+    HostCliTooOldError,
+    HostCliUpdatingError
+} from '../src/modules/chat/runner/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -364,6 +368,29 @@ test('a cold machine is inspected, installed, registered with a bound token, sta
     assert.match(register.script, /--name 'sandbox-001'/)
 })
 
+// Every shell on a sprite reads MF_API_URL and MF_DEPLOY_ENV from a profile
+// block, so `mf` run by an agent or in a terminal talks to the API its daemon
+// does. Registering writes it: in a subshell that reads nothing, because the
+// token rides the same exec's stdin. A pod's shells get both from its env.
+test('registering a sprite daemon writes the shell env block first, reading nothing from stdin', async () => {
+    const h = buildHarness({ installed: true, registered: false })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    const register = h.execs.find((e) => e.script.includes('daemon register'))!
+    const [shellEnv, command] = register.script.split("\n) </dev/null >/dev/null 2>&1 || echo 'mf shell env not written' >&2\n")
+    assert.ok(command, 'the block runs in its own subshell before the register')
+    assert.match(shellEnv, /export MF_API_URL=/)
+    assert.match(shellEnv, /export MF_DEPLOY_ENV=/)
+    assert.match(command, /daemon register --token -/)
+    assert.ok(!shellEnv.includes('ldt_secret_value'))
+    const syntax = spawnSync('bash', ['-n'], { input: register.script })
+    assert.equal(syntax.status, 0, syntax.stderr.toString())
+
+    const pod = buildHarness({ providerKind: 'k8s', registered: false })
+    await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
+    const podRegister = pod.execs.find((e) => e.script.includes('daemon register'))!
+    assert.doesNotMatch(podRegister.script, /MF_API_URL/)
+})
+
 test('the inspect probes the ADR-0014 profile layout of the machine kind', async () => {
     const sprite = buildHarness({ registered: true })
     await sprite.service.ensureHostDaemon({ host: sprite.state.host, waitOnlineMs: 50 })
@@ -664,6 +691,25 @@ test('an update that cannot bring the feature answers runner_cli_too_old', async
     })
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_cli_too_old')
+})
+
+// A daemon finishing its current work before it updates is a retry-soon, not
+// a CLI too old to use.
+test('a daemon draining for its update answers runner_updating', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (host) => {
+                throw new HostCliUpdatingError(host)
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_updating')
 })
 
 test('an update that failed for another reason stays retryable', async () => {

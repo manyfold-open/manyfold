@@ -25,7 +25,7 @@ test('uniqueName dedupes within a batch', () => {
 
 const makeService = (
     framework: string,
-    opts: { binaryWriteSafe?: boolean; withStorage?: boolean } = {}
+    opts: { withStorage?: boolean } = {}
 ): { service: ChatApiFileService; writes: Array<{ abs: string }> } => {
     const db = {
         select: () => ({
@@ -40,7 +40,6 @@ const makeService = (
     const files = {
         build: async () => ({
             mountPath: '/workspace',
-            binaryWriteSafe: opts.binaryWriteSafe,
             mkdir: async () => undefined,
             write: async (abs: string) => {
                 writes.push({ abs })
@@ -94,18 +93,6 @@ test('a coding agent routes files to a workspace attachment', async () => {
 
 test('a non-attachment framework rejects files', async () => {
     const { service } = makeService('langflow')
-    await assert.rejects(() =>
-        service.ingest({
-            userId: 'u',
-            agentId: 'agent-1',
-            sessionId: 's',
-            files: [file()]
-        })
-    )
-})
-
-test('a daemon agent without binary support rejects files', async () => {
-    const { service } = makeService('claude-code', { binaryWriteSafe: false })
     await assert.rejects(() =>
         service.ingest({
             userId: 'u',

@@ -7,11 +7,11 @@ import {
     CodexPermissionMode,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
     DEFAULT_CODEX_PERMISSION_MODE,
-    OFFICIAL_PROVIDER_BASE_URL,
     resolveChatExecTimeoutMs
 } from '@manyfold/shared'
 import { Injectable, Logger, Optional } from '@nestjs/common'
 import type { ResolvedCodexCredentials } from '@/modules/agents/credentials/resolved-credentials'
+import { platformCodexEnvAndArgs } from '@/modules/agents/credentials/codex-platform-exec'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 import {
     isDaemonOfflineTransportError,
@@ -681,29 +681,6 @@ export class CodexAdapter implements ApiChatAdapter {
     }
 }
 
-const platformCodexEnvAndArgs = (
-    cmd: string[],
-    creds: ResolvedCodexCredentials
-): Record<string, string> => {
-    const baseUrl =
-        creds.openaiBaseUrl?.trim() || OFFICIAL_PROVIDER_BASE_URL.openai
-    cmd.push(
-        '-c',
-        'model_provider="Manyfold"',
-        '-c',
-        'model_providers.Manyfold.name="Manyfold"',
-        '-c',
-        `model_providers.Manyfold.base_url=${tomlString(baseUrl)}`,
-        '-c',
-        'model_providers.Manyfold.wire_api="responses"',
-        '-c',
-        'model_providers.Manyfold.env_key="OPENAI_API_KEY"',
-        '-c',
-        'model_providers.Manyfold.requires_openai_auth=false'
-    )
-    return { OPENAI_API_KEY: creds.openaiApiKey }
-}
-
 const applyCodexPermissionMode = (
     cmd: string[],
     mode: CodexPermissionMode,
@@ -723,9 +700,6 @@ const codexPromptWithHistory = (
     history: ChatMessage[],
     userMessage: ChatMessage
 ): string => forkTranscriptPrompt(history, userMessage, 'Codex')
-
-const tomlString = (value: string): string =>
-    `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 
 const safeParse = (line: string): Record<string, unknown> | null => {
     try {

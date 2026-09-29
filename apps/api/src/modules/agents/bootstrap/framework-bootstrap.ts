@@ -17,17 +17,16 @@ export interface BootstrapContext {
     execTimeoutMs?: number
     modelConfig?: AgentModelConfig | null
     // 'runtime-local' = the CLI inside the sprite owns the model credentials
-    // (subscription sign-in): the bootstrap must not write platform keys,
-    // run key-based logins, or spend money on a verify turn. Threaded
-    // explicitly rather than sniffed from an empty credentials object so a
-    // future credential shape can't silently re-enable those steps.
+    // (subscription sign-in): the bootstrap must not write platform keys.
+    // Threaded explicitly rather than sniffed from an empty credentials
+    // object so a future credential shape can't silently re-enable that.
     modelConfigSource?: AgentModelConfigSource | null
     // Version this framework should install (null = no resolvable target, so keep
     // the framework's built-in default: image binary / dist-tag / hardcoded clone).
     frameworkVersion?: string | null
     // Where `frameworkVersion` came from. 'explicit'/'admin' means someone asked
     // for it, so a failed install is fatal; 'latest' is the implicit default and
-    // degrades to whatever the sprite already has. See installFrameworkVersion.
+    // degrades to whatever the sprite already has. See installFrameworkVersionOn.
     frameworkVersionSource?: FrameworkInstallSource
     // For a git-installed framework, the `owner/name` to clone. Resolved in the
     // same catalog snapshot as `frameworkVersion` and carried as a value, so a
@@ -55,16 +54,6 @@ export interface BootstrapResult {
     // deliberately kept) it. Persisted onto the runtime row so a fresh agent
     // shows a version without waiting for a probe.
     frameworkVersion?: string | null
-}
-
-export interface FrameworkBootstrap {
-    framework:
-        | 'claude-code'
-        | 'codex'
-        | 'gemini-cli'
-        | 'pi'
-        | 'antigravity-cli'
-    run(ctx: BootstrapContext, credentials: unknown): Promise<BootstrapResult>
 }
 
 export class BootstrapError extends Error {

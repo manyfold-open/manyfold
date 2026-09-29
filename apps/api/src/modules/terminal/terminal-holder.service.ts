@@ -26,7 +26,6 @@ import { DRIZZLE } from '@/db/tokens'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SessionRecoveryService } from '@/modules/chat/recovery/session-recovery.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
-import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
 import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
@@ -62,7 +61,6 @@ export class TerminalHolderService {
         private readonly terminals: TerminalSessionsRepository,
         private readonly chatRepo: ChatRepository,
         private readonly recovery: SessionRecoveryService,
-        private readonly sprites: SpritesTerminal,
         private readonly daemon: DaemonTerminal,
         @Optional()
         private readonly statusBroadcaster?: SpriteStatusBroadcaster,
@@ -380,13 +378,9 @@ export class TerminalHolderService {
                 : (current?.host ?? null)
         try {
             if (!host) throw new Error('terminal has no host to close it on')
-            // A herdr pane and a daemon pty are closed through the host's
-            // daemon (ADR-0031); a sprites exec through the provider.
-            if (row.client === 'herdr' || row.runtime === 'daemon') {
-                await this.daemon.closePty(host.id, row.processHandle)
-                return
-            }
-            await this.sprites.killByHandle({ host, handle: row.processHandle })
+            // A pty and a herdr pane alike are closed through the host's
+            // daemon (ADR-0031, ADR-0037 R6).
+            await this.daemon.closePty(host.id, row.processHandle)
         } catch (err) {
             this.log.warn(
                 `terminal.kill_failed terminal=${row.id} runtime=${row.runtime}: ${(err as Error).message}`

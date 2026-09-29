@@ -1,13 +1,12 @@
-import { SpritesError, type SpritesLogger } from '@manyfold/sprites'
 import {
     StorageMeasurementError,
     type StorageFailureClass
 } from '@/common/telemetry/storage-measurement-error'
+import { HostDaemonOfflineError } from '@/modules/agents/adapters/host-daemon-access'
 
 export type StorageMeasurementPhase =
     | 'prepare'
     | 'connect'
-    | 'session'
     | 'first_byte'
     | 'df'
     | 'workspace_du'
@@ -24,11 +23,9 @@ export const storageFailureClass = (
     phase: StorageMeasurementPhase
 ): StorageFailureClass => {
     if (error instanceof StorageMeasurementError) return error.failureClass
-    if (error instanceof SpritesError) {
-        if (/timed out after \d+ms/.test(error.message)) return 'timeout'
-        if (error.code === 'auth') return 'permission'
-        return 'transport'
-    }
+    if (error instanceof HostDaemonOfflineError) return 'transport'
+    if (error instanceof Error && /timed out/.test(error.message))
+        return 'timeout'
     return phase === 'persist' ? 'persistence' : 'unknown'
 }
 
@@ -44,6 +41,7 @@ export class MeasurementObservation {
     private partial = ''
     private opaqueFields = 0
     private execStarted = 0
+    private connectedAt = 0
     private firstByte = false
 
     constructor(
@@ -57,25 +55,19 @@ export class MeasurementObservation {
         this.phase = 'connect'
     }
 
-    sessionOpened(): void {
-        this.record('session', performance.now() - this.execStarted)
+    // The daemon answers: what is left is the command itself.
+    connected(): void {
+        this.connectedAt = performance.now()
+        this.record('connect', this.connectedAt - this.execStarted)
+        this.phase = 'first_byte'
     }
 
-    readonly logger: SpritesLogger = {
-        debug: (message) => {
-            if (message !== 'sprites.exec.open') return
-            this.record('connect', performance.now() - this.execStarted)
-            this.phase = 'first_byte'
-        },
-        info: () => {},
-        warn: () => {},
-        error: () => {}
-    }
-
+    // The script's own output as it arrives: each phase is timed by the clock
+    // of the machine it ran on, from the markers around it.
     stdout(chunk: string): void {
         if (!this.firstByte) {
             this.firstByte = true
-            this.record('first_byte', performance.now() - this.execStarted)
+            this.record('first_byte', performance.now() - this.connectedAt)
         }
         let timingText = ''
         // Path records have four NUL delimiters. They never enter the phase

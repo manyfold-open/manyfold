@@ -24,7 +24,9 @@ export class ChatRunnerError extends Error {
                 : runtime === 'sprites'
                   ? 'Ask an administrator to update the managed Sprite runner.'
                   : 'Run mf update and restart the daemon runner.'
-            : 'Check the daemon runner connection and retry.'
+            : reason === 'runner_updating'
+              ? 'The machine is updating its Manyfold CLI once its current work finishes; retry in a few minutes.'
+              : 'Check the daemon runner connection and retry.'
         super(`Chat runner unavailable (${reason}). ${action}`)
         this.chatError = {
             code: upgradeRequired

@@ -53,13 +53,13 @@ import { SkillsModule } from '@/modules/skills/skills.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { UsersModule } from '@/modules/users/users.module'
-import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
+import { HostStorageModule } from '@/modules/agents/host-storage/host-storage.module'
 import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.module'
 import { BackupsModule } from '@/modules/backups/backups.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
+import { HostSessionRegistry } from '@/modules/agents/host-sessions/host-sessions.registry'
 import {
     A2aAgentAdapter,
     DifyAgentAdapter,
@@ -82,7 +82,7 @@ import {
         RuntimeAccessModule,
         AdminSettingsModule,
         UsersModule,
-        SpriteStorageModule,
+        HostStorageModule,
         SandboxActiveDurationModule,
         BackupsModule,
         K8sModule,
@@ -127,7 +127,7 @@ import {
         AgentModelConfigService,
         SpriteStatusSyncService,
         ServiceLeaseService,
-        SpritesSessionRegistry,
+        HostSessionRegistry,
         FrameworkVersionProbeService,
         McpImportService,
         FrameworkUpgradeService,
@@ -146,7 +146,7 @@ import {
         RuntimeAgentAttachService,
         ResourceEventsModule,
         SpriteStatusSyncService,
-        SpritesSessionRegistry
+        HostSessionRegistry
     ]
 })
 export class AgentsModule {}

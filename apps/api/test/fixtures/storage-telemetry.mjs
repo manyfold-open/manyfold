@@ -8,46 +8,41 @@ const {
     TelemetryService
 } = require('../../src/common/telemetry/telemetry.service.ts')
 const {
-    SpriteStorageService
-} = require('../../src/modules/agents/sprite-storage/sprite-storage.service.ts')
+    HostStorageService
+} = require('../../src/modules/agents/host-storage/host-storage.service.ts')
+const { fixtureHostAccess } = require('../helpers/fixture-daemon-exec.ts')
 const { createDb, runtimeHosts } = require('@manyfold/db')
 const { eq, sql } = require('drizzle-orm')
-const { createClient, SpritesError } = require('@manyfold/sprites')
 
 const db = createDb(process.env.PG_FIXTURE_URL)
 try {
-    const client = createClient({
-        token: 'private-storage-token',
-        baseUrl: process.env.SPRITE_FIXTURE_ORIGIN,
-        wsBaseUrl: process.env.SPRITE_FIXTURE_ORIGIN.replace('http:', 'ws:')
-    })
-    const service = new SpriteStorageService(db, {}, new TelemetryService())
-    Object.assign(service, {
-        clientFor: async () => {
-            if (process.env.STORAGE_FIXTURE_MODE === 'short_lease')
+    const service = new HostStorageService(
+        db,
+        fixtureHostAccess(process.env.SPRITE_FIXTURE_ORIGIN.replace('http:', 'ws:')),
+        new TelemetryService()
+    )
+    if (process.env.STORAGE_FIXTURE_MODE === 'short_lease') {
+        // The lease left once the attempt is claimed is what bounds the exec.
+        const targetFor = service.targetFor.bind(service)
+        const measure = service.measureNow.bind(service)
+        Object.assign(service, {
+            targetFor: async (...args) => {
+                const target = await targetFor(...args)
                 await db
                     .update(runtimeHosts)
                     .set({
                         storageLeaseUntil: sql`clock_timestamp() + interval '500 milliseconds'`
                     })
-                    .where(
-                        eq(runtimeHosts.id, process.env.STORAGE_FIXTURE_HOST)
-                    )
-            return client
-        }
-    })
-    if (process.env.STORAGE_FIXTURE_MODE === 'short_lease') {
-        const measure = service.measureNow.bind(service)
-        Object.assign(service, {
+                    .where(eq(runtimeHosts.id, process.env.STORAGE_FIXTURE_HOST))
+                return target
+            },
             measureNow: async (...args) => {
                 try {
                     return await measure(...args)
                 } catch (error) {
-                    const actual =
-                        error instanceof SpritesError &&
-                        /^execSpriteStream timed out after (\d+)ms$/.exec(
-                            error.message
-                        )
+                    const actual = /^exec timed out after (\d+)ms$/.exec(
+                        error?.message ?? ''
+                    )
                     if (actual) console.log(`fixture exec timeout ${actual[1]}`)
                     throw error
                 }

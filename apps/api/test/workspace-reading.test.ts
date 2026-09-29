@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { workspaceReading } from '../src/modules/agents/sprite-storage/workspace-reading'
+import { workspaceReading } from '../src/modules/agents/host-storage/workspace-reading'
 
 const measuredAt = new Date('2026-08-01T12:00:00Z')
 const breakdown = (workspaceBytes: number) => ({

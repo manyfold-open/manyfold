@@ -77,7 +77,6 @@ const keepAlive = (over: Record<string, unknown> = {}) => ({
 
 class TestLease extends SpriteKeepAliveLeaseService {
     timeline: TimelineEvent[] = []
-    taskList: ExecResult = ok('{"tasks":[]}')
     spriteClient: Record<string, unknown> = {}
     host = baseHost()
 
@@ -106,9 +105,7 @@ class TestLease extends SpriteKeepAliveLeaseService {
                 from: opts.cmd[2],
                 to: opts.cmd[3]
             })
-        return opts.cmd.includes('/v1/tasks')
-            ? this.taskList
-            : ok(CLEAN_SUMMARY)
+        return ok(CLEAN_SUMMARY)
     }
 
     protected async writeFile(
@@ -232,8 +229,6 @@ const makeHarness = (
         } as never,
         {} as never,
         runtimes as never,
-        { event: () => undefined } as never,
-        {} as never,
         crypto as never,
         config as never
     )
@@ -396,45 +391,6 @@ test('unset PUBLIC_API_BASE_URL degrades to the plain start.sh even when a token
                 event.fenceChangedTo !== undefined
         ),
         'no fence may be recorded when no report assets land on disk'
-    )
-})
-
-test('ensureLease preserves the running service report fence and assets', async () => {
-    const { lease, store, timeline, hostPatches } = makeHarness({
-        credentialsToken: 'tok-stored',
-        runtime: {
-            capabilitiesJson: {
-                keepAlive: keepAlive(),
-                serviceReport: { generation: 'gen0' }
-            }
-        }
-    })
-    lease.host = baseHost({ keepAwake: true })
-    lease.taskList = ok(
-        JSON.stringify({ tasks: [{ name: 'nca-host-x-1-live' }] })
-    )
-
-    await lease.ensureLease(store as never)
-
-    const caps = store.capabilitiesJson as {
-        keepAlive: { generation: string }
-        serviceReport: { generation: string }
-    }
-    assert.equal(hostPatches.length, 1, 'the lease is recorded on the host')
-    // Host leases and service boot generations have separate lifetimes. A
-    // lease update must leave both sides of the report contract unchanged.
-    assert.equal(caps.keepAlive.generation, 'gen0')
-    assert.equal(
-        caps.serviceReport.generation,
-        'gen0',
-        'a lease change does not replace the current service boot'
-    )
-    const env = writesTo(timeline, '/report.env.tmp')
-    assert.equal(env.length, 0)
-    assert.equal(writesTo(timeline, '/start.sh.tmp').length, 0)
-    assert.equal(
-        timeline.some((event) => event.kind === 'runtime-update' && event.fenceChangedTo !== undefined),
-        false
     )
 })
 

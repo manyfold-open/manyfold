@@ -144,8 +144,7 @@ export type DaemonFsRpc = (args: {
     timeoutMs?: number
 }) => Promise<Record<string, unknown> | undefined>
 
-// Absent-is-null, matching the sprite readFileText contract every MCP
-// read-modify-write relies on. Anything else (offline daemon, containment
+// Absent-is-null, the contract every MCP read-modify-write relies on. Anything else (offline daemon, containment
 // refusal) stays an error the caller must surface.
 export const daemonReadTextFile = async (
     rpc: DaemonFsRpc,

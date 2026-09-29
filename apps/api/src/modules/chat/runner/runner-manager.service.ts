@@ -21,6 +21,7 @@ import {
     buildCliInstallScript,
     cliInstallChannelForDeployEnv,
     buildHerdrInstallScript,
+    buildShellEnvScript,
     HERDR_INSTALL_MARKER
 } from '@/modules/agent-self/sprite-shell-env.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
@@ -45,7 +46,11 @@ import {
 import { recordPower } from '@/modules/hosts/providers/generation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
-import { HostCliService, HostCliTooOldError } from './host-cli.service'
+import {
+    HostCliService,
+    HostCliTooOldError,
+    HostCliUpdatingError
+} from './host-cli.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
 // inside the machine — can go through the daemon protocol (ADR-0037 R11):
@@ -136,6 +141,8 @@ export type RunnerFallbackReason =
     | 'runner_missing_turn_rpc'
     // the host's daemon is older than the floor and could not be updated.
     | 'runner_cli_too_old'
+    // the host's daemon updates once the work it has finishes: retry soon.
+    | 'runner_updating'
 
 // How the sprite's exec endpoint refused the inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run.
@@ -192,6 +199,11 @@ interface RunnerLayout {
     probePath: string
     logPath: string | null
     start: (mf: string, keepExecs: boolean) => string
+    // Whether registering also writes the profile block every shell on the
+    // machine reads (MF_API_URL, MF_DEPLOY_ENV), so `mf` run by an agent or
+    // in a terminal talks to the API its daemon does. A pod's shells get
+    // both from the pod's env.
+    writesShellEnv: boolean
 }
 
 const SPRITE_LAYOUT: RunnerLayout = {
@@ -209,7 +221,8 @@ const SPRITE_LAYOUT: RunnerLayout = {
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
         `setsid nohup ${mf} daemon start --foreground >> "$HOME/.manyfold/runner.log" 2>&1 < /dev/null & disown; sleep 2; ` +
-        'pgrep -c -x mf || echo 0'
+        'pgrep -c -x mf || echo 0',
+    writesShellEnv: true
 }
 
 const POD_CONFIG_ROOT = `${K8S_HOME_BASE}/.manyfold`
@@ -221,7 +234,8 @@ const POD_LAYOUT: RunnerLayout = {
     logPath: null,
     start: (mf, keepExecs) =>
         `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
-        'pkill -TERM -x mf >/dev/null 2>&1 || true; sleep 2; pgrep -c -x mf || echo 0'
+        'pkill -TERM -x mf >/dev/null 2>&1 || true; sleep 2; pgrep -c -x mf || echo 0',
+    writesShellEnv: false
 }
 
 const layoutFor = (provider: RuntimeProvider): RunnerLayout =>
@@ -372,9 +386,11 @@ export class RunnerManagerService {
                     `daemon on host ${host.id} was not updated for ${missing.join(',')}: ${(err as Error).message}`
                 )
                 return unavailable(
-                    err instanceof HostCliTooOldError
-                        ? 'runner_cli_too_old'
-                        : 'runner_unavailable'
+                    err instanceof HostCliUpdatingError
+                        ? 'runner_updating'
+                        : err instanceof HostCliTooOldError
+                          ? 'runner_cli_too_old'
+                          : 'runner_unavailable'
                 )
             }
         }
@@ -670,11 +686,18 @@ export class RunnerManagerService {
             ...(provider.kind === 'k8s' ? {} : { expiresInDays: TOKEN_TTL_DAYS }),
             hostId: host.id
         })
+        // In a subshell reading nothing: the token after it is on stdin.
+        const shellEnv = layout.writesShellEnv
+            ? `(\n${buildShellEnvScript({
+                  apiBaseUrl: this.apiUrl(),
+                  deployEnv: process.env.MF_DEPLOY_ENV
+              })}\n) </dev/null >/dev/null 2>&1 || echo 'mf shell env not written' >&2\n`
+            : ''
         const res = await adapter
             .bootstrap({
                 ...call,
                 script:
-                    `${layout.envPrefix} ${MF_BIN} --api-url ${this.apiUrl()} ` +
+                    `${shellEnv}${layout.envPrefix} ${MF_BIN} --api-url ${this.apiUrl()} ` +
                     `daemon register --token - --name ${shellQuote(host.name)}`,
                 stdin: minted.plaintext,
                 timeoutMs: 180_000

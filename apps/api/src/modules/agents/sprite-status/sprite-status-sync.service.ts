@@ -43,7 +43,10 @@ import {
     fetchPodForHost
 } from '@/modules/agents/sprite-status/k8s-pod-phase'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
+import {
+    HostStorageService,
+    storageMeasurementDue
+} from '@/modules/agents/host-storage/host-storage.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import {
@@ -52,7 +55,7 @@ import {
     runningHostedHosts
 } from '@/modules/runtime-access/runtime-usage-counts'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { HostKeepAwakeService } from '@/modules/hosts/host-keep-awake.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { k8sRef, spritesRef } from '@/modules/agent-runtimes/host-ref'
@@ -232,10 +235,10 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         private readonly hostClients: HostProviderClients,
         private readonly broadcaster: SpriteStatusBroadcaster,
         private readonly telemetry: TelemetryService,
-        private readonly spriteStorage: SpriteStorageService,
+        private readonly spriteStorage: HostStorageService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly adminSettings: AdminSettingsService,
-        private readonly keepAliveLease: SpriteKeepAliveLeaseService,
+        private readonly keepAwake: HostKeepAwakeService,
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly lifecycle: HostedHostLifecycleService,
         @Optional() private readonly serviceLeases?: ServiceLeaseService,
@@ -334,7 +337,9 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         if (now < this.nextKeepAliveReconcileAt) return
         this.nextKeepAliveReconcileAt = now + KEEPALIVE_RECONCILE_INTERVAL_MS
         try {
-            await this.keepAliveLease.reconcileLeases()
+            await this.keepAwake.reconcile({
+                headroom: () => this.runtimeAccess.spritesWholesaleHeadroom()
+            })
         } catch (err) {
             this.log.warn(
                 `keep-alive reconcile failed: ${(err as Error).message}`
@@ -930,11 +935,14 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     `active-duration accrue failed for host ${host.id}: ${describeError(err)}`
                 )
             }
-            if (next === host.powerState) continue
             // Host-level so a bare sandbox (zero agents, still billed for its
-            // rootfs) gets measured too.
-            if (host.powerState === 'running' && next === 'suspended')
-                await this.spriteStorage.measureHostIfDue(host.id, 'status_sync')
+            // rootfs) gets measured too — while it is up, on its own interval:
+            // measuring it as it went to sleep woke it straight back up.
+            // Seen on local [2026-09-28]: the measurement after a sandbox
+            // suspended ran an exec that resumed it.
+            if (next === 'running' && storageMeasurementDue(host, now.getTime()))
+                void this.spriteStorage.measureHostIfDue(host.id, 'status_sync')
+            if (next === host.powerState) continue
             await this.hosts.setPower(host.id, next)
             await this.broadcastPower(host, next, now)
         }

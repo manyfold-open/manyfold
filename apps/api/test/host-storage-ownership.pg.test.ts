@@ -353,7 +353,7 @@ test(
 )
 
 test(
-    'cold hosts and known-unavailable exec endpoints are never probed',
+    'cold hosts and sandboxes whose daemon is not connected are never probed',
     { skip: !RUN, timeout: 20_000 },
     async (t) => {
         const h = await fixture(t)
@@ -408,9 +408,10 @@ for (const stage of ['pre_open', 'command'] as const)
             assert(failure)
             assert.equal(failure.attrs.timeoutMs, 8000)
             assert.equal(failure.attrs.failureClass, 'timeout')
+            // Nothing printed yet is the wait for the first byte.
             assert.equal(
                 failure.attrs.phase,
-                stage === 'pre_open' ? 'connect' : 'df'
+                stage === 'pre_open' ? 'first_byte' : 'df'
             )
             assert.equal(failure.attrs.trigger, 'terminal')
             assert(Number(failure.attrs.durationMs) >= 7990)
@@ -540,7 +541,7 @@ test(
         assert.equal(
             await h.service(true).measureHostNow(h.hostId),
             false,
-            'an exec known to be down is not tried'
+            'a daemon that cannot be reached is not measured'
         )
         assert.equal(h.sockets.length, 1)
     }

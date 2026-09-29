@@ -8,7 +8,7 @@ import {
     type OnModuleInit
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { plans, runtimeHosts, users, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
@@ -229,20 +229,16 @@ export class ActiveHoursEnforcementService
         }
         const runningSet = new Set(input.runningHostIds)
         for (const hostId of input.keepAwakeHostIds) {
-            // stop() already flips the switch on the hosts it stopped. A
-            // sleeping sprite holds no lease task, so the flag flip alone
-            // (with the recorded task cleared) stops the lease sweep from
-            // re-waking it — a release would exec into (and wake) the VM, the
-            // one thing this must not do.
+            // stop() already flips the switch on the hosts it stopped. On a
+            // sleeping one the flag alone is enough: the reconcile never wakes
+            // a machine whose switch is off, and lets a hold it still knows of
+            // go once the machine runs again — a release now would exec into
+            // (and wake) the VM, the one thing this must not do.
             if (runningSet.has(hostId)) continue
             try {
                 await this.db
                     .update(runtimeHosts)
-                    .set({
-                        keepAwake: false,
-                        keepAwakeLease: sql`case when ${runtimeHosts.keepAwakeLease} is null then null else ${runtimeHosts.keepAwakeLease} || '{"taskName": null}'::jsonb end`,
-                        updatedAt: new Date()
-                    })
+                    .set({ keepAwake: false, updatedAt: new Date() })
                     .where(eq(runtimeHosts.id, hostId))
             } catch (err) {
                 this.log.warn(

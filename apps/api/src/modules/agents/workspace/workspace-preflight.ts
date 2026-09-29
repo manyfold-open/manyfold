@@ -1,10 +1,5 @@
 import * as posix from 'node:path/posix'
 import { BadRequestException } from '@nestjs/common'
-import {
-    execSprite,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
 import type { Agent } from '@manyfold/db'
 
 const MAX_WORKSPACE_PATH_LENGTH = 1024
@@ -107,27 +102,6 @@ export const assertWorkspaceProbeResult = (
         message || `workspace check failed: ${workspacePath}`
     )
 }
-
-export const assertWorkspaceUsableOnSprite = async (args: {
-    client: SpritesClient
-    spriteName: string
-    workspacePath: string
-    logger?: SpritesLogger
-    timeoutMs?: number
-}): Promise<void> => {
-    const result = await execSprite(
-        args.client,
-        args.spriteName,
-        {
-            cmd: ['bash', '-lc', workspacePreflightScript(args.workspacePath)],
-            stdin: '',
-            timeoutMs: args.timeoutMs ?? 30_000
-        },
-        args.logger
-    )
-    assertWorkspaceProbeResult(args.workspacePath, result)
-}
-
 
 interface WorkspaceProbeExec {
     run(args: {

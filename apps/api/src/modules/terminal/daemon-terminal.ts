@@ -8,6 +8,7 @@ import type {
 import {
     DAEMON_FEATURE_EXEC_ROOTS,
     HERDR_LAUNCH_FAILED_CODE,
+    MF_ENV_API_TOKEN,
     envTextFromExtras,
     envTextToRecord,
     isObjectId,
@@ -45,6 +46,7 @@ import { antigravityPlatformViewPrepare } from '@/modules/agents/credentials/ant
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
 import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
+import { HostSessionRegistry } from '@/modules/agents/host-sessions/host-sessions.registry'
 
 export interface DaemonTerminalRequest {
     agent: Agent
@@ -88,9 +90,16 @@ export interface DaemonHostTerminalRequest {
     onClose: () => void
 }
 
-// Same posture as the sprites terminal: the session acts as the USER, so it
-// carries a short-lived api.full token injected per session, hard-deleted on
-// close, with the TTL bounding exposure if the delete is lost.
+// A sandbox's own shell, addressed by the sandbox with no agent. It acts as
+// the USER, like an agent's terminal, which the sandbox's terminal consent
+// authorizes: the user's api.full token rides this session's env only.
+export interface DaemonSandboxTerminalRequest extends DaemonHostTerminalRequest {
+    userId: string
+}
+
+// The session acts as the USER, so it carries a short-lived api.full token
+// injected per session, hard-deleted on close, with the TTL bounding exposure
+// if the delete is lost.
 const TERMINAL_TOKEN_TTL_SECONDS = 12 * 60 * 60
 
 const TERMINAL_BASE_ENV = {
@@ -137,7 +146,9 @@ export class DaemonTerminal {
         private readonly hostAccess: HostDaemonAccess,
         // Appended last + @Optional so positional test construction keeps
         // working; absent, the identity env carries no API URL.
-        @Optional() private readonly config?: ConfigService
+        @Optional() private readonly config?: ConfigService,
+        // Same rule; absent, stopping a sandbox leaves its tabs attached.
+        @Optional() private readonly sessions?: HostSessionRegistry
     ) {}
 
     // The daemon's machine, reachable for the call (ADR-0038): held awake,
@@ -452,6 +463,30 @@ export class DaemonTerminal {
         })
     }
 
+    async tunnelSandbox(req: DaemonSandboxTerminalRequest): Promise<void> {
+        const token = await this.apiTokens.mint({
+            userId: req.userId,
+            name: `terminal ${req.daemonId}`,
+            scopes: [API_TOKEN_SCOPE_FULL],
+            expiresInSeconds: TERMINAL_TOKEN_TTL_SECONDS,
+            tokenKind: 'terminal'
+        })
+        await this.openPty({
+            daemonId: req.daemonId,
+            cwd: undefined,
+            env: { [MF_ENV_API_TOKEN]: token.plaintext, ...TERMINAL_BASE_ENV },
+            cols: req.cols,
+            rows: req.rows,
+            client: req.client,
+            onClose: req.onClose,
+            release: () => {
+                void this.apiTokens
+                    .hardDelete({ tokenId: token.tokenId, userId: req.userId })
+                    .catch(() => {})
+            }
+        })
+    }
+
     async tunnelHost(req: DaemonHostTerminalRequest): Promise<void> {
         await this.openPty({
             daemonId: req.daemonId,
@@ -595,6 +630,14 @@ export class DaemonTerminal {
         }
         // An owned terminal's handle is its id, set by the gateway up front.
         if (!terminalId) onHandle?.(stream.refId)
+        // A sandbox stop lets the tab go: its close detaches or closes the
+        // pty as the browser's would, and the hold goes with it.
+        const unregister =
+            this.sessions?.register(daemonId, (reason) => {
+                try {
+                    client.close(4001, reason)
+                } catch {}
+            }) ?? (() => {})
 
         client.on('message', (raw, isBinary) => {
             if (closed) return
@@ -649,6 +692,7 @@ export class DaemonTerminal {
         const cleanup = (): void => {
             if (closed) return
             closed = true
+            unregister()
             // The daemon keeps an owned terminal for the next attachment
             // (ADR-0029 §6): the cancel detaches, nothing is killed and the
             // shell keeps its token.
@@ -706,6 +750,7 @@ export class DaemonTerminal {
             })
             .finally(() => {
                 letGo()
+                unregister()
                 if (!closed) {
                     closed = true
                     if (endCause === 'detached') {

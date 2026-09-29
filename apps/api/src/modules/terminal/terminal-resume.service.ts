@@ -9,6 +9,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { resolveAnthropicBaseUrl } from '@/modules/agents/orchestration/bootstrap-invariants'
 import { piPlatformExec } from '@/modules/agents/credentials/pi-agent-dir'
 import { antigravityPlatformExec } from '@/modules/agents/credentials/antigravity-app-dir'
+import { platformCodexEnvAndArgs } from '@/modules/agents/credentials/codex-platform-exec'
 import { isManagedSkillWorkspace } from '@/modules/skills/skill-utils'
 import {
     frameworkSupportsTerminalResume,
@@ -170,7 +171,9 @@ export class TerminalResumeService {
                       args.model ?? null,
                       { agentId: args.agentId, userId: args.userId }
                   )
-                : {
+                : args.framework === 'codex'
+                  ? await this.codexPlatformResume(args.runtimeId, command)
+                  : {
                       command,
                       env: await this.claudeCredentialEnv(args.runtimeId)
                   }
@@ -195,6 +198,26 @@ export class TerminalResumeService {
             outcome: 'applied',
             ref: row.ref
         }
+    }
+
+    // codex resumes on the provider its turns run on, with the key in the
+    // env and the endpoint in `-c` overrides (codex-platform-exec.ts): the
+    // machine keeps no platform key for a plain `codex` to find.
+    private async codexPlatformResume(
+        runtimeId: string,
+        command: string[]
+    ): Promise<ResolvedTerminalResume | null> {
+        const creds = (await this.storedCredentials(runtimeId)) as {
+            openaiApiKey?: string
+            openaiBaseUrl?: string | null
+        } | null
+        if (!creds?.openaiApiKey) return null
+        const argv = [...command]
+        const env = platformCodexEnvAndArgs(argv, {
+            openaiApiKey: creds.openaiApiKey,
+            openaiBaseUrl: creds.openaiBaseUrl ?? undefined
+        })
+        return { command: argv, env }
     }
 
     private async claudeCredentialEnv(

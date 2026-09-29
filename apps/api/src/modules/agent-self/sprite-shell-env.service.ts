@@ -1,11 +1,5 @@
 import { CLI_INSTALL_URL } from '@/common/brand'
 import { buildManagedPathScript } from '@manyfold/shared'
-import { Injectable, Logger } from '@nestjs/common'
-import {
-    execSprite,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 
 export const MF_SHELL_ENV_START = '# mf-env-start'
@@ -14,13 +8,6 @@ export const MF_SHELL_ENV_END = '# mf-env-end'
 interface HostShellEnv {
     apiBaseUrl?: string
     deployEnv?: string
-}
-
-export interface SpriteShellEnvInput extends HostShellEnv {
-    client: SpritesClient
-    spriteName: string
-    logger?: SpritesLogger
-    timeoutMs?: number
 }
 
 const shellQuote = (value: string): string =>
@@ -106,52 +93,3 @@ export const buildHerdrInstallScript = (): string =>
         'echo "herdr-installed=$("$HOME/.local/bin/herdr" --version 2>/dev/null | head -1)"',
         `echo ${HERDR_INSTALL_MARKER}`
     ].join('\n')
-
-@Injectable()
-export class SpriteShellEnvService {
-    private readonly log = new Logger(SpriteShellEnvService.name)
-
-    async write(input: SpriteShellEnvInput): Promise<void> {
-        const result = await execSprite(
-            input.client,
-            input.spriteName,
-            {
-                cmd: ['bash', '-lc', buildShellEnvScript(input)],
-                stdin: '',
-                timeoutMs: input.timeoutMs ?? 30_000
-            },
-            input.logger
-        )
-        if (result.exitCode !== 0 || !result.stdout.includes('MF_SHELL_ENV_OK'))
-            this.log.warn(
-                `failed to install MF_* shell env on ${input.spriteName}: ` +
-                    `exit=${result.exitCode} stderr=${result.stderr.slice(0, 256)}`
-            )
-    }
-
-    async installCli(input: {
-        client: SpritesClient
-        spriteName: string
-        channel: MfCliInstallChannel
-        logger?: SpritesLogger
-        timeoutMs?: number
-    }): Promise<void> {
-        const marker =
-            input.channel === 'dev' ? 'MF_DEV_CLI_OK' : 'MF_STABLE_CLI_OK'
-        const result = await execSprite(
-            input.client,
-            input.spriteName,
-            {
-                cmd: ['bash', '-lc', buildCliInstallScript(input.channel)],
-                stdin: '',
-                timeoutMs: input.timeoutMs ?? 180_000
-            },
-            input.logger
-        )
-        if (result.exitCode !== 0 || !result.stdout.includes(marker))
-            this.log.warn(
-                `failed to install ${input.channel} CLI on ${input.spriteName}: ` +
-                    `exit=${result.exitCode} stderr=${result.stderr.slice(0, 256)}`
-            )
-    }
-}

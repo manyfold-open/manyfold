@@ -21,12 +21,10 @@ import type { AgentFramework } from '@manyfold/shared'
    never touches the sandbox disk. So does agy's, on the platform view its
    turns run on (antigravity-app-dir.ts).
 
-   `needsModelCredentials` is the asymmetry between the claude/codex pair.
-   Codex logs in on the sprite at bootstrap (`codex login --with-api-key`,
-   bootstrap/codex.ts) and its auth lives in the real ~/.codex, which a plain
-   login shell reads — so its TUI is already authenticated. Claude's platform
-   credentials are injected per exec and never touch the sandbox disk, so its
-   TUI has nothing to authenticate with unless the sandbox opted in. */
+   `needsModelCredentials`: every one of these CLIs gets its platform
+   credentials per exec and none is logged in on the machine, so a TUI has
+   nothing to authenticate with unless the sandbox opted in to handing them
+   to the terminal. */
 interface FrameworkResumePolicy {
     fullAccessFlag?: string
     needsModelCredentials: boolean
@@ -41,7 +39,7 @@ const RESUME_POLICY_BY_FRAMEWORK: Partial<
     },
     codex: {
         fullAccessFlag: '--dangerously-bypass-approvals-and-sandbox',
-        needsModelCredentials: false
+        needsModelCredentials: true
     },
     pi: { needsModelCredentials: true },
     'antigravity-cli': {

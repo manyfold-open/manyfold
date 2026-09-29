@@ -122,7 +122,7 @@ describe('runtimeLocalCredentialStatus — claude-code', () => {
     })
 
     // Seen on a self-hosted sandbox [2026-09-01]: this exact fact shape — the
-    // one a fresh runtime-local sandbox reports, because ClaudeCodeBootstrap
+    // one a fresh runtime-local sandbox reports, because the platform's setup
     // creates ~/.claude itself — evaluated as usable, so the sign-in card hid
     // and the first turn died on the CLI's own "Not logged in".
     it('reports missing when a provisioned runtime shows only the config we created', () => {

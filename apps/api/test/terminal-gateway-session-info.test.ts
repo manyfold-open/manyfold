@@ -99,10 +99,11 @@ const runSession = async (args: {
     prevTerminalId?: string
     terminals?: ReturnType<typeof fakeTerminals>
     holder?: ReturnType<typeof fakeHolder>
-    // The sprites driver, so a test can see what resume the tunnel got and
+    // The daemon driver, so a test can see what resume the tunnel got and
     // drive the close it reports.
-    spritesTunnel?: (req: Record<string, unknown>) => Promise<void>
     daemonTunnel?: (req: Record<string, unknown>) => Promise<void>
+    // The hosts a terminal took an active sandbox slot on.
+    slots?: string[]
 }): Promise<Array<Record<string, unknown>>> => {
     const { socket, frames, fireClose } = makeSocket()
     const placement = args.placement ?? 'daemon'
@@ -141,8 +142,6 @@ const runSession = async (args: {
         {} as never,
         {} as never,
         {} as never,
-        { tunnel: args.spritesTunnel ?? (async () => {}) } as never,
-        { tunnel: async () => {} } as never,
         { tunnel: args.daemonTunnel ?? (async () => {}) } as never,
         {
             defaultTerminalCwd: (agent: { mountPath: string }) =>
@@ -151,7 +150,13 @@ const runSession = async (args: {
         { resolve: args.resolve ?? (async () => null) } as never,
         undefined,
         args.terminals as never,
-        args.holder as never
+        args.holder as never,
+        {
+            reserveActiveSlot: async (input: { hostId: string }) => {
+                args.slots?.push(input.hostId)
+                return {}
+            }
+        } as never
     )
     await (
         gateway as unknown as {
@@ -212,15 +217,25 @@ test('daemon session_info reports null terminal_pty when the daemon has not said
     assert.equal(info.terminal_pty, null)
 })
 
-test('non-daemon session_info omits terminal_pty', async () => {
+// Every terminal is its host's daemon's (ADR-0037 R6), a sandbox's too; the
+// shell wakes a sleeping sprite, which takes one of the user's active slots.
+test('a sandbox agent\'s terminal opens through its daemon, on an active slot', async () => {
+    const slots: string[] = []
+    let tunnels = 0
     const frames = await runSession({
         agent: { ...daemonAgent, mountPath: '/work' },
         placement: 'sprites',
-        daemon: {}
+        daemon: { terminalPty: true },
+        slots,
+        daemonTunnel: async () => {
+            tunnels += 1
+        }
     })
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
-    assert.equal('terminal_pty' in info, false)
+    assert.equal(info.terminal_pty, true)
+    assert.equal(tunnels, 1)
+    assert.deepEqual(slots, ['h-1'])
 })
 
 /* The resume verdict rides on session_info because only the gateway knows it:
@@ -229,12 +244,15 @@ test('non-daemon session_info omits terminal_pty', async () => {
    chat turn starts under a TUI resumed while idle). Reported only when a
    resume was asked for, so a plain terminal says nothing about resumes. */
 const spritesAgent = { ...daemonAgent, mountPath: '/work' }
+// A sandbox daemon that can run a resume as its shell's argv, without owning
+// its terminals: the stream-bound pty with its durable row.
+const sandboxDaemon = { clientFeatures: ['pty.command'] }
 
 test('session_info omits the resume outcome when none was asked for', async () => {
     const frames = await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resolve: async () => {
             throw new Error('should not be consulted')
         }
@@ -248,7 +266,7 @@ test('session_info reports a resume withheld for a turn in flight', async () => 
     const frames = await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({ resume: null, outcome: 'turn-in-flight' })
     })
@@ -264,7 +282,7 @@ test('session_info reports an applied resume once the hold is acquired', async (
     const frames = await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
@@ -273,7 +291,7 @@ test('session_info reports an applied resume once the hold is acquired', async (
         }),
         terminals,
         holder,
-        spritesTunnel: async (req) => {
+        daemonTunnel: async (req) => {
             tunnelResume = req.resume
             ;(req.onClose as (cause: string) => void)('client-closed')
         }
@@ -310,7 +328,7 @@ test('a lost acquire opens a plain shell and reports session-held', async () => 
     const frames = await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
@@ -319,7 +337,7 @@ test('a lost acquire opens a plain shell and reports session-held', async () => 
         }),
         terminals: fakeTerminals(),
         holder,
-        spritesTunnel: async (req) => {
+        daemonTunnel: async (req) => {
             tunnelResume = req.resume
         }
     })
@@ -336,14 +354,14 @@ test('a resume is not applied without a terminal identity', async () => {
     const frames = await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
             outcome: 'applied',
             ref: 'thread-1'
         }),
-        spritesTunnel: async (req) => {
+        daemonTunnel: async (req) => {
             tunnelResume = req.resume
         }
     })
@@ -362,7 +380,7 @@ test('a reconnect retires the terminal it names before acquiring', async () => {
     await runSession({
         agent: spritesAgent,
         placement: 'sprites',
-        daemon: null,
+        daemon: sandboxDaemon,
         resumeChatSessionId: 'cs-1',
         prevTerminalId: 'tms_0',
         resolve: async () => ({
@@ -507,4 +525,80 @@ test('a daemon without the capability keeps the stream-bound terminal', async ()
     )
     const req = tunnelReq as Record<string, unknown> | null
     assert.equal('ownedTerminalId' in (req ?? {}), false)
+})
+
+// A sandbox's own shell is its daemon's too, whatever provider made the
+// machine; it carries the user's token (DaemonTerminal.tunnelSandbox), and
+// on a sprite it takes one of the user's active sandbox slots first.
+const runSandboxSession = async (host: ReturnType<typeof spritesHostRow>) => {
+    const { socket, frames, fireClose } = makeSocket()
+    const opened: Array<Record<string, unknown>> = []
+    const slots: string[] = []
+    const gateway = new TerminalGateway(
+        {} as never,
+        {
+            verifyBearerToken: async () => ({
+                userId: 'u1',
+                kind: 'human-session',
+                provider: 'email',
+                subject: 'usr_1'
+            })
+        } as never,
+        {} as never,
+        { findForUser: async () => host } as never,
+        {
+            findByHostId: async () =>
+                daemonRow({ hostId: host.id, userId: 'u1', terminalPty: true })
+        } as never,
+        {} as never,
+        {
+            tunnelSandbox: async (req: Record<string, unknown>) => {
+                opened.push(req)
+            }
+        } as never,
+        {} as never,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        {
+            reserveActiveSlot: async (input: { hostId: string }) => {
+                slots.push(input.hostId)
+                return {}
+            }
+        } as never
+    )
+    await (
+        gateway as unknown as {
+            handleConnection(socket: unknown, req: unknown): Promise<void>
+        }
+    ).handleConnection(socket, {
+        query: { sandboxId: host.id, token: 'tok' }
+    })
+    fireClose()
+    const info = frames
+        .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+        .find((frame) => frame.type === 'session_info')
+    return { info, opened, slots }
+}
+
+test('a bare sandbox shell opens through its daemon on a sprite and on a pod', async () => {
+    const sprite = await runSandboxSession(
+        spritesHostRow({ id: 'sbx-1', userId: 'u1', terminalEnabled: true, homeDir: '/home/sprite' })
+    )
+    assert.deepEqual(
+        sprite.opened.map((req) => [req.daemonId, req.userId]),
+        [['sbx-1', 'u1']]
+    )
+    assert.deepEqual(sprite.slots, ['sbx-1'])
+    assert.equal(sprite.info?.runtime, 'sprites')
+    assert.equal(sprite.info?.cwd, '/home/sprite')
+    assert.equal(sprite.info?.terminal_pty, true)
+
+    const pod = await runSandboxSession(
+        k8sHostRow({ id: 'pdh-1', userId: 'u1', terminalEnabled: true })
+    )
+    assert.deepEqual(pod.opened.map((req) => req.daemonId), ['pdh-1'])
+    assert.deepEqual(pod.slots, [], 'a pod takes no sandbox slot')
+    assert.equal(pod.info?.runtime, 'k8s')
 })

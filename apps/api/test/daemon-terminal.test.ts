@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { DaemonTerminal } from '../src/modules/terminal/daemon-terminal'
 import { DaemonRpcResponseError } from '../src/modules/daemon/daemon-registry.service'
+import { HostSessionRegistry } from '../src/modules/agents/host-sessions/host-sessions.registry'
 
 const makeAgent = () => ({
     id: 'agent-1',
@@ -810,4 +811,104 @@ test('an owned terminal whose tab detaches lets its machine go', async () => {
     t.client.emit('close')
     await tick()
     assert.equal(t.holds[0]?.released, true)
+})
+
+// A sandbox's own shell acts as the user, like an agent's terminal, which the
+// sandbox's terminal consent authorizes: the user's api.full token rides this
+// session's env only, and goes when the shell does.
+test('a sandbox shell carries the user token for its session and drops it on close', async () => {
+    let streamCall: Record<string, unknown> | null = null
+    const rpcs: string[] = []
+    const registry = {
+        streamRpc: (call: Record<string, unknown>) => {
+            streamCall = call
+            return {
+                refId: 'ref-sbx',
+                result: new Promise<Record<string, unknown>>(() => {}),
+                cancel: () => {}
+            }
+        },
+        rpc: async (call: Record<string, unknown>) => {
+            rpcs.push(String(call.method))
+            return {}
+        }
+    }
+    const apiTokens = makeApiTokens()
+    const client = new FakeClient()
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        apiTokens as never,
+        hostsFor() as never,
+        hostAccessFor(registry) as never
+    )
+    await terminal.tunnelSandbox({
+        daemonId: 'sbx_1',
+        userId: 'user-1',
+        cols: 80,
+        rows: 24,
+        client: client as never,
+        onClose: () => {}
+    })
+    const payload = (streamCall as Record<string, unknown> | null)?.payload as {
+        env: Record<string, string>
+        cwd?: string
+    }
+    assert.equal(payload.env.MF_API_TOKEN, 'mfr_terminal_token')
+    assert.equal(payload.cwd, undefined, 'the daemon starts it in its home')
+    assert.equal(apiTokens.calls.minted, 1)
+    client.emit('close')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(rpcs, ['pty.close'])
+    assert.deepEqual(apiTokens.calls.deleted, ['tok-1'])
+})
+
+// Every open tab holds its machine awake; stopping a sandbox lets them go the
+// way the browser leaving would, so the sandbox can sleep.
+test('stopping a sandbox closes the tabs open on it', async () => {
+    const rpcs: string[] = []
+    const registry = {
+        streamRpc: () => ({
+            refId: 'ref-1',
+            result: new Promise<Record<string, unknown>>(() => {}),
+            cancel: () => {}
+        }),
+        rpc: async (call: Record<string, unknown>) => {
+            rpcs.push(String(call.method))
+            return {}
+        }
+    }
+    const sessions = new HostSessionRegistry()
+    const client = new FakeClient()
+    client.close = function (code = 1000, reason = '') {
+        this.closed = { code, reason }
+        this.readyState = 3
+        this.emit('close')
+    }
+    const holds: Array<{ reason: string; released: boolean }> = []
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        makeApiTokens() as never,
+        hostsFor() as never,
+        hostAccessFor(registry, holds) as never,
+        undefined,
+        sessions
+    )
+    await terminal.tunnel({
+        agent: makeAgent() as never,
+        hostId: 'dh-1',
+        placement: 'daemon',
+        cols: 80,
+        rows: 24,
+        client: client as never,
+        onClose: () => {}
+    })
+    assert.equal(sessions.closeForHost('other-host', 'sandbox-stop'), 0)
+    assert.equal(sessions.closeForHost('dh-1', 'sandbox-stop'), 1)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(client.closed, { code: 4001, reason: 'sandbox-stop' })
+    assert.deepEqual(rpcs, ['pty.close'])
+    assert.ok(holds.every((hold) => hold.released))
+    assert.equal(sessions.closeForHost('dh-1', 'sandbox-stop'), 0, 'a closed tab is forgotten')
 })

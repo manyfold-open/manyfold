@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { StorageMeasurementError } from '@/common/telemetry/storage-measurement-error'
 import { and, asc, eq, ne, or, isNull, lte, sql } from 'drizzle-orm'
@@ -15,11 +15,8 @@ import {
     type RuntimeHostRow,
     type SandboxStorageBreakdown
 } from '@manyfold/db'
-import { execSpriteStream, type SpritesClient } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
-import { spritesRef } from '@/modules/agent-runtimes/host-ref'
-import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
+import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { shellQuote } from '@/modules/agents/workspace/workspace-preflight'
 import {
@@ -45,21 +42,31 @@ const SECTION_SEP = '__NCA_STORAGE_SEP__'
 const DF_TARGET = '/'
 type StorageTransaction = Parameters<Parameters<Database['transaction']>[0]>[0]
 
+// Whether a host's reading is old enough to take again, from the row alone:
+// what a caller polling many hosts asks before it asks the service.
+export const storageMeasurementDue = (
+    host: Pick<RuntimeHostRow, 'storageMeasuredAt' | 'storageRetryAt'>,
+    now = Date.now()
+): boolean =>
+    (!host.storageMeasuredAt ||
+        now - host.storageMeasuredAt.getTime() >= MIN_INTERVAL_MS) &&
+    (!host.storageRetryAt || host.storageRetryAt.getTime() <= now)
+
 export interface MeasureTarget {
     host: RuntimeHostRow
     hostAgents: Agent[]
     homes: { framework: string; homeDir: string; agentIds?: string[] }[]
 }
 
+// A sandbox's storage, measured with df and du run by its daemon (ADR-0037
+// R6). Only a provider that bills storage by use is metered: sprites.dev
+// bills the whole persistent rootfs of each sprite.
 @Injectable()
-export class SpriteStorageService {
-    private readonly log = new Logger(SpriteStorageService.name)
-
+export class HostStorageService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly hostClients: HostProviderClients,
-        private readonly telemetry: TelemetryService,
-        @Optional() private readonly execHealth?: SpriteExecHealthService
+        private readonly hostAccess: HostDaemonAccess,
+        private readonly telemetry: TelemetryService
     ) {}
 
     async measureIfDue(
@@ -191,7 +198,7 @@ export class SpriteStorageService {
             .limit(1)
         if (!host) return
         if (host.kind !== 'hosted' || host.status !== 'ready') return
-        if (!spritesRef(host)) return
+        if (host.providerRef?.kind !== 'sprites') return
         if (host.powerState !== 'running' && !force) return
 
         if (host.storageMeasuredAt && !force) {
@@ -199,23 +206,22 @@ export class SpriteStorageService {
             if (sinceMs < MIN_INTERVAL_MS) return
         }
 
-        // A VM already known to be refusing exec is not worth six 8s df/du
-        // timeouts per request (#730 saw exactly that, from the prewarm and
-        // message paths of three requests). Asked after the interval check, so
-        // the common not-due call still costs one read.
-        //
-        // READ-ONLY on purpose: measurement never claims the fleet's one probe
-        // lease and never clears a cooldown — spending the probe here would leave
-        // the turn that follows with nothing to claim, and a df is not the
-        // idempotent no-op that proves recovery. The interval bookkeeping is
-        // untouched, so the next due window measures normally once the host is
-        // back (#553 / #575 / #580 semantics unchanged).
-        if (await this.execHealth?.isKnownUnavailable(host.id)) {
-            this.log.debug(
-                'storage measurement skipped: exec endpoint unhealthy'
-            )
+        // A measurement nobody asked for never wakes a sandbox, and never
+        // brings its daemon up: it runs only on a machine already up with its
+        // daemon connected. Any exec resumes a sleeping sprite, and a stretch
+        // of running time the user did not start is billed to them.
+        if (
+            !force &&
+            !(
+                await this.hostAccess.ensure({
+                    host,
+                    daemon: null,
+                    placement: 'sprites',
+                    wake: false
+                })
+            ).online
+        )
             return
-        }
 
         const attempt = new MeasurementObservation(
             createObjectId('storageMeasurementAttempt'),
@@ -422,7 +428,6 @@ export class SpriteStorageService {
         observation: MeasurementObservation
     ): Promise<SandboxStorageBreakdown> {
         const { host } = target
-        const client = await this.clientFor(host)
         const [lease] = await this.withDbBudget(async (tx) =>
             tx
                 .select({
@@ -446,45 +451,29 @@ export class SpriteStorageService {
         observation.startExec(timeoutMs)
         trace.getActiveSpan()?.setAttribute('timeoutMs', timeoutMs)
         return suppressTracing(async () => {
-            const stream = execSpriteStream(
-                client,
-                spritesRef(host)!.spriteName,
+            // A refresh the user asked for wakes the sandbox for it; the
+            // automatic ones run only where it is already up (above).
+            const result = await this.hostAccess.withHost(
                 {
-                    cmd: ['bash', '-lc', buildMeasureScript(target)],
-                    stdin: '',
-                    timeoutMs,
-                    onSessionId: () => observation.sessionOpened()
+                    host,
+                    daemon: null,
+                    placement: 'sprites',
+                    reason: 'storage',
+                    wake: observation.trigger === 'manual'
                 },
-                observation.logger
+                (session) => {
+                    observation.connected()
+                    return session.exec({
+                        cmd: ['bash', '-lc', buildMeasureScript(target)],
+                        timeoutMs,
+                        onStdout: (chunk) => observation.stdout(chunk)
+                    })
+                }
             )
-            const outcome = stream.result.then(
-                (result) => ({ result }),
-                (error) => ({ error })
-            )
-            const stderr = (async () => {
-                for await (const chunk of stream.stderr) void chunk
-            })().catch(() => undefined)
-            try {
-                for await (const chunk of stream.stdout)
-                    observation.stdout(chunk)
-                const settled = await outcome
-                if ('error' in settled) throw settled.error
-                if (settled.result.exitCode !== 0)
-                    throw new StorageMeasurementError('command')
-                return parseMeasureOutput(target, settled.result.stdout)
-            } finally {
-                await stderr
-            }
+            if (result.exitCode !== 0)
+                throw new StorageMeasurementError('command')
+            return parseMeasureOutput(target, result.stdout)
         })
-    }
-
-    protected async clientFor(host: RuntimeHostRow): Promise<SpritesClient> {
-        try {
-            const { client } = await this.hostClients.spritesClientForHost(host)
-            return client
-        } catch {
-            throw new StorageMeasurementError('permission')
-        }
     }
 
     private async persist(

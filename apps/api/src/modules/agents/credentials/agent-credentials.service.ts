@@ -24,12 +24,10 @@ import {
     InternalServerErrorException,
     Logger,
     NotFoundException,
-    Optional
+    Optional,
+    ServiceUnavailableException
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import {
-    type SpritesLogger
-} from '@manyfold/sprites'
 import {
     agentCredentials,
     agents as agentsTable,
@@ -40,14 +38,15 @@ import {
 import { auditLogs } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
-import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import {
+    HostDaemonAccess,
+    HostDaemonOfflineError
+} from '@/modules/agents/adapters/host-daemon-access'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
-import { applyCodexCredentialsOnSprite } from '@/modules/agents/credentials/codex-credential-apply'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import type {
@@ -61,8 +60,9 @@ import type {
 } from '@/modules/agents/credentials/resolved-credentials'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import {
-    applyCodexCredentialsOnPod
-} from '@/modules/agent-runtimes/provisioning/pod-framework-setup'
+    applyCodexCredentials,
+    sessionScriptRunner
+} from '@/modules/agents/bootstrap/host-framework-setup'
 
 const maskApiKey = (raw: string | null | undefined): string | null => {
     if (!raw) return null
@@ -89,15 +89,13 @@ export class AgentCredentialsService {
         private readonly agents: AgentsService,
         private readonly resolver: CredentialsResolverService,
         private readonly modelProviders: ModelProvidersService,
-        private readonly hostClients: HostProviderClients,
+        private readonly hostAccess: HostDaemonAccess,
         private readonly runtimeAccess: RuntimeAccessService,
         // Appended LAST and @Optional so positional test construction keeps
         // working; without it, gateway-framework credential updates degrade
         // to the saved-but-rebuild-to-apply 409.
         @Optional()
-        private readonly serviceRestart?: AgentServiceRestartService,
-        // Same convention; the pod path needs it to reach the host's daemon.
-        @Optional() private readonly podServices?: PodHostServices
+        private readonly serviceRestart?: AgentServiceRestartService
     ) {}
 
     async getView(
@@ -253,11 +251,8 @@ export class AgentCredentialsService {
         }
 
         try {
-            if (ctx.placement === 'sprites') {
-                await this.applyOnSprite(ctx, next)
-            } else if (ctx.placement === 'k8s') {
-                await this.applyOnK8s(ctx, next)
-            }
+            if (ctx.placement === 'sprites' || ctx.placement === 'k8s')
+                await this.applyOnHost(ctx, next)
             await this.syncAgentDefaultModel(agent, next)
         } catch (err) {
             await this.audit(
@@ -356,7 +351,13 @@ export class AgentCredentialsService {
         return { id: match.id, providerName: match.providerName }
     }
 
-    private async applyOnSprite(
+    // A hosted machine: every coding CLI's key rides each exec, and pi's
+    // endpoint and agy's API-key mode live in their platform views, rebuilt at
+    // every start — so only codex, which reads its endpoint and MCP servers
+    // from config.toml, has anything on the machine to rewrite, through its
+    // daemon. A service framework's config and env are rewritten and its
+    // service restarted.
+    private async applyOnHost(
         ctx: AgentContext,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
@@ -371,89 +372,65 @@ export class AgentCredentialsService {
             // required` until recreated; staging 2026-07-29).
             if (!this.serviceRestart)
                 throw new ConflictException(
-                    `${resolved.framework} sprite config cannot be updated in place — credentials are saved; rebuild the agent to apply them`
+                    `${resolved.framework} config cannot be updated in place — credentials are saved; rebuild the agent to apply them`
                 )
             await this.serviceRestart.restart(agent.id, agent.userId, false)
             return
         }
         if (frameworkCapability(resolved.framework).kind !== 'coding')
             throw new InternalServerErrorException(
-                `framework ${resolved.framework} should not run on sprites`
+                `framework ${resolved.framework} does not run on a hosted machine`
             )
-        // Every coding CLI but codex keeps nothing a credential decides on
-        // the sprite: the key rides each exec, and pi's endpoint and agy's
-        // API-key mode live in their platform views, rebuilt at every start.
         if (resolved.framework !== 'codex') return
-        if (!ctx.host)
+        const host = ctx.host
+        if (!host)
             throw new InternalServerErrorException(
-                `agent ${agent.id} has no sprite to update`
+                `agent ${agent.id} has no machine to update`
             )
-        await this.runtimeAccess.reserveActiveSlot({
-            userId: agent.userId,
-            hostId: ctx.host.id
-        })
-        const { client, spriteName } =
-            await this.hostClients.spritesClientForHost(ctx.host)
-        const composioKey = await decryptComposioKey(
-            this.db,
-            this.crypto,
-            agent.userId,
-            (agent.extras as { composioConnectionId?: string | null })
-                .composioConnectionId
-        )
-        await applyCodexCredentialsOnSprite({
-            client,
-            spriteName,
-            apiKey: resolved.value.openaiApiKey,
-            baseUrl: resolved.value.openaiBaseUrl ?? null,
-            mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
-            composioKey,
-            logger: spritesLoggerFrom(this.log)
-        })
-    }
-
-    // A pod host (ADR-0035): every coding CLI's key rides each exec, so only
-    // codex, which reads its endpoint and MCP servers from config.toml, has
-    // anything on the host to rewrite.
-    private async applyOnK8s(
-        ctx: AgentContext,
-        resolved: ResolvedAgentCredentials
-    ): Promise<void> {
-        const { agent } = ctx
-        // A service framework's config and env are rewritten and its service
-        // restarted, as on a sprite.
-        if (frameworkCapability(resolved.framework).kind === 'service') {
-            if (!this.serviceRestart)
-                throw new ConflictException(
-                    `${resolved.framework} config cannot be updated in place — credentials are saved; rebuild the agent to apply them`
-                )
-            await this.serviceRestart.restart(agent.id, agent.userId, false)
-            return
-        }
-        if (resolved.framework !== 'codex') return
-        if (!ctx.host)
-            throw new InternalServerErrorException(
-                `agent ${agent.id} is not on a cloud computer`
-            )
-        if (!this.podServices)
-            throw new InternalServerErrorException(
-                'cloud computer services are not available'
-            )
-        const composioKey = await decryptComposioKey(
-            this.db,
-            this.crypto,
-            agent.userId,
-            (agent.extras as { composioConnectionId?: string | null })
-                .composioConnectionId
-        )
-        await this.podServices.runScripts(ctx.host, 'codex-credentials', (runner) =>
-            applyCodexCredentialsOnPod({
-                runner,
-                baseUrl: resolved.value.openaiBaseUrl ?? null,
-                mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
-                composioKey
+        // The rewrite wakes a sleeping sandbox, which takes an active slot.
+        if (ctx.placement === 'sprites')
+            await this.runtimeAccess.reserveActiveSlot({
+                userId: agent.userId,
+                hostId: host.id
             })
+        const composioKey = await decryptComposioKey(
+            this.db,
+            this.crypto,
+            agent.userId,
+            (agent.extras as { composioConnectionId?: string | null })
+                .composioConnectionId
         )
+        try {
+            await this.hostAccess.withHost(
+                {
+                    host,
+                    daemon: ctx.daemon,
+                    placement: ctx.placement,
+                    agentId: agent.id,
+                    reason: 'codex-credentials'
+                },
+                (session) =>
+                    applyCodexCredentials({
+                        runner: sessionScriptRunner(
+                            { run: session.exec },
+                            (event, fields) =>
+                                this.log.warn(
+                                    `${event} ${JSON.stringify({ hostId: host.id, ...fields })}`
+                                )
+                        ),
+                        baseUrl: resolved.value.openaiBaseUrl ?? null,
+                        mcpToml: mcpConfigFromExtras(agent.extras).global ?? null,
+                        composioKey
+                    })
+            )
+        } catch (err) {
+            if (!(err instanceof HostDaemonOfflineError)) throw err
+            throw new ServiceUnavailableException({
+                code: 'SANDBOX_DAEMON_OFFLINE',
+                message: `${host.name} is not reachable (${err.reason})`,
+                hostId: host.id
+            })
+        }
     }
 
     private async requireAgent(
@@ -747,14 +724,6 @@ const hasAnyPatch = (
     if (!value) return false
     return Object.values(value).some((v) => v !== undefined)
 }
-
-const spritesLoggerFrom = (log: Logger): SpritesLogger => ({
-    debug: () => {},
-    info: (m, meta) => log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    warn: (m, meta) => log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    error: (m, meta) =>
-        log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
-})
 
 const providerSwitchHint = (
     framework: AgentFramework,

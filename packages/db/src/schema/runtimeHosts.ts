@@ -80,14 +80,13 @@ export interface K8sProviderRef {
 
 export type RuntimeHostProviderRef = SpritesProviderRef | K8sProviderRef
 
-// Bookkeeping for the host's keep-awake lease (the provider-side activity
-// task that holds the machine running): what the platform last asked for and
-// last verified, so any API instance can pick the loop up after a restart.
+// The keep-awake switch's hold on the machine (ADR-0038), as the platform last
+// confirmed it: when the task it holds expires unless renewed, when a hold or a
+// release was last proven, and why the last attempt failed. null = no task the
+// platform knows to be live.
 export interface KeepAwakeLease {
-    generation: number
-    taskName: string | null
-    desiredStateAt: string | null
-    lastVerifiedAt: string | null
+    expiresAt: string | null
+    verifiedAt: string | null
     lastError: string | null
 }
 

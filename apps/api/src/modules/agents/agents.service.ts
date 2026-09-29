@@ -20,7 +20,7 @@ import {
     type RuntimeProviderKind
 } from '@manyfold/shared'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
-import { workspaceReading } from './sprite-storage/workspace-reading'
+import { workspaceReading } from './host-storage/workspace-reading'
 import {
     BadRequestException,
     ConflictException,

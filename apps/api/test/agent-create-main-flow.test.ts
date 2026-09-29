@@ -13,7 +13,6 @@ import {
     type NewAgent
 } from '@manyfold/db'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
-import { MANYFOLD_CONTEXT_VERSION } from '../src/modules/agent-self/agent-context-doc.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
 import {
     contextOf,
@@ -49,6 +48,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     const steps: AgentCreateStep[] = []
     let provisionArgs: Record<string, unknown> | null = null
     let finalizedRuntimeId: string | null = null
+    const contextDocDeliveries: string[] = []
     let persistedInline = false
     const defaultInstalls: unknown[] = []
     const modelConfigCalls: Array<{
@@ -189,7 +189,18 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
                       }
         } as never,
         { recordFirstAgentCreated: async () => {} } as never,
-        {} as never
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+            refreshOnChange: async (agent: { id: string }) => {
+                contextDocDeliveries.push(agent.id)
+            }
+        } as never
     )
 
     const result = await service.create(
@@ -239,11 +250,10 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         contextDoc?: { version: number; generatedAt: string }
     }
     assert.equal(extras.workspaceManaged, false)
-    assert.equal(extras.contextDoc?.version, MANYFOLD_CONTEXT_VERSION)
-    assert.match(
-        extras.contextDoc?.generatedAt ?? '',
-        /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/
-    )
+    // The context doc is delivered through the daemon once the row exists,
+    // which records it; the insert claims nothing it did not write.
+    assert.equal(extras.contextDoc, undefined)
+    assert.deepEqual(contextDocDeliveries, [result.id])
     assert.deepEqual(
         (agent.fileRoots ?? []).map((root) => root.id),
         ['workspace', 'claude-home', 'home']
