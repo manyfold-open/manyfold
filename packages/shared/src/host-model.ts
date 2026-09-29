@@ -1,4 +1,4 @@
-import type { AgentRuntime } from './constants'
+import type { RuntimePlacement } from './constants'
 
 // ADR-0037: one real machine is a Host, a Host has one daemon connection, and a
 // Runtime is one framework on one Host. These are the derived facts every
@@ -45,11 +45,18 @@ export interface PlacementHost {
 
 // The product placement of a runtime — Self-owned computer, Stateful sandbox,
 // Cloud computer or External API — derived from its host. This is the only
-// source of the `AgentRuntime` label; no row stores it.
-export const placementOf = (host: PlacementHost | null): AgentRuntime => {
+// source of the `RuntimePlacement` label; no row stores it. A provider kind
+// added without a placement fails to compile here.
+export const placementOf = (host: PlacementHost | null): RuntimePlacement => {
     if (!host) return 'external'
     if (host.kind === 'local') return 'daemon'
-    return host.providerKind === 'k8s' ? 'k8s' : 'sprites'
+    switch (host.providerKind) {
+        case 'k8s':
+            return 'k8s'
+        case 'sprites':
+        case null:
+            return 'sprites'
+    }
 }
 
 export interface DaemonPresenceRow {

@@ -198,7 +198,7 @@ const ctx = (framework: string): ApiChatAdapterContext =>
         codexPermissionMode: null,
         frameworkSessionRef: null,
         history: [],
-        runnerDaemonId: 'dh_runner'
+        turnHostId: 'dh_runner'
     }) as unknown as ApiChatAdapterContext
 
 const userMessage = {

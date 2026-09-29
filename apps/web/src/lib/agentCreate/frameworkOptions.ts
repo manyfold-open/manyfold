@@ -6,7 +6,7 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime
+    RuntimePlacement
 } from '@manyfold/shared'
 import { t as translate } from '@manyfold/i18n'
 import type {
@@ -43,7 +43,7 @@ export const reusesRuntimes = (framework: AgentFramework): boolean =>
 
 export const reuseRuntimeKindsFor = (
     framework: AgentFramework
-): ReadonlySet<AgentRuntime> =>
+): ReadonlySet<RuntimePlacement> =>
     new Set(
         frameworkCapability(framework).runtimes.filter(
             (kind) => kind !== 'external'

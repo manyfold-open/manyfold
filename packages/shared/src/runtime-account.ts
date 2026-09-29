@@ -1,5 +1,5 @@
 import type { RuntimeHostPowerState } from './host-model'
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentFramework, RuntimePlacement } from './constants'
 import {
     isModelConfigFramework,
     type ModelConfigFramework
@@ -102,7 +102,7 @@ export type RuntimeAccountViewStatus =
 export interface RuntimeAccountView {
     runtimeId: string
     framework: AgentFramework
-    kind: AgentRuntime
+    kind: RuntimePlacement
     status: RuntimeAccountViewStatus
     checkedAt: string | null
     credentialStatus: RuntimeLocalCredentialStatus
@@ -120,7 +120,7 @@ export type RuntimeAccountSupport = 'ok' | 'framework' | 'runtime-kind'
 // machine or a sandbox exposes a host we can probe without an agent.
 export const runtimeAccountSupport = (
     framework: string,
-    kind: AgentRuntime
+    kind: RuntimePlacement
 ): RuntimeAccountSupport => {
     if (!isModelConfigFramework(framework)) return 'framework'
     if (kind !== 'daemon' && kind !== 'sprites') return 'runtime-kind'

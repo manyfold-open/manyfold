@@ -78,7 +78,7 @@ for (const surface of execEnvSurfaces.filter(
         await drain(
             adapter.sendMessage(
                 adapterCtx(surface.framework, surface.runtime, {
-                    runnerDaemonId: RUNNER_DAEMON_ID
+                    turnHostId: RUNNER_DAEMON_ID
                 } as never),
                 USER_MESSAGE
             )

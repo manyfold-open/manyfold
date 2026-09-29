@@ -119,9 +119,9 @@ export interface HostDaemonArgs {
     firstExecTimeoutMs?: number
 }
 
-export interface RunnerHandle {
+export interface BringUpHandle {
     // The host id: the daemon's routing key (ADR-0037).
-    daemonId: string
+    hostId: string
     // false when the daemon was already connected (the common case).
     started: boolean
     // The rpc-lease generation the handle was resolved against
@@ -131,7 +131,7 @@ export interface RunnerHandle {
     generation: string | null
 }
 
-export type RunnerFallbackReason =
+export type BringUpFallbackReason =
     | 'runner_unavailable'
     | 'runner_missing'
     | 'sprite_exec_unavailable'
@@ -146,18 +146,16 @@ export type RunnerFallbackReason =
 // How the machine's exec endpoint refused the inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run
 // (the adapter judges it, ProviderErrorFacts.execFailure).
-export type RunnerExecFailureClass = ExecEndpointFailureClass
-export type RunnerExecFailure = ExecEndpointFailure
 
-export interface RunnerResolution {
-    handle: RunnerHandle | null
-    fallbackReason?: RunnerFallbackReason
+export interface BringUpResolution {
+    handle: BringUpHandle | null
+    fallbackReason?: BringUpFallbackReason
     // Present only with `sprite_exec_unavailable`: what the inspect proved about
     // the sprite exec endpoint, for the caller to quarantine on (#730).
-    execFailure?: RunnerExecFailure
+    execFailure?: ExecEndpointFailure
 }
 
-interface RunnerMachineState {
+interface BringUpMachineState {
     installed: boolean
     registered: boolean
     // The API the daemon config was registered against; null when there is no
@@ -168,20 +166,20 @@ interface RunnerMachineState {
     herdr: boolean | null
 }
 
-interface RunnerBringUp {
-    handle: RunnerHandle | null
-    execFailure?: RunnerExecFailure
+interface BringUpOutcome {
+    handle: BringUpHandle | null
+    execFailure?: ExecEndpointFailure
 }
 
-type RunnerInspection =
-    | { state: RunnerMachineState }
-    | { state: null; execFailure?: RunnerExecFailure }
+type BringUpInspection =
+    | { state: BringUpMachineState }
+    | { state: null; execFailure?: ExecEndpointFailure }
 
 // Where the daemon's profile lives on each kind of machine, and how its
 // process is (re)started there. On both, a loop restarts the daemon whenever
 // it exits — a pod's boot script (ADR-0035), a sprite's supervised service —
 // so stopping it IS starting it, and an update applies by exiting.
-interface RunnerLayout {
+interface DaemonLayout {
     profile: string
     envPrefix: string
     probePath: string
@@ -225,7 +223,7 @@ const SPRITE_DAEMON_LOOP = [
     'done'
 ].join('\n')
 
-const SPRITE_LAYOUT: RunnerLayout = {
+const SPRITE_LAYOUT: DaemonLayout = {
     profile: RUNNER_PROFILE,
     envPrefix: `export MF_PROFILE=${RUNNER_PROFILE};`,
     probePath: profilePaths('$HOME/.manyfold', RUNNER_PROFILE).daemonConfigPath,
@@ -252,7 +250,7 @@ const SPRITE_LAYOUT: RunnerLayout = {
 
 const POD_CONFIG_ROOT = `${K8S_HOME_BASE}/.manyfold`
 
-const POD_LAYOUT: RunnerLayout = {
+const POD_LAYOUT: DaemonLayout = {
     profile: POD_RUNNER_PROFILE,
     envPrefix: `export MF_PROFILE=${POD_RUNNER_PROFILE} MF_CONFIG_DIR=${POD_CONFIG_ROOT};`,
     probePath: profilePaths(POD_CONFIG_ROOT, POD_RUNNER_PROFILE).daemonConfigPath,
@@ -264,7 +262,7 @@ const POD_LAYOUT: RunnerLayout = {
     writesShellEnv: false
 }
 
-const layoutFor = (provider: RuntimeProvider): RunnerLayout =>
+const layoutFor = (provider: RuntimeProvider): DaemonLayout =>
     provider.kind === 'k8s' ? POD_LAYOUT : SPRITE_LAYOUT
 
 const MF_BIN = '"$HOME/.local/bin/mf"'
@@ -275,11 +273,11 @@ const leaseGeneration = (daemon: HostDaemonRow | null | undefined): string | nul
         : null
 
 @Injectable()
-export class RunnerManagerService {
-    private readonly logger = new Logger(RunnerManagerService.name)
+export class HostBringUpService {
+    private readonly logger = new Logger(HostBringUpService.name)
     // One in-flight bring-up per host: concurrent turns on the same machine
     // must not each install and register a daemon.
-    private readonly bringUps = new Map<string, Promise<RunnerBringUp>>()
+    private readonly bringUps = new Map<string, Promise<BringUpOutcome>>()
     private readonly resupervisions = new Map<string, Promise<HostDaemonRow | null>>()
     constructor(
         private readonly hosts: HostsService,
@@ -312,7 +310,7 @@ export class RunnerManagerService {
     // machine and what stops it suspending again between the wake and the
     // first RPC (ADR-0038). Callers that keep working hold their own; the
     // grace on release keeps the machine up across the hand-over.
-    async ensureHostDaemon(args: HostDaemonArgs): Promise<RunnerResolution> {
+    async ensureHostDaemon(args: HostDaemonArgs): Promise<BringUpResolution> {
         const { host } = args
         const daemon = await this.hostDaemons.findByHostId(host.id)
         if (host.kind === 'local') {
@@ -360,7 +358,7 @@ export class RunnerManagerService {
         host: RuntimeHostRow,
         since: Date,
         waitMs = WAKE_RECONNECT_WAIT_MS
-    ): Promise<RunnerHandle | null> {
+    ): Promise<BringUpHandle | null> {
         return this.waitForLease(host, since, waitMs)
     }
 
@@ -374,7 +372,7 @@ export class RunnerManagerService {
     async probeExec(
         host: RuntimeHostRow,
         timeoutMs: number
-    ): Promise<'ok' | 'inconclusive' | RunnerExecFailureClass> {
+    ): Promise<'ok' | 'inconclusive' | ExecEndpointFailureClass> {
         let adapter: SandboxProvider | null = null
         try {
             const resolved = await this.adapterFor(host)
@@ -412,7 +410,7 @@ export class RunnerManagerService {
         daemon: HostDaemonRow | null,
         args: HostDaemonArgs,
         started: boolean
-    ): Promise<RunnerResolution> {
+    ): Promise<BringUpResolution> {
         const features = daemon?.clientFeatures ?? []
         const missing = (args.requiredFeatures ?? []).filter(
             (feature) => !features.includes(feature)
@@ -420,7 +418,7 @@ export class RunnerManagerService {
         if (!missing.length)
             return {
                 handle: {
-                    daemonId: host.id,
+                    hostId: host.id,
                     started,
                     generation: leaseGeneration(daemon)
                 }
@@ -443,7 +441,7 @@ export class RunnerManagerService {
             )
                 return {
                     handle: {
-                        daemonId: host.id,
+                        hostId: host.id,
                         started: true,
                         generation: leaseGeneration(back)
                     }
@@ -464,7 +462,7 @@ export class RunnerManagerService {
                 })
                 return {
                     handle: {
-                        daemonId: host.id,
+                        hostId: host.id,
                         started: true,
                         generation: leaseGeneration(fresh)
                     }
@@ -529,7 +527,7 @@ export class RunnerManagerService {
     private singleFlightBringUp(
         args: HostDaemonArgs,
         hold: AwakeHold
-    ): Promise<RunnerBringUp> {
+    ): Promise<BringUpOutcome> {
         const inFlight = this.bringUps.get(args.host.id)
         if (inFlight) return inFlight
         const attempt = this.bringUp(args, hold).finally(() => {
@@ -555,7 +553,7 @@ export class RunnerManagerService {
     private async bringUp(
         args: HostDaemonArgs,
         hold: AwakeHold
-    ): Promise<RunnerBringUp> {
+    ): Promise<BringUpOutcome> {
         const { host } = args
         const tag = `hostId=${host.id} agentId=${args.agentId ?? '-'}`
         try {
@@ -652,7 +650,7 @@ export class RunnerManagerService {
     private async installAndRegister(
         adapter: SandboxProvider,
         call: ProviderCall,
-        state: RunnerMachineState
+        state: BringUpMachineState
     ): Promise<'ok' | 'install-failed' | 'register-failed'> {
         const tooOld = isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
         if (!state.installed || tooOld) {
@@ -709,7 +707,7 @@ export class RunnerManagerService {
         adapter: SandboxProvider,
         call: ProviderCall,
         timeoutMs?: number
-    ): Promise<RunnerInspection> {
+    ): Promise<BringUpInspection> {
         const layout = layoutFor(call.provider)
         const script = [
             `test -x ${MF_BIN} && echo installed=1 || echo installed=0`,
@@ -968,7 +966,7 @@ export class RunnerManagerService {
         host: RuntimeHostRow,
         since: Date,
         waitMs: number
-    ): Promise<RunnerHandle | null> {
+    ): Promise<BringUpHandle | null> {
         const deadline = Date.now() + waitMs
         // The socket may land on this instance (the event ends the wait at
         // once) or on a peer (the poll sees the lease it wrote).
@@ -1007,13 +1005,13 @@ const handleFor = (
     host: RuntimeHostRow,
     daemon: HostDaemonRow,
     started: boolean
-): RunnerHandle => ({
-    daemonId: host.id,
+): BringUpHandle => ({
+    hostId: host.id,
     started,
     generation: leaseGeneration(daemon)
 })
 
-const unavailable = (reason: RunnerFallbackReason): RunnerResolution => ({
+const unavailable = (reason: BringUpFallbackReason): BringUpResolution => ({
     handle: null,
     fallbackReason: reason
 })

@@ -91,7 +91,7 @@ export {
     type LibraryFilePathValidationResult
 } from './librarySkillFiles'
 export {
-    agentRuntime,
+    runtimePlacements,
     agentRuntimeStatus,
     agentStatus,
     auditAction,
@@ -106,7 +106,7 @@ export {
     codingAgentWorkspacePath,
     codingAgentWorkspacePathForHome,
     codingAgentHomeRootForWorkspacePath,
-    runtimeKindLabel,
+    runtimePlacementLabel,
     DEFAULT_PLAN_ID
 } from './constants'
 export {
@@ -139,7 +139,7 @@ export type { ApiError } from './envelopes'
 export type {
     AgentFramework,
     CoreFramework,
-    AgentRuntime,
+    RuntimePlacement,
     AgentRuntimeStatus,
     AgentStatus,
     SpritesAccountStatus,

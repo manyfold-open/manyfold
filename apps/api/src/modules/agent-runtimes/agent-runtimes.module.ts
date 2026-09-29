@@ -25,11 +25,11 @@ import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-dur
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
-import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 
 @Module({
     imports: [
-        RunnerModule,
+        HostBringUpModule,
         AuthModule,
         HostsModule,
         HostDaemonAccessModule,

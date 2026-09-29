@@ -1,7 +1,7 @@
 import type {
     AgentFramework,
     AgentModelConfigSource,
-    AgentRuntime,
+    RuntimePlacement,
     DaemonHerdrFramework
 } from '@manyfold/shared'
 import type { TFn } from '@/lib/i18n'
@@ -49,7 +49,7 @@ const HERDR_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
 ])
 
 export const herdrHandoffAvailability = (args: {
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     // isRuntimeUsable(agent.availability): the machine can take a turn now
     // (or wakes for one).
     available: boolean

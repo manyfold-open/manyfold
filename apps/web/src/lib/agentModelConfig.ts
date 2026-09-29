@@ -3,7 +3,7 @@ import {
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
-    AgentRuntime,
+    RuntimePlacement,
     ClaudeCodeAgentModelConfig,
     ClaudeCodeEffort,
     ClaudeCodeModelAlias,
@@ -63,7 +63,7 @@ export interface AgentModelConfigViewUpdatedDetail {
 
 export const frameworkUsesModelConfig = (
     framework: string | null | undefined,
-    _runtime?: AgentRuntime | null
+    _runtime?: RuntimePlacement | null
 ): boolean => isModelConfigFramework(framework)
 
 export const modelConfigViewCacheKey = (agentId: string): string =>

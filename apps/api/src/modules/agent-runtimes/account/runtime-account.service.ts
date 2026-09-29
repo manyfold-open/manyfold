@@ -7,7 +7,7 @@ import {
     runtimeLocalInspectFeature
 } from '@manyfold/shared'
 import type {
-    AgentRuntime,
+    RuntimePlacement,
     ModelConfigFramework,
     RuntimeAccountUsage,
     RuntimeAccountView,
@@ -322,14 +322,14 @@ export class RuntimeAccountService {
         row: AgentRuntimeRow,
         raw: unknown,
         host: HostView,
-        placement: AgentRuntime
+        placement: RuntimePlacement
     ): RuntimeAccountView {
         return this.viewFromProbe(row, placement, raw, host)
     }
 
     private viewFromProbe(
         row: AgentRuntimeRow,
-        placement: AgentRuntime,
+        placement: RuntimePlacement,
         raw: unknown,
         host: HostView
     ): RuntimeAccountView {
@@ -357,7 +357,7 @@ export class RuntimeAccountService {
 
     private view(
         row: AgentRuntimeRow,
-        placement: AgentRuntime,
+        placement: RuntimePlacement,
         status: RuntimeAccountViewStatus,
         extra: { host?: HostView; error?: string | null } = {}
     ): RuntimeAccountView {

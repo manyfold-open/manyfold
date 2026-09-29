@@ -1,6 +1,6 @@
 import type {
     AgentCreateStep,
-    AgentRuntime,
+    RuntimePlacement,
     CreateAgentBody,
     RuntimeProviderKind,
     RuntimeProviderSummary,
@@ -110,7 +110,7 @@ const isCodingFramework = (framework: Framework): boolean =>
 
 const resolveSteps = (
     framework: Framework,
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): AgentCreateStep[] => {
     if (runtime === 'external') return externalSteps
     if (runtime === 'sprites') return spritesSteps
@@ -121,7 +121,7 @@ const resolveSteps = (
 const supportsRuntimeChoice = (framework: Framework): boolean =>
     isCodingFramework(framework)
 
-const defaultRuntimeFor = (framework: Framework): AgentRuntime => {
+const defaultRuntimeFor = (framework: Framework): RuntimePlacement => {
     if (isExternalFramework(framework)) return 'external'
     return supportsRuntimeChoice(framework) ? 'sprites' : 'k8s'
 }
@@ -130,7 +130,7 @@ const defaultRuntimeFor = (framework: Framework): AgentRuntime => {
 // machine is created (external frameworks).
 const providerKindFor = (
     framework: Framework,
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): RuntimeProviderKind | null => {
     if (isExternalFramework(framework)) return null
     if (framework === 'openclaw' || framework === 'hermes') return 'k8s'
@@ -168,7 +168,7 @@ const AgentNew: FC = (): ReactNode => {
 
     const [name, setName] = useState('')
     const [framework, setFramework] = useState<Framework>('claude-code')
-    const [runtime, setRuntime] = useState<AgentRuntime>('sprites')
+    const [runtime, setRuntime] = useState<RuntimePlacement>('sprites')
     const [providers, setProviders] = useState<
         RuntimeProviderSummary[] | null
     >(null)

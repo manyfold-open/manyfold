@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
-import { FILES_UPLOAD_MAX_BYTES, type AgentRuntime } from '@manyfold/shared'
+import { FILES_UPLOAD_MAX_BYTES, type RuntimePlacement } from '@manyfold/shared'
 import type { Agent, FileRoot } from '@manyfold/db'
 import { FilesController } from '../src/modules/agents/files/files.controller'
 import type { FilesContext } from '../src/modules/agents/files/files-context'
@@ -39,7 +39,7 @@ interface Harness {
 const harness = (
     target: Agent,
     fileRoot: FileRoot = root(),
-    placement: AgentRuntime = 'sprites'
+    placement: RuntimePlacement = 'sprites'
 ): Harness => {
     const writes: Array<{ absPath: string; body: unknown }> = []
     const ctx: FilesContext = {

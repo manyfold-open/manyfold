@@ -7,7 +7,7 @@ import type {
 } from './host-model'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     AgentRuntimeStatus,
     AgentStatus,
     UserRole
@@ -1271,7 +1271,7 @@ export interface A2aBindingInput {
 export interface CreateAgentBody {
     name: string
     framework: AgentFramework
-    runtime?: AgentRuntime
+    runtime?: RuntimePlacement
     // The runtime provider to place a NEW hosted machine on; omit to let
     // placement choose.
     providerId?: string
@@ -1313,7 +1313,7 @@ export interface AgentBackupSummary {
     sourceAgentId: string | null
     sourceAgentName: string
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     status: AgentBackupStatus
     objectKey: string
     archiveBytes: number
@@ -1536,10 +1536,10 @@ export interface SkillTargetAgentSummary {
     name: string
     framework: SkillFramework
     status: AgentStatus
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     runtimeId: string
     runtimeName: string
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     runtimeStatus: AgentRuntimeStatus
 }
 
@@ -2199,7 +2199,7 @@ export interface AgentSummary {
     cliLatestVersion: string | null
     cliUpdateAvailable: boolean
     // Product placement, derived from the host (placementOf); never stored.
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     // The agent's own lifecycle. Whether it can run now is `availability`.
     status: AgentStatus
     availability: RuntimeAvailability
@@ -2339,7 +2339,7 @@ export interface AgentRuntimeSummary {
     framework: AgentFramework
     frameworkVersion: string | null
     // Product placement, derived from the host (placementOf); never stored.
-    kind: AgentRuntime
+    kind: RuntimePlacement
     // Install state; whether a turn can start now is `availability`.
     status: AgentRuntimeStatus
     availability: RuntimeAvailability

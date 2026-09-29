@@ -1,8 +1,8 @@
-import { ChatRunnerError } from '../runner/chat-runner'
+import { TurnDaemonError } from '@/modules/chat/turn-daemon'
 import {
     DAEMON_FEATURE_TURN_OPENCLAW,
     placementOf,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import type {
     AgentFramework,
@@ -115,7 +115,7 @@ interface OpenAIError {
 // The agent's placement (derived from its host, ADR-0037) and the host id
 // that routes to its daemon.
 export interface GatewayAgentRow {
-    placement: AgentRuntime
+    placement: RuntimePlacement
     internalId: string | null
     hostId: string | null
 }
@@ -186,11 +186,11 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         _agentRow: GatewayAgentRow
     ): AsyncIterable<EmittedChatEvent> {
         const runtime = await this.resolveRuntime(ctx.agentId)
-        if (!ctx.runnerDaemonId || !this.daemonRegistry)
-            throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
-        if (!await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
-            throw new ChatRunnerError(ctx.runtimeKind, 'turn.openclaw missing', true)
-        yield* this.sendViaTurnRpc(ctx, userMessage, runtime, ctx.runnerDaemonId)
+        if (!ctx.turnHostId || !this.daemonRegistry)
+            throw new TurnDaemonError(ctx.runtimeKind, 'runner missing')
+        if (!await this.daemonSupportsTurnRpc(ctx.turnHostId))
+            throw new TurnDaemonError(ctx.runtimeKind, 'turn.openclaw missing', true)
+        yield* this.sendViaTurnRpc(ctx, userMessage, runtime, ctx.turnHostId)
     }
 
     // Extra body fields for a turn that arrived from a channel. A framework
@@ -335,7 +335,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
         if (!this.daemonRegistry) {
-            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'runner registry unavailable').chatError }
+            yield { type: 'error', error: new TurnDaemonError(ctx.runtimeKind, 'runner registry unavailable').chatError }
             return
         }
         if (

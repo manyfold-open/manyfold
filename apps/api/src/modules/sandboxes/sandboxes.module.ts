@@ -7,7 +7,7 @@ import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
-import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { FrameworkVersionsModule } from '@/modules/framework-versions/framework-versions.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
@@ -29,7 +29,7 @@ import { ActiveHoursEnforcementService } from './active-hours-enforcement.servic
         SandboxActiveDurationModule,
         AdminSettingsModule,
         RuntimeAccessModule,
-        RunnerModule,
+        HostBringUpModule,
         FrameworkVersionsModule,
         SecretsModule
     ],

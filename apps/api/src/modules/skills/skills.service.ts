@@ -20,7 +20,7 @@ import {
     createObjectId,
     isObjectId,
     placementOf,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
@@ -104,7 +104,7 @@ interface SkillTarget {
     agent: Agent
     runtime: AgentRuntimeRow
     // The product placement of the runtime's host (placementOf, ADR-0037).
-    placement: AgentRuntime
+    placement: RuntimePlacement
     framework: SkillFramework
 }
 
@@ -181,7 +181,7 @@ export class SkillsService {
     async installDefaults(
         input: Pick<Agent, 'userId' | 'framework'> & {
             agentId: string
-            runtime: AgentRuntime
+            runtime: RuntimePlacement
         }
     ): Promise<void> {
         if (
@@ -1328,7 +1328,7 @@ export class SkillsService {
     private normalizeTarget(
         agent: Agent,
         runtime: AgentRuntimeRow,
-        placement: AgentRuntime
+        placement: RuntimePlacement
     ): SkillTarget {
         const framework = this.assertFramework(
             agent.framework as SkillFramework

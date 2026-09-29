@@ -1,6 +1,7 @@
 export type { AgentFramework, CoreFramework } from './frameworks/core'
 
-export const agentRuntime = {
+// Where an agent's runtime lives, derived from its host (placementOf).
+export const runtimePlacements = {
     SPRITES: 'sprites',
     K8S: 'k8s',
     DAEMON: 'daemon',
@@ -12,9 +13,10 @@ export const agentRuntime = {
 // the self-host backfill will move an account off — the three must agree.
 export const DEFAULT_PLAN_ID = 'free'
 
-export type AgentRuntime = (typeof agentRuntime)[keyof typeof agentRuntime]
+export type RuntimePlacement =
+    (typeof runtimePlacements)[keyof typeof runtimePlacements]
 
-export const runtimeKindLabel = (kind: AgentRuntime): string => {
+export const runtimePlacementLabel = (kind: RuntimePlacement): string => {
     switch (kind) {
         case 'k8s':
             return 'Cloud computer'
@@ -180,7 +182,7 @@ export const codingAgentHomeRootForWorkspacePath = (
 }
 
 export const codingAgentWorkspacePath = (
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     agentId: string,
     homeDir?: string
 ): string => {

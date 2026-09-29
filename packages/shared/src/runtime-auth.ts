@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentFramework, RuntimePlacement } from './constants'
 import {
     isRuntimeAuthProfileFramework,
     type RuntimeAuthProfileFramework
@@ -93,7 +93,7 @@ export const isRuntimeAuthOperationId = (value: unknown): value is string =>
 // an agent (daemon machine or sandbox).
 export const runtimeAuthSupported = (
     framework: string,
-    kind: AgentRuntime
+    kind: RuntimePlacement
 ): boolean =>
     isRuntimeAuthProfileFramework(framework) &&
     runtimeAccountSupport(framework, kind) === 'ok'
@@ -135,7 +135,7 @@ export type RuntimeAuthAvailability =
 export interface RuntimeAuthListView {
     runtimeId: string
     framework: AgentFramework
-    kind: AgentRuntime
+    kind: RuntimePlacement
     availability: RuntimeAuthAvailability
     // `manage` = the host answers the auth.* RPCs; `execute` = it can run a
     // turn under a selected profile; `apiKey` = it can store an API key as a

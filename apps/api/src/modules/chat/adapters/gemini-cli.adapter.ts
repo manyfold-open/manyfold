@@ -210,7 +210,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             authContext,
             creds,
             resolvePriceScope,
@@ -219,7 +219,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             agent
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
             ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
-            ctx.runnerDaemonId ?? undefined)
+            ctx.turnHostId ?? undefined)
         const geminiCreds = creds as ResolvedGeminiCliCredentials | null
         // modelConfig null + tuning present = runtime-local turn (see
         // resolveTurnConfig). Gating the env on it keeps GEMINI_API_KEY out

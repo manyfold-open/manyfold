@@ -1,14 +1,14 @@
 import {
     AgentCreateStep,
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     EXPERIMENT_KEYS,
     FEATURE_TOGGLE_KEYS,
     FrameworkRuntimeDefaultsSettings,
     RotateRuntimeTokenResponse,
     SPRITE_HOME_BASE,
     UserFrameworkRuntimeOverridesSettings,
-    agentRuntime,
+    runtimePlacements,
     auditAction,
     codingAgentWorkspacePath,
     configurableFrameworkRuntimeDefaults,
@@ -141,25 +141,25 @@ const isConfigurableRuntimeDefaultFramework = (
 
 export const resolveRuntime = (
     framework: AgentFramework,
-    userChoice?: AgentRuntime,
+    userChoice?: RuntimePlacement,
     defaults?: FrameworkRuntimeDefaultsSettings,
     userOverrides?: UserFrameworkRuntimeOverridesSettings
-): AgentRuntime => {
+): RuntimePlacement => {
     if (isExternal(framework)) {
-        if (userChoice && userChoice !== agentRuntime.EXTERNAL)
+        if (userChoice && userChoice !== runtimePlacements.EXTERNAL)
             throw new ConflictException(
                 `framework ${framework} requires runtime=external`
             )
-        return agentRuntime.EXTERNAL
+        return runtimePlacements.EXTERNAL
     }
-    if (userChoice === agentRuntime.DAEMON) {
-        if (!supportsRuntime(framework, agentRuntime.DAEMON))
+    if (userChoice === runtimePlacements.DAEMON) {
+        if (!supportsRuntime(framework, runtimePlacements.DAEMON))
             throw new ConflictException(
                 `framework ${framework} cannot run on a local daemon`
             )
-        return agentRuntime.DAEMON
+        return runtimePlacements.DAEMON
     }
-    if (userChoice === agentRuntime.EXTERNAL)
+    if (userChoice === runtimePlacements.EXTERNAL)
         throw new ConflictException(
             `framework ${framework} cannot run on an external runtime`
         )
@@ -354,7 +354,7 @@ export class AgentOrchestratorService {
     private async writeRotateAudit(
         action: string,
         agent: Agent,
-        placement: AgentRuntime,
+        placement: RuntimePlacement,
         actorUserId: string,
         error?: string
     ): Promise<void> {
@@ -431,7 +431,7 @@ export class AgentOrchestratorService {
                   this.users.getFrameworkRuntimeOverrides(ctx.userId)
               ])
         const runtime = ctx.dto.runtimeId
-            ? agentRuntime.K8S
+            ? runtimePlacements.K8S
             : resolveRuntime(
                   ctx.dto.framework,
                   ctx.dto.runtime,
@@ -439,13 +439,13 @@ export class AgentOrchestratorService {
                   userOverrides
               )
         let result: AgentSummary
-        if (runtime === agentRuntime.K8S)
+        if (runtime === runtimePlacements.K8S)
             result = await this.createK8sAgent(ctx, emitter)
-        else if (runtime === agentRuntime.DAEMON)
+        else if (runtime === runtimePlacements.DAEMON)
             throw new ConflictException(
                 'daemon runtimes are created by the daemon itself; attach via POST /agent-runtimes/:id/agents instead'
             )
-        else if (runtime === agentRuntime.EXTERNAL)
+        else if (runtime === runtimePlacements.EXTERNAL)
             result = await this.createExternal(ctx, emitter)
         else result = await this.createSprites(ctx, emitter)
         this.changes?.emit(ctx.userId, { resource: 'agent', resourceId: result.id, agentId: result.id, reason: 'created' })

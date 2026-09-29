@@ -90,7 +90,7 @@ test('withHost holds the machine, ensures its daemon, runs the work and lets go'
     const out = await access.withHost(
         { host: host(), daemon: null, placement: 'sprites', reason: 'files' },
         async (session) => {
-            assert.equal(session.daemonId, 'sbx_1')
+            assert.equal(session.hostId, 'sbx_1')
             await session.rpc({ method: 'fs.list', payload: {} })
             return 'done'
         }

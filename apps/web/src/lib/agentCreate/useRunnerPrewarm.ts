@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentRuntime } from '@manyfold/shared'
+import type { RuntimePlacement } from '@manyfold/shared'
 import { useApiClient } from '@/lib/apiClient'
 import type { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 import {
@@ -42,7 +42,7 @@ export interface RunnerPrewarmState {
 
 export const useRunnerPrewarm = (
     runtimeId: string | null,
-    kind: AgentRuntime | null,
+    kind: RuntimePlacement | null,
     auth: ReturnType<typeof useRuntimeAuthList>
 ): RunnerPrewarmState => {
     const client = useApiClient()

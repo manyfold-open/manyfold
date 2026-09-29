@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentFramework, RuntimePlacement } from './constants'
 
 export type CostSource = 'upstream' | 'table' | 'unknown'
 
@@ -30,7 +30,7 @@ export interface UsageQuery {
 export interface UsageSummaryByModel {
     model: string | null
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     inputTokens: number
     outputTokens: number
     cacheReadTokens: number
@@ -71,7 +71,7 @@ export interface UsageEventSummary {
     sessionId: string | null
     messageId: string | null
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     model: string | null
     inputTokens: number
     outputTokens: number
@@ -103,7 +103,7 @@ export interface UsageTopAgent {
     agentId: string
     name: string | null
     framework: AgentFramework | null
-    runtimeKind: AgentRuntime | null
+    runtimeKind: RuntimePlacement | null
     userId: string
     userEmail: string | null
     inputTokens: number
@@ -117,7 +117,7 @@ export interface UsageSessionSummary {
     agentId: string | null
     runtimeId: string | null
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     inputTokens: number
     outputTokens: number
     cacheReadTokens: number

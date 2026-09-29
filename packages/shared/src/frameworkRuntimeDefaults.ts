@@ -8,7 +8,7 @@ export type ConfigurableFrameworkRuntimeDefault =
 
 /**
  * Runtimes that frameworks can opt into for default selection. A subset of
- * AgentRuntime — `external` and `daemon` are not eligible defaults (the former
+ * RuntimePlacement — `external` and `daemon` are not eligible defaults (the former
  * is bound to specific frameworks by `resolveRuntime`, the latter is always
  * a user-explicit choice).
  */

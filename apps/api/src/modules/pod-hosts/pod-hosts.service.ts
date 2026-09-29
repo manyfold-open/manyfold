@@ -44,7 +44,7 @@ import {
     DaemonCliVersionService,
     type LatestCliVersion
 } from '@/modules/daemon/daemon-cli-version.service'
-import { HostCliService } from '@/modules/chat/runner/host-cli.service'
+import { HostCliService } from '@/modules/hosts/bring-up/host-cli.service'
 
 // Cloud computers (ADR-0035): what a user sees of a hosted k8s host, and the
 // operations on the host itself. Agents land on a host through the agent

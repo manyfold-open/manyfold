@@ -3,7 +3,7 @@ import {
     runtimeAuthSupported,
     type AgentFramework,
     type AgentModelConfigView,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import { Link } from 'react-router-dom'
 import RuntimeAuthProfileSelect from '@/components/chat/RuntimeAuthProfileSelect'
@@ -25,7 +25,7 @@ const RuntimeAuthBindingRow: FC<{
     agentId: string
     runtimeId: string
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     view: AgentModelConfigView
     onView: (view: AgentModelConfigView) => void
 }> = ({

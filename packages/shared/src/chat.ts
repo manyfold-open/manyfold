@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentFramework, RuntimePlacement } from './constants'
 import type { ChannelProviderName } from './channels'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
 import type { ChatUsage } from './usage'
@@ -602,7 +602,7 @@ export interface AgentSessionListBody {
 // expensive thing it exists to do once; it marks cloud presence on top of it.
 export interface AgentSessionListResponse {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     localScan: AgentSessionLocalScan
     // Transcripts found on the runtime before the limit; null unless the scan
     // ran. `localListed` is how many of the newest ones the rows account for —
@@ -632,7 +632,7 @@ export interface RuntimeSessionCandidate {
 
 export interface RuntimeSessionViewResponse {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     selectedSessionRef: string | null
     currentSessionRef: string | null
     selectedCloudSessionId: string | null

@@ -6,11 +6,11 @@ import {
     frameworkCapability,
     listFrameworks,
     type AgentFramework,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
-import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 import {
     contextOf,
@@ -29,7 +29,7 @@ const features = [
     'auth-context.v1',
     'exec.roots.v1'
 ]
-const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
+const hostFor = (runtime: RuntimePlacement): RuntimeHostRow =>
     runtime === 'daemon'
         ? hostRow({ id: 'dh_one', userId: 'usr_one' })
         : runtime === 'k8s'
@@ -37,7 +37,7 @@ const hostFor = (runtime: AgentRuntime): RuntimeHostRow =>
           : spritesHostRow({ id: 'dh_one', userId: 'usr_one' })
 
 const rig = (
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     framework: AgentFramework,
     options: {
         missing?: boolean
@@ -157,9 +157,9 @@ for (const framework of listFrameworks()) {
                 runtime,
                 framework as AgentFramework
             )
-            const resolved = await factory.resolveRunner(agent)
-            assert.equal(resolved.daemonId, 'dh_one')
-            const driver = factory.daemonDriverFor(resolved.daemonId)
+            const resolved = await factory.resolveTurnDaemon(agent)
+            assert.equal(resolved.hostId, 'dh_one')
+            const driver = factory.daemonDriverFor(resolved.hostId)
             assert.ok(driver instanceof DaemonExecDriver)
             const handle = driver.stream({ cmd: ['true'], timeoutMs: 1000 })
             await handle.result
@@ -182,9 +182,9 @@ for (const runtime of ['daemon', 'sprites', 'k8s'] as const) {
         test(`${runtime}: ${reason} refuses before any exec`, async () => {
             const { factory, agent, calls } = rig(runtime, 'hermes', options)
             await assert.rejects(
-                factory.resolveRunner(agent),
+                factory.resolveTurnDaemon(agent),
                 (err: unknown) => {
-                    assert.ok(err instanceof ChatRunnerError)
+                    assert.ok(err instanceof TurnDaemonError)
                     assert.equal(err.chatError.code, code)
                     assert.equal(
                         err.chatError.retryable,
@@ -201,15 +201,15 @@ for (const runtime of ['daemon', 'sprites', 'k8s'] as const) {
 for (const reason of ['runner_unavailable', 'runner_missing'] as const) {
     test(`Pod ${reason} never falls back to pod exec`, async () => {
         const { factory, agent, calls } = rig('k8s', 'codex', { reason })
-        await assert.rejects(factory.resolveRunner(agent), ChatRunnerError)
+        await assert.rejects(factory.resolveTurnDaemon(agent), TurnDaemonError)
         assert.deepEqual(calls, ['resolve'])
     })
 }
 
 test('a newly starting Pod without a registered runner is retryable', async () => {
     const { factory, agent } = rig('k8s', 'codex', { reason: 'runner_missing' })
-    await assert.rejects(factory.resolveRunner(agent), (err: unknown) => {
-        assert.ok(err instanceof ChatRunnerError)
+    await assert.rejects(factory.resolveTurnDaemon(agent), (err: unknown) => {
+        assert.ok(err instanceof TurnDaemonError)
         assert.equal(err.chatError.code, 'chat_runner_unavailable')
         assert.equal(err.chatError.retryable, true)
         return true
@@ -220,10 +220,10 @@ for (const runtime of ['sprites', 'k8s'] as const) {
     test(`${runtime}: gateway frameworks leave workspace resolution to the gateway`, async () => {
         const { factory, agent } = rig(runtime, 'openclaw')
         agent.workspacePath = '/not-yet-created/workspace'
-        const gateway = await factory.resolveRunner(agent)
+        const gateway = await factory.resolveTurnDaemon(agent)
         assert.equal(gateway.roots.includes(agent.workspacePath!), false)
         const coding = rig(runtime, 'codex')
-        const resolved = await coding.factory.resolveRunner(coding.agent)
+        const resolved = await coding.factory.resolveTurnDaemon(coding.agent)
         assert.equal(resolved.roots[0], coding.agent.workspacePath)
     })
 }
@@ -236,8 +236,8 @@ test('a workspace outside the managed tree needs exec.roots.v1; under it the dae
     const outside = rig('sprites', 'codex', {
         features: features.filter((f) => f !== 'exec.roots.v1')
     })
-    await assert.rejects(outside.factory.resolveRunner(outside.agent), (err: unknown) => {
-        assert.ok(err instanceof ChatRunnerError)
+    await assert.rejects(outside.factory.resolveTurnDaemon(outside.agent), (err: unknown) => {
+        assert.ok(err instanceof TurnDaemonError)
         assert.equal(err.chatError.code, 'chat_runner_upgrade_required')
         return true
     })
@@ -245,14 +245,14 @@ test('a workspace outside the managed tree needs exec.roots.v1; under it the dae
         features: features.filter((f) => f !== 'exec.roots.v1')
     })
     managed.host.workspaceBaseDir = '/workspace'
-    const resolved = await managed.factory.resolveRunner(managed.agent)
+    const resolved = await managed.factory.resolveTurnDaemon(managed.agent)
     assert.deepEqual(resolved.roots, [managed.agent.workspacePath])
 })
 
 test('the resolved roots reach the daemon on exec.start', async () => {
     const { factory, agent, payloads } = rig('sprites', 'codex')
-    const resolved = await factory.resolveRunner(agent)
-    const driver = factory.daemonDriverFor(resolved.daemonId, undefined, null, {
+    const resolved = await factory.resolveTurnDaemon(agent)
+    const driver = factory.daemonDriverFor(resolved.hostId, undefined, null, {
         roots: resolved.roots
     })
     await driver.stream({ cmd: ['true'], dir: agent.workspacePath!, timeoutMs: 1000 }).result
@@ -269,7 +269,7 @@ test('Sprite recovery reserves a slot, holds the sandbox and builds no provider 
 })
 
 test('managed Sprite upgrade errors direct operators to the managed runner', () => {
-    const error = new ChatRunnerError('sprites', 'missing feature', true)
+    const error = new TurnDaemonError('sprites', 'missing feature', true)
     assert.match(error.chatError.message, /administrator.*managed Sprite runner/)
     assert.doesNotMatch(error.chatError.message, /Run mf update/)
 })
@@ -277,6 +277,6 @@ test('managed Sprite upgrade errors direct operators to the managed runner', () 
 test('OpenClaw history reuses the filesystem carrier without a second Sprite wake', async () => {
     const { factory, agent, calls } = rig('sprites', 'openclaw')
     const handle = await factory.recoveryFsForAgent(agent.id)
-    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.daemonId))
+    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.hostId))
     assert.deepEqual(calls, ['reserve', 'resolve'])
 })

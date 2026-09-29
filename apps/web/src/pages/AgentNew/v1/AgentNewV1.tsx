@@ -19,7 +19,7 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     DaemonHostSummary
 ,
     AgentRuntimeSummary,
@@ -503,7 +503,7 @@ const sandboxFrameworks = (): AgentFramework[] =>
         supportsRuntime(framework, 'sprites')
     )
 // Every framework that runs on this kind of host, core ones first.
-const frameworksOn = (runtime: AgentRuntime): AgentFramework[] =>
+const frameworksOn = (runtime: RuntimePlacement): AgentFramework[] =>
     listFrameworks().filter((framework) => supportsRuntime(framework, runtime))
 
 const targetHeadCell = 'px-3 py-2 font-medium'

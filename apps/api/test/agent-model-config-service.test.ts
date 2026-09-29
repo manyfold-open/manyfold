@@ -1240,7 +1240,7 @@ test('AgentModelConfigService refreshes sprites runtime-local capability through
     const service = makeService(db, [], {
         rpc: async () => JSON.parse(payload)
     }, {
-        resolveRunner: async () => ({ daemonId: 'dh_runner', exec: null })
+        resolveTurnDaemon: async () => ({ daemonId: 'dh_runner', exec: null })
     })
 
     const result = await service.refreshProviderModels(
@@ -1916,7 +1916,7 @@ const makeService = (
     db: FakeDb,
     models: string[] | null,
     daemonRegistry?: { rpc: () => Promise<Record<string, unknown>> },
-    execDrivers?: { resolveRunner: () => Promise<unknown> },
+    execDrivers?: { resolveTurnDaemon: () => Promise<unknown> },
     enabledModels: ProtocolModelMap | null = null,
     protocolModels?: ProtocolModelMap
 ): AgentModelConfigService =>
@@ -2540,7 +2540,7 @@ test('AgentModelConfigService asks a runner that does not know agy to update bef
                 }
             }
         } as never,
-        { resolveRunner: async () => ({ daemonId: 'dh_runner', exec: null }) }
+        { resolveTurnDaemon: async () => ({ daemonId: 'dh_runner', exec: null }) }
     )
     await service.refreshProviderModels('user-1', 'agent-1', false, 'runtime-local')
     const stale = db.agent.extras?.runtimeLocalModelConfig as Record<string, unknown>

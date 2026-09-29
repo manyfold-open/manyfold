@@ -1,7 +1,7 @@
 import { frameworkCapability, registerFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     FrameworkDefinition
 } from '@manyfold/shared'
 import type { NewChatLaunchpadConfig } from '@/lib/newChatLaunchpad'
@@ -24,7 +24,7 @@ export interface FrameworkPresentation {
     // What a create flow shows for an empty workspace field, `{agent-id}`
     // standing in for the id that does not exist yet. Absent: the platform's
     // own workspace path.
-    defaultWorkspacePath?: (hostKind: AgentRuntime) => string
+    defaultWorkspacePath?: (hostKind: RuntimePlacement) => string
 }
 
 const presentations = new Map<AgentFramework, FrameworkPresentation>()
@@ -46,7 +46,7 @@ export const listFrameworkPresentations = (): FrameworkPresentation[] => [
 
 export const presentedWorkspacePath = (
     framework: AgentFramework,
-    hostKind: AgentRuntime
+    hostKind: RuntimePlacement
 ): string | null =>
     frameworkPresentation(framework)?.defaultWorkspacePath?.(hostKind) ?? null
 

@@ -2,7 +2,7 @@ import { isModelConfigFramework } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentModelConfigSource,
-    AgentRuntime
+    RuntimePlacement
 } from '@manyfold/shared'
 
 /* Which frameworks can be pointed at an existing chat session, and which of
@@ -59,7 +59,7 @@ export interface TerminalResumeAvailability {
 
 export const terminalResumeAvailability = (args: {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     // Daemons older than DAEMON_FEATURE_PTY_COMMAND drop the command and open
     // a plain shell, so the control is withheld rather than shown lying.
     daemonCanResume: boolean

@@ -1,5 +1,5 @@
 import {
-    AgentRuntime,
+    RuntimePlacement,
     CoreFramework,
     externalSteps,
     frameworkCapability,
@@ -23,7 +23,7 @@ import test from 'node:test'
 
 interface Expected {
     kind: 'coding' | 'service' | 'external'
-    runtimes: AgentRuntime[]
+    runtimes: RuntimePlacement[]
     configSubdir: string | null
 }
 
@@ -68,7 +68,7 @@ const GROUND_TRUTH: Record<CoreFramework, Expected> = {
     a2a: { kind: 'external', runtimes: ['external'], configSubdir: null }
 }
 
-const ALL_RUNTIMES: AgentRuntime[] = ['sprites', 'k8s', 'daemon', 'external']
+const ALL_RUNTIMES: RuntimePlacement[] = ['sprites', 'k8s', 'daemon', 'external']
 const frameworks = Object.keys(GROUND_TRUTH) as CoreFramework[]
 
 test('frameworkCapability reproduces kind / runtimes / configHome for every framework', () => {

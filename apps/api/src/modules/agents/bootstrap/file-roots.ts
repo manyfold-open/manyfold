@@ -1,6 +1,6 @@
 import {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     K8S_HOME_BASE,
     frameworkCapability
 } from '@manyfold/shared'
@@ -10,7 +10,7 @@ export const HOME_ROOT_ID = 'home'
 
 export interface FileRootsContext {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     mountPath: string
     homeDir?: string | null
 }
@@ -50,7 +50,7 @@ export const buildFileRoots = (ctx: FileRootsContext): FileRoot[] => {
 
 export const expectedRootIds = (ctx: {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     homeKnown: boolean
 }): string[] => {
     if (ctx.runtime === 'external') return []

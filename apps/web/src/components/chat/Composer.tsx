@@ -3,7 +3,7 @@ import type {
     AgentModelConfig,
     AgentModelConfigSource,
     AgentModelConfigView,
-    AgentRuntime,
+    RuntimePlacement,
     AgentStatus,
     CodexIntelligence,
     CodexSpeed,
@@ -126,7 +126,7 @@ interface Props {
     hint?: string
     agentName?: string
     framework?: AgentFramework
-    runtime?: AgentRuntime
+    runtime?: RuntimePlacement
     status?: AgentStatus
     model?: string | null
     modelOverride?: string | null
@@ -1638,7 +1638,7 @@ interface FrameworkModelConfigMenuProps {
     source: AgentModelConfigSource
     refreshing: boolean
     runtimeId?: string | null
-    runtimeKind?: AgentRuntime
+    runtimeKind?: RuntimePlacement
     onChange?: (config: AgentModelConfig) => void
     onSourceChange?: (source: AgentModelConfigSource) => void
     onViewChange?: (view: AgentModelConfigView) => void
