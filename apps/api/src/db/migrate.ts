@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 import postgres from 'postgres'
 import { CONCURRENT_INDEXES } from './concurrent-index'
+import { applyBuiltInFrameworkCatalog } from './framework-catalog-release'
 import { runJournal } from './migration-runner'
 
 // The OSS entrypoint: the single core journal under drizzle's default table
@@ -34,6 +35,7 @@ const run = async (): Promise<void> => {
             migrationsTable: '__drizzle_migrations',
             concurrentIndexes: CONCURRENT_INDEXES
         })
+        await applyBuiltInFrameworkCatalog(client)
     } finally {
         await client.end()
     }

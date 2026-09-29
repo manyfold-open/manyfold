@@ -54,7 +54,10 @@ const FrameworkCatalogPage: FC = (): ReactNode => {
                 <p className='admin-page-description max-w-2xl'>
                     Manage the supported models, aliases, and enum values for
                     each coding-agent framework. Changes apply globally and
-                    take effect within ~60 seconds (cache TTL).
+                    take effect within ~60 seconds (cache TTL). Every release
+                    resets the rows the built-in catalog lists
+                    (framework-model-catalog.yaml) to what it says; rows added
+                    here are kept.
                 </p>
             </div>
             <Card elevation='flat' className='mb-4 p-3'>

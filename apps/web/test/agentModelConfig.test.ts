@@ -201,7 +201,7 @@ const codexView: AgentModelConfigView = {
     providerBaseUrl: null,
     providerModelsStatus: 'ready',
     providerModelsSource: 'saved-provider',
-    providerModels: ['provider/gpt-5.5', 'foo/gpt-5.4-mini'],
+    providerModels: ['provider/gpt-5.5', 'foo/operator-model'],
     runtimeLocal: null,
     config: {
         framework: 'codex',
@@ -220,10 +220,10 @@ const codexView: AgentModelConfigView = {
             reason: null
         },
         {
-            value: 'foo/gpt-5.4-mini',
-            label: 'foo/gpt-5.4-mini',
-            providerModel: 'foo/gpt-5.4-mini',
-            canonicalModel: 'gpt-5.4-mini',
+            value: 'foo/operator-model',
+            label: 'foo/operator-model',
+            providerModel: 'foo/operator-model',
+            canonicalModel: 'operator-model',
             supportsFast: false,
             enabled: true,
             reason: null
@@ -595,7 +595,7 @@ test('validateModelConfigDraft blocks fast speed for non-fast Codex model', () =
         codexView,
         {
             framework: 'codex',
-            model: 'foo/gpt-5.4-mini',
+            model: 'foo/operator-model',
             speed: 'fast',
             intelligence: 'medium'
         },
@@ -616,7 +616,7 @@ test('modelConfigDisplayLabel includes Codex parameters', () => {
 test('buildAgentModelSupportMatrix shows supported and unsupported Codex models', () => {
     const matrix = buildAgentModelSupportMatrix(codexView, codexView.config, [
         'provider/gpt-5.5',
-        'foo/gpt-5.4-mini',
+        'foo/gpt-6-luna',
         'other/llama-3'
     ])
 
@@ -628,7 +628,7 @@ test('buildAgentModelSupportMatrix shows supported and unsupported Codex models'
         'provider/gpt-5.5'
     )
     assert.equal(
-        matrix?.rows.find((row) => row.canonicalModel === 'gpt-5.4')?.status,
+        matrix?.rows.find((row) => row.canonicalModel === 'gpt-6-sol')?.status,
         'unsupported'
     )
 })
@@ -808,7 +808,7 @@ test('reconcileModelConfigDraftForProviderModels defaults Codex to best supporte
     })
 })
 
-test('reconcileModelConfigDraftForProviderModels resets Codex fast mode for non-fast models', () => {
+test('reconcileModelConfigDraftForProviderModels resets Codex fast mode when no supported model remains', () => {
     const next = reconcileModelConfigDraftForProviderModels(
         codexView,
         {
@@ -822,7 +822,7 @@ test('reconcileModelConfigDraftForProviderModels resets Codex fast mode for non-
 
     assert.deepEqual(next, {
         framework: 'codex',
-        model: 'other/gpt-5.4-mini',
+        model: null,
         speed: 'standard',
         intelligence: 'xhigh'
     })
@@ -844,6 +844,34 @@ test('buildCodexDefaultModelConfig prefers GPT-6 Astra over the 5.6 family', () 
     )
 })
 
+test('buildCodexDefaultModelConfig prefers GPT-6 Sol over the 5.6 family', () => {
+    assert.deepEqual(
+        buildCodexDefaultModelConfig([
+            'other/gpt-5.5',
+            'other/gpt-5.6-sol',
+            'other/gpt-6-sol'
+        ]),
+        {
+            framework: 'codex',
+            model: 'other/gpt-6-sol',
+            speed: 'standard',
+            intelligence: 'medium'
+        }
+    )
+})
+
+test('buildCodexDefaultModelConfig treats retired models as unsupported', () => {
+    assert.deepEqual(
+        buildCodexDefaultModelConfig(['other/gpt-5.4', 'other/gpt-5.2']),
+        {
+            framework: 'codex',
+            model: null,
+            speed: 'standard',
+            intelligence: 'medium'
+        }
+    )
+})
+
 test('codexIntelligenceOptionsForModel caps each model at its own ceiling', () => {
     assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-6-astra'), [
         'low',
@@ -852,6 +880,21 @@ test('codexIntelligenceOptionsForModel caps each model at its own ceiling', () =
         'xhigh',
         'max',
         'ultra'
+    ])
+    assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-6-sol'), [
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max',
+        'ultra'
+    ])
+    assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-6-luna'), [
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max'
     ])
     assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-5.6-luna'), [
         'low',
@@ -902,10 +945,10 @@ test('buildCodexDefaultModelConfig picks gpt-5.5 when no model is chosen yet', (
 
 test('buildCodexDefaultModelConfig falls back to the best supported model when gpt-5.5 is absent', () => {
     assert.deepEqual(
-        buildCodexDefaultModelConfig(['other/gpt-5.2', 'other/gpt-5.4']),
+        buildCodexDefaultModelConfig(['other/gpt-5.6-luna', 'other/gpt-5.6-terra']),
         {
             framework: 'codex',
-            model: 'other/gpt-5.4',
+            model: 'other/gpt-5.6-terra',
             speed: 'standard',
             intelligence: 'medium'
         }
@@ -914,15 +957,15 @@ test('buildCodexDefaultModelConfig falls back to the best supported model when g
 
 test('buildCodexDefaultModelConfig keeps the current model and parameters when still supported', () => {
     assert.deepEqual(
-        buildCodexDefaultModelConfig(['other/gpt-5.4', 'other/gpt-5.5'], {
+        buildCodexDefaultModelConfig(['other/gpt-5.6-luna', 'other/gpt-6-sol'], {
             framework: 'codex',
-            model: 'other/gpt-5.4',
+            model: 'other/gpt-5.6-luna',
             speed: 'fast',
             intelligence: 'high'
         }),
         {
             framework: 'codex',
-            model: 'other/gpt-5.4',
+            model: 'other/gpt-5.6-luna',
             speed: 'fast',
             intelligence: 'high'
         }

@@ -1,0 +1,144 @@
+# The built-in model catalog of the frameworks with an admin-managed catalog.
+#
+# Edit this file, run `pnpm --filter @manyfold/shared catalog:generate` and
+# commit both files. Every release applies it to the database right after the
+# migrations (apps/api/src/db/migrate.ts): each row listed here is set to what
+# it says, a row an admin added and this file does not list is left alone.
+# List order is display order.
+#
+# DB fields: key, name, fast, longContext, default, active.
+# Code-only fields: intelligence (codex), localModels, configDefault.
+
+codex:
+    # Written verbatim as `model` into every platform host's ~/.codex/config.toml
+    # with no provider check, so it has to be a model every channel serves
+    # (OpenAI API, managed, NetMind) that is not retiring: gpt-5.5 leaves Codex
+    # for ChatGPT sign-in on 2026-10-14, and NetMind does not serve gpt-6-sol yet.
+    configDefault: gpt-5.6-sol
+
+    # The order is also the default preference: the first model a provider
+    # serves wins, mirroring the `priority` of Codex's own catalog. Deliberately
+    # absent: gpt-daybreak-blue/red-latest (visibility=hide, model_specialty=cyber,
+    # gated behind OpenAI's Daybreak programme) and codex-auto-review (internal).
+    # Measured on codex 0.159.0 [2026-09-29] (`codex debug models`): priorities
+    # and the per-model reasoning ceilings below.
+    models:
+        - key: gpt-6-astra
+          name: GPT-6 Astra
+          fast: true
+          intelligence: [low, medium, high, xhigh, max, ultra]
+        - key: gpt-6-sol
+          name: GPT-6 Sol
+          fast: true
+          intelligence: [low, medium, high, xhigh, max, ultra]
+        - key: gpt-6-luna
+          name: GPT-6 Luna
+          fast: true
+          intelligence: [low, medium, high, xhigh, max]
+        - key: gpt-5.6-sol
+          name: GPT-5.6 Sol
+          fast: true
+          default: true
+          intelligence: [low, medium, high, xhigh, max, ultra]
+        - key: gpt-5.6-terra
+          name: GPT-5.6 Terra
+          fast: true
+          intelligence: [low, medium, high, xhigh, max, ultra]
+        - key: gpt-5.6-luna
+          name: GPT-5.6 Luna
+          fast: true
+          intelligence: [low, medium, high, xhigh, max]
+        - key: gpt-5.5
+          name: GPT-5.5
+          fast: true
+          intelligence: [low, medium, high, xhigh]
+        # Retired, kept listed so every database switches them off. Codex
+        # dropped gpt-5.4-mini and gpt-5.2 in 0.155.0 and gpt-5.4 in 0.158.0.
+        - { key: gpt-5.4, name: GPT-5.4, fast: true, active: false }
+        - { key: gpt-5.4-mini, name: GPT-5.4 Mini, active: false }
+        - { key: gpt-5.3-codex, name: GPT-5.3 Codex, active: false }
+        - { key: gpt-5.3-codex-spark, name: GPT-5.3 Codex Spark, active: false }
+        - { key: gpt-5.2, name: GPT-5.2, active: false }
+
+    enums:
+        speed:
+            - { value: standard, name: Standard, default: true }
+            - { value: fast, name: Fast }
+        # The default stays medium although Codex itself starts Astra and
+        # 5.6 Sol at low: this default is what a new agent is given. `ultra`
+        # also delegates work to subagents, which is why it sits above `max`.
+        intelligence:
+            - { value: low, name: Low }
+            - { value: medium, name: Medium, default: true }
+            - { value: high, name: High }
+            - { value: xhigh, name: Extra High }
+            - { value: max, name: Maximum }
+            - { value: ultra, name: Ultra }
+            - { value: none, name: None, active: false }
+
+claude-code:
+    aliases:
+        - { key: fable, name: Fable }
+        - { key: opus, name: Opus }
+        - { key: 'opus[1m]', name: Opus (1M context), longContext: true }
+        - { key: sonnet, name: Sonnet, default: true }
+        - { key: 'sonnet[1m]', name: Sonnet (1M context), longContext: true }
+        - { key: haiku, name: Haiku }
+        - { key: best, name: Best available, active: false }
+        - { key: opusplan, name: Opus Plan, active: false }
+
+    # Provider model ids runtime-local inspect offers next to the aliases.
+    # Claude 5.x models are natively 1M, so they have no -1m twin; Mythos is
+    # invite-only and not listed. Measured on Claude Code 2.1.284 [2026-09-29].
+    localModels:
+        - claude-fable-5-1
+        - claude-fable-5
+        - claude-opus-5-5
+        - claude-opus-5
+        - claude-opus-4-8
+        - claude-opus-4-7
+        - claude-opus-4-7-1m
+        - claude-opus-4-6
+        - claude-sonnet-5-5
+        - claude-sonnet-5
+        - claude-sonnet-4-6
+        - claude-sonnet-4-6-1m
+        - claude-sonnet-4-5
+        - claude-haiku-4-5
+
+    enums:
+        effort:
+            - { value: low, name: Low }
+            - { value: medium, name: Medium, default: true }
+            - { value: high, name: High }
+            - { value: xhigh, name: Extra High }
+            - { value: max, name: Max }
+
+gemini-cli:
+    aliases:
+        - { key: auto, name: Auto (recommended), default: true }
+
+    models:
+        - { key: gemini-3.5-flash, name: Gemini 3.5 Flash }
+        - key: gemini-3.1-pro-preview
+          name: Gemini 3.1 Pro (preview)
+          longContext: true
+        - { key: gemini-3-flash-preview, name: Gemini 3 Flash (preview) }
+        - { key: gemini-3.1-flash-lite, name: Gemini 3.1 Flash Lite }
+        - { key: gemini-2.5-pro, name: Gemini 2.5 Pro, default: true }
+        - { key: gemini-2.5-flash, name: Gemini 2.5 Flash }
+        - { key: gemini-2.5-flash-lite, name: Gemini 2.5 Flash Lite }
+        - key: gemini-3.1-flash-lite-preview
+          name: Gemini 3.1 Flash Lite (preview)
+          active: false
+        - { key: gemini-2.0-flash, name: Gemini 2.0 Flash, active: false }
+
+    # Offered by runtime-local inspect when the runtime cannot list its models.
+    localModels:
+        - gemini-3.5-flash
+        - gemini-3.1-flash-lite
+        - gemini-3.1-pro-preview
+        - gemini-3-flash-preview
+        - gemini-2.5-pro
+        - gemini-2.5-flash
+        - gemini-2.5-flash-lite

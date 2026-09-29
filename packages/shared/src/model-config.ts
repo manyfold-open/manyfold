@@ -9,6 +9,7 @@ import type {
     RuntimeLocalCredentialReason,
     RuntimeLocalCredentialStatus
 } from './runtime-local-credentials'
+import { builtInFrameworkModelCatalog } from './framework-model-catalog.generated'
 
 export const agentModelConfigSources = ['platform', 'runtime-local'] as const
 export type AgentModelConfigSource = (typeof agentModelConfigSources)[number]
@@ -29,46 +30,62 @@ export const claudeCodeModelMapAliases = [
 ] as const
 export type ClaudeCodeModelMapAlias = (typeof claudeCodeModelMapAliases)[number]
 
-export const claudeCodeOneMillionModelAliases = [
-    'opus[1m]',
-    'sonnet[1m]'
-] as const
+// The model lists, enum values and defaults below come from
+// framework-model-catalog.yaml, the same file every release applies to the
+// database. A retired entry stays listed there as inactive, so only the active
+// ones count here.
+type Active<T> = Extract<T, { active: true }>
 
-export const claudeCodeModelAliases = [
-    'fable',
-    'opus',
-    'opus[1m]',
-    'sonnet',
-    'sonnet[1m]',
-    'haiku'
-] as const
-export type ClaudeCodeModelAlias = (typeof claudeCodeModelAliases)[number]
+const activeEntries = <T extends { active: boolean }>(
+    entries: readonly T[]
+): Active<T>[] => entries.filter((entry): entry is Active<T> => entry.active)
 
-// Known Claude provider model ids surfaced by runtime-local inspect (API
-// sprite/k8s inspect script and CLI daemon inspect both consume this list).
-// Fable 5 / Opus 4.8 / Sonnet 5 are native 1M so they have no -1m variant.
-export const claudeLocalModelCatalog = [
-    'claude-fable-5',
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-opus-4-7-1m',
-    'claude-opus-4-6',
-    'claude-sonnet-5',
-    'claude-sonnet-4-6',
-    'claude-sonnet-4-6-1m',
-    'claude-sonnet-4-5',
-    'claude-haiku-4-5'
-] as const
+const defaultValueOf = <T extends { value: string; isDefault: boolean }>(
+    entries: readonly T[],
+    what: string
+): T['value'] => {
+    const entry = entries.find((candidate) => candidate.isDefault)
+    if (!entry)
+        throw new Error(`framework-model-catalog.yaml declares no ${what} default`)
+    return entry.value
+}
 
-export const claudeCodeEfforts = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max'
-] as const
-export type ClaudeCodeEffort = (typeof claudeCodeEfforts)[number]
-export const claudeCodeDefaultEffort: ClaudeCodeEffort = 'medium'
+const claudeCatalog = builtInFrameworkModelCatalog['claude-code']
+const codexCatalog = builtInFrameworkModelCatalog.codex
+const geminiCatalog = builtInFrameworkModelCatalog['gemini-cli']
+
+const claudeCatalogAliases = activeEntries(claudeCatalog.models)
+
+type ClaudeCatalogAlias = (typeof claudeCatalogAliases)[number]
+type ClaudeCodeOneMillionModelAlias = Extract<
+    ClaudeCatalogAlias,
+    { longContext: true }
+>['key']
+
+export const claudeCodeOneMillionModelAliases: readonly ClaudeCodeOneMillionModelAlias[] =
+    claudeCatalogAliases
+        .filter(
+            (alias): alias is Extract<ClaudeCatalogAlias, { longContext: true }> =>
+                alias.longContext
+        )
+        .map((alias) => alias.key)
+
+export type ClaudeCodeModelAlias = ClaudeCatalogAlias['key']
+export const claudeCodeModelAliases: readonly ClaudeCodeModelAlias[] =
+    claudeCatalogAliases.map((alias) => alias.key)
+
+// Provider model ids runtime-local inspect offers next to the aliases.
+export const claudeLocalModelCatalog: readonly string[] =
+    claudeCatalog.localModels
+
+const claudeCatalogEfforts = activeEntries(claudeCatalog.enums.effort)
+export type ClaudeCodeEffort = (typeof claudeCatalogEfforts)[number]['value']
+export const claudeCodeEfforts: readonly ClaudeCodeEffort[] =
+    claudeCatalogEfforts.map((effort) => effort.value)
+export const claudeCodeDefaultEffort: ClaudeCodeEffort = defaultValueOf(
+    claudeCatalogEfforts,
+    'Claude Code effort'
+)
 
 const claudeCodeStandardEfforts = [
     'low',
@@ -89,48 +106,34 @@ const claudeCodeFullEfforts = [
     'max'
 ] as const satisfies readonly ClaudeCodeEffort[]
 
-// Ordered by default preference: the first provider-available model wins
-// (GPT-6 Astra → GPT-5.6 Sol → Terra → Luna → GPT-5.5 → …), mirroring the
-// `priority` field of the upstream catalog. Deliberately absent from this
-// list: gpt-daybreak-blue/red-latest (visibility=hide, model_specialty=cyber,
-// gated behind OpenAI's Daybreak programme) and codex-auto-review (an internal
-// review model). gpt-5.3-codex and gpt-5.3-codex-spark are gone from the
-// upstream catalog entirely; 5.3-codex stays here only so agents already
-// configured with it keep validating.
-export const codexModels = [
-    'gpt-6-astra',
-    'gpt-5.6-sol',
-    'gpt-5.6-terra',
-    'gpt-5.6-luna',
-    'gpt-5.5',
-    'gpt-5.4',
-    'gpt-5.4-mini',
-    'gpt-5.3-codex',
-    'gpt-5.2'
-] as const
-export type CodexSupportedModel = (typeof codexModels)[number]
+const codexCatalogModels = activeEntries(codexCatalog.models)
 
-export const codexSpeeds = ['standard', 'fast'] as const
-export type CodexSpeed = (typeof codexSpeeds)[number]
+export type CodexSupportedModel = (typeof codexCatalogModels)[number]['key']
+// Ordered by default preference: the first provider-available model wins.
+export const codexModels: readonly CodexSupportedModel[] =
+    codexCatalogModels.map((model) => model.key)
 
-// `none` was removed: no current model supports it and the official
-// model_reasoning_effort enum never had it. `max` and `ultra` are real upstream
-// levels but only on the newest models, so the ceiling is per model rather than
-// global — see codexModelSpecs. `ultra` additionally auto-delegates work to
-// subagents, which is why it sits above `max` rather than beside it.
-export const codexIntelligenceLevels = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max',
-    'ultra'
-] as const
-export type CodexIntelligence = (typeof codexIntelligenceLevels)[number]
+const codexCatalogSpeeds = activeEntries(codexCatalog.enums.speed)
+export type CodexSpeed = (typeof codexCatalogSpeeds)[number]['value']
+export const codexSpeeds: readonly CodexSpeed[] = codexCatalogSpeeds.map(
+    (speed) => speed.value
+)
 
-export const codexDefaultModel: CodexSupportedModel = 'gpt-5.5'
-export const codexDefaultSpeed: CodexSpeed = 'standard'
-export const codexDefaultIntelligence: CodexIntelligence = 'medium'
+const codexCatalogIntelligence = activeEntries(codexCatalog.enums.intelligence)
+export type CodexIntelligence =
+    (typeof codexCatalogIntelligence)[number]['value']
+export const codexIntelligenceLevels: readonly CodexIntelligence[] =
+    codexCatalogIntelligence.map((level) => level.value)
+
+export const codexDefaultModel: CodexSupportedModel = codexCatalog.configDefault
+export const codexDefaultSpeed: CodexSpeed = defaultValueOf(
+    codexCatalogSpeeds,
+    'Codex speed'
+)
+export const codexDefaultIntelligence: CodexIntelligence = defaultValueOf(
+    codexCatalogIntelligence,
+    'Codex intelligence'
+)
 
 const codexStandardIntelligence = [
     'low',
@@ -138,111 +141,55 @@ const codexStandardIntelligence = [
     'high',
     'xhigh'
 ] as const satisfies readonly CodexIntelligence[]
-const codexMaxIntelligence = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max'
-] as const satisfies readonly CodexIntelligence[]
-const codexUltraIntelligence = [
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max',
-    'ultra'
-] as const satisfies readonly CodexIntelligence[]
 
 interface CodexModelSpec {
-    intelligence: readonly CodexIntelligence[]
-    defaultIntelligence: CodexIntelligence
+    // null: the catalog states no ceiling for the model
+    intelligence: readonly CodexIntelligence[] | null
     fast: boolean
-    deprecated?: boolean
 }
 
-// Capability metadata per canonical model.
-// Measured on codex 0.153.4 [2026-09-07] (`codex debug models`): the reasoning
-// ceiling is Astra/Sol/Terra → ultra, Luna → max, GPT-5.5 and older → xhigh.
-// `defaultIntelligence` deliberately stays `medium` everywhere rather than
-// mirroring upstream's `default_reasoning_level` (`low` for Astra and Sol):
-// the API path takes its default from the framework_enum_catalog row, which is
-// `medium`, and this field is only the fallback when that row is missing.
-const codexModelSpecs: Record<CodexSupportedModel, CodexModelSpec> = {
-    'gpt-6-astra': {
-        intelligence: codexUltraIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.6-sol': {
-        intelligence: codexUltraIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.6-terra': {
-        intelligence: codexUltraIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.6-luna': {
-        intelligence: codexMaxIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.5': {
-        intelligence: codexStandardIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.4': {
-        intelligence: codexStandardIntelligence,
-        defaultIntelligence: 'medium',
-        fast: true
-    },
-    'gpt-5.4-mini': {
-        intelligence: codexStandardIntelligence,
-        defaultIntelligence: 'medium',
-        fast: false
-    },
-    'gpt-5.3-codex': {
-        intelligence: codexStandardIntelligence,
-        defaultIntelligence: 'medium',
-        fast: false,
-        deprecated: true
-    },
-    'gpt-5.2': {
-        intelligence: codexStandardIntelligence,
-        defaultIntelligence: 'medium',
-        fast: false,
-        deprecated: true
-    }
-}
+const codexModelSpecs = new Map<string, CodexModelSpec>(
+    codexCatalogModels.map((model) => [
+        model.key,
+        { intelligence: model.intelligence, fast: model.fast }
+    ])
+)
 
 const codexModelSpecFor = (
     model: string | null | undefined
 ): CodexModelSpec | null => {
     const trimmed = model?.trim()
     if (!trimmed) return null
+    return codexModelSpecs.get(codexCanonicalModelId(trimmed)) ?? null
+}
+
+// The catalog's name for a Codex model id. Retired entries count too, so an old
+// session still reads as the model it ran on.
+export const codexModelDisplayName = (model: string): string | null => {
+    const canonical = codexCanonicalModelId(model)
     return (
-        codexModelSpecs[
-            codexCanonicalModelId(trimmed) as CodexSupportedModel
-        ] ?? null
+        codexCatalog.models.find((entry) => entry.key === canonical)?.name ??
+        null
     )
 }
 
-// A model with no spec is one the operator added to the catalog by hand, so
-// fall back to the levels every Codex model has ever supported rather than to
-// the full enum — `max` and `ultra` exist on the newest models only, and codex
-// rejects an unsupported model_reasoning_effort at the turn.
+// A model with no ceiling is one an operator added to the database catalog by
+// hand, so fall back to the levels every Codex model supports rather than to
+// the full enum: `max` and `ultra` exist on the newest models only.
 export const codexIntelligenceLevelsForModel = (
     model: string | null | undefined
 ): readonly CodexIntelligence[] =>
     codexModelSpecFor(model)?.intelligence ?? codexStandardIntelligence
 
+// The catalog default, unless the model's ceiling stops below it.
 export const codexDefaultIntelligenceForModel = (
     model: string | null | undefined
-): CodexIntelligence =>
-    codexModelSpecFor(model)?.defaultIntelligence ?? codexDefaultIntelligence
+): CodexIntelligence => {
+    const levels = codexIntelligenceLevelsForModel(model)
+    return levels.includes(codexDefaultIntelligence)
+        ? codexDefaultIntelligence
+        : (levels[0] ?? codexDefaultIntelligence)
+}
 
 export interface ClaudeCodeModelMap {
     fable?: string
@@ -295,17 +242,9 @@ export const isGeminiAutoModel = (
     model: string | null | undefined
 ): boolean => (model?.trim() ?? '') === geminiAutoModelKey
 
-// Known Gemini provider model ids surfaced by runtime-local inspect when the
-// runtime cannot enumerate models itself (mirrors the active DB catalog).
-export const geminiLocalModelCatalog = [
-    'gemini-3.5-flash',
-    'gemini-3.1-flash-lite',
-    'gemini-3.1-pro-preview',
-    'gemini-3-flash-preview',
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite'
-] as const
+// Offered by runtime-local inspect when the runtime cannot list its models.
+export const geminiLocalModelCatalog: readonly string[] =
+    geminiCatalog.localModels
 
 export type AgentModelConfig =
     | ClaudeCodeAgentModelConfig

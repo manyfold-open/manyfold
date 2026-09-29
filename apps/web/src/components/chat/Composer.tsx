@@ -18,8 +18,8 @@ import {
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
     claudeCodeModelAliasMapKey,
     claudeCodeEfforts,
-    codexCanonicalModelId,
     codexIntelligenceLevels,
+    codexModelDisplayName,
     codexSpeeds,
     isAllowedChatAttachment,
     isClaudeCodeModelAlias,
@@ -2975,59 +2975,11 @@ const claudeModelVersion = (model: string): string | null => {
     return null
 }
 
-const formatCodexModelLabel = (model: string): string => {
-    switch (codexCanonicalModelId(model)) {
-        case 'gpt-6-astra':
-            return 'GPT-6 Astra'
-        case 'gpt-5.6-sol':
-            return 'GPT-5.6 Sol'
-        case 'gpt-5.6-terra':
-            return 'GPT-5.6 Terra'
-        case 'gpt-5.6-luna':
-            return 'GPT-5.6 Luna'
-        case 'gpt-5.5':
-            return 'GPT-5.5'
-        case 'gpt-5.4':
-            return 'GPT-5.4'
-        case 'gpt-5.4-mini':
-            return 'GPT-5.4-Mini'
-        case 'gpt-5.3-codex-spark':
-            return 'GPT-5.3-Codex-Spark'
-        case 'gpt-5.3-codex':
-            return 'GPT-5.3-Codex'
-        case 'gpt-5.2':
-            return 'GPT-5.2'
-        default:
-            return formatModelLabel(model)
-    }
-}
+const formatCodexModelLabel = (model: string): string =>
+    codexModelDisplayName(model) ?? formatModelLabel(model)
 
-const formatCodexShortModelLabel = (model: string): string => {
-    switch (codexCanonicalModelId(model)) {
-        case 'gpt-6-astra':
-            return '6 Astra'
-        case 'gpt-5.6-sol':
-            return '5.6 Sol'
-        case 'gpt-5.6-terra':
-            return '5.6 Terra'
-        case 'gpt-5.6-luna':
-            return '5.6 Luna'
-        case 'gpt-5.5':
-            return '5.5'
-        case 'gpt-5.4':
-            return '5.4'
-        case 'gpt-5.4-mini':
-            return '5.4 Mini'
-        case 'gpt-5.3-codex-spark':
-            return '5.3 Spark'
-        case 'gpt-5.3-codex':
-            return '5.3 Codex'
-        case 'gpt-5.2':
-            return '5.2'
-        default:
-            return formatCodexModelLabel(model).replace(/^GPT-/, '')
-    }
-}
+const formatCodexShortModelLabel = (model: string): string =>
+    formatCodexModelLabel(model).replace(/^GPT-/, '')
 
 const formatCodexProviderModelDetail = (model: string): string | null =>
     /[/:]/.test(model) ? model : null
