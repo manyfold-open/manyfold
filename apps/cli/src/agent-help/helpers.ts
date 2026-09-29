@@ -39,7 +39,8 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     skills: 'install, discover and manage agent skills',
     connections: 'external accounts (GitHub, Cloudflare, Composio) linked to the agent',
     runtime: 'runtime lifecycle, control UI, dashboard',
-    sandbox: 'list and delete sandboxes; storage readings and attribution',
+    sandbox:
+        'list, update and delete sandboxes; storage readings and attribution',
     agent: 'create (model source, sandbox reuse), list, update, send and chat (talk to an agent), delete, credentials',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',

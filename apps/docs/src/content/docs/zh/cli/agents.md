@@ -81,6 +81,8 @@ mf agent create second-bot --sandbox sandbox-2
 credential，因此不要传 model 来源；要使用该 sandbox 自己的登录，传
 `--model-provider subscription`。删除 Agent 不会释放它的 sandbox：sandbox 上的
 Agent 都删除后，用 `mf sandbox delete <id|name> --yes` 删除 sandbox。
+`mf sandbox update <id|name>` 更新 sandbox 上的 Manyfold CLI，与 Update Center
+的效果相同；要安装指定的 build，传 `--to <version>`。
 
 命令会在每一步完成时打印进度。连接中断时会自动重新接上。按 Ctrl-C 之后创建仍会
 继续：再次运行同一条命令即可接上，或拿到已经创建好的 Agent。

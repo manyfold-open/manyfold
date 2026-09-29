@@ -91,7 +91,9 @@ An agent added to a sandbox where its framework already runs shares the
 credentials of the agents there, so pass no model source; to use the
 sandbox's own sign-in, pass `--model-provider subscription`. Deleting an
 agent does not free its sandbox: once a sandbox has no agents left,
-`mf sandbox delete <id|name> --yes` removes it.
+`mf sandbox delete <id|name> --yes` removes it. `mf sandbox update <id|name>`
+updates the Manyfold CLI on a sandbox, as the Update Center does; pass
+`--to <version>` for a particular build.
 
 The command prints each step as it finishes. If the connection drops, it
 picks the create up again. If you press Ctrl-C, the create goes on: run the

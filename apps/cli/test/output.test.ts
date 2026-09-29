@@ -118,6 +118,28 @@ test('codes a script can act on get their own hint and keep their details', () =
             details: { agentId: 'agt_1', framework: 'claude-code' }
         })
     )
+    const tooOld = normalizeCliError(
+        apiError(409, {
+            code: 'SANDBOX_CLI_TOO_OLD',
+            serverMessage:
+                'sandbox-002 already runs the latest Manyfold CLI (4.8.0), which does not support this yet',
+            details: {
+                hostId: 'sbx_2',
+                hostName: 'sandbox-002',
+                cliVersion: '4.8.0',
+                latestCliVersion: '4.8.0'
+            }
+        })
+    )
+    // Not the generic "contact support" of a 5xx.
+    assert.match(
+        tooOld.error.hint ?? '',
+        /^Update it: mf sandbox update sandbox-002 \(--to <version> for a build newer than its channel's latest\), or from the Update Center/
+    )
+    assert.equal(
+        (tooOld.error.details as { cliVersion?: string }).cliVersion,
+        '4.8.0'
+    )
     assert.equal(
         inSettings.error.hint,
         "claude-code keeps its model in the agent's model settings: mf model-config update agt_1 --model <model>."

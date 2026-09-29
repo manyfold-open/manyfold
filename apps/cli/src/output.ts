@@ -164,6 +164,8 @@ const CODE_HINTS: Record<string, CodeHint> = {
         `A sandbox's runner cannot reach this API${typeof details.apiUrl === 'string' ? ` at ${details.apiUrl}` : ''}. Set PUBLIC_API_BASE_URL on the API to an address reachable from the internet (for a local stack, a tunnel URL) and restart it. Nothing was created.`,
     SANDBOX_RUNNER_NOT_CONNECTED: (details) =>
         `The runner inside the new sandbox (not a daemon on this computer) could not connect to ${typeof details.apiUrl === 'string' ? details.apiUrl : 'this API'}. Check that the address is reachable from the internet (a stopped tunnel, a firewall); the sandbox was removed, so try again once it is.`,
+    SANDBOX_CLI_TOO_OLD: (details) =>
+        `Update it: mf sandbox update ${typeof details.hostName === 'string' ? details.hostName : typeof details.hostId === 'string' ? details.hostId : '<sandbox>'} (--to <version> for a build newer than its channel's latest), or from the Update Center in the web app.`,
     SANDBOX_DAEMON_OFFLINE: () =>
         'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.'
 }

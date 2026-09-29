@@ -1,9 +1,11 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
-import type {
-    AgentRuntimeSummary,
-    SandboxSummary,
-    SandboxUsageBreakdown
+import {
+    compareSemverPrecedence,
+    type AgentRuntimeSummary,
+    type CliVersionCatalog,
+    type SandboxSummary,
+    type SandboxUsageBreakdown
 } from '@manyfold/shared'
 import { ApiError } from '@manyfold/sdk'
 import { buildClient } from '@/client'
@@ -175,6 +177,34 @@ export const registerSandbox = (program: Command): void => {
             )
         }
     )
+    const update = jsonOption(
+        group
+            .command('update <sandbox>')
+            .description(
+                "Update the Manyfold CLI on a sandbox (id or name) to its channel's latest, or --to a version"
+            )
+            .option(
+                '--to <version>',
+                'install this version, a dev build included (the Update Center lists them)'
+            )
+    )
+    update.action(
+        async (ref: string, opts: { to?: string; json?: boolean }) => {
+            const global = program.opts<{
+                apiUrl?: string
+                token?: string
+                account?: boolean
+            }>()
+            const { client } = await buildClient(global)
+            try {
+                await runSandboxUpdate(client, ref, opts)
+            } catch (err) {
+                if (err instanceof UsageError)
+                    update.error(`error: ${err.message}`)
+                throw err
+            }
+        }
+    )
     jsonOption(
         group
             .command('storage-usage')
@@ -213,4 +243,74 @@ export const registerSandbox = (program: Command): void => {
         )
         emit(options, report, () => console.log(formatSandboxStorage(report)))
     })
+}
+
+// The catalog's versions newer than `current`, newest first.
+const newerVersions = (
+    catalog: CliVersionCatalog,
+    current: string | null
+): string[] =>
+    [...new Set([...catalog.stable, ...catalog.dev])]
+        .filter(
+            (version) =>
+                !current || compareSemverPrecedence(version, current) === 1
+        )
+        .sort((a, b) => compareSemverPrecedence(b, a) ?? 0)
+
+// An update waits for the sandbox's new daemon to report, well past the
+// CLI's default request timeout.
+const UPDATE_TIMEOUT_MS = 5 * 60_000
+
+const runSandboxUpdate = async (
+    client: Awaited<ReturnType<typeof buildClient>>['client'],
+    ref: string,
+    opts: { to?: string; json?: boolean }
+): Promise<void> => {
+    const sandbox = resolveSandboxRef(await client.sandboxes.list(), ref)
+    const catalog = await client.cliVersions.list()
+    if (opts.to && ![...catalog.stable, ...catalog.dev].includes(opts.to)) {
+        const offered = newerVersions(catalog, null).slice(0, 4)
+        throw new UsageError(
+            `no Manyfold CLI version ${opts.to}; the newest are ${offered.join(', ')}`
+        )
+    }
+    if (!opts.json)
+        console.error(
+            kleur.dim(
+                `updating the Manyfold CLI on ${sandbox.name}${sandbox.cliVersion ? ` (${sandbox.cliVersion})` : ''}…`
+            )
+        )
+    const after = await client.sandboxes.upgradeCli(sandbox.id, opts.to, {
+        signal: AbortSignal.timeout(UPDATE_TIMEOUT_MS)
+    })
+    const from = sandbox.cliVersion
+    const to = after.cliVersion
+    emit(
+        opts,
+        { id: sandbox.id, name: sandbox.name, from, to, sandbox: after },
+        () => {
+            if (to && to !== from) {
+                console.log(
+                    `${kleur.green('✓')} ${sandbox.name}: Manyfold CLI ${from ?? 'unknown'} → ${to}`
+                )
+                return
+            }
+            if (opts.to || sandbox.cliUpdateAvailable) {
+                console.log(
+                    `${sandbox.name} takes the update once its current work finishes; mf sandbox list shows its version.`
+                )
+                return
+            }
+            console.log(
+                `${sandbox.name} already runs ${from ?? 'the latest Manyfold CLI'}, the latest release on its channel.`
+            )
+            const newer = newerVersions(catalog, from).slice(0, 4)
+            if (newer.length > 0)
+                console.log(
+                    kleur.dim(
+                        `Newer builds: ${newer.join(', ')}; install one with mf sandbox update ${sandbox.name} --to <version>.`
+                    )
+                )
+        }
+    )
 }
