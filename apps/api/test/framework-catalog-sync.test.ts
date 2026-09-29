@@ -9,8 +9,10 @@ import {
     parseFrameworkModelCatalog,
     type FrameworkModelCatalogRows
 } from '@manyfold/shared'
-import { catalogDocumentFromRows } from '../src/db/framework-catalog'
-import { planFrameworkCatalogSync } from '../src/modules/framework-catalog/framework-catalog-sync'
+import {
+    catalogDocumentFromRows,
+    planFrameworkCatalogSync
+} from '../src/modules/framework-catalog/framework-catalog-sync'
 
 const at = new Date('2026-09-29T00:00:00.000Z')
 

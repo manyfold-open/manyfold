@@ -2,8 +2,6 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { schema } from '@manyfold/db'
 import {
     builtInFrameworkModelCatalog,
-    configurableFrameworks,
-    frameworkEnumKeys,
     frameworkModelCatalogRows,
     parseFrameworkModelCatalog,
     type FrameworkModelCatalog
@@ -12,6 +10,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { Document, parse } from 'yaml'
 import {
+    catalogDocumentFromRows,
     readFrameworkCatalogRows,
     syncFrameworkCatalog
 } from '../modules/framework-catalog/framework-catalog-sync'
@@ -55,62 +54,6 @@ const parseArgs = (argv: string[]): Args => {
 
 const readCatalogFile = (file: string): FrameworkModelCatalog =>
     parseFrameworkModelCatalog(parse(readFileSync(file, 'utf8')))
-
-type CatalogRows = Awaited<ReturnType<typeof readFrameworkCatalogRows>>
-
-const flagOf = (capabilities: unknown, name: string): boolean =>
-    !!capabilities &&
-    typeof capabilities === 'object' &&
-    (capabilities as Record<string, unknown>)[name] === true
-
-export const catalogDocumentFromRows = (
-    rows: CatalogRows
-): Record<string, unknown> => {
-    const document: Record<string, unknown> = {}
-    const byPosition =
-        <T extends { sortOrder: number }>(key: (row: T) => string) =>
-        (a: T, b: T): number =>
-            a.sortOrder - b.sortOrder || key(a).localeCompare(key(b))
-    for (const framework of configurableFrameworks) {
-        const models = rows.models
-            .filter((row) => row.framework === framework)
-            .sort(byPosition((row) => row.modelKey))
-        const entryOf = (row: CatalogRows['models'][number]) => ({
-            key: row.modelKey,
-            name: row.displayName,
-            ...(flagOf(row.capabilities, 'fast') ? { fast: true } : {}),
-            ...(flagOf(row.capabilities, 'longContext')
-                ? { longContext: true }
-                : {}),
-            ...(row.isDefault ? { default: true } : {}),
-            ...(row.isActive ? {} : { active: false })
-        })
-        const enums: Record<string, unknown> = {}
-        for (const enumKey of frameworkEnumKeys) {
-            const values = rows.enums
-                .filter(
-                    (row) =>
-                        row.framework === framework && row.enumKey === enumKey
-                )
-                .sort(byPosition((row) => row.value))
-                .map((row) => ({
-                    value: row.value,
-                    name: row.displayName,
-                    ...(row.isDefault ? { default: true } : {}),
-                    ...(row.isActive ? {} : { active: false })
-                }))
-            if (values.length > 0) enums[enumKey] = values
-        }
-        const aliases = models.filter((row) => row.kind === 'alias')
-        const plain = models.filter((row) => row.kind === 'model')
-        const entry: Record<string, unknown> = {}
-        if (aliases.length > 0) entry.aliases = aliases.map(entryOf)
-        if (plain.length > 0) entry.models = plain.map(entryOf)
-        if (Object.keys(enums).length > 0) entry.enums = enums
-        if (Object.keys(entry).length > 0) document[framework] = entry
-    }
-    return document
-}
 
 const run = async (): Promise<void> => {
     const args = parseArgs(process.argv.slice(2))
