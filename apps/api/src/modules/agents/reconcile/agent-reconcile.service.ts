@@ -68,6 +68,18 @@ export const serviceBuiltInProfile = (
     return null
 }
 
+// An agent row for the built-in profile is a second row for the profile the
+// primary runs as, or keeps for the first agent to join. Removing that agent
+// leaves the profile in the framework, which refuses to delete it anyway.
+// Seen on staging [2026-09-29]: a Hermes `default` row adopted before
+// reconcile mapped the profile to the primary failed every delete with
+// "Cannot delete the default profile", and held its runtime and sandbox
+// undeletable.
+export const isBuiltInProfileAgent = (
+    target: Parameters<typeof serviceBuiltInProfile>[0],
+    agent: Pick<Agent, 'internalId'>
+): boolean => agent.internalId === serviceBuiltInProfile(target)
+
 interface FailureState {
     count: number
     lastMessage: string

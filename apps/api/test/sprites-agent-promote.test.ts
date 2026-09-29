@@ -55,13 +55,16 @@ const fakeAgent = (over: Record<string, unknown> = {}) => ({
 })
 
 // The agent on its sandbox, as the orchestrator reads it.
-const contextFor = (db: { rows: ReturnType<typeof fakeAgent>[] }) =>
+const contextFor = (
+    db: { rows: ReturnType<typeof fakeAgent>[] },
+    runtime: Record<string, unknown> = {}
+) =>
     fakeRuntimeContext((id: string) => {
         const agent = db.rows.find((row) => row.id === id)
         return agent
             ? contextOf({
                   agent: agent as never,
-                  runtime: fakeRuntime() as never,
+                  runtime: fakeRuntime(runtime) as never,
                   host: spritesHostRow({ id: 'rth-1', userId: 'u-1' })
               })
             : null
@@ -286,4 +289,77 @@ test('delete secondary detaches and removes the row, leaves runtime alone', asyn
         'secondary row deleted'
     )
     // runtime row not touched
+})
+
+// A Hermes sandbox whose delete records the profiles removed in the framework.
+const hermesOrchestrator = (
+    db: ReturnType<typeof makeFakeDb>,
+    removed: string[]
+) =>
+    new AgentOrchestratorService(
+        db as never,
+        {} as never,
+        contextFor(db, { framework: 'hermes' }) as never,
+        {} as never,
+        { findById: async () => fakeRuntime({ framework: 'hermes' }) } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+            get: () => ({
+                removeAgent: async (ctx: { agent: { internalId: string } }) => {
+                    removed.push(ctx.agent.internalId)
+                }
+            })
+        } as never,
+        {} as never,
+        { recordFirstAgentCreated: async () => {} } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never
+    )
+
+// WHY: a row for the built-in profile sent `hermes profile delete default`,
+// which Hermes refuses, so neither the agent nor its runtime and sandbox could
+// be deleted.
+test('delete a secondary that is the built-in profile removes the row and leaves the profile', async () => {
+    const primary = fakeAgent({ id: 'agent-1', framework: 'hermes' })
+    const builtIn = fakeAgent({
+        id: 'agent-2',
+        framework: 'hermes',
+        name: 'default',
+        internalId: 'default',
+        createdAt: new Date('2026-04-15')
+    })
+    const db = makeFakeDb([builtIn, primary])
+    const removed: string[] = []
+
+    await hermesOrchestrator(db, removed).delete('agent-2', 'u-1', false)
+
+    assert.deepEqual(removed, [])
+    assert.ok(
+        db.deletes.some((d) => d.table === 'agents'),
+        'the built-in profile row is deleted'
+    )
+})
+
+test('delete a Hermes secondary with a profile of its own removes that profile', async () => {
+    const primary = fakeAgent({ id: 'agent-1', framework: 'hermes' })
+    const secondary = fakeAgent({
+        id: 'agent-2',
+        framework: 'hermes',
+        internalId: 'research',
+        createdAt: new Date('2026-04-15')
+    })
+    const db = makeFakeDb([secondary, primary])
+    const removed: string[] = []
+
+    await hermesOrchestrator(db, removed).delete('agent-2', 'u-1', false)
+
+    assert.deepEqual(removed, ['research'])
 })
