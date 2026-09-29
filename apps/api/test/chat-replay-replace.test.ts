@@ -90,8 +90,7 @@ const executionRow = (): TurnExecutionRow => ({
     sessionId: 'session-1',
     agentId: 'agent-1',
     runtime: 'external',
-    spriteName: null,
-    execSessionId: null,
+    hostId: null,
     upstreamTaskId: 'task-1',
     upstreamMessageId: 'dify-msg-1',
     ownerId: OWNER_ID,
@@ -150,7 +149,7 @@ const makeHarness = (opts: {
         modelProviderId: null,
         modelProviderBuiltInId: null,
         daemonId: null,
-        spriteName: null,
+        hostId: null,
         workspacePath: null
     }
     const db = {

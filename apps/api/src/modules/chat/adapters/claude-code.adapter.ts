@@ -182,7 +182,6 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             timeoutMs: execTimeouts.timeoutMs,
             keepAliveMs: execTimeouts.keepAliveMs,
             livenessTimeoutMs: execTimeouts.livenessTimeoutMs,
-            onExecSession: ctx.onExecSession,
             // refId == messageId is what lets the reverse-WS resume path find
             // this stream again by (daemon_id, daemon_exec_ref).
             execHandle: ctx.messageId

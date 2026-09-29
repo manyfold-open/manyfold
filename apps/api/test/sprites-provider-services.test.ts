@@ -126,7 +126,7 @@ test('a stale generation is refused before any service call', async () => {
 
 test('publishing a port puts the stub, opens the URL and records the URL the sprite reports', async () => {
     const h = build({ url: 'https://sbx-1-bqqlb.sprites.app' })
-    await h.adapter.publishPort(call, 8642)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: 8642 })
     assert.deepEqual(h.calls, [
         'put mf-port',
         'start mf-port',
@@ -148,7 +148,7 @@ test('moving the published port recreates the stub', async () => {
         services: [stored('mf-port', { cmd: 'sleep', args: ['infinity'], http_port: 8642 })],
         url: 'https://sbx-1-bqqlb.sprites.app'
     })
-    await h.adapter.publishPort(call, 18642)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: 18642 })
     assert.deepEqual(h.calls.slice(0, 3), ['delete mf-port', 'put mf-port', 'start mf-port'])
     assert.equal(h.services.get('mf-port')!.http_port, 18642)
 })
@@ -157,8 +157,8 @@ test('withdrawing the port deletes the stub, and a missing one is fine', async (
     const h = build({
         services: [stored('mf-port', { cmd: 'sleep', args: ['infinity'], http_port: 8642 })]
     })
-    await h.adapter.publishPort(call, null)
-    await h.adapter.publishPort(call, null)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: null })
+    await h.adapter.publishPort(call, { framework: 'hermes', port: null })
     assert.deepEqual(h.calls, ['delete mf-port', 'delete mf-port'])
 })
 
@@ -178,4 +178,107 @@ test('the public URL is the one the sprite reported, never derived from its name
         url({ kind: 'sprites', spriteName: 'sbx-1', spriteId: 'sp-1', url: 'https://sbx-1-bqqlb.sprites.app' }),
         'https://sbx-1-bqqlb.sprites.app'
     )
+})
+
+const userServices = (
+    client: Record<string, unknown>
+): SpritesProvider =>
+    new SpritesProvider(
+        { register: () => {} } as never,
+        {} as never,
+        {
+            spritesClientForProvider: () => client,
+            spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} })
+        } as never
+    )
+
+const userCall = { host: host as never, provider: provider as never }
+
+// Measured on local [2026-09-28]: the listing answers a bare array.
+test('the service listing reads a bare array and the typed envelope alike', async () => {
+    const bare = userServices({
+        listServices: async () => [stored('http.server', { cmd: 'python3', args: ['-m', 'http.server'], http_port: 8000 })]
+    })
+    const wrapped = userServices({
+        listServices: async () => ({ services: [stored('idle', {}, 'stopped')] })
+    })
+
+    assert.deepEqual(await bare.listServices(userCall), [
+        {
+            name: 'http.server',
+            command: 'python3 -m http.server',
+            httpPort: 8000,
+            status: 'running',
+            pid: null,
+            startedAt: null,
+            error: null
+        }
+    ])
+    assert.deepEqual(
+        (await wrapped.listServices(userCall)).map((s) => [s.name, s.status]),
+        [['idle', 'stopped']]
+    )
+})
+
+test('removing or stopping a service already gone is done', async () => {
+    const gone = async () => {
+        throw new SpritesError('not_found', 'gone', 404)
+    }
+    const adapter = userServices({ deleteService: gone, stopService: gone })
+
+    await adapter.removeService(userCall, 'gone')
+    assert.equal(await adapter.stopService(userCall, 'gone'), true)
+})
+
+// WHY: the supervisor refuses to stop a service another one `needs` and says
+// so only through the state it answers with.
+test('a stop the supervisor refused reads as not stopped', async () => {
+    const adapter = userServices({
+        stopService: async (_sprite: string, name: string) =>
+            stored(name, {}, name === 'needed' ? 'running' : 'stopped')
+    })
+
+    assert.equal(await adapter.stopService(userCall, 'needed'), false)
+    assert.equal(await adapter.stopService(userCall, 'free'), true)
+})
+
+// A sprite made before the policy went wide open may still deny everything by
+// default; a github download on it needs the domains allowed.
+test('egress repairs a deny-by-default policy with the missing domains', async () => {
+    let written: { rules: Array<{ domain: string; action: string }> } | null = null
+    const adapter = userServices({
+        getNetworkPolicy: async () => ({
+            rules: [
+                { domain: '*', action: 'deny' },
+                { domain: 'github.com', action: 'allow' }
+            ]
+        }),
+        setNetworkPolicy: async (_sprite: string, policy: typeof written) => {
+            written = policy
+        }
+    })
+
+    await adapter.allowEgress(userCall, ['github.com', 'codeload.github.com'])
+
+    assert.deepEqual(written, {
+        rules: [
+            { domain: '*', action: 'deny' },
+            { domain: 'github.com', action: 'allow' },
+            { domain: 'codeload.github.com', action: 'allow' }
+        ]
+    })
+})
+
+test('egress leaves an open policy alone', async () => {
+    let wrote = false
+    const adapter = userServices({
+        getNetworkPolicy: async () => ({ rules: [] }),
+        setNetworkPolicy: async () => {
+            wrote = true
+        }
+    })
+
+    await adapter.allowEgress(userCall, ['codeload.github.com'])
+
+    assert.equal(wrote, false)
 })

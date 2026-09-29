@@ -28,7 +28,6 @@ import {
     type FileRoot,
     type RuntimeHostRow
 } from '@manyfold/db'
-import type { FsEntry } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import {
     HOME_ROOT_ID,
@@ -66,10 +65,10 @@ export interface FilesContext {
     placement?: AgentRuntime
     root: FileRoot
     mountPath: string
-    list(absPath: string): Promise<FsEntry[]>
+    list(absPath: string): Promise<FsEntrySdk[]>
     stat(
         absPath: string
-    ): Promise<{ entry: FsEntry; contentType: string } | null>
+    ): Promise<{ entry: FsEntrySdk; contentType: string } | null>
     read(absPath: string): Promise<{
         stream: AsyncIterable<Uint8Array | Buffer>
         // undefined when the transport cannot report a trustworthy length up
@@ -313,13 +312,13 @@ export class FilesContextBuilder {
                     size: 0,
                     mtime: 0,
                     mode: '644'
-                })) as FsEntry[]
+                })) as FsEntrySdk[]
             },
             stat: async (abs) => {
                 try {
                     const res = await rpc('fs.stat', { path: abs })
                     if (!res) return null
-                    const entry: FsEntry = {
+                    const entry: FsEntrySdk = {
                         name: posix.basename(abs),
                         type: res.isDir ? 'dir' : 'file',
                         size: Number(res.size ?? 0),
@@ -433,7 +432,7 @@ export const resolveSafePath = (mountPath: string, raw: string): string => {
     return joined
 }
 
-export const toSdkEntry = (e: FsEntry): FsEntrySdk => ({
+export const toSdkEntry = (e: FsEntrySdk): FsEntrySdk => ({
     name: e.name,
     type: e.type,
     size: e.size,

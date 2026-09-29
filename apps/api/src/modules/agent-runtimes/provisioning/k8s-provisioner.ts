@@ -18,7 +18,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 import {
@@ -28,7 +28,6 @@ import {
 } from './k8s-create-cleanup.service'
 import { HostServices } from './host-services'
 import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
-import { withdrawPodHostFramework } from './pod-host-network'
 
 // Deletes k8s runtimes and pod hosts (ADR-0035, ADR-0037). A runtime is one
 // framework on a pod host, so deleting it leaves the host and its home volume
@@ -41,7 +40,7 @@ export class K8sProvisioner {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: HostsService,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry,
         private readonly tokens: DaemonTokenService,
         private readonly runtimes: AgentRuntimesService,
@@ -96,16 +95,6 @@ export class K8sProvisioner {
             return
         try {
             await this.hostServices.removeRuntime(runtime, host)
-            const client = await this.clients.k8sClientForHost(host)
-            await withdrawPodHostFramework({
-                apis: client.apis,
-                host: {
-                    hostId: host.id,
-                    userId: host.userId,
-                    namespace: ref.namespace
-                },
-                framework: runtime.framework
-            })
         } catch (err) {
             this.log.warn(
                 `service cleanup failed runtimeId=${runtime.id} framework=${runtime.framework}: ${(err as Error).message}`

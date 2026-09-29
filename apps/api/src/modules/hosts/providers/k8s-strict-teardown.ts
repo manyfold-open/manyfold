@@ -5,7 +5,7 @@ import {
     podHostResourceName,
     podHostSecretName,
     podHostSelector
-} from '@/modules/agent-runtimes/provisioning/pod-host-resources'
+} from './pod-host-resources'
 
 // Removes every Kubernetes object of a pod host (ADR-0035) and returns only once
 // each is gone — a failed fresh create keeps its tracking row until then, and a

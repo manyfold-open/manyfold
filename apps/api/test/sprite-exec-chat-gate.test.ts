@@ -12,6 +12,7 @@ import type {
 } from '../src/modules/chat/chat-adapter'
 import { ChatService } from '../src/modules/chat/chat.service'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 import {
     SANDBOX_EXEC_UNAVAILABLE_CODE,
     SPRITE_EXEC_TERMINAL_EVENT
@@ -310,7 +311,7 @@ test('the probe winner runs one no-op, and only its success releases the host', 
         // The one command a suspect endpoint is ever asked to run. Replaying the
         // turn's real command would risk running it twice: a failed upgrade does
         // not prove the upstream never accepted the first one.
-        assert.deepEqual(server.cmds, [['true']])
+        assert.deepEqual(server.cmds, [['bash', '-lc', 'true']])
 
         const probe = h.health.find((c) => c.method === 'recordProbe')
         assert.equal(probe?.ok, true)
@@ -336,7 +337,7 @@ test('a stale successful probe cannot dispatch user work after losing its lease'
     try {
         await h.send()
 
-        assert.deepEqual(server.cmds, [['true']])
+        assert.deepEqual(server.cmds, [['bash', '-lc', 'true']])
         assert.equal(h.adapterCalls.length, 0)
         assert.equal(h.terminals[0].error?.code, SANDBOX_EXEC_UNAVAILABLE_CODE)
     } finally {
@@ -350,7 +351,7 @@ test('a failed probe re-arms its own lease and dispatches nothing', async () => 
     try {
         await h.send()
 
-        assert.deepEqual(server.cmds, [['true']])
+        assert.deepEqual(server.cmds, [['bash', '-lc', 'true']])
         const probe = h.health.find((c) => c.method === 'recordProbe')
         assert.equal(probe?.ok, false)
         assert.equal(probe?.lease, h.lease)
@@ -557,7 +558,6 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             }
         },
         renewTurnLease: async () => true,
-        setTurnExecSession: async () => true,
         insertStreamEvent: async () => undefined,
         touchSession: async () => undefined,
         updateTitleIfEmpty: async () => undefined,
@@ -676,7 +676,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             timeoutMs: args.timeoutMs ?? 1000
         })
     const execDrivers = {
-        spriteExecForAgent: async () => spriteExec,
+        probeExecForAgent: async (_agentId: string, timeoutMs: number) =>
+            runnerManager.probeExec(HOST, timeoutMs),
         resolveRunner: async () => {
             calls.forAgent += 1
             if (!opts.runner) return { daemonId: HOST_ID }
@@ -702,6 +703,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         kind: 'sprites',
         power: async () => 'running',
         wake: async () => {},
+        describeError: spritesErrorFacts,
         bootstrap: async (args: {
             script: string
             stdin?: string

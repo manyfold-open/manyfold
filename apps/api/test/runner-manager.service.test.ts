@@ -18,6 +18,7 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 import {
     HostCliTooOldError,
     HostCliUpdatingError
@@ -56,6 +57,9 @@ interface HarnessOptions {
     // wake, whether the thawed process reconnects on its own.
     connects?: boolean
     reconnectsOnWake?: boolean
+    // The awake hold's own exec thawed the machine: its daemon dials back in
+    // right after the power read, with no wake needed.
+    reconnectsOnThaw?: boolean
     logTail?: string
     registerExit?: number
     registerOutput?: string
@@ -205,6 +209,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             : {}),
         power: async () => {
             calls.push('power')
+            if (opts.reconnectsOnThaw) dialIn()
             return opts.power ?? 'running'
         },
         wake: async ({ generation }: { generation: number }) => {
@@ -219,6 +224,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         destroy: async () => {
             calls.push('destroy')
         },
+        describeError: spritesErrorFacts,
         bootstrap: async (args: { generation: number; script: string; stdin?: string }) => {
             if (args.generation < state.host.generation)
                 throw new StaleGenerationError(state.host.id, args.generation, state.host.generation)
@@ -527,6 +533,22 @@ test('a suspended sprite with a registered daemon is woken, and a fresh lease is
     assert.equal(res.handle?.daemonId, 'sbx_1')
     assert.deepEqual(h.calls, ['power', 'wake'], 'no bootstrap when the thawed daemon dials back in')
     assert.deepEqual(h.powers, ['suspended'])
+    assert.equal(h.bumps(), 0)
+})
+
+// Seen on staging [2026-09-29]: the hold's exec had thawed the sprite, the
+// listing said running, and the bring-up restarted a daemon that reconnected
+// in the same second — ending the 13 streams it still carried.
+test('a thawed machine whose registered daemon dials back in is not restarted', async () => {
+    const h = buildHarness({
+        daemon: offlineDaemon(),
+        power: 'running',
+        registered: true,
+        reconnectsOnThaw: true
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.deepEqual(h.calls, ['power'], 'no inspect, no restart')
     assert.equal(h.bumps(), 0)
 })
 

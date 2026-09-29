@@ -232,7 +232,7 @@ test(
 )
 
 // WHY: documents the shared root cause behind all three coerced sites
-// (runtime-access reserveActiveSlot, sprite-status-sync running transition,
+// (runtime-access reserveActiveSlot, power sync running transition,
 // users billingForUsers). A raw JS Date bound into a Drizzle sql`` fragment
 // crashes postgres-js in Buffer.byteLength; the ms-precision ISO string cast to
 // ::timestamptz round-trips losslessly. If a future edit drops `.toISOString()`

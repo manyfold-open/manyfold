@@ -129,7 +129,14 @@ export class K8sLifecycleFixture {
                                     template?: { spec?: unknown }
                                 } | undefined
                             )?.template?.spec,
-                            status: { phase: 'Running' }
+                            // A started container with no readiness
+                            // probe reads ready, as the host's does.
+                            status: {
+                                phase: 'Running',
+                                containerStatuses: [
+                                    { name: 'agent', ready: true }
+                                ]
+                            }
                         })
                     }
                     if (collection === 'ingresses')

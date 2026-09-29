@@ -122,7 +122,7 @@ const turn = (
               state: failed ? 'failed' : 'cancelled',
               runtime: 'daemon',
               ownerId: 'fixture-owner',
-              spriteName: null,
+              hostId: null,
               adoptCount: 0,
               leaseExpiresAt: at,
               updatedAt: at

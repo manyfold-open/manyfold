@@ -4,11 +4,11 @@ import { chatSessions } from './chatSessions'
 import { chatMessages } from './chatMessages'
 
 // Durable per-turn execution record + lease. One row per assistant turn whose
-// execution outlives the request that started it: a sprite/external relay, or a
+// execution outlives the request that started it: an external relay, or a
 // daemon-carried turn that a reconnecting daemon can ask to resume. Makes "who
-// is relaying this turn, and to what remote exec" a cross-instance-visible fact
-// instead of the in-memory-only runningAdapters map + exec-session closure, so
-// a fresh API instance can adopt a turn orphaned by a deploy/crash/auto-stop.
+// is relaying this turn" a cross-instance-visible fact instead of the
+// in-memory-only runningAdapters map, so a fresh API instance can adopt a turn
+// orphaned by a deploy/crash/auto-stop.
 // The session turn lock (chat_sessions.inflight_message_id) still admits one
 // turn per session; this row tracks that turn's execution and ownership.
 // A row is not by itself an invitation to adopt: the sweep only claims the
@@ -27,13 +27,10 @@ export const turnExecutions = pgTable(
         runtime: text('runtime', {
             enum: ['sprites', 'daemon', 'k8s', 'external']
         }).notNull(),
-        // The sprite exec handle needed for cross-process re-attach. sprite_name
-        // is set at turn start; exec_session_id lands once the session_info
-        // frame arrives (may briefly be null between start and first output).
-        spriteName: text('sprite_name'),
-        execSessionId: text('exec_session_id'),
-        // The external runtime's twin of (sprite_name, exec_session_id): the
-        // handles that let a fresh instance ask the upstream API what happened
+        // The machine the turn ran on, set at turn start (admin diagnostics).
+        hostId: text('host_id'),
+        // An external runtime's handles that let a fresh instance ask the
+        // upstream API what happened
         // to a turn it never saw. Both land mid-stream (the first Dify chunk
         // that carries them, the first task-bearing A2A frame), so a turn
         // orphaned before then has neither and is honestly unrecoverable. The

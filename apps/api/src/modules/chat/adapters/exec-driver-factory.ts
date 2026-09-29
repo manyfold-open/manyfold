@@ -15,7 +15,7 @@ import {
     type AgentRuntime
 } from '@manyfold/shared'
 import type { AgentModelConfigSource } from '@manyfold/shared'
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
 import {
@@ -25,7 +25,6 @@ import {
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
-import type { SpritesClient, SpritesLogger } from '@manyfold/sprites'
 import type { DaemonAuthContextRef } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import {
@@ -56,12 +55,11 @@ import { HostStorageService } from '@/modules/agents/host-storage/host-storage.s
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import {
     RunnerManagerService,
-    type SpriteExecFn
+    type RunnerExecFailureClass
 } from '@/modules/chat/runner/runner-manager.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
-import { execSprite } from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import { UNKNOWN_PRICE_SCOPE, verifiedCodingPriceScope, type ServedPriceScope } from '@/modules/usage/served-price-scope'
@@ -70,7 +68,6 @@ import {
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 
 export type ExecPlacement = Exclude<AgentRuntime, 'external'>
@@ -95,8 +92,6 @@ export interface RecoveryFsHandle {
     runtime: ExecPlacement
     agent: Agent
     awakeHold?: AwakeHold
-    // Sprite bootstrap/health only; transcript access always uses the daemon.
-    spritesClient?: SpritesClient
 }
 
 type AgentContext = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
@@ -107,8 +102,6 @@ type AgentContext = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
 // the daemon RPC keyed by the host id.
 @Injectable()
 export class ExecDriverFactory {
-    private readonly log = new Logger(ExecDriverFactory.name)
-
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimeContext: RuntimeContextService,
@@ -118,7 +111,6 @@ export class ExecDriverFactory {
         private readonly spriteStorage: HostStorageService,
         private readonly connections: ConnectionsService,
         private readonly hostDaemons: HostDaemonsService,
-        private readonly hostClients: HostProviderClients,
         private readonly hostAccess: HostDaemonAccess,
         @Optional() private readonly config?: ConfigService,
         // Appended LAST and @Optional so positional test construction keeps
@@ -302,45 +294,20 @@ export class ExecDriverFactory {
         return async (since) => (await manager.awaitReconnect(host, since)) !== null
     }
 
-    // The agent's machine, for the sprite awake holds a turn places.
-    async hostForAgent(agentId: string): Promise<RuntimeHostRow | null> {
-        const ctx = await this.runtimeContext.forAgent(agentId)
-        return ctx?.host ?? null
-    }
-
-    // The sprite behind a hosted sprites host: the provider-native exec is
-    // what the exec-health probe rides on (the turn itself goes through the
-    // daemon). Admission is the caller's.
-    private async spriteFor(ctx: AgentContext): Promise<{
-        client: SpritesClient
-        spriteName: string
-        exec: SpriteExecFn
-    }> {
-        const { client, spriteName } = await this.hostClients.spritesClientForHost(
-            ctx.host,
-            spritesLoggerFor(this.log, ctx.agent.id)
-        )
-        return {
-            client,
-            spriteName,
-            exec: (args) =>
-                execSprite(client, spriteName, {
-                    ...args,
-                    stdin: args.stdin ?? ''
-                })
-        }
-    }
-
-    // Run a command on an agent's sprite; null for an agent that is not on
-    // one. The exec-health probe rides on it.
-    async spriteExecForAgent(agentId: string): Promise<SpriteExecFn | null> {
+    // The exec-health probe on an agent's sandbox (#730), under a reserved
+    // active slot; null for an agent that is not on one.
+    async probeExecForAgent(
+        agentId: string,
+        timeoutMs: number
+    ): Promise<'ok' | 'inconclusive' | RunnerExecFailureClass | null> {
         const ctx = await this.contextFor(agentId)
-        if (ctx.placement !== 'sprites' || !ctx.host) return null
+        if (ctx.placement !== 'sprites' || !ctx.host || !this.runnerManager)
+            return null
         await this.runtimeAccess.reserveActiveSlot({
             userId: ctx.agent.userId,
             hostId: ctx.host.id
         })
-        return (await this.spriteFor(ctx as AgentContext)).exec
+        return this.runnerManager.probeExec(ctx.host, timeoutMs)
     }
 
     private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
@@ -389,22 +356,19 @@ export class ExecDriverFactory {
             'recovery filesystem'
         )
         const runner = await this.resolveRunner(ctx)
-        const sprite =
-            ctx.placement === 'sprites' ? await this.spriteFor(ctx) : null
         return {
             daemonId: runner.daemonId,
             fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
             runtime: ctx.placement as ExecPlacement,
             agent: ctx.agent,
-            ...(sprite && this.runnerManager
+            ...(ctx.placement === 'sprites' && this.runnerManager
                 ? {
                       awakeHold: this.runnerManager.holdAwake(
                           ctx.host,
                           `recovery-${ctx.agent.id}`
                       )
                   }
-                : {}),
-            spritesClient: sprite?.client
+                : {})
         }
     }
 
@@ -510,19 +474,6 @@ const agentBaseEnv = (
     ...manyfoldRuntimeEnv(config, agent.id),
     ...(identityToken ? { [MF_ENV_API_TOKEN]: identityToken } : {})
 })
-
-const spritesLoggerFor = (log: Logger, agentId?: string): SpritesLogger => {
-    const withAgent = (meta?: Record<string, unknown>): Record<string, unknown> =>
-        agentId ? { agentId, ...(meta ?? {}) } : (meta ?? {})
-    return {
-        debug: () => {},
-        info: (m, meta) => log.log(`[sprites] ${m} ${JSON.stringify(withAgent(meta))}`),
-        warn: (m, meta) =>
-            log.warn(`[sprites] ${m} ${JSON.stringify(withAgent(meta))}`),
-        error: (m, meta) =>
-            log.error(`[sprites] ${m} ${JSON.stringify(withAgent(meta))}`)
-    }
-}
 
 // The directories a turn of this agent runs in beyond the daemon's own
 // roots: its workspace (a gateway-backed framework resolves its own on the

@@ -22,31 +22,14 @@ import {
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
-import {
-    execSprite,
-    spriteReadFile,
-    spriteRm,
-    spriteStatFile,
-    spriteWriteFile,
-    type NetworkPolicyRule,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
-import type {
-    ExecOptions,
-    ExecResult,
-    SpriteReadFileResult,
-    SpriteRmOptions,
-    SpriteWriteFileArgs
-} from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
-import type { PodExec } from '@/modules/k8s/pod-exec'
+import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import {
-    RuntimeContextService,
-    type RuntimeContext
-} from '@/modules/hosts/runtime-context.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+    HostDaemonAccess,
+    type HostExecResult,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
 import {
     assertSkillFramework,
     assertSafeGitHubOwner,
@@ -121,25 +104,35 @@ export interface SkillOutcome {
     error?: string
 }
 
-export interface MaterializeForSpriteInput {
+// One script on the machine, run by its daemon.
+export type HostRun = (script: string, timeoutMs: number) => Promise<HostExecResult>
+
+// Where one agent's skills go, and the machine's daemon to write them with.
+// The placement decides the layout: a sandbox and a self-owned computer take
+// the host store + workspace activation for claude/codex/gemini on a managed
+// workspace; everything else keeps a per-home clone with a lock file — under
+// the framework's home on a sandbox or a pod, and namespaced beside the user's
+// own skills on a self-owned computer.
+export interface MaterializeTarget {
     agentId: string
     runtimeId: string
     userId: string
-    framework?: SkillFramework
-    spriteName: string
-    client: SpritesClient
-    logger: SpritesLogger
-    homeDir?: string
+    framework: SkillFramework
+    placement: 'sprites' | 'k8s' | 'daemon'
+    hostId: string
+    homeDir?: string | null
     // The agent's workspace (turn cwd). Store-activation frameworks symlink/copy
     // their skills into `${workspacePath}/<.claude|.agents>/skills`. Defaults to
     // the managed `${home}/.manyfold/workspaces/${agentId}` path.
-    workspacePath?: string
+    workspacePath?: string | null
+    run: HostRun
+    // Before a github download: open the machine's outbound access to GitHub
+    // where its provider restricts it.
+    beforeDownload?: () => Promise<void>
     timeoutMs?: number
 }
 
-// Resolved context for the host-store + per-agent-activation path. `run` /
-// `hasStoreSkill` abstract the runtime exec (sprite REST vs daemon RPC) so the
-// store + activation core is shared.
+// Resolved context for the host-store + per-agent-activation path.
 interface SkillStoreContext {
     agentId: string
     userId: string
@@ -157,36 +150,6 @@ interface SkillStoreContext {
     ): Promise<{ exitCode: number; stdout: string; stderr: string }>
     hasStoreSkill(skillMdPath: string): Promise<boolean>
     beforeDownload?(): Promise<void>
-}
-
-export interface MaterializeForK8sPodInput {
-    agentId: string
-    runtimeId: string
-    userId: string
-    framework?: SkillFramework
-    exec: PodExec
-    homeDir?: string
-    timeoutMs?: number
-}
-
-export interface MaterializeForDaemonInput {
-    agentId: string
-    runtimeId: string
-    userId: string
-    framework?: SkillFramework
-    daemonId: string
-    homeDir?: string | null
-    workspacePath?: string | null
-    timeoutMs?: number
-}
-
-export interface MaterializeK8sRuntimeAgentsInput {
-    runtimeId: string
-    userId: string
-    framework?: SkillFramework
-    exec: PodExec
-    homeDir?: string
-    timeoutMs?: number
 }
 
 export interface RuntimeSkillInventoryItem {
@@ -210,12 +173,12 @@ const EMPTY_LOCK: SkillLock = { version: 1, skills: {} }
 const DEFAULT_HERMES_HOME = `${K8S_HOME_BASE}/.hermes`
 const HERMES_PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i
 const MATERIALIZER_LOCK_NAMESPACE = 2
-const SPRITE_SKILL_DOWNLOAD_RULES: NetworkPolicyRule[] = [
-    { domain: 'api.github.com', action: 'allow' },
-    { domain: 'codeload.github.com', action: 'allow' },
+const SKILL_DOWNLOAD_DOMAINS = [
+    'api.github.com',
+    'codeload.github.com',
     // github.com is needed for the sparse-checkout fast path (git clone/fetch);
     // codeload is only hit by the full-tarball fallback.
-    { domain: 'github.com', action: 'allow' }
+    'github.com'
 ]
 // Store downloads get their own generous ceiling instead of the generic 60s
 // exec timeout: the sparse fast path is small, but a full-tarball fallback for
@@ -230,8 +193,8 @@ export class SkillMaterializerService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimeContext: RuntimeContextService,
-        private readonly hostClients: HostProviderClients,
-        private readonly daemonRegistry: DaemonRegistryService,
+        private readonly hostProviders: HostProviderResolver,
+        private readonly hostAccess: HostDaemonAccess,
         @Optional() private readonly changes?: ResourceChangesService
     ) {}
 
@@ -302,9 +265,10 @@ export class SkillMaterializerService {
         )
     }
 
-    // Where the skills land is a fact of the runtime's host (ADR-0037): a
-    // hosted sandbox or pod is written through the provider's own channel
-    // (which wakes it), a local machine through its daemon while online.
+    // Where the skills land is a fact of the runtime's host (ADR-0037), and
+    // everything is written through the host's daemon, under its awake hold: a
+    // hosted machine is woken and its daemon brought up, a self-owned computer
+    // only while online.
     private async materializeAgentRow(
         agent: Agent,
         runtime: AgentRuntimeRow
@@ -313,7 +277,9 @@ export class SkillMaterializerService {
         const ctx = await this.runtimeContext.forRuntime(runtime.id)
         if (!ctx?.host || ctx.host.status !== 'ready') return []
         if (ctx.host.kind === 'local' && !ctx.daemonOnline) return []
-        const target = ctx as RuntimeContext & { host: RuntimeHostRow }
+        if (ctx.placement === 'external') return []
+        const placement = ctx.placement
+        const host = ctx.host
         let framework: SkillFramework
         try {
             framework = assertSkillFramework(agent.framework)
@@ -327,58 +293,36 @@ export class SkillMaterializerService {
             // on an infra throw (probe/lock/account) that yields no per-skill
             // outcomes, marks every enabled row failed — so a swallowed error
             // here can never leave a row reported as installed.
-            return await this.persistOutcomes(agent.id, async () => {
-                // Sprite routes through materializeSprite, which picks the
-                // host-store + workspace-activation path (claude/codex/gemini on
-                // a managed workspace) or the legacy home-clone, and owns its own
-                // locking (host-store lock then per-agent lock). Daemon/k8s keep
-                // the single per-agent lock below.
-                if (target.placement === 'sprites') {
-                    const logger = spritesLoggerFor(this.log)
-                    const { client, spriteName } =
-                        await this.hostClients.spritesClientForHost(
-                            target.host,
-                            logger
-                        )
-                    return this.materializeSprite({
+            return await this.persistOutcomes(agent.id, () =>
+                this.hostAccess.withHost(
+                    {
+                        host,
+                        daemon: ctx.daemon,
+                        placement,
                         agentId: agent.id,
-                        runtimeId: runtime.id,
-                        userId: runtime.userId,
-                        framework,
-                        spriteName,
-                        client,
-                        logger,
-                        homeDir: target.host.homeDir ?? undefined,
-                        workspacePath: agent.workspacePath ?? undefined
-                    })
-                }
-                // Daemon also owns its two-phase locking via materializeDaemon
-                // (host-store lock keyed on the host, then per-agent lock).
-                if (target.placement === 'daemon')
-                    return this.materializeDaemon({
-                        agentId: agent.id,
-                        runtimeId: runtime.id,
-                        userId: runtime.userId,
-                        framework,
-                        daemonId: target.host.id,
-                        homeDir: target.host.homeDir,
-                        workspacePath: agent.workspacePath ?? undefined
-                    })
-                const key = materializationLockKey(runtime.userId, agent.id)
-                return this.withLock(key, async () => {
-                    const exec = await this.hostClients.podExecForHost(
-                        target.host
-                    )
-                    return this.materializeForK8sPodUnlocked({
-                        agentId: agent.id,
-                        runtimeId: runtime.id,
-                        userId: runtime.userId,
-                        framework,
-                        exec,
-                        homeDir: k8sHomeDirForAgent(agent, runtime, framework)
-                    })
-                })
-            })
+                        reason: `skills-${agent.id}`
+                    },
+                    (session) =>
+                        this.materializeOn({
+                            agentId: agent.id,
+                            runtimeId: runtime.id,
+                            userId: runtime.userId,
+                            framework,
+                            placement,
+                            hostId: host.id,
+                            homeDir:
+                                placement === 'k8s'
+                                    ? k8sHomeDirForAgent(agent, runtime, framework)
+                                    : host.homeDir,
+                            workspacePath: agent.workspacePath,
+                            run: runOn(session),
+                            beforeDownload:
+                                host.kind === 'hosted'
+                                    ? () => this.allowSkillDownloads(host)
+                                    : undefined
+                        })
+                )
+            )
         } catch (err) {
             const message = (err as Error).message
             this.log.warn(
@@ -399,6 +343,115 @@ export class SkillMaterializerService {
             // the empty list just means this caller has no per-skill result to
             // overlay (the durable state is authoritative).
             return []
+        }
+    }
+
+    // A provider that restricts the machine's outbound access opens it to
+    // GitHub for the download.
+    private async allowSkillDownloads(host: RuntimeHostRow): Promise<void> {
+        const { provider, adapter } = await this.hostProviders.resolve(host)
+        await adapter.allowEgress?.({ host, provider }, SKILL_DOWNLOAD_DOMAINS)
+    }
+
+    // One agent's skills on its machine. Store-activation frameworks on a
+    // managed workspace take the host store: the download-once store under a
+    // HOST-level lock across co-resident agents, then the per-agent activation
+    // under the agent's lock — never nested, always the host lock first.
+    // Everything else reconciles a per-home clone under the agent's lock.
+    async materializeOn(target: MaterializeTarget): Promise<SkillOutcome[]> {
+        const framework = target.framework
+        if (target.placement === 'daemon' && framework === 'hermes') {
+            this.log.warn(
+                `skill materialize for daemon skipped: hermes is k8s-only`
+            )
+            return []
+        }
+        const homeDir =
+            target.homeDir ??
+            (await this.probeHome(target.run, target.timeoutMs))
+        const workspacePath =
+            target.workspacePath ??
+            codingAgentWorkspacePathForHome(homeDir, target.agentId)
+        if (
+            target.placement !== 'k8s' &&
+            isStoreActivationFramework(framework) &&
+            isManagedSkillWorkspace(workspacePath)
+        ) {
+            const ctx: SkillStoreContext = {
+                agentId: target.agentId,
+                userId: target.userId,
+                framework,
+                homeDir,
+                storeDir:
+                    (target.placement === 'daemon'
+                        ? await this.declaredSkillsDir(target.hostId)
+                        : null) ?? skillStoreDir(homeDir),
+                workspacePath,
+                timeoutMs: target.timeoutMs,
+                run: target.run,
+                hasStoreSkill: async (path) =>
+                    (
+                        await target.run(
+                            `test -f ${shellEscape(path)}`,
+                            target.timeoutMs ?? 15_000
+                        )
+                    ).exitCode === 0,
+                beforeDownload: target.beforeDownload
+            }
+            return this.runStorePhases(
+                ctx,
+                storeLockKey(target.userId, target.hostId)
+            )
+        }
+        const layout = cloneLayout(target.placement, homeDir, framework)
+        return this.withLock(
+            materializationLockKey(target.userId, target.agentId),
+            () =>
+                this.materializeDesiredSkills(
+                    target.agentId,
+                    this.cloneBackend(target, layout)
+                )
+        )
+    }
+
+    private cloneBackend(
+        target: MaterializeTarget,
+        layout: CloneLayout
+    ): SkillMaterializationBackend {
+        const { run, timeoutMs } = target
+        const dirOf = (installDir: string): string =>
+            `${layout.skillsDir}/${layout.installDirOf(installDir)}`
+        return {
+            readLock: () => this.readLock(run, layout.lockPath, timeoutMs),
+            beforeEnsure: async (desired) => {
+                if (desired.some((skill) => skill.kind === 'github'))
+                    await target.beforeDownload?.()
+            },
+            ensureBase: () =>
+                this.ensureBase(run, layout.baseDir, layout.skillsDir, timeoutMs),
+            remove: (installDir) => this.rm(run, dirOf(installDir), timeoutMs),
+            hasSkill: (skill) =>
+                this.statFile(
+                    run,
+                    `${dirOf(skill.installDir)}/SKILL.md`,
+                    timeoutMs
+                ),
+            install: (skill) =>
+                this.installSkill(
+                    run,
+                    layout.skillsDir,
+                    skill,
+                    layout.installDirOf(skill.installDir),
+                    timeoutMs
+                ),
+            writeLock: (lock) =>
+                this.writeFile(
+                    run,
+                    layout.lockPath,
+                    `${JSON.stringify(lock, null, 2)}\n`,
+                    '600',
+                    timeoutMs
+                )
         }
     }
 
@@ -471,41 +524,6 @@ export class SkillMaterializerService {
             this.changes?.emit(row.userId, { resource: 'skill', resourceId: row.id, agentId, reason: 'updated' })
     }
 
-    async materializeK8sRuntimeAgents(
-        input: MaterializeK8sRuntimeAgentsInput
-    ): Promise<void> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        const agentRows = await this.db
-            .select()
-            .from(agents)
-            .where(
-                and(
-                    eq(agents.userId, input.userId),
-                    eq(agents.runtimeId, input.runtimeId),
-                    eq(agents.framework, framework)
-                )
-            )
-        for (const agent of agentRows) {
-            await this.materializeForK8sPod({
-                agentId: agent.id,
-                runtimeId: input.runtimeId,
-                userId: input.userId,
-                framework,
-                exec: input.exec,
-                homeDir:
-                    framework === 'hermes'
-                        ? hermesProfileHome(
-                              input.homeDir ?? DEFAULT_HERMES_HOME,
-                              agent.internalId
-                          )
-                        : input.homeDir,
-                timeoutMs: input.timeoutMs
-            })
-        }
-    }
-
     async listHermesRuntimeSkills(input: {
         agent: Agent
         runtime: AgentRuntimeRow
@@ -516,152 +534,31 @@ export class SkillMaterializerService {
         if (input.runtime.status !== 'ready') return []
         const ctx = await this.runtimeContext.forRuntime(input.runtime.id)
         if (!ctx?.host || ctx.placement !== 'k8s') return []
-        const exec = await this.hostClients.podExecForHost(ctx.host)
+        const host = ctx.host
         const profileHome = hermesProfileHome(
             input.runtime.mountPath || DEFAULT_HERMES_HOME,
             input.agent.internalId
         )
-        return this.scanHermesSkills(
-            exec,
-            profileHome,
-            input.timeoutMs ?? 30_000
+        return this.hostAccess.withHost(
+            {
+                host,
+                daemon: ctx.daemon,
+                placement: ctx.placement,
+                agentId: input.agent.id,
+                reason: `skills-inventory-${input.agent.id}`
+            },
+            (session) =>
+                this.scanHermesSkills(
+                    runOn(session),
+                    profileHome,
+                    input.timeoutMs ?? 30_000
+                )
         )
     }
 
-    async materializeForSprite(
-        input: MaterializeForSpriteInput
-    ): Promise<SkillOutcome[]> {
-        return this.persistOutcomes(input.agentId, () =>
-            this.materializeSprite(input)
-        )
-    }
-
-    // Route a sprite materialize to the host-store + per-agent-workspace path
-    // (claude/codex/gemini on a managed `~/.manyfold/workspaces/<id>` workspace)
-    // or to the legacy per-agent home-clone (hermes, or custom user workspaces).
-    //
-    // The store path locks in two stages — never nested: a HOST-level lock keyed
-    // on spriteName serializes the download-once store population across all
-    // co-resident agents, then the existing per-agent lock serializes the
-    // workspace symlink/copy reconcile. Always host-lock before agent-lock.
-    private async materializeSprite(
-        input: MaterializeForSpriteInput
-    ): Promise<SkillOutcome[]> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        const homeDir = input.homeDir ?? (await this.probeHome(input))
-        const workspacePath =
-            input.workspacePath ??
-            codingAgentWorkspacePathForHome(homeDir, input.agentId)
-        if (
-            isStoreActivationFramework(framework) &&
-            isManagedSkillWorkspace(workspacePath)
-        ) {
-            const ctx: SkillStoreContext = {
-                agentId: input.agentId,
-                userId: input.userId,
-                framework,
-                homeDir,
-                storeDir: skillStoreDir(homeDir),
-                workspacePath,
-                timeoutMs: input.timeoutMs,
-                run: (script, timeoutMs) =>
-                    this.execSprite(
-                        input.client,
-                        input.spriteName,
-                        { cmd: ['bash', '-lc', script], stdin: '', timeoutMs },
-                        input.logger
-                    ),
-                hasStoreSkill: async (path) =>
-                    !!(await this.spriteStatFile(
-                        input.client,
-                        input.spriteName,
-                        path,
-                        input.logger
-                    )),
-                beforeDownload: () =>
-                    this.ensureSpriteSkillDownloadNetwork({
-                        client: input.client,
-                        spriteName: input.spriteName,
-                        logger: input.logger
-                    })
-            }
-            return this.runStorePhases(
-                ctx,
-                storeLockKey(input.userId, input.spriteName)
-            )
-        }
-        return this.withLock(
-            materializationLockKey(input.userId, input.agentId),
-            () => this.materializeForSpriteUnlocked({ ...input, homeDir })
-        )
-    }
-
-    // Daemon counterpart of materializeSprite. Daemon runtimes carry `daemonId`
-    // (not `hostId`), so the host-store lock keys on it and the store/activation
-    // bash runs over the daemon RPC. claude/codex/gemini on a managed workspace
-    // take the host-store + per-agent-activation path (claude/gemini symlink;
-    // codex gets real-dir copies that the turn discovers via its cwd=<workspace>
-    // — `<cwd>/.agents/skills`, no HOME relocation); hermes and custom workspaces
-    // stay on the legacy nca-namespaced home clone.
-    private async materializeDaemon(
-        input: MaterializeForDaemonInput
-    ): Promise<SkillOutcome[]> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        if (framework === 'hermes') {
-            this.log.warn(
-                `skill materialize for daemon skipped: hermes is k8s-only`
-            )
-            return []
-        }
-        const homeDir =
-            input.homeDir ??
-            (await this.probeDaemonHome(input.daemonId, input.timeoutMs))
-        const workspacePath =
-            input.workspacePath ??
-            codingAgentWorkspacePathForHome(homeDir, input.agentId)
-        if (
-            isStoreActivationFramework(framework) &&
-            isManagedSkillWorkspace(workspacePath)
-        ) {
-            const ctx: SkillStoreContext = {
-                agentId: input.agentId,
-                userId: input.userId,
-                framework,
-                homeDir,
-                storeDir:
-                    (await this.declaredSkillsDir(input.daemonId)) ??
-                    skillStoreDir(homeDir),
-                workspacePath,
-                timeoutMs: input.timeoutMs,
-                run: (script, timeoutMs) =>
-                    this.runDaemonBash(input.daemonId, script, timeoutMs),
-                hasStoreSkill: async (path) =>
-                    (
-                        await this.runDaemonBash(
-                            input.daemonId,
-                            `test -f ${shellEscape(path)}`,
-                            input.timeoutMs ?? 15_000
-                        )
-                    ).exitCode === 0
-            }
-            return this.runStorePhases(
-                ctx,
-                storeLockKey(input.userId, input.daemonId)
-            )
-        }
-        return this.withLock(
-            materializationLockKey(input.userId, input.agentId),
-            () => this.materializeForDaemonUnlocked({ ...input, homeDir })
-        )
-    }
-
-    // Two-phase store materialize shared by sprite + daemon: host-store lock
-    // (download-once) then per-agent lock (workspace activation). Never nested —
-    // always host-store lock first.
+    // Two-phase store materialize: host-store lock (download-once) then
+    // per-agent lock (workspace activation). Never nested — always host-store
+    // lock first.
     private async runStorePhases(
         ctx: SkillStoreContext,
         hostStoreLockKey: string
@@ -1062,230 +959,6 @@ export class SkillMaterializerService {
         )
     }
 
-    private async materializeForSpriteUnlocked(
-        input: MaterializeForSpriteInput
-    ): Promise<SkillOutcome[]> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        const homeDir = input.homeDir ?? (await this.probeHome(input))
-        const baseDir = `${homeDir}/.${skillStateDirName(framework)}`
-        const skillsDir = `${baseDir}/skills`
-        const lockPath = `${baseDir}/.skill-lock.json`
-        return this.materializeDesiredSkills(input.agentId, {
-            readLock: () =>
-                this.readLock(
-                    input.client,
-                    input.spriteName,
-                    lockPath,
-                    input.logger
-                ),
-            beforeEnsure: async (desired) => {
-                if (desired.some((skill) => skill.kind === 'github'))
-                    await this.ensureSpriteSkillDownloadNetwork(input)
-            },
-            ensureBase: () => this.ensureBase(input, baseDir, skillsDir),
-            remove: (installDir) =>
-                this.spriteRm(
-                    input.client,
-                    input.spriteName,
-                    `${skillsDir}/${installDir}`,
-                    { recursive: true },
-                    input.logger
-                ),
-            hasSkill: async (skill) =>
-                !!(await this.spriteStatFile(
-                    input.client,
-                    input.spriteName,
-                    `${skillsDir}/${skill.installDir}/SKILL.md`,
-                    input.logger
-                )),
-            install: (skill) => this.installSkill(input, skillsDir, skill),
-            writeLock: (lock) =>
-                this.spriteWriteFile(
-                    input.client,
-                    input.spriteName,
-                    {
-                        absPath: lockPath,
-                        body: Buffer.from(`${JSON.stringify(lock, null, 2)}\n`),
-                        mode: '600',
-                        timeoutMs: input.timeoutMs ?? 30_000
-                    },
-                    input.logger
-                )
-        })
-    }
-
-    private async ensureSpriteSkillDownloadNetwork(input: {
-        client: SpritesClient
-        spriteName: string
-        logger: SpritesLogger
-    }): Promise<void> {
-        const getPolicy = input.client.getNetworkPolicy?.bind(input.client)
-        const setPolicy = input.client.setNetworkPolicy?.bind(input.client)
-        if (typeof getPolicy !== 'function' || typeof setPolicy !== 'function')
-            return
-
-        const policy = await getPolicy(input.spriteName)
-        const rules = Array.isArray(policy.rules) ? policy.rules : []
-        const isRestrictivePolicy = rules.some(
-            (rule) => rule.domain === '*' && rule.action === 'deny'
-        )
-        if (!isRestrictivePolicy) return
-
-        const missing = SPRITE_SKILL_DOWNLOAD_RULES.filter(
-            (required) =>
-                !rules.some(
-                    (rule) =>
-                        rule.domain === required.domain &&
-                        rule.action === required.action
-                )
-        )
-        if (missing.length === 0) return
-
-        await setPolicy(input.spriteName, {
-            rules: [...rules, ...missing]
-        })
-        input.logger.info('skills.download_network_policy_updated', {
-            spriteName: input.spriteName,
-            domains: missing.map((rule) => rule.domain)
-        })
-    }
-
-    async materializeForK8sPod(
-        input: MaterializeForK8sPodInput
-    ): Promise<SkillOutcome[]> {
-        return this.persistOutcomes(input.agentId, () =>
-            this.withLock(
-                materializationLockKey(input.userId, input.agentId),
-                () => this.materializeForK8sPodUnlocked(input)
-            )
-        )
-    }
-
-    private async materializeForK8sPodUnlocked(
-        input: MaterializeForK8sPodInput
-    ): Promise<SkillOutcome[]> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        const homeDir = input.homeDir ?? (await this.probeK8sHome(input))
-        const baseDir = k8sSkillBaseDir(homeDir, framework)
-        const skillsDir = `${baseDir}/skills`
-        const lockPath = `${baseDir}/.skill-lock.json`
-        return this.materializeDesiredSkills(input.agentId, {
-            readLock: () =>
-                this.readK8sLock(input.exec, lockPath, input.timeoutMs),
-            ensureBase: () =>
-                this.ensureK8sBase(
-                    input.exec,
-                    baseDir,
-                    skillsDir,
-                    input.timeoutMs
-                ),
-            remove: (installDir) =>
-                this.k8sRm(
-                    input.exec,
-                    `${skillsDir}/${installDir}`,
-                    input.timeoutMs
-                ),
-            hasSkill: (skill) =>
-                this.k8sStatFile(
-                    input.exec,
-                    `${skillsDir}/${skill.installDir}/SKILL.md`,
-                    input.timeoutMs
-                ),
-            install: (skill) =>
-                this.installK8sSkill(
-                    input.exec,
-                    skillsDir,
-                    skill,
-                    input.timeoutMs
-                ),
-            writeLock: (lock) =>
-                this.k8sWriteFile(
-                    input.exec,
-                    lockPath,
-                    `${JSON.stringify(lock, null, 2)}\n`,
-                    '600',
-                    input.timeoutMs
-                )
-        })
-    }
-
-    async materializeForDaemon(
-        input: MaterializeForDaemonInput
-    ): Promise<SkillOutcome[]> {
-        return this.persistOutcomes(input.agentId, () =>
-            this.materializeDaemon(input)
-        )
-    }
-
-    private async materializeForDaemonUnlocked(
-        input: MaterializeForDaemonInput
-    ): Promise<SkillOutcome[]> {
-        const framework = assertSkillFramework(
-            input.framework ?? DEFAULT_SKILL_FRAMEWORK
-        )
-        if (framework === 'hermes') {
-            this.log.warn(
-                `skill materialize for daemon skipped: hermes is k8s-only`
-            )
-            return []
-        }
-        const homeDir =
-            input.homeDir ??
-            (await this.probeDaemonHome(input.daemonId, input.timeoutMs))
-        // Daemon-only namespacing: NCA-managed skills live alongside user's own
-        // framework skills (so the framework discovers them) but use a clearly
-        // namespaced installDir prefix and a separate lock file. This way NCA
-        // never reads or overwrites a skill the user installed manually.
-        const baseDir = `${homeDir}/.${skillStateDirName(framework)}`
-        const skillsDir = `${baseDir}/skills`
-        const lockPath = `${baseDir}/.nca-skill-lock.json`
-        const namespacedInstallDir = (raw: string): string => `nca-${raw}`
-
-        return this.materializeDesiredSkills(input.agentId, {
-            readLock: () =>
-                this.readDaemonLock(input.daemonId, lockPath, input.timeoutMs),
-            ensureBase: () =>
-                this.ensureDaemonBase(
-                    input.daemonId,
-                    baseDir,
-                    skillsDir,
-                    input.timeoutMs
-                ),
-            remove: (installDir) =>
-                this.daemonRm(
-                    input.daemonId,
-                    `${skillsDir}/${namespacedInstallDir(installDir)}`,
-                    input.timeoutMs
-                ),
-            hasSkill: (skill) =>
-                this.daemonStatFile(
-                    input.daemonId,
-                    `${skillsDir}/${namespacedInstallDir(skill.installDir)}/SKILL.md`,
-                    input.timeoutMs
-                ),
-            install: (skill) =>
-                this.installDaemonSkill(
-                    input.daemonId,
-                    skillsDir,
-                    skill,
-                    namespacedInstallDir(skill.installDir),
-                    input.timeoutMs
-                ),
-            writeLock: (lock) =>
-                this.daemonWriteFile(
-                    input.daemonId,
-                    lockPath,
-                    `${JSON.stringify(lock, null, 2)}\n`,
-                    '600',
-                    input.timeoutMs
-                )
-        })
-    }
-
     private async materializeDesiredSkills(
         agentId: string,
         backend: SkillMaterializationBackend
@@ -1415,7 +1088,7 @@ export class SkillMaterializerService {
     }
 
     protected async scanHermesSkills(
-        exec: PodExec,
+        run: HostRun,
         profileHome: string,
         timeoutMs: number
     ): Promise<RuntimeSkillInventoryItem[]> {
@@ -1490,10 +1163,7 @@ export class SkillMaterializerService {
             'print(json.dumps(items))',
             'MF_HERMES_SCAN_PY'
         ].join('\n')
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', script],
-            timeoutMs
-        })
+        const result = await run(script, timeoutMs)
         if (result.exitCode !== 0)
             throw new Error(
                 `scan hermes skills exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
@@ -1535,302 +1205,6 @@ export class SkillMaterializerService {
         return output
     }
 
-    private async probeHome(input: MaterializeForSpriteInput): Promise<string> {
-        const result = await this.execSprite(
-            input.client,
-            input.spriteName,
-            {
-                cmd: ['bash', '-lc', 'printf "%s" "$HOME"'],
-                stdin: '',
-                timeoutMs: input.timeoutMs ?? 15_000
-            },
-            input.logger
-        )
-        if (result.exitCode !== 0)
-            throw new Error(`home probe exited ${result.exitCode}`)
-        return result.stdout.trim() || '/root'
-    }
-
-    private async readLock(
-        client: SpritesClient,
-        spriteName: string,
-        lockPath: string,
-        logger: SpritesLogger
-    ): Promise<SkillLock> {
-        const file = await this.spriteReadFile(
-            client,
-            spriteName,
-            lockPath,
-            logger
-        )
-        if (!file) return EMPTY_LOCK
-        const chunks: Buffer[] = []
-        for await (const chunk of file.stream) chunks.push(chunk)
-        await file.done
-        try {
-            const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-            if (parsed?.version !== 1 || !parsed.skills) return EMPTY_LOCK
-            return parsed as SkillLock
-        } catch {
-            return EMPTY_LOCK
-        }
-    }
-
-    private async ensureBase(
-        input: MaterializeForSpriteInput,
-        baseDir: string,
-        skillsDir: string
-    ): Promise<void> {
-        const script = [
-            'set -eu',
-            `mkdir -p ${shellEscape(skillsDir)}`,
-            `chmod 700 ${shellEscape(baseDir)}`
-        ].join('\n')
-        const result = await this.execSprite(
-            input.client,
-            input.spriteName,
-            {
-                cmd: ['bash', '-lc', script],
-                stdin: '',
-                timeoutMs: input.timeoutMs ?? 30_000
-            },
-            input.logger
-        )
-        if (result.exitCode !== 0)
-            throw new Error(
-                `skills base setup exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
-    private async installSkill(
-        input: MaterializeForSpriteInput,
-        skillsDir: string,
-        skill: DesiredSkill
-    ): Promise<void> {
-        if (skill.kind === 'library') {
-            await this.installLibraryTree(
-                (script, timeoutMs) =>
-                    this.execSprite(
-                        input.client,
-                        input.spriteName,
-                        { cmd: ['bash', '-lc', script], stdin: '', timeoutMs },
-                        input.logger
-                    ),
-                skillsDir,
-                `${skillsDir}/${skill.installDir}`,
-                skill,
-                input.timeoutMs ?? 60_000
-            )
-            return
-        }
-        const tarUrl = `https://codeload.github.com/${skill.repoOwner}/${skill.repoName}/tar.gz/${encodeURIComponent(
-            skill.revision
-        )}`
-        const dest = `${skillsDir}/${skill.installDir}`
-        const sourcePath =
-            skill.sourcePath === '.'
-                ? '"$root"'
-                : `"$root"/${shellEscape(skill.sourcePath)}`
-        const script = [
-            'set -eu',
-            'tmp="$(mktemp -d)"',
-            'trap \'rm -rf "$tmp"\' EXIT',
-            `curl -fsSL ${shellEscape(tarUrl)} -o "$tmp/repo.tgz"`,
-            'mkdir -p "$tmp/repo"',
-            'tar -xzf "$tmp/repo.tgz" -C "$tmp/repo"',
-            'root="$(find "$tmp/repo" -mindepth 1 -maxdepth 1 -type d | head -n 1)"',
-            'test -n "$root"',
-            `src=${sourcePath}`,
-            'test -f "$src/SKILL.md"',
-            `rm -rf -- ${shellEscape(dest)}`,
-            `mkdir -p ${shellEscape(dest)}`,
-            `cp -a "$src/." ${shellEscape(dest)}/`
-        ].join('\n')
-        const result = await this.execSprite(
-            input.client,
-            input.spriteName,
-            {
-                cmd: ['bash', '-lc', script],
-                stdin: '',
-                timeoutMs: input.timeoutMs ?? 60_000
-            },
-            input.logger
-        )
-        if (result.exitCode !== 0)
-            throw new Error(
-                `install skill ${skill.installDir} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
-    private async probeK8sHome(input: {
-        exec: PodExec
-        timeoutMs?: number
-    }): Promise<string> {
-        const result = await this.runK8sExec(input.exec, {
-            cmd: ['bash', '-lc', 'printf "%s" "$HOME"'],
-            timeoutMs: input.timeoutMs ?? 15_000
-        })
-        if (result.exitCode !== 0)
-            throw new Error(`k8s home probe exited ${result.exitCode}`)
-        return result.stdout.trim() || '/root'
-    }
-
-    private async readK8sLock(
-        exec: PodExec,
-        lockPath: string,
-        timeoutMs?: number
-    ): Promise<SkillLock> {
-        const result = await this.runK8sExec(exec, {
-            cmd: [
-                'bash',
-                '-lc',
-                `test -f ${shellEscape(lockPath)} || exit 66; cat ${shellEscape(lockPath)}`
-            ],
-            timeoutMs: timeoutMs ?? 30_000
-        })
-        if (result.exitCode === 66) return EMPTY_LOCK
-        if (result.exitCode !== 0)
-            throw new Error(
-                `read k8s skills lock exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-        try {
-            const parsed = JSON.parse(result.stdout)
-            if (parsed?.version !== 1 || !parsed.skills) return EMPTY_LOCK
-            return parsed as SkillLock
-        } catch {
-            return EMPTY_LOCK
-        }
-    }
-
-    private async ensureK8sBase(
-        exec: PodExec,
-        baseDir: string,
-        skillsDir: string,
-        timeoutMs?: number
-    ): Promise<void> {
-        const script = [
-            'set -eu',
-            `mkdir -p ${shellEscape(skillsDir)}`,
-            `chmod 700 ${shellEscape(baseDir)}`
-        ].join('\n')
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', script],
-            timeoutMs: timeoutMs ?? 30_000
-        })
-        if (result.exitCode !== 0)
-            throw new Error(
-                `k8s skills base setup exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
-    private async k8sRm(
-        exec: PodExec,
-        absPath: string,
-        timeoutMs?: number
-    ): Promise<void> {
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', `rm -rf -- ${shellEscape(absPath)}`],
-            timeoutMs: timeoutMs ?? 30_000
-        })
-        if (result.exitCode !== 0)
-            throw new Error(
-                `k8s rm exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
-    private async k8sStatFile(
-        exec: PodExec,
-        absPath: string,
-        timeoutMs?: number
-    ): Promise<boolean> {
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', `test -f ${shellEscape(absPath)}`],
-            timeoutMs: timeoutMs ?? 15_000
-        })
-        if (result.exitCode === 0) return true
-        if (result.exitCode === 1) return false
-        throw new Error(
-            `k8s stat exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-        )
-    }
-
-    private async installK8sSkill(
-        exec: PodExec,
-        skillsDir: string,
-        skill: DesiredSkill,
-        timeoutMs?: number
-    ): Promise<void> {
-        if (skill.kind === 'library') {
-            await this.installLibraryTree(
-                (script, execTimeoutMs) =>
-                    this.runK8sExec(exec, {
-                        cmd: ['bash', '-lc', script],
-                        timeoutMs: execTimeoutMs
-                    }),
-                skillsDir,
-                `${skillsDir}/${skill.installDir}`,
-                skill,
-                timeoutMs ?? 60_000
-            )
-            return
-        }
-        const tarUrl = `https://codeload.github.com/${skill.repoOwner}/${skill.repoName}/tar.gz/${encodeURIComponent(
-            skill.revision
-        )}`
-        const dest = `${skillsDir}/${skill.installDir}`
-        const sourcePath =
-            skill.sourcePath === '.'
-                ? '"$root"'
-                : `"$root"/${shellEscape(skill.sourcePath)}`
-        const script = [
-            'set -eu',
-            'tmp="$(mktemp -d)"',
-            'trap \'rm -rf "$tmp"\' EXIT',
-            `curl -fsSL ${shellEscape(tarUrl)} -o "$tmp/repo.tgz"`,
-            'mkdir -p "$tmp/repo"',
-            'tar -xzf "$tmp/repo.tgz" -C "$tmp/repo"',
-            'root="$(find "$tmp/repo" -mindepth 1 -maxdepth 1 -type d | head -n 1)"',
-            'test -n "$root"',
-            `src=${sourcePath}`,
-            'test -f "$src/SKILL.md"',
-            `rm -rf -- ${shellEscape(dest)}`,
-            `mkdir -p ${shellEscape(dest)}`,
-            `cp -a "$src/." ${shellEscape(dest)}/`
-        ].join('\n')
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', script],
-            timeoutMs: timeoutMs ?? 60_000
-        })
-        if (result.exitCode !== 0)
-            throw new Error(
-                `install k8s skill ${skill.installDir} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
-    private async k8sWriteFile(
-        exec: PodExec,
-        absPath: string,
-        body: string,
-        mode: string,
-        timeoutMs?: number
-    ): Promise<void> {
-        const encoded = Buffer.from(body).toString('base64')
-        const script = [
-            'set -eu',
-            `mkdir -p "$(dirname ${shellEscape(absPath)})"`,
-            `printf '%s' ${shellEscape(encoded)} | base64 -d > ${shellEscape(absPath)}`,
-            `chmod ${shellEscape(mode)} ${shellEscape(absPath)}`
-        ].join('\n')
-        const result = await this.runK8sExec(exec, {
-            cmd: ['bash', '-lc', script],
-            timeoutMs: timeoutMs ?? 30_000
-        })
-        if (result.exitCode !== 0)
-            throw new Error(
-                `write k8s file exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-            )
-    }
-
     private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
         return this.db.transaction(async (tx) => {
             await tx.execute(
@@ -1840,128 +1214,37 @@ export class SkillMaterializerService {
         })
     }
 
-    protected execSprite(
-        client: SpritesClient,
-        spriteName: string,
-        opts: ExecOptions,
-        logger?: SpritesLogger
-    ): Promise<ExecResult> {
-        return execSprite(client, spriteName, opts, logger)
-    }
-
-    protected spriteReadFile(
-        client: SpritesClient,
-        spriteName: string,
-        absPath: string,
-        logger?: SpritesLogger,
-        timeoutMs?: number
-    ): Promise<SpriteReadFileResult | null> {
-        return spriteReadFile(client, spriteName, absPath, logger, timeoutMs)
-    }
-
-    protected spriteStatFile(
-        client: SpritesClient,
-        spriteName: string,
-        absPath: string,
-        logger?: SpritesLogger
-    ): Promise<{ size: number; contentType: string } | null> {
-        return spriteStatFile(client, spriteName, absPath, logger)
-    }
-
-    protected spriteWriteFile(
-        client: SpritesClient,
-        spriteName: string,
-        args: SpriteWriteFileArgs,
-        logger?: SpritesLogger
-    ): Promise<void> {
-        return spriteWriteFile(client, spriteName, args, logger)
-    }
-
-    protected spriteRm(
-        client: SpritesClient,
-        spriteName: string,
-        absPath: string,
-        opts?: SpriteRmOptions,
-        logger?: SpritesLogger
-    ): Promise<void> {
-        return spriteRm(client, spriteName, absPath, opts, logger)
-    }
-
-    protected runK8sExec(
-        exec: PodExec,
-        opts: { cmd: string[]; timeoutMs: number }
-    ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-        return exec.run(opts)
-    }
-
-    protected async runDaemonBash(
-        daemonId: string,
-        bashScript: string,
-        timeoutMs: number
-    ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-        const stdoutChunks: string[] = []
-        const stderrChunks: string[] = []
-        const stream = this.daemonRegistry.streamRpc({
-            daemonId,
-            method: 'exec.start',
-            payload: {
-                cmd: ['bash', '-lc', bashScript],
-                env: {},
-                timeoutMs
-            },
-            timeoutMs: timeoutMs + 5_000,
-            onEvent: (kind, data) => {
-                if (kind === 'stdout') stdoutChunks.push(data)
-                else if (kind === 'stderr') stderrChunks.push(data)
-            }
-        })
-        const payload = await stream.result
-        return {
-            exitCode: Number((payload as { exitCode?: number })?.exitCode ?? 0),
-            stdout: stdoutChunks.join(''),
-            stderr: stderrChunks.join('')
-        }
-    }
-
     // ADR-0014: daemon hosts declare their skill store at registration; the
     // homeDir-derived default only covers rows registered before that.
-    private async declaredSkillsDir(daemonId: string): Promise<string | null> {
+    private async declaredSkillsDir(hostId: string): Promise<string | null> {
         const [host] = await this.db
             .select({ skillsDir: runtimeHosts.skillsDir })
             .from(runtimeHosts)
-            .where(eq(runtimeHosts.id, daemonId))
+            .where(eq(runtimeHosts.id, hostId))
             .limit(1)
         return host?.skillsDir ?? null
     }
 
-    private async probeDaemonHome(
-        daemonId: string,
-        timeoutMs?: number
-    ): Promise<string> {
-        const result = await this.runDaemonBash(
-            daemonId,
-            'printf "%s" "$HOME"',
-            timeoutMs ?? 15_000
-        )
+    private async probeHome(run: HostRun, timeoutMs?: number): Promise<string> {
+        const result = await run('printf "%s" "$HOME"', timeoutMs ?? 15_000)
         if (result.exitCode !== 0)
-            throw new Error(`daemon home probe exited ${result.exitCode}`)
+            throw new Error(`home probe exited ${result.exitCode}`)
         return result.stdout.trim() || '/root'
     }
 
-    private async readDaemonLock(
-        daemonId: string,
+    private async readLock(
+        run: HostRun,
         lockPath: string,
         timeoutMs?: number
     ): Promise<SkillLock> {
-        const result = await this.runDaemonBash(
-            daemonId,
+        const result = await run(
             `test -f ${shellEscape(lockPath)} || exit 66; cat ${shellEscape(lockPath)}`,
             timeoutMs ?? 30_000
         )
         if (result.exitCode === 66) return EMPTY_LOCK
         if (result.exitCode !== 0)
             throw new Error(
-                `read daemon skills lock exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `read skills lock exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
         try {
             const parsed = JSON.parse(result.stdout)
@@ -1972,8 +1255,8 @@ export class SkillMaterializerService {
         }
     }
 
-    private async ensureDaemonBase(
-        daemonId: string,
+    private async ensureBase(
+        run: HostRun,
         baseDir: string,
         skillsDir: string,
         timeoutMs?: number
@@ -1983,52 +1266,46 @@ export class SkillMaterializerService {
             `mkdir -p ${shellEscape(skillsDir)}`,
             `chmod 700 ${shellEscape(baseDir)}`
         ].join('\n')
-        const result = await this.runDaemonBash(
-            daemonId,
-            script,
-            timeoutMs ?? 30_000
-        )
+        const result = await run(script, timeoutMs ?? 30_000)
         if (result.exitCode !== 0)
             throw new Error(
-                `daemon skills base setup exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `skills base setup exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
     }
 
-    private async daemonRm(
-        daemonId: string,
+    private async rm(
+        run: HostRun,
         absPath: string,
         timeoutMs?: number
     ): Promise<void> {
-        const result = await this.runDaemonBash(
-            daemonId,
+        const result = await run(
             `rm -rf -- ${shellEscape(absPath)}`,
             timeoutMs ?? 30_000
         )
         if (result.exitCode !== 0)
             throw new Error(
-                `daemon rm exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `rm exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
     }
 
-    private async daemonStatFile(
-        daemonId: string,
+    private async statFile(
+        run: HostRun,
         absPath: string,
         timeoutMs?: number
     ): Promise<boolean> {
-        const result = await this.runDaemonBash(
-            daemonId,
+        const result = await run(
             `test -f ${shellEscape(absPath)}`,
             timeoutMs ?? 15_000
         )
         if (result.exitCode === 0) return true
         if (result.exitCode === 1) return false
         throw new Error(
-            `daemon stat exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+            `stat exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
         )
     }
 
-    private async installDaemonSkill(
-        daemonId: string,
+    private async installSkill(
+        run: HostRun,
         skillsDir: string,
         skill: DesiredSkill,
         installDirOnDisk: string,
@@ -2036,8 +1313,7 @@ export class SkillMaterializerService {
     ): Promise<void> {
         if (skill.kind === 'library') {
             await this.installLibraryTree(
-                (script, execTimeoutMs) =>
-                    this.runDaemonBash(daemonId, script, execTimeoutMs),
+                run,
                 skillsDir,
                 `${skillsDir}/${installDirOnDisk}`,
                 skill,
@@ -2068,19 +1344,15 @@ export class SkillMaterializerService {
             `mkdir -p ${shellEscape(dest)}`,
             `cp -a "$src/." ${shellEscape(dest)}/`
         ].join('\n')
-        const result = await this.runDaemonBash(
-            daemonId,
-            script,
-            timeoutMs ?? 60_000
-        )
+        const result = await run(script, timeoutMs ?? 60_000)
         if (result.exitCode !== 0)
             throw new Error(
-                `install daemon skill ${skill.installDir} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `install skill ${skill.installDir} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
     }
 
-    private async daemonWriteFile(
-        daemonId: string,
+    private async writeFile(
+        run: HostRun,
         absPath: string,
         body: string,
         mode: string,
@@ -2093,14 +1365,10 @@ export class SkillMaterializerService {
             `printf '%s' ${shellEscape(encoded)} | base64 -d > ${shellEscape(absPath)}`,
             `chmod ${shellEscape(mode)} ${shellEscape(absPath)}`
         ].join('\n')
-        const result = await this.runDaemonBash(
-            daemonId,
-            script,
-            timeoutMs ?? 30_000
-        )
+        const result = await run(script, timeoutMs ?? 30_000)
         if (result.exitCode !== 0)
             throw new Error(
-                `daemon write file ${absPath} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `write file ${absPath} exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
     }
 
@@ -2124,16 +1392,38 @@ export class SkillMaterializerService {
     }
 }
 
-const spritesLoggerFor = (log: Logger): SpritesLogger => ({
-    debug: (m: string, meta?: Record<string, unknown>) =>
-        log.debug?.(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    info: (m: string, meta?: Record<string, unknown>) =>
-        log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    warn: (m: string, meta?: Record<string, unknown>) =>
-        log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    error: (m: string, meta?: Record<string, unknown>) =>
-        log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
-})
+const runOn =
+    (session: HostSession): HostRun =>
+    (script, timeoutMs) =>
+        session.exec({ cmd: ['bash', '-lc', script], timeoutMs })
+
+interface CloneLayout {
+    baseDir: string
+    skillsDir: string
+    lockPath: string
+    installDirOf: (installDir: string) => string
+}
+
+// A self-owned computer keeps its user's own skills beside ours, so ours are
+// namespaced and locked apart and never read or overwrite one the user
+// installed by hand. A sandbox or a pod is the platform's.
+const cloneLayout = (
+    placement: MaterializeTarget['placement'],
+    homeDir: string,
+    framework: SkillFramework
+): CloneLayout => {
+    const baseDir =
+        placement === 'k8s'
+            ? k8sSkillBaseDir(homeDir, framework)
+            : `${homeDir}/.${skillStateDirName(framework)}`
+    const own = placement === 'daemon'
+    return {
+        baseDir,
+        skillsDir: `${baseDir}/skills`,
+        lockPath: `${baseDir}/${own ? '.nca-skill-lock.json' : '.skill-lock.json'}`,
+        installDirOf: own ? (raw) => `nca-${raw}` : (raw) => raw
+    }
+}
 
 const materializationLockKey = (userId: string, agentId: string): string =>
     `skills:${userId}:${agentId}`
@@ -2149,9 +1439,8 @@ const sanitizeMaterializeReason = (err: unknown): string => {
     return (trimmed || 'materialization failed').slice(0, 500)
 }
 
-// Host-store population lock keyed on the host identity (spriteName for sprites,
-// daemonId for daemons): serializes the download-once store across every agent
-// on that host. Distinct from the per-agent activation lock; always acquired
+// Host-store population lock keyed on the host: serializes the download-once
+// store across every agent on that host. Distinct from the per-agent activation lock; always acquired
 // (and released) before it.
 const storeLockKey = (userId: string, hostKey: string): string =>
     `skillstore:${userId}:${hostKey}`

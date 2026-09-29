@@ -264,7 +264,7 @@ test(
                 sessionId: h.sessionId,
                 agentId: h.agentId,
                 runtime: 'sprites',
-                spriteName: 'sp',
+                hostId: 'host-1',
                 ownerId: 'owner-1',
                 leaseSeconds: 60
             })
@@ -978,7 +978,7 @@ test(
                 sessionId: h.sessionId,
                 agentId: h.agentId,
                 runtime: 'sprites',
-                spriteName: 'sp',
+                hostId: 'host-1',
                 ownerId: 'owner-1',
                 leaseSeconds: 60
             })

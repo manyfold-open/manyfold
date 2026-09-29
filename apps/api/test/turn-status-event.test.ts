@@ -92,8 +92,7 @@ const executionRow = (over: Partial<TurnExecutionRow> = {}): TurnExecutionRow =>
         sessionId: 'session-1',
         agentId: 'agent-1',
         runtime: 'external',
-        spriteName: null,
-        execSessionId: null,
+        hostId: null,
         upstreamTaskId: 'task-1',
         upstreamMessageId: 'dify-msg-1',
         ownerId: 'instance-under-test',
@@ -148,7 +147,7 @@ const makeHarness = (opts: {
         modelProviderId: null,
         modelProviderBuiltInId: null,
         daemonId: 'dh-1',
-        spriteName: 'sprite-1',
+        hostId: 'host-1',
         workspacePath: null
     }
     const db = {
@@ -317,7 +316,7 @@ test('sprites adoption emits exactly one recovering row, keyed per attempt', asy
     })
 
     await h.service.adoptTurnExecution(
-        executionRow({ runtime: 'sprites', spriteName: 'sprite-1' })
+        executionRow({ runtime: 'sprites', hostId: 'host-1' })
     )
 
     const status = h.statusRows()
@@ -350,7 +349,7 @@ test('a sprites turn with no transcript recovery announces nothing', async () =>
 
     Object.assign(h.service, { execDrivers: undefined })
     await h.service.adoptTurnExecution(
-        executionRow({ runtime: 'sprites', spriteName: 'sprite-1' })
+        executionRow({ runtime: 'sprites', hostId: 'host-1' })
     )
 
     assert.deepEqual(h.statusRows(), [])

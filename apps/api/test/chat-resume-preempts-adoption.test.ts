@@ -62,7 +62,6 @@ const agentRow = {
     managedBrand: null,
     inferenceProtocol: null,
     daemonId: 'dh-1',
-    spriteName: null,
     hostId: null,
     workspacePath: null
 }
@@ -72,8 +71,7 @@ const execRow = {
     sessionId: SESSION,
     agentId: 'agent-1',
     runtime: 'sprites' as const,
-    spriteName: null,
-    execSessionId: null,
+    hostId: null,
     upstreamTaskId: null,
     upstreamMessageId: null,
     ownerId: OWNER,

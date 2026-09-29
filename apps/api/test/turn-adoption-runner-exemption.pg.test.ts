@@ -119,7 +119,7 @@ const insertLapsedTurn = async (
         sessionId: h.sessionId,
         agentId: h.agentId,
         runtime: 'sprites',
-        spriteName: `art-${id}`,
+        hostId: `host-${id}`,
         ownerId: 'dead-instance',
         leaseExpiresAt: new Date(Date.now() - 60_000),
         state: 'running'

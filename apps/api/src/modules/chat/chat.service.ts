@@ -119,7 +119,7 @@ import {
     FilesContextBuilder,
     resolveSafePath
 } from '@/modules/agents/files/files-context'
-import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
@@ -156,9 +156,7 @@ import {
 } from '@/modules/chat/turn-adoption.service'
 import {
     RunnerManagerService,
-    classifyExecEndpointFailure,
-    type RunnerExecFailure,
-    type SpriteExecFn
+    type RunnerExecFailure
 } from '@/modules/chat/runner/runner-manager.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
@@ -179,7 +177,6 @@ import {
     type TurnSeenState
 } from '@/modules/chat/recovery/turn-jsonl-recovery'
 import { buildSeenStateFromPersisted } from '@/modules/chat/recovery/adoption-seen-state'
-import { SpritesError } from '@manyfold/sprites'
 import {
     createAdoptionInterceptor,
     deliveredBaselineFromStreamEvents,
@@ -620,7 +617,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         private readonly adapters: ChatAdapterRegistry,
         private readonly usage: UsageService,
         private readonly files: FilesContextBuilder,
-        private readonly spriteStatusSync: SpriteStatusSyncService,
+        private readonly powerSync: HostPowerSyncService,
         private readonly telemetry: TelemetryService,
         private readonly daemonResume: DaemonExecResumeService,
         private readonly spritesProvisioner: SpritesProvisioner,
@@ -3465,25 +3462,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             const fsHandle = await this.execDrivers.recoveryFsForAgent(
                 session.agentId
             )
-            // Liveness signal for the stall detector: is the sprite exec still
-            // running? A long turn generating a single block writes no new
-            // complete transcript line for a while and looks stalled, but the
-            // exec session is still listed — so keep waiting instead of giving
-            // up. Only available when the exec session id was captured.
-            const spritesClient = fsHandle.spritesClient
-            const execSessionId = row.execSessionId
-            const spriteName = row.spriteName
-            const checkExecAlive =
-                spritesClient && execSessionId && spriteName
-                    ? async (): Promise<boolean> => {
-                          const sessions =
-                              await spritesClient.listExecSessions(spriteName)
-                          return sessions.some((s) => s.id === execSessionId)
-                      }
-                    : undefined
-            // Everything from here on reads the sprite — the transcript poll,
-            // and the liveness probe above — for as long as the turn has left
-            // to run. None of it is platform-visible activity, which is the
+            // Everything from here on reads the sprite — the transcript poll —
+            // for as long as the turn has left to run. None of it is platform-visible activity, which is the
             // same reason the dispatch path holds this lease, so without one
             // the recovery is racing a suspend that freezes the very files it
             // is reading. Same lease name as that path's hold, so this re-arms
@@ -3545,7 +3525,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     messageId: row.messageId,
                     adoptCount: row.adoptCount,
                     abortSignal: abortController.signal,
-                    checkExecAlive,
                     generation: fence.generation
                 })
             const adoptedStream =
@@ -3562,7 +3541,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                           messageId: row.messageId,
                           adoptCount: row.adoptCount,
                           abortSignal: abortController.signal,
-                          checkExecAlive,
                           fence
                       })
                     : agentCtx.framework === 'gemini-cli'
@@ -3578,7 +3556,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             messageId: row.messageId,
                             adoptCount: row.adoptCount,
                             abortSignal: abortController.signal,
-                            checkExecAlive,
                             generation: fence.generation
                         })
                       : agentCtx.framework === 'pi'
@@ -3596,7 +3573,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                               messageId: row.messageId,
                               adoptCount: row.adoptCount,
                               abortSignal: abortController.signal,
-                              checkExecAlive,
                               fence
                           })
                         : agentCtx.framework === 'antigravity-cli'
@@ -3612,7 +3588,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                                 messageId: row.messageId,
                                 adoptCount: row.adoptCount,
                                 abortSignal: abortController.signal,
-                                checkExecAlive,
                                 fence
                             })
                           : adopted()
@@ -3789,7 +3764,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         generation: number
     }): AsyncIterable<EmittedChatEvent> {
         const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
@@ -3900,21 +3874,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             if (Date.now() >= deadline) giveUp = `deadline (${polls} polls)`
             else if (failedStreak >= ADOPT_REPOLL_FAILED_LIMIT)
                 giveUp = `transcript unreadable (${failedStreak})`
-            else if (stall >= ADOPT_REPOLL_STALL_LIMIT) {
-                // Transcript stopped growing — but a long single-block turn is
-                // still alive and just hasn't flushed a complete line yet. Only
-                // give up if the sprite exec has actually ended; otherwise keep
-                // waiting. Without a liveness signal, fall back to the stall.
-                const alive = args.checkExecAlive
-                    ? await args.checkExecAlive().catch(() => null)
-                    : null
-                if (alive === true) stall = 0
-                else
-                    giveUp =
-                        alive === false
-                            ? 'exec session ended'
-                            : 'no transcript growth'
-            }
+            else if (stall >= ADOPT_REPOLL_STALL_LIMIT)
+                giveUp = 'no transcript growth'
             if (giveUp) {
                 this.telemetry.event('chat.turn.adopt_result_lost', {
                     sessionId: args.sessionId,
@@ -3964,7 +3925,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         fence: TurnExecutionFence
     }): AsyncIterable<EmittedChatEvent> {
         const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
@@ -4071,17 +4031,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             if (Date.now() >= deadline) giveUp = `deadline (${polls} polls)`
             else if (failedStreak >= ADOPT_REPOLL_FAILED_LIMIT)
                 giveUp = `rollout unreadable (${failedStreak})`
-            else if (stall >= ADOPT_REPOLL_STALL_LIMIT) {
-                const alive = args.checkExecAlive
-                    ? await args.checkExecAlive().catch(() => null)
-                    : null
-                if (alive === true) stall = 0
-                else
-                    giveUp =
-                        alive === false
-                            ? 'exec session ended'
-                            : 'no rollout growth'
-            }
+            else if (stall >= ADOPT_REPOLL_STALL_LIMIT)
+                giveUp = 'no rollout growth'
             if (giveUp) {
                 this.telemetry.event('chat.turn.adopt_result_lost', {
                     sessionId: args.sessionId,
@@ -4130,7 +4081,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         generation: number
     }): AsyncIterable<EmittedChatEvent> {
         const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
@@ -4227,58 +4177,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     } stall=${stall} failed=${failedStreak}`
             )
             let giveUp: string | null = null
-            let execEnded = false
             if (Date.now() >= deadline) giveUp = `deadline (${polls} polls)`
             else if (failedStreak >= ADOPT_REPOLL_FAILED_LIMIT)
                 giveUp = `session unreadable (${failedStreak})`
-            else if (stall >= ADOPT_REPOLL_STALL_LIMIT) {
-                const alive = args.checkExecAlive
-                    ? await args.checkExecAlive().catch(() => null)
-                    : null
-                if (alive === true) stall = 0
-                else {
-                    execEnded = alive === false
-                    giveUp = execEnded
-                        ? 'exec session ended'
-                        : 'no session growth'
-                }
-            }
+            else if (stall >= ADOPT_REPOLL_STALL_LIMIT)
+                giveUp = 'no session growth'
             if (giveUp) {
-                // The exec ended with a complete-enough assistant message on
-                // disk but gemini-cli never recorded usage tokens: emit the
-                // content best-effort (zero usage) rather than erroring away a
-                // turn that actually produced an answer.
-                if (
-                    execEnded &&
-                    verdict.outcome === 'result_lost' &&
-                    verdict.hasContent
-                ) {
-                    const mismatch = yield* emitTerminal(verdict.events, {
-                        model: args.model,
-                        inputTokens: 0,
-                        outputTokens: 0,
-                        cacheReadTokens: 0,
-                        cacheCreationTokens: 0,
-                        costUsd: null,
-                        costSource: 'unknown',
-                        firstTokenMs: null,
-                        totalMs: null
-                    })
-                    if (!mismatch) {
-                        this.telemetry.event('chat.turn.adopt_recovered', {
-                            sessionId: args.sessionId,
-                            agentId: args.agentId,
-                            assistantMessageId: args.messageId,
-                            recoveredLines: verdict.events.length,
-                            adoptCount: args.adoptCount,
-                            polls
-                        })
-                        return
-                    }
-                    this.logger.warn(
-                        `gemini adopt exec-ended emit diverged messageId=${args.messageId}: ${mismatch}`
-                    )
-                }
                 this.telemetry.event('chat.turn.adopt_result_lost', {
                     sessionId: args.sessionId,
                     agentId: args.agentId,
@@ -4326,7 +4230,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         fence: TurnExecutionFence
     }): AsyncIterable<EmittedChatEvent> {
         return this.adoptedTranscriptLiveStream({
@@ -4363,7 +4266,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         fence: TurnExecutionFence
     }): AsyncIterable<EmittedChatEvent> {
         return this.adoptedTranscriptLiveStream({
@@ -4399,7 +4301,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         messageId: string
         adoptCount: number
         abortSignal: AbortSignal
-        checkExecAlive?: () => Promise<boolean>
         fence: TurnExecutionFence
     }): AsyncIterable<EmittedChatEvent> {
         const deadline = Date.now() + ADOPT_REPOLL_MAX_MS
@@ -4516,17 +4417,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             if (Date.now() >= deadline) giveUp = `deadline (${polls} polls)`
             else if (failedStreak >= ADOPT_REPOLL_FAILED_LIMIT)
                 giveUp = `session unreadable (${failedStreak})`
-            else if (stall >= ADOPT_REPOLL_STALL_LIMIT) {
-                const alive = args.checkExecAlive
-                    ? await args.checkExecAlive().catch(() => null)
-                    : null
-                if (alive === true) stall = 0
-                else
-                    giveUp =
-                        alive === false
-                            ? 'exec session ended'
-                            : 'no session growth'
-            }
+            else if (stall >= ADOPT_REPOLL_STALL_LIMIT)
+                giveUp = 'no session growth'
             if (giveUp) {
                 this.telemetry.event('chat.turn.adopt_result_lost', {
                     sessionId: args.sessionId,
@@ -4624,11 +4516,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     private async gateSpriteExec(args: {
         agentId: string
         runtime: AgentRuntime
-        spriteName: string | null
         hostId: string | null
     }): Promise<SpriteExecTerminal | null> {
         if (!this.spriteExecHealth) return null
-        if (args.runtime !== 'sprites' || !args.spriteName) return null
+        if (args.runtime !== 'sprites' || !args.hostId) return null
         const admission = await this.spriteExecHealth.admit(args.hostId)
         if (!admission || admission.decision === 'pass') return null
         if (admission.decision === 'blocked')
@@ -4690,24 +4581,17 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         agentId: string
     ): Promise<'ok' | 'inconclusive' | SpriteExecFailureClass> {
         try {
-            const exec = await this.spriteExecFor(agentId)
-            if (!exec) return 'inconclusive'
-            const res = await exec({
-                cmd: ['true'],
-                timeoutMs: spriteExecHealthConfig().probeTimeoutMs
-            })
-            // A non-zero exit means the socket opened and the VM answered, so
-            // this is not evidence that the exec endpoint is unhealthy. It is
-            // still not a successful recovery proof, so the turn terminalizes
-            // inconclusively and the lease lapses unchanged.
-            return res.exitCode === 0 ? 'ok' : 'inconclusive'
+            return (
+                (await this.execDrivers?.probeExecForAgent(
+                    agentId,
+                    spriteExecHealthConfig().probeTimeoutMs
+                )) ?? 'inconclusive'
+            )
         } catch (err) {
-            const failure = classifyExecEndpointFailure(err)
-            if (!failure)
-                this.logger.warn(
-                    `sprite exec probe inconclusive agentId=${agentId} class=${safeErrorClass(err)}`
-                )
-            return failure ? failure.failureClass : 'inconclusive'
+            this.logger.warn(
+                `sprite exec probe inconclusive agentId=${agentId} class=${safeErrorClass(err)}`
+            )
+            return 'inconclusive'
         }
     }
 
@@ -4765,13 +4649,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 : undefined
         })
         return terminal
-    }
-
-    // Run a command on an agent's sprite. Shared by runner bring-up, the awake
-    // lease and the exec-health probe so all three talk to the same sprite
-    // through the same client.
-    private async spriteExecFor(agentId: string): Promise<SpriteExecFn | null> {
-        return (await this.execDrivers?.spriteExecForAgent(agentId)) ?? null
     }
 
     private abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -5728,7 +5605,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             : await this.gateSpriteExec({
                   agentId: session.agentId,
                   runtime: agentCtx.runtime,
-                  spriteName: agentCtx.spriteName,
                   hostId: agentCtx.hostId
               })
         // The daemon-exec bookkeeping is what makes a turn resumable: the
@@ -5828,7 +5704,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     sessionId: session.id,
                     agentId: session.agentId,
                     runtime: agentCtx.runtime,
-                    spriteName: agentCtx.spriteName,
+                    hostId: agentCtx.hostId,
                     ownerId,
                     leaseSeconds: TURN_LEASE_SECONDS
                 })
@@ -6036,25 +5912,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         channelSource: channelSource ?? undefined,
                         timings,
                         runnerDaemonId,
-                        onExecSession:
-                            agentCtx.runtime === 'sprites' &&
-                            agentCtx.spriteName
-                                ? (execSessionId) => {
-                                      const fence = turnFence
-                                      if (!fence) return
-                                      void this.repo
-                                          .setTurnExecSession(
-                                              assistantMessageId,
-                                              agentCtx.spriteName as string,
-                                              execSessionId,
-                                              fence
-                                          )
-                                          .then((written) => {
-                                              if (!written) loseTurnFence()
-                                          })
-                                          .catch(() => undefined)
-                                  }
-                                : undefined,
                         // Persisted the moment the upstream names the work,
                         // not at the terminal: the whole point is that this
                         // instance may not live long enough to see one. The
@@ -6720,7 +6577,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 return
             }
             if (host.powerState !== 'running')
-                await this.spriteStatusSync.markHostRunning(host.id)
+                await this.powerSync.markHostRunning(host.id)
             // Always nudge the sprite-side service on chat activity. The
             // sprite VM can stay `running` while the service process inside
             // it has stopped. The nudge restarts the service WITHOUT
@@ -6859,8 +6716,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             powerState: RuntimeHostPowerState | null
             // The host row itself, for the awake holds a sprites turn places.
             host: RuntimeHostRow | null
-            // The provider's name for a sprite host, for the turn snapshot.
-            spriteName: string | null
             workspacePath: string | null
         } & ProviderTurnFacts
     > {
@@ -6929,16 +6784,15 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }
     }
 
-    // The agent's machine (ADR-0037): the placement, the host row the awake
-    // holds and exec health key on, and the provider's name for its sprite.
-    // Without a context service the agent is read as having no machine.
+    // The agent's machine (ADR-0037): the placement, and the host row the
+    // awake holds and exec health key on. Without a context service the agent
+    // is read as having no machine.
     private async machineFacts(agentId: string): Promise<{
         runtime: AgentRuntime
         hostId: string | null
         hostKind: RuntimeHostKind | null
         powerState: RuntimeHostPowerState | null
         host: RuntimeHostRow | null
-        spriteName: string | null
     }> {
         const machine = (await this.runtimeContext?.forAgent(agentId)) ?? null
         const host = machine?.host ?? null
@@ -6947,11 +6801,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             hostId: host?.id ?? null,
             hostKind: host?.kind ?? null,
             powerState: host?.powerState ?? null,
-            host,
-            spriteName:
-                host?.providerRef?.kind === 'sprites'
-                    ? host.providerRef.spriteName
-                    : null
+            host
         }
     }
 }
@@ -7242,10 +7092,8 @@ const adapterExceptionEvent = (err: unknown): EmittedErrorEvent =>
         ? { type: 'error', error: normalizeChatError(err.chatError) }
         : adapterErrorEvent(err instanceof Error ? err.message : String(err), httpErrorCode(err))
 
-const safeErrorClass = (err: unknown): string => {
-    if (err instanceof SpritesError) return `SpritesError:${err.code}`
-    return err instanceof Error && err.name ? err.name : typeof err
-}
+const safeErrorClass = (err: unknown): string =>
+    err instanceof Error && err.name ? err.name : typeof err
 
 const normalizeEventForAbort = (
     event: EmittedChatEvent,

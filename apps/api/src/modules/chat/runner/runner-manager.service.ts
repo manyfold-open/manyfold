@@ -17,7 +17,6 @@ import type {
     RuntimeHostRow,
     RuntimeProvider
 } from '@manyfold/db'
-import { SpritesError } from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import {
     buildCliInstallScript,
@@ -35,13 +34,12 @@ import {
     HostAwakeService,
     type AwakeHold
 } from '@/modules/hosts/host-awake.service'
-import {
-    HostProviderClients,
-    type HostExecFn
-} from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import {
     SandboxProviderRegistry,
     StaleGenerationError,
+    type ExecEndpointFailure,
+    type ExecEndpointFailureClass,
     type ProviderCall,
     type SandboxProvider,
     type SupervisedProcess
@@ -103,9 +101,6 @@ const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
 // back on a fresh lease within a few seconds; a process that is not back by
 // then is wedged or gone, and `daemon stop; daemon start` is what helps.
 const WAKE_RECONNECT_WAIT_MS = 15_000
-// The `{ cmd, stdin?, timeoutMs }` exec shape the sandbox callers share.
-export type SpriteExecFn = HostExecFn
-
 export interface HostDaemonArgs {
     host: RuntimeHostRow
     // Telemetry only.
@@ -148,22 +143,11 @@ export type RunnerFallbackReason =
     // the host's daemon updates once the work it has finishes: retry soon.
     | 'runner_updating'
 
-// How the sprite's exec endpoint refused the inspect, when the refusal is
-// about the endpoint itself rather than about the command it was asked to run.
-// The vocabulary is the one sandbox-exec-health already probes for — 5xx
-// handshake, transport error, timeout — because it describes the same three ways
-// a sprite backend fails to give us a socket.
-export type RunnerExecFailureClass =
-    | 'handshake_5xx'
-    | 'transport_error'
-    | 'timeout'
-
-export interface RunnerExecFailure {
-    failureClass: RunnerExecFailureClass
-    // Only a status-carrying handshake failure has one; a bare transport error
-    // never invents it.
-    upstreamStatus?: number
-}
+// How the machine's exec endpoint refused the inspect, when the refusal is
+// about the endpoint itself rather than about the command it was asked to run
+// (the adapter judges it, ProviderErrorFacts.execFailure).
+export type RunnerExecFailureClass = ExecEndpointFailureClass
+export type RunnerExecFailure = ExecEndpointFailure
 
 export interface RunnerResolution {
     handle: RunnerHandle | null
@@ -301,7 +285,7 @@ export class RunnerManagerService {
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
         private readonly providers: SandboxProviderRegistry,
-        private readonly clients: HostProviderClients,
+        private readonly clients: HostProviderResolver,
         private readonly tokens: DaemonTokenService,
         private readonly registry: DaemonRegistryService,
         private readonly awake: HostAwakeService,
@@ -378,6 +362,42 @@ export class RunnerManagerService {
         waitMs = WAKE_RECONNECT_WAIT_MS
     ): Promise<RunnerHandle | null> {
         return this.waitForLease(host, since, waitMs)
+    }
+
+    // The exec-health probe (#730): `true` on the provider-native exec,
+    // bounded by the caller's budget. Idempotent by construction, which is the
+    // only reason running it on a host already suspected is safe at all. It is
+    // an endpoint failure the breaker counts, ok, or inconclusive: everything
+    // that failed without telling anything about this endpoint (an
+    // account-wide refusal, a fact about the request, a bring-up that moved
+    // the host's generation).
+    async probeExec(
+        host: RuntimeHostRow,
+        timeoutMs: number
+    ): Promise<'ok' | 'inconclusive' | RunnerExecFailureClass> {
+        let adapter: SandboxProvider | null = null
+        try {
+            const resolved = await this.adapterFor(host)
+            adapter = resolved.adapter
+            const res = await adapter.bootstrap({
+                host,
+                provider: resolved.provider,
+                generation: host.generation,
+                script: 'true',
+                timeoutMs
+            })
+            // A non-zero exit means the socket opened and the machine
+            // answered: no evidence against the endpoint, and no proof of its
+            // recovery either.
+            return res.exitCode === 0 ? 'ok' : 'inconclusive'
+        } catch (err) {
+            const facts = adapter?.describeError?.(err) ?? null
+            if (facts?.execFailure) return facts.execFailure.failureClass
+            this.logger.warn(
+                `exec probe inconclusive hostId=${host.id} class=${facts?.errorClass ?? errorClass(err)}`
+            )
+            return 'inconclusive'
+        }
     }
 
     // The turn path's hold on the machine, kept for as long as the turn runs
@@ -486,17 +506,24 @@ export class RunnerManagerService {
     private async resupervise(
         host: RuntimeHostRow
     ): Promise<HostDaemonRow | null> {
-        const { provider, adapter } = await this.adapterFor(host)
-        if (!layoutFor(provider).supervised) return null
-        this.logger.log(`handing the daemon on host ${host.id} to its supervised loop`)
-        const generation = await this.hosts.bumpGeneration(host.id)
-        const startedAt = new Date()
-        const online = await this.startHeldAwake(
-            adapter,
-            { host, provider, generation },
-            () => this.waitForLease(host, startedAt, DEFAULT_WAIT_ONLINE_MS)
-        )
-        return online ? this.hostDaemons.findByHostId(host.id) : null
+        try {
+            const { provider, adapter } = await this.adapterFor(host)
+            if (!layoutFor(provider).supervised) return null
+            this.logger.log(`handing the daemon on host ${host.id} to its supervised loop`)
+            const generation = await this.hosts.bumpGeneration(host.id)
+            const startedAt = new Date()
+            const online = await this.startHeldAwake(
+                adapter,
+                { host, provider, generation },
+                () => this.waitForLease(host, startedAt, DEFAULT_WAIT_ONLINE_MS)
+            )
+            return online ? this.hostDaemons.findByHostId(host.id) : null
+        } catch (err) {
+            this.logger.warn(
+                `daemon on host ${host.id} was not handed to its supervised loop class=${errorClass(err)}`
+            )
+            return null
+        }
     }
 
     private singleFlightBringUp(
@@ -536,17 +563,31 @@ export class RunnerManagerService {
             const since = new Date()
             await hold.settled
             const power = await adapter.power({ host, provider })
+            if (power === 'gone') {
+                this.logger.warn(`daemon bring-up found the machine gone ${tag}`)
+                return { handle: null }
+            }
             await recordPower(this.hosts, host.id, power)
-            if (power === 'suspended' || power === 'stopped') {
+            const asleep = power === 'suspended' || power === 'stopped'
+            if (asleep)
                 await adapter.wake({ host, provider, generation: host.generation })
-                const woken = await this.waitForLease(
+            // A registered daemon on a machine that just thawed — woken here or
+            // by the awake hold's own exec — dials back in by itself within
+            // seconds; restarting it instead ends every exec it still carries.
+            // Seen on staging [2026-09-29]: a bring-up restarted a daemon that
+            // had reconnected in the same second, with 13 streams in flight.
+            if (asleep || (await this.hostDaemons.findByHostId(host.id))) {
+                const back = await this.waitForLease(
                     host,
                     since,
-                    WAKE_RECONNECT_WAIT_MS
+                    Math.min(
+                        WAKE_RECONNECT_WAIT_MS,
+                        args.waitOnlineMs ?? WAKE_RECONNECT_WAIT_MS
+                    )
                 )
-                if (woken) {
-                    this.logger.log(`daemon reconnected after wake ${tag}`)
-                    return { handle: woken }
+                if (back) {
+                    this.logger.log(`daemon reconnected ${tag}`)
+                    return { handle: back }
                 }
             }
             const generation = await this.hosts.bumpGeneration(host.id)
@@ -697,9 +738,10 @@ export class RunnerManagerService {
             })
         } catch (err) {
             if (err instanceof StaleGenerationError) throw err
-            const execFailure = classifyExecEndpointFailure(err)
+            const facts = adapter.describeError?.(err) ?? null
+            const execFailure = facts?.execFailure ?? null
             this.logger.warn(
-                `daemon inspect exec failed hostId=${call.host.id} class=${execFailure?.failureClass ?? errorClass(err)}`
+                `daemon inspect exec failed hostId=${call.host.id} class=${execFailure?.failureClass ?? facts?.errorClass ?? errorClass(err)}`
             )
             return execFailure ? { state: null, execFailure } : { state: null }
         }
@@ -981,47 +1023,6 @@ const unavailable = (reason: RunnerFallbackReason): RunnerResolution => ({
 // CLI that does not know the flag at all.
 const isStaleCliRegisterFailure = (detail: string): boolean =>
     /must start with ldt_|unknown option|requires --token/i.test(detail)
-
-// Which exec failures are the EXEC ENDPOINT's fault. Getting this wrong in the
-// generous direction is expensive: the caller quarantines on it, so a class
-// handed out for a sprite that answered takes a healthy VM out of the turn path.
-//
-// Exported because chat's health probe asks the same question of the same
-// transport (#730) and must exclude the same non-endpoint failures; two copies
-// of this judgement would drift, and the direction it drifts in is quarantining
-// hosts that are fine.
-//
-// Only a transient SpritesError qualifies at all. `auth` is an account-wide fact
-// (a revoked account token would quarantine every sprite on that account at
-// once, none of them sick), and not_found / conflict / quota / permanent are
-// facts about the request. A structured `reason` — today `exec_session_gone` —
-// means the endpoint started and reaped a session, so it answered.
-export const classifyExecEndpointFailure = (
-    err: unknown
-): RunnerExecFailure | null => {
-    if (!(err instanceof SpritesError) || err.code !== 'transient') return null
-    if (err.reason) return null
-    if (err.execPhase !== 'pre_open') return null
-    // The inspect burned its whole budget without a result: nothing usable came
-    // back from the endpoint within a window many times what a healthy one needs.
-    if (/timed out after \d+ms/i.test(err.message))
-        return { failureClass: 'timeout' }
-    const status = err.status
-    // A non-101 upgrade response. 5xx only: the socket never opened AND the
-    // backend blamed itself.
-    if (status !== undefined && status >= 500 && /handshake/i.test(err.message))
-        return {
-            failureClass: 'handshake_5xx',
-            upstreamStatus: status
-        }
-    // `ws` reports a connection that died before the handshake completed as an
-    // error with no status. A socket that opened and then died surfaces as
-    // `closed without exit code` instead, which is deliberately NOT classified:
-    // a sprite suspending mid-inspect does that and recovers by itself.
-    if (/transport error/i.test(err.message))
-        return { failureClass: 'transport_error' }
-    return null
-}
 
 const errorClass = (err: unknown): string =>
     err instanceof Error && err.name ? err.name : typeof err

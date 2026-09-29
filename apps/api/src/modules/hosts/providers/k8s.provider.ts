@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import type { ConfigurationOptions } from '@kubernetes/client-node'
+import {
+    ApiException,
+    Observable,
+    type ConfigurationOptions
+} from '@kubernetes/client-node'
 import type {
+    K8sProviderConfig,
     K8sProviderRef,
     RuntimeHostPowerState,
-    RuntimeHostProviderRef
+    RuntimeHostProviderRef,
+    RuntimeProvider,
+    RuntimeProviderConfig
 } from '@manyfold/db'
 import {
     isApiConflict,
@@ -12,7 +19,7 @@ import {
     type K8sClient
 } from '@/modules/k8s/kubernetes.service'
 import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { teardownCreatedPodHost } from '@/modules/agents/orchestration/k8s-strict-teardown'
+import { teardownCreatedPodHost } from './k8s-strict-teardown'
 import {
     buildPodHostDeployment,
     buildPodHostPvc,
@@ -20,18 +27,27 @@ import {
     podHostFrameworkIngressHost,
     podHostResourceName,
     type PodHostSpec
-} from '@/modules/agent-runtimes/provisioning/pod-host-resources'
+} from './pod-host-resources'
 import { HostsService } from '../hosts.service'
 import { HostProviderClients } from './host-provider-clients.service'
 import {
     SandboxProviderRegistry,
+    type CredentialHealth,
     type HostCreateSpec,
+    type PreparedCredential,
+    type ProviderCallFence,
+    type ProviderErrorFacts,
     type ProviderCall,
     type ProviderExecResult,
     type SandboxProvider,
     type SandboxProviderCapabilities
 } from './sandbox-provider'
 import { assertCurrentGeneration, patchProviderRef } from './generation'
+import { derivePodPhase, fetchPodForHost } from './k8s-pod-phase'
+import {
+    exposePodHostFramework,
+    withdrawPodHostFramework
+} from './pod-host-network'
 
 const DEFAULT_HOST_SUFFIX = '18.135.81.53.nip.io'
 const DEFAULT_STORAGE_CLASS = 'standard'
@@ -54,6 +70,44 @@ export const podPowerState = (phase: string | null): RuntimeHostPowerState => {
             return 'unknown'
     }
 }
+
+// Each request under a fence is checked against it first and bounded by it:
+// the apiserver's WithRequestDeadline honors `timeout` for these non-watch
+// requests, which keeps a 60s margin inside the owner's 90s lease.
+const fencedRequestOptions = (
+    fence: ProviderCallFence
+): ConfigurationOptions => ({
+    middlewareMergeStrategy: 'append',
+    middleware: [
+        {
+            pre: (request) =>
+                new Observable(
+                    (async () => {
+                        await fence.assertActive()
+                        fence.signal?.throwIfAborted()
+                        fence.requestStarted?.()
+                        request.setQueryParam('timeout', '30s')
+                        request.setSignal(
+                            fence.signal
+                                ? AbortSignal.any([
+                                      fence.signal,
+                                      AbortSignal.timeout(30_000)
+                                  ])
+                                : AbortSignal.timeout(30_000)
+                        )
+                        return request
+                    })()
+                ),
+            post: (response) => {
+                fence.requestSettled?.()
+                return new Observable(Promise.resolve(response))
+            }
+        }
+    ]
+})
+
+const optionalString = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 
 // The host's hostname is `<resource>.<suffix>`; a framework's shares the suffix.
 export const ingressSuffixOf = (
@@ -85,6 +139,49 @@ export class K8sProvider implements SandboxProvider {
         private readonly clients: HostProviderClients
     ) {
         registry.register(this)
+    }
+
+    // A kubeconfig is the whole secret; whether it works is a namespace
+    // listing against its cluster.
+    async prepareCredential(
+        credential: string,
+        config: Record<string, unknown>
+    ): Promise<PreparedCredential> {
+        const k8sConfig: K8sProviderConfig = {
+            description: optionalString(config.description),
+            hostSuffix: optionalString(config.hostSuffix)
+        }
+        return {
+            secret: credential,
+            config: k8sConfig,
+            health: await this.k8s.probeKubeconfig(credential)
+        }
+    }
+
+    mergeConfig(
+        current: RuntimeProviderConfig,
+        patch: Record<string, unknown>
+    ): RuntimeProviderConfig {
+        const config = current as K8sProviderConfig
+        return {
+            description:
+                patch.description === undefined
+                    ? (config.description ?? null)
+                    : optionalString(patch.description),
+            hostSuffix:
+                patch.hostSuffix === undefined
+                    ? (config.hostSuffix ?? null)
+                    : optionalString(patch.hostSuffix)
+        }
+    }
+
+    checkCredential(provider: RuntimeProvider): Promise<CredentialHealth> {
+        return this.k8s.probeKubeconfig(this.clients.credentialFor(provider))
+    }
+
+    // The cluster client is built from the old kubeconfig.
+    forget(providerId: string): void {
+        this.k8s.invalidate(providerId)
     }
 
     private ref(call: Pick<ProviderCall, 'host'>): K8sProviderRef | null {
@@ -145,9 +242,9 @@ export class K8sProvider implements SandboxProvider {
         }
         await this.hosts.setProviderRef(args.host.id, ref)
         const { apis } = client
-        const options = args.fence?.requestOptions as
-            | ConfigurationOptions
-            | undefined
+        const options = args.fence
+            ? fencedRequestOptions(args.fence)
+            : undefined
         const create = async (work: () => Promise<unknown>): Promise<void> => {
             await args.fence?.assertActive()
             try {
@@ -194,18 +291,18 @@ export class K8sProvider implements SandboxProvider {
         })
     }
 
+    // One pod per host (ADR-0035): its phase — waiting reasons and readiness
+    // folded in — is the host's power, whichever framework runs on it. A
+    // Deployment makes a missing pod again, so a pod host is never gone.
     async power(
         args: Omit<ProviderCall, 'generation'>
     ): Promise<RuntimeHostPowerState> {
         const ref = this.ref(args)
         if (!ref) return 'unknown'
         const client = await this.client(args)
-        const pod = await this.k8s.findHostPodIfAny(
-            client,
-            args.host.id,
-            ref.namespace
+        const phase = derivePodPhase(
+            await fetchPodForHost(client, ref.namespace, args.host.id)
         )
-        const phase = pod?.phase ?? null
         if (phase !== ref.podPhase)
             await patchProviderRef<K8sProviderRef>(this.hosts, args.host.id, {
                 podPhase: phase
@@ -248,6 +345,48 @@ export class K8sProvider implements SandboxProvider {
             stdin: args.stdin ?? `${args.script}\n`,
             timeoutMs: args.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS
         })
+    }
+
+    // A framework's port joins the host's Service and an Ingress names it by
+    // a hostname of its own (ADR-0035 §7); withdrawing takes both back.
+    async publishPort(
+        args: Omit<ProviderCall, 'generation'>,
+        route: { framework: string; port: number | null }
+    ): Promise<void> {
+        const ref = this.ref(args)
+        if (!ref) throw new Error(`cloud computer ${args.host.id} has no pod`)
+        const { apis } = await this.client(args)
+        const host = {
+            hostId: args.host.id,
+            userId: args.host.userId,
+            namespace: ref.namespace
+        }
+        if (route.port === null) {
+            await withdrawPodHostFramework({
+                apis,
+                host,
+                framework: route.framework
+            })
+            return
+        }
+        await exposePodHostFramework({
+            apis,
+            host,
+            framework: route.framework,
+            port: route.port,
+            suffix: ingressSuffixOf(args.host.id, ref.ingressHost)
+        })
+    }
+
+    // The status alone: an apiserver's message can quote the request.
+    describeError(err: unknown): ProviderErrorFacts | null {
+        if (!(err instanceof ApiException)) return null
+        return {
+            errorClass: `k8s:${err.code}`,
+            beforeOpen: false,
+            execFailure: null,
+            summary: `ApiException: Kubernetes API HTTP ${err.code}`
+        }
     }
 
     publicUrl(

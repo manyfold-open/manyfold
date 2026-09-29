@@ -38,7 +38,6 @@ const WRITE_KINDS = [
     'content',
     'source',
     'framework_ref',
-    'exec_ref',
     'upstream_ref',
     'usage'
 ] as const
@@ -155,7 +154,7 @@ const stamp = async (
         sessionId: h.sessionId,
         agentId: h.agentId,
         runtime: 'daemon',
-        spriteName: null,
+        hostId: null,
         ownerId,
         leaseSeconds: 90
     })
@@ -256,10 +255,6 @@ const writeWithFence = (
                     throw err
                 }
             )
-    if (kind === 'exec_ref')
-        return repo
-            .setTurnExecSession(h.messageId, 'old-sprite', 'old-exec', fence)
-            .then((written) => ({ fenceLost: !written }))
     if (kind === 'upstream_ref')
         return repo.setTurnUpstreamRef(
             h.messageId,
@@ -431,7 +426,6 @@ test(
                     effects.session?.frameworkSessionRef,
                     'old-framework-ref'
                 )
-                assert.equal(effects.execution?.execSessionId, null)
                 assert.equal(effects.execution?.upstreamTaskId, null)
                 assert.deepEqual(effects.usage, [])
                 assert.equal(effects.execution?.state, 'running')
@@ -517,8 +511,6 @@ test(
                         effects.session?.frameworkSessionRef,
                         'old-framework-ref'
                     )
-                if (kind === 'exec_ref')
-                    assert.equal(effects.execution?.execSessionId, 'old-exec')
                 if (kind === 'upstream_ref')
                     assert.equal(effects.execution?.upstreamTaskId, 'old-task')
                 if (kind === 'usage')
@@ -806,15 +798,6 @@ test('recovery handles and usage reject a stale generation', async (t) => {
             ),
             { upserted: 0, fenceLost: true }
         )
-        assert.equal(
-            await h.repo.setTurnExecSession(
-                h.messageId,
-                'wrong-sprite',
-                'wrong-exec',
-                wrongMessageFence
-            ),
-            false
-        )
         assert.deepEqual(
             await h.repo.setTurnUpstreamRef(
                 h.messageId,
@@ -832,15 +815,6 @@ test('recovery handles and usage reject a stale generation', async (t) => {
             false
         )
 
-        assert.equal(
-            await h.repo.setTurnExecSession(
-                h.messageId,
-                'stale-sprite',
-                'stale-exec',
-                stale
-            ),
-            false
-        )
         assert.deepEqual(
             await h.repo.setTurnUpstreamRef(
                 h.messageId,
@@ -901,15 +875,6 @@ test('recovery handles and usage reject a stale generation', async (t) => {
         assert.equal(await usage.insert(usageRow, stale), false)
         assert.equal(await usage.insert(usageRow, fresh), true)
 
-        assert.equal(
-            await h.repo.setTurnExecSession(
-                h.messageId,
-                'fresh-sprite',
-                'fresh-exec',
-                fresh
-            ),
-            true
-        )
         assert.deepEqual(
             await h.repo.setTurnUpstreamRef(
                 h.messageId,
@@ -931,15 +896,6 @@ test('recovery handles and usage reject a stale generation', async (t) => {
             ),
             true
         )
-        assert.equal(
-            await h.repo.setTurnExecSession(
-                h.messageId,
-                'draining-sprite',
-                'draining-exec',
-                fresh
-            ),
-            true
-        )
         assert.deepEqual(
             await h.repo.setTurnUpstreamRef(
                 h.messageId,
@@ -952,7 +908,6 @@ test('recovery handles and usage reject a stale generation', async (t) => {
             .select()
             .from(turnExecutions)
             .where(eq(turnExecutions.messageId, h.messageId))
-        assert.equal(execution?.execSessionId, 'draining-exec')
         assert.equal(execution?.upstreamTaskId, 'fresh-task')
         assert.equal(execution?.upstreamMessageId, 'draining-upstream-message')
         assert.equal(

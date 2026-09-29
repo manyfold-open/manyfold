@@ -63,8 +63,7 @@ const executionRow = (
     sessionId: 'session-1',
     agentId: 'agent-1',
     runtime: 'external',
-    spriteName: null,
-    execSessionId: null,
+    hostId: null,
     upstreamTaskId: 'task-1',
     upstreamMessageId: 'dify-msg-1',
     ownerId: OWNER_ID,
@@ -486,7 +485,7 @@ test('an external turn stamps an execution row with the external runtime', async
             sessionId: 'session-1',
             agentId: 'agent-1',
             runtime: 'external',
-            spriteName: null,
+            hostId: null,
             ownerId: OWNER_ID,
             leaseSeconds: TURN_LEASE_SECONDS
         }
@@ -969,7 +968,7 @@ test('a sprites turn never reaches the external convergence path', async () => {
 
     Object.assign(h.service, { execDrivers: undefined })
     await h.service.adoptTurnExecution(
-        executionRow({ runtime: 'sprites', spriteName: 'sprite-1' })
+        executionRow({ runtime: 'sprites', hostId: 'host-1' })
     )
 
     assert.deepEqual(h.convergeCalls, [])

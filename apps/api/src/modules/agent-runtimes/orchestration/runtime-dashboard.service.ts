@@ -29,7 +29,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
 import {
     RuntimeContextService,
@@ -76,7 +76,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly runtimes: AgentRuntimesService,
         private readonly context: RuntimeContextService,
-        private readonly hostClients: HostProviderClients,
+        private readonly hostClients: HostProviderResolver,
         private readonly providers: SandboxProviderRegistry,
         private readonly crypto: CryptoService,
         private readonly hostServices: HostServices,

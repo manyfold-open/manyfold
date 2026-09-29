@@ -38,7 +38,7 @@ export const runAdoption = async (opts: {
         modelProviderId: null,
         modelProviderBuiltInId: null,
         daemonId: null,
-        spriteName: 'sprite-1',
+        hostId: 'host-1',
         workspacePath: '/w'
     }
     const db = {
@@ -57,8 +57,7 @@ export const runAdoption = async (opts: {
         sessionId: 'session-1',
         agentId: 'agent-1',
         runtime: 'sprites',
-        spriteName: 'sprite-1',
-        execSessionId: null,
+        hostId: 'host-1',
         upstreamTaskId: null,
         upstreamMessageId: null,
         ownerId: 'instance-under-test',

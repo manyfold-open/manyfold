@@ -134,12 +134,12 @@ test('markRuntimeActive publishes running, nudges the sprite service, then touch
     assert.deepEqual(
         h.callLog,
         ['markHostRunning', 'wakeSpriteRuntime', 'touchRuntime'],
-        `chat wakes hide the transition from sprite-status-sync (the host is marked running directly) and channel/CLI/automation sends never hit the list/get views that call touchRuntime, so the send itself must schedule the healing reconcile — and only after the lease-free wake nudge, or the listing hits a still-booting gateway; the heal order must survive the wakeSpriteRuntime rename; warnings: [${h.warnings.join('; ')}]`
+        `chat wakes hide the transition from the power sync (the host is marked running directly) and channel/CLI/automation sends never hit the list/get views that call touchRuntime, so the send itself must schedule the healing reconcile — and only after the lease-free wake nudge, or the listing hits a still-booting gateway; the heal order must survive the wakeSpriteRuntime rename; warnings: [${h.warnings.join('; ')}]`
     )
     assert.deepEqual(
         h.markedHosts,
         ['rth-1'],
-        'the optimistic running write is exactly why sprite-status-sync never observes a wake transition for chat-originated wakes'
+        'the optimistic running write is exactly why the power sync never observes a wake transition for chat-originated wakes'
     )
     assert.equal(
         h.touchedRuntimes[0],

@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { agentRuntimes, hostDaemons, runtimeHosts } from '@manyfold/db'
-import { SpriteStatusSyncService } from '../src/modules/agents/sprite-status/sprite-status-sync.service'
+import { HostPowerSyncService } from '../src/modules/agents/sprite-status/host-power-sync.service'
+import { spritesResolver } from './helpers/power-sync-fakes'
 
 const HOST_SPRITE = 'nca-user-abc-sandbox'
 
@@ -68,7 +69,7 @@ const makeService = (
     }> = []
     const agentEmits: Array<Record<string, unknown>> = []
     const accruals: Array<{ hostId: string; running: boolean }> = []
-    const svc = new SpriteStatusSyncService(
+    const svc = new HostPowerSyncService(
         db as never,
         {
             setPower: async (id: string, state: string) => {
@@ -78,7 +79,7 @@ const makeService = (
         {
             findById: async () => ({ id: 'acc-1', kind: 'sprites', name: 'acct' })
         } as never,
-        {} as never,
+        spritesResolver(client).resolver as never,
         {
             emit: (_userId: string, event: Record<string, unknown>) => {
                 agentEmits.push(event)
@@ -104,11 +105,10 @@ const makeService = (
         } as never,
         {} as never
     )
-    svc['clientFor' as never] = (() => client) as never
     return { svc, powerWrites, hostEmits, agentEmits, accruals }
 }
 
-const sync = async (svc: SpriteStatusSyncService) =>
+const sync = async (svc: HostPowerSyncService) =>
     (svc['syncProvider' as never] as (id: string) => Promise<boolean>).call(
         svc,
         'acc-1'
@@ -250,17 +250,17 @@ test('syncHosts never touches runtime or agent rows', async () => {
     assert.deepEqual(powerWrites, [{ id: 'host-1', state: 'stopped' }])
 })
 
-// WHY: refreshSandboxHost persists the fresh state, so the poked periodic
+// WHY: refreshHost persists the fresh state, so the poked periodic
 // pass sees it as unchanged and never emits — the manual path must broadcast
 // itself or a second open client misses the transition for good.
-test('refreshSandboxHost broadcasts the transition it persists', async () => {
+test('refreshHost broadcasts the transition it persists', async () => {
     const db = makeDb([])
     const client = makeClient({
         getSprite: async () => ({ name: HOST_SPRITE, status: 'warm' })
     })
     const { svc, powerWrites, hostEmits } = makeService(db, client)
 
-    const state = await svc.refreshSandboxHost(
+    const state = await svc.refreshHost(
         fakeHost({ powerState: 'running' }) as never
     )
 
@@ -274,14 +274,14 @@ test('refreshSandboxHost broadcasts the transition it persists', async () => {
 // WHY: the panel fires one refresh-status on every open — a no-change probe
 // must not write or broadcast, or opening the panel would spam every
 // subscriber of that user.
-test('refreshSandboxHost stays silent when the probe matches the row', async () => {
+test('refreshHost stays silent when the probe matches the row', async () => {
     const db = makeDb([])
     const client = makeClient({
         getSprite: async () => ({ name: HOST_SPRITE, status: 'warm' })
     })
     const { svc, powerWrites, hostEmits } = makeService(db, client)
 
-    const state = await svc.refreshSandboxHost(
+    const state = await svc.refreshHost(
         fakeHost({ powerState: 'suspended' }) as never
     )
 
@@ -357,7 +357,7 @@ test('a provider with nothing running stays on the slow cadence', async () => {
 // WHY: manual refresh is the second power writer; it must correct the same
 // way before it accrues, or it would meter a heartbeating sandbox as asleep
 // and then write back the running state the pass had set.
-test('refreshSandboxHost corrects the listing with the heartbeat before it accrues', async () => {
+test('refreshHost corrects the listing with the heartbeat before it accrues', async () => {
     const db = makeDb(
         [],
         [],
@@ -368,7 +368,7 @@ test('refreshSandboxHost corrects the listing with the heartbeat before it accru
     })
     const { svc, powerWrites, accruals } = makeService(db, client)
 
-    const state = await svc.refreshSandboxHost(
+    const state = await svc.refreshHost(
         fakeHost({ powerState: 'running' }) as never
     )
 
