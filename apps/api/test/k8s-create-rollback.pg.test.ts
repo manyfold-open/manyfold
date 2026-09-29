@@ -52,7 +52,7 @@ import { K8sCreateCleanupService } from '../src/modules/agent-runtimes/provision
 import { k8sCreateLeaseName } from '../src/modules/agent-runtimes/provisioning/k8s-create-ownership'
 import { K8sProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
-import { podHostResourceName } from '../src/modules/agent-runtimes/provisioning/pod-host-resources'
+import { podHostResourceName } from '../src/modules/hosts/providers/pod-host-resources'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 import { HostDaemonAccess } from '../src/modules/agents/adapters/host-daemon-access'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'

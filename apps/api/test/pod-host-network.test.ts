@@ -4,7 +4,8 @@ import { ApiException, type V1Ingress, type V1Service } from '@kubernetes/client
 import {
     exposePodHostFramework,
     withdrawPodHostFramework
-} from '../src/modules/agent-runtimes/provisioning/pod-host-network'
+} from '../src/modules/hosts/providers/pod-host-network'
+import { K8sProvider } from '../src/modules/hosts/providers/k8s.provider'
 
 // A service framework on a cloud computer gets its own hostname (ADR-0035
 // §7): its port joins the host's one Service and an Ingress names it. Both
@@ -149,4 +150,39 @@ test('withdrawing keeps the other framework, and the last one takes the Service'
 
     // Nothing left: a repeat is a no-op, not an error.
     await withdrawPodHostFramework({ apis: cluster.apis, host: HOST, framework: 'hermes' })
+})
+
+// The pod adapter's publishPort is what every service framework's setup and
+// removal routes through (HostServices.publish).
+test('the pod adapter publishes a framework by its hostname and withdraws it', async () => {
+    const cluster = fakeCluster()
+    const adapter = new K8sProvider(
+        { register: () => {} } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        { k8sClientForProvider: async () => ({ apis: cluster.apis }) } as never
+    )
+    const call = {
+        host: {
+            id: 'pdh_1',
+            userId: 'usr_1',
+            providerRef: {
+                kind: 'k8s',
+                namespace: 'nca-user-1',
+                ingressHost: 'host-pdh-1.example.test',
+                podPhase: 'Running'
+            }
+        } as never,
+        provider: { id: 'rtp_1', kind: 'k8s' } as never
+    }
+
+    await adapter.publishPort(call, { framework: 'hermes', port: 18642 })
+    assert.deepEqual(cluster.ports(), ['hermes:18642'])
+    assert.deepEqual(cluster.ingressHosts(), ['hermes-host-pdh-1.example.test'])
+
+    await adapter.publishPort(call, { framework: 'hermes', port: null })
+    assert.deepEqual(cluster.ports(), [])
+    assert.deepEqual(cluster.ingressHosts(), [])
 })

@@ -57,9 +57,8 @@ export interface ServiceSettings {
 // computer alike: it starts them, restarts them after a crash, keeps them
 // across its own updates and starts them again after the machine restarts.
 // The daemon is the host's (ADR-0037), reached through the host's session
-// (ADR-0038). On a sandbox the provider routes the public URL to the port a
-// framework serves (publishPort); a cloud computer's framework gets its own
-// ingress host from the pod provisioner.
+// (ADR-0038). The provider routes the framework's public entry to the port
+// it serves (publishPort): a sandbox's URL, a cloud computer's ingress host.
 @Injectable()
 export class HostServices {
     private readonly log = new Logger(HostServices.name)
@@ -241,13 +240,16 @@ export class HostServices {
         )
     }
 
-    // Routes the host's public entry to a port inside it (a sandbox's URL).
-    // A cloud computer's framework has its own ingress host instead.
-    async publish(ref: HostRef, port: number | null): Promise<void> {
+    // Routes a framework's public entry to a port inside the host; a null
+    // port withdraws it.
+    async publish(
+        ref: HostRef,
+        route: { framework: string; port: number | null }
+    ): Promise<void> {
         const host = await this.hostRow(ref)
         const provider = await this.clients.providerForHost(host)
         const adapter = this.providers.for(provider.kind)
-        await adapter.publishPort?.({ host, provider }, port)
+        await adapter.publishPort?.({ host, provider }, route)
     }
 
     // A setup's services running as it describes them: the main service up
@@ -281,7 +283,10 @@ export class HostServices {
             if (companion.healthPath)
                 await this.waitHealthy(ref, companion.name)
         }
-        await this.publish(ref, setup.publicPort)
+        await this.publish(ref, {
+            framework: recipe.framework,
+            port: setup.publicPort
+        })
     }
 
     // A service framework's first setup on a host, through the session the
@@ -457,7 +462,7 @@ export class HostServices {
                 if (listed.some((x) => x.name === name))
                     await this.call(s, 'service.delete', { name })
         })
-        await this.publish(host, null)
+        await this.publish(host, { framework: runtime.framework, port: null })
     }
 
     // A service that answered its health check: the runtime's status, and

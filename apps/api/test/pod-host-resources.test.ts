@@ -10,7 +10,7 @@ import {
     podHostSecretName,
     podHostSelector,
     type PodHostSpec
-} from '../src/modules/agent-runtimes/provisioning/pod-host-resources'
+} from '../src/modules/hosts/providers/pod-host-resources'
 
 // A pod host (ADR-0035) is the machine, not a framework: its objects are keyed
 // by the host id alone, the PVC is the whole home, and the Secret carries only

@@ -126,7 +126,7 @@ test('a stale generation is refused before any service call', async () => {
 
 test('publishing a port puts the stub, opens the URL and records the URL the sprite reports', async () => {
     const h = build({ url: 'https://sbx-1-bqqlb.sprites.app' })
-    await h.adapter.publishPort(call, 8642)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: 8642 })
     assert.deepEqual(h.calls, [
         'put mf-port',
         'start mf-port',
@@ -148,7 +148,7 @@ test('moving the published port recreates the stub', async () => {
         services: [stored('mf-port', { cmd: 'sleep', args: ['infinity'], http_port: 8642 })],
         url: 'https://sbx-1-bqqlb.sprites.app'
     })
-    await h.adapter.publishPort(call, 18642)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: 18642 })
     assert.deepEqual(h.calls.slice(0, 3), ['delete mf-port', 'put mf-port', 'start mf-port'])
     assert.equal(h.services.get('mf-port')!.http_port, 18642)
 })
@@ -157,8 +157,8 @@ test('withdrawing the port deletes the stub, and a missing one is fine', async (
     const h = build({
         services: [stored('mf-port', { cmd: 'sleep', args: ['infinity'], http_port: 8642 })]
     })
-    await h.adapter.publishPort(call, null)
-    await h.adapter.publishPort(call, null)
+    await h.adapter.publishPort(call, { framework: 'hermes', port: null })
+    await h.adapter.publishPort(call, { framework: 'hermes', port: null })
     assert.deepEqual(h.calls, ['delete mf-port', 'delete mf-port'])
 })
 

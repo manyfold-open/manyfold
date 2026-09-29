@@ -1,5 +1,4 @@
 import { ConflictException } from '@nestjs/common'
-import { Observable, type ConfigurationOptions } from '@kubernetes/client-node'
 import { and, eq, sql } from 'drizzle-orm'
 import { agentRuntimes, serviceLeases, type Database } from '@manyfold/db'
 
@@ -159,34 +158,15 @@ export class K8sCreateOwnership {
         }
     }
 
-    readonly requestOptions: ConfigurationOptions = {
-        middlewareMergeStrategy: 'append',
-        middleware: [
-            {
-                pre: (request) =>
-                    new Observable(
-                        (async () => {
-                            await this.assertActive()
-                            this.signal.throwIfAborted()
-                            this.uncertainRequest = true
-                            // Kubernetes apiserver's WithRequestDeadline honors timeout for
-                            // these non-watch requests. Keep 60s lease margin after its 30s.
-                            request.setQueryParam('timeout', '30s')
-                            request.setSignal(
-                                AbortSignal.any([
-                                    this.signal,
-                                    AbortSignal.timeout(30_000)
-                                ])
-                            )
-                            return request
-                        })()
-                    ),
-                post: (response) => {
-                    this.uncertainRequest = false
-                    return new Observable(Promise.resolve(response))
-                }
-            }
-        ]
+    // The fence's bracket around each Kubernetes request (the adapter's
+    // middleware): a request still out when the owner stops means creation
+    // did not settle.
+    requestStarted(): void {
+        this.uncertainRequest = true
+    }
+
+    requestSettled(): void {
+        this.uncertainRequest = false
     }
 
     async stop(): Promise<boolean> {

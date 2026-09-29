@@ -44,10 +44,11 @@ export interface HostCreateSpec {
 export interface ProviderCallFence {
     assertActive(): Promise<void>
     signal?: AbortSignal
-    // Provider-specific per-request options (a Kubernetes client's
-    // middleware that stamps each request with the owner's deadline and
-    // records it as uncertain until it answers); opaque to the core.
-    requestOptions?: unknown
+    // Bracket each remote request the adapter sends under the fence: one that
+    // started and never settled leaves the caller unsure whether it took
+    // effect.
+    requestStarted?(): void
+    requestSettled?(): void
 }
 
 export interface ProviderCall {
@@ -131,6 +132,9 @@ export interface ProviderErrorFacts {
     errorClass: string
     beforeOpen: boolean
     execFailure: ExecEndpointFailure | null
+    // One line safe to show a user in a failure reason, when the adapter has
+    // a better one than the error's own message.
+    summary?: string
 }
 
 // A process the provider's own supervisor keeps on the machine: one its owner
@@ -259,12 +263,13 @@ export interface SandboxProvider {
     // pod's boot script) leaves it out. Idempotent: an unchanged definition
     // that runs is left alone.
     superviseDaemon?(args: ProviderCall, process: SupervisedProcess): Promise<void>
-    // Routes the machine's public URL to a port inside it, served by a service
-    // of the daemon; null withdraws the route. A provider that routes by a
-    // per-framework hostname (a pod's ingress) leaves it out.
+    // Routes a service framework's public entry to the port inside the
+    // machine its daemon's service serves; a null port withdraws that
+    // framework's route. How is the provider's: a sprite has one public URL
+    // for its one framework, a pod gives each framework a hostname of its own.
     publishPort?(
         args: Omit<ProviderCall, 'generation'>,
-        port: number | null
+        route: { framework: string; port: number | null }
     ): Promise<void>
     publicUrl?(
         args: Omit<ProviderCall, 'generation'> & {

@@ -639,10 +639,11 @@ export class SpritesProvider implements SandboxProvider {
     // hostname carries the organisation's suffix.
     async publishPort(
         args: Omit<ProviderCall, 'generation'>,
-        port: number | null
+        route: { framework: string; port: number | null }
     ): Promise<void> {
         const ref = this.requireRef(args)
         const client = this.client(args)
+        const port = route.port
         if (port === null) {
             await client
                 .deleteService(ref.spriteName, SANDBOX_PORT_SERVICE)
