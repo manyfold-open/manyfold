@@ -36,7 +36,6 @@ import { CapabilitiesModule } from '@/common/capabilities/capabilities.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { BackupsModule } from '@/modules/backups/backups.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
-import { RuntimeReportsModule } from '@/modules/runtime-reports/runtime-reports.module'
 import { ChannelsModule } from '@/modules/channels/channels.module'
 import { ChatRetentionModule } from '@/modules/chat-retention/chat-retention.module'
 import { FrameworkCatalogModule } from '@/modules/framework-catalog/framework-catalog.module'
@@ -90,7 +89,6 @@ export const CORE_MODULES = [
     AutomationsModule,
     BackupsModule,
     DaemonModule,
-    RuntimeReportsModule,
     ChannelsModule,
     ChatRetentionModule,
     FrameworkCatalogModule,

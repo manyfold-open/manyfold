@@ -1,32 +1,11 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 import type { Agent, AgentRuntimeRow, FileRoot } from '@manyfold/db'
-import type { PodServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
 import type { AgentAdapter } from '@/modules/agents/adapters/agent-adapter'
-import type { SpriteServiceBootstrap } from '@/modules/agents/bootstrap/sprite-framework-bootstrap'
+import type { ServiceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 import type { FilesContext } from '@/modules/agents/files/files-context'
 import type { NormalizedInboundAttachment } from '@/modules/channels/channel-provider'
 import type { ApiChatAdapter } from '@/modules/chat/chat-adapter'
 import type { FrameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
-
-// A framework's long-lived service on a sprite: how it is installed, where it
-// lives, and what the keep-alive lease needs to supervise it.
-export interface FrameworkSpriteService {
-    bootstrap: SpriteServiceBootstrap
-    // Where the service's runtime lives on the sprite.
-    mountPath: string
-    // The workspace a new agent is created with. When the framework owns its
-    // workspace layout (runner.lazyWorkspace) this is only a seed: nothing
-    // may address a file through it before the files provider resolves it.
-    workspaceSeed(agentId: string, userId: string): string
-    supervision: {
-        // Used when the runtime row carries no home dir of its own.
-        homeDir: string
-        // Probed, unauthenticated, by the sprite's start reporter.
-        healthUrl: string
-        // The service command when no start script was installed.
-        fallbackExec(homeDir: string): string[]
-    }
-}
 
 export interface FrameworkVersionExtension {
     descriptor: FrameworkVersionDescriptor
@@ -99,10 +78,9 @@ export interface FrameworkExtension {
     // The framework keeps its own agent list: the primary agent is pushed
     // into it right after provisioning, so the first reconcile finds it.
     pushPrimaryAgent?: boolean
-    spriteService?: FrameworkSpriteService
-    // How a service framework is installed on a cloud computer and run as a
-    // service of its daemon (ADR-0035 §4, §6).
-    podService?: PodServiceRecipe
+    // How a service framework is installed on a sandbox or a cloud computer
+    // and run as a service of the machine's daemon (ADR-0035 §6).
+    serviceRecipe?: ServiceFrameworkRecipe
     version?: FrameworkVersionExtension
     files?: FrameworkFilesProvider
     controlUi?: FrameworkControlUi

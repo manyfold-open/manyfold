@@ -547,7 +547,7 @@ export {
     frameworkKind,
     supportsRuntime,
     isExternal,
-    isServiceFrameworkName,
+    isPlatformServiceName,
     isAwakeHoldTaskName,
     isPlatformTaskName,
     frameworkMcpSupport,
@@ -556,7 +556,9 @@ export {
     AWAKE_KEEP_TASK_NAME,
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
-    PLATFORM_TASK_PREFIX
+    PLATFORM_TASK_PREFIX,
+    SANDBOX_DAEMON_SERVICE,
+    SANDBOX_PORT_SERVICE
 } from './framework-capability'
 export type {
     FrameworkCapability,

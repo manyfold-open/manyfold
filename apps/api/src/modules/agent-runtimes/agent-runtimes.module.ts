@@ -13,19 +13,16 @@ import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from './provisioning/pod-runner-provisioner'
 import { K8sCreateCleanupService } from './provisioning/k8s-create-cleanup.service'
-import { PodHostServices } from './provisioning/pod-host-services'
+import { HostServices } from './provisioning/host-services'
+import { RuntimeRemovalService } from './runtime-removal.service'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
-import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
-import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
-import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AgentSelfModule } from '@/modules/agent-self/agent-self.module'
 import { SkillsModule } from '@/modules/skills/skills.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
@@ -54,15 +51,12 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         SpritesProvisioner,
         K8sProvisioner,
         K8sCreateCleanupService,
-        PodHostServices,
+        HostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
-        HermesSpriteBootstrap,
-        OpenClawSpriteBootstrap,
-        SpriteServiceBootstraps,
-        SpriteKeepAliveLeaseService,
         McpConfigMaterializer,
-        RuntimeAccountService
+        RuntimeAccountService,
+        RuntimeRemovalService
     ],
     exports: [
         AgentRuntimesService,
@@ -70,15 +64,11 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         RuntimeAccountService,
         RuntimeDashboardService,
         SpritesProvisioner,
-        SpriteKeepAliveLeaseService,
         K8sProvisioner,
         K8sCreateCleanupService,
-        PodHostServices,
+        HostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
-        HermesSpriteBootstrap,
-        OpenClawSpriteBootstrap,
-        SpriteServiceBootstraps,
         McpConfigMaterializer
     ]
 })

@@ -17,6 +17,7 @@ import {
     K8S_CREATE_INITIAL_AGENT
 } from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
+import { AppEventsService } from '@/common/events/app-events.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import type { RuntimeTarget } from '@/modules/agents/adapters/agent-adapter'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
@@ -80,8 +81,8 @@ export class AgentReconcileService {
     private readonly log = new Logger(AgentReconcileService.name)
     private readonly inflight = new Map<string, Promise<void>>()
     private readonly lastRun = new Map<string, number>()
-    private readonly lastVerifiedReportRun = new Map<string, number>()
-    private readonly pendingVerifiedReports = new Map<string, AgentRuntimeRow>()
+    private readonly lastServiceReadyRun = new Map<string, number>()
+    private readonly pendingServiceReady = new Map<string, AgentRuntimeRow>()
     private readonly failures = new Map<string, FailureState>()
     private readonly pendingOrphans = new Map<string, Map<string, number>>()
     private readonly claimHolderId =
@@ -91,12 +92,28 @@ export class AgentReconcileService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly registry: AgentAdapterRegistry,
         private readonly runtimeContext: RuntimeContextService,
-        @Optional() private readonly serviceLeases?: ServiceLeaseService
-    ) {}
+        @Optional() private readonly serviceLeases?: ServiceLeaseService,
+        @Optional() events?: AppEventsService
+    ) {
+        events?.on('runtime.service.ready', ({ runtimeId }) => {
+            void this.touchReadyRuntime(runtimeId)
+        })
+    }
+
+    // A service Manyfold just started answers: its agents are listed now,
+    // before the host's power reads running.
+    private async touchReadyRuntime(runtimeId: string): Promise<void> {
+        const [runtime] = await this.db
+            .select()
+            .from(agentRuntimes)
+            .where(eq(agentRuntimes.id, runtimeId))
+            .limit(1)
+        if (runtime) this.touchRuntime(runtime, { serviceReady: true })
+    }
 
     touchRuntime(
         runtime: AgentRuntimeRow,
-        opts?: { verifiedByReport?: boolean }
+        opts?: { serviceReady?: boolean }
     ): void {
         // Only a service framework on a machine has anything to learn from a
         // listing; coding frameworks' agents are Manyfold's own rows and an
@@ -104,15 +121,15 @@ export class AgentReconcileService {
         if (!runtime.hostId || isCodingFramework(runtime)) return
         if (runtime.status !== 'ready') return
         if (this.inflight.has(runtime.id)) {
-            if (opts?.verifiedByReport)
-                this.pendingVerifiedReports.set(runtime.id, runtime)
+            if (opts?.serviceReady)
+                this.pendingServiceReady.set(runtime.id, runtime)
             return
         }
         const failure = this.failures.get(runtime.id)
         const last = failure
             ? (this.lastRun.get(runtime.id) ?? 0)
-            : opts?.verifiedByReport
-              ? (this.lastVerifiedReportRun.get(runtime.id) ?? 0)
+            : opts?.serviceReady
+              ? (this.lastServiceReadyRun.get(runtime.id) ?? 0)
               : (this.lastRun.get(runtime.id) ?? 0)
         const minWait = failure
             ? failureBackoffMs(failure.count)
@@ -127,12 +144,12 @@ export class AgentReconcileService {
                 this.inflight.delete(runtime.id)
                 const finishedAt = Date.now()
                 this.lastRun.set(runtime.id, finishedAt)
-                if (opts?.verifiedByReport)
-                    this.lastVerifiedReportRun.set(runtime.id, finishedAt)
-                const pending = this.pendingVerifiedReports.get(runtime.id)
+                if (opts?.serviceReady)
+                    this.lastServiceReadyRun.set(runtime.id, finishedAt)
+                const pending = this.pendingServiceReady.get(runtime.id)
                 if (pending) {
-                    this.pendingVerifiedReports.delete(runtime.id)
-                    this.touchRuntime(pending, { verifiedByReport: true })
+                    this.pendingServiceReady.delete(runtime.id)
+                    this.touchRuntime(pending, { serviceReady: true })
                 }
             })
         this.inflight.set(runtime.id, p)
@@ -148,7 +165,7 @@ export class AgentReconcileService {
     // from spinning on retries.
     private async reconcileWithClaim(
         runtime: AgentRuntimeRow,
-        opts?: { verifiedByReport?: boolean }
+        opts?: { serviceReady?: boolean }
     ): Promise<void> {
         if (!this.serviceLeases) {
             await this.reconcileRuntime(runtime, opts)
@@ -186,7 +203,7 @@ export class AgentReconcileService {
 
     async reconcileRuntime(
         runtime: AgentRuntimeRow,
-        opts?: { verifiedByReport?: boolean }
+        opts?: { serviceReady?: boolean }
     ): Promise<void> {
         const ctx = await this.runtimeContext.forRuntime(runtime.id)
         if (!ctx || ctx.placement === 'external') return
@@ -209,12 +226,12 @@ export class AgentReconcileService {
         // Listing goes through the host's daemon, so a machine that is not
         // running (or whose daemon is away) is not listed: waking a sandbox
         // bills it, and pre-sleep miss evidence is stale once the service
-        // restarts. A fence-valid ready report proves the service is up
-        // post-boot — verifiedByReport bypasses ONLY the power check; the 15s
-        // min-wait/failure backoff in touchRuntime still bound report floods.
+        // restarts. A service that just answered its health check is up
+        // post-boot — serviceReady bypasses ONLY the power check; the 15s
+        // min-wait/failure backoff in touchRuntime still bounds repeats.
         if (
             !ctx.daemonOnline ||
-            (!opts?.verifiedByReport &&
+            (!opts?.serviceReady &&
                 ctx.host?.kind === 'hosted' &&
                 ctx.host.powerState !== 'running')
         ) {
@@ -288,6 +305,12 @@ export class AgentReconcileService {
                     })
                     .where(eq(agents.id, match.id))
             } else {
+                // A runtime prepared with no agent (a sandbox's or a cloud
+                // computer's) keeps its built-in profile for the first agent
+                // that joins. Seen on local [2026-09-29]: adopted, OpenClaw's
+                // `main` became an agent that could not be deleted ("the only
+                // configured agent") and held its runtime undeletable.
+                if (!runtime.primaryAgentId && fa.id === primaryAlias) continue
                 // Only service frameworks reach this listing, and they list
                 // their own state: an agent created outside Manyfold (in the
                 // framework's own UI) is real and must be adopted —

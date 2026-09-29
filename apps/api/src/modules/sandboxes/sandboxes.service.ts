@@ -6,7 +6,7 @@ import {
     isAwakeHoldTaskName,
     isCliUpdateAvailable,
     isPlatformTaskName,
-    isServiceFrameworkName,
+    isPlatformServiceName,
     parseProbedSemver,
     isVersionedFramework,
     resolveFrameworkRepo,
@@ -15,7 +15,6 @@ import {
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_DETECTABLE_FRAMEWORKS,
-    DAEMON_FEATURE_MANUAL_UPDATE,
     SANDBOX_PREINSTALLED_FRAMEWORKS,
     frameworkCapability,
     herdrFrameworksFor
@@ -64,7 +63,7 @@ import {
 } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { providerRefLabel, spritesRef } from '@/modules/agent-runtimes/host-ref'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { HostServices } from '@/modules/agent-runtimes/provisioning/host-services'
 import {
     HostKeepAwakeService,
     KEEP_AWAKE_TTL_SEC
@@ -99,7 +98,10 @@ import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.s
 import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
 import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { HostCliService } from '@/modules/chat/runner/host-cli.service'
+import {
+    HostCliService,
+    updatesItself
+} from '@/modules/chat/runner/host-cli.service'
 
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
@@ -149,7 +151,7 @@ export class SandboxesService {
         private readonly spriteStatusSync: SpriteStatusSyncService,
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly runtimeAccess: RuntimeAccessService,
-        private readonly keepAliveLease: SpriteKeepAliveLeaseService,
+        private readonly hostServices: HostServices,
         private readonly lifecycle: HostedHostLifecycleService,
         private readonly sessions: HostSessionRegistry,
         @Inject(DRIZZLE) private readonly db: Database,
@@ -487,9 +489,10 @@ export class SandboxesService {
     }
 
     // Upgrade the mf CLI on the sandbox through the daemon's own updater
-    // (ADR-0029 §5): it downloads, prechecks, swaps, hands its execs to a
-    // successor and rolls back on its own. The version it lands on reaches
-    // host_daemons through its next heartbeat.
+    // (ADR-0029 §5): it downloads, prechecks, swaps and rolls back on its own,
+    // then exits for its supervised loop to start the new binary (a daemon an
+    // older bring-up started by hand hands off to a successor instead). The
+    // version it lands on reaches host_daemons through its next heartbeat.
     async upgradeCli(
         userId: string,
         hostId: string,
@@ -512,11 +515,7 @@ export class SandboxesService {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
         return this.withSandboxDaemon(r, 'upgrade-cli', async (session) => {
-            if (
-                !session.daemon.clientFeatures.includes(
-                    DAEMON_FEATURE_MANUAL_UPDATE
-                )
-            )
+            if (!updatesItself(session.daemon))
                 throw new ConflictException({
                     message:
                         'the sandbox daemon cannot update itself; it is below the supported floor',
@@ -842,9 +841,10 @@ export class SandboxesService {
         name: string,
         isAdmin = false
     ): Promise<void> {
-        // Manyfold's own framework services (one per service framework) are
-        // platform infrastructure — never deletable from this surface.
-        if (isServiceFrameworkName(name))
+        // The daemon's loop (every framework service runs under it) and the
+        // public port stub are platform infrastructure, never deletable
+        // from this surface.
+        if (isPlatformServiceName(name))
             throw new BadRequestException(
                 `service '${name}' is managed by Manyfold and cannot be deleted`
             )
@@ -990,8 +990,7 @@ export class SandboxesService {
         for (const rt of runtimesOnHost) {
             if (frameworkCapability(rt.framework).kind !== 'service') continue
             try {
-                const message = await this.keepAliveLease.stopService(rt)
-                if (message) warnings.push(`runtime ${rt.id}: ${message}`)
+                await this.hostServices.stopRuntime(rt, host)
             } catch (err) {
                 warnings.push(
                     `runtime ${rt.id} service stop failed: ${(err as Error).message}`
@@ -1006,13 +1005,13 @@ export class SandboxesService {
         const client = await this.spritesClientFor(host)
         const stoppedServices: string[] = []
         const services = await this.readServicesOnSprite(client, spriteName)
-        let pending = services.filter(
-            (s) =>
-                !isServiceFrameworkName(s.name) && s.state.status !== 'stopped'
+        const userServices = services.filter(
+            (s) => !isPlatformServiceName(s.name)
         )
+        let pending = userServices.filter((s) => s.state.status !== 'stopped')
         for (
             let pass = 0;
-            pending.length > 0 && pass < services.length;
+            pending.length > 0 && pass < userServices.length;
             pass++
         ) {
             const refused: typeof pending = []
@@ -1096,7 +1095,7 @@ export class SandboxesService {
             closedSessions === 0 &&
             !host.keepAwake &&
             runtimesOnHost.length === 0 &&
-            services.length === 0 &&
+            userServices.length === 0 &&
             tasksOnSprite.length === 0
         if (hasNoLevers) {
             warnings.push(
@@ -1341,5 +1340,5 @@ const toServiceSummary = (s: ServiceObject): SandboxServiceSummary => ({
     pid: s.state.pid ?? null,
     startedAt: s.state.started_at ?? null,
     error: s.state.error ?? null,
-    managed: isServiceFrameworkName(s.name)
+    managed: isPlatformServiceName(s.name)
 })

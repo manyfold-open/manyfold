@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
     DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_FEATURE_SERVICES,
     DAEMON_MIN_CLI_VERSION,
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
@@ -173,17 +174,35 @@ const buildHarness = (opts: HarnessOptions = {}) => {
     }
     let bumps = 0
 
-    const dialIn = () => {
+    const dialIn = (supervised = false) => {
         state.daemon = daemonRow({
             hostId: state.host.id,
             cliVersion: state.version ?? CLI_AT_FLOOR,
-            rpcConnectedAt: NOW()
+            rpcConnectedAt: NOW(),
+            // Under its supervised loop the daemon runs services.
+            ...(supervised
+                ? { startupMethod: 'container', clientFeatures: [DAEMON_FEATURE_SERVICES] }
+                : {})
         })
     }
 
+    const supervised: Array<{ name: string; command: string[]; env: Record<string, string> }> = []
     const adapter = {
         kind: providerKind,
         capabilities: { suspend: providerKind === 'sprites', publicService: true },
+        ...(providerKind === 'sprites'
+            ? {
+                  superviseDaemon: async (
+                      args: { generation: number },
+                      process: { name: string; command: string[]; env: Record<string, string> }
+                  ) => {
+                      if (args.generation < state.host.generation)
+                          throw new StaleGenerationError(state.host.id, args.generation, state.host.generation)
+                      supervised.push(process)
+                      if (opts.connects !== false) dialIn(true)
+                  }
+              }
+            : {}),
         power: async () => {
             calls.push('power')
             return opts.power ?? 'running'
@@ -234,10 +253,12 @@ const buildHarness = (opts: HarnessOptions = {}) => {
                 }
                 return { exitCode: 0, stdout: s.includes('herdr') ? 'MF_HERDR_OK' : '', stderr: '' }
             }
-            if (s.includes('daemon start') || s.includes('pkill')) {
+            if (s.includes('daemon stop')) {
                 calls.push('start')
                 state.started += 1
-                if (opts.connects !== false) dialIn()
+                // A pod's boot loop restarts the daemon it stopped; a
+                // sprite's comes back under its supervised loop.
+                if (providerKind === 'k8s' && opts.connects !== false) dialIn()
                 return { exitCode: 0, stdout: '1', stderr: '' }
             }
             if (s.includes('tail -n 6')) {
@@ -299,7 +320,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         opts.hostCli as never
     )
 
-    return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, bumps: () => bumps, dialIn }
+    return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, supervised, bumps: () => bumps, dialIn }
 }
 
 const scriptsOf = (h: ReturnType<typeof buildHarness>) => h.execs.map((e) => e.script)
@@ -418,6 +439,81 @@ test('a pod host is restarted through its boot loop and registered without a tok
     const start = h.execs.find((e) => e.script.includes('pkill'))!
     assert.ok(!start.script.includes('setsid'), 'no detached start: the boot loop restarts the daemon')
     assert.deepEqual(h.holds, [], 'a pod does not suspend, so nothing holds it awake')
+})
+
+// A daemon started by an exec does not come back when the sprite's
+// environment restarts; the sprite's own service supervisor starts its
+// services again. So the daemon runs as a sprites service — a loop that
+// restarts it, since the service stays "running" while the daemon's own
+// services are alive — marked as supervised, which makes it take updates by
+// exiting and run services (services.v1) as on a pod.
+test('a sprite daemon is stopped for its supervised loop to take over, not started detached', async () => {
+    const h = buildHarness({ registered: true, daemon: offlineDaemon() })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    const start = scriptsOf(h).find((s) => s.includes('daemon stop'))!
+    assert.ok(!start.includes('setsid') && !start.includes('daemon start'), 'the exec only stops what runs')
+    assert.equal(h.supervised.length, 1)
+    const [loop] = h.supervised
+    assert.equal(loop.name, 'mf-daemon')
+    assert.deepEqual(loop.env, { MF_PROFILE: RUNNER_PROFILE, MF_DAEMON_SUPERVISOR: 'container' })
+    assert.deepEqual(loop.command.slice(0, 2), ['bash', '-lc'])
+    assert.match(loop.command[2], /while :; do/)
+    assert.match(loop.command[2], /"\$HOME\/\.local\/bin\/mf" daemon start --foreground >>"\$log"/)
+    assert.ok(!loop.command[2].includes('--api-url'), 'the daemon dials the API its registration saved')
+})
+
+// The loop is real shell: it restarts a daemon that exits, and a stop of the
+// service (SIGTERM to the loop) takes the running daemon down with it.
+test('the supervised loop restarts an exiting daemon and ends with its daemon on TERM', async () => {
+    const h = buildHarness({ registered: true, daemon: offlineDaemon() })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    const loop = h.supervised[0].command[2]
+        .replace('"$HOME/.local/bin/mf" daemon start --foreground', 'sh -c "echo started >> \\"$MARKS\\"; exit 3"')
+        .replace('sleep 5 &', 'sleep 0.2 &')
+    const dir = spawnSync('mktemp', ['-d']).stdout.toString().trim()
+    spawnSync('mkdir', ['-p', `${dir}/.manyfold`])
+    try {
+        const run = spawnSync('bash', ['-c', `(${loop}) & pid=$!; sleep 1; kill -TERM $pid; wait $pid; echo "loop=$?"`], {
+            env: { ...process.env, HOME: dir, MARKS: `${dir}/marks` },
+            encoding: 'utf8',
+            timeout: 10_000
+        })
+        assert.match(run.stdout, /loop=0/)
+        const marks = spawnSync('cat', [`${dir}/marks`], { encoding: 'utf8' }).stdout.trim().split('\n')
+        assert.ok(marks.length >= 2, `restarted after an exit (${marks.length} starts)`)
+        const log = spawnSync('cat', [`${dir}/.manyfold/runner.log`], { encoding: 'utf8' }).stdout
+        assert.match(log, /mf-daemon: daemon exited \(3\); restarting in 5s/)
+    } finally {
+        spawnSync('rm', ['-rf', dir])
+    }
+})
+
+// A daemon an older bring-up started by an exec runs no services: a service
+// framework on its sandbox needs it under the supervised loop, which a CLI
+// update would not give it.
+test('a connected sprite daemon started by an exec is handed to its supervised loop when services are needed', async () => {
+    const ensured: unknown[] = []
+    const h = buildHarness({
+        registered: true,
+        daemon: daemonRow({ startupMethod: 'manual', clientFeatures: [] }),
+        hostCli: {
+            ensure: async (_host, need) => {
+                ensured.push(need)
+                throw new Error('an update cannot give a manual daemon services')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: [DAEMON_FEATURE_SERVICES],
+        waitOnlineMs: 50
+    })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(h.supervised.length, 1, 'the loop took the daemon over')
+    assert.ok(scriptsOf(h).some((s) => s.includes('daemon stop')))
+    assert.deepEqual(ensured, [], 'no CLI update was asked for')
+    assert.equal(h.state.daemon?.startupMethod, 'container')
 })
 
 test('a suspended sprite with a registered daemon is woken, and a fresh lease is enough', async () => {
@@ -598,11 +694,11 @@ test('a capable daemon is stopped with --keep-execs, an older one plainly', asyn
         daemon: offlineDaemon({ clientFeatures: [DAEMON_FEATURE_EXEC_FILES] })
     })
     await capable.service.ensureHostDaemon({ host: capable.state.host, waitOnlineMs: 50 })
-    assert.match(scriptsOf(capable).find((s) => s.includes('daemon start'))!, /daemon stop --keep-execs/)
+    assert.match(scriptsOf(capable).find((s) => s.includes('daemon stop'))!, /daemon stop --keep-execs/)
 
     const plain = buildHarness({ registered: true, daemon: offlineDaemon() })
     await plain.service.ensureHostDaemon({ host: plain.state.host, waitOnlineMs: 50 })
-    assert.match(scriptsOf(plain).find((s) => s.includes('daemon start'))!, /daemon stop >/)
+    assert.match(scriptsOf(plain).find((s) => s.includes('daemon stop'))!, /daemon stop >/)
 })
 
 test('an exec endpoint that cannot open is a classified failure, not a missing daemon', async () => {

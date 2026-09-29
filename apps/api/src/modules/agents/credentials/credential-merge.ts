@@ -3,7 +3,7 @@ import { agentCredentials, type Database } from '@manyfold/db'
 import type { CryptoService } from '@/modules/secrets/crypto.service'
 
 // Serialized read-modify-write on a runtime's encrypted credential payload.
-// Every generated-field writer (runtimeReportToken, dashboardToken) and any
+// Every generated-field writer (a gateway token, dashboardToken) and any
 // future merge MUST go through this row lock: the payload is a single
 // ciphertext blob, so two unlocked decrypt→merge→encrypt writers silently
 // drop each other's fields.

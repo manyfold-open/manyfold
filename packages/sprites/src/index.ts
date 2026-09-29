@@ -17,21 +17,8 @@ export {
     CONTAINMENT_EXIT_CODE
 } from './containment'
 export { redact, redactHeaders } from './redaction'
-export {
-    buildKeepAliveCleanupScript,
-    buildRuntimeReportEnvFile,
-    buildRuntimeReportScript,
-    buildServiceStartScript,
-    parseTaskList,
-    shellSingleQuote
-} from './tasks'
-export type {
-    KeepAliveCleanupOptions,
-    RuntimeReportEnvFileOptions,
-    RuntimeReportScriptOptions,
-    ServiceStartScriptOptions,
-    SpriteTask
-} from './tasks'
+export { parseTaskList } from './tasks'
+export type { SpriteTask } from './tasks'
 export { parseServiceLogStream } from './services'
 export type { ServiceLogEvent } from './services'
 export type {

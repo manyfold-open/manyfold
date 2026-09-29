@@ -815,9 +815,10 @@ export const runtimeLocalInspectFeature = (framework: string): string | null =>
           ? DAEMON_FEATURE_ANTIGRAVITY_LOCAL
           : null
 // The `service.*` RPCs: the daemon keeps a service framework's long-running
-// process up from a spec on the home volume (ADR-0035 §6), as a sprite's
-// Services API does. Only a pod host's daemon (startup method 'container')
-// offers it; nothing asks a user's own machine to run a service.
+// process up from a spec in its home (ADR-0035 §6). Only a daemon under a
+// supervisor's loop (startup method 'container': a pod's boot script, a
+// sprite's supervised service) offers it; nothing asks a user's own machine
+// to run a service.
 export const DAEMON_FEATURE_SERVICES = 'services.v1'
 // exec.start carries `roots`: absolute directories the platform vouches for
 // beyond the daemon's own (the agent's workspace, a framework home on a

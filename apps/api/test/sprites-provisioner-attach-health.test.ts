@@ -8,7 +8,6 @@ import type {
     RuntimeProvider
 } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
-import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
 
 // Placement is explicit: no sandbox named means a fresh VM, and only an attach
@@ -159,10 +158,11 @@ const buildHarness = (opts: {
         bootstrap: async () => ({ exitCode: 0, stdout: '', stderr: '' })
     }
 
-    const bootstrap = {
-        run: async (ctx: { spriteName: string }) => {
-            bootstrappedOn.push(ctx.spriteName)
-            return opts.bootstrap ? await opts.bootstrap() : { homeDir: '/home/sprite' }
+    const hostServices = {
+        setUp: async (args: { host: RuntimeHostRow }) => {
+            bootstrappedOn.push((args.host.providerRef as { spriteName: string }).spriteName)
+            const done = opts.bootstrap ? await opts.bootstrap() : { homeDir: '/home/sprite' }
+            return { frameworkVersion: null, generatedCredentials: {}, home: done.homeDir }
         }
     }
     const session = (host: RuntimeHostRow) => ({
@@ -232,13 +232,9 @@ const buildHarness = (opts: {
         } as never,
         { revokeForHost: async () => 1 } as never,
         runtimes as never,
-        new SpriteServiceBootstraps(
-            { framework: 'hermes', ...bootstrap } as never,
-            { run: async () => ({ homeDir: undefined }) } as never
-        ),
+        hostServices as never,
         runtimeAccess as never,
         { get: () => undefined } as never,
-        {} as never,
         { settleHostNotRunning: async () => {} } as never
     )
 
@@ -330,9 +326,10 @@ test('an explicit attach to an unhealthy sandbox fails loudly instead of moving 
     assert.deepEqual(harness.created, [], 'a failed attach must not fall back to creating a VM')
 })
 
-// A service framework's bootstrap still talks to its sprite directly (P8
-// moves it onto the daemon), so a sprites transport failure can land there.
-test('a transient sprite failure while bootstrapping an attached host quarantines that host', async () => {
+// A service framework's setup ends by routing the sandbox's public URL
+// through the sprites control plane, so a sprites transport failure can land
+// there.
+test('a transient sprite failure while setting up an attached host quarantines that host', async () => {
     const harness = buildHarness({
         candidates: [{ id: 'sbx_reused', spriteName: 'sbx-reused' }],
         bootstrap: async () => {

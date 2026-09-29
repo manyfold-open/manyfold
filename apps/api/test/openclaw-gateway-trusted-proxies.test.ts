@@ -31,10 +31,12 @@ const gatewayOf = (): Record<string, unknown> =>
             workspacePath: '/home/sprite/.openclaw/workspace',
             controlUiEnabled: true,
             bindHost: '0.0.0.0',
-            providerBaseUrl: 'https://api.openai.com/v1',
-            providerApiKey: 'key',
-            wireApi: 'openai-completions',
-            modelName: 'gpt-4.1-mini'
+            provider: {
+                baseUrl: 'https://api.openai.com/v1',
+                apiKey: 'key',
+                wireApi: 'openai-completions',
+                modelName: 'gpt-4.1-mini'
+            }
         })
     ).gateway as Record<string, unknown>
 

@@ -272,12 +272,12 @@ test('reconcile heals a poisoned failed row when the running sprite lists it', a
     )
 })
 
-// Scenario 6: verifiedByReport bypasses the sleeping-sprite skip.
-// WHY: a fence-valid ready report proves the service is up post-boot, voiding
+// Scenario 6: serviceReady bypasses the sleeping-sprite skip.
+// WHY: a service that just answered its health check proves the service is up post-boot, voiding
 // both the wake-billing and fresh-boot-race reasons for the gate — the
-// subsequent adapter listing is the real verification that keeps the report
+// subsequent adapter listing is the real verification that keeps the signal
 // a hint.
-test('reconcile with verifiedByReport lists a sleeping service-framework sprite', async () => {
+test('reconcile with serviceReady lists a sleeping service-framework sprite', async () => {
     const rows = [
         fakeDbAgent({
             id: 'agent-1',
@@ -299,20 +299,20 @@ test('reconcile with verifiedByReport lists a sleeping service-framework sprite'
         daemon: daemonRow()
     })
     await svc.reconcileRuntime(fakeRuntime() as never, {
-        verifiedByReport: true
+        serviceReady: true
     })
 
     assert.equal(
         registry.calls.length,
         1,
-        'a fence-valid ready report voids the wake-billing and fresh-boot-race reasons for the skip — the adapter must be consulted'
+        'a service that just answered its health check voids the wake-billing and fresh-boot-race reasons for the skip — the adapter must be consulted'
     )
 })
 
-// Scenario 7: the bypass requires verifiedByReport to be true.
+// Scenario 7: the bypass requires serviceReady to be true.
 // WHY: without the flag the existing skip is preserved — only a fence-valid
-// ready report may open the gate, never the mere presence of an opts object.
-test('reconcile keeps the sleep skip when verifiedByReport is false', async () => {
+// service-ready signal may open the gate, never the mere presence of an opts object.
+test('reconcile keeps the sleep skip when serviceReady is false', async () => {
     const rows = [fakeDbAgent({ spriteStatus: 'warm' })]
     const db = makeDb(rows)
 
@@ -321,7 +321,7 @@ test('reconcile keeps the sleep skip when verifiedByReport is false', async () =
         daemon: daemonRow()
     })
     await svc.reconcileRuntime(fakeRuntime() as never, {
-        verifiedByReport: false
+        serviceReady: false
     })
 
     assert.equal(
@@ -337,9 +337,9 @@ test('reconcile keeps the sleep skip when verifiedByReport is false', async () =
 })
 
 // Scenario 8: touchRuntime's 15s min-wait is NOT bypassed by the flag.
-// WHY: the report bypasses the sleep gate but must not become an unbounded
-// reconcile trigger — the min-wait/failure backoff is the report-flood bound.
-test('second verifiedByReport touch within 15s is dropped', async () => {
+// WHY: the signal bypasses the sleep gate but must not become an unbounded
+// reconcile trigger — the min-wait/failure backoff is the repeat bound.
+test('second serviceReady touch within 15s is dropped', async () => {
     const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     const registry = recordingRegistry([
@@ -352,15 +352,15 @@ test('second verifiedByReport touch within 15s is dropped', async () => {
     })
     const runtime = fakeRuntime() as never
 
-    svc.touchRuntime(runtime, { verifiedByReport: true })
+    svc.touchRuntime(runtime, { serviceReady: true })
     await svc['inflight'].get('rt-1')
     assert.equal(
         registry.calls.length,
         1,
-        'first verifiedByReport touch must reconcile through the sleep gate'
+        'first serviceReady touch must reconcile through the sleep gate'
     )
 
-    svc.touchRuntime(runtime, { verifiedByReport: true })
+    svc.touchRuntime(runtime, { serviceReady: true })
     assert.equal(
         svc['inflight'].size,
         0,
@@ -369,14 +369,14 @@ test('second verifiedByReport touch within 15s is dropped', async () => {
     assert.equal(
         registry.calls.length,
         1,
-        'verifiedByReport bypasses the sleep gate, not the 15s min-wait — otherwise a flapping reporter becomes an unbounded reconcile trigger'
+        'serviceReady bypasses the sleep gate, not the 15s min-wait — otherwise a flapping reporter becomes an unbounded reconcile trigger'
     )
 })
 
 // WHY: background touches on an asleep sprite complete at the sleep gate and
 // refresh the ordinary debounce timestamp. They must not consume the one
-// chance a fence-valid ready report has to run the authoritative listing.
-test('verifiedByReport touch is not dropped after a recent non-report sleep skip', async () => {
+// chance a service that just answered its health check has to run the authoritative listing.
+test('serviceReady touch is not dropped after a recent unsignalled sleep skip', async () => {
     const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     const registry = recordingRegistry([
@@ -392,18 +392,18 @@ test('verifiedByReport touch is not dropped after a recent non-report sleep skip
     await svc['inflight'].get('rt-1')
     assert.equal(registry.calls.length, 0)
 
-    svc.touchRuntime(runtime, { verifiedByReport: true })
+    svc.touchRuntime(runtime, { serviceReady: true })
     await svc['inflight'].get('rt-1')
     assert.equal(
         registry.calls.length,
         1,
-        'a successful non-report sleep skip must not debounce the ready-report listing'
+        'a successful unsignalled sleep skip must not debounce the service-ready listing'
     )
 })
 
-// WHY: a ready report can race an already-running background reconcile. Keep
-// one trailing verified pass instead of losing the report at the inflight gate.
-test('verifiedByReport touch coalesces behind an inflight non-report reconcile', async () => {
+// WHY: a service-ready signal can race an already-running background reconcile. Keep
+// one trailing verified pass instead of losing the signal at the inflight gate.
+test('serviceReady touch coalesces behind an inflight unsignalled reconcile', async () => {
     const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     let releaseFirst!: () => void
@@ -440,17 +440,17 @@ test('verifiedByReport touch coalesces behind an inflight non-report reconcile',
 
     svc.touchRuntime(runtime)
     await firstStarted
-    svc.touchRuntime(runtime, { verifiedByReport: true })
+    svc.touchRuntime(runtime, { serviceReady: true })
     releaseFirst()
     await svc['inflight'].get('rt-1')
     await svc['inflight'].get('rt-1')
 
-    assert.equal(calls, 2, 'the ready report must run as one trailing pass')
+    assert.equal(calls, 2, 'the service-ready signal must run as one trailing pass')
 })
 
 // WHY: priority over successful background debounce must not erase failure
 // backoff; an unhealthy runtime still needs the existing bounded retry policy.
-test('verifiedByReport touch still respects failure backoff', async () => {
+test('serviceReady touch still respects failure backoff', async () => {
     const rows = [fakeDbAgent()]
     const db = makeDb(rows)
     let calls = 0
@@ -467,7 +467,7 @@ test('verifiedByReport touch still respects failure backoff', async () => {
 
     svc.touchRuntime(runtime)
     await svc['inflight'].get('rt-1')
-    svc.touchRuntime(runtime, { verifiedByReport: true })
+    svc.touchRuntime(runtime, { serviceReady: true })
 
     assert.equal(calls, 1)
     assert.equal(svc['inflight'].size, 0)

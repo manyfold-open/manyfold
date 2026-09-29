@@ -35,7 +35,7 @@ export const reconcilerFor = (
     class Reconciler extends AgentReconcileService {
         override reconcileRuntime(
             runtime: AgentRuntimeRow,
-            o?: { verifiedByReport?: boolean }
+            o?: { serviceReady?: boolean }
         ): Promise<void> {
             box.runtime = runtime
             return super.reconcileRuntime(runtime, o)

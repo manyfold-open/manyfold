@@ -150,6 +150,28 @@ export const hermesPaths = (home: string) => {
     }
 }
 
+// hermes's own web UI, built into the checkout the dashboard serves: `tsc -b
+// && vite build` in <checkout>/web emits into hermes_cli/web_dist (verified on
+// a sprite 2026-07-03: ~22s + npm install). A rebuild replaces the checkout
+// and takes web_dist with it. No explicit `exit 0`: on a login shell with
+// `set -e`, the stock Debian ~/.bash_logout (`[ -x /usr/bin/clear_console ]
+// && …` → 1 when absent) corrupts an explicit-exit status to 1; the implicit
+// end of the script is immune (verified on a sprite 2026-07-03).
+export const HERMES_WEB_BUILD_TIMEOUT_MS = 600_000
+
+export const hermesWebBuildShell = (home: string): string => {
+    const { appDir, webDistDir } = hermesPaths(home)
+    return [
+        'set -eu',
+        `if [ ! -f "${webDistDir}/index.html" ]; then`,
+        `    cd "${appDir}/web"`,
+        '    npm install --no-audit --no-fund',
+        '    npm run build',
+        'fi',
+        'echo web_dist_ready'
+    ].join('\n')
+}
+
 // The CalVer tag is interpolated into the installer's `--branch` argument, so
 // this is the gate that keeps a shell metacharacter out of it: a valid semver
 // string cannot carry one, which is why admitting prereleases here does not

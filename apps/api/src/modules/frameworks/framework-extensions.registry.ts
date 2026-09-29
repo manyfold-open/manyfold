@@ -5,7 +5,7 @@ import {
     type AgentFramework
 } from '@manyfold/shared'
 import { Injectable, type OnApplicationBootstrap } from '@nestjs/common'
-import { registerPodServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import { registerServiceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 import { registerFrameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import type { FrameworkExtension } from './framework-extension'
 
@@ -34,20 +34,13 @@ export class FrameworkExtensionsRegistry implements OnApplicationBootstrap {
         const missing = (slot: string): never => {
             throw new Error(`framework '${id}' is missing its ${slot}`)
         }
-        if (
-            definition.kind === 'service' &&
-            definition.runtimes.includes('sprites') &&
-            !extension.spriteService
-        )
-            missing('sprite service')
-        if (
-            definition.kind === 'service' &&
-            definition.runtimes.includes('k8s') &&
-            !extension.podService
-        )
-            missing('pod service recipe')
-        if (extension.podService && extension.podService.framework !== id)
-            throw new Error(`framework '${id}' pod service recipe names another framework`)
+        const hosted =
+            definition.runtimes.includes('sprites') ||
+            definition.runtimes.includes('k8s')
+        if (definition.kind === 'service' && hosted && !extension.serviceRecipe)
+            missing('service recipe')
+        if (extension.serviceRecipe && extension.serviceRecipe.framework !== id)
+            throw new Error(`framework '${id}' service recipe names another framework`)
         if (definition.version && !extension.version)
             missing('version descriptor')
         if (
@@ -59,7 +52,8 @@ export class FrameworkExtensionsRegistry implements OnApplicationBootstrap {
             missing('files provider')
         if (extension.version)
             registerFrameworkVersionDescriptor(extension.version.descriptor)
-        if (extension.podService) registerPodServiceRecipe(extension.podService)
+        if (extension.serviceRecipe)
+            registerServiceFrameworkRecipe(extension.serviceRecipe)
         this.extensions.set(id, extension)
     }
 

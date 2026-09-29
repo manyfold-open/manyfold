@@ -3,38 +3,29 @@ import test from 'node:test'
 import {
     AWAKE_KEEP_TASK_NAME,
     isAwakeHoldTaskName,
+    isPlatformServiceName,
     isPlatformTaskName,
-    isServiceFrameworkName,
     PLATFORM_TASK_PREFIX
 } from '../src/framework-capability'
 
-// The host-detail "Services" surface must never let a user delete Manyfold's
-// own framework services — deleting one breaks the agent it runs. Only
-// service-kind framework names (which equal the on-sprite managed service name)
-// are guarded; everything else is freely deletable.
-test('service-kind framework names are managed (delete-protected)', () => {
-    assert.equal(isServiceFrameworkName('hermes'), true)
-    assert.equal(isServiceFrameworkName('openclaw'), true)
+// The sandbox "Services" surface must never let a user delete or stop the two
+// services Manyfold registers on a sprite: the daemon's restart loop (every
+// framework service runs under the daemon, so a stop takes them all down) and
+// the stub routing the public URL. Everything else is the user's.
+test('the daemon and the public port stub are platform services', () => {
+    assert.equal(isPlatformServiceName('mf-daemon'), true)
+    assert.equal(isPlatformServiceName('mf-port'), true)
 })
 
-test('hermes dashboard auxiliary services are managed (delete-protected)', () => {
-    // Deleting either breaks the enabled dashboard topology: the proxy holds
-    // the sprite's public http_port (chat routing), the dashboard serves the
-    // web UI behind it.
-    assert.equal(isServiceFrameworkName('hermes-dashboard'), true)
-    assert.equal(isServiceFrameworkName('hermes-proxy'), true)
-})
-
-test('coding frameworks and agent-registered service names are not managed', () => {
-    assert.equal(isServiceFrameworkName('claude-code'), false)
-    assert.equal(isServiceFrameworkName('codex'), false)
-    assert.equal(isServiceFrameworkName('gemini-cli'), false)
+test('framework and agent-registered service names are not platform services', () => {
+    // Framework services run under the daemon, not the sprite's Services API.
+    assert.equal(isPlatformServiceName('hermes'), false)
+    assert.equal(isPlatformServiceName('openclaw'), false)
     // An agent-self-registered service (e.g. an http.server "deck") is the whole
     // point of the feature — it must be deletable.
-    assert.equal(isServiceFrameworkName('deck'), false)
-    assert.equal(isServiceFrameworkName(''), false)
-    // Object prototype keys must not leak through as "managed".
-    assert.equal(isServiceFrameworkName('toString'), false)
+    assert.equal(isPlatformServiceName('deck'), false)
+    assert.equal(isPlatformServiceName(''), false)
+    assert.equal(isPlatformServiceName('toString'), false)
 })
 
 // The Tasks surface's delete guard: platform keep-alive leases must be managed

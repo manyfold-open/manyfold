@@ -1,11 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common'
 
 // In-process pub/sub with no module dependencies: lets leaf modules (chat,
-// runtime-reports) signal cross-cutting listeners (a framework module's sync)
-// without creating import cycles through their Nest modules.
+// host services) signal cross-cutting listeners (a framework module's sync,
+// the agent reconcile) without creating import cycles through their Nest
+// modules.
 export interface AppEvents {
     'chat.turn.finalized': { agentId: string; framework: string }
-    'runtime.report.ready': { runtimeId: string; framework: string }
+    // A runtime's service answered its health check after Manyfold started
+    // or restarted it.
+    'runtime.service.ready': { runtimeId: string; framework: string }
 }
 
 type Handler<K extends keyof AppEvents> = (payload: AppEvents[K]) => void
