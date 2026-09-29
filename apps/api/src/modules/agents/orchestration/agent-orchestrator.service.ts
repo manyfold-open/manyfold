@@ -103,6 +103,7 @@ import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import type { ResolvedAgentCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { BackupsService } from '@/modules/backups/backups.service'
+import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import {
     resolveWorkspaceSelection,
@@ -1218,12 +1219,7 @@ export class AgentOrchestratorService {
         const agentId = createObjectId('agent')
         const workspace = resolveWorkspaceSelection(
             dto.workspace,
-            defaultSpriteWorkspaceFor(
-                dto.framework,
-                agentId,
-                userId,
-                this.extensions
-            )
+            defaultSpriteWorkspaceFor(dto.framework, agentId, userId)
         )
 
         const frameworkVersion = await this.resolveFrameworkVersion(
@@ -1525,20 +1521,17 @@ export class AgentOrchestratorService {
 const defaultSpriteWorkspaceFor = (
     framework: AgentFramework,
     agentId: string,
-    userId: string,
-    extensions: FrameworkExtensionsRegistry
+    userId: string
 ): string => {
     // Service-kind frameworks own their own home dir; the workspace should
-    // match what the bootstraps actually use, not the coding-agent
+    // match what their recipes set up, not the coding-agent
     // .manyfold/workspaces convention.
-    if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
-    if (framework === 'openclaw')
-        return `${SPRITE_HOME_BASE}/.openclaw/workspace`
     return (
-        extensions
-            .get(framework)
-            ?.spriteService?.workspaceSeed(agentId, userId) ??
-        codingAgentWorkspacePath('sprites', agentId)
+        serviceFrameworkRecipe(framework)?.sandbox.workspaceSeed(
+            SPRITE_HOME_BASE,
+            agentId,
+            userId
+        ) ?? codingAgentWorkspacePath('sprites', agentId)
     )
 }
 

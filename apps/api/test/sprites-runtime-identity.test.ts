@@ -258,13 +258,12 @@ const provisionerWith = (opts: {
         {} as never, // hostAccess
         {} as never, // tokens
         {} as never, // runtimes
-        {} as never, // serviceBootstraps
+        {} as never, // hostServices
         {} as never, // runtimeAccess
         {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL' ? opts.apiBaseUrl : undefined
         } as never, // config
-        {} as never, // keepAliveLease
         { settleHostNotRunning: async () => {} } as never, // activeDuration
         opts.runtimeToken as never // runtimeToken (@Optional)
     )

@@ -97,6 +97,7 @@ export const auditAction = {
     AGENT_RUNTIME_DASHBOARD_TOGGLED: 'agent_runtime.dashboard.toggled',
     AGENT_RUNTIME_DASHBOARD_TOGGLE_FAILED:
         'agent_runtime.dashboard.toggle_failed',
+    AGENT_RUNTIME_SERVICE_RESTARTED: 'agent_runtime.service.restarted',
     AGENT_CREDENTIALS_UPDATED: 'agent.credentials.updated',
     AGENT_CREDENTIALS_REVEALED: 'agent.credentials.revealed',
     USER_RUNTIME_ACCESS_UPDATED: 'user.runtime_access.updated',

@@ -3,8 +3,6 @@ import {
     AgentSummary,
     FrameworkBlockedVersionRange,
     FrameworkUpgradeStep,
-    HERMES_DASHBOARD_SERVICE,
-    HERMES_PROXY_SERVICE,
     blockedVersionMessage,
     compareSemverPrecedence,
     findBlockedVersionRange,
@@ -25,8 +23,12 @@ import {
     Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { type Agent, type Database, type RuntimeHostRow } from '@manyfold/db'
-import { execSprite } from '@manyfold/sprites'
+import {
+    type Agent,
+    type AgentRuntimeRow,
+    type Database,
+    type RuntimeHostRow
+} from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { AgentsService } from '@/modules/agents/agents.service'
@@ -44,25 +46,21 @@ import {
     RuntimeContextService,
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
 import {
     hostsFrameworkCli,
     runOnRuntimeHost,
     upgradeLockTarget
 } from './runtime-host-shell'
-import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
+import { HostServices } from '@/modules/agent-runtimes/provisioning/host-services'
 import {
-    podServiceRecipe,
-    type PodServiceRecipe
-} from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
-import {
-    HERMES_WEB_BUILD_SHELL,
-    HERMES_WEB_BUILD_TIMEOUT_MS,
-    SPRITE_HERMES_HOME
-} from '@/modules/agents/bootstrap/hermes-sprite'
+    serviceFrameworkRecipe,
+    type ServiceFrameworkRecipe
+} from '@/modules/agents/bootstrap/service-frameworks'
 import {
     buildHermesRebuildShell,
-    buildHermesRestoreShell
+    buildHermesRestoreShell,
+    HERMES_WEB_BUILD_TIMEOUT_MS,
+    hermesWebBuildShell
 } from '@/modules/agents/bootstrap/hermes-shared'
 
 // npm installs of the coding-agent CLIs can take a while (claude-code is a
@@ -73,7 +71,6 @@ const UPGRADE_TIMEOUT_MS = 180_000
 // timeout).
 const REBUILD_TIMEOUT_MS = 900_000
 const RESTORE_TIMEOUT_MS = 120_000
-const POD_SERVICE_READY_TIMEOUT_MS = 180_000
 
 export interface FrameworkUpgradeEmitter {
     step(step: FrameworkUpgradeStep): void
@@ -93,14 +90,11 @@ export class FrameworkUpgradeService {
         private readonly adminSettings: AdminSettingsService,
         private readonly runtimeContext: RuntimeContextService,
         private readonly execResolver: FrameworkExecResolver,
-        private readonly hostClients: HostProviderClients,
+        private readonly hostServices: HostServices,
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        // Appended last + @Optional; absent, pod service frameworks cannot be
-        // rebuilt.
-        @Optional() private readonly podServices?: PodHostServices,
-        // Same convention; present, a sandbox is held awake for the whole
-        // upgrade.
+        // Appended last + @Optional; present, a sandbox is held awake for the
+        // whole upgrade.
         @Optional() private readonly hostAccess?: HostDaemonAccess
     ) {}
 
@@ -176,21 +170,10 @@ export class FrameworkUpgradeService {
                         `framework upgrade install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
                     )
 
-                // Daemons run a long-lived service off the upgraded binary; restart it
-                // so the new version takes effect. env is unchanged so a plain restart
-                // is safe (the env-not-propagated caveat only bites on env changes).
-                if (
-                    ctx.placement === 'sprites' &&
-                    descriptor.runtimeKind === 'daemon' &&
-                    descriptor.serviceName
-                ) {
-                    const { client, spriteName } =
-                        await this.hostClients.spritesClientForHost(host)
-                    await client.restartService(spriteName, descriptor.serviceName)
-                }
-                const recipe = podServiceRecipe(agent.framework)
-                if (ctx.placement === 'k8s' && recipe)
-                    await this.restartPodService(host, recipe)
+                // A service framework runs off the upgraded binary: the
+                // host's daemon restarts it so the new version takes effect.
+                const recipe = serviceFrameworkRecipe(agent.framework)
+                if (recipe) await this.restartService(runtime, host, recipe)
 
                 // Re-probe persists the new version. Assert it actually changed —
                 // catches the case where a pre-installed binary still shadows the
@@ -240,16 +223,10 @@ export class FrameworkUpgradeService {
         const framework = agent.framework
         const ctx = await this.hostedRuntime(agent)
         const { runtime, host } = ctx
-        const podRecipe =
-            ctx.placement === 'k8s' ? podServiceRecipe(framework) : undefined
-        if (ctx.placement === 'k8s' && !podRecipe)
+        const recipe = serviceFrameworkRecipe(framework)
+        if (!recipe)
             throw new BadRequestException(
-                `${framework} rebuild upgrade is not available on cloud computers`
-            )
-        const serviceName = frameworkVersionDescriptor(framework).serviceName
-        if (!serviceName)
-            throw new InternalServerErrorException(
-                `${framework} descriptor missing serviceName`
+                `${framework} rebuild upgrade is not available on this machine`
             )
         const catalog = await this.versions.getForFramework(framework)
         const sourceRepo = catalog.sourceRepo
@@ -278,15 +255,15 @@ export class FrameworkUpgradeService {
             catalog.blocked
         )
 
-        if (podRecipe)
-            return withRuntimeUpgradeLock(
+        return this.held(host, () =>
+            withRuntimeUpgradeLock(
                 this.db,
                 upgradeLockTarget(runtime, agent.framework),
                 async () => {
-                    await this.rebuildOnPod({
+                    await this.rebuildOnHost({
                         agent,
                         ctx,
-                        recipe: podRecipe,
+                        recipe,
                         targetVersion,
                         sourceRepo,
                         emitter
@@ -294,125 +271,7 @@ export class FrameworkUpgradeService {
                     return this.agents.get(agentId, callerUserId, isAdmin)
                 }
             )
-
-        return this.held(host, () => withRuntimeUpgradeLock(
-            this.db,
-            upgradeLockTarget(runtime, agent.framework),
-            async () => {
-                emitter.step('validating')
-                const { client, spriteName } =
-                    await this.hostClients.spritesClientForHost(host)
-                // Carry the admitted snapshot through the lock/client awaits;
-                // re-reading settings here could pair this tag with another repo.
-                const shells = this.rebuildShellsFor(
-                    agent.framework,
-                    targetVersion,
-                    sourceRepo,
-                    this.spriteHomeFor(agent.framework)
-                )
-                // Dashboard topology: proxy + dashboard serve out of (and route to)
-                // the checkout the rebuild is about to replace — stop them first and
-                // bring them back after, rebuilding web_dist which vanishes with the
-                // old checkout.
-                const dashboardTopology =
-                    framework === 'hermes' && runtime.dashboardEnabled
-
-                emitter.step('stopping_service')
-                if (dashboardTopology) {
-                    await client
-                        .stopService(spriteName, HERMES_PROXY_SERVICE)
-                        .catch(() => undefined)
-                    await client
-                        .stopService(spriteName, HERMES_DASHBOARD_SERVICE)
-                        .catch(() => undefined)
-                }
-                await client
-                    .stopService(spriteName, serviceName)
-                    .catch(() => undefined)
-
-                emitter.step('rebuilding')
-                const rebuild = await execSprite(client, spriteName, {
-                    cmd: ['bash', '-lc', shells.rebuild],
-                    stdin: '',
-                    timeoutMs: REBUILD_TIMEOUT_MS
-                })
-                if (rebuild.exitCode !== 0) {
-                    // roll back to the pre-upgrade checkout, bring the old version back up
-                    await execSprite(client, spriteName, {
-                        cmd: ['bash', '-lc', shells.restore],
-                        stdin: '',
-                        timeoutMs: RESTORE_TIMEOUT_MS
-                    }).catch(() => undefined)
-                    await client
-                        .startService(spriteName, serviceName)
-                        .catch(() => undefined)
-                    if (dashboardTopology) {
-                        // Restored checkout still has its web_dist; just restart the
-                        // stopped services so chat routing (proxy) comes back.
-                        await client
-                            .startService(spriteName, HERMES_DASHBOARD_SERVICE)
-                            .catch(() => undefined)
-                        await client
-                            .startService(spriteName, HERMES_PROXY_SERVICE)
-                            .catch(() => undefined)
-                    }
-                    throw new InternalServerErrorException(
-                        `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
-                    )
-                }
-
-                emitter.step('starting_service')
-                const state = await client.startService(spriteName, serviceName)
-                if (state.state.status === 'failed')
-                    throw new InternalServerErrorException(
-                        `${agent.framework} service failed to start after upgrade: ${state.state.error ?? 'unknown'}`
-                    )
-                if (dashboardTopology) {
-                    // The new checkout ships no web_dist — rebuild it, then bring the
-                    // dashboard + proxy back. The proxy is started even if the UI
-                    // build failed: it owns the public http_port, so chat routing
-                    // must recover regardless; a dist-less dashboard just 404s.
-                    const uiBuild = await execSprite(client, spriteName, {
-                        cmd: ['bash', '-lc', HERMES_WEB_BUILD_SHELL],
-                        stdin: '',
-                        timeoutMs: HERMES_WEB_BUILD_TIMEOUT_MS
-                    }).catch((err: unknown) => ({
-                        exitCode: -1,
-                        stderr: (err as Error).message
-                    }))
-                    await client
-                        .startService(spriteName, HERMES_DASHBOARD_SERVICE)
-                        .catch(() => undefined)
-                    const proxyState = await client.startService(
-                        spriteName,
-                        HERMES_PROXY_SERVICE
-                    )
-                    if (proxyState.state.status === 'failed')
-                        throw new InternalServerErrorException(
-                            `hermes front proxy failed to start after upgrade: ${proxyState.state.error ?? 'unknown'}`
-                        )
-                    if (uiBuild.exitCode !== 0)
-                        throw new InternalServerErrorException(
-                            `hermes web UI rebuild failed after upgrade (exit ${uiBuild.exitCode}): ${uiBuild.stderr.slice(0, 512)}`
-                        )
-                }
-
-                emitter.step('verifying')
-                const installed = await this.probe.probeAndPersist(agent)
-                // probe reports the git tag (e.g. 1.8.3 / 2026.6.5 / 1.15.1-rc.1); target
-                // may carry a leading v. Precedence-aware, or a rebuild asked for a
-                // prerelease and handed back its stable release would verify clean.
-                if (
-                    installed !== null &&
-                    compareSemverPrecedence(installed, targetVersion) !== 0
-                )
-                    throw new InternalServerErrorException(
-                        `${agent.framework} upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed}`
-                    )
-
-                return this.agents.get(agentId, callerUserId, isAdmin)
-            }
-        ))
+        )
     }
 
     // Per-framework rebuild + rollback shells for the streamed upgrade. Both
@@ -446,46 +305,43 @@ export class FrameworkUpgradeService {
         return shells({ version: targetVersion, repo, home })
     }
 
-    // A framework's home on a sandbox: hermes's own, or the one an edition's
-    // sprite service declares.
-    private spriteHomeFor(framework: AgentFramework): string {
-        if (framework === 'hermes') return SPRITE_HERMES_HOME
-        const home =
-            this.extensions.get(framework)?.spriteService?.supervision.homeDir
-        if (!home)
-            throw new BadRequestException(
-                `${framework} rebuild upgrade is not implemented yet`
-            )
-        return home
-    }
-
-    // A rebuilt service framework on a pod host: its daemon stops the
-    // service, the checkout is replaced (restored on failure), and the service
-    // comes back up before the version is read back (ADR-0035).
-    private async rebuildOnPod(args: {
+    // A rebuilt service framework: the host's daemon stops its services, the
+    // checkout is replaced (restored on failure), and the services come back
+    // up before the version is read back. The hermes dashboard serves out of
+    // the checkout the rebuild replaces, so its services stop first and its
+    // web UI is built again for the new checkout; the front proxy comes back
+    // even when that build fails, since it holds the public URL.
+    private async rebuildOnHost(args: {
         agent: Agent
         ctx: HostedRuntime
-        recipe: PodServiceRecipe
+        recipe: ServiceFrameworkRecipe
         targetVersion: string
         sourceRepo: string | null
         emitter: FrameworkUpgradeEmitter
     }): Promise<void> {
         const { agent, ctx, recipe, emitter } = args
-        if (!this.podServices)
-            throw new ServiceUnavailableException(
-                'cloud computer services are not available'
-            )
-        const host = ctx.host
-        const exec = await this.execResolver.forRuntime(ctx.runtime, this.log)
+        const { host, runtime } = ctx
+        const exec = await this.execResolver.forRuntime(runtime, this.log)
         emitter.step('validating')
+        const home = recipe.home(this.hostServices.serviceHost(host).home)
         const shells = this.rebuildShellsFor(
             agent.framework,
             args.targetVersion,
             args.sourceRepo,
-            recipe.home
+            home
+        )
+        const running = new Set(
+            (await this.hostServices.list(host))
+                .filter((s) => s.state !== 'stopped')
+                .map((s) => s.name)
+        )
+        const companions = recipe.companionNames.filter((name) =>
+            running.has(name)
         )
         emitter.step('stopping_service')
-        await this.podServices.stop(host, recipe.serviceName)
+        for (const name of [...companions].reverse())
+            await this.hostServices.stop(host, name)
+        await this.hostServices.stop(host, recipe.serviceName)
         emitter.step('rebuilding')
         const rebuild = await runOnRuntimeHost(
             exec,
@@ -498,22 +354,39 @@ export class FrameworkUpgradeService {
                 shells.restore,
                 RESTORE_TIMEOUT_MS
             ).catch(() => undefined)
-            await this.podServices
-                .start(host, recipe.serviceName)
-                .catch(() => undefined)
+            for (const name of [recipe.serviceName, ...companions])
+                await this.hostServices.start(host, name).catch(() => undefined)
             throw new InternalServerErrorException(
                 `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
             )
         }
         emitter.step('starting_service')
-        await this.podServices.start(host, recipe.serviceName)
-        await this.podServices.waitHealthy(
-            host,
-            recipe.serviceName,
-            POD_SERVICE_READY_TIMEOUT_MS
-        )
+        await this.hostServices.start(host, recipe.serviceName)
+        await this.hostServices.waitHealthy(host, recipe.serviceName)
+        if (companions.length > 0) {
+            const uiBuild = await runOnRuntimeHost(
+                exec,
+                hermesWebBuildShell(home),
+                HERMES_WEB_BUILD_TIMEOUT_MS
+            ).catch((err: unknown) => ({
+                exitCode: -1,
+                stdout: '',
+                stderr: (err as Error).message
+            }))
+            for (const name of companions)
+                await this.hostServices.start(host, name)
+            if (uiBuild.exitCode !== 0)
+                throw new InternalServerErrorException(
+                    `hermes web UI rebuild failed after upgrade (exit ${uiBuild.exitCode}): ${uiBuild.stderr.slice(0, 512)}`
+                )
+        }
+        await this.hostServices.markReady(runtime)
         emitter.step('verifying')
         const installed = await this.probe.probeAndPersist(agent)
+        // The probe reports the tag (1.8.3 / 2026.6.5 / 1.15.1-rc.1); the
+        // target may carry a leading v. Precedence-aware, or a rebuild asked
+        // for a prerelease and handed back its stable release would verify
+        // clean.
         if (
             installed !== null &&
             compareSemverPrecedence(installed, args.targetVersion) !== 0
@@ -523,17 +396,14 @@ export class FrameworkUpgradeService {
             )
     }
 
-    private async restartPodService(
+    private async restartService(
+        runtime: AgentRuntimeRow,
         host: RuntimeHostRow,
-        recipe: PodServiceRecipe
+        recipe: ServiceFrameworkRecipe
     ): Promise<void> {
-        if (!this.podServices) return
-        await this.podServices.restart(host, recipe.serviceName)
-        await this.podServices.waitHealthy(
-            host,
-            recipe.serviceName,
-            POD_SERVICE_READY_TIMEOUT_MS
-        )
+        await this.hostServices.restart(host, recipe.serviceName)
+        await this.hostServices.waitHealthy(host, recipe.serviceName)
+        await this.hostServices.markReady(runtime)
     }
 
     // A release inside a broken window is never installable, by anyone: an

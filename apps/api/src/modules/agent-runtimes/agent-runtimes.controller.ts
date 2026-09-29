@@ -32,6 +32,7 @@ import { AgentRuntimesService } from './agent-runtimes.service'
 import { RenameRuntimeDto } from './dto/rename-runtime.dto'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
+import { RuntimeRemovalService } from './runtime-removal.service'
 
 export const RUNTIME_AGENTS_BOUND_CODE = 'runtime.agents_bound'
 
@@ -44,7 +45,10 @@ export class AgentRuntimesController {
         // Appended last + @Optional so positional test construction keeps
         // working; absent only there.
         @Optional()
-        private readonly account?: RuntimeAccountService
+        private readonly account?: RuntimeAccountService,
+        // Same convention; absent, only the row is removed.
+        @Optional()
+        private readonly removal?: RuntimeRemovalService
     ) {}
 
     @Get()
@@ -90,7 +94,8 @@ export class AgentRuntimesController {
                 code: RUNTIME_AGENTS_BOUND_CODE,
                 message: `runtime ${row.id} still has ${bound} agent(s); delete them first`
             })
-        await this.runtimes.delete(row.id)
+        if (this.removal) await this.removal.remove(row)
+        else await this.runtimes.delete(row.id)
     }
 
     @Patch(':id/name')

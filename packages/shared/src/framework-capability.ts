@@ -92,26 +92,22 @@ export const isKnownMcpScope = (
         (scope) => scope.id === scopeId
     )
 
-// Auxiliary sprite services Manyfold registers alongside a framework's main
-// service. Single source shared by the hermes bootstrap (which creates them)
-// and the delete-guard below (which must protect them) so the lists can't
-// drift.
+// The services of the hermes dashboard, run by the host's daemon beside the
+// gateway while the dashboard is on.
 export const HERMES_DASHBOARD_SERVICE = 'hermes-dashboard'
 export const HERMES_PROXY_SERVICE = 'hermes-proxy'
 
-const MANAGED_AUX_SERVICE_NAMES: ReadonlySet<string> = new Set([
-    HERMES_DASHBOARD_SERVICE,
-    HERMES_PROXY_SERVICE
-])
+// The two sprites.dev services Manyfold registers on a sandbox: the daemon's
+// restart loop (every framework service runs under the daemon) and the stub
+// that routes the sandbox's public URL to a port inside it. Everything else
+// on the sprite's Services API is the user's or the agent's. Used to show
+// them read-only on the sandbox surface and to keep a delete or a stop off
+// them.
+export const SANDBOX_DAEMON_SERVICE = 'mf-daemon'
+export const SANDBOX_PORT_SERVICE = 'mf-port'
 
-// A sprites.dev service name is Manyfold-managed when the platform — not the
-// agent — registered it: either a service-kind framework's main service (named
-// after the framework) or one of the auxiliary services above. Used to surface
-// such services read-only on the host detail surface and to block their
-// deletion.
-export const isServiceFrameworkName = (name: string): boolean =>
-    MANAGED_AUX_SERVICE_NAMES.has(name) ||
-    frameworkDefinition(name)?.kind === 'service'
+export const isPlatformServiceName = (name: string): boolean =>
+    name === SANDBOX_DAEMON_SERVICE || name === SANDBOX_PORT_SERVICE
 
 // Sprite activity tasks (`/v1/tasks`) registered by the Manyfold platform. The
 // awake hold an API instance keeps while it works on the machine (ADR-0038) is

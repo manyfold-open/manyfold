@@ -19,16 +19,14 @@ import {
     type OnModuleInit
 } from '@nestjs/common'
 import { eq, like, or } from 'drizzle-orm'
+import { WebSocket } from 'ws'
 import {
     agentCredentials,
     agentRuntimes,
     agents,
     auditLogs,
-    type AgentRuntimeRow,
-    type Database,
-    type RuntimeHostRow
+    type Database
 } from '@manyfold/db'
-import type { SpritesLogger } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
@@ -39,21 +37,20 @@ import {
 } from '@/modules/hosts/runtime-context.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
-import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
-import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
-import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-bootstrap'
 import type {
     ResolvedHermesCredentials,
     ResolvedOpenclawCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
 import { mergeGeneratedCredentials } from '@/modules/agents/credentials/credential-merge'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
-import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
-import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
-import { PodHostServices } from '@/modules/agent-runtimes/provisioning/pod-host-services'
-import { podServiceRecipe } from '@/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import {
+    HostServices,
+    type ServiceSettings
+} from '@/modules/agent-runtimes/provisioning/host-services'
+import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 
-const POD_SERVICE_READY_TIMEOUT_MS = 180_000
+const PROBE_ATTEMPTS = 10
+const PROBE_INTERVAL_MS = 3_000
 
 // A claim older than this with no terminal write is an interrupted toggle
 // (API restart mid-orchestration); the sweep marks it error so the CAS can
@@ -62,19 +59,14 @@ const POD_SERVICE_READY_TIMEOUT_MS = 180_000
 const STALE_TOGGLE_MS = 15 * 60_000
 const SWEEP_INTERVAL_MS = 60_000
 
-interface SpriteToggleTarget {
-    ctx: BootstrapContext
-    creds: Record<string, unknown>
-}
-
-// Placement dispatcher for the dashboard/control-UI surface: a runtime on a
-// sprites host gets the sprite service choreography, and one on a pod host
-// rewrites the config and has the host's daemon restart the service
-// (ADR-0035). The hermes dashboard is sprite-only —
-// the k8s host shape (cookie-authed `-dashboard` ingress sidecar) was
-// retired with zero enabled rows measured on prod and staging [2026-08-28].
-// Deliberately does NOT depend on AgentsService — AgentsModule imports this
-// module, so that edge would be a cycle.
+// The dashboard/control-UI surface: a toggle rewrites the framework's config
+// and has the host's daemon restart its services (ADR-0035), on a sandbox and
+// a cloud computer alike. The hermes dashboard is sandbox-only — the k8s host
+// shape (cookie-authed `-dashboard` ingress sidecar) was retired with zero
+// enabled rows measured on prod and staging [2026-08-28]; on a sandbox its
+// front proxy takes over the public URL. Deliberately does NOT depend on
+// AgentsService — AgentsModule imports this module, so that edge would be a
+// cycle.
 @Injectable()
 export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     private readonly log = new Logger(RuntimeDashboardService.name)
@@ -87,12 +79,9 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         private readonly hostClients: HostProviderClients,
         private readonly providers: SandboxProviderRegistry,
         private readonly crypto: CryptoService,
-        private readonly hermesBootstrap: HermesSpriteBootstrap,
-        private readonly openclawBootstrap: OpenClawSpriteBootstrap,
+        private readonly hostServices: HostServices,
         @Optional()
-        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        // Same convention; absent, a pod host's toggle is refused.
-        @Optional() private readonly podServices?: PodHostServices
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     onModuleInit(): void {
@@ -127,16 +116,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
 
         await this.claimOrConflict(runtime.id, enabled)
         try {
-            if (ctx.placement === 'k8s')
-                await this.reconfigurePodService(runtime, ctx.host!, enabled)
-            else {
-                const target = await this.buildSpriteTarget(ctx)
-                await this.openclawBootstrap.setControlUi(
-                    target.ctx,
-                    target.creds,
-                    enabled
-                )
-            }
+            await this.reconfigure(ctx, { controlUiEnabled: enabled })
             await this.runtimes.applyStatusPatch(runtime.id, {
                 controlUiEnabled: enabled,
                 dashboardState: null
@@ -179,6 +159,39 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         return this.refreshedSummary(runtime.id)
     }
 
+    // A service framework's config rewritten and its services restarted on
+    // its host's daemon with the runtime's own settings: an operator's
+    // repair, and how a cutover moves a runtime onto its daemon's services.
+    async restartService(
+        callerUserId: string,
+        runtimeId: string,
+        isAdmin: boolean
+    ): Promise<AgentRuntimeSummary> {
+        const ctx = await this.loadRuntime(runtimeId, callerUserId, isAdmin)
+        const runtime = ctx.runtime
+        if (!serviceFrameworkRecipe(runtime.framework))
+            throw new BadRequestException(
+                `${runtime.framework} runs no service to restart`
+            )
+        if (ctx.placement !== 'sprites' && ctx.placement !== 'k8s')
+            throw new BadRequestException(
+                'service restart is only supported on sandboxes and cloud computers'
+            )
+        await this.reconfigure(ctx, {})
+        await this.audit(
+            callerUserId,
+            auditAction.AGENT_RUNTIME_SERVICE_RESTARTED,
+            runtime.id,
+            {
+                runtimeId: runtime.id,
+                framework: runtime.framework,
+                ownerUserId: runtime.userId,
+                onBehalfOf: callerUserId !== runtime.userId
+            }
+        )
+        return this.refreshedSummary(runtime.id)
+    }
+
     async setDashboard(
         callerUserId: string,
         runtimeId: string,
@@ -191,7 +204,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 'dashboard toggle only supported for hermes runtimes'
             )
-        if (ctx.placement !== 'sprites')
+        if (ctx.placement !== 'sprites' || !ctx.host)
             throw new BadRequestException(
                 'dashboard toggle only supported for sprites runtimes'
             )
@@ -342,23 +355,10 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    // The port the framework's UI is served on inside the machine: the
-    // built-in gateways' own, an edition framework's from its health URL,
-    // else the public https port (both providers route by name, not port).
+    // The port the framework's UI is served on inside the machine, else the
+    // public https port (both providers route by name, not port).
     private servicePortFor(framework: AgentFramework): number {
-        if (framework === 'hermes') return HERMES_PORT
-        if (framework === 'openclaw') return OPENCLAW_PORT
-        const healthUrl =
-            this.extensions.get(framework)?.spriteService?.supervision.healthUrl
-        if (healthUrl) {
-            try {
-                const port = Number(new URL(healthUrl).port)
-                if (port > 0) return port
-            } catch {
-                // not a URL: fall through to the public port
-            }
-        }
-        return 443
+        return serviceFrameworkRecipe(framework)?.port ?? 443
     }
 
     // Background half of the async hermes toggle: persists the dashboard
@@ -371,17 +371,7 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         const runtime = ctx.runtime
         try {
             if (enabled) await this.ensureDashboardToken(runtime.id)
-            const target = await this.buildSpriteTarget(ctx)
-            if (enabled)
-                await this.hermesBootstrap.enableDashboard(
-                    target.ctx,
-                    target.creds
-                )
-            else
-                await this.hermesBootstrap.disableDashboard(
-                    target.ctx,
-                    target.creds
-                )
+            await this.switchDashboard(ctx, enabled)
             await this.runtimes.applyStatusPatch(runtime.id, {
                 dashboardEnabled: enabled,
                 dashboardState: null
@@ -463,56 +453,16 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             )
     }
 
-    private async buildSpriteTarget(
-        ctx: RuntimeContext
-    ): Promise<SpriteToggleTarget> {
-        const runtime = ctx.runtime
-        if (!runtime.primaryAgentId)
-            throw new InternalServerErrorException(
-                `runtime ${runtime.id} has no primaryAgentId`
-            )
-        const [agent] = await this.db
-            .select()
-            .from(agents)
-            .where(eq(agents.id, runtime.primaryAgentId))
-            .limit(1)
-        if (!agent)
-            throw new NotFoundException(
-                `agent ${runtime.primaryAgentId} not found for runtime ${runtime.id}`
-            )
-        if (!ctx.host || ctx.host.providerRef?.kind !== 'sprites')
-            throw new BadRequestException('agent has no sprite')
-        const { client, spriteName } =
-            await this.hostClients.spritesClientForHost(ctx.host)
-        const creds = await this.decryptCreds(runtime.id)
-        const bootstrap: BootstrapContext = {
-            agentId: agent.id,
-            runtimeId: runtime.id,
-            userId: agent.userId,
-            spriteName,
-            mountPath: agent.mountPath,
-            client,
-            logger: this.spritesLogger(),
-            envText: envTextFromExtras(agent.extras) ?? null,
-            controlUiEnabled: runtime.controlUiEnabled,
-            dashboardEnabled: runtime.dashboardEnabled
-        }
-        return { ctx: bootstrap, creds }
-    }
-
-    // The config and service of a framework on a pod host, rewritten for
-    // this control UI setting and restarted by the host's daemon.
-    private async reconfigurePodService(
-        runtime: AgentRuntimeRow,
-        host: RuntimeHostRow,
-        controlUiEnabled: boolean
+    // The framework's config rewritten and its services restarted with one
+    // setting changed; the rest are the runtime's own, and its env the
+    // primary agent's.
+    private async reconfigure(
+        ctx: RuntimeContext,
+        change: Partial<ServiceSettings>
     ): Promise<void> {
-        const recipe = podServiceRecipe(runtime.framework)
-        if (!recipe || !this.podServices)
-            throw new BadRequestException(
-                `${runtime.framework} has no service on this cloud computer`
-            )
-        // The service's env carries the runtime's agent env, as on a sprite.
+        const { runtime, host } = ctx
+        if (!host)
+            throw new BadRequestException(`runtime ${runtime.id} has no host`)
         const [agent] = runtime.primaryAgentId
             ? await this.db
                   .select({ extras: agents.extras })
@@ -520,26 +470,110 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                   .where(eq(agents.id, runtime.primaryAgentId))
                   .limit(1)
             : []
-        const credentials = await this.decryptCreds(runtime.id)
-        const target = { id: host.id, userId: host.userId }
-        const setup = await this.podServices.runScripts(
-            target,
-            'service-reconfigure',
-            (runner) =>
-                recipe.configure(runner, {
-                    credentials,
-                    envText: agent
-                        ? (envTextFromExtras(agent.extras) ?? null)
-                        : null,
-                    controlUiEnabled
-                })
+        await this.hostServices.reconfigure(runtime, host, {
+            credentials: await this.decryptCreds(runtime.id),
+            envText: agent ? (envTextFromExtras(agent.extras) ?? null) : null,
+            controlUiEnabled: runtime.controlUiEnabled,
+            dashboardEnabled: runtime.dashboardEnabled,
+            ...change
+        })
+    }
+
+    // The hermes dashboard switched on a sandbox, proved through its public
+    // URL, and rolled back to the other topology when that fails: chat must
+    // never be left unroutable. Enabled, the front proxy serves /v1 from the
+    // gateway, refuses the UI's HTML without the token, and passes the UI's
+    // WebSocket with the Origin a browser sends; disabled, the gateway
+    // answers directly.
+    private async switchDashboard(
+        ctx: RuntimeContext,
+        enabled: boolean
+    ): Promise<void> {
+        await this.reconfigure(ctx, { dashboardEnabled: enabled })
+        try {
+            const base = await this.publicBaseUrl(ctx)
+            await this.probe(`${base}/v1/health`, (status) => status === 200, enabled ? 'gateway /v1/health via proxy' : 'gateway /v1/health direct')
+            if (enabled) {
+                await this.probe(`${base}/`, (status) => status === 401, 'tokenless dashboard root returns 401')
+                const creds = (await this.decryptCreds(ctx.runtime.id)) as ResolvedHermesCredentials
+                await this.probeWs(
+                    `${base.replace(/^http/, 'ws')}/api/ws?token=${encodeURIComponent(creds.dashboardToken ?? '')}`,
+                    base,
+                    'dashboard /api/ws handshake with browser Origin'
+                )
+            }
+        } catch (err) {
+            this.log.warn(
+                `dashboard ${enabled ? 'enable' : 'disable'} rolled back runtimeId=${ctx.runtime.id}: ${(err as Error).message}`
+            )
+            await this.reconfigure(ctx, { dashboardEnabled: !enabled }).catch(
+                (rollbackErr: Error) =>
+                    this.log.error(
+                        `dashboard rollback failed runtimeId=${ctx.runtime.id}: ${rollbackErr.message}`
+                    )
+            )
+            throw err
+        }
+    }
+
+    private async publicBaseUrl(ctx: RuntimeContext): Promise<string> {
+        const ingressHost = await this.ingressHostFor(ctx)
+        if (!ingressHost)
+            throw new InternalServerErrorException(
+                `runtime ${ctx.runtime.id} has no public URL`
+            )
+        return `https://${ingressHost}`
+    }
+
+    private async probe(
+        url: string,
+        ok: (status: number) => boolean,
+        label: string
+    ): Promise<void> {
+        let last: number | string = 'unreachable'
+        for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt++) {
+            try {
+                const res = await fetch(url, { signal: AbortSignal.timeout(5_000) })
+                last = res.status
+                await res.arrayBuffer().catch(() => undefined)
+                if (ok(res.status)) return
+            } catch {
+                last = 'unreachable'
+            }
+            await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS))
+        }
+        throw new InternalServerErrorException(
+            `probe failed (${label}): last status ${last} at ${url}`
         )
-        await this.podServices.upsert(target, setup.spec)
-        await this.podServices.restart(target, setup.spec.name)
-        await this.podServices.waitHealthy(
-            target,
-            setup.spec.name,
-            POD_SERVICE_READY_TIMEOUT_MS
+    }
+
+    // The URL carries the dashboard token as a query param; error messages
+    // flow into logs and the persisted dashboard_state, so only the path is
+    // ever reported.
+    private async probeWs(url: string, origin: string, label: string): Promise<void> {
+        let last = 'unreachable'
+        for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt++) {
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    const ws = new WebSocket(url, { origin, handshakeTimeout: 5_000 })
+                    ws.once('open', () => {
+                        ws.terminate()
+                        resolve()
+                    })
+                    ws.once('unexpected-response', (_req, res) => {
+                        ws.terminate()
+                        reject(new Error(`handshake rejected with status ${res.statusCode}`))
+                    })
+                    ws.once('error', (err) => reject(err))
+                })
+                return
+            } catch (err) {
+                last = (err as Error).message
+            }
+            await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS))
+        }
+        throw new InternalServerErrorException(
+            `probe failed (${label}): ${last} at ${url.split('?')[0]}`
         )
     }
 
@@ -628,18 +662,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             this.log.warn(
                 `dashboard-state sweep failed: ${(err as Error).message}`
             )
-        }
-    }
-
-    private spritesLogger(): SpritesLogger {
-        return {
-            debug: () => {},
-            info: (m, meta) =>
-                this.log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-            warn: (m, meta) =>
-                this.log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-            error: (m, meta) =>
-                this.log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
         }
     }
 

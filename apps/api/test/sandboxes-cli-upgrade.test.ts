@@ -45,6 +45,7 @@ const hostAccessFor = (opts: { online?: boolean }, host: { id: string }, daemon:
 const buildHarness = (opts: {
     online?: boolean
     features?: string[]
+    startupMethod?: string
     upgradeInProgress?: boolean
     rpcError?: Error
     installable?: boolean
@@ -71,6 +72,7 @@ const buildHarness = (opts: {
         hostId: 'sbx_1',
         cliVersion: OLD,
         herdrVersion: null,
+        startupMethod: opts.startupMethod ?? 'manual',
         clientFeatures: opts.features ?? [DAEMON_FEATURE_MANUAL_UPDATE],
         detectedFrameworks: [],
         lastSeenAt: new Date()
@@ -195,6 +197,16 @@ test('a daemon below the self-update floor is refused rather than installed over
             err instanceof ConflictException &&
             (err.getResponse() as { code?: string }).code === 'SANDBOX_DAEMON_TOO_OLD'
     )
+})
+
+// A daemon under its sprite's supervised loop updates by exiting and is
+// started again by the loop, so it takes the update without the manual
+// hand-off feature.
+test('a supervised daemon is updated through daemon.update', async () => {
+    const h = buildHarness({ features: [], startupMethod: 'container' })
+    await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.equal(h.rpcs.length, 1)
+    assert.equal(h.rpcs[0].method, 'daemon.update')
 })
 
 test('a failed daemon.update surfaces as 503', async () => {

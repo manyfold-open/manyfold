@@ -113,14 +113,14 @@ const upgradeWith = (opts: {
                 host: spritesHostRow({ id: 'rth_1' })
             })
         ) as never,
-        {} as never,
         {
-            // reaching the sprite means every policy check passed — a
-            // distinctive failure marks that boundary without a live sprite
-            spritesClientForHost: async () => {
+            // reaching the machine means every policy check passed — a
+            // rebuild's first step on it is to get its daemon's exec
+            forRuntime: async () => {
                 throw new Error('sprite boundary reached')
             }
         } as never,
+        {} as never,
         extensionsWith({ framework: FIXTURE, version: fixtureVersion }) as never
     )
 

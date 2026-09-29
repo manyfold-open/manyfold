@@ -5,7 +5,7 @@ import {
     sessionScriptRunner,
     secretFileStep
 } from '../src/modules/agents/bootstrap/host-framework-setup'
-import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import { serviceFrameworkRecipe } from '../src/modules/agents/bootstrap/service-frameworks'
 
 // A machine's scripts run through its daemon, which keeps every command's stdin in
 // its exec buffer on disk (for 1–24h) but never its env. So a secret a script
@@ -32,6 +32,19 @@ const recordingRunner = () => {
     )
     return { execs, runner }
 }
+
+// The settings a configure runs with on a sandbox, apart from the ones a
+// test names.
+const configureArgs = (overrides: Record<string, unknown>) => ({
+    host: { home: '/home/sprite', suspends: true },
+    runtimeId: 'art_1',
+    envText: null,
+    controlUiEnabled: false,
+    dashboardEnabled: false,
+    apiBaseUrl: null,
+    credentials: {},
+    ...overrides
+})
 
 const decoded = (env: Record<string, string> | undefined, name: string) =>
     Buffer.from(env?.[name] ?? '', 'base64').toString('utf8')
@@ -68,17 +81,18 @@ test('the codex config rewrite keeps the Composio key out of its script', async 
 
 test('openclaw writes its key-bearing config from the env', async () => {
     const { execs, runner } = recordingRunner()
-    await podServiceRecipe('openclaw')!.configure(runner, {
-        credentials: {
-            modelProvider: 'anthropic',
-            baseUrl: 'https://models.example.test',
-            apiKey: SECRET,
-            primaryModelName: 'model-x',
-            gatewayToken: 'gw-kept'
-        },
-        envText: null,
-        controlUiEnabled: false
-    })
+    await serviceFrameworkRecipe('openclaw')!.configure(
+        runner,
+        configureArgs({
+            credentials: {
+                modelProvider: 'anthropic',
+                baseUrl: 'https://models.example.test',
+                apiKey: SECRET,
+                primaryModelName: 'model-x',
+                gatewayToken: 'gw-kept'
+            }
+        })
+    )
     assert.equal(execs.length, 1)
     assert.equal(execs[0].stdin?.includes(SECRET), false)
     assert.equal(execs[0].stdin?.includes('gw-kept'), false)
@@ -87,15 +101,16 @@ test('openclaw writes its key-bearing config from the env', async () => {
 
 test('hermes writes its config from the env too', async () => {
     const { execs, runner } = recordingRunner()
-    await podServiceRecipe('hermes')!.configure(runner, {
-        credentials: {
-            primaryModelProvider: 'anthropic',
-            primaryModelApiKey: SECRET,
-            primaryModelName: 'model-x'
-        },
-        envText: null,
-        controlUiEnabled: false
-    })
+    await serviceFrameworkRecipe('hermes')!.configure(
+        runner,
+        configureArgs({
+            credentials: {
+                primaryModelProvider: 'anthropic',
+                primaryModelApiKey: SECRET,
+                primaryModelName: 'model-x'
+            }
+        })
+    )
     assert.equal(execs.length, 1)
     assert.equal(execs[0].stdin?.includes('model-x'), false)
     assert.match(decoded(execs[0].env, 'MF_HERMES_CONFIG_B64'), /model-x/)

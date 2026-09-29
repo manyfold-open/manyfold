@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
 import test, { type TestContext } from 'node:test'
 import {
     FIXTURE,
-    FIXTURE_HOME,
     FIXTURE_FORK,
     FIXTURE_UPSTREAM,
-    FixtureSpriteBootstrap,
+    fixtureServiceRecipe,
     fixtureVersion
 } from './helpers/fixture-framework'
 import { extensionsWith } from './helpers/framework-extensions-stub'
@@ -15,7 +13,6 @@ import type {
     FrameworkDefaultVersionsSettings,
     FrameworkVersionCatalogEntry
 } from '@manyfold/shared'
-import { WebSocketServer } from 'ws'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import {
     contextOf,
@@ -25,13 +22,15 @@ import {
 } from './helpers/runtime-context-fixture'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import { FrameworkVersionsService } from '../src/modules/framework-versions/framework-versions.service'
-import { HermesSpriteBootstrap } from '../src/modules/agents/bootstrap/hermes-sprite'
-import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { BootstrapError } from '../src/modules/agents/bootstrap/framework-bootstrap'
 import {
-    BootstrapError,
-    type BootstrapContext
-} from '../src/modules/agents/bootstrap/framework-bootstrap'
-import type { SpriteServiceBootstrap } from '../src/modules/agents/bootstrap/sprite-framework-bootstrap'
+    serviceFrameworkRecipe,
+    type ServiceFrameworkRecipe,
+    type ServiceHost,
+    type ServiceInstallRequest
+} from '../src/modules/agents/bootstrap/service-frameworks'
+import type { SessionScriptRunner } from '../src/modules/agents/bootstrap/host-framework-setup'
+import { HostServices } from '../src/modules/agent-runtimes/provisioning/host-services'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
 const UPSTREAM = FIXTURE_UPSTREAM
@@ -117,44 +116,50 @@ const barrier = () => {
     return { reached, open }
 }
 
-const peer = async (t: TestContext) => {
-    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
-    await once(server, 'listening')
-    t.after(async () => {
-        for (const socket of server.clients) socket.terminate()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-    })
-    const address = server.address()
-    assert.ok(address && typeof address !== 'string')
+const SANDBOX: ServiceHost = { home: '/home/sprite', suspends: true }
+
+// The machine as the daemon's exec sees it: every login-shell script run on
+// it, in order, and the services its daemon stopped and started.
+const machine = () => {
     const shells: string[] = []
     const stopped: string[] = []
     const started: string[] = []
     let nextExitCode = 0
     let failAll = false
-    server.on('connection', (socket, request) => {
-        const cmd = new URL(request.url!, 'http://fixture').searchParams.getAll(
-            'cmd'
-        )
-        shells.push(cmd[2])
-        socket.send(Buffer.from([0x03, failAll ? 1 : nextExitCode]))
+    const exit = () => {
+        const code = failAll ? 1 : nextExitCode
         nextExitCode = 0
-    })
-    const client = {
-        wsBaseUrl: `ws://127.0.0.1:${address.port}`,
-        authHeaderForInternalUse: () => ({}),
-        stopService: async (_sprite: string, name: string) => {
+        return { exitCode: code, stdout: '', stderr: code ? 'fixture failure' : '' }
+    }
+    const runner: SessionScriptRunner = {
+        run: async (script) => {
+            shells.push(script)
+            return exit()
+        },
+        warn: () => {}
+    }
+    const exec = {
+        run: async (req: { cmd: string[] }) => {
+            shells.push(req.cmd[2])
+            return exit()
+        }
+    }
+    const hostServices = {
+        serviceHost: () => SANDBOX,
+        list: async () => [{ name: FIXTURE, state: 'running' }],
+        stop: async (_host: unknown, name: string) => {
             stopped.push(name)
         },
-        startService: async (_sprite: string, name: string) => {
+        start: async (_host: unknown, name: string) => {
             started.push(name)
-            return { state: { status: 'running' } }
         },
-        upsertService: async () => {},
-        updateSprite: async () => {},
-        getSprite: async () => ({ url: null })
+        waitHealthy: async () => {},
+        markReady: async () => {}
     }
     return {
-        client,
+        runner,
+        exec,
+        hostServices,
         shells,
         stopped,
         started,
@@ -168,33 +173,18 @@ const peer = async (t: TestContext) => {
 }
 
 const consumer = async (
-    t: TestContext,
+    _t: TestContext,
     kind: 'create' | 'prepare',
     f: ReturnType<typeof fixture>
 ) => {
-    const sprite = await peer(t)
+    const sprite = machine()
     const calls: Record<string, unknown>[] = []
-    const bootstrap = new FixtureSpriteBootstrap()
     const provision = async (args: Record<string, unknown>) => {
         calls.push(args)
-        await bootstrap.run(
-            {
-                ...args,
-                agentId: 'agt_fixture',
-                runtimeId: 'art_fixture',
-                userId: 'usr_fixture',
-                spriteName: 'fixture',
-                mountPath: '/fixture',
-                client: sprite.client,
-                logger: {
-                    info: () => {},
-                    debug: () => {},
-                    warn: () => {},
-                    error: () => {}
-                }
-            } as never,
-            {}
-        )
+        await fixtureServiceRecipe.install(sprite.runner, {
+            ...(args as ServiceInstallRequest),
+            host: SANDBOX
+        })
         throw boundary
     }
     if (kind === 'create') {
@@ -350,8 +340,8 @@ for (const tier of ['explicit', 'admin', 'latest'] as const) {
     )
 }
 
-const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
-    const sprite = await peer(t)
+const upgrade = async (_t: TestContext, entry = catalogFor(FORK)) => {
+    const sprite = machine()
     const f = fixture(FORK)
     f.box.catalog = entry
     let repoReads = 0
@@ -365,12 +355,8 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         hostId: 'rth_fixture',
         frameworkVersion: 'v9.0.0'
     })
-    const hostClients = {
-        spritesClientForHost: async () => ({
-            client: sprite.client,
-            spriteName: 'fixture',
-            provider: {}
-        })
+    const execResolver = {
+        forRuntime: async () => sprite.exec
     }
     const service = new FrameworkUpgradeService(
         {
@@ -396,17 +382,15 @@ const upgrade = async (t: TestContext, entry = catalogFor(FORK)) => {
         fakeRuntimeContext(
             contextOf({ runtime, host: spritesHostRow({ id: 'rth_fixture' }) })
         ) as never,
-        {} as never,
-        hostClients as never,
+        execResolver as never,
+        sprite.hostServices as never,
         extensionsWith({
             framework: FIXTURE,
-            version: fixtureVersion,
-            // A rebuild on a sandbox reads the framework's home from here.
-            spriteService: { supervision: { homeDir: FIXTURE_HOME } } as never
+            version: fixtureVersion
         }) as never
     )
     return {
-        hostClients,
+        execResolver,
         ...sprite,
         f,
         service,
@@ -430,11 +414,11 @@ test(
         const entered = barrier()
         const release = barrier()
         t.after(() => release.open())
-        Object.assign(h.hostClients, {
-            spritesClientForHost: async () => {
+        Object.assign(h.execResolver, {
+            forRuntime: async () => {
                 entered.open()
                 await release.reached
-                return { client: h.client, spriteName: 'fixture', provider: {} }
+                return h.exec
             }
         })
         const running = h.run()
@@ -587,62 +571,37 @@ for (const tier of ['explicit', 'admin', 'latest'] as const) {
     })
 }
 
+// A git framework's install has no dist-tag to fall back on: the admitted
+// tag and repository are the only ones it is ever run with.
 for (const framework of [FIXTURE, 'hermes'] as const) {
     test(
         `git latest ${framework} installation never retries an unadmitted default`,
         { timeout: 10_000 },
-        async (t) => {
-            const h = await peer(t)
+        async () => {
+            const h = machine()
             h.failAll()
-            const bootstrap: SpriteServiceBootstrap =
+            const recipe: ServiceFrameworkRecipe =
                 framework === FIXTURE
-                    ? new FixtureSpriteBootstrap()
-                    : new HermesSpriteBootstrap({} as never)
-            const run = bootstrap.run.bind(bootstrap)
-            let originalError: unknown
-            const versions: Array<string | null | undefined> = []
-            t.mock.method(
-                bootstrap,
-                'run',
-                async (ctx: BootstrapContext, credentials: unknown) => {
-                    versions.push(ctx.frameworkVersion)
-                    try {
-                        return await run(ctx, credentials)
-                    } catch (error) {
-                        originalError ??= error
-                        throw error
-                    }
-                }
-            )
-            const provisioner = Object.create(SpritesProvisioner.prototype)
+                    ? fixtureServiceRecipe
+                    : serviceFrameworkRecipe('hermes')!
             const repo =
                 framework === FIXTURE ? FORK : 'NousResearch/hermes-agent'
+            const services = Object.create(HostServices.prototype) as {
+                install(
+                    recipe: ServiceFrameworkRecipe,
+                    runner: SessionScriptRunner,
+                    host: ServiceHost,
+                    request: ServiceInstallRequest
+                ): Promise<string | null>
+            }
             await assert.rejects(
-                provisioner.runServiceBootstrap(
-                    bootstrap,
-                    {
-                        agentId: 'agt_fixture',
-                        runtimeId: 'art_fixture',
-                        userId: 'usr_fixture',
-                        spriteName: 'fixture',
-                        mountPath: '/fixture',
-                        client: h.client,
-                        logger: {
-                            info: () => {},
-                            debug: () => {},
-                            warn: () => {},
-                            error: () => {}
-                        },
-                        frameworkVersion: SHARED,
-                        frameworkVersionSource: 'latest',
-                        frameworkRepo: repo
-                    },
-                    {}
-                ),
-                (error: unknown) =>
-                    error instanceof BootstrapError && error === originalError
+                services.install(recipe, h.runner, SANDBOX, {
+                    frameworkVersion: SHARED,
+                    frameworkVersionSource: 'latest',
+                    frameworkRepo: repo
+                }),
+                (error: unknown) => error instanceof BootstrapError
             )
-            assert.deepEqual(versions, [SHARED])
             assert.equal(h.shells.length, 1)
             assert.ok(h.shells[0].includes(SHARED))
             assert.ok(

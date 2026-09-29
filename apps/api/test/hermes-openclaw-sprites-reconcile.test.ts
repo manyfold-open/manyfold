@@ -175,12 +175,12 @@ const makeHarness = () => {
     return { resolver, registry }
 }
 
-// The #405 headline scenario: a fence-valid ready report reaches a hermes
+// The #405 headline scenario: a service that just answered its health check reaches a hermes
 // sprite whose agent row was poisoned to 'failed'. The real adapter must
 // exec through the host daemon (bash -lc, venv python resolved from the
 // host's declared homeDir — NOT mountPath, which diverges on
 // custom-workspace runtimes) and heal the row.
-test('verifiedByReport reconcile heals a false-failed hermes sprites agent through the real adapter chain', async () => {
+test('serviceReady reconcile heals a false-failed hermes sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
     resolver.behavior = (cmd) =>
         cmd[0] === HERMES_VENV_PYTHON
@@ -191,7 +191,7 @@ test('verifiedByReport reconcile heals a false-failed hermes sprites agent throu
 
     await svc.reconcileRuntime(
         fakeRuntime({ mountPath: '/home/sprite/custom-ws' }) as never,
-        { verifiedByReport: true }
+        { serviceReady: true }
     )
 
     assert.equal(resolver.execs.length, 1, 'first venv candidate must hit')
@@ -212,7 +212,7 @@ test('verifiedByReport reconcile heals a false-failed hermes sprites agent throu
     )
 })
 
-test('verifiedByReport reconcile heals a false-failed openclaw sprites agent through the real adapter chain', async () => {
+test('serviceReady reconcile heals a false-failed openclaw sprites agent through the real adapter chain', async () => {
     const { resolver, registry } = makeHarness()
     resolver.behavior = (cmd) =>
         cmd.join(' ') === 'openclaw agents list --json'
@@ -233,7 +233,7 @@ test('verifiedByReport reconcile heals a false-failed openclaw sprites agent thr
             mountPath: OPENCLAW_WS,
             homeDir: '/home/sprite/.openclaw'
         }) as never,
-        { verifiedByReport: true }
+        { serviceReady: true }
     )
 
     assert.equal(resolver.execs.length, 1)
@@ -291,7 +291,7 @@ test('sprites reconcile ignores the built-in profile when the promoted primary h
             mountPath: OPENCLAW_WS,
             homeDir: '/home/sprite/.openclaw'
         }) as never,
-        { verifiedByReport: true }
+        { serviceReady: true }
     )
 
     assert.equal(db.updates.length, 1)
@@ -299,10 +299,10 @@ test('sprites reconcile ignores the built-in profile when the promoted primary h
     assert.equal(db.updates[0].set.workspacePath, '/workspace/promoted')
 })
 
-// WHY: sprites exec support must not weaken the sleep gate — a non-report
+// WHY: sprites exec support must not weaken the sleep gate — a unsignalled
 // touch on an all-asleep service sprite still returns before any exec, so
 // the VM is never woken for billing.
-test('non-report reconcile on a sleeping hermes sprite still skips without any exec', async () => {
+test('unsignalled reconcile on a sleeping hermes sprite still skips without any exec', async () => {
     const { resolver, registry } = makeHarness()
     const db = makeDb([fakeDbAgent({ status: 'ready' })])
     const svc = reconcilerFor(db, registry, {
@@ -331,7 +331,7 @@ test('reconcile records a failure when the openclaw listing exits non-zero', asy
 
     await assert.rejects(
         svc.reconcileRuntime(fakeRuntime({ framework: 'openclaw' }) as never, {
-            verifiedByReport: true
+            serviceReady: true
         }),
         /openclaw agents list failed/
     )
@@ -347,7 +347,7 @@ test('hermes discovery failure on every python candidate throws instead of retur
 
     await assert.rejects(
         svc.reconcileRuntime(fakeRuntime() as never, {
-            verifiedByReport: true
+            serviceReady: true
         }),
         /hermes profile discovery failed/
     )

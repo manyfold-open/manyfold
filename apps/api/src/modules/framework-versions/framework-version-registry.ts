@@ -86,7 +86,8 @@ export interface FrameworkVersionDescriptor {
     framework: VersionedFramework
     // 'coding' = a CLI set up by setUpHostFramework (no long-running service
     // to restart);
-    // 'daemon' = SpriteServiceBootstrap (service must restart after upgrade).
+    // 'daemon' = a service framework the host's daemon runs (its service
+    // must restart after an upgrade).
     runtimeKind: 'coding' | 'daemon'
     source: FrameworkVersionSource
     // npm 12's default install-script policy blocks lifecycle scripts while

@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { SANDBOX_PORT_SERVICE } from '@manyfold/shared'
 import {
     SpritesError,
     parseTaskList,
+    type ServiceDef,
+    type ServiceObject,
     type Sprite,
     type SpriteTask,
     type SpritesClient,
@@ -21,7 +24,8 @@ import {
     type ProviderCall,
     type ProviderExecResult,
     type SandboxProvider,
-    type SandboxProviderCapabilities
+    type SandboxProviderCapabilities,
+    type SupervisedProcess
 } from './sandbox-provider'
 import { assertCurrentGeneration } from './generation'
 
@@ -43,6 +47,20 @@ const holdsFor = (task: SpriteTask, ttl: string, since: number): boolean => {
     const expiresAt = task.expiresAt ? Date.parse(task.expiresAt) : Number.NaN
     return ms === null || !Number.isFinite(expiresAt) || expiresAt >= since + ms / 2
 }
+
+// What a stored service definition is compared on: a PUT never changes an
+// existing one, so a difference means delete and PUT again.
+const sameDefinition = (current: ServiceObject, next: ServiceDef): boolean =>
+    current.cmd === next.cmd &&
+    JSON.stringify(current.args ?? []) === JSON.stringify(next.args ?? []) &&
+    JSON.stringify(sortedEnv(current.env)) ===
+        JSON.stringify(sortedEnv(next.env)) &&
+    (current.http_port ?? null) === (next.http_port ?? null)
+
+const sortedEnv = (
+    env: Record<string, string> | undefined
+): Array<[string, string]> =>
+    Object.entries(env ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
@@ -125,7 +143,8 @@ export class SpritesProvider implements SandboxProvider {
         const ref: SpritesProviderRef = {
             kind: 'sprites',
             spriteName,
-            spriteId: typeof sprite.id === 'string' ? sprite.id : null
+            spriteId: typeof sprite.id === 'string' ? sprite.id : null,
+            url: typeof sprite.url === 'string' && sprite.url ? sprite.url : null
         }
         await this.hosts.setProviderRef(args.host.id, ref)
         return ref
@@ -250,16 +269,95 @@ export class SpritesProvider implements SandboxProvider {
         })
     }
 
-    // A sprite's public URL is `https://<sprite name>.sprites.app`; the
-    // service bootstraps read the authoritative one back from the sprite
-    // object, which is what the runtime's ingress derives from.
+    // Measured on local [2026-09-29]: a service's processes live in a cgroup
+    // of its own, and the service counts as running — and is never restarted —
+    // while anything is left in it, so the daemon's children would keep a
+    // dead daemon's service up; the command is a loop that restarts the
+    // daemon instead. A PUT on an existing service keeps its old command and
+    // env, stopped or not, and a delete kills everything in its cgroup. Every
+    // defined service starts again when the sprite's environment restarts
+    // (a checkpoint restore, a cold boot), which is the point of it.
+    async superviseDaemon(
+        args: ProviderCall,
+        process: SupervisedProcess
+    ): Promise<void> {
+        await assertCurrentGeneration(this.hosts, args.host, args.generation)
+        const spriteName = this.requireRef(args).spriteName
+        const [cmd, ...rest] = process.command
+        await this.ensureService(this.client(args), spriteName, process.name, {
+            cmd,
+            args: rest,
+            env: process.env
+        })
+    }
+
+    // The public URL goes to whatever listens on the port a service declares
+    // as its http_port, one such service per sprite; a stub declares it for
+    // a port the daemon's service serves (measured on local [2026-09-28],
+    // HTTP and WebSocket, and an inbound request wakes a suspended sprite).
+    // The framework authenticates its own callers (a gateway token, an API
+    // key), so the URL is public. The URL is read back from the sprite: its
+    // hostname carries the organisation's suffix.
+    async publishPort(
+        args: Omit<ProviderCall, 'generation'>,
+        port: number | null
+    ): Promise<void> {
+        const ref = this.requireRef(args)
+        const client = this.client(args)
+        if (port === null) {
+            await client
+                .deleteService(ref.spriteName, SANDBOX_PORT_SERVICE)
+                .catch((err) => {
+                    if (!isSpritesNotFound(err)) throw err
+                })
+            return
+        }
+        await this.ensureService(client, ref.spriteName, SANDBOX_PORT_SERVICE, {
+            cmd: 'sleep',
+            args: ['infinity'],
+            http_port: port
+        })
+        await client.updateSprite(ref.spriteName, {
+            url_settings: { auth: 'public' }
+        })
+        const sprite = await client.getSprite(ref.spriteName)
+        const url = typeof sprite.url === 'string' && sprite.url ? sprite.url : null
+        if (url && url !== ref.url)
+            await this.hosts.setProviderRef(args.host.id, { ...ref, url })
+    }
+
+    private async ensureService(
+        client: SpritesClient,
+        spriteName: string,
+        name: string,
+        def: ServiceDef
+    ): Promise<void> {
+        const current = await client
+            .getService(spriteName, name)
+            .catch((err) => {
+                if (isSpritesNotFound(err)) return null
+                throw err
+            })
+        const same = current !== null && sameDefinition(current, def)
+        if (current && !same) await client.deleteService(spriteName, name)
+        if (!same) await client.upsertService(spriteName, name, def)
+        if (!same || current?.state?.status !== 'running')
+            await client.startService(spriteName, name)
+    }
+
+    private requireRef(args: Pick<ProviderCall, 'host'>): SpritesProviderRef {
+        const ref = this.ref(args)
+        if (!ref) throw new Error(`host ${args.host.id} has no sprite`)
+        return ref
+    }
+
+    // The URL the sprite reported when it was made or its port was published.
     publicUrl(
         args: Omit<ProviderCall, 'generation'> & {
             framework: string
             port: number
         }
     ): string | null {
-        const ref = this.ref(args)
-        return ref ? `https://${ref.spriteName}.sprites.app` : null
+        return this.ref(args)?.url ?? null
     }
 }

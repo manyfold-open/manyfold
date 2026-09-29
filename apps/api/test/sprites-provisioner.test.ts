@@ -7,7 +7,6 @@ import type {
     RuntimeProvider
 } from '@manyfold/db'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
-import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // A sprites host (ADR-0037): the adapter makes the machine under a fresh
 // generation, the runner manager brings its daemon up, and a coding framework
@@ -60,7 +59,6 @@ const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         ...overrides
     }) as RuntimeHostRow
 
-const noopBootstrap = { run: async () => ({ homeDir: undefined }) } as never
 
 const buildHarness = (opts: {
     setupFails?: boolean
@@ -188,7 +186,7 @@ const buildHarness = (opts: {
                 state.runtime = runtimeRow({ ...state.runtime, ...patch })
             }
         } as never,
-        new SpriteServiceBootstraps(noopBootstrap, noopBootstrap),
+        {} as never,
         {
             reserveSpriteRuntime: async (input: Partial<AgentRuntimeRow>) => {
                 state.reserved = { id: input.id! }
@@ -200,7 +198,6 @@ const buildHarness = (opts: {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL' ? 'http://api.test' : undefined
         } as never,
-        {} as never,
         { settleHostNotRunning: async () => {} } as never
     )
     return { provisioner, state, calls, hostPatches, powers, revokedForHosts, deletes, sessions, rpcs, scripts }
@@ -278,8 +275,8 @@ test('a machine whose daemon never comes up is a failed host', async () => {
 })
 
 const wakeProvisioner = (
-    lease: {
-        ensureServiceRunning: (runtime: AgentRuntimeRow) => Promise<{ started: boolean }>
+    services: {
+        ensureRunning: (runtime: AgentRuntimeRow) => Promise<boolean>
     },
     keepAwake: boolean
 ): SpritesProvisioner =>
@@ -287,33 +284,32 @@ const wakeProvisioner = (
         {} as never,
         { findById: async () => hostRow({ status: 'ready', keepAwake }) } as never,
         {} as never,
-        { spritesLoggerFor: () => ({ debug() {}, info() {}, warn() {}, error() {} }) } as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
         {} as never,
-        new SpriteServiceBootstraps({} as never, {} as never),
+        {} as never,
+        services as never,
         {} as never,
         { get: () => undefined } as never,
-        lease as never,
         { settleHostNotRunning: async () => {} } as never
     )
 
 // wakeSpriteRuntime is the seam every traffic entry funnels through (chat,
 // channels, automations via markRuntimeActive). Holding the machine awake
 // there would place a billing task per chat message; the keep-awake switch is
-// the host's (HostKeepAwakeService), and a service's pre-start cleanup never
-// touches the switch's hold, so a cold start has nothing to re-establish.
-test('wakeSpriteRuntime wakes the framework service and holds nothing, switch on or off', async () => {
+// the host's (HostKeepAwakeService). It starts again what a sandbox stop left
+// stopped, through the host's daemon, and nothing for a coding framework.
+test('wakeSpriteRuntime starts a service framework\'s services and holds nothing, switch on or off', async () => {
     for (const keepAwake of [false, true]) {
         for (const started of [true, false]) {
             const calls: string[] = []
             const provisioner = wakeProvisioner(
                 {
-                    ensureServiceRunning: async (runtime: AgentRuntimeRow) => {
-                        calls.push(`ensureServiceRunning:${runtime.id}`)
-                        return { started }
+                    ensureRunning: async (runtime: AgentRuntimeRow) => {
+                        calls.push(`ensureRunning:${runtime.id}`)
+                        return started
                     }
                 },
                 keepAwake
@@ -321,7 +317,18 @@ test('wakeSpriteRuntime wakes the framework service and holds nothing, switch on
             await provisioner.wakeSpriteRuntime(
                 runtimeRow({ framework: 'hermes', status: 'ready' })
             )
-            assert.deepEqual(calls, ['ensureServiceRunning:art_test'])
+            assert.deepEqual(calls, ['ensureRunning:art_test'])
         }
     }
+    const coding: string[] = []
+    await wakeProvisioner(
+        {
+            ensureRunning: async () => {
+                coding.push('called')
+                return false
+            }
+        },
+        false
+    ).wakeSpriteRuntime(runtimeRow({ framework: 'codex', status: 'ready' }))
+    assert.deepEqual(coding, [])
 })
