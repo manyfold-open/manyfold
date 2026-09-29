@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import { AWAKE_HOLD_TASK_PREFIX } from '@manyfold/shared'
 import type { RuntimeHostRow } from '@manyfold/db'
 import { HostProviderClients } from './providers/host-provider-clients.service'
@@ -41,6 +41,8 @@ export const NOOP_HOLD: AwakeHold = {
 export const AWAKE_TTL = '30m'
 const AWAKE_RENEW_MS = 10 * 60_000
 const RELEASE_GRACE_MS = 5_000
+// Inside the shutdown's own close budget (server-bootstrap.ts).
+const SHUTDOWN_RELEASE_MS = 4_000
 
 interface Lease {
     host: RuntimeHostRow
@@ -52,7 +54,7 @@ interface Lease {
 }
 
 @Injectable()
-export class HostAwakeService {
+export class HostAwakeService implements OnModuleDestroy {
     private readonly log = new Logger(HostAwakeService.name)
     // One name per API instance: instances never delete each other's hold,
     // and the prefix is what marks it as the platform's (isPlatformTaskName),
@@ -111,6 +113,29 @@ export class HostAwakeService {
         }
     }
 
+    // An instance going away lets go of every machine it holds: nothing
+    // renews a lease once its instance is gone, and one left behind keeps its
+    // machine awake, and billed, for the rest of its TTL. Work handed to
+    // another instance holds the machine again from there. onModuleDestroy
+    // runs at the start of app.close(), before anything that can hang on an
+    // open socket.
+    // Seen on local [2026-09-29]: four API restarts left four hold tasks on a
+    // sandbox whose work had all ended, and it stayed running.
+    async onModuleDestroy(): Promise<void> {
+        const leases = [...this.leases.values()]
+        this.leases.clear()
+        for (const lease of leases) {
+            clearInterval(lease.renew)
+            if (lease.grace) clearTimeout(lease.grace)
+        }
+        await Promise.race([
+            Promise.allSettled(leases.map((lease) => this.release(lease))),
+            new Promise<void>((resolve) =>
+                setTimeout(resolve, SHUTDOWN_RELEASE_MS).unref()
+            )
+        ])
+    }
+
     // Everything held right now, for a summary or a test.
     holders(hostId: string): number {
         return this.leases.get(hostId)?.count ?? 0
@@ -142,6 +167,10 @@ export class HostAwakeService {
         if (this.leases.get(lease.host.id) !== lease || lease.count > 0) return
         clearInterval(lease.renew)
         this.leases.delete(lease.host.id)
+        await this.release(lease)
+    }
+
+    private async release(lease: Lease): Promise<void> {
         // Whatever create or renew was last in flight lands first: a release
         // settled early would otherwise race its own DELETE past the PUT and
         // leave a full-TTL lease that nobody renews and nothing needs.
