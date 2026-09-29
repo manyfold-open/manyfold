@@ -26,8 +26,8 @@ import {
     K8S_CREATE_INITIAL_AGENT,
     K8sCreateCleanupService
 } from './k8s-create-cleanup.service'
-import { PodHostServices } from './pod-host-services'
-import { podServiceRecipe } from './pod-service-frameworks'
+import { HostServices } from './host-services'
+import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
 import { withdrawPodHostFramework } from './pod-host-network'
 
 // Deletes k8s runtimes and pod hosts (ADR-0035, ADR-0037). A runtime is one
@@ -46,7 +46,7 @@ export class K8sProvisioner {
         private readonly tokens: DaemonTokenService,
         private readonly runtimes: AgentRuntimesService,
         private readonly createCleanup: K8sCreateCleanupService,
-        private readonly podServices: PodHostServices
+        private readonly hostServices: HostServices
     ) {}
 
     private async podHostOf(runtime: AgentRuntimeRow): Promise<RuntimeHostRow> {
@@ -91,12 +91,11 @@ export class K8sProvisioner {
         runtime: AgentRuntimeRow,
         host: RuntimeHostRow
     ): Promise<void> {
-        const recipe = podServiceRecipe(runtime.framework)
         const ref = host.providerRef
-        if (!recipe || ref?.kind !== 'k8s') return
-        const hostRef = { id: host.id, userId: host.userId }
+        if (!serviceFrameworkRecipe(runtime.framework) || ref?.kind !== 'k8s')
+            return
         try {
-            await this.podServices.remove(hostRef, recipe.serviceName)
+            await this.hostServices.removeRuntime(runtime, host)
             const client = await this.clients.k8sClientForHost(host)
             await withdrawPodHostFramework({
                 apis: client.apis,

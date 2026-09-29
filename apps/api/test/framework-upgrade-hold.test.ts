@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
-import test, { type TestContext } from 'node:test'
+import test from 'node:test'
 import 'reflect-metadata'
 import { InternalServerErrorException } from '@nestjs/common'
-import { WebSocketServer } from 'ws'
 import { FrameworkUpgradeService } from '../src/modules/agents/framework-versions/framework-upgrade.service'
 import {
     contextOf,
@@ -15,6 +13,8 @@ import {
 // A framework upgrade on a sandbox runs under the machine's awake hold from
 // its first step to its verification (ADR-0038). The service calls between
 // commands are no activity to a sprite, so a machine let go froze under them.
+// Its commands run through the host's daemon, and its services are the
+// daemon's.
 
 const noPolicy = {
     getCachedFrameworkDefaultVersions: async () => ({
@@ -27,35 +27,16 @@ const noPolicy = {
     })
 }
 
-// The sprite's exec endpoint: each command is recorded and answers with the
-// next exit code (0 once they run out).
-const execPeer = async (
-    t: TestContext,
-    events: string[],
-    exitCodes: number[] = []
-): Promise<string> => {
-    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
-    await once(server, 'listening')
-    t.after(async () => {
-        for (const socket of server.clients) socket.terminate()
-        await new Promise<void>((resolve) => server.close(() => resolve()))
-    })
-    const address = server.address()
-    assert.ok(address && typeof address !== 'string')
-    server.on('connection', (socket) => {
-        events.push('exec')
-        socket.send(Buffer.from([0x03, exitCodes.shift() ?? 0]))
-    })
-    return `ws://127.0.0.1:${address.port}`
-}
-
 const build = (opts: {
     framework: string
     events: string[]
     catalog: { versions: string[]; sourceRepo: string | null }
     installed: string
-    client: Record<string, unknown>
+    // The exit codes the machine's commands answer with, in order (0 once
+    // they run out).
+    exitCodes?: number[]
 }) => {
+    const exitCodes = [...(opts.exitCodes ?? [])]
     const { events } = opts
     const host = spritesHostRow({ id: 'sbx_1' })
     const runtime = runtimeRow({
@@ -106,19 +87,26 @@ const build = (opts: {
         {
             forRuntime: async () => ({
                 run: async () => {
-                    events.push('install')
-                    return { exitCode: 0, stdout: '', stderr: '' }
+                    events.push('exec')
+                    return { exitCode: exitCodes.shift() ?? 0, stdout: '', stderr: 'boom' }
                 }
             })
         } as never,
         {
-            spritesClientForHost: async () => ({
-                client: opts.client,
-                spriteName: 'sprite-1',
-                provider: {}
-            })
+            serviceHost: () => ({ home: '/home/sprite', suspends: true }),
+            list: async () => [{ name: opts.framework, state: 'running' }],
+            restart: async (_host: unknown, name: string) => {
+                events.push(`restart:${name}`)
+            },
+            stop: async (_host: unknown, name: string) => {
+                events.push(`stop:${name}`)
+            },
+            start: async (_host: unknown, name: string) => {
+                events.push(`start:${name}`)
+            },
+            waitHealthy: async () => {},
+            markReady: async () => {}
         } as never,
-        undefined,
         undefined,
         hostAccess as never
     )
@@ -130,33 +118,16 @@ test('an in-place upgrade holds the sandbox across the install, the service rest
         framework: 'openclaw',
         events,
         catalog: { versions: ['2026.9.6'], sourceRepo: null },
-        installed: '2026.9.6',
-        client: {
-            restartService: async () => {
-                events.push('restart')
-            }
-        }
+        installed: '2026.9.6'
     })
     await service.upgrade('agt_1', 'usr_1', '2026.9.6', false)
     assert.deepEqual(events, [
         'hold',
-        'install',
-        'restart',
+        'exec',
+        'restart:openclaw',
         'verify',
         'release'
     ])
-})
-
-const rebuildClient = (wsBaseUrl: string, events: string[]) => ({
-    wsBaseUrl,
-    authHeaderForInternalUse: () => ({}),
-    stopService: async (_sprite: string, name: string) => {
-        events.push(`stop:${name}`)
-    },
-    startService: async (_sprite: string, name: string) => {
-        events.push(`start:${name}`)
-        return { state: { status: 'running' } }
-    }
 })
 
 const hermes = {
@@ -164,14 +135,13 @@ const hermes = {
     sourceRepo: 'NousResearch/hermes-agent'
 }
 
-test('a rebuild holds the sandbox from stopping the service to verifying the new version', async (t) => {
+test('a rebuild holds the sandbox from stopping the service to verifying the new version', async () => {
     const events: string[] = []
     const service = build({
         framework: 'hermes',
         events,
         catalog: hermes,
-        installed: '2026.9.24',
-        client: rebuildClient(await execPeer(t, events), events)
+        installed: '2026.9.24'
     })
     await service.upgradeStreaming('agt_1', 'usr_1', 'v2026.9.24', false, {
         step: () => {}
@@ -186,14 +156,14 @@ test('a rebuild holds the sandbox from stopping the service to verifying the new
     ])
 })
 
-test('a failed rebuild restores and restarts the old checkout before letting the sandbox go', async (t) => {
+test('a failed rebuild restores and restarts the old checkout before letting the sandbox go', async () => {
     const events: string[] = []
     const service = build({
         framework: 'hermes',
         events,
         catalog: hermes,
         installed: '2026.9.24',
-        client: rebuildClient(await execPeer(t, events, [1]), events)
+        exitCodes: [1]
     })
     await assert.rejects(
         service.upgradeStreaming('agt_1', 'usr_1', 'v2026.9.24', false, {

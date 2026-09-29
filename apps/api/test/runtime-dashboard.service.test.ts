@@ -253,47 +253,70 @@ test('getControlUiUrl honors an explicit agentId over the primary agent', async 
 // kind dispatch + toggles
 // ---------------------------------------------------------------------------
 
-// A cloud computer's gateway is a service of its host's daemon (ADR-0035):
-// the toggle rewrites the service's config and restarts it. The pod and
-// daemon plumbing is bypassed here, as the sprite tests bypass theirs.
+// A gateway is a service of its host's daemon (ADR-0035), on a cloud
+// computer and a sandbox alike: the toggle rewrites the service's config and
+// restarts it with the runtime's other settings unchanged.
 test('cloud computer openclaw toggle reconfigures its service, patches flag and audits', async () => {
     const audits: Array<Record<string, unknown>> = []
     const statusPatches: Array<Record<string, unknown>> = []
-    const reconfigured: boolean[] = []
+    const services = hostServicesFake()
     const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
     const service = serviceFor({
         runtimes: runtimesFor([current, current], statusPatches),
-        db: dbFor({ audits, credsCiphertext: 'ENC1' })
+        db: dbFor({ audits, credsCiphertext: 'ENC1' }),
+        crypto: cryptoReturning(JSON.stringify({ gatewayToken: 'gw' })),
+        hostServices: services
     })
-    ;(service as never as Record<string, unknown>).reconfigurePodService =
-        async (_runtime: unknown, _host: unknown, enabled: boolean) => {
-            reconfigured.push(enabled)
-        }
     await service.setControlUi('user-1', 'runtime-1', true, false)
-    assert.deepEqual(reconfigured, [true])
+    assert.deepEqual(services.settings, [
+        {
+            credentials: { gatewayToken: 'gw' },
+            envText: null,
+            controlUiEnabled: true,
+            dashboardEnabled: false
+        }
+    ])
     assert.deepEqual(statusPatches, [
         { controlUiEnabled: true, dashboardState: null }
     ])
     assert.equal(audits[0].action, 'agent_runtime.control_ui.toggled')
 })
 
-test('cloud computer toggle without pod host services records the failure', async () => {
+// An operator's repair, and how a cutover moves a sandbox's runtime onto its
+// daemon's services: the config rewritten with the runtime's own settings.
+test('an admin service restart reconfigures with the runtime\'s settings and audits', async () => {
     const audits: Array<Record<string, unknown>> = []
-    const statusPatches: Array<Record<string, unknown>> = []
-    const current = runtime({ framework: 'openclaw', kind: 'k8s', hostId: 'pdh_1' })
+    const services = hostServicesFake()
+    const current = runtime({
+        framework: 'openclaw',
+        kind: 'sprites',
+        controlUiEnabled: true
+    })
     const service = serviceFor({
-        runtimes: runtimesFor([current, current], statusPatches),
-        db: dbFor({ audits, credsCiphertext: 'ENC1' })
+        runtimes: runtimesFor([current, current]),
+        db: dbFor({ audits, credsCiphertext: 'ENC1' }),
+        crypto: cryptoReturning(JSON.stringify({ gatewayToken: 'gw' })),
+        hostServices: services
+    })
+    await service.restartService('admin-1', 'runtime-1', true)
+    assert.deepEqual(services.settings, [
+        {
+            credentials: { gatewayToken: 'gw' },
+            envText: null,
+            controlUiEnabled: true,
+            dashboardEnabled: false
+        }
+    ])
+    assert.equal(audits[0].action, 'agent_runtime.service.restarted')
+    assert.equal((audits[0].meta as Record<string, unknown>).onBehalfOf, true)
+
+    const coding = serviceFor({
+        runtimes: runtimesFor([runtime({ framework: 'claude-code' as never, kind: 'sprites' })])
     })
     await assert.rejects(
-        () => service.setControlUi('user-1', 'runtime-1', true, false),
-        /failed to toggle openclaw control UI/
+        () => coding.restartService('admin-1', 'runtime-1', true),
+        /runs no service to restart/
     )
-    assert.match(
-        String(statusPatches[0]?.dashboardState),
-        /^error:.*no service on this cloud computer/
-    )
-    assert.equal(audits[0].action, 'agent_runtime.control_ui.toggle_failed')
 })
 
 test('setDashboard refuses k8s runtimes', async () => {
@@ -317,7 +340,7 @@ test('sprite openclaw toggle rewrites config, patches flag, releases state and a
     const audits: Array<Record<string, unknown>> = []
     const claims: string[] = []
     const statusPatches: Array<Record<string, unknown>> = []
-    const bootstrapCalls: Array<{ enabled: boolean }> = []
+    const services = hostServicesFake()
     const current = runtime({
         framework: 'openclaw',
         kind: 'sprites',
@@ -330,21 +353,15 @@ test('sprite openclaw toggle rewrites config, patches flag, releases state and a
         }),
         db: dbFor({ audits, credsCiphertext: 'ENC1' }),
         crypto: cryptoReturning(JSON.stringify({ gatewayToken: 'gw' })),
-        openclawBootstrap: {
-            setControlUi: async (
-                _ctx: unknown,
-                _creds: unknown,
-                enabled: boolean
-            ) => {
-                bootstrapCalls.push({ enabled })
-            }
-        }
+        hostServices: services
     })
-    stubSpriteTarget(service)
     await service.setControlUi('user-1', 'runtime-1', false, false)
     assert.equal(claims.length, 1)
     assert.match(claims[0], /^disabling@/)
-    assert.deepEqual(bootstrapCalls, [{ enabled: false }])
+    assert.deepEqual(
+        services.settings.map((x) => (x as { controlUiEnabled: boolean }).controlUiEnabled),
+        [false]
+    )
     assert.deepEqual(statusPatches, [
         { controlUiEnabled: false, dashboardState: null }
     ])
@@ -367,13 +384,8 @@ test('sprite openclaw toggle failure records error state and audits failure', as
         }),
         db: dbFor({ audits, credsCiphertext: 'ENC1' }),
         crypto: cryptoReturning(JSON.stringify({ gatewayToken: 'gw' })),
-        openclawBootstrap: {
-            setControlUi: async () => {
-                throw new Error('Bearer topsecret exploded')
-            }
-        }
+        hostServices: hostServicesFake(new Error('Bearer topsecret exploded'))
     })
-    stubSpriteTarget(service)
     await assert.rejects(
         () => service.setControlUi('user-1', 'runtime-1', false, false),
         (err: unknown) => err instanceof InternalServerErrorException
@@ -430,7 +442,7 @@ test('sprite hermes enable returns immediately and flips the flag in the backgro
     const statusPatches: Array<Record<string, unknown>> = []
     const audits: Array<Record<string, unknown>> = []
     const claims: string[] = []
-    const enableCalls: unknown[] = []
+    const services = hostServicesFake()
     const claimed = runtime({
         framework: 'hermes',
         kind: 'sprites',
@@ -449,13 +461,9 @@ test('sprite hermes enable returns immediately and flips the flag in the backgro
         ),
         db: dbFor({ audits, credsCiphertext: 'ENC1' }),
         crypto: cryptoReturning(JSON.stringify({ dashboardToken: 'tok' })),
-        hermesBootstrap: {
-            enableDashboard: async (_ctx: unknown, creds: unknown) => {
-                enableCalls.push(creds)
-            }
-        }
+        hostServices: services
     })
-    stubSpriteTarget(service, { dashboardToken: 'tok' })
+    const probes = stubProbes(service)
     ;(service as never as Record<string, unknown>).ensureDashboardToken =
         async () => undefined
 
@@ -471,13 +479,26 @@ test('sprite hermes enable returns immediately and flips the flag in the backgro
     assert.deepEqual(statusPatches, [
         { dashboardEnabled: true, dashboardState: null }
     ])
-    assert.equal(enableCalls.length, 1)
+    assert.deepEqual(
+        services.settings.map((x) => (x as { dashboardEnabled: boolean }).dashboardEnabled),
+        [true]
+    )
+    // Proved through the sandbox's public URL: /v1 through the proxy, the
+    // HTML refused without the token, the UI's socket passed.
+    assert.deepEqual(probes, [
+        'https://agent-1.example.test/v1/health',
+        'https://agent-1.example.test/',
+        'wss://agent-1.example.test/api/ws?token=tok'
+    ])
     assert.equal(audits.at(-1)?.action, 'agent_runtime.dashboard.toggled')
 })
 
-test('sprite hermes enable failure records error state and keeps the flag off', async () => {
+// Chat must never be left unroutable: a dashboard that does not prove itself
+// is switched back off before the failure is recorded.
+test('sprite hermes enable failure rolls the services back, records error state and keeps the flag off', async () => {
     const statusPatches: Array<Record<string, unknown>> = []
     const audits: Array<Record<string, unknown>> = []
+    const services = hostServicesFake()
     const service = serviceFor({
         runtimes: runtimesFor(
             [runtime({ framework: 'hermes', kind: 'sprites' })],
@@ -486,18 +507,18 @@ test('sprite hermes enable failure records error state and keeps the flag off', 
         ),
         db: dbFor({ audits, credsCiphertext: 'ENC1' }),
         crypto: cryptoReturning(JSON.stringify({ dashboardToken: 'tok' })),
-        hermesBootstrap: {
-            enableDashboard: async () => {
-                throw new Error('probe failed')
-            }
-        }
+        hostServices: services
     })
-    stubSpriteTarget(service, { dashboardToken: 'tok' })
+    stubProbes(service, new Error('probe failed'))
     ;(service as never as Record<string, unknown>).ensureDashboardToken =
         async () => undefined
 
     await service.setDashboard('user-1', 'runtime-1', true, false)
     await waitFor(() => audits.length > 0)
+    assert.deepEqual(
+        services.settings.map((x) => (x as { dashboardEnabled: boolean }).dashboardEnabled),
+        [true, false]
+    )
     assert.equal(statusPatches.length, 1)
     assert.match(statusPatches[0].dashboardState as string, /^error:probe/)
     assert.equal(statusPatches[0].dashboardEnabled, undefined)
@@ -527,7 +548,7 @@ test('sprite hermes disable on an already-disabled runtime is a no-op', async ()
 
 test('sprite hermes enable with the flag already on re-runs as a repair', async () => {
     const statusPatches: Array<Record<string, unknown>> = []
-    const enableCalls: unknown[] = []
+    const services = hostServicesFake()
     const service = serviceFor({
         runtimes: runtimesFor(
             [
@@ -542,18 +563,14 @@ test('sprite hermes enable with the flag already on re-runs as a repair', async 
         ),
         db: dbFor({ audits: [], credsCiphertext: 'ENC1' }),
         crypto: cryptoReturning(JSON.stringify({ dashboardToken: 'tok' })),
-        hermesBootstrap: {
-            enableDashboard: async () => {
-                enableCalls.push(true)
-            }
-        }
+        hostServices: services
     })
-    stubSpriteTarget(service, { dashboardToken: 'tok' })
+    stubProbes(service)
     ;(service as never as Record<string, unknown>).ensureDashboardToken =
         async () => undefined
     await service.setDashboard('user-1', 'runtime-1', true, false)
-    await waitFor(() => enableCalls.length > 0)
-    assert.equal(enableCalls.length, 1)
+    await waitFor(() => services.settings.length > 0)
+    assert.equal(services.settings.length, 1)
 })
 
 // ---------------------------------------------------------------------------
@@ -608,8 +625,7 @@ const serviceFor = (deps: {
     hostClients?: unknown
     providers?: unknown
     crypto?: unknown
-    hermesBootstrap?: unknown
-    openclawBootstrap?: unknown
+    hostServices?: unknown
 }): RuntimeDashboardService =>
     new RuntimeDashboardService(
         (deps.db ?? auditDb()) as never,
@@ -627,36 +643,36 @@ const serviceFor = (deps: {
             })
         }) as never,
         (deps.crypto ?? defaultCrypto()) as never,
-        (deps.hermesBootstrap ?? {}) as never,
-        (deps.openclawBootstrap ?? {}) as never,
+        (deps.hostServices ?? hostServicesFake()) as never,
         extensionsWith({ framework: FIXTURE, controlUi: fixtureControlUi })
     )
 
-// Bypass the agent-row/account/client assembly (integration concern) so the
-// toggle tests exercise claim → bootstrap → patch → audit.
-const stubSpriteTarget = (
-    service: RuntimeDashboardService,
-    creds: Record<string, unknown> = {}
-): void => {
-    ;(service as never as Record<string, unknown>).buildSpriteTarget =
-        async () => ({
-            ctx: {
-                agentId: 'agent-1',
-                runtimeId: 'runtime-1',
-                userId: 'user-1',
-                spriteName: 'sprite-1',
-                mountPath: '/workspace',
-                client: {},
-                logger: {
-                    debug: () => {},
-                    info: () => {},
-                    warn: () => {},
-                    error: () => {}
-                },
-                envText: null
-            },
-            creds
-        })
+// The host's daemon rewriting a framework's config and restarting its
+// services: the settings each reconfigure asked for, or the failure it hits.
+const hostServicesFake = (error?: Error) => {
+    const settings: unknown[] = []
+    return {
+        settings,
+        reconfigure: async (_runtime: unknown, _host: unknown, next: unknown) => {
+            settings.push(next)
+            if (error) throw error
+        }
+    }
+}
+
+// The dashboard's proofs through the sandbox's public URL, recorded instead
+// of fetched; `error` fails the first.
+const stubProbes = (service: RuntimeDashboardService, error?: Error): string[] => {
+    const urls: string[] = []
+    const record = async (url: string) => {
+        urls.push(url)
+        if (error) throw error
+    }
+    Object.assign(service as never as Record<string, unknown>, {
+        probe: record,
+        probeWs: record
+    })
+    return urls
 }
 
 const waitFor = async (

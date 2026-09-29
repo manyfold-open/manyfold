@@ -62,8 +62,8 @@ import {
     sessionScriptRunner,
     setUpHostFramework
 } from '@/modules/agents/bootstrap/host-framework-setup'
-import { podServiceRecipe } from './pod-service-frameworks'
-import { PodHostServices } from './pod-host-services'
+import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
+import { HostServices } from './host-services'
 import { exposePodHostFramework } from './pod-host-network'
 import {
     describeK8sCreateError,
@@ -130,7 +130,8 @@ export interface ProvisionAgentContainerResult extends ProvisionContainerResult 
 // What a pod host can run: the coding CLIs, and the service frameworks its
 // daemon keeps up from a recipe (ADR-0035 P2).
 export const podHostCanRun = (framework: AgentFramework): boolean =>
-    isCodingHostFramework(framework) || podServiceRecipe(framework) !== undefined
+    isCodingHostFramework(framework) ||
+    serviceFrameworkRecipe(framework) !== undefined
 
 // A refusal with its own code (the host's CLI is too old for services, …)
 // tells the user what to do; it is not a provisioning failure.
@@ -147,10 +148,6 @@ export function assertPodHostFramework(framework: AgentFramework): void {
         })
 }
 
-// A service framework's health budget once its process is started, apart
-// from the install (ADR-0035 §9).
-const SERVICE_READY_TIMEOUT_MS = 180_000
-
 interface FrameworkOnHost {
     frameworkVersion: string | null
     // A service framework's: minted tokens, where it lives, and its hostname.
@@ -162,6 +159,7 @@ interface FrameworkOnHost {
 interface PodFrameworkInstall {
     host: RuntimeHostRow
     provider: RuntimeProvider
+    runtimeId: string
     framework: AgentFramework
     credentials: unknown
     modelConfigSource: AgentModelConfigSource | null
@@ -196,7 +194,7 @@ export class K8sContainerProvisioner {
         private readonly createCleanup: K8sCreateCleanupService,
         private readonly frameworkVersions: FrameworkVersionsService,
         private readonly k8sProvisioner: K8sProvisioner,
-        private readonly podServices: PodHostServices
+        private readonly hostServices: HostServices
     ) {}
 
     async provision(
@@ -261,6 +259,7 @@ export class K8sContainerProvisioner {
                 const installed = await this.installFramework({
                     host: ready,
                     provider,
+                    runtimeId,
                     framework,
                     credentials: input.credentials,
                     modelConfigSource: input.modelConfigSource ?? null,
@@ -570,6 +569,7 @@ export class K8sContainerProvisioner {
             const installed = await this.installFramework({
                 host,
                 provider,
+                runtimeId,
                 framework,
                 credentials: input.credentials,
                 modelConfigSource: input.modelConfigSource ?? null,
@@ -787,7 +787,7 @@ export class K8sContainerProvisioner {
             frameworkRepo: repo,
             frameworkArtifacts: artifacts
         }
-        const recipe = podServiceRecipe(args.framework)
+        const recipe = serviceFrameworkRecipe(args.framework)
         if (!recipe) {
             if (!isCodingHostFramework(args.framework))
                 throw new Error(`${args.framework} has no pod recipe`)
@@ -800,24 +800,17 @@ export class K8sContainerProvisioner {
                 install
             })
         }
-        // A service framework: installed like a sprite's, then kept up by the
-        // host's daemon and routed to a hostname of its own. The daemon has to
-        // run services before the install is worth starting.
-        const hostRef = { id: host.id, userId: host.userId }
-        await this.podServices.ready(hostRef)
-        const frameworkVersion = await recipe.install(runner, install)
-        const setup = await recipe.configure(runner, {
+        // A service framework: installed and kept up by the host's daemon,
+        // and routed to a hostname of its own.
+        const setup = await this.hostServices.setUp({
+            host,
+            session,
+            runtimeId: args.runtimeId,
+            framework: args.framework,
             credentials: args.credentials,
             envText: null,
-            controlUiEnabled: true
+            install
         })
-        await this.podServices.upsert(hostRef, setup.spec)
-        await this.podServices.start(hostRef, setup.spec.name)
-        await this.podServices.waitHealthy(
-            hostRef,
-            setup.spec.name,
-            SERVICE_READY_TIMEOUT_MS
-        )
         const ref = this.clients.k8sRef(host)
         const client = await this.clients.k8sClientForProvider(args.provider)
         const ingressHost = await exposePodHostFramework({
@@ -832,9 +825,9 @@ export class K8sContainerProvisioner {
             suffix: ingressSuffixOf(host.id, ref.ingressHost)
         })
         return {
-            frameworkVersion,
+            frameworkVersion: setup.frameworkVersion,
             generatedCredentials: setup.generatedCredentials,
-            mountPath: recipe.home,
+            mountPath: setup.home,
             ingressHost
         }
     }

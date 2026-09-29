@@ -14,6 +14,7 @@ import {
     NotFoundException,
     Param,
     Patch,
+    Post,
     Query,
     UseGuards
 } from '@nestjs/common'
@@ -77,6 +78,15 @@ export class AdminAgentRuntimesController {
         @Query('agentId') agentId?: string
     ): Promise<AgentControlUiUrlResponse> {
         return this.dashboard.getControlUiUrl(id, user.userId, true, agentId)
+    }
+
+    @Post(':id/service/restart')
+    @HttpCode(200)
+    async restartService(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<AgentRuntimeSummary> {
+        return this.dashboard.restartService(user.userId, id, true)
     }
 
     @Patch(':id/dashboard')

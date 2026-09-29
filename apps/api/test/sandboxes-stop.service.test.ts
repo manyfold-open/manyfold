@@ -81,7 +81,8 @@ const makeStop = (opts: {
     agents?: Array<{ id: string; runtimeId: string }>
     runtimes?: Array<{ id: string; framework: string }>
     converge?: { state: string; message?: string }
-    serviceStopMessage?: Record<string, string | undefined>
+    // A runtime whose services the daemon could not stop, and why.
+    serviceStopError?: Record<string, string | undefined>
     services?: ServiceObject[]
     stopService?: (name: string, call: number) => ServiceObject
     refreshFails?: boolean
@@ -114,10 +115,11 @@ const makeStop = (opts: {
             return opts.converge ?? { state: 'unchanged' }
         }
     }
-    const keepAliveLease = {
-        stopService: async (rt: { id: string }) => {
+    const hostServices = {
+        stopRuntime: async (rt: { id: string }) => {
             serviceStops.push(rt.id)
-            return opts.serviceStopMessage?.[rt.id]
+            const error = opts.serviceStopError?.[rt.id]
+            if (error) throw new Error(error)
         }
     }
     const sessions = {
@@ -153,7 +155,7 @@ const makeStop = (opts: {
         spriteStatusSync as never,
         {} as never,
         {} as never,
-        keepAliveLease as never,
+        hostServices as never,
         {} as never,
         sessions as never,
         db as never,
@@ -233,11 +235,13 @@ test('stop stops the framework services of every service runtime on the host', a
             { id: 'rt-hermes', framework: 'hermes' },
             { id: 'rt-claude', framework: 'claude-code' }
         ],
-        serviceStopMessage: { 'rt-hermes': 'service hermes status=running' }
+        serviceStopError: { 'rt-hermes': 'sandbox sbx_1 has no connected daemon' }
     })
     const res = await h.svc.stop('u1', 'sbx_1')
     assert.deepEqual(h.serviceStops, ['rt-hermes'], 'a coding CLI has no service to stop')
-    assert.deepEqual(res.warnings, ['runtime rt-hermes: service hermes status=running'])
+    assert.deepEqual(res.warnings, [
+        'runtime rt-hermes service stop failed: sandbox sbx_1 has no connected daemon'
+    ])
 })
 
 // The daemon's loop and the public port stub are the platform's: stopping the

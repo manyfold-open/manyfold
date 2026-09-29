@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
     DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_FEATURE_SERVICES,
     DAEMON_MIN_CLI_VERSION,
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
@@ -173,11 +174,15 @@ const buildHarness = (opts: HarnessOptions = {}) => {
     }
     let bumps = 0
 
-    const dialIn = () => {
+    const dialIn = (supervised = false) => {
         state.daemon = daemonRow({
             hostId: state.host.id,
             cliVersion: state.version ?? CLI_AT_FLOOR,
-            rpcConnectedAt: NOW()
+            rpcConnectedAt: NOW(),
+            // Under its supervised loop the daemon runs services.
+            ...(supervised
+                ? { startupMethod: 'container', clientFeatures: [DAEMON_FEATURE_SERVICES] }
+                : {})
         })
     }
 
@@ -194,7 +199,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
                       if (args.generation < state.host.generation)
                           throw new StaleGenerationError(state.host.id, args.generation, state.host.generation)
                       supervised.push(process)
-                      if (opts.connects !== false) dialIn()
+                      if (opts.connects !== false) dialIn(true)
                   }
               }
             : {}),
@@ -482,6 +487,33 @@ test('the supervised loop restarts an exiting daemon and ends with its daemon on
     } finally {
         spawnSync('rm', ['-rf', dir])
     }
+})
+
+// A daemon an older bring-up started by an exec runs no services: a service
+// framework on its sandbox needs it under the supervised loop, which a CLI
+// update would not give it.
+test('a connected sprite daemon started by an exec is handed to its supervised loop when services are needed', async () => {
+    const ensured: unknown[] = []
+    const h = buildHarness({
+        registered: true,
+        daemon: daemonRow({ startupMethod: 'manual', clientFeatures: [] }),
+        hostCli: {
+            ensure: async (_host, need) => {
+                ensured.push(need)
+                throw new Error('an update cannot give a manual daemon services')
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: [DAEMON_FEATURE_SERVICES],
+        waitOnlineMs: 50
+    })
+    assert.equal(res.handle?.daemonId, 'sbx_1')
+    assert.equal(h.supervised.length, 1, 'the loop took the daemon over')
+    assert.ok(scriptsOf(h).some((s) => s.includes('daemon stop')))
+    assert.deepEqual(ensured, [], 'no CLI update was asked for')
+    assert.equal(h.state.daemon?.startupMethod, 'container')
 })
 
 test('a suspended sprite with a registered daemon is woken, and a fresh lease is enough', async () => {

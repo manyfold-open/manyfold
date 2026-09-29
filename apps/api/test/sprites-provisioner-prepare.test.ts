@@ -2,17 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ConflictException } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeProvider } from '@manyfold/db'
-import type { BootstrapContext } from '../src/modules/agents/bootstrap/framework-bootstrap'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
-import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // WHY: preparing a runtime on a bare sandbox is agent create's provisioning
 // minus the agent: the (host, framework) row is claimed on the named host, the
 // host's daemon is brought up, the framework is set up through it (a coding
 // CLI's directories and configuration, and the CLI at the resolved version; a
-// service framework installed and started with no provider yet) and the row
-// published ready — and a failure leaves the row `failed` in its slot, never
-// touching the user's sandbox.
+// service framework installed and run by the daemon with no provider yet) and
+// the row published ready — and a failure leaves the row `failed` in its slot,
+// never touching the user's sandbox.
 
 const provider = { id: 'rtp_1', kind: 'sprites', name: 'acct' } as RuntimeProvider
 
@@ -63,7 +61,7 @@ const buildHarness = (opts: { version?: string; failWith?: string } = {}) => {
         phases: unknown[]
         daemonAsked: string[]
         sessionExecs: SessionExec[]
-        hermesRuns: unknown[]
+        serviceSetUps: Array<Record<string, unknown>>
     } = {
         reserve: [],
         statusPatches: [],
@@ -71,7 +69,7 @@ const buildHarness = (opts: { version?: string; failWith?: string } = {}) => {
         phases: [],
         daemonAsked: [],
         sessionExecs: [],
-        hermesRuns: []
+        serviceSetUps: []
     }
     const runtimes = {
         applyStatusPatch: async (_id: string, patch: Partial<AgentRuntimeRow>) => {
@@ -123,24 +121,16 @@ const buildHarness = (opts: { version?: string; failWith?: string } = {}) => {
         } as never,
         {} as never,
         runtimes as never,
-        new SpriteServiceBootstraps(
-            {
-                framework: 'hermes',
-                run: async (ctx: BootstrapContext, credentials: unknown) => {
-                    calls.hermesRuns.push({ ctx, credentials })
-                    return {
-                        homeDir: '/home/sprite/.hermes',
-                        serviceName: 'hermes',
-                        endpointUrl: 'https://sbx-1.sprites.app',
-                        generatedCredentials: {
-                            apiServerKey: 'k1',
-                            runtimeReportToken: 'r1'
-                        }
-                    }
+        {
+            setUp: async (args: Record<string, unknown>) => {
+                calls.serviceSetUps.push(args)
+                return {
+                    frameworkVersion: null,
+                    generatedCredentials: { apiServerKey: 'k1' },
+                    home: '/home/sprite/.hermes'
                 }
-            } as never,
-            { framework: 'openclaw' } as never
-        ),
+            }
+        } as never,
         {
             reserveSpriteRuntime: async (input: Record<string, unknown>) => {
                 calls.reserve.push(input)
@@ -153,7 +143,6 @@ const buildHarness = (opts: { version?: string; failWith?: string } = {}) => {
             }
         } as never,
         { get: () => undefined } as never,
-        {} as never,
         {} as never,
         undefined
     )
@@ -188,22 +177,22 @@ test('a coding CLI is set up through the host daemon to the resolved version and
     assert.equal(out.generatedCredentials, undefined)
 })
 
-test('a service framework is installed and started without a provider, and its endpoint is returned', async () => {
+test('a service framework is set up through the daemon session without a provider', async () => {
     const h = buildHarness()
     const out = await h.provisioner.prepareRuntime({
         userId: 'user_1',
         framework: 'hermes',
         hostId: 'sbx_1'
     })
-    assert.equal(h.calls.hermesRuns.length, 1)
-    assert.deepEqual((h.calls.hermesRuns[0] as { credentials: unknown }).credentials, {})
+    assert.equal(h.calls.serviceSetUps.length, 1)
+    const setUp = h.calls.serviceSetUps[0]
+    assert.deepEqual(setUp.credentials, {})
+    assert.equal(setUp.framework, 'hermes')
+    assert.equal(setUp.runtimeId, (h.calls.reserve[0] as { id: string }).id)
+    assert.ok(setUp.session, 'inside the session that holds the sandbox')
     assert.equal((h.calls.reserve[0] as { mountPath: string }).mountPath, '/home/sprite/.hermes')
-    assert.deepEqual(out.generatedCredentials, {
-        apiServerKey: 'k1',
-        runtimeReportToken: 'r1'
-    })
-    assert.equal(out.endpointUrl, 'https://sbx-1.sprites.app')
-    assert.equal(h.calls.sessionExecs.length, 0)
+    assert.deepEqual(out.generatedCredentials, { apiServerKey: 'k1' })
+    assert.ok(h.calls.statusPatches.some((p) => (p as { status?: string }).status === 'ready'))
 })
 
 test('a failed setup leaves the row failed in its slot and the sandbox alone', async () => {

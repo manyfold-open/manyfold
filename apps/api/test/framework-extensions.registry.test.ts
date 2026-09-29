@@ -9,7 +9,7 @@ import { AgentAdapterRegistry } from '../src/modules/agents/adapters/adapter-reg
 import { FrameworkExtensionsRegistry } from '../src/modules/frameworks/framework-extensions.registry'
 import type { FrameworkExtension } from '../src/modules/frameworks/framework-extension'
 import { frameworkVersionDescriptor } from '../src/modules/framework-versions/framework-version-registry'
-import { podServiceRecipe } from '../src/modules/agent-runtimes/provisioning/pod-service-frameworks'
+import { serviceFrameworkRecipe } from '../src/modules/agents/bootstrap/service-frameworks'
 
 // Runs in its own process (node --test), so the definition this file
 // registers never reaches another test file.
@@ -39,16 +39,6 @@ const complete = (): FrameworkExtension => ({
     framework: 'fixture-gateway',
     agentAdapter: adapter('fixture-gateway'),
     chatAdapter: adapter('fixture-gateway'),
-    spriteService: {
-        bootstrap: adapter('fixture-gateway'),
-        mountPath: '/home/sprite/.fixture',
-        workspaceSeed: () => '/home/sprite/.fixture/workspace',
-        supervision: {
-            homeDir: '/home/sprite/.fixture',
-            healthUrl: 'http://127.0.0.1:9000/healthz',
-            fallbackExec: () => ['fixture']
-        }
-    },
     version: {
         descriptor: {
             framework: 'fixture-gateway',
@@ -59,19 +49,26 @@ const complete = (): FrameworkExtension => ({
         },
         rebuildShells: () => ({ rebuild: 'true', restore: 'true' })
     },
-    podService: {
+    serviceRecipe: {
         framework: 'fixture-gateway',
         serviceName: 'fixture-gateway',
-        home: '/home/node/.fixture',
+        companionNames: [],
         port: 9000,
+        home: (hostHome) => `${hostHome}/.fixture`,
+        sandbox: {
+            mountPath: (hostHome) => `${hostHome}/.fixture`,
+            workspaceSeed: (hostHome) => `${hostHome}/.fixture/workspace`
+        },
         install: async () => '1.0.0',
-        configure: async () => ({
+        configure: async (_runner, args) => ({
             spec: {
                 name: 'fixture-gateway',
                 command: ['fixture'],
-                dir: '/home/node/.fixture',
+                dir: `${args.host.home}/.fixture`,
                 env: {}
             },
+            companions: [],
+            publicPort: 9000,
             generatedCredentials: {}
         })
     },
@@ -95,7 +92,7 @@ test('an extension must match a registered definition, slot for slot', () => {
             }),
         /adapters name another framework/
     )
-    for (const slot of ['spriteService', 'podService', 'version', 'files'] as const)
+    for (const slot of ['serviceRecipe', 'version', 'files'] as const)
         assert.throws(
             () => registry.register({ ...complete(), [slot]: undefined }),
             /is missing its/,
@@ -113,9 +110,9 @@ test('an extension must match a registered definition, slot for slot', () => {
         () =>
             registry.register({
                 ...complete(),
-                podService: { ...complete().podService!, framework: 'openclaw' }
+                serviceRecipe: { ...complete().serviceRecipe!, framework: 'openclaw' }
             }),
-        /pod service recipe names another framework/
+        /service recipe names another framework/
     )
 })
 
@@ -142,8 +139,8 @@ test('a complete extension is served to the core dispatch points', () => {
         frameworkVersionDescriptor('fixture-gateway'),
         extension.version!.descriptor
     )
-    // and so does its pod service recipe
-    assert.equal(podServiceRecipe('fixture-gateway'), extension.podService)
+    // and so does its service recipe, for sandboxes and cloud computers alike
+    assert.equal(serviceFrameworkRecipe('fixture-gateway'), extension.serviceRecipe)
 
     const agents = new AgentAdapterRegistry(
         adapter('claude-code'),

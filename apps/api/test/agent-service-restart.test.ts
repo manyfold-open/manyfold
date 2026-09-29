@@ -4,7 +4,6 @@ import { BadRequestException } from '@nestjs/common'
 import { agentCredentials, agentRuntimes, agents } from '@manyfold/db'
 import { contextOf, spritesHostRow } from './helpers/runtime-context-fixture'
 import { AgentServiceRestartService } from '../src/modules/agents/agent-service-restart.service'
-import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 const now = new Date('2026-08-11T12:00:00.000Z')
 
@@ -17,7 +16,14 @@ test('restarting records when the agent came back up', async () => {
 
     await h.service.restart('agent-1', 'user-1', false)
 
-    assert.deepEqual(h.bootstrap.restarted, ['agent-1'])
+    assert.deepEqual(h.services.restarted, ['runtime-1'])
+    // The runtime's own settings ride along: a restart never reverts a toggle.
+    assert.deepEqual(h.services.settings[0], {
+        credentials: {},
+        envText: null,
+        controlUiEnabled: true,
+        dashboardEnabled: false
+    })
     const startedAt = h.agentRow.startedAt as Date
     assert.ok(startedAt instanceof Date)
     assert.ok(startedAt > (now as Date))
@@ -31,14 +37,14 @@ test('a framework with no service does not get a restart or a new start time', a
         () => h.service.restart('agent-1', 'user-1', false),
         BadRequestException
     )
-    assert.deepEqual(h.bootstrap.restarted, [])
+    assert.deepEqual(h.services.restarted, [])
     assert.equal(h.agentRow.startedAt, now)
 })
 
 // A restart that never reached the service must not claim the env is live.
 test('a failed service restart leaves the previous start time alone', async () => {
     const h = harness()
-    h.bootstrap.error = new Error('sprite unreachable')
+    h.services.error = new Error('sprite unreachable')
 
     await assert.rejects(
         () => h.service.restart('agent-1', 'user-1', false),
@@ -50,7 +56,7 @@ test('a failed service restart leaves the previous start time alone', async () =
 interface Harness {
     service: AgentServiceRestartService
     agentRow: Record<string, unknown>
-    bootstrap: FakeBootstrap
+    services: FakeHostServices
 }
 
 const harness = (patch: Record<string, unknown> = {}): Harness => {
@@ -67,41 +73,46 @@ const harness = (patch: Record<string, unknown> = {}): Harness => {
         updatedAt: now,
         ...patch
     }
-    const bootstrap = new FakeBootstrap()
+    const services = new FakeHostServices()
     const db = new FakeDb(agentRow)
     const agentsService = {
         contextForCaller: async () =>
-            contextOf({ agent: agentRow as never, host: spritesHostRow() }),
+            contextOf({
+                agent: agentRow as never,
+                runtime: {
+                    id: 'runtime-1',
+                    framework: agentRow.framework,
+                    controlUiEnabled: true,
+                    dashboardEnabled: false
+                } as never,
+                host: spritesHostRow()
+            }),
         get: async () => ({ id: 'agent-1' })
-    }
-    const hostClients = {
-        spritesClientForHost: async () => ({
-            client: {},
-            spriteName: 'sprite-1',
-            provider: { id: 'rtp_sprites', name: 'acct' }
-        })
     }
     const crypto = { decrypt: () => '{}' }
     const service = new AgentServiceRestartService(
         db as never,
         agentsService as never,
         crypto as never,
-        new SpriteServiceBootstraps(
-            bootstrap as never,
-            new FakeBootstrap() as never
-        ),
-        hostClients as never
+        services as never
     )
-    return { service, agentRow, bootstrap }
+    return { service, agentRow, services }
 }
 
-class FakeBootstrap {
+// The host's daemon rewriting the config and restarting the service.
+class FakeHostServices {
     restarted: string[] = []
+    settings: unknown[] = []
     error: Error | null = null
 
-    async restart(ctx: { agentId: string }): Promise<void> {
+    async reconfigure(
+        runtime: { id: string },
+        _host: unknown,
+        settings: unknown
+    ): Promise<void> {
         if (this.error) throw this.error
-        this.restarted.push(ctx.agentId)
+        this.restarted.push(runtime.id)
+        this.settings.push(settings)
     }
 }
 

@@ -63,7 +63,7 @@ import {
 } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { HostedHostLifecycleService } from '@/modules/agent-runtimes/hosted-host-lifecycle.service'
 import { providerRefLabel, spritesRef } from '@/modules/agent-runtimes/host-ref'
-import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { HostServices } from '@/modules/agent-runtimes/provisioning/host-services'
 import {
     HostKeepAwakeService,
     KEEP_AWAKE_TTL_SEC
@@ -151,7 +151,7 @@ export class SandboxesService {
         private readonly spriteStatusSync: SpriteStatusSyncService,
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly runtimeAccess: RuntimeAccessService,
-        private readonly keepAliveLease: SpriteKeepAliveLeaseService,
+        private readonly hostServices: HostServices,
         private readonly lifecycle: HostedHostLifecycleService,
         private readonly sessions: HostSessionRegistry,
         @Inject(DRIZZLE) private readonly db: Database,
@@ -990,8 +990,7 @@ export class SandboxesService {
         for (const rt of runtimesOnHost) {
             if (frameworkCapability(rt.framework).kind !== 'service') continue
             try {
-                const message = await this.keepAliveLease.stopService(rt)
-                if (message) warnings.push(`runtime ${rt.id}: ${message}`)
+                await this.hostServices.stopRuntime(rt, host)
             } catch (err) {
                 warnings.push(
                     `runtime ${rt.id} service stop failed: ${(err as Error).message}`

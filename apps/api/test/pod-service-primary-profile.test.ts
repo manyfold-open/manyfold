@@ -202,7 +202,7 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
         })
     }
     const svc = reconcilerFor(db, registry, { host: POD_HOST })
-    await svc.reconcileRuntime(runtime as never, { verifiedByReport: true })
+    await svc.reconcileRuntime(runtime as never, { serviceReady: true })
     assert.equal(inserts.length, 0, 'main is not adopted as a second agent')
     assert.equal(updates.length, 1)
     assert.equal('status' in updates[0], false, 'presence is never mirrored')

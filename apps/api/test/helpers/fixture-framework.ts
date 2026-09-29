@@ -6,15 +6,11 @@ import {
     type FrameworkDefinition
 } from '@manyfold/shared'
 import type { Agent, FileRoot } from '@manyfold/db'
-import { execSprite } from '@manyfold/sprites'
+import { runHostStep } from '../../src/modules/agents/bootstrap/host-framework-setup'
 import {
-    BootstrapError,
-    type BootstrapContext
-} from '../../src/modules/agents/bootstrap/framework-bootstrap'
-import type {
-    SpriteServiceBootstrap,
-    SpriteServiceBootstrapResult
-} from '../../src/modules/agents/bootstrap/sprite-framework-bootstrap'
+    registerServiceFrameworkRecipe,
+    type ServiceFrameworkRecipe
+} from '../../src/modules/agents/bootstrap/service-frameworks'
 import type { FilesContext } from '../../src/modules/agents/files/files-context'
 import { GatewayHttpChatAdapter } from '../../src/modules/chat/adapters/gateway-http-chat.adapter'
 import {
@@ -41,6 +37,7 @@ export const FIXTURE_FORK = 'fork-org/fixture-gateway'
 export const FIXTURE_HOME = '/home/sprite/.fixture-gateway'
 const HOME = FIXTURE_HOME
 export const FIXTURE_WORKSPACE = `${HOME}/workspaces/agent-1`
+export const FIXTURE_PORT = 9000
 
 export const fixtureDefinition: FrameworkDefinition = {
     id: FIXTURE,
@@ -95,39 +92,47 @@ export const fixtureVersion: FrameworkVersionExtension = {
 registerFrameworkVersionDescriptor(fixtureVersion.descriptor)
 
 // Installs by cloning the admitted tag from the admitted repository: the one
-// install step the version-source tests read.
-export class FixtureSpriteBootstrap implements SpriteServiceBootstrap {
-    readonly framework = FIXTURE
-
-    async run(
-        ctx: BootstrapContext,
-        _credentials: unknown
-    ): Promise<SpriteServiceBootstrapResult> {
-        const version = ctx.frameworkVersion ?? 'v1.0.0'
+// install step the version-source tests read. Registered at import, as its
+// module's extension would at boot.
+export const fixtureServiceRecipe: ServiceFrameworkRecipe = {
+    framework: FIXTURE,
+    serviceName: FIXTURE,
+    companionNames: [],
+    port: FIXTURE_PORT,
+    home: (hostHome) => `${hostHome}/.fixture-gateway`,
+    sandbox: {
+        mountPath: (hostHome) => `${hostHome}/.fixture-gateway`,
+        workspaceSeed: (hostHome) =>
+            `${hostHome}/.fixture-gateway/workspaces/agent-1`
+    },
+    install: async (runner, request) => {
+        const version = request.frameworkVersion ?? 'v1.0.0'
         const repo =
-            ctx.frameworkRepo ??
+            request.frameworkRepo ??
             defaultFrameworkRepo(FIXTURE) ??
             FIXTURE_UPSTREAM
-        const install = await execSprite(
-            ctx.client,
-            ctx.spriteName,
-            {
-                cmd: ['bash', '-lc', cloneShell(version, repo)],
-                stdin: '',
-                timeoutMs: 60_000
-            },
-            ctx.logger
+        await runHostStep(
+            runner,
+            'fixture-install',
+            cloneShell(version, repo, fixtureServiceRecipe.home(request.host.home))
         )
-        if (install.exitCode !== 0)
-            throw new BootstrapError(
-                'fixture-install',
-                `fixture install exited ${install.exitCode}`
-            )
-        return { serviceName: FIXTURE }
-    }
-
-    async restart(): Promise<void> {}
+        return version
+    },
+    configure: async (_runner, args) => ({
+        spec: {
+            name: FIXTURE,
+            command: ['bash', `${fixtureServiceRecipe.home(args.host.home)}/app/run.sh`],
+            dir: fixtureServiceRecipe.home(args.host.home),
+            env: {},
+            port: FIXTURE_PORT,
+            healthPath: '/healthz'
+        },
+        companions: [],
+        publicPort: FIXTURE_PORT,
+        generatedCredentials: {}
+    })
 }
+registerServiceFrameworkRecipe(fixtureServiceRecipe)
 
 // The gateway HTTP transport with nothing of its own: the base class's turn,
 // resume and error paths, reached through a concrete framework.

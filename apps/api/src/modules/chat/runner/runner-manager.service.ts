@@ -2,6 +2,7 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_FEATURE_SERVICES,
     DAEMON_MIN_CLI_VERSION,
     K8S_HOME_BASE,
     POD_RUNNER_PROFILE,
@@ -295,6 +296,7 @@ export class RunnerManagerService {
     // One in-flight bring-up per host: concurrent turns on the same machine
     // must not each install and register a daemon.
     private readonly bringUps = new Map<string, Promise<RunnerBringUp>>()
+    private readonly resupervisions = new Map<string, Promise<HostDaemonRow | null>>()
     constructor(
         private readonly hosts: HostsService,
         private readonly hostDaemons: HostDaemonsService,
@@ -403,6 +405,31 @@ export class RunnerManagerService {
                     generation: leaseGeneration(daemon)
                 }
             }
+        // A sprite's daemon an older bring-up started by an exec runs no
+        // services (services.v1 is a supervised daemon's): handing it to its
+        // supervised loop is what gives it them, not an update.
+        if (
+            host.kind === 'hosted' &&
+            daemon &&
+            daemon.startupMethod !== 'container' &&
+            missing.includes(DAEMON_FEATURE_SERVICES)
+        ) {
+            const back = await this.singleFlightResupervise(host)
+            if (
+                back &&
+                (args.requiredFeatures ?? []).every((f) =>
+                    back.clientFeatures.includes(f)
+                )
+            )
+                return {
+                    handle: {
+                        daemonId: host.id,
+                        started: true,
+                        generation: leaseGeneration(back)
+                    }
+                }
+            if (back) daemon = back
+        }
         // A hosted machine's daemon is the platform's to keep current (R11):
         // it is updated here, under the admission's hold, and the work goes on
         // once it is back with what the work needs. A self-owned computer is
@@ -439,6 +466,37 @@ export class RunnerManagerService {
             `daemon on host ${host.id} lacks required features ${missing.join(',')} for agent ${args.agentId ?? '-'}`
         )
         return unavailable('runner_cli_too_old')
+    }
+
+    private singleFlightResupervise(
+        host: RuntimeHostRow
+    ): Promise<HostDaemonRow | null> {
+        const inFlight = this.resupervisions.get(host.id)
+        if (inFlight) return inFlight
+        const attempt = this.resupervise(host).finally(() => {
+            this.resupervisions.delete(host.id)
+        })
+        this.resupervisions.set(host.id, attempt)
+        return attempt
+    }
+
+    // The daemon restarted under its provider's supervisor, and back: the
+    // loop starts it again with the container marker. A provider without a
+    // supervised layout has nothing to hand it to.
+    private async resupervise(
+        host: RuntimeHostRow
+    ): Promise<HostDaemonRow | null> {
+        const { provider, adapter } = await this.adapterFor(host)
+        if (!layoutFor(provider).supervised) return null
+        this.logger.log(`handing the daemon on host ${host.id} to its supervised loop`)
+        const generation = await this.hosts.bumpGeneration(host.id)
+        const startedAt = new Date()
+        const online = await this.startHeldAwake(
+            adapter,
+            { host, provider, generation },
+            () => this.waitForLease(host, startedAt, DEFAULT_WAIT_ONLINE_MS)
+        )
+        return online ? this.hostDaemons.findByHostId(host.id) : null
     }
 
     private singleFlightBringUp(
