@@ -513,8 +513,8 @@ const ChatSessionDetail: FC = (): ReactNode => {
                                                 {turn.execution
                                                     ? `${turn.execution.runtime}${
                                                           turn.execution
-                                                              .spriteName
-                                                              ? ` · ${turn.execution.spriteName}`
+                                                              .hostId
+                                                              ? ` · ${turn.execution.hostId}`
                                                               : ''
                                                       }`
                                                     : '—'}

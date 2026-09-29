@@ -4,6 +4,7 @@ import {
     SpritesError,
     parseTaskList,
     type ServiceDef,
+    type NetworkPolicy,
     type ServiceObject,
     type Sprite,
     type SpriteTask,
@@ -15,13 +16,14 @@ import type {
     RuntimeHostProviderRef,
     SpritesProviderRef
 } from '@manyfold/db'
-import { defaultNetworkPolicy } from '@/modules/agents/orchestration/bootstrap-invariants'
 import { HostsService } from '../hosts.service'
 import { HostProviderClients } from './host-provider-clients.service'
 import {
     SandboxProviderRegistry,
+    type ExecEndpointFailure,
     type HostCreateSpec,
     type ProviderCall,
+    type ProviderErrorFacts,
     type ProviderExecResult,
     type SandboxProvider,
     type SandboxProviderCapabilities,
@@ -62,6 +64,9 @@ const sortedEnv = (
 ): Array<[string, string]> =>
     Object.entries(env ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
+// sprites.dev treats an empty rule list as wide-open outbound access.
+export const defaultNetworkPolicy = (): NetworkPolicy => ({ rules: [] })
+
 const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 180_000
@@ -73,6 +78,49 @@ export const spriteNameForHost = (hostId: string): string =>
 
 export const isSpritesNotFound = (err: unknown): boolean =>
     err instanceof SpritesError && err.code === 'not_found'
+
+// Which exec failures are the EXEC ENDPOINT's fault. Getting this wrong in the
+// generous direction is expensive: the caller quarantines on it, so a class
+// handed out for a sprite that answered takes a healthy VM out of the turn path.
+//
+// Only a transient SpritesError qualifies at all. `auth` is an account-wide fact
+// (a revoked account token would quarantine every sprite on that account at
+// once, none of them sick), and not_found / conflict / quota / permanent are
+// facts about the request. A structured `reason` — today `exec_session_gone` —
+// means the endpoint started and reaped a session, so it answered.
+const execEndpointFailure = (err: SpritesError): ExecEndpointFailure | null => {
+    if (err.code !== 'transient' || err.reason) return null
+    if (err.execPhase !== 'pre_open') return null
+    // The exec burned its whole budget without a result: nothing usable came
+    // back from the endpoint within a window many times what a healthy one needs.
+    if (/timed out after \d+ms/i.test(err.message))
+        return { failureClass: 'timeout' }
+    const status = err.status
+    // A non-101 upgrade response. 5xx only: the socket never opened AND the
+    // backend blamed itself.
+    if (status !== undefined && status >= 500 && /handshake/i.test(err.message))
+        return {
+            failureClass: 'handshake_5xx',
+            upstreamStatus: status
+        }
+    // `ws` reports a connection that died before the handshake completed as an
+    // error with no status. A socket that opened and then died surfaces as
+    // `closed without exit code` instead, which is deliberately NOT classified:
+    // a sprite suspending mid-exec does that and recovers by itself.
+    if (/transport error/i.test(err.message))
+        return { failureClass: 'transport_error' }
+    return null
+}
+
+export const spritesErrorFacts = (err: unknown): ProviderErrorFacts | null =>
+    err instanceof SpritesError
+        ? {
+              errorClass: `sprites:${err.code}`,
+              beforeOpen:
+                  err.code === 'transient' && err.execPhase === 'pre_open',
+              execFailure: execEndpointFailure(err)
+          }
+        : null
 
 // sprites.dev reports running / warm / cold; the host's power vocabulary is
 // provider-neutral.
@@ -349,6 +397,10 @@ export class SpritesProvider implements SandboxProvider {
         const ref = this.ref(args)
         if (!ref) throw new Error(`host ${args.host.id} has no sprite`)
         return ref
+    }
+
+    describeError(err: unknown): ProviderErrorFacts | null {
+        return spritesErrorFacts(err)
     }
 
     // The URL the sprite reported when it was made or its port was published.

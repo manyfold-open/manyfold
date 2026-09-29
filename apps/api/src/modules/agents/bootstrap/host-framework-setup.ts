@@ -1,6 +1,6 @@
 import type { AgentFramework, AgentModelConfigSource } from '@manyfold/shared'
 import { AGY_MANAGED_HOST_ENV, OFFICIAL_PROVIDER_BASE_URL } from '@manyfold/shared'
-import type { ExecResult } from '@manyfold/sprites'
+import type { HostExecResult } from '@/modules/agents/adapters/host-daemon-access'
 import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
     installFrameworkVersionOn,
@@ -43,7 +43,7 @@ export interface SessionScriptRunner extends HostScriptRunner {
         script: string,
         timeoutMs: number,
         env?: Record<string, string>
-    ): Promise<ExecResult>
+    ): Promise<HostExecResult>
 }
 
 // What runs the script: a host session's exec through the daemon
@@ -54,7 +54,7 @@ export interface SessionScriptExec {
         stdin?: string
         env?: Record<string, string>
         timeoutMs: number
-    }): Promise<ExecResult>
+    }): Promise<HostExecResult>
 }
 
 export const sessionScriptRunner = (
@@ -95,8 +95,8 @@ export const runHostStep = async (
     step: string,
     script: string,
     options: { env?: Record<string, string>; timeoutMs?: number } = {}
-): Promise<ExecResult> => {
-    let result: ExecResult
+): Promise<HostExecResult> => {
+    let result: HostExecResult
     try {
         result = await runner.run(
             script,

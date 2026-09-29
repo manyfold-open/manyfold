@@ -18,6 +18,7 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 import {
     HostCliTooOldError,
     HostCliUpdatingError
@@ -219,6 +220,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         destroy: async () => {
             calls.push('destroy')
         },
+        describeError: spritesErrorFacts,
         bootstrap: async (args: { generation: number; script: string; stdin?: string }) => {
             if (args.generation < state.host.generation)
                 throw new StaleGenerationError(state.host.id, args.generation, state.host.generation)

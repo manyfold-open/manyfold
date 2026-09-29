@@ -137,10 +137,7 @@ export interface ApiChatAdapterContext {
     agent?: Agent
     channelSource?: ChannelSource | null
     timings?: ChatTurnTimings
-    // Sprite runtime only: fired once with the exec session id so the turn
-    // pipeline can persist it (turn_executions) for cross-instance adoption.
-    onExecSession?: (execSessionId: string) => void
-    // External runtime twin of onExecSession: fired as soon as the upstream
+    // External runtime only: fired as soon as the upstream
     // stream reveals the handles that name this turn's work (Dify task/message
     // id, A2A task id), so a peer instance can ask the upstream how the turn
     // ended after a deploy kills the relay. Fires more than once when the

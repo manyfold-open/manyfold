@@ -45,7 +45,8 @@ export interface AdminChatSessionsPage {
 export interface AdminChatSessionTurnExecution {
     runtime: string
     state: string
-    spriteName: string | null
+    // The machine that ran the turn.
+    hostId: string | null
     ownerId: string
     adoptCount: number
     leaseExpiresAt: string

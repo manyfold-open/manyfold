@@ -59,6 +59,31 @@ export interface ProviderExecResult {
     stderr: string
 }
 
+// How the provider-native exec failed when the endpoint itself is at fault
+// (#730): the exec-health breaker counts these against the host.
+export type ExecEndpointFailureClass =
+    | 'handshake_5xx'
+    | 'transport_error'
+    | 'timeout'
+
+export interface ExecEndpointFailure {
+    failureClass: ExecEndpointFailureClass
+    // Only a status-carrying handshake failure has one; a bare transport error
+    // never invents it.
+    upstreamStatus?: number
+}
+
+// What the core may learn from an error an adapter threw without knowing the
+// provider's client: a class for logs and audits, whether the provider-native
+// exec failed before its connection opened (the command never reached the
+// machine), and the endpoint failure the exec-health breaker counts — null
+// for one it must not (an account-wide refusal, a fact about the request).
+export interface ProviderErrorFacts {
+    errorClass: string
+    beforeOpen: boolean
+    execFailure: ExecEndpointFailure | null
+}
+
 // The process the provider's own supervisor keeps running on the machine: the
 // daemon's restart loop. What it runs is the core's; how it is kept is the
 // provider's.
@@ -120,6 +145,9 @@ export interface SandboxProvider {
             port: number
         }
     ): string | null
+    // Facts about an error this adapter's client threw; null for one it does
+    // not recognize as its own.
+    describeError?(err: unknown): ProviderErrorFacts | null
 }
 
 export class StaleGenerationError extends Error {
@@ -160,5 +188,15 @@ export class SandboxProviderRegistry {
 
     kinds(): RuntimeProviderKind[] {
         return [...this.byKind.keys()]
+    }
+
+    // An error carries no provider, and the adapter that threw it is the only
+    // one that recognizes it.
+    describeError(err: unknown): ProviderErrorFacts | null {
+        for (const provider of this.byKind.values()) {
+            const facts = provider.describeError?.(err)
+            if (facts) return facts
+        }
+        return null
     }
 }

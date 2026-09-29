@@ -2368,7 +2368,7 @@ export class ChatRepository {
         sessionId: string
         agentId: string
         runtime: 'sprites' | 'daemon' | 'k8s' | 'external'
-        spriteName?: string | null
+        hostId?: string | null
         ownerId: string
         leaseSeconds: number
     }): Promise<TurnExecutionFence | null> {
@@ -2398,7 +2398,7 @@ export class ChatRepository {
                     sessionId: row.sessionId,
                     agentId: row.agentId,
                     runtime: row.runtime,
-                    spriteName: row.spriteName,
+                    hostId: row.hostId,
                     ownerId: row.ownerId,
                     leaseExpiresAt: sql`now() + make_interval(secs => ${row.leaseSeconds})`,
                     state: 'running',
@@ -2421,38 +2421,8 @@ export class ChatRepository {
         })
     }
 
-    // Records the sprite exec session id once the session_info frame lands, so a
-    // fresh instance can re-attach to this exec by id after adopting the turn.
-    // The exact owner may finish this during handoff's drain grace; takeover
-    // still bumps generation before a new carrier can expose the row.
-    async setTurnExecSession(
-        messageId: string,
-        spriteName: string,
-        execSessionId: string,
-        fence: TurnExecutionFence
-    ): Promise<boolean> {
-        if (fence.messageId !== messageId) return false
-        const rows = await this.db
-            .update(turnExecutions)
-            .set({ spriteName, execSessionId, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(turnExecutions.messageId, messageId),
-                    eq(turnExecutions.ownerId, fence.ownerId),
-                    eq(turnExecutions.generation, fence.generation),
-                    inArray(turnExecutions.state, [
-                        'running',
-                        'adopting',
-                        'handoff'
-                    ])
-                )
-            )
-            .returning({ messageId: turnExecutions.messageId })
-        return rows.length > 0
-    }
-
-    // External runtime twin of setTurnExecSession: records the upstream handles
-    // as the stream reveals them. Each half is written only when present, so a
+    // An external runtime's upstream handles, recorded as the stream reveals
+    // them. Each half is written only when present, so a
     // later ref-bearing chunk carrying just one of them can never blank the
     // other — and an upsert racing a re-stamp cannot lose an already-known id.
     // Like stream rows, an exact-generation write may drain after handoff.
