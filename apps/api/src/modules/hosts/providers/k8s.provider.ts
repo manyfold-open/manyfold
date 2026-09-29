@@ -2,9 +2,12 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { ConfigurationOptions } from '@kubernetes/client-node'
 import type {
+    K8sProviderConfig,
     K8sProviderRef,
     RuntimeHostPowerState,
-    RuntimeHostProviderRef
+    RuntimeHostProviderRef,
+    RuntimeProvider,
+    RuntimeProviderConfig
 } from '@manyfold/db'
 import {
     isApiConflict,
@@ -25,7 +28,9 @@ import { HostsService } from '../hosts.service'
 import { HostProviderClients } from './host-provider-clients.service'
 import {
     SandboxProviderRegistry,
+    type CredentialHealth,
     type HostCreateSpec,
+    type PreparedCredential,
     type ProviderCall,
     type ProviderExecResult,
     type SandboxProvider,
@@ -55,6 +60,9 @@ export const podPowerState = (phase: string | null): RuntimeHostPowerState => {
             return 'unknown'
     }
 }
+
+const optionalString = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 
 // The host's hostname is `<resource>.<suffix>`; a framework's shares the suffix.
 export const ingressSuffixOf = (
@@ -86,6 +94,49 @@ export class K8sProvider implements SandboxProvider {
         private readonly clients: HostProviderClients
     ) {
         registry.register(this)
+    }
+
+    // A kubeconfig is the whole secret; whether it works is a namespace
+    // listing against its cluster.
+    async prepareCredential(
+        credential: string,
+        config: Record<string, unknown>
+    ): Promise<PreparedCredential> {
+        const k8sConfig: K8sProviderConfig = {
+            description: optionalString(config.description),
+            hostSuffix: optionalString(config.hostSuffix)
+        }
+        return {
+            secret: credential,
+            config: k8sConfig,
+            health: await this.k8s.probeKubeconfig(credential)
+        }
+    }
+
+    mergeConfig(
+        current: RuntimeProviderConfig,
+        patch: Record<string, unknown>
+    ): RuntimeProviderConfig {
+        const config = current as K8sProviderConfig
+        return {
+            description:
+                patch.description === undefined
+                    ? (config.description ?? null)
+                    : optionalString(patch.description),
+            hostSuffix:
+                patch.hostSuffix === undefined
+                    ? (config.hostSuffix ?? null)
+                    : optionalString(patch.hostSuffix)
+        }
+    }
+
+    checkCredential(provider: RuntimeProvider): Promise<CredentialHealth> {
+        return this.k8s.probeKubeconfig(this.clients.credentialFor(provider))
+    }
+
+    // The cluster client is built from the old kubeconfig.
+    forget(providerId: string): void {
+        this.k8s.invalidate(providerId)
     }
 
     private ref(call: Pick<ProviderCall, 'host'>): K8sProviderRef | null {

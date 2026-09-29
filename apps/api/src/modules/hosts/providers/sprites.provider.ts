@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { SANDBOX_PORT_SERVICE } from '@manyfold/shared'
 import {
     SpritesError,
@@ -18,6 +18,8 @@ import type {
     RuntimeHostProviderRef,
     RuntimeHostRow,
     RuntimeProvider,
+    RuntimeProviderConfig,
+    SpritesProviderConfig,
     SpritesProviderRef
 } from '@manyfold/db'
 import { HostsService } from '../hosts.service'
@@ -26,9 +28,11 @@ import {
     AwakeLeaseStillHeldError,
     SandboxProviderRegistry,
     type AwakeLease,
+    type CredentialHealth,
     type ExecEndpointFailure,
     type HostCreateSpec,
     type ProviderCall,
+    type PreparedCredential,
     type ProviderErrorFacts,
     type ProviderExecResult,
     type ProviderObservation,
@@ -196,6 +200,32 @@ export const abandonedExecSessions = (
 const execCommandHead = (command: string | undefined): string =>
     (command ?? '').trim().split(/\s+/)[0] || 'unknown'
 
+interface SpritesVaultToken {
+    orgSlug: string
+    orgId: string
+    tokenId: string
+    fullToken: string
+}
+
+// A sprites.dev credential is `<orgSlug>/<orgId>/<tokenId>/<tokenValue>`; the
+// three ids are the non-secret half and go into `config`, the whole string is
+// the API token and goes into the envelope.
+export const parseSpritesVaultToken = (raw: string): SpritesVaultToken => {
+    const fullToken = raw.trim()
+    const parts = fullToken.split('/')
+    if (parts.length !== 4)
+        throw new BadRequestException(
+            'Sprites credential must be formatted "<orgSlug>/<orgId>/<tokenId>/<tokenValue>"'
+        )
+    const [orgSlug, orgId, tokenId, tokenValue] = parts
+    if (!orgSlug || !orgId || !tokenId || !tokenValue)
+        throw new BadRequestException('Sprites credential has an empty segment')
+    return { orgSlug, orgId, tokenId, fullToken }
+}
+
+const optionalString = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+
 // sprites.dev reports running / warm / cold; the host's power vocabulary is
 // provider-neutral.
 export const spritePowerState = (status: string | null | undefined): RuntimeHostPowerState => {
@@ -229,6 +259,56 @@ export class SpritesProvider implements SandboxProvider {
         private readonly clients: HostProviderClients
     ) {
         registry.register(this)
+    }
+
+    // The token's shape is all that is checked here; checkCredential calls
+    // the API.
+    async prepareCredential(
+        credential: string,
+        config: Record<string, unknown>
+    ): Promise<PreparedCredential> {
+        const parsed = parseSpritesVaultToken(credential)
+        const spritesConfig: SpritesProviderConfig = {
+            orgSlug: parsed.orgSlug,
+            orgId: parsed.orgId,
+            tokenId: parsed.tokenId,
+            notes: optionalString(config.notes)
+        }
+        return {
+            secret: parsed.fullToken,
+            config: spritesConfig,
+            health: { ok: true, message: 'credential accepted' }
+        }
+    }
+
+    mergeConfig(
+        current: RuntimeProviderConfig,
+        patch: Record<string, unknown>
+    ): RuntimeProviderConfig {
+        const config = current as SpritesProviderConfig
+        return {
+            ...config,
+            notes:
+                patch.notes === undefined
+                    ? (config.notes ?? null)
+                    : optionalString(patch.notes)
+        }
+    }
+
+    async checkCredential(provider: RuntimeProvider): Promise<CredentialHealth> {
+        try {
+            const sprites = await this.client({ provider }).listSprites()
+            const n = sprites.sprites?.length ?? 0
+            return {
+                ok: true,
+                message: `reachable (listed ${n} sprite${n === 1 ? '' : 's'})`
+            }
+        } catch (err) {
+            return {
+                ok: false,
+                message: `api call failed: ${(err as Error).message.slice(0, 256)}`
+            }
+        }
     }
 
     private client(call: Pick<ProviderCall, 'provider'>): SpritesClient {

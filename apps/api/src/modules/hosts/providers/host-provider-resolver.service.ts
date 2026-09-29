@@ -63,9 +63,12 @@ export class HostProviderResolver {
         return this.registry.kinds().map((kind) => this.registry.for(kind))
     }
 
-    // After the provider row or its credential changed.
-    invalidate(providerId: string): void {
-        this.cache.delete(providerId)
-        this.clients.invalidateProvider(providerId)
+    // After the provider row or its credential changed: the row and every
+    // client built from it are read again.
+    invalidate(provider: Pick<RuntimeProvider, 'id' | 'kind'>): void {
+        this.cache.delete(provider.id)
+        this.clients.invalidateProvider(provider.id)
+        if (this.registry.has(provider.kind))
+            this.registry.for(provider.kind).forget?.(provider.id)
     }
 }

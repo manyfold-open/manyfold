@@ -7,7 +7,8 @@ import type {
     RuntimeHostPowerState,
     RuntimeHostProviderRef,
     RuntimeHostRow,
-    RuntimeProvider
+    RuntimeProvider,
+    RuntimeProviderConfig
 } from '@manyfold/db'
 
 // What a runtime provider must implement (ADR-0037): the machine's lifecycle
@@ -54,6 +55,19 @@ export interface ProviderCall {
     provider: RuntimeProvider
     generation: number
     fence?: ProviderCallFence
+}
+
+// An admin's credential for a new or updated provider row: the part that is
+// secret, the non-secret part that becomes config, and whether it works.
+export interface PreparedCredential {
+    secret: string
+    config: RuntimeProviderConfig
+    health: CredentialHealth
+}
+
+export interface CredentialHealth {
+    ok: boolean
+    message: string
 }
 
 // What the provider reports about a machine's power: the host vocabulary,
@@ -161,6 +175,20 @@ export interface SupervisedProcess {
 export interface SandboxProvider {
     readonly kind: RuntimeProviderKind
     readonly capabilities: SandboxProviderCapabilities
+    // The admin surface for provider rows (ADR-0037): how a credential splits
+    // into secret and config and whether it works, before any row exists; the
+    // config an admin's patch leaves; whether a row's credential still works;
+    // and forgetting what the adapter built from a row that changed.
+    prepareCredential(
+        credential: string,
+        config: Record<string, unknown>
+    ): Promise<PreparedCredential>
+    mergeConfig(
+        current: RuntimeProviderConfig,
+        patch: Record<string, unknown>
+    ): RuntimeProviderConfig
+    checkCredential(provider: RuntimeProvider): Promise<CredentialHealth>
+    forget?(providerId: string): void
     create(
         args: ProviderCall & { spec: HostCreateSpec }
     ): Promise<RuntimeHostProviderRef>
