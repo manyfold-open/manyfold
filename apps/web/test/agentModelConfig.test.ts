@@ -22,6 +22,7 @@ import {
     buildAgentModelSupportMatrix,
     claudeEffortOptionsForDraft,
     codexIntelligenceOptionsForModel,
+    draftFollowsView,
     draftFromModelConfigView,
     formatClaudeEffortLabel,
     frameworkUsesModelConfig,
@@ -258,6 +259,20 @@ const providerSummary = (
 
 test('draftFromModelConfigView preserves Codex config', () => {
     assert.deepEqual(draftFromModelConfigView(codexView), codexView.config)
+})
+
+test('a draft follows its view until a model or source is chosen in the tab', () => {
+    const draft = draftFromModelConfigView(codexView)
+    assert.equal(draftFollowsView(codexView, draft, codexView.source), true)
+    assert.equal(
+        draftFollowsView(
+            codexView,
+            draft?.framework === 'codex' ? { ...draft, model: 'gpt-4o' } : null,
+            codexView.source
+        ),
+        false
+    )
+    assert.equal(draftFollowsView(codexView, draft, 'runtime-local'), false)
 })
 
 test('provider compatibility includes custom protocol providers', () => {

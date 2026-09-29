@@ -253,6 +253,17 @@ export const draftFromModelConfigView = (
     return null
 }
 
+// Whether the composer's model draft is still the one `view` gives it: a
+// newer view may then replace it, as it would not a choice made in this tab
+// and not sent yet.
+export const draftFollowsView = (
+    view: AgentModelConfigView,
+    draft: AgentModelConfig | null,
+    source: AgentModelConfigSource
+): boolean =>
+    source === view.source &&
+    JSON.stringify(draft) === JSON.stringify(draftFromModelConfigView(view))
+
 export const normalizeDraftForView = (
     view: AgentModelConfigView | null,
     draft: AgentModelConfig | null
