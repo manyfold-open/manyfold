@@ -1,32 +1,18 @@
 import {
-    DAEMON_FS_WRITE_MAX_BYTES,
     FILES_UPLOAD_MAX_BYTES,
     FileRootCapabilitiesSdk,
-    frameworkDefinition,
-    type AgentRuntime
+    frameworkDefinition
 } from '@manyfold/shared'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { FileRoot } from '@manyfold/db'
-import {
-    POD_EXEC_READ_MAX_BYTES,
-    POD_EXEC_WRITE_MAX_BYTES
-} from '@/modules/agents/files/k8s-pod-files-client'
 
 export interface CapabilityInput {
     framework: string
-    // The product placement of the agent's host (placementOf, ADR-0037).
-    placement: AgentRuntime
     root: FileRoot
-    // resolved per host, not per runtime: false only for daemons whose CLI
-    // predates DAEMON_FEATURE_FS_WRITE_BINARY
-    binaryWriteSafe: boolean
 }
 
 export const rootCapabilities = ({
-    framework,
-    placement,
-    root,
-    binaryWriteSafe
+    framework
 }: CapabilityInput): FileRootCapabilitiesSdk => {
     // A framework that serves its own files owns their layout: every root is
     // read-only, whether the framework's API or the runtime's transport serves
@@ -41,28 +27,10 @@ export const rootCapabilities = ({
             binarySafe: true,
             atomicWrite: false
         }
-    if (root.transport === 'pod-exec')
-        return {
-            maxUploadBytes: POD_EXEC_WRITE_MAX_BYTES,
-            maxDownloadBytes: POD_EXEC_READ_MAX_BYTES,
-            // both directions ship the whole file base64-encoded through one exec
-            streamRead: false,
-            streamWrite: false,
-            binarySafe: true,
-            atomicWrite: false
-        }
-    if (placement === 'daemon')
-        return {
-            // one fs.write RPC frame carries the whole base64 body
-            maxUploadBytes: DAEMON_FS_WRITE_MAX_BYTES,
-            streamRead: true,
-            streamWrite: false,
-            binarySafe: binaryWriteSafe,
-            atomicWrite: false
-        }
-    // sprites exec streams both ways and has no cap of its own, so the global
-    // ceiling is what bounds it; it writes through a temp path and renames, so
-    // a failed upload leaves the destination alone
+    // Every machine's files go through its daemon (ADR-0037 R6), which
+    // streams both ways; a write lands in a part file that is renamed over
+    // the target at commit, so a failed upload leaves the destination alone,
+    // and the global ceiling is what bounds it.
     return {
         maxUploadBytes: FILES_UPLOAD_MAX_BYTES,
         streamRead: true,

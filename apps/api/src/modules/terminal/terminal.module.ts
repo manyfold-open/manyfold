@@ -12,7 +12,7 @@ import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { FilesModule } from '@/modules/agents/files/files.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
-import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
+import { HostStorageModule } from '@/modules/agents/host-storage/host-storage.module'
 import { ConnectionsModule } from '@/modules/connections/connections.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
@@ -38,7 +38,7 @@ import { TerminalHerdrController } from '@/modules/terminal/terminal-herdr.contr
         DaemonModule,
         FilesModule,
         RuntimeAccessModule,
-        SpriteStorageModule,
+        HostStorageModule,
         ConnectionsModule,
         SecretsModule,
         ChatModule

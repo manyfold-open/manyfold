@@ -24,8 +24,8 @@ import {
     type NewRuntimeHostRow,
     type NewAgent
 } from '@manyfold/db'
-import { createClient } from '@manyfold/sprites'
-import { SpriteStorageService } from '../../src/modules/agents/sprite-storage/sprite-storage.service'
+import { HostStorageService } from '../../src/modules/agents/host-storage/host-storage.service'
+import { fixtureHostAccess } from './fixture-daemon-exec'
 import { RuntimeAccessService } from '../../src/modules/runtime-access/runtime-access.service'
 import { SandboxActiveDurationService } from '../../src/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 
@@ -138,18 +138,17 @@ export const storageFixture = async (t: TestContext) => {
         })
     const address = httpServer.address()
     assert(address && typeof address === 'object')
-    const sprite = createClient({
-        token: 'fixture-only',
-        baseUrl: `http://127.0.0.1:${address.port}`,
-        wsBaseUrl: `ws://127.0.0.1:${address.port}`
-    })
     const events: string[] = []
     const failures: string[] = []
     const observations: { name: string; attrs: Record<string, unknown> }[] = []
-    const service = (unavailable = false) => {
-        const instance = new SpriteStorageService(
+    // The real measurement over a fake daemon; `offline` is a sandbox whose
+    // daemon the API holds no socket to.
+    const service = (offline = false) =>
+        new HostStorageService(
             db,
-            {} as never,
+            fixtureHostAccess(`ws://127.0.0.1:${address.port}`, {
+                online: !offline
+            }) as never,
             {
                 event: (name: string, attrs: Record<string, unknown>) => {
                     observations.push({ name, attrs })
@@ -163,15 +162,8 @@ export const storageFixture = async (t: TestContext) => {
                     observations.push({ name, attrs })
                     failures.push(name)
                 }
-            } as never,
-            { isKnownUnavailable: async () => unavailable } as never
+            } as never
         )
-        // Replace only the endpoint; use the actual measurement implementation.
-        Object.assign(instance, {
-            clientFor: async () => sprite
-        })
-        return instance
-    }
     const finish = (socket: WebSocket, bytes = 12000, code = 0) => {
         socket.send(
             Buffer.concat([Buffer.from([0x01]), Buffer.from(`${bytes}\n`)])

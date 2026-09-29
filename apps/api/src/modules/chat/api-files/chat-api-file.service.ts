@@ -142,10 +142,6 @@ export class ChatApiFileService {
         files: IngestFile[]
     ): Promise<IngestedFiles> {
         const ctx = await this.files.build(agent, 'workspace')
-        if (ctx.binaryWriteSafe === false)
-            throw new BadRequestException(
-                'file attachments are not supported for agents on self-owned computers until the daemon CLI is upgraded'
-            )
         const relDir = `chat-attachments/${sessionId}/${randomUUID()}`
         await ctx.mkdir(resolveSafePath(ctx.mountPath, relDir))
         const used = new Set<string>()

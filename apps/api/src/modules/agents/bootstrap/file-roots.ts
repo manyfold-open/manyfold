@@ -13,33 +13,23 @@ export interface FileRootsContext {
     runtime: AgentRuntime
     mountPath: string
     homeDir?: string | null
-    workspaceTransport?: FileRoot['transport']
 }
 
-const homeRoot = (
-    path: string,
-    transport?: FileRoot['transport']
-): FileRoot => ({
+const homeRoot = (path: string): FileRoot => ({
     id: HOME_ROOT_ID,
     label: 'Home',
     path,
-    writable: true,
-    ...(transport ? { transport } : {})
+    writable: true
 })
 
 export const buildFileRoots = (ctx: FileRootsContext): FileRoot[] => {
     const { framework, runtime, mountPath } = ctx
     if (runtime === 'external') return []
-    // A pod host serves every root through pod exec (ADR-0035): nothing on the
-    // host is published over HTTP.
-    const podExec = runtime === 'k8s' ? { transport: 'pod-exec' as const } : {}
     const workspace: FileRoot = {
         id: 'workspace',
         label: 'Workspace',
         path: mountPath,
-        writable: true,
-        ...(ctx.workspaceTransport ? { transport: ctx.workspaceTransport } : {}),
-        ...podExec
+        writable: true
     }
     const roots: FileRoot[] = [workspace]
     const home = runtime === 'k8s' ? K8S_HOME_BASE : ctx.homeDir
@@ -49,10 +39,9 @@ export const buildFileRoots = (ctx: FileRootsContext): FileRoot[] => {
             id: configHome.rootId,
             label: configHome.label,
             path: `${home}/${configHome.subdir}`,
-            writable: true,
-            ...podExec
+            writable: true
         })
-    if (runtime === 'k8s') roots.push(homeRoot(K8S_HOME_BASE, 'pod-exec'))
+    if (runtime === 'k8s') roots.push(homeRoot(K8S_HOME_BASE))
     else if (runtime === 'daemon') {
         // daemon: do NOT expose generic home — only workspace + framework-config roots
     } else if (ctx.homeDir) roots.push(homeRoot(ctx.homeDir))

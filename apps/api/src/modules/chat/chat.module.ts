@@ -39,7 +39,7 @@ import { ModelProvidersModule } from '@/modules/model-providers/model-providers.
 import { RunnerModule } from './runner/runner.module'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
-import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
+import { HostStorageModule } from '@/modules/agents/host-storage/host-storage.module'
 import { SpriteExecHealthModule } from '@/modules/agents/sprite-exec-health/sprite-exec-health.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import {
@@ -67,7 +67,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         ModelProvidersModule,
         UserExternalAgentProvidersModule,
         RuntimeAccessModule,
-        SpriteStorageModule,
+        HostStorageModule,
         SpriteExecHealthModule,
         AdminSettingsModule,
         ChatUploadsModule,

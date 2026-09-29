@@ -240,10 +240,7 @@ export class RuntimeAgentAttachService {
                     framework: runtime.framework,
                     runtime: ctx.placement,
                     mountPath,
-                    homeDir: ctx.host?.homeDir,
-                    ...(ctx.placement === 'k8s' && workspace
-                        ? { workspaceTransport: 'pod-exec' as const }
-                        : {})
+                    homeDir: ctx.host?.homeDir
                 }),
                 startedAt: now,
                 lastBootstrappedAt: now,

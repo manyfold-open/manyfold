@@ -49,7 +49,7 @@ import {
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
-import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
+import { HostStorageService } from '@/modules/agents/host-storage/host-storage.service'
 
 interface TerminalQuery {
     agentId?: string
@@ -103,7 +103,7 @@ export class TerminalGateway implements OnModuleInit {
         // Same rule. Absent, a sandbox shell opens without taking one of the
         // user's active sandbox slots, and a closed one measures nothing.
         @Optional() private readonly runtimeAccess?: RuntimeAccessService,
-        @Optional() private readonly storage?: SpriteStorageService
+        @Optional() private readonly storage?: HostStorageService
     ) {}
 
     onModuleInit(): void {

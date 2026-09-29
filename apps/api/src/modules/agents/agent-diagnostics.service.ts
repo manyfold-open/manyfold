@@ -15,13 +15,13 @@ import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
 import { spritesRef } from '@/modules/agent-runtimes/host-ref'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
-import { SpriteStorageService } from './sprite-storage/sprite-storage.service'
-import { MEASUREMENT_FORMAT_VERSION } from './sprite-storage/measurement-observation'
+import { HostStorageService } from './host-storage/host-storage.service'
+import { MEASUREMENT_FORMAT_VERSION } from './host-storage/measurement-observation'
 import {
     frameworkHome,
     workspacePathFor
-} from './sprite-storage/agent-storage-paths'
-import { resolvedStoragePath } from './sprite-storage/storage-attribution'
+} from './host-storage/agent-storage-paths'
+import { resolvedStoragePath } from './host-storage/storage-attribution'
 
 const DU_MISSING = '__NCA_MISSING__'
 const DEFAULT_TIMEOUT_MS = 12_000
@@ -92,7 +92,7 @@ export class AgentDiagnosticsService {
         private readonly agents: AgentsService,
         private readonly execResolver: FrameworkExecResolver,
         private readonly runtimeAccess: RuntimeAccessService,
-        private readonly spriteStorage: SpriteStorageService
+        private readonly spriteStorage: HostStorageService
     ) {}
 
     // Measures, then reports. A sandbox's paths are measured with the rest of

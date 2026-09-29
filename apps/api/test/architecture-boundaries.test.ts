@@ -36,10 +36,6 @@ const ALLOWED: Record<string, string> = {
         'the pty: opened in a session, then held for as long as a tab is attached',
     'modules/agent-runtimes/auth/runtime-auth-profiles.service.ts':
         'auth profile calls, under the auth flow\'s own hold on the machine',
-    'modules/agents/files/files-context.ts':
-        'the daemon file path, which serves self-owned computers only today',
-    'modules/backups/workspace-runtime.service.ts':
-        'the daemon backup path, which serves self-owned computers only today',
     'modules/skills/skill-materializer.service.ts':
         'the daemon skill path, which serves self-owned computers only today'
 }

@@ -5,7 +5,7 @@ import type { Agent } from '@manyfold/db'
 import {
     buildMeasureScript,
     parseMeasureOutput
-} from '@/modules/agents/sprite-storage/sprite-storage.service'
+} from '@/modules/agents/host-storage/host-storage.service'
 
 const SEP = '__NCA_STORAGE_SEP__'
 const framed = (values: string[]): string => values.map((value, index) => index ? `\0__NCA_STORAGE_PATH__\0${index}\0${['', '/fixture/workspace-a', '/fixture/workspace-b', '/fixture/.claude'][index]}\0${value}` : value).join(`\n${SEP}\n`)

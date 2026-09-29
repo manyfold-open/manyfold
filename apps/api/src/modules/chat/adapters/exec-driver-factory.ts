@@ -52,7 +52,7 @@ import {
 } from '@/modules/chat/recovery/recovery-fs'
 import { OpenclawRpcClient } from './openclaw-rpc-client'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
-import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
+import { HostStorageService } from '@/modules/agents/host-storage/host-storage.service'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import {
     RunnerManagerService,
@@ -115,7 +115,7 @@ export class ExecDriverFactory {
         private readonly crypto: CryptoService,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly runtimeAccess: RuntimeAccessService,
-        private readonly spriteStorage: SpriteStorageService,
+        private readonly spriteStorage: HostStorageService,
         private readonly connections: ConnectionsService,
         private readonly hostDaemons: HostDaemonsService,
         private readonly hostClients: HostProviderClients,

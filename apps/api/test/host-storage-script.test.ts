@@ -10,7 +10,7 @@ import {
     buildMeasureScript,
     parseMeasureOutput,
     type MeasureTarget
-} from '@/modules/agents/sprite-storage/sprite-storage.service'
+} from '@/modules/agents/host-storage/host-storage.service'
 
 const docker = process.env.STORAGE_SCRIPT_DOCKER === '1'
 test(

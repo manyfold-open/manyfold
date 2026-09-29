@@ -3,8 +3,8 @@ import test from 'node:test'
 import {
     attributeStoragePaths,
     resolvedStoragePath
-} from '../src/modules/agents/sprite-storage/storage-attribution'
-import { MeasurementObservation } from '../src/modules/agents/sprite-storage/measurement-observation'
+} from '../src/modules/agents/host-storage/storage-attribution'
+import { MeasurementObservation } from '../src/modules/agents/host-storage/measurement-observation'
 
 test('parent, child and grandchild deduct only the direct measured child', () => {
     const result = attributeStoragePaths(

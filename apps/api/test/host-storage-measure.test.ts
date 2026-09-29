@@ -8,7 +8,7 @@ import {
     type RuntimeHostRow,
     type SandboxStorageBreakdown
 } from '@manyfold/db'
-import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
+import { HostStorageService } from '@/modules/agents/host-storage/host-storage.service'
 
 const MEASURED_AT = new Date(Date.UTC(2026, 7, 1, 12, 0, 0))
 
@@ -78,9 +78,9 @@ const makeService = (
 ) => {
     const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
     const errors: Array<{ name: string; message: string }> = []
-    const svc = new SpriteStorageService(
+    const svc = new HostStorageService(
         db as never,
-        {} as never,
+        { ensure: async () => ({ daemon: null, online: true }) } as never,
         {
             event: (name: string, attrs: Record<string, unknown>) => {
                 if (name === 'sprite_storage_measured') events.push({ name, attrs })
@@ -211,4 +211,31 @@ test('an agent whose workspace du produced nothing is left untouched', async () 
 
     assert.equal(agentUpdates(db).length, 1)
     assert.equal(agentUpdates(db)[0].set.storageBytes, 800_000_000)
+})
+
+// Any exec resumes a sleeping sprite, and the running time it starts is billed
+// to the user: a measurement nobody asked for asks whether the daemon is
+// already connected, without waking anything, and stops there if it is not.
+test('a measurement nobody asked for never reaches a sandbox whose daemon is not connected', async () => {
+    const db = makeDb(hostRow())
+    const asked: Array<{ wake?: boolean }> = []
+    let sessions = 0
+    const svc = new HostStorageService(
+        db as never,
+        {
+            ensure: async (args: { wake?: boolean }) => {
+                asked.push({ wake: args.wake })
+                return { daemon: null, online: false }
+            },
+            withHost: async () => {
+                sessions += 1
+                throw new Error('no session in this test')
+            }
+        } as never,
+        { event: () => {}, error: () => {} } as never
+    )
+    await svc.measureHostIfDue('sbx-1', 'chat')
+    assert.deepEqual(asked, [{ wake: false }])
+    assert.equal(sessions, 0)
+    assert.equal(db.updates.length, 0, 'no attempt is claimed')
 })
