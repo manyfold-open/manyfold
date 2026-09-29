@@ -1107,7 +1107,9 @@ export class AgentOrchestratorService {
             // agent + the runtime). The now-empty sandbox host is preserved (the
             // reaper deletes it after the idle window) so the VM + workspace can
             // be reused; DELETE /sandboxes removes it immediately.
-            await this.spritesProvisioner.teardownRuntime(runtime)
+            await this.spritesProvisioner.teardownRuntime(runtime, {
+                leavingAgentId: row.id
+            })
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_DELETE_SUCCEEDED,

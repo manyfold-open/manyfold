@@ -662,16 +662,24 @@ export class SpritesProvisioner {
     // emptied_at so the reaper deletes it after the idle window) so a deleted
     // agent leaves a reusable sandbox. reapImmediatelyIfEmpty restores the
     // eager delete for explicit runtime deletes + failed creates.
+    // `leavingAgentId`: the agent whose delete tears the runtime down with it
+    // (the last one on it), which the emptiness guard does not count.
     async teardownRuntime(
         runtime: AgentRuntimeRow,
-        opts?: { reapImmediatelyIfEmpty?: boolean }
+        opts?: { reapImmediatelyIfEmpty?: boolean; leavingAgentId?: string }
     ): Promise<void> {
         const reapImmediately = opts?.reapImmediatelyIfEmpty ?? false
         const [ready] = await this.db
             .select({ value: count() })
             .from(agents)
             .where(
-                and(eq(agents.runtimeId, runtime.id), eq(agents.status, 'ready'))
+                and(
+                    eq(agents.runtimeId, runtime.id),
+                    eq(agents.status, 'ready'),
+                    opts?.leavingAgentId
+                        ? ne(agents.id, opts.leavingAgentId)
+                        : undefined
+                )
             )
         if (Number(ready?.value ?? 0) > 0)
             throw new ConflictException({
