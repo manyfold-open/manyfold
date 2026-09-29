@@ -106,12 +106,15 @@ framework/runtime matrix. To add an agent to a runtime by its id, use
 
 ```sh
 mf agent update agt_xxx --name reviewer
-mf model-config update agt_xxx --model gpt-5.6
+mf agent update agt_xxx --model sonnet
 mf agent delete agt_xxx --yes
 ```
 
-A coding agent's model is set with `mf model-config update`;
-`mf agent update --model` applies to the other frameworks.
+`--model` takes the names `mf agent create` takes: an alias such as
+`sonnet`, an id, or a name such as `"Sonnet 5"`. A coding agent keeps its
+model in its model settings, so for one the change goes there, as
+`mf model-config update --model` makes it. A model those settings do not
+offer is refused with a list of the ones they do.
 
 > **Warning:** Deletion is irreversible. The CLI refuses to proceed without
 > `--yes`; it does not open an interactive prompt. Pass it only after

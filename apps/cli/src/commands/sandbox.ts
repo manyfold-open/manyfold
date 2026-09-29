@@ -10,7 +10,8 @@ import { buildClient } from '@/client'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { emit, fail, jsonOption } from '@/output'
 import { assertSandboxStorageContract } from '@/storage-contract'
-import { resolveSandboxRef, UsageError } from '@/commands/agent/create-source'
+import { resolveSandboxRef } from '@/commands/agent/create-source'
+import { UsageError } from '@/usage-error'
 
 const bytesLabel = (bytes: number | null): string => {
     if (bytes === null) return 'unknown'

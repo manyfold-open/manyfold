@@ -2,16 +2,11 @@ import {
     bindingProtocolFor,
     buildClaudeCodeDefaultModelConfig,
     buildCodexDefaultModelConfig,
-    claudeCodeModelSelectionMapKey,
-    codexModelDisplayName,
-    isClaudeCodeModelAlias,
     isObjectId,
     managedChannelFor,
     piProviderForProtocol,
     providerBindingFor,
     providerRowVerdict,
-    resolveClaudeCodeModelOptions,
-    resolveCodexModelOptions,
     testedModelsFor,
     type AgentRuntimeSummary,
     type CreateAgentBody,
@@ -19,6 +14,13 @@ import {
     type SandboxSummary,
     type UserModelProviderSummary
 } from '@manyfold/shared'
+import {
+    modelOptionsFor,
+    providerModelOf,
+    resolveModelChoice,
+    shellArg
+} from '@/model-options'
+import { UsageError } from '@/usage-error'
 
 // What `mf agent create` sends for each way of paying for the model: the same
 // bodies the web sends for a managed channel, a saved provider, a pasted key
@@ -32,10 +34,6 @@ export const CREATE_FRAMEWORKS = [
     'antigravity-cli'
 ] as const
 export type CreateFramework = (typeof CREATE_FRAMEWORKS)[number]
-
-// A mistake in the command line itself: reported as usage (exit 5) before
-// anything is created.
-export class UsageError extends Error {}
 
 interface InlineKey {
     key: string
@@ -105,195 +103,6 @@ export const resolveProviderRef = (
     )
 }
 
-// One model `--model` can name on a provider row. An alias follows its
-// family's newest tested model (`providerModel` is the id it stands for
-// today); anything else pins one id.
-export interface ModelOption {
-    value: string
-    label: string
-    providerModel: string | null
-    family: string | null
-    alias: boolean
-}
-
-// What `--model` accepts from this row: Claude Code's mapped aliases and the
-// tested versions beside them, Codex's own models among the tested ones, the
-// tested list for Gemini CLI and pi. Null for Antigravity CLI, which names
-// models by slugs no provider test lists.
-export const modelOptionsFor = (
-    framework: CreateFramework,
-    row: UserModelProviderSummary
-): ModelOption[] | null => {
-    const tested = testedModelsFor(framework, row)
-    if (framework === 'claude-code')
-        return resolveClaudeCodeModelOptions(
-            tested,
-            buildClaudeCodeDefaultModelConfig(tested).modelMap
-        )
-            .filter((option) => option.enabled)
-            .map((option) => ({
-                value: option.value,
-                label: option.label,
-                providerModel: option.providerModel ?? null,
-                family: option.canonicalModel ?? null,
-                alias: isClaudeCodeModelAlias(option.value)
-            }))
-    if (framework === 'codex')
-        return resolveCodexModelOptions(tested).map((option) => ({
-            value: option.value,
-            label: codexModelDisplayName(option.value) ?? option.value,
-            providerModel: option.value,
-            family: null,
-            alias: false
-        }))
-    if (framework === 'antigravity-cli') return null
-    return tested.map((id) => ({
-        value: id,
-        label: id,
-        providerModel: id,
-        family: null,
-        alias: false
-    }))
-}
-
-// How people write a model name: any case, spaces for dashes, 4.5 for 4-5,
-// with or without a vendor prefix, `claude-` or a release date. What was
-// typed and every option are reduced to this before comparing.
-const modelKey = (name: string): string =>
-    name
-        .trim()
-        .toLowerCase()
-        .replace(/^[a-z0-9-]+[/:]/, '')
-        .replace(/[\s_]+/g, '-')
-        .replace(/(\d)\.(?=\d)/g, '$1-')
-        .replace(/^claude-/, '')
-        .replace(/-\d{8}$/, '')
-
-// An alias is matched by its label, not by the id it stands for: that id is
-// also what its 1M-context variant stands for.
-const keysOf = (option: ModelOption): string[] => [
-    modelKey(option.value),
-    modelKey(option.label),
-    ...(option.providerModel && !option.alias
-        ? [modelKey(option.providerModel)]
-        : [])
-]
-
-const FAMILY_NAMES: Record<string, string> = {
-    fable: 'Fable',
-    opus: 'Opus',
-    sonnet: 'Sonnet',
-    haiku: 'Haiku'
-}
-
-// The options one family (or, for frameworks without families, one list)
-// per line: aliases with the id each stands for, then the pinned ids, newest
-// first. `limit` caps the pinned ids shown per line.
-export const formatModelOptions = (
-    options: readonly ModelOption[],
-    limit = Number.POSITIVE_INFINITY
-): string[] => {
-    const groups = new Map<string, ModelOption[]>()
-    for (const option of options)
-        groups.set(option.family ?? '', [
-            ...(groups.get(option.family ?? '') ?? []),
-            option
-        ])
-    return [...groups].map(([family, group]) => {
-        const aliases = group
-            .filter((option) => option.alias)
-            .map((option) =>
-                option.value.includes('[')
-                    ? `${option.value} (${option.label})`
-                    : `${option.value} → ${option.providerModel} (${option.label})`
-            )
-        const pinned = group.filter((option) => !option.alias)
-        const shown = pinned.slice(0, limit).map((option) => option.value)
-        const rest = pinned.length - shown.length
-        const entries = [
-            ...aliases,
-            ...shown,
-            ...(rest > 0 ? [`+${rest} ${family ? 'older' : 'more'}`] : [])
-        ].join(', ')
-        return family
-            ? `  ${(FAMILY_NAMES[family] ?? family).padEnd(6)}  ${entries}`
-            : `  ${entries}`
-    })
-}
-
-const shellArg = (value: string): string =>
-    /^[\w.@:/-]+$/.test(value) ? value : `"${value}"`
-
-const unknownModelMessage = (
-    framework: CreateFramework,
-    row: UserModelProviderSummary,
-    model: string,
-    options: readonly ModelOption[]
-): string => {
-    let first = `${row.providerName} was not tested with a model "${model}".`
-    const family =
-        framework === 'claude-code'
-            ? claudeCodeModelSelectionMapKey(model)
-            : null
-    const newest = family
-        ? options.find((option) => option.alias && option.family === family)
-        : undefined
-    if (family && newest)
-        first += ` Its newest ${FAMILY_NAMES[family] ?? family} is ${newest.label}: --model ${newest.value}.`
-    const tested = row.lastTestedAt
-        ? `was last tested ${row.lastTestedAt.slice(0, 16).replace('T', ' ')} UTC`
-        : 'has not been tested'
-    return [
-        first,
-        'It can run:',
-        ...formatModelOptions(options, 3),
-        `${row.providerName} ${tested}; for a model released since, test it again: mf model-providers test ${shellArg(row.providerName)}`
-    ].join('\n')
-}
-
-// The option `--model` names, however it was written: an exact value; an id
-// an alias stands for, saved as that alias (the agent's settings list the
-// id only through it, and would read it back as unmapped); or the one option
-// its name reduces to. Antigravity CLI takes its own slugs as given.
-export const resolveModelChoice = (
-    framework: CreateFramework,
-    row: UserModelProviderSummary,
-    model: string
-): string => {
-    const options = modelOptionsFor(framework, row)
-    if (options === null) return model
-    const exact = options.find((option) => option.value === model)
-    if (exact) return exact.value
-    const standsFor = options.filter(
-        (option) => option.alias && option.providerModel === model
-    )
-    if (standsFor.length > 0)
-        return (
-            standsFor.find((option) => !option.value.includes('[')) ??
-            standsFor[0]
-        ).value
-    const key = modelKey(model)
-    const matches = options.filter((option) => keysOf(option).includes(key))
-    if (matches.length === 1) return matches[0].value
-    if (matches.length > 1)
-        throw new UsageError(
-            `"${model}" could be ${matches.map((option) => option.value).join(' or ')} on ${row.providerName}; pass one of them`
-        )
-    throw new UsageError(unknownModelMessage(framework, row, model, options))
-}
-
-// The provider's id for a chosen value, where the value is an alias.
-const providerModelOf = (
-    framework: CreateFramework,
-    row: UserModelProviderSummary,
-    value: string | null | undefined
-): string | null =>
-    (value &&
-        modelOptionsFor(framework, row)?.find(
-            (option) => option.value === value
-        )?.providerModel) ||
-    null
-
 // A provider row bound the way the web binds it: Claude Code and Codex get
 // the default model mapping for what the row was tested with (the API only
 // derives one for Claude Code), pi its vendor and model in the credential.
@@ -329,7 +138,10 @@ const bindProviderRow = (
                 modelConfig
             },
             model: modelConfig.model ?? null,
-            providerModel: providerModelOf(framework, row, modelConfig.model)
+            providerModel: providerModelOf(
+                modelOptionsFor(framework, row),
+                modelConfig.model
+            )
         }
     }
     if (framework === 'codex') {

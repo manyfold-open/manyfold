@@ -10,13 +10,15 @@ import { buildClient } from '@/client'
 import { emit, jsonOption } from '@/output'
 import {
     CREATE_FRAMEWORKS,
+    resolveProviderRef,
+    type CreateFramework
+} from '@/commands/agent/create-source'
+import {
     formatModelOptions,
     modelOptionsFor,
-    resolveProviderRef,
-    UsageError,
-    type CreateFramework,
     type ModelOption
-} from '@/commands/agent/create-source'
+} from '@/model-options'
+import { UsageError } from '@/usage-error'
 
 type ProviderRow = UserModelProviderSummary & {
     // With --framework: whether it can serve that framework, and the models

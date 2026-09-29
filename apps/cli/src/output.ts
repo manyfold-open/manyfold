@@ -153,6 +153,8 @@ const CODE_HINTS: Record<string, CodeHint> = {
             : 'Run the command again to start over.',
     AGENT_CREATE_NOT_FOUND: () =>
         'The create this connection followed is gone; check mf agent list before running the command again.',
+    AGENT_MODEL_IN_MODEL_CONFIG: (details) =>
+        `${typeof details.framework === 'string' ? details.framework : 'This framework'} keeps its model in the agent's model settings: mf model-config update ${typeof details.agentId === 'string' ? details.agentId : '<agent-id>'} --model <model>.`,
     SANDBOX_NOT_FOUND: () => 'Check the sandbox with mf sandbox list.',
     SANDBOX_API_UNREACHABLE: (details) =>
         `A sandbox's runner cannot reach this API${typeof details.apiUrl === 'string' ? ` at ${details.apiUrl}` : ''}. Set PUBLIC_API_BASE_URL on the API to an address reachable from the internet (for a local stack, a tunnel URL) and restart it. Nothing was created.`,

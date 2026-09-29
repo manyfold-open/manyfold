@@ -39,6 +39,10 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
 ```
 
 - `update` needs at least one of `--name`, `--model`, `--clear-model`.
+  `--model` takes the names `create --model` takes. A coding agent keeps
+  its model in its model settings, so for one the change goes there, as
+  `mf model-config update --model` makes it; a model those settings do not
+  offer is a usage error that lists the ones they do.
 - `delete` (alias `rm`) is irreversible and refuses without `--yes`/`-y`.
 
 ## Creating an agent
@@ -90,7 +94,8 @@ command again attaches to it, or returns the agent it made.
 ## Output
 
 - `list` / `get` / `update` print one line per agent:
-  `id  name  framework/runtime  status`. All accept `--json` (the
+  `id  name  framework/runtime  status`; `update` adds `model  <model>`
+  when it changed the model. All accept `--json` (the
   scoped `{ scope, agents }` result for `list`, the full record otherwise);
   `delete` emits `{ ok, id }`. The list scope is `agent` or `account`.
 - `create --json` prints the agent record plus `create`: `resumed`

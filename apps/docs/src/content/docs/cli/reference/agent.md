@@ -110,7 +110,7 @@ Update agent name or model
 | Options | Purpose |
 | --- | --- |
 | `--name <name>` | rename the agent |
-| `--model <model>` | set model id |
+| `--model <model>` | the model to run: an alias such as sonnet, an id, or a name such as "Sonnet 5" |
 | `--clear-model` | clear the model override |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
@@ -212,7 +212,7 @@ Update agent model config
 | Options | Purpose |
 | --- | --- |
 | `--source <source>` | modelConfigSource value (platform\|runtime-local) |
-| `--model <model>` | set model id |
+| `--model <model>` | the model to run: an alias such as sonnet, an id, or a name such as "Sonnet 5" |
 | `--clear-model` | clear model |
 | `--config <json>` | modelConfig JSON object (or @file) |
 | `--clear-config` | clear modelConfig override |

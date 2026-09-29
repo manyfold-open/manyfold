@@ -110,6 +110,18 @@ test('codes a script can act on get their own hint and keep their details', () =
     )
     assert.match(taken.error.hint ?? '', /mf agent get agt_1/)
     assert.deepEqual(taken.error.details, { agentId: 'agt_1' })
+    const inSettings = normalizeCliError(
+        apiError(400, {
+            code: 'AGENT_MODEL_IN_MODEL_CONFIG',
+            serverMessage:
+                'Use /agents/agt_1/model-config to update claude-code models',
+            details: { agentId: 'agt_1', framework: 'claude-code' }
+        })
+    )
+    assert.equal(
+        inSettings.error.hint,
+        "claude-code keeps its model in the agent's model settings: mf model-config update agt_1 --model <model>."
+    )
     const other = normalizeCliError(
         apiError(409, { code: 'SOMETHING_ELSE', serverMessage: 'no' })
     )

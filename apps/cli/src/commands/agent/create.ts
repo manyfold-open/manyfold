@@ -24,10 +24,10 @@ import {
     resolveModelSource,
     resolveSandboxRef,
     runtimeToJoin,
-    UsageError,
     type CreateFramework,
     type ModelSource
 } from '@/commands/agent/create-source'
+import { UsageError } from '@/usage-error'
 
 interface CreateOptions {
     framework: CreateFramework

@@ -94,12 +94,14 @@ OpenClaw Agent。完整 framework/runtime matrix 请使用网页
 
 ```sh
 mf agent update agt_xxx --name reviewer
-mf model-config update agt_xxx --model gpt-5.6
+mf agent update agt_xxx --model sonnet
 mf agent delete agt_xxx --yes
 ```
 
-Coding Agent 的 model 用 `mf model-config update` 设置；`mf agent update --model`
-只适用于其他 framework。
+`--model` 的写法与 `mf agent create` 相同：`sonnet` 这样的别名、具体 id，或
+`"Sonnet 5"` 这样的名称。Coding Agent 的 model 保存在它的 model 配置里，所以会
+改到那里，效果与 `mf model-config update --model` 相同。model 配置中没有的
+model 会被拒绝，并列出可选的 model。
 
 > **警告：** 删除不可恢复。CLI 不会打开 interactive prompt；没有 `--yes` 会直接拒绝执行。只有已独立核对 target ID，且重要 workspace 已有 backup 时，才传入该 option。
 
