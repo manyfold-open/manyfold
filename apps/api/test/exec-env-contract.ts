@@ -47,9 +47,8 @@ export type EnvInjection =
     // Injected per turn only when a platform model config is attached; the
     // surface's own ambient auth is used otherwise.
     | 'per-exec-model-config'
-    // Lives on the sprite (config home written at bootstrap), not per turn.
-    | 'sprite-resident'
-    // Baked into the sprite service definition when the service is bootstrapped.
+    // Written into the env file of the host daemon's service when the
+    // framework's service is set up, on a sandbox and a cloud computer alike.
     | 'service-env'
     // The daemon process's own environment, owned by the user's machine.
     | 'daemon-local'
@@ -177,10 +176,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
-        providerCreds: 'sprite-resident',
+        providerCreds: 'per-exec-model-config',
         auth: 'host-resolved',
         path: 'daemon-ambient',
-        resume: 'attach-no-env'
+        resume: 'attach-no-env',
+        note: 'Nothing logs codex in on a sandbox either: a platform model config brings the provider and its key with the turn (env_key and -c provider flags), and without one codex runs on the sign-in its user made on the sandbox.'
     },
 
     {
