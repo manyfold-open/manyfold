@@ -14,6 +14,7 @@ import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from './provisioning/pod-runner-provisioner'
 import { K8sCreateCleanupService } from './provisioning/k8s-create-cleanup.service'
 import { HostServices } from './provisioning/host-services'
+import { RuntimeRemovalService } from './runtime-removal.service'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
@@ -54,7 +55,8 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
         McpConfigMaterializer,
-        RuntimeAccountService
+        RuntimeAccountService,
+        RuntimeRemovalService
     ],
     exports: [
         AgentRuntimesService,

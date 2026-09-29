@@ -208,3 +208,37 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
     assert.equal('status' in updates[0], false, 'presence is never mirrored')
     assert.equal('name' in updates[0], false, 'the primary keeps its name')
 })
+
+// A runtime prepared with no agent keeps its built-in profile for the first
+// agent that joins; an agent made in the framework's own UI is still adopted.
+test('reconcile leaves a prepared runtime\'s main profile for its first agent', async () => {
+    const inserts: Array<Record<string, unknown>> = []
+    const runtime = podRuntime({ primaryAgentId: null })
+    const db = {
+        select: () => ({
+            from: (table: unknown) => ({
+                where: () =>
+                    tableName(table) === 'agent_runtimes'
+                        ? { limit: async () => [runtime] }
+                        : Promise.resolve([])
+            })
+        }),
+        update: () => ({ set: () => ({ where: async () => {} }) }),
+        insert: () => ({
+            values: async (row: Record<string, unknown>) => {
+                inserts.push(row)
+            }
+        })
+    }
+    const registry = {
+        get: () => ({
+            listAgents: async () => [
+                { id: 'main', name: 'main', workspace: OPENCLAW_WS, model: null, extras: {} },
+                { id: 'made-in-ui', name: 'Scout', workspace: OPENCLAW_WS, model: null, extras: {} }
+            ]
+        })
+    }
+    const svc = reconcilerFor(db, registry, { host: POD_HOST })
+    await svc.reconcileRuntime(runtime as never, { serviceReady: true })
+    assert.deepEqual(inserts.map((row) => row.internalId), ['made-in-ui'])
+})

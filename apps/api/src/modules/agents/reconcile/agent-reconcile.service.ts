@@ -305,6 +305,12 @@ export class AgentReconcileService {
                     })
                     .where(eq(agents.id, match.id))
             } else {
+                // A runtime prepared with no agent (a sandbox's or a cloud
+                // computer's) keeps its built-in profile for the first agent
+                // that joins. Seen on local [2026-09-29]: adopted, OpenClaw's
+                // `main` became an agent that could not be deleted ("the only
+                // configured agent") and held its runtime undeletable.
+                if (!runtime.primaryAgentId && fa.id === primaryAlias) continue
                 // Only service frameworks reach this listing, and they list
                 // their own state: an agent created outside Manyfold (in the
                 // framework's own UI) is real and must be adopted —

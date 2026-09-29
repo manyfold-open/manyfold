@@ -70,10 +70,14 @@ interface OpenclawConfigOptions {
     workspacePath: string
     controlUiEnabled: boolean
     bindHost: string
-    providerBaseUrl: string
-    providerApiKey: string
-    wireApi: OpenclawWireApi
-    modelName: string
+    // null before the runtime has a provider (a prepared runtime waiting for
+    // its first agent): the gateway starts with no model of its own.
+    provider: {
+        baseUrl: string
+        apiKey: string
+        wireApi: OpenclawWireApi
+        modelName: string
+    } | null
 }
 
 /**
@@ -113,23 +117,32 @@ export const buildOpenclawConfigJson = (opts: OpenclawConfigOptions): string =>
                 elevated: { enabled: true },
                 exec: { host: 'gateway', security: 'full', ask: 'off' }
             },
-            models: {
-                mode: 'merge',
-                providers: {
-                    primary: {
-                        baseUrl: opts.providerBaseUrl,
-                        apiKey: opts.providerApiKey,
-                        api: opts.wireApi,
-                        models: [
-                            { id: opts.modelName, name: opts.modelName }
-                        ]
-                    }
-                }
-            },
+            ...(opts.provider
+                ? {
+                      models: {
+                          mode: 'merge',
+                          providers: {
+                              primary: {
+                                  baseUrl: opts.provider.baseUrl,
+                                  apiKey: opts.provider.apiKey,
+                                  api: opts.provider.wireApi,
+                                  models: [
+                                      {
+                                          id: opts.provider.modelName,
+                                          name: opts.provider.modelName
+                                      }
+                                  ]
+                              }
+                          }
+                      }
+                  }
+                : {}),
             agents: {
                 defaults: {
                     sandbox: { mode: 'off' },
-                    model: { primary: `primary/${opts.modelName}` },
+                    ...(opts.provider
+                        ? { model: { primary: `primary/${opts.provider.modelName}` } }
+                        : {}),
                     workspace: opts.workspacePath,
                     timeoutSeconds: 180
                 }
@@ -175,16 +188,23 @@ export const openclawConfigJsonFor = (opts: {
         (opts.creds.modelProvider as string | undefined) ??
         (opts.creds.inferenceProtocol as string | undefined) ??
         null
+    // Seen on local [2026-09-29]: a runtime prepared with no provider yet
+    // failed its setup on "cannot resolve base_url for openclaw provider ''".
+    const known = !!(opts.creds.baseUrl ?? (provider && DEFAULT_BASE_URL_FOR_PROVIDER[provider]))
     return buildOpenclawConfigJson({
         gatewayPort: OPENCLAW_PORT,
         gatewayToken: opts.gatewayToken,
         workspacePath: openclawDefaultWorkspace(opts.home),
         controlUiEnabled: opts.controlUiEnabled,
         bindHost: '0.0.0.0',
-        providerBaseUrl: canonicalizeOpenclawBaseUrl(provider, opts.creds.baseUrl),
-        providerApiKey: opts.creds.apiKey ?? '',
-        wireApi: openclawWireApiFor(provider),
-        modelName: opts.creds.primaryModelName
+        provider: known
+            ? {
+                  baseUrl: canonicalizeOpenclawBaseUrl(provider, opts.creds.baseUrl),
+                  apiKey: opts.creds.apiKey ?? '',
+                  wireApi: openclawWireApiFor(provider),
+                  modelName: opts.creds.primaryModelName
+              }
+            : null
     })
 }
 

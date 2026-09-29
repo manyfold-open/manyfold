@@ -12,6 +12,7 @@ import {
     Get,
     HttpCode,
     NotFoundException,
+    Optional,
     Param,
     Patch,
     Post,
@@ -24,6 +25,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RUNTIME_AGENTS_BOUND_CODE } from './agent-runtimes.controller'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
+import { RuntimeRemovalService } from './runtime-removal.service'
 
 // Same DTO and the same delete rule as the user route (R8), over every user.
 @Controller('admin/agent-runtimes')
@@ -31,7 +33,11 @@ import { RuntimeDashboardService } from './orchestration/runtime-dashboard.servi
 export class AdminAgentRuntimesController {
     constructor(
         private readonly runtimes: AgentRuntimesService,
-        private readonly dashboard: RuntimeDashboardService
+        private readonly dashboard: RuntimeDashboardService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, only the row is removed.
+        @Optional()
+        private readonly removal?: RuntimeRemovalService
     ) {}
 
     @Get()
@@ -57,7 +63,8 @@ export class AdminAgentRuntimesController {
                 code: RUNTIME_AGENTS_BOUND_CODE,
                 message: `runtime ${row.id} still has ${bound} agent(s); delete them first`
             })
-        await this.runtimes.delete(row.id)
+        if (this.removal) await this.removal.remove(row)
+        else await this.runtimes.delete(row.id)
     }
 
     @Patch(':id/control-ui')

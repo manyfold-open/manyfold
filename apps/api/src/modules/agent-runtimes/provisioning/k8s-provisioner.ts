@@ -80,14 +80,14 @@ export class K8sProvisioner {
                 message: 'runtime still has agents; delete them first',
                 code: 'RUNTIME_NOT_EMPTY'
             })
-        await this.stopService(runtime, host)
+        await this.removeService(runtime, host)
         await this.runtimes.delete(runtime.id)
     }
 
     // A service framework leaving its host takes its process and its route
     // with it. Best effort: the row goes either way, and a host delete
     // removes whatever is left.
-    private async stopService(
+    async removeService(
         runtime: AgentRuntimeRow,
         host: RuntimeHostRow
     ): Promise<void> {

@@ -180,6 +180,20 @@ test('the openclaw service writes its config owner-only under the host home and 
     assert.equal(recipe.sandbox.mountPath('/home/sprite'), '/home/sprite/.openclaw/workspace')
 })
 
+// A runtime prepared on a sandbox has no provider until its first agent
+// picks one; its gateway starts without a model rather than failing.
+test('an openclaw runtime with no provider yet still gets a gateway config', async () => {
+    const recipe = serviceFrameworkRecipe('openclaw')!
+    const r = recorder()
+    const setup = await recipe.configure(r.runner as never, configureArgs())
+    const config = JSON.parse(
+        Buffer.from(r.scripts[0].env!.MF_OPENCLAW_CONFIG_B64, 'base64').toString('utf8')
+    )
+    assert.equal(config.models, undefined)
+    assert.equal(config.agents.defaults.model, undefined)
+    assert.equal(config.gateway.auth.token, setup.generatedCredentials.gatewayToken)
+})
+
 test('the hermes service keeps its API server key across setups', async () => {
     const recipe = serviceFrameworkRecipe('hermes')!
     const r = recorder()
