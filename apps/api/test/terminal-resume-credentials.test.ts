@@ -117,6 +117,87 @@ test('claude still gets its token, endpoint and persistence flag', async () => {
     )
 })
 
+// Given no --model, Claude Code resumes a session on its last model, the one
+// from before a switch; the TUI runs the agent's model as its turns do.
+const claudeWithSettings = (
+    resolveTurnConfig: () => Promise<unknown>
+): ReturnType<TerminalResumeService['resolve']> =>
+    new TerminalResumeService(
+        dbReturning([
+            [{ ref: 'ref-1', inflightMessageId: null }],
+            [{ payloadCiphertext: 'c', keyVersion: 1 }]
+        ]),
+        {
+            decrypt: () =>
+                JSON.stringify({ anthropicAuthToken: 'claude-token-fixture' })
+        } as never,
+        { resolveTurnConfig } as never
+    ).resolve({
+        agentId: 'agt_1',
+        userId: 'user-1',
+        runtimeId: 'rt_1',
+        framework: 'claude-code',
+        chatSessionId: 'cs_1',
+        modelCredentialsAllowed: true,
+        injectModelCredentials: true,
+        model: 'haiku'
+    })
+
+test("a claude TUI resumes on the agent's model, mapped as on a turn", async () => {
+    const resolved = await claudeWithSettings(async () => ({
+        modelConfig: {
+            framework: 'claude-code',
+            model: 'haiku',
+            modelMap: { haiku: 'claude-haiku-4-5-20251001' }
+        }
+    }))
+    assert.equal(resolved.outcome, 'applied')
+    assert.deepEqual(resolved.resume?.command.slice(-2), ['--model', 'haiku'])
+    assert.equal(
+        resolved.resume?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+        'claude-haiku-4-5-20251001'
+    )
+    assert.equal(
+        resolved.resume?.env.ANTHROPIC_AUTH_TOKEN,
+        'claude-token-fixture'
+    )
+})
+
+test("a claude TUI whose settings cannot be read keeps the session's model", async () => {
+    const resolved = await claudeWithSettings(async () => {
+        throw new Error('db down')
+    })
+    assert.equal(resolved.outcome, 'applied')
+    assert.equal(resolved.resume?.command.includes('--model'), false)
+    assert.equal(
+        resolved.resume?.env.ANTHROPIC_AUTH_TOKEN,
+        'claude-token-fixture'
+    )
+})
+
+test('a claude TUI on its own sign-in runs as the machine has it set up', async () => {
+    const own = await new TerminalResumeService(
+        dbReturning([[{ ref: 'ref-1', inflightMessageId: null }]]),
+        { decrypt: () => assert.fail('no platform credentials') } as never,
+        {
+            resolveTurnConfig: async () =>
+                assert.fail('no platform model settings')
+        } as never
+    ).resolve({
+        agentId: 'agt_1',
+        userId: 'user-1',
+        runtimeId: 'rt_1',
+        framework: 'claude-code',
+        chatSessionId: 'cs_1',
+        modelCredentialsAllowed: true,
+        injectModelCredentials: false,
+        model: 'haiku'
+    })
+    assert.equal(own.outcome, 'applied')
+    assert.equal(own.resume?.command.includes('--model'), false)
+    assert.equal(own.resume?.env.ANTHROPIC_AUTH_TOKEN, undefined)
+})
+
 // codex is not logged in on the machine: its TUI resumes on the provider its
 // turns run on, the key in the env and the endpoint in `-c` overrides.
 test('a codex TUI resumes on the platform provider with the key in its env', async () => {
