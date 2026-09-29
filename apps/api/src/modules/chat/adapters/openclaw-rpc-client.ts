@@ -1,8 +1,13 @@
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
+import { whileHeld, type AwakeHold } from '@/modules/hosts/host-awake.service'
 import type { ExecDriver } from './exec-driver'
 
 export class OpenclawRpcClient {
-    constructor(private readonly driver: ExecDriver) {}
+    constructor(
+        private readonly driver: ExecDriver,
+        // Each query holds a machine that sleeps, like a history read.
+        private readonly hold?: () => AwakeHold
+    ) {}
 
     disconnect(): void {}
 
@@ -13,21 +18,6 @@ export class OpenclawRpcClient {
     ): Promise<T> {
         if (method !== 'sessions.list' && method !== 'sessions.history')
             throw new Error('unsupported session query')
-        const handle = this.driver.stream({
-            cmd: [
-                'openclaw',
-                'gateway',
-                'call',
-                method,
-                '--params',
-                JSON.stringify(params),
-                '--json',
-                '--timeout',
-                String(timeoutMs)
-            ],
-            env: { OPENCLAW_HIDE_BANNER: '1', OPENCLAW_SUPPRESS_NOTES: '1' },
-            timeoutMs: timeoutMs + 5_000
-        })
         const collect = async (
             stream: AsyncIterable<string>
         ): Promise<string> => {
@@ -35,11 +25,31 @@ export class OpenclawRpcClient {
             for await (const chunk of stream) text += chunk
             return text
         }
-        const [stdout, stderr, result] = await Promise.all([
-            collect(handle.stdout),
-            collect(handle.stderr),
-            handle.result
-        ])
+        const [stdout, stderr, result] = await whileHeld(this.hold, () => {
+            const handle = this.driver.stream({
+                cmd: [
+                    'openclaw',
+                    'gateway',
+                    'call',
+                    method,
+                    '--params',
+                    JSON.stringify(params),
+                    '--json',
+                    '--timeout',
+                    String(timeoutMs)
+                ],
+                env: {
+                    OPENCLAW_HIDE_BANNER: '1',
+                    OPENCLAW_SUPPRESS_NOTES: '1'
+                },
+                timeoutMs: timeoutMs + 5_000
+            })
+            return Promise.all([
+                collect(handle.stdout),
+                collect(handle.stderr),
+                handle.result
+            ])
+        })
         if (result.exitCode !== 0)
             throw new Error(
                 `runner gateway session query failed (exit ${result.exitCode}): ${redactCredentialText(stderr).slice(-1024).trim()}`

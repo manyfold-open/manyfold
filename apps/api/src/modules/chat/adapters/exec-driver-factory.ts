@@ -86,12 +86,15 @@ export interface ExecDriverHandle {
     authContext: DaemonAuthContextRef | null
 }
 
+// For reads made right after it resolves: resolving is what admitted the wake
+// (the active slot, the bring-up). Each read holds a sandbox only while it
+// runs, so a read made once the sandbox has gone back to sleep wakes it again
+// outside that admission.
 export interface RecoveryFsHandle {
     hostId: string
     fs: RecoveryFs
     runtime: ExecPlacement
     agent: Agent
-    awakeHold?: AwakeHold
 }
 
 type AgentContext = RuntimeContext & { agent: Agent; host: RuntimeHostRow }
@@ -358,17 +361,13 @@ export class ExecDriverFactory {
         const runner = await this.resolveTurnDaemon(ctx)
         return {
             hostId: runner.hostId,
-            fs: new DaemonRecoveryFs(this.daemonRegistry, runner.hostId),
+            fs: new DaemonRecoveryFs(
+                this.daemonRegistry,
+                runner.hostId,
+                this.recoveryHold(ctx, ctx.agent.id)
+            ),
             runtime: ctx.placement as ExecPlacement,
-            agent: ctx.agent,
-            ...(ctx.placement === 'sprites' && this.bringUp
-                ? {
-                      awakeHold: this.bringUp.holdAwake(
-                          ctx.host,
-                          `recovery-${ctx.agent.id}`
-                      )
-                  }
-                : {})
+            agent: ctx.agent
         }
     }
 
@@ -382,7 +381,22 @@ export class ExecDriverFactory {
         const daemonId =
             carryingDaemonId ??
             (await this.resolveTurnDaemon(ctx as RuntimeContext & { agent: Agent })).hostId
-        return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
+        return new OpenclawRpcClient(
+            this.daemonDriverFor(daemonId),
+            this.recoveryHold(ctx, agentId)
+        )
+    }
+
+    // A daemon read is no activity to a sprite, so each history read holds it
+    // for its own run (whileHeld); other machines never sleep.
+    private recoveryHold(
+        ctx: RuntimeContext,
+        agentId: string
+    ): (() => AwakeHold) | undefined {
+        const { bringUp } = this
+        const { host } = ctx
+        if (ctx.placement !== 'sprites' || !host || !bringUp) return undefined
+        return () => bringUp.holdAwake(host, `recovery-${agentId}`)
     }
 
     // The agent's active identity for a runtime kind, minted lazily on the

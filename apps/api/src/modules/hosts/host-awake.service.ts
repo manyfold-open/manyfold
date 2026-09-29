@@ -35,6 +35,25 @@ export const NOOP_HOLD: AwakeHold = {
     detach: () => {}
 }
 
+// A hold for exactly one piece of work: taken before it, released after it,
+// nothing held between two of them; the release grace keeps back-to-back work
+// on one lease. A hold handed to the caller instead is one a caller can
+// forget, and a forgotten hold is renewed until the API restarts.
+// Seen on staging [2026-09-29]: four callers forgot the hold a history-read
+// handle carried, and a sandbox read by a gemini automation every 2 h ran
+// 14–20 h a day from 2026-09-20.
+export const whileHeld = async <T>(
+    hold: (() => AwakeHold) | undefined,
+    work: () => Promise<T>
+): Promise<T> => {
+    const held = hold?.()
+    try {
+        return await work()
+    } finally {
+        void held?.release()
+    }
+}
+
 // The lease bounds the leak when the owning instance dies mid-work: the
 // machine keeps executing (that is the whole point) and suspends on its own
 // soon after. Renewed at a third of the TTL so one failed renew is not fatal.
@@ -62,6 +81,12 @@ export class HostAwakeService implements OnModuleDestroy {
     // deletes it on a user's stop.
     private readonly leaseName = `${AWAKE_HOLD_TASK_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 8)}`
     private readonly leases = new Map<string, Lease>()
+    // A closed lease's release still in flight, by host. Every lease of this
+    // instance has the same name, so the next lease on that host acquires only
+    // once the release has landed: a PUT that overtook the DELETE would be
+    // deleted by it, and its holders would believe the machine held while
+    // nothing holds it until the next renew.
+    private readonly closing = new Map<string, Promise<void>>()
 
     constructor(
         private readonly providers: SandboxProviderRegistry,
@@ -129,7 +154,11 @@ export class HostAwakeService implements OnModuleDestroy {
             if (lease.grace) clearTimeout(lease.grace)
         }
         await Promise.race([
-            Promise.allSettled(leases.map((lease) => this.release(lease))),
+            Promise.allSettled([
+                ...leases.map((lease) => this.release(lease)),
+                // Leases already closing: their release is half done.
+                ...this.closing.values()
+            ]),
             new Promise<void>((resolve) =>
                 setTimeout(resolve, SHUTDOWN_RELEASE_MS).unref()
             )
@@ -148,11 +177,14 @@ export class HostAwakeService implements OnModuleDestroy {
 
     private open(host: RuntimeHostRow): Lease {
         const name = this.leaseName
+        const closing = this.closing.get(host.id)
         const lease: Lease = {
             host,
             name,
             count: 0,
-            pending: this.acquire(host, name),
+            pending: closing
+                ? closing.then(() => this.acquire(host, name))
+                : this.acquire(host, name),
             renew: setInterval(() => {
                 lease.pending = this.acquire(host, name)
             }, AWAKE_RENEW_MS),
@@ -167,7 +199,11 @@ export class HostAwakeService implements OnModuleDestroy {
         if (this.leases.get(lease.host.id) !== lease || lease.count > 0) return
         clearInterval(lease.renew)
         this.leases.delete(lease.host.id)
-        await this.release(lease)
+        const released = this.release(lease)
+        this.closing.set(lease.host.id, released)
+        await released
+        if (this.closing.get(lease.host.id) === released)
+            this.closing.delete(lease.host.id)
     }
 
     private async release(lease: Lease): Promise<void> {

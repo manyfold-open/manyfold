@@ -699,15 +699,9 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
         let cursor: number | null = null
         try {
             const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
-            try {
-                cursor = parseAntigravityTranscriptLineCount(
-                    await handle.fs.exec(
-                        antigravityTranscriptLineCountScript(ref)
-                    )
-                )
-            } finally {
-                await handle.awakeHold?.release()
-            }
+            cursor = parseAntigravityTranscriptLineCount(
+                await handle.fs.exec(antigravityTranscriptLineCountScript(ref))
+            )
         } catch (err) {
             this.logger.warn(
                 `antigravity transcript line count failed agent=${ctx.agentId} session=${ctx.sessionId}: ${(err as Error).message}`

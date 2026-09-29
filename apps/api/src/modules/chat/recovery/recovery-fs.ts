@@ -1,4 +1,5 @@
 import type { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { whileHeld, type AwakeHold } from '@/modules/hosts/host-awake.service'
 
 const LOCATE_TIMEOUT_MS = 30_000
 const BINARY_READ_TIMEOUT_MS = 90_000
@@ -102,16 +103,13 @@ const readDaemonFile = async (
 export class DaemonRecoveryFs implements RecoveryFs {
     constructor(
         private readonly registry: DaemonRegistryService,
-        private readonly daemonId: string
+        private readonly daemonId: string,
+        // Absent for a machine that never sleeps.
+        private readonly hold?: () => AwakeHold
     ) {}
 
     async locate(bashScript: string): Promise<string | null> {
-        const result = await runDaemonBash(
-            this.registry,
-            this.daemonId,
-            bashScript,
-            LOCATE_TIMEOUT_MS
-        )
+        const result = await this.bash(bashScript, LOCATE_TIMEOUT_MS)
         if (result.exitCode !== 0) return null
         const path = result.stdout
             .split(/\r?\n/)
@@ -120,12 +118,7 @@ export class DaemonRecoveryFs implements RecoveryFs {
     }
 
     async listFiles(bashScript: string): Promise<string[]> {
-        const result = await runDaemonBash(
-            this.registry,
-            this.daemonId,
-            bashScript,
-            LOCATE_TIMEOUT_MS
-        )
+        const result = await this.bash(bashScript, LOCATE_TIMEOUT_MS)
         if (result.exitCode !== 0) return []
         return result.stdout
             .split(/\r?\n/)
@@ -134,33 +127,33 @@ export class DaemonRecoveryFs implements RecoveryFs {
     }
 
     async exec(bashScript: string): Promise<string | null> {
-        const result = await runDaemonBash(
-            this.registry,
-            this.daemonId,
-            bashScript,
-            SCAN_TIMEOUT_MS
-        )
+        const result = await this.bash(bashScript, SCAN_TIMEOUT_MS)
         if (result.exitCode !== 0) return null
         return result.stdout
     }
 
     async readFile(absPath: string): Promise<string | null> {
-        const buf = await readDaemonFile(
-            this.registry,
-            this.daemonId,
-            absPath,
-            TEXT_READ_MAX_BYTES
-        )
+        const buf = await this.read(absPath, TEXT_READ_MAX_BYTES)
         if (!buf) return null
         return buf.toString('utf8')
     }
 
     async readBinary(absPath: string): Promise<Buffer | null> {
-        return readDaemonFile(
-            this.registry,
-            this.daemonId,
-            absPath,
-            BINARY_READ_MAX_BYTES
+        return this.read(absPath, BINARY_READ_MAX_BYTES)
+    }
+
+    private bash(
+        bashScript: string,
+        timeoutMs: number
+    ): Promise<DaemonExecResult> {
+        return whileHeld(this.hold, () =>
+            runDaemonBash(this.registry, this.daemonId, bashScript, timeoutMs)
+        )
+    }
+
+    private read(absPath: string, maxBytes: number): Promise<Buffer | null> {
+        return whileHeld(this.hold, () =>
+            readDaemonFile(this.registry, this.daemonId, absPath, maxBytes)
         )
     }
 }

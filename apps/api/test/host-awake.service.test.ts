@@ -26,7 +26,17 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
 
 const provider = { id: 'rtp_1', kind: 'sprites', name: 'org' }
 
-const build = (opts: { holdAwake?: boolean; graceMs?: number; fail?: boolean } = {}) => {
+const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const build = (
+    opts: {
+        holdAwake?: boolean
+        graceMs?: number
+        fail?: boolean
+        // How long each provider call takes to land on the machine.
+        landMs?: { hold?: number; release?: number }
+    } = {}
+) => {
     const calls: Array<{ op: 'hold' | 'release'; name: string; ttl?: string }> = []
     const adapter =
         opts.holdAwake === false
@@ -34,9 +44,11 @@ const build = (opts: { holdAwake?: boolean; graceMs?: number; fail?: boolean } =
             : {
                   holdAwake: async (_args: unknown, lease: { name: string; ttl: string }) => {
                       if (opts.fail) throw new Error('sprite exec refused')
+                      if (opts.landMs?.hold) await later(opts.landMs.hold)
                       calls.push({ op: 'hold', name: lease.name, ttl: lease.ttl })
                   },
                   releaseAwake: async (_args: unknown, lease: { name: string }) => {
+                      if (opts.landMs?.release) await later(opts.landMs.release)
                       calls.push({ op: 'release', name: lease.name })
                   }
               }
@@ -95,6 +107,27 @@ test('a hold taken inside the grace keeps the lease instead of recreating it', a
     await settle()
     await settle()
     assert.deepEqual(calls.map((c) => c.op), ['hold', 'release'])
+})
+
+// Every lease of an instance has the same name, so a lease opened while the
+// last one's DELETE is still on its way must not PUT until it has landed: a
+// PUT that got there first would be deleted by it, and the new holder would
+// believe the machine held until the next renew, 10 minutes later.
+test('a hold taken while the lease is being let go acquires after the release lands', async () => {
+    const { service, calls } = build({ landMs: { hold: 5, release: 30 } })
+    const ops = () => calls.map((c) => c.op)
+    const h = host()
+    const first = service.hold(h, 'read')
+    await first.settled
+    await first.release()
+    await later(2)
+    const next = service.hold(h, 'turn')
+    assert.equal(await next.settled, true)
+    assert.deepEqual(ops(), ['hold', 'release', 'hold'])
+    assert.equal(service.holders(h.id), 1)
+    await next.release()
+    await later(50)
+    assert.deepEqual(ops(), ['hold', 'release', 'hold', 'release'])
 })
 
 test('a detach drops the reference but never deletes the lease', async () => {

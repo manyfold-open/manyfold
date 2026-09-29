@@ -11,6 +11,10 @@ import {
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
 import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
+import {
+    HostAwakeService,
+    NOOP_HOLD
+} from '../src/modules/hosts/host-awake.service'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 import {
     contextOf,
@@ -45,11 +49,15 @@ const rig = (
         version?: string
         features?: readonly string[]
         reason?: string
+        // Every daemon RPC fails the way a dropped socket does.
+        rpcFails?: boolean
+        // The bring-up's holds go to a real awake service.
+        awake?: HostAwakeService
     } = {}
 ) => {
     const calls: string[] = []
     const payloads: Record<string, unknown>[] = []
-    let awakeReleases = 0
+    const holdReasons: string[] = []
     const agent = {
         id: 'agt_one',
         userId: 'usr_one',
@@ -116,12 +124,19 @@ const rig = (
         fakeRuntimeContext(context) as never,
         {} as never,
         {
-            streamRpc: (args: { payload: Record<string, unknown> }) => {
-                calls.push('exec.start')
+            streamRpc: (args: {
+                method: string
+                payload: Record<string, unknown>
+            }) => {
+                calls.push(args.method)
                 payloads.push(args.payload)
                 return {
                     refId: 'ref',
-                    result: Promise.resolve({ exitCode: 0 }),
+                    result: options.rpcFails
+                        ? Promise.reject(
+                              new Error('daemon dh_one is not connected')
+                          )
+                        : Promise.resolve({ exitCode: 0 }),
                     cancel() {}
                 }
             }
@@ -135,17 +150,22 @@ const rig = (
         undefined,
         undefined,
         {
-            holdAwake: () => ({
-                settled: Promise.resolve(true),
-                release: async () => {
-                    awakeReleases++
-                },
-                detach() {}
-            }),
+            holdAwake: (held: RuntimeHostRow, reason: string) => {
+                calls.push('hold')
+                holdReasons.push(reason)
+                const hold = options.awake?.hold(held, reason) ?? NOOP_HOLD
+                return {
+                    ...hold,
+                    release: async () => {
+                        calls.push('release')
+                        await hold.release()
+                    }
+                }
+            },
             awaitReconnect: async () => null
         } as never
     )
-    return { factory, agent, host, calls, payloads, awakeReleases: () => awakeReleases }
+    return { factory, agent, host, calls, payloads, holdReasons }
 }
 
 for (const framework of listFrameworks()) {
@@ -259,13 +279,91 @@ test('the resolved roots reach the daemon on exec.start', async () => {
     assert.deepEqual(payloads[0].roots, [agent.workspacePath])
 })
 
-test('Sprite recovery reserves a slot, holds the sandbox and builds no provider client', async () => {
-    const { factory, agent, calls, awakeReleases } = rig('sprites', 'codex')
-    const handle = await factory.recoveryFsForAgent(agent.id)
-    assert.ok(handle.awakeHold)
+test('Sprite recovery reserves a slot and builds no provider client, and holds nothing yet', async () => {
+    const { factory, agent, calls } = rig('sprites', 'codex')
+    await factory.recoveryFsForAgent(agent.id)
     assert.deepEqual(calls, ['reserve', 'resolve'])
-    await handle.awakeHold?.release()
-    assert.equal(awakeReleases(), 1)
+})
+
+// Seen on staging [2026-09-29]: a hold taken with the handle and left to the
+// caller was never released by four callers, so a sandbox read by a gemini
+// automation every 2 h stopped sleeping.
+test('each Sprite recovery read holds the sandbox for its own run', async () => {
+    const { factory, agent, calls, holdReasons } = rig('sprites', 'gemini-cli')
+    const { fs } = await factory.recoveryFsForAgent(agent.id)
+    await fs.locate('true')
+    await fs.listFiles('true')
+    await fs.exec('true')
+    await fs.readFile('/workspace/agt_one/session.jsonl')
+    await fs.readBinary('/workspace/agt_one/image.png')
+    assert.deepEqual(calls.slice(2), [
+        'hold', 'exec.start', 'release',
+        'hold', 'exec.start', 'release',
+        'hold', 'exec.start', 'release',
+        'hold', 'fs.read', 'release',
+        'hold', 'fs.read', 'release'
+    ])
+    assert.deepEqual(new Set(holdReasons), new Set(['recovery-agt_one']))
+})
+
+test('a Sprite recovery read that fails still lets the sandbox go', async () => {
+    const { factory, agent, calls } = rig('sprites', 'codex', { rpcFails: true })
+    const { fs } = await factory.recoveryFsForAgent(agent.id)
+    await assert.rejects(fs.exec('true'), /not connected/)
+    await assert.rejects(
+        fs.readFile('/workspace/agt_one/session.jsonl'),
+        /not connected/
+    )
+    assert.deepEqual(calls.slice(2), [
+        'hold', 'exec.start', 'release',
+        'hold', 'fs.read', 'release'
+    ])
+})
+
+test('a machine that never sleeps is read without a hold', async () => {
+    for (const runtime of ['k8s', 'daemon'] as const) {
+        const { factory, agent, calls } = rig(runtime, 'codex')
+        const { fs } = await factory.recoveryFsForAgent(agent.id)
+        await fs.exec('true')
+        assert.equal(calls.includes('hold'), false, runtime)
+    }
+})
+
+test('recovery reads leave the Sprite lease released, not renewed', async () => {
+    const provider: string[] = []
+    class Awake extends HostAwakeService {
+        protected override releaseGraceMs(): number {
+            return 0
+        }
+    }
+    const awake = new Awake(
+        {
+            has: () => true,
+            for: () => ({
+                holdAwake: async () => {
+                    provider.push('hold')
+                },
+                releaseAwake: async () => {
+                    provider.push('release')
+                }
+            })
+        } as never,
+        {
+            providerForHost: async () => ({
+                id: 'rtp_sprites',
+                kind: 'sprites',
+                name: 'org'
+            })
+        } as never
+    )
+    const { factory, agent, host } = rig('sprites', 'gemini-cli', { awake })
+    const { fs } = await factory.recoveryFsForAgent(agent.id)
+    await fs.locate('true')
+    await fs.exec('true')
+    await fs.readFile('/workspace/agt_one/session.jsonl')
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    assert.equal(awake.holders(host.id), 0)
+    assert.deepEqual(provider, ['hold', 'release'])
 })
 
 test('managed Sprite upgrade errors direct operators to the managed runner', () => {
@@ -274,9 +372,13 @@ test('managed Sprite upgrade errors direct operators to the managed runner', () 
     assert.doesNotMatch(error.chatError.message, /Run mf update/)
 })
 
-test('OpenClaw history reuses the filesystem carrier without a second Sprite wake', async () => {
+test('OpenClaw history reuses the filesystem carrier and holds the Sprite only while a gateway call runs', async () => {
     const { factory, agent, calls } = rig('sprites', 'openclaw')
     const handle = await factory.recoveryFsForAgent(agent.id)
-    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.hostId))
+    const client = await factory.openclawRpcForAgent(agent.id, handle.hostId)
+    assert.ok(client)
     assert.deepEqual(calls, ['reserve', 'resolve'])
+    // The fake daemon prints nothing, so the query itself fails.
+    await assert.rejects(client.call('sessions.list'), /invalid JSON/)
+    assert.deepEqual(calls.slice(2), ['hold', 'exec.start', 'release'])
 })
