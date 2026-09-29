@@ -59,7 +59,7 @@ import { BackupsModule } from '@/modules/backups/backups.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { RunnerModule } from '@/modules/chat/runner/runner.module'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
+import { HostSessionRegistry } from '@/modules/agents/host-sessions/host-sessions.registry'
 import {
     A2aAgentAdapter,
     DifyAgentAdapter,
@@ -127,7 +127,7 @@ import {
         AgentModelConfigService,
         SpriteStatusSyncService,
         ServiceLeaseService,
-        SpritesSessionRegistry,
+        HostSessionRegistry,
         FrameworkVersionProbeService,
         McpImportService,
         FrameworkUpgradeService,
@@ -146,7 +146,7 @@ import {
         RuntimeAgentAttachService,
         ResourceEventsModule,
         SpriteStatusSyncService,
-        SpritesSessionRegistry
+        HostSessionRegistry
     ]
 })
 export class AgentsModule {}

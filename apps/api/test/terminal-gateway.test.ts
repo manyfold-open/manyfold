@@ -49,8 +49,6 @@ const makeGateway = (
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
         files as never,
         {} as never
     )

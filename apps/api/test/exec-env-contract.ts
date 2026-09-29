@@ -386,7 +386,7 @@ export const execEnvSurfaces: readonly ExecEnvSurface[] = [
 // Pinned by terminal-env-contract.test.ts against terminalIdentityEnv and the
 // daemon driver's pty.open payload.
 export interface TerminalEnvSurface {
-    runtime: 'sprites' | 'daemon'
+    runtime: 'daemon'
     // MF_API_TOKEN / MF_AGENT_ID / MF_API_URL / MF_DEPLOY_ENV, minted and
     // composed per terminal session, over whatever the agent env carries.
     identity: 'per-session'
@@ -396,12 +396,6 @@ export interface TerminalEnvSurface {
 }
 
 export const terminalEnvSurfaces: readonly TerminalEnvSurface[] = [
-    {
-        runtime: 'sprites',
-        identity: 'per-session',
-        terminalId: 'per-session',
-        note: 'The sprite shell profile also exports MF_API_URL and MF_DEPLOY_ENV (sprite-resident, #438); the per-session values are the same ones, laid on the exec so a terminal never depends on the login shell having sourced them.'
-    },
     {
         runtime: 'daemon',
         identity: 'per-session',

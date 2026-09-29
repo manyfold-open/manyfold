@@ -5,8 +5,6 @@ import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.mo
 import { AuthModule } from '@/modules/auth/auth.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
 import { TerminalGateway } from '@/modules/terminal/terminal.gateway'
-import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
-import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
@@ -52,8 +50,6 @@ import { TerminalHerdrController } from '@/modules/terminal/terminal-herdr.contr
     ],
     providers: [
         TerminalGateway,
-        SpritesTerminal,
-        K8sTerminal,
         DaemonTerminal,
         TerminalResumeService,
         TerminalSessionsRepository,

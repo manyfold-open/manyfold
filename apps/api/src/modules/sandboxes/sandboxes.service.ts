@@ -84,7 +84,7 @@ import {
     HostDaemonOfflineError,
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
+import { HostSessionRegistry } from '@/modules/agents/host-sessions/host-sessions.registry'
 import {
     buildNpmLatestInstallShell,
     buildNpmUpgradeShell,
@@ -151,7 +151,7 @@ export class SandboxesService {
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly keepAliveLease: SpriteKeepAliveLeaseService,
         private readonly lifecycle: HostedHostLifecycleService,
-        private readonly sessions: SpritesSessionRegistry,
+        private readonly sessions: HostSessionRegistry,
         @Inject(DRIZZLE) private readonly db: Database,
         // Appended last + @Optional so positional test construction keeps
         // working; absence means "install npm's latest" for a framework.
@@ -1048,9 +1048,8 @@ export class SandboxesService {
                 `service '${svc.name}' refused to stop (another service may depend on it)`
             )
 
-        // Delete non-platform activity tasks. The platform lease was already
-        // released with its renewer killed above; deleting a stray one here
-        // would just be resurrected by its in-VM renew loop.
+        // Delete non-platform activity tasks. The keep-awake hold was let go
+        // above; a work hold stays unless the stop is forced.
         const deletedTasks: string[] = []
         const tasksOnSprite = await this.readTasksOnSprite(client, spriteName)
         const heldForWork = tasksOnSprite.filter(
