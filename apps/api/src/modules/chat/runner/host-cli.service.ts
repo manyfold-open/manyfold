@@ -4,7 +4,8 @@ import {
     isCliUpdateAvailable,
     isCliVersionTooOld,
     parseProbedSemver,
-    type MfCliChannel
+    type MfCliChannel,
+    type UpgradeDaemonHostResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -29,6 +30,16 @@ const CLI_INSTALL_TIMEOUT_MS = 180_000
 // A restarted daemon gets about three minutes to register again.
 const REREGISTER_POLLS = 60
 const REREGISTER_POLL_MS = 3_000
+// A daemon with work in progress defers an update until that work ends, or
+// until its own drain deadline (10 minutes) passes; it takes no new work in
+// between. The update it was asked for is not asked for again inside that
+// window: re-asking re-armed the deadline, and a busy sandbox put the update
+// off for good. A caller waits a moment for the successor, then is told to
+// retry.
+// Seen on local [2026-09-29]: five requests three minutes apart, each
+// deferred behind the sessions still open, and the update never ran.
+const DRAIN_WINDOW_MS = 11 * 60_000
+const DRAINING_POLLS = 7
 
 // What the caller needs of a hosted machine's daemon.
 export interface HostCliNeed {
@@ -50,6 +61,17 @@ const updatesItself = (daemon: HostDaemonRow): boolean =>
 const podHost = (host: RuntimeHostRow): boolean =>
     host.providerRef?.kind === 'k8s'
 
+// The machine's daemon is finishing the work it has before it updates: the
+// caller retries in a few minutes instead of reading it as an outage.
+export class HostCliUpdatingError extends ServiceUnavailableException {
+    constructor(host: RuntimeHostRow) {
+        super({
+            code: podHost(host) ? 'POD_HOST_DAEMON_UPDATING' : 'SANDBOX_DAEMON_UPDATING',
+            message: `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
+        })
+    }
+}
+
 // The CLI a need asks for is not there after everything the platform can do
 // to get it: callers report it as "update the CLI", not as an outage.
 export class HostCliTooOldError extends ServiceUnavailableException {
@@ -69,6 +91,8 @@ export class HostCliService {
     private readonly log = new Logger(HostCliService.name)
     // One update per host at a time: concurrent callers share it.
     private readonly inFlight = new Map<string, Promise<HostDaemonRow>>()
+    // Hosts whose daemon deferred an update, and since when.
+    private readonly draining = new Map<string, number>()
 
     constructor(
         private readonly daemonHosts: DaemonHostService,
@@ -91,10 +115,10 @@ export class HostCliService {
         host: RuntimeHostRow
         actorId: string
         targetVersion?: string
-    }): Promise<void> {
+    }): Promise<UpgradeDaemonHostResponse | undefined> {
         const daemon = await this.hostDaemons.findByHostId(args.host.id)
         if (daemon && hasRpcLease(daemon) && updatesItself(daemon))
-            await this.daemonHosts.upgrade({
+            return this.daemonHosts.upgrade({
                 host: args.host,
                 actorId: args.actorId,
                 targetVersion: args.targetVersion
@@ -138,6 +162,23 @@ export class HostCliService {
         return this.hostDaemons.findByHostId(host.id)
     }
 
+    // The daemon once the successor of an update is back on another CLI: the
+    // new version arrives with the successor's first heartbeat, over a live
+    // lease. null when it is not back within `polls`.
+    async awaitSuccessor(
+        host: RuntimeHostRow,
+        before: string | null,
+        polls = REREGISTER_POLLS
+    ): Promise<HostDaemonRow | null> {
+        for (let poll = 0; poll < polls; poll++) {
+            await this.delay(REREGISTER_POLL_MS)
+            const fresh = await this.hostDaemons.findByHostId(host.id)
+            if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
+                return fresh
+        }
+        return null
+    }
+
     // Overridable in tests.
     protected delay(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms))
@@ -159,20 +200,33 @@ export class HostCliService {
                 host,
                 `${host.name} already runs the latest Manyfold CLI (${before}), which does not support this yet`
             )
+        const drainingSince = this.draining.get(host.id)
+        if (drainingSince && Date.now() - drainingSince < DRAIN_WINDOW_MS)
+            return this.awaitDrained(host, before)
         this.log.log(
             `host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
         )
-        await this.update({ host, actorId: host.userId })
-        for (let poll = 0; poll < REREGISTER_POLLS; poll++) {
-            await this.delay(REREGISTER_POLL_MS)
-            const fresh = await this.hostDaemons.findByHostId(host.id)
-            if (fresh && fresh.cliVersion !== before && hasRpcLease(fresh))
-                return fresh
+        const outcome = await this.update({ host, actorId: host.userId })
+        if (outcome?.deferred) {
+            this.draining.set(host.id, Date.now())
+            return this.awaitDrained(host, before)
         }
+        const back = await this.awaitSuccessor(host, before)
+        if (back) return back
         throw new HostCliTooOldError(
             host,
             `the Manyfold CLI on ${host.name} was updated but its daemon did not come back; update it from its page`
         )
+    }
+
+    private async awaitDrained(
+        host: RuntimeHostRow,
+        before: string | null
+    ): Promise<HostDaemonRow> {
+        const back = await this.awaitSuccessor(host, before, DRAINING_POLLS)
+        if (!back) throw new HostCliUpdatingError(host)
+        this.draining.delete(host.id)
+        return back
     }
 
     private async installOver(

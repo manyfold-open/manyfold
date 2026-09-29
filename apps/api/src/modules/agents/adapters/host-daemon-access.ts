@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable, Optional } from '@nestjs/common'
-import type { AgentRuntime, DaemonRpcMethod } from '@manyfold/shared'
+import type {
+    AgentRuntime,
+    DaemonRpcMethod,
+    DaemonStreamKind
+} from '@manyfold/shared'
 import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
     HostDaemonsService,
@@ -63,12 +67,32 @@ export interface HostExecRequest {
     // Directories beyond the workspace base the daemon admits `dir` under for
     // this one exec (exec.roots.v1).
     roots?: readonly string[]
+    // Output as it arrives, for a caller timing the command's own phases. A
+    // command re-sent after a reconnect replays what it printed before.
+    onStdout?: (chunk: string) => void
 }
 
 export interface HostExecResult {
     exitCode: number
     stdout: string
     stderr: string
+}
+
+// A streaming call (fs.read, a pty): its events arrive as they happen. It is
+// not retried — a stream cut mid-way cannot be replayed from here — and it
+// outlives the hold of the call that opened it, so a caller keeping it past
+// that call holds the machine itself.
+export interface HostStreamArgs {
+    method: DaemonRpcMethod
+    payload: Record<string, unknown>
+    timeoutMs?: number
+    onEvent: (kind: DaemonStreamKind, data: string) => void
+}
+
+export interface HostStream {
+    refId: string
+    result: Promise<Record<string, unknown> | undefined>
+    cancel: () => void
 }
 
 // What a caller works with while the machine is held awake (ADR-0038).
@@ -88,6 +112,7 @@ export interface HostSession {
     // ADR-0029 §4). A timeout is never retried; a long command must not be
     // doubled.
     exec: (req: HostExecRequest) => Promise<HostExecResult>
+    stream: (args: HostStreamArgs) => HostStream
 }
 
 export interface WithHostArgs extends EnsureHostDaemonArgs {
@@ -139,15 +164,25 @@ export class HostDaemonAccess {
         }
         const daemon =
             args.daemon ?? (await this.hostDaemons.findByHostId(args.host.id))
-        const online = hasRpcLease(daemon)
+        const connected = hasRpcLease(daemon)
+        // A self-owned computer is its user's to update: a daemon lacking
+        // what the work needs is answered as too old, never updated here.
+        const tooOld =
+            connected &&
+            (args.requiredFeatures ?? []).some(
+                (feature) => !(daemon?.clientFeatures ?? []).includes(feature)
+            )
+        const online = connected && !tooOld
         return {
             daemon,
             online,
             fallbackReason: online
                 ? undefined
-                : daemon
-                  ? 'runner_unavailable'
-                  : 'runner_missing'
+                : tooOld
+                  ? 'runner_cli_too_old'
+                  : daemon
+                    ? 'runner_unavailable'
+                    : 'runner_missing'
         }
     }
 
@@ -187,7 +222,15 @@ export class HostDaemonAccess {
                 daemon: ensured.daemon,
                 daemonId: args.host.id,
                 rpc: (call) => this.rpc(args.host, call),
-                exec: (req) => this.exec(args.host, req)
+                exec: (req) => this.exec(args.host, req),
+                stream: (call) =>
+                    this.registry.streamRpc({
+                        daemonId: args.host.id,
+                        method: call.method,
+                        payload: call.payload,
+                        timeoutMs: call.timeoutMs,
+                        onEvent: call.onEvent
+                    })
             })
         } finally {
             void hold.release()
@@ -263,8 +306,10 @@ export class HostDaemonAccess {
                 timeoutMs: req.timeoutMs + 5_000,
                 refIdOverride: refId,
                 onEvent: (kind, data) => {
-                    if (kind === 'stdout') stdout.push(data)
-                    else if (kind === 'stderr') stderr.push(data)
+                    if (kind === 'stdout') {
+                        stdout.push(data)
+                        req.onStdout?.(data)
+                    } else if (kind === 'stderr') stderr.push(data)
                 }
             })
             const ack = await stream.result
@@ -313,9 +358,15 @@ export class HostDaemonOfflineError extends Error {
         readonly execFailure?: RunnerExecFailure
     ) {
         super(
-            host.kind === 'local'
-                ? `${host.name} is offline; start its daemon (mf daemon start) and retry`
-                : `${host.name} has no running daemon (${reason}); retry once the machine is up`
+            reason === 'runner_updating'
+                ? `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
+                : reason === 'runner_cli_too_old'
+                ? host.kind === 'local'
+                    ? `the Manyfold CLI on ${host.name} is too old for this; update it and retry`
+                    : `the Manyfold CLI on ${host.name} is too old for this, and no update carrying what it needs is published yet`
+                : host.kind === 'local'
+                  ? `${host.name} is offline; start its daemon (mf daemon start) and retry`
+                  : `${host.name} has no running daemon (${reason}); retry once the machine is up`
         )
         this.name = 'HostDaemonOfflineError'
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
-import type { AgentRuntime } from '@manyfold/shared'
+import { FILES_UPLOAD_MAX_BYTES, type AgentRuntime } from '@manyfold/shared'
 import type { Agent, FileRoot } from '@manyfold/db'
 import { FilesController } from '../src/modules/agents/files/files.controller'
 import type { FilesContext } from '../src/modules/agents/files/files-context'
@@ -117,14 +117,10 @@ test('write treats a missing body as an empty file', async () => {
     assert.equal((writes[0].body as Buffer).byteLength, 0)
 })
 
-// pod-exec caps writes at 5 MiB; the caller should hear that before sending a
-// single byte instead of failing deep in the runtime
+// the caller should hear about the ceiling before sending a single byte
+// instead of failing deep in the runtime
 test('write rejects an over-limit upload from the declared length alone', async () => {
-    const { controller, writes } = harness(
-        agent(),
-        root({ transport: 'pod-exec' }),
-        'k8s'
-    )
+    const { controller, writes } = harness(agent())
 
     await assert.rejects(
         () =>
@@ -132,7 +128,7 @@ test('write rejects an over-limit upload from the declared length alone', async 
                 user,
                 'agent-1',
                 'big.bin',
-                request(6 * 1024 * 1024),
+                request(FILES_UPLOAD_MAX_BYTES + 1),
                 Readable.from([Buffer.alloc(1)]),
                 undefined
             ),
@@ -142,17 +138,13 @@ test('write rejects an over-limit upload from the declared length alone', async 
 })
 
 test('write accepts an upload at exactly the declared limit', async () => {
-    const { controller, writes } = harness(
-        agent(),
-        root({ transport: 'pod-exec' }),
-        'k8s'
-    )
+    const { controller, writes } = harness(agent())
 
     await controller.write(
         user,
         'agent-1',
         'exact.bin',
-        request(5 * 1024 * 1024),
+        request(FILES_UPLOAD_MAX_BYTES),
         Readable.from([Buffer.alloc(1)]),
         undefined
     )

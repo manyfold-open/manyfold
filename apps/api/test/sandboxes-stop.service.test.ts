@@ -69,7 +69,7 @@ interface StopHarness {
     svc: TestSandboxes
     closed: Array<{ hostId: string; reason: string }>
     keepAwakeOff: string[]
-    releaseCalls: Array<{ hostId: string; reason: string }>
+    converged: string[]
     serviceStops: string[]
     refreshCalls: number[]
     auditRows: Array<Record<string, unknown>>
@@ -80,7 +80,7 @@ const makeStop = (opts: {
     host?: Record<string, unknown>
     agents?: Array<{ id: string; runtimeId: string }>
     runtimes?: Array<{ id: string; framework: string }>
-    release?: { state: string; maxStaleSec: number; message?: string }
+    converge?: { state: string; message?: string }
     serviceStopMessage?: Record<string, string | undefined>
     services?: ServiceObject[]
     stopService?: (name: string, call: number) => ServiceObject
@@ -90,7 +90,7 @@ const makeStop = (opts: {
     const host = opts.host ?? baseHost()
     const closed: StopHarness['closed'] = []
     const keepAwakeOff: string[] = []
-    const releaseCalls: StopHarness['releaseCalls'] = []
+    const converged: string[] = []
     const serviceStops: string[] = []
     const refreshCalls: number[] = []
     const auditRows: StopHarness['auditRows'] = []
@@ -108,11 +108,13 @@ const makeStop = (opts: {
             return true
         }
     }
+    const keepAwake = {
+        converge: async (h: { id: string }) => {
+            converged.push(h.id)
+            return opts.converge ?? { state: 'unchanged' }
+        }
+    }
     const keepAliveLease = {
-        stopAndRelease: async (h: { id: string }, reason: string) => {
-            releaseCalls.push({ hostId: h.id, reason })
-            return opts.release ?? { state: 'not_applicable', maxStaleSec: 0 }
-        },
         stopService: async (rt: { id: string }) => {
             serviceStops.push(rt.id)
             return opts.serviceStopMessage?.[rt.id]
@@ -154,7 +156,13 @@ const makeStop = (opts: {
         keepAliveLease as never,
         {} as never,
         sessions as never,
-        db as never
+        db as never,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        keepAwake as never
     )
     svc.fakeClient = {
         listServices: async () => (opts.services ?? []) as never,
@@ -170,7 +178,7 @@ const makeStop = (opts: {
         svc,
         closed,
         keepAwakeOff,
-        releaseCalls,
+        converged,
         serviceStops,
         refreshCalls,
         auditRows,
@@ -186,23 +194,36 @@ test('stop is a noop on a non-running sandbox and touches nothing', async () => 
     const res = await h.svc.stop('u1', 'sbx_1')
     assert.equal(res.status, 'noop')
     assert.deepEqual(h.closed, [])
-    assert.deepEqual(h.releaseCalls, [])
+    assert.deepEqual(h.converged, [])
     assert.deepEqual(h.svc.execCalls, [])
     assert.equal(h.auditRows.length, 0)
 })
 
-test('stop closes the host\'s exec sessions, turns keep-awake off and releases the lease', async () => {
+// WHY: a stopped sandbox must not be woken again by the keep-awake reconcile,
+// and turning the switch off is a flag, never an exec into the sleeping VM.
+test('stop on a sleeping kept-awake sandbox turns the switch off and nothing else', async () => {
+    const h = makeStop({
+        host: baseHost({ powerState: 'suspended', keepAwake: true })
+    })
+    const res = await h.svc.stop('u1', 'sbx_1')
+    assert.equal(res.status, 'noop')
+    assert.deepEqual(h.keepAwakeOff, ['sbx_1'])
+    assert.deepEqual(h.converged, [])
+    assert.deepEqual(h.svc.execCalls, [])
+})
+
+test('stop closes the host\'s exec sessions, turns keep-awake off and lets the machine go', async () => {
     const h = makeStop({
         host: baseHost({ keepAwake: true }),
         sessionsClosed: 2,
-        release: { state: 'verified', maxStaleSec: 90 }
+        converge: { state: 'released' }
     })
     const res = await h.svc.stop('u1', 'sbx_1')
     assert.equal(res.status, 'pending')
     assert.deepEqual(h.closed, [{ hostId: 'sbx_1', reason: 'sandbox-stop' }])
     assert.deepEqual(h.keepAwakeOff, ['sbx_1'])
-    assert.deepEqual(h.releaseCalls, [{ hostId: 'sbx_1', reason: 'sandbox-stop' }])
-    assert.equal(res.estimatedReadyInSec, 90)
+    assert.deepEqual(h.converged, ['sbx_1'])
+    assert.equal(res.estimatedReadyInSec, 16)
     assert.equal(auditMeta(h).closedSessions, 2)
 })
 
@@ -311,17 +332,22 @@ test('a forced stop deletes the platform awake holds too', async () => {
     assert.ok(!res.warnings.some((w) => /work in progress/.test(w)))
 })
 
-test('stop defaults the estimate to the auto-sleep floor and keeps the larger release estimate', async () => {
+test('stop estimates the auto-sleep floor, and the hold\'s TTL when its release failed', async () => {
     const floor = await makeStop({}).svc.stop('u1', 'sbx_1')
     assert.equal(floor.estimatedReadyInSec, 16)
 
     const degraded = makeStop({
         host: baseHost({ keepAwake: true }),
-        release: { state: 'degraded', maxStaleSec: 390, message: 'tasks remain' }
+        converge: {
+            state: 'failed',
+            message: 'keep-awake release failed: sprite unavailable'
+        }
     })
     const res = await degraded.svc.stop('u1', 'sbx_1')
-    assert.equal(res.estimatedReadyInSec, 390)
-    assert.deepEqual(res.warnings, ['keep-awake: tasks remain'])
+    assert.equal(res.estimatedReadyInSec, 1800)
+    assert.deepEqual(res.warnings, [
+        'keep-awake: keep-awake release failed: sprite unavailable'
+    ])
 })
 
 test('stop warns when the status refresh fails and still audits', async () => {

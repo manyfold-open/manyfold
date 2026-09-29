@@ -284,6 +284,7 @@ export const apiPaths = {
     ADMIN_SETTINGS_EMAIL_PROVIDER_TEST: '/admin/settings/email-provider/test',
     CONFIG_CLI_MINIMUM_VERSION: '/config/cli-minimum-version',
     CONFIG_CAPABILITIES: '/config/capabilities',
+    AGENT_SETUP_GUIDE: '/agent-setup.md',
     ADMIN_USER_ROLE: (id: string) => `/admin/users/${id}/role`,
     ADMIN_USER_PLAN: (id: string) => `/admin/users/${id}/plan`,
     ADMIN_USER_FRAMEWORK_RUNTIME_OVERRIDES: (id: string) =>

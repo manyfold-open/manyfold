@@ -10,11 +10,10 @@ import {
 import { terminalEnvSurfaces } from './exec-env-contract'
 import { terminalIdentityEnv } from '../src/modules/terminal/terminal-env'
 import { DaemonTerminal } from '../src/modules/terminal/daemon-terminal'
-import { buildSpritesTerminalExecUrl } from '../src/modules/terminal/sprites-terminal'
 
 // The terminal surfaces' half of the exec env contract (ADR-0029 §3): a shell
 // the platform opens carries the same four-key runtime identity a chat turn
-// does, plus MF_TERMINAL_ID, on both arms.
+// does, plus MF_TERMINAL_ID. Every such shell is a daemon pty (ADR-0037 R6).
 
 const fakeConfig = {
     get: (key: string) =>
@@ -34,10 +33,10 @@ class FakeClient extends EventEmitter {
     }
 }
 
-test('the terminal surfaces are declared once per arm', () => {
+test('the terminal surface is declared once, for the daemon', () => {
     assert.deepEqual(
         terminalEnvSurfaces.map((surface) => surface.runtime),
-        ['sprites', 'daemon']
+        ['daemon']
     )
     for (const surface of terminalEnvSurfaces) {
         assert.equal(surface.identity, 'per-session')
@@ -73,30 +72,6 @@ test('a terminal without a durable row carries no MF_TERMINAL_ID', () => {
     // pointing the CLI at nothing.
     assert.equal(MF_ENV_API_URL in env, false)
     assert.equal(env[MF_ENV_DEPLOY_ENV], 'local')
-})
-
-test('the sprites exec URL carries every env entry as a param', () => {
-    const env = terminalIdentityEnv({
-        config: fakeConfig,
-        agentId: 'agt_1',
-        terminalId: 'tms_1',
-        tokenPlaintext: 'mfr_terminal'
-    })
-    const url = new URL(
-        buildSpritesTerminalExecUrl('wss://api.sprites.dev/v1', 'sprite', {
-            cmd: ['bash', '-il'],
-            dir: '/home/sprite',
-            cols: 80,
-            rows: 24,
-            env
-        })
-    )
-    const params = url.searchParams.getAll('env')
-    for (const key of [...MF_RUNTIME_IDENTITY_ENV_KEYS, MF_ENV_TERMINAL_ID])
-        assert.ok(
-            params.includes(`${key}=${env[key]}`),
-            `${key} not on the sprites exec URL`
-        )
 })
 
 test('the daemon arm injects the four identity keys and MF_TERMINAL_ID into pty.open', async () => {

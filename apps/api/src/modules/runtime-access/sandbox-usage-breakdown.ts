@@ -7,7 +7,7 @@ import type {
 } from '@manyfold/shared'
 import type { SandboxStorageBreakdown } from '@manyfold/db'
 import type { UsagePeriod } from '@/common/usage-period/usage-period'
-import { workspaceReading } from '@/modules/agents/sprite-storage/workspace-reading'
+import { workspaceReading } from '@/modules/agents/host-storage/workspace-reading'
 
 export interface SandboxUsageHostInput {
     id: string

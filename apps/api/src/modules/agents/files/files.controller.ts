@@ -55,15 +55,10 @@ const toWriteBody = (body: Readable | Buffer | undefined): FileWriteBody => {
 }
 
 const transportOf = (ctx: FilesContext): string =>
-    ctx.root.transport ?? ctx.placement ?? 'external'
+    ctx.placement ?? 'external'
 
 const capabilitiesOf = (ctx: FilesContext) =>
-    rootCapabilities({
-        framework: ctx.agent.framework,
-        placement: ctx.placement ?? 'external',
-        root: ctx.root,
-        binaryWriteSafe: ctx.binaryWriteSafe !== false
-    })
+    rootCapabilities({ framework: ctx.agent.framework, root: ctx.root })
 
 @Controller('agents')
 @UseGuards(AuthGuard)

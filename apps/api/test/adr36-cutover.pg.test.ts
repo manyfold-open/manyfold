@@ -35,7 +35,7 @@ type Sql = ReturnType<typeof postgres>
 const connect = (url: string): Sql =>
     postgres(url, { max: 1, onnotice: () => undefined })
 
-// The journal with the cutover removed: what a database looked like before.
+// The journal up to the cutover: what a database looked like before it.
 const journalBefore = (): string => {
     const dir = mkdtempSync(path.join(tmpdir(), 'adr36-journal-'))
     cpSync(FOLDER, dir, { recursive: true })
@@ -43,11 +43,20 @@ const journalBefore = (): string => {
     const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
         entries: Array<{ tag: string }>
     }
-    journal.entries = journal.entries.filter((e) => e.tag !== CUTOVER_TAG)
+    const at = journal.entries.findIndex((e) => e.tag === CUTOVER_TAG)
+    const later = journal.entries.slice(at)
+    journal.entries = journal.entries.slice(0, at)
     writeFileSync(journalPath, JSON.stringify(journal))
-    unlinkSync(path.join(dir, `${CUTOVER_TAG}.sql`))
+    for (const entry of later) unlinkSync(path.join(dir, `${entry.tag}.sql`))
     return dir
 }
+
+// Every entry of the journal, which a finished run has applied.
+const JOURNAL_ENTRIES = (
+    JSON.parse(
+        readFileSync(path.join(FOLDER, 'meta', '_journal.json'), 'utf8')
+    ) as { entries: unknown[] }
+).entries.length
 
 const apply = async (url: string, folder: string): Promise<void> => {
     const client = connect(url)
@@ -334,7 +343,7 @@ test('cutover maps the old runner model onto hosts, host daemons and bound token
                     // and a second run is a no-op
                     await apply(url, FOLDER)
                     const [{ applied }] = await sql`select count(*)::int as applied from drizzle.__drizzle_migrations`
-                    assert.equal(applied, 28)
+                    assert.equal(applied, JOURNAL_ENTRIES)
                 } finally {
                     await sql.end()
                 }
@@ -379,7 +388,7 @@ test('a fresh install runs the whole journal', { skip: !RUN }, async () => {
             const sql = connect(url)
             try {
                 const [{ applied }] = await sql`select count(*)::int as applied from drizzle.__drizzle_migrations`
-                assert.equal(applied, 28)
+                assert.equal(applied, JOURNAL_ENTRIES)
                 const [{ present }] = await sql`select to_regclass('host_daemons')::text as present`
                 assert.equal(present, 'host_daemons')
             } finally {

@@ -119,7 +119,8 @@ const captureOutput = async (
 
 const runCli = async (
     args: string[],
-    fetchImpl: typeof fetch
+    fetchImpl: typeof fetch,
+    env: Record<string, string | undefined> = {}
 ): Promise<{
     out: string[]
     err: string[]
@@ -137,7 +138,8 @@ const runCli = async (
                     MF_CONFIG_DIR: dir,
                     MF_PROFILE: 'test',
                     MF_API_TOKEN: 'nca_rt_env',
-                    MF_AGENT_ID: 'agt_env'
+                    MF_AGENT_ID: 'agt_env',
+                    ...env
                 },
                 async () => {
                     const program = buildProgram()
@@ -501,4 +503,39 @@ test('login --token --json prints a result without echoing the token', async () 
     assert.equal(parsed.ok, true)
     assert.doesNotMatch(text, /nca_secret_token/)
     assert.ok(!('token' in parsed))
+})
+
+test('login --print-auth-url --json starts a code login and stops there', async () => {
+    const requests: Array<{ url: string; body: unknown }> = []
+    const result = await runCli(
+        ['--profile', 'remote', 'login', '--print-auth-url', '--json'],
+        (async (input, init) => {
+            requests.push({
+                url: String(input),
+                body: init?.body ? JSON.parse(String(init.body)) : undefined
+            })
+            return json({
+                requestId: 'clr_1',
+                authUrl: 'https://web.test/cli-login?request=clr_1',
+                userCode: 'ABCD-EFGH',
+                expiresAt: '2026-09-28T12:00:00.000Z'
+            })
+        }) as typeof fetch,
+        { MF_AGENT_ID: undefined, MF_API_TOKEN: undefined }
+    )
+    assert.equal(result.exitCode, 0)
+    assert.deepEqual(JSON.parse(result.out.join('\n')), {
+        status: 'pending',
+        authUrl: 'https://web.test/cli-login?request=clr_1',
+        userCode: 'ABCD-EFGH',
+        expiresAt: '2026-09-28T12:00:00.000Z',
+        apiUrl: 'https://api.test/api',
+        profile: 'remote',
+        next: 'mf --profile remote login --api-url https://api.test/api --auth-code <code>'
+    })
+    // No loopback redirect, so the consent page shows the code; and nothing is
+    // exchanged or saved until the second `--auth-code` run.
+    assert.equal(requests.length, 1)
+    assert.match(requests[0]!.url, /\/auth\/cli\/start$/)
+    assert.deepEqual(requests[0]!.body, {})
 })

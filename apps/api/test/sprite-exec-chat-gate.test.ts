@@ -12,7 +12,6 @@ import type {
 } from '../src/modules/chat/chat-adapter'
 import { ChatService } from '../src/modules/chat/chat.service'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
-import { SpriteStorageService } from '../src/modules/agents/sprite-storage/sprite-storage.service'
 import {
     SANDBOX_EXEC_UNAVAILABLE_CODE,
     SPRITE_EXEC_TERMINAL_EVENT
@@ -417,24 +416,6 @@ test('prewarm reads the verdict and skips, without taking the probe', async () =
     } finally {
         await server.close()
     }
-})
-
-test('storage measurement reads the verdict and skips, without taking the probe', async () => {
-    const unhealthy = storageHarness(true)
-    const healthy = storageHarness(false)
-
-    await unhealthy.service.measureHostIfDue(HOST_ID)
-    await healthy.service.measureHostIfDue(HOST_ID)
-
-    // Six 8s df/du timeouts per request bought nothing on a VM that is refusing
-    // exec. The interval bookkeeping is untouched, so the next due window
-    // measures normally once the host is back (#553 / #575 / #580 unchanged).
-    assert.equal(unhealthy.accountReads, 0)
-    assert.equal(healthy.accountReads, 1)
-    assert.deepEqual(
-        unhealthy.health.map((c) => c.method),
-        ['isKnownUnavailable']
-    )
 })
 
 test('the terminal exposes no host, sprite, endpoint or command — to the user or to an index', async () => {
@@ -861,59 +842,6 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             // prewarmAgent answers the request and runs the wake detached, so
             // the assertion has to wait for the microtasks it left behind.
             await new Promise<void>((resolve) => setTimeout(resolve, 20))
-        }
-    }
-}
-
-const storageHarness = (unavailable: boolean) => {
-    const health: HealthCall[] = []
-    const state = { accountReads: 0 }
-    const hostRow = { ...HOST, storageMeasuredAt: null }
-    const db = {
-        transaction: async (work: (tx: unknown) => Promise<unknown>) => work(db),
-        execute: async () => [],
-        update: () => ({ set: () => ({ where: () => ({ returning: async () => [hostRow] }) }) }),
-        select: () => ({
-            from: (table: Parameters<typeof getTableName>[0]) => {
-                const list =
-                    getTableName(table) === 'runtime_hosts' ? [hostRow] : []
-                // The host lookup ends in .limit(1); the per-host agent listing
-                // awaits the where() directly, so it has to be both.
-                const result = Promise.resolve(list) as Promise<unknown[]> & {
-                    limit: () => Promise<unknown[]>
-                    orderBy: () => Promise<unknown[]>
-                }
-                result.limit = async () => list
-                result.orderBy = async () => list
-                const chain = { where: () => result, innerJoin: () => chain }
-                return chain
-            }
-        })
-    }
-    // The provider client is the first thing a measurement reaches for; it
-    // is counted, and answers with nothing so the measurement ends there.
-    const hostClients = {
-        spritesClientForHost: async () => {
-            state.accountReads += 1
-            throw new Error('no client in this test')
-        }
-    }
-    const service = new SpriteStorageService(
-        db as never,
-        hostClients as never,
-        { event: () => {}, error: () => {} } as never,
-        {
-            isKnownUnavailable: async (hostId: string | null) => {
-                health.push({ method: 'isKnownUnavailable', hostId })
-                return unavailable
-            }
-        } as never
-    )
-    return {
-        service,
-        health,
-        get accountReads() {
-            return state.accountReads
         }
     }
 }

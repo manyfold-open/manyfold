@@ -247,7 +247,6 @@ test('createSprites tears the runtime down when identity injection fails (fail-l
 const provisionerWith = (opts: {
     apiBaseUrl?: string
     runtimeToken?: { mintRuntimeIdentity: (a: unknown) => Promise<unknown> }
-    shellEnvWrite: (input: Record<string, unknown>) => Promise<void>
 }): SpritesProvisioner =>
     new SpritesProvisioner(
         {} as never, // db
@@ -259,26 +258,23 @@ const provisionerWith = (opts: {
         {} as never, // hostAccess
         {} as never, // tokens
         {} as never, // runtimes
-        {} as never, // claudeBootstrap
-        {} as never, // codexBootstrap
-        {} as never, // geminiBootstrap
-        {} as never, // piBootstrap
-        {} as never, // antigravityBootstrap
         {} as never, // serviceBootstraps
         {} as never, // runtimeAccess
         {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL' ? opts.apiBaseUrl : undefined
         } as never, // config
-        { write: opts.shellEnvWrite } as never, // shellEnv
         {} as never, // keepAliveLease
         { settleHostNotRunning: async () => {} } as never, // activeDuration
         opts.runtimeToken as never // runtimeToken (@Optional)
     )
 
-test('installRuntimeIdentity mints (encrypted) and never writes the token to the shared profile', async () => {
+// The mint encrypts + stores the token for per-exec injection. Nothing writes
+// it to the sprite's shared shell profile — co-resident agents on one VM would
+// otherwise clash on a single profile identity — and the provisioner has no
+// profile writer at all: the bring-up writes the tokenless block.
+test('installRuntimeIdentity mints (encrypted) for per-exec injection', async () => {
     const mintArgs: Record<string, unknown>[] = []
-    let writeInput: Record<string, unknown> | null = null
     const provisioner = provisionerWith({
         apiBaseUrl: 'https://api.test',
         runtimeToken: {
@@ -286,9 +282,6 @@ test('installRuntimeIdentity mints (encrypted) and never writes the token to the
                 mintArgs.push(a as Record<string, unknown>)
                 return { plaintext: 'nca_rt_secret' }
             }
-        },
-        shellEnvWrite: async (input) => {
-            writeInput = input
         }
     })
 
@@ -303,23 +296,15 @@ test('installRuntimeIdentity mints (encrypted) and never writes the token to the
         agentId: 'agt_A',
         runtimeKind: 'sprites'
     })
-    // The mint encrypts + stores the token for per-exec injection. It is NEVER
-    // written to the sprite's shared shell profile — co-resident agents on one
-    // VM would otherwise clash on a single profile identity.
-    assert.equal(writeInput, null)
 })
 
 test('installRuntimeIdentity throws when the mint fails (gated)', async () => {
-    let wrote = false
     const provisioner = provisionerWith({
         apiBaseUrl: 'https://api.test',
         runtimeToken: {
             mintRuntimeIdentity: async () => {
                 throw new Error('FK violation: agent_id not present')
             }
-        },
-        shellEnvWrite: async () => {
-            wrote = true
         }
     })
 
@@ -331,12 +316,10 @@ test('installRuntimeIdentity throws when the mint fails (gated)', async () => {
             }),
         /FK violation/
     )
-    assert.equal(wrote, false, 'no shell-env write should follow a failed mint')
 })
 
-test('installRuntimeIdentity skips (no mint, no write, no throw) without PUBLIC_API_BASE_URL', async () => {
+test('installRuntimeIdentity skips (no mint, no throw) without PUBLIC_API_BASE_URL', async () => {
     let minted = false
-    let wrote = false
     const provisioner = provisionerWith({
         apiBaseUrl: undefined,
         runtimeToken: {
@@ -344,9 +327,6 @@ test('installRuntimeIdentity skips (no mint, no write, no throw) without PUBLIC_
                 minted = true
                 return { plaintext: 'nca_rt_secret' }
             }
-        },
-        shellEnvWrite: async () => {
-            wrote = true
         }
     })
 
@@ -360,17 +340,12 @@ test('installRuntimeIdentity skips (no mint, no write, no throw) without PUBLIC_
         false,
         'no token may be minted without a reachable API URL'
     )
-    assert.equal(wrote, false)
 })
 
 test('installRuntimeIdentity throws when the token service is unwired in a gated env (@Optional absent)', async () => {
-    let wrote = false
     const provisioner = provisionerWith({
         apiBaseUrl: 'https://api.test',
-        runtimeToken: undefined,
-        shellEnvWrite: async () => {
-            wrote = true
-        }
+        runtimeToken: undefined
     })
 
     // PUBLIC_API_BASE_URL is set, so a missing RuntimeTokenService is a wiring
@@ -383,7 +358,6 @@ test('installRuntimeIdentity throws when the token service is unwired in a gated
             }),
         /RuntimeTokenService is not wired/
     )
-    assert.equal(wrote, false, 'no identity write without a token service')
 })
 
 class FakeCreateAgentDb {

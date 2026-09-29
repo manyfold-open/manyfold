@@ -3,8 +3,7 @@ import { ResourceEventsModule } from '@/modules/resource-events/resource-events.
 import { AuthModule } from '@/modules/auth/auth.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
-import { K8sModule } from '@/modules/k8s/k8s.module'
-import { DaemonModule } from '@/modules/daemon/daemon.module'
+import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import {
     AdminBackupsController,
@@ -22,8 +21,7 @@ import { ServiceLeaseService } from '@/common/leases/service-lease.service'
         AuthModule,
         HostsModule,
         AgentRuntimesModule,
-        K8sModule,
-        DaemonModule
+        HostDaemonAccessModule
     ],
     controllers: [BackupsController, AdminBackupsController],
     providers: [

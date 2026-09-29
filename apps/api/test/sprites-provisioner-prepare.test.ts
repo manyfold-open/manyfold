@@ -3,17 +3,16 @@ import test from 'node:test'
 import { ConflictException } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeProvider } from '@manyfold/db'
 import type { BootstrapContext } from '../src/modules/agents/bootstrap/framework-bootstrap'
-import type { HostScriptRunner } from '../src/modules/agents/bootstrap/framework-version-install'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // WHY: preparing a runtime on a bare sandbox is agent create's provisioning
 // minus the agent: the (host, framework) row is claimed on the named host, the
-// host's daemon is brought up, the framework is installed through it (a coding
-// CLI to the resolved version; a service framework installed and started with
-// no provider yet), the host helpers are laid down and the row published
-// ready — and a failure leaves the row `failed` in its slot, never touching
-// the user's sandbox.
+// host's daemon is brought up, the framework is set up through it (a coding
+// CLI's directories and configuration, and the CLI at the resolved version; a
+// service framework installed and started with no provider yet) and the row
+// published ready — and a failure leaves the row `failed` in its slot, never
+// touching the user's sandbox.
 
 const provider = { id: 'rtp_1', kind: 'sprites', name: 'acct' } as RuntimeProvider
 
@@ -47,25 +46,15 @@ const row = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
         ...overrides
     }) as AgentRuntimeRow
 
-class TestProvisioner extends SpritesProvisioner {
-    installed: Array<{ framework: string; ctx: BootstrapContext; runner: HostScriptRunner }> = []
-    installResult: string | null = '2.1.300'
-    installError: Error | null = null
-    runsDuringInstall = false
-
-    protected async installCodingFramework(
-        ctx: BootstrapContext,
-        framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'antigravity-cli',
-        runner: HostScriptRunner
-    ): Promise<string | null> {
-        this.installed.push({ framework, ctx, runner })
-        if (this.runsDuringInstall) await runner.run('true', 1_000)
-        if (this.installError) throw this.installError
-        return this.installResult
-    }
+interface SessionExec {
+    open: boolean
+    script: string
+    env?: Record<string, string>
 }
 
-const buildHarness = () => {
+// `version`: what every version probe on the machine answers, so an install
+// to that version is already done. `failWith`: every command fails so.
+const buildHarness = (opts: { version?: string; failWith?: string } = {}) => {
     let stored: AgentRuntimeRow | null = null
     const calls: {
         reserve: unknown[]
@@ -73,10 +62,8 @@ const buildHarness = () => {
         provisioningPatches: unknown[]
         phases: unknown[]
         daemonAsked: string[]
-        sessionExecs: Array<{ open: boolean }>
+        sessionExecs: SessionExec[]
         hermesRuns: unknown[]
-        shellEnv: unknown[]
-        piSetups: BootstrapContext[]
     } = {
         reserve: [],
         statusPatches: [],
@@ -84,9 +71,7 @@ const buildHarness = () => {
         phases: [],
         daemonAsked: [],
         sessionExecs: [],
-        hermesRuns: [],
-        shellEnv: [],
-        piSetups: []
+        hermesRuns: []
     }
     const runtimes = {
         applyStatusPatch: async (_id: string, patch: Partial<AgentRuntimeRow>) => {
@@ -102,7 +87,7 @@ const buildHarness = () => {
         },
         findById: async () => stored
     }
-    const provisioner = new TestProvisioner(
+    const provisioner = new SpritesProvisioner(
         {} as never,
         { findForUser: async () => host, findById: async () => host } as never,
         {} as never,
@@ -124,9 +109,11 @@ const buildHarness = () => {
                     return await work({
                         host: args.host,
                         daemonId: args.host.id,
-                        exec: async () => {
-                            calls.sessionExecs.push({ open })
-                            return { exitCode: 0, stdout: '', stderr: '' }
+                        exec: async (req: { stdin: string; env?: Record<string, string> }) => {
+                            calls.sessionExecs.push({ open, script: req.stdin, env: req.env })
+                            if (opts.failWith)
+                                return { exitCode: 1, stdout: '', stderr: opts.failWith }
+                            return { exitCode: 0, stdout: opts.version ?? '', stderr: '' }
                         }
                     })
                 } finally {
@@ -136,16 +123,6 @@ const buildHarness = () => {
         } as never,
         {} as never,
         runtimes as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        {
-            run: async () => ({ homeDir: undefined }),
-            setupSandbox: async (ctx: BootstrapContext) => {
-                calls.piSetups.push(ctx)
-            }
-        } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
         new SpriteServiceBootstraps(
             {
                 framework: 'hermes',
@@ -176,22 +153,15 @@ const buildHarness = () => {
             }
         } as never,
         { get: () => undefined } as never,
-        {
-            write: async (input: unknown) => {
-                calls.shellEnv.push(input)
-            },
-            installCli: async () => {}
-        } as never,
         {} as never,
         {} as never,
-        undefined,
         undefined
     )
     return { provisioner, calls, stored: () => stored }
 }
 
-test('a coding CLI is installed through the host daemon to the resolved version and the row is published ready with no agent', async () => {
-    const h = buildHarness()
+test('a coding CLI is set up through the host daemon to the resolved version and the row is published ready with no agent', async () => {
+    const h = buildHarness({ version: '2.1.300' })
     const out = await h.provisioner.prepareRuntime({
         userId: 'user_1',
         framework: 'claude-code',
@@ -204,11 +174,10 @@ test('a coding CLI is installed through the host daemon to the resolved version 
     assert.equal(reserve.providerId, 'rtp_1')
     assert.equal(reserve.framework, 'claude-code')
     assert.equal(reserve.mountPath, '/home/sprite/.manyfold/workspaces')
-    assert.deepEqual(h.calls.daemonAsked, ['sbx_1'], 'the install goes through the daemon (R6)')
-    assert.equal(h.provisioner.installed.length, 1)
-    assert.equal(h.provisioner.installed[0].ctx.agentId, '')
-    assert.equal(h.provisioner.installed[0].ctx.frameworkVersion, '2.1.300')
-    assert.equal(typeof h.provisioner.installed[0].runner.run, 'function')
+    assert.deepEqual(h.calls.daemonAsked, ['sbx_1'], 'the setup goes through the daemon (R6)')
+    const [setup] = h.calls.sessionExecs
+    assert.match(setup.script, /mkdir -p '\/home\/sprite\/\.manyfold\/workspaces'/)
+    assert.match(setup.script, /mkdir -p "\$HOME\/\.claude"/)
     assert.deepEqual(h.calls.phases, [null])
     assert.equal(
         (h.calls.provisioningPatches[0] as { frameworkVersion: string }).frameworkVersion,
@@ -234,12 +203,11 @@ test('a service framework is installed and started without a provider, and its e
         runtimeReportToken: 'r1'
     })
     assert.equal(out.endpointUrl, 'https://sbx-1.sprites.app')
-    assert.equal(h.provisioner.installed.length, 0)
+    assert.equal(h.calls.sessionExecs.length, 0)
 })
 
-test('a failed install leaves the row failed in its slot and the sandbox alone', async () => {
-    const h = buildHarness()
-    h.provisioner.installError = new Error('npm exploded')
+test('a failed setup leaves the row failed in its slot and the sandbox alone', async () => {
+    const h = buildHarness({ failWith: 'npm exploded' })
     await assert.rejects(
         h.provisioner.prepareRuntime({
             userId: 'user_1',
@@ -250,7 +218,7 @@ test('a failed install leaves the row failed in its slot and the sandbox alone',
     )
     const failed = h.calls.statusPatches.find((p) => (p as { status?: string }).status === 'failed')
     assert.ok(failed)
-    assert.equal((failed as { failureReason?: string }).failureReason, 'npm exploded')
+    assert.match((failed as { failureReason?: string }).failureReason ?? '', /npm exploded/)
     assert.ok(!h.calls.statusPatches.some((p) => (p as { status?: string }).status === 'ready'))
 })
 
@@ -267,11 +235,11 @@ test('a framework with no sprite bootstrap is refused before a row is reserved',
     assert.equal(h.calls.reserve.length, 0)
 })
 
-// The four-step flow prepares a sandbox with no agent, so no bootstrap runs:
-// pi's own directory (its quiet banner, the fd and ripgrep its tools need)
-// is set up with the CLI instead. The other coding CLIs keep nothing there.
-test('a pi prepare sets up pi on the sandbox; the other coding CLIs need nothing', async () => {
-    const h = buildHarness()
+// The four-step flow prepares a sandbox with no agent: pi's own directory
+// (its quiet banner, the fd and ripgrep its tools need) is set up with the
+// CLI, and the CLI answers offline before the row is ready.
+test('a pi prepare sets up pi on the sandbox and checks the CLI offline', async () => {
+    const h = buildHarness({ version: '0.87.1' })
     await h.provisioner.prepareRuntime({
         userId: 'user_1',
         framework: 'pi',
@@ -279,26 +247,17 @@ test('a pi prepare sets up pi on the sandbox; the other coding CLIs need nothing
         frameworkVersion: '0.87.1',
         frameworkVersionSource: 'latest'
     })
-    assert.equal(h.calls.piSetups.length, 1)
-    assert.equal(h.calls.piSetups[0].spriteName, 'sbx-1')
-
-    const other = buildHarness()
-    await other.provisioner.prepareRuntime({
-        userId: 'user_1',
-        framework: 'codex',
-        hostId: 'sbx_1',
-        frameworkVersion: '0.9.0',
-        frameworkVersionSource: 'latest'
-    })
-    assert.equal(other.calls.piSetups.length, 0)
+    assert.match(h.calls.sessionExecs[0].script, /mkdir -p "\$HOME\/\.pi\/agent"/)
+    const verify = h.calls.sessionExecs.at(-1)!
+    assert.equal(verify.script, 'pi --version\n')
+    assert.deepEqual(verify.env, { PI_OFFLINE: '1' })
 })
 
 // WHY: a daemon exec is not platform-visible activity on a sprite, which
-// suspends about a second after the last exec or task. The install's commands
+// suspends about a second after the last exec or task. The setup's commands
 // must run inside the session that holds the machine awake, not after it.
-test('a prepare runs its install commands inside the session holding the sandbox', async () => {
-    const h = buildHarness()
-    h.provisioner.runsDuringInstall = true
+test('a prepare runs its setup commands inside the session holding the sandbox', async () => {
+    const h = buildHarness({ version: '2.1.300' })
 
     await h.provisioner.prepareRuntime({
         userId: 'user-1',
@@ -307,5 +266,6 @@ test('a prepare runs its install commands inside the session holding the sandbox
     } as never)
 
     assert.deepEqual(h.calls.daemonAsked, ['sbx_1'])
-    assert.deepEqual(h.calls.sessionExecs, [{ open: true }])
+    assert.ok(h.calls.sessionExecs.length > 0)
+    assert.ok(h.calls.sessionExecs.every((e) => e.open))
 })

@@ -4,17 +4,8 @@ import {
     shouldInstallFrameworkVersion,
     type FrameworkInstallSource
 } from '@manyfold/shared'
-import {
-    execSprite,
-    type ExecOptions,
-    type ExecResult,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
-import {
-    BootstrapError,
-    type BootstrapContext
-} from '@/modules/agents/bootstrap/framework-bootstrap'
+import type { ExecResult } from '@manyfold/sprites'
+import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
     buildNpmLatestInstallShell,
     buildVersionInstallShell,
@@ -25,18 +16,9 @@ import {
 const INSTALL_TIMEOUT_MS = 180_000
 const PROBE_TIMEOUT_MS = 30_000
 
-// Seam so tests can fake the sprite exec transport (mirrors SandboxesService.exec).
-export type SpriteExec = (
-    client: SpritesClient,
-    spriteName: string,
-    opts: ExecOptions,
-    logger?: SpritesLogger
-) => Promise<ExecResult>
-
 // What installing a framework needs from the machine it runs on: a way to run
-// a login-shell script, and somewhere to report an install that degraded. A
-// sprite runs the script through execSprite; a pod host through its pod exec
-// (ADR-0035). Both hand it the same staged-install shells.
+// a login-shell script, and somewhere to report an install that degraded.
+// Every machine runs it through its daemon (ADR-0037 R6).
 export interface HostScriptRunner {
     run(script: string, timeoutMs: number): Promise<ExecResult>
     warn(event: string, fields: Record<string, unknown>): void
@@ -50,33 +32,6 @@ export interface FrameworkInstallRequest {
     frameworkArtifacts?: FrameworkReleaseArtifacts | null
     execTimeoutMs?: number
 }
-
-export const spriteScriptRunner = (
-    ctx: BootstrapContext,
-    exec: SpriteExec = execSprite
-): HostScriptRunner => ({
-    run: (script, timeoutMs) =>
-        exec(
-            ctx.client,
-            ctx.spriteName,
-            { cmd: ['bash', '-lc', script], stdin: '', timeoutMs },
-            ctx.logger
-        ),
-    warn: (event, fields) =>
-        ctx.logger.warn(event, { spriteName: ctx.spriteName, ...fields })
-})
-
-/**
- * Bring an npm-installed or release-binary coding-agent CLI to
- * `ctx.frameworkVersion` on a fresh sprite, and report the version that ended
- * up on PATH.
- */
-export const installFrameworkVersion = (
-    ctx: BootstrapContext,
-    framework: VersionedFramework,
-    exec: SpriteExec = execSprite
-): Promise<string | null> =>
-    installFrameworkVersionOn(spriteScriptRunner(ctx, exec), ctx, framework)
 
 /**
  * Bring an npm-installed or release-binary coding-agent CLI to

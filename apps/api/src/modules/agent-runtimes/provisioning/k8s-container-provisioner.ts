@@ -58,10 +58,10 @@ import {
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
 import {
-    isPodHostFramework,
-    podScriptRunner,
-    setUpPodFramework
-} from './pod-framework-setup'
+    isCodingHostFramework,
+    sessionScriptRunner,
+    setUpHostFramework
+} from '@/modules/agents/bootstrap/host-framework-setup'
 import { podServiceRecipe } from './pod-service-frameworks'
 import { PodHostServices } from './pod-host-services'
 import { exposePodHostFramework } from './pod-host-network'
@@ -130,7 +130,7 @@ export interface ProvisionAgentContainerResult extends ProvisionContainerResult 
 // What a pod host can run: the coding CLIs, and the service frameworks its
 // daemon keeps up from a recipe (ADR-0035 P2).
 export const podHostCanRun = (framework: AgentFramework): boolean =>
-    isPodHostFramework(framework) || podServiceRecipe(framework) !== undefined
+    isCodingHostFramework(framework) || podServiceRecipe(framework) !== undefined
 
 // A refusal with its own code (the host's CLI is too old for services, …)
 // tells the user what to do; it is not a provisioning failure.
@@ -776,7 +776,7 @@ export class K8sContainerProvisioner {
     ): Promise<FrameworkOnHost> {
         const { host } = args
         const { selection, repo, artifacts } = resolved
-        const runner = podScriptRunner({ run: session.exec }, (event, fields) =>
+        const runner = sessionScriptRunner({ run: session.exec }, (event, fields) =>
             this.log.warn(
                 `${event} ${JSON.stringify({ hostId: host.id, ...fields })}`
             )
@@ -789,9 +789,9 @@ export class K8sContainerProvisioner {
         }
         const recipe = podServiceRecipe(args.framework)
         if (!recipe) {
-            if (!isPodHostFramework(args.framework))
+            if (!isCodingHostFramework(args.framework))
                 throw new Error(`${args.framework} has no pod recipe`)
-            return setUpPodFramework({
+            return setUpHostFramework({
                 runner,
                 framework: args.framework,
                 workspaceBase: POD_HOST_WORKSPACE_BASE,

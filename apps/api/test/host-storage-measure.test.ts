@@ -1,0 +1,241 @@
+import 'tsconfig-paths/register'
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import {
+    agents,
+    runtimeHosts,
+    type Agent,
+    type RuntimeHostRow,
+    type SandboxStorageBreakdown
+} from '@manyfold/db'
+import { HostStorageService } from '@/modules/agents/host-storage/host-storage.service'
+
+const MEASURED_AT = new Date(Date.UTC(2026, 7, 1, 12, 0, 0))
+
+const hostRow = (over: Record<string, unknown> = {}): RuntimeHostRow =>
+    ({
+        id: 'sbx-1',
+        userId: 'u-1',
+        kind: 'hosted',
+        providerId: 'rtp-1',
+        providerRef: { kind: 'sprites', spriteName: 'nca-user-abc-main', spriteId: 'sp-1' },
+        powerState: 'running',
+        status: 'ready',
+        storageBytes: null,
+        storageMeasuredAt: null,
+        storageBreakdown: null,
+        ...over
+    }) as RuntimeHostRow
+
+const agentRow = (over: Record<string, unknown> = {}): Agent =>
+    ({
+        id: 'agt-1',
+        framework: 'claude-code',
+        workspacePath: '/home/sprite/.manyfold/workspaces/agt-1',
+        mountPath: '/home/sprite/.manyfold/workspaces/agt-1',
+        ...over
+    }) as Agent
+
+const makeDb = (host: RuntimeHostRow | null, hostAgents: Agent[] = []) => {
+    const updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
+    const db = {
+        updates,
+        execute: async () => [],
+        select: () => ({
+            from: (table: unknown) => {
+                const where = () => {
+                    const rows =
+                        table === runtimeHosts
+                            ? host
+                                ? [host]
+                                : []
+                            : hostAgents.map((agent) => ({ agent }))
+                    return Object.assign(Promise.resolve(rows), {
+                        limit: async () => rows,
+                        orderBy: async () => rows
+                    })
+                }
+                return { where, innerJoin: () => ({ where }) }
+            }
+        }),
+        update: (table: unknown) => ({
+            set: (s: Record<string, unknown>) => ({
+                where: () => {
+                    updates.push({ table, set: s })
+                    return Object.assign(Promise.resolve(undefined), {
+                        returning: async () => [{ ...host, ...s, measuredAt: new Date(), failures: 1 }]
+                    })
+                }
+            })
+        })
+    }
+    return Object.assign(db, { transaction: async (work: (tx: typeof db) => Promise<unknown>) => work(db) })
+}
+
+const makeService = (
+    db: ReturnType<typeof makeDb>,
+    breakdown: SandboxStorageBreakdown
+) => {
+    const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
+    const errors: Array<{ name: string; message: string }> = []
+    const svc = new HostStorageService(
+        db as never,
+        { ensure: async () => ({ daemon: null, online: true }) } as never,
+        {
+            event: (name: string, attrs: Record<string, unknown>) => {
+                if (name === 'sprite_storage_measured') events.push({ name, attrs })
+            },
+            error: (name: string, err: Error) => {
+                errors.push({ name, message: err.message })
+            }
+        } as never
+    )
+    ;(
+        svc as unknown as {
+            measureNow: () => Promise<SandboxStorageBreakdown>
+        }
+    ).measureNow = async () => breakdown
+    return { svc, events, errors }
+}
+
+const STALE: SandboxStorageBreakdown = {
+    vmUsedBytes: 0,
+    homes: [],
+    workspaces: [],
+    measuredVia: 'stale'
+}
+
+const hostUpdates = (db: ReturnType<typeof makeDb>) =>
+    db.updates.filter((u) => u.table === runtimeHosts && 'storageBytes' in u.set)
+const agentUpdates = (db: ReturnType<typeof makeDb>) =>
+    db.updates.filter((u) => u.table === agents)
+
+// WHY: this is the defect. A measurement that read nothing used to be written
+// as storage_bytes = 0 with a fresh storage_measured_at, which the meter, the
+// quota check and the drill-down all read as a confidently empty sandbox.
+test('a stale measurement replaces no reading and is reported as a failure', async () => {
+    const db = makeDb(hostRow(), [agentRow()])
+    const { svc, events, errors } = makeService(db, STALE)
+
+    await svc.measureHostIfDue('sbx-1')
+
+    assert.equal(hostUpdates(db).length + agentUpdates(db).length, 0, 'no measurement reading may be replaced')
+    assert.deepEqual(
+        events.map((e) => e.name),
+        [],
+        'must not report itself as a successful measurement'
+    )
+    assert.equal(errors.length, 1)
+    assert.equal(errors[0].name, 'sprite_storage_measure_failed')
+})
+
+// WHY: the meter regression users actually saw — a host holding 5 GB dropping
+// to 0 B (with a fresh timestamp) on one failed measurement.
+test('a host that already measured non-zero keeps its reading when a measurement fails', async () => {
+    const db = makeDb(
+        hostRow({
+            storageBytes: 5_000_000_000,
+            storageMeasuredAt: MEASURED_AT,
+            storageBreakdown: {
+                vmUsedBytes: 5_000_000_000,
+                homes: [],
+                workspaces: [{ agentId: 'agt-1', bytes: 1_000_000_000 }],
+                measuredVia: 'df'
+            }
+        }),
+        [agentRow()]
+    )
+    const { svc, errors } = makeService(db, STALE)
+
+    await svc.measureHostIfDue('sbx-1')
+
+    assert.equal(hostUpdates(db).length, 0)
+    assert.equal(agentUpdates(db).length, 0)
+    assert.equal(errors.length, 1)
+})
+
+test('a real df measurement writes the host meter and the per-agent drill-down', async () => {
+    const db = makeDb(hostRow(), [agentRow()])
+    const { svc, events, errors } = makeService(db, {
+        vmUsedBytes: 7_000_000_000,
+        homes: [{ framework: 'claude-code', bytes: 400_000_000 }],
+        workspaces: [{ agentId: 'agt-1', bytes: 1_200_000_000 }],
+        measuredVia: 'df'
+    })
+
+    await svc.measureHostIfDue('sbx-1')
+
+    assert.equal(errors.length, 0)
+    assert.equal(hostUpdates(db).length, 1)
+    assert.equal(hostUpdates(db)[0].set.storageBytes, 7_000_000_000)
+    assert.ok(hostUpdates(db)[0].set.storageMeasuredAt, 'publication stamps the database measurement time')
+    assert.equal(agentUpdates(db).length, 1)
+    assert.equal(agentUpdates(db)[0].set.storageBytes, 1_200_000_000)
+    assert.deepEqual(
+        events.map((e) => e.name),
+        ['sprite_storage_measured']
+    )
+})
+
+// WHY: a bare standalone sandbox has no workspace to du. Its rootfs reading is
+// still the billable figure and must reach the meter.
+test('a bare sandbox persists its rootfs reading with no agent rows', async () => {
+    const db = makeDb(hostRow(), [])
+    const { svc, errors } = makeService(db, {
+        vmUsedBytes: 4_200_000_000,
+        homes: [],
+        workspaces: [],
+        measuredVia: 'df'
+    })
+
+    await svc.measureHostIfDue('sbx-1')
+
+    assert.equal(errors.length, 0)
+    assert.equal(hostUpdates(db).length, 1)
+    assert.equal(hostUpdates(db)[0].set.storageBytes, 4_200_000_000)
+    assert.equal(agentUpdates(db).length, 0)
+})
+
+// WHY: same fabricated-zero problem one grain down — an agent whose du produced
+// nothing must keep its previous reading rather than be written to 0.
+test('an agent whose workspace du produced nothing is left untouched', async () => {
+    const db = makeDb(hostRow(), [agentRow(), agentRow({ id: 'agt-2' })])
+    const { svc } = makeService(db, {
+        vmUsedBytes: 7_000_000_000,
+        homes: [],
+        workspaces: [{ agentId: 'agt-2', bytes: 800_000_000 }],
+        measuredVia: 'df'
+    })
+
+    await svc.measureHostIfDue('sbx-1')
+
+    assert.equal(agentUpdates(db).length, 1)
+    assert.equal(agentUpdates(db)[0].set.storageBytes, 800_000_000)
+})
+
+// Any exec resumes a sleeping sprite, and the running time it starts is billed
+// to the user: a measurement nobody asked for asks whether the daemon is
+// already connected, without waking anything, and stops there if it is not.
+test('a measurement nobody asked for never reaches a sandbox whose daemon is not connected', async () => {
+    const db = makeDb(hostRow())
+    const asked: Array<{ wake?: boolean }> = []
+    let sessions = 0
+    const svc = new HostStorageService(
+        db as never,
+        {
+            ensure: async (args: { wake?: boolean }) => {
+                asked.push({ wake: args.wake })
+                return { daemon: null, online: false }
+            },
+            withHost: async () => {
+                sessions += 1
+                throw new Error('no session in this test')
+            }
+        } as never,
+        { event: () => {}, error: () => {} } as never
+    )
+    await svc.measureHostIfDue('sbx-1', 'chat')
+    assert.deepEqual(asked, [{ wake: false }])
+    assert.equal(sessions, 0)
+    assert.equal(db.updates.length, 0, 'no attempt is claimed')
+})

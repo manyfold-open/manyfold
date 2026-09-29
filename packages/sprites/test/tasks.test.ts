@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
     buildKeepAliveCleanupScript,
-    buildKeepAliveLeaseScript,
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
     buildServiceStartScript,
@@ -73,8 +72,8 @@ test('buildServiceStartScript without report is byte-identical to the Phase 2 ou
     )
 })
 
-// WHY: the wake path rotates the generation seconds after boot (ensureLease
-// rewrites report.env); sourcing the env once at the top would make every
+// WHY: the wake path rotates the generation seconds after boot (each service
+// wake rewrites report.env); sourcing the env once at the top would make every
 // wake's ready report carry the pre-rotation generation and be rejected as
 // stale — the acceptance criterion 'service start produces a ready report'
 // would fail on every wake.
@@ -183,106 +182,19 @@ test('buildRuntimeReportEnvFile emits all five RUNTIME_REPORT_* keys single-quot
     )
 })
 
-// WHY: concurrent spawns (toggle + reconcile Pass B in the same minute) must
-// collapse to one renewer with renew.pid always pointing at the survivor.
-test('buildKeepAliveLeaseScript flocks keepalive.lock and writes renew.pid after the lock', () => {
-    const script = buildKeepAliveLeaseScript({
-        taskName: 'nca-hermes-abcdef234567abcdef234567ab-gen123',
-        taskPrefix: 'nca-hermes-abcdef234567abcdef234567ab-',
-        ttl: '5m',
-        refreshIntervalSeconds: 60,
-        stateDir: '/home/sprite/.hermes/.nca/keepalive'
-    })
-    assert.match(script, /exec 9>"\$STATE_DIR\/keepalive\.lock"/)
-    assert.match(script, /flock -n 9 \|\| exit 0/)
-    assert.match(script, /printf '%s\\n' "\$\$" > "\$STATE_DIR\/renew\.pid"/)
-    assert.ok(
-        script.indexOf('flock -n 9') <
-            script.indexOf(`"$$" > "$STATE_DIR/renew.pid"`)
-    )
-})
-
-// WHY: the slot must be held promptly at spawn, and a TERM'd loop must never
-// re-create the task after cleanup deleted it (trap runs when `wait` returns,
-// before the next renewal).
-test('buildKeepAliveLeaseScript holds the task synchronously and releases it on exit', () => {
-    const script = buildKeepAliveLeaseScript({
-        taskName: 'nca-openclaw-abc-gen',
-        taskPrefix: 'nca-openclaw-abc-',
-        ttl: '5m',
-        refreshIntervalSeconds: 60,
-        stateDir: '/tmp/keepalive'
-    })
-    assert.ok(
-        script.indexOf('task_create || task_renew') <
-            script.indexOf('while true; do')
-    )
-    assert.match(script, /sleep 60 & wait \$! \|\| true/)
-    assert.match(script, /trap cleanup EXIT/)
-    assert.match(script, /trap 'exit 0' TERM/)
-    assert.match(script, /cleanup\(\) \{\n {4}task_delete\n {4}rm -f "\$STATE_DIR\/renew\.pid"\n\}/)
-    assert.throws(() =>
-        buildKeepAliveLeaseScript({
-            taskName: 'nca-openclaw-abc-gen',
-            taskPrefix: 'nca-openclaw-abc-',
-            ttl: '5m',
-            refreshIntervalSeconds: 300,
-            stateDir: '/tmp/keepalive'
-        })
-    )
-})
-
-// WHY: lease-only cleanup is the toggle-off and legacy-convergence weapon and
-// must never kill the live framework mid-turn.
-test('buildKeepAliveCleanupScript killAppProcesses:false omits app.pid but still deletes tasks', () => {
-    const leaseOnly = buildKeepAliveCleanupScript({
-        taskName: 'nca-hermes-abc-gen',
+// WHY: nothing on the machine renews a task any more (the platform's holds are
+// the API's), so the cleanup has no lease loop to hunt for; it only clears the
+// framework's own processes before a start and after a stop.
+test('buildKeepAliveCleanupScript kills the framework process and looks for no lease loop', () => {
+    const script = buildKeepAliveCleanupScript({
         taskPrefix: 'nca-hermes-abc-',
         stateDir: '/home/sprite/.hermes/.nca/keepalive',
-        killAppProcesses: false,
-        killStartScriptProcesses: false
+        killStartScriptProcesses: true
     })
-    assert.match(leaseOnly, /KILL_APP_PROCESSES=0/)
-    assert.match(leaseOnly, /KILL_START_SCRIPT_PROCESSES=0/)
-    assert.match(
-        leaseOnly,
-        /pid_files = \["renew\.pid"\] \+ \(\["app\.pid"\] if kill_app_processes else \[\]\)/
-    )
-    assert.doesNotMatch(leaseOnly, /LEGACY_TASKS_JSON/)
-    assert.match(leaseOnly, /name\.startswith\(task_prefix\)/)
-
-    const full = buildKeepAliveCleanupScript({
-        taskPrefix: 'nca-hermes-abc-',
-        stateDir: '/home/sprite/.hermes/.nca/keepalive'
-    })
-    assert.match(full, /KILL_APP_PROCESSES=1/)
-})
-
-// WHY: a lost renew.pid must be structurally unable to orphan a renewer —
-// the legacy fused start.sh's EXIT trap rm's renew.pid when stopService TERMs
-// the parent shell, so pid-file kills alone would leave the v2 lease loop
-// renewing (and billing) forever after a user-stop or framework crash.
-test('buildKeepAliveCleanupScript always scans /proc for keepalive.sh, even lease-only', () => {
-    const leaseOnly = buildKeepAliveCleanupScript({
-        taskName: 'nca-hermes-abc-gen',
-        taskPrefix: 'nca-hermes-abc-',
-        stateDir: '/home/sprite/.hermes/.nca/keepalive',
-        killAppProcesses: false,
-        killStartScriptProcesses: false
-    })
-    assert.match(
-        leaseOnly,
-        /scan_targets = \[os\.path\.join\(state_dir, "keepalive\.sh"\)\]/
-    )
-    // The /proc walk is unconditional; only the start.sh target is gated.
-    assert.match(
-        leaseOnly,
-        /if kill_start_script_processes and start_script_path:\n {4}scan_targets\.append\(start_script_path\)\nfor entry in os\.listdir\("\/proc"\)/
-    )
-    assert.match(
-        leaseOnly,
-        /if any\(target in cmdline for target in scan_targets\):/
-    )
+    assert.match(script, /path = os\.path\.join\(state_dir, "app\.pid"\)/)
+    assert.doesNotMatch(script, /renew\.pid/)
+    assert.doesNotMatch(script, /keepalive\.sh/)
+    assert.doesNotMatch(script, /KILL_APP_PROCESSES/)
 })
 
 test('buildKeepAliveCleanupScript deletes current prefix and legacy tasks', () => {
@@ -309,8 +221,7 @@ test('buildKeepAliveCleanupScript deletes current prefix and legacy tasks', () =
 })
 
 // WHY: full cleanup (wake's pre-start cleanup, stop's final cleanup) must kill
-// stale reporter probe loops, but lease-only cleanup (toggle-off, Pass A) must
-// leave the current boot's reporter alone — the embedded python gates the
+// stale reporter probe loops, and only it: the embedded python gates the
 // report.sh scan on the same KILL_START_SCRIPT_PROCESSES flag.
 test('buildKeepAliveCleanupScript scans for report.sh only under killStartScriptProcesses', () => {
     const full = buildKeepAliveCleanupScript({
@@ -324,8 +235,8 @@ test('buildKeepAliveCleanupScript scans for report.sh only under killStartScript
         /if kill_start_script_processes:\n {4}scan_targets\.append\(os\.path\.join\(state_dir, "report\.sh"\)\)/,
         'report.sh must join scan_targets only inside the kill_start_script_processes branch'
     )
-    // the flag gating the branch is the exported env var, so a lease-only
-    // cleanup (flag 0) never scans for report.sh
+    // the flag gating the branch is the exported env var, so a cleanup
+    // without it (flag 0) never scans for report.sh
     assert.match(
         full,
         /kill_start_script_processes = os\.environ\.get\("KILL_START_SCRIPT_PROCESSES"\) == "1"/
@@ -336,13 +247,12 @@ test('buildKeepAliveCleanupScript scans for report.sh only under killStartScript
         'report.sh must never be in the unconditional base scan list'
     )
 
-    const leaseOnly = buildKeepAliveCleanupScript({
+    const partial = buildKeepAliveCleanupScript({
         taskPrefix: 'nca-hermes-abc-',
         stateDir: '/home/sprite/.hermes/.nca/keepalive',
-        killAppProcesses: false,
         killStartScriptProcesses: false
     })
-    assert.match(leaseOnly, /KILL_START_SCRIPT_PROCESSES=0/)
+    assert.match(partial, /KILL_START_SCRIPT_PROCESSES=0/)
 })
 
 // WHY: `sprite-env curl` has no status code to read, so a listing that parses

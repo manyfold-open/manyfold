@@ -59,6 +59,8 @@ const build = (
     over: {
         registrations?: unknown[]
         latest?: { version: string | null; channel: 'stable' | 'dev' }
+        // what the daemon answers an update: `deferred` while it has work
+        deferred?: boolean
     } = {}
 ) => {
     const upgrades: unknown[] = []
@@ -73,7 +75,9 @@ const build = (
     const daemonHosts = {
         upgrade: async (args: unknown) => {
             upgrades.push(args)
-            return { ok: true }
+            return over.deferred
+                ? { ok: true, deferred: true, activeSessions: 2 }
+                : { ok: true }
         }
     }
     const cliVersion = {
@@ -188,6 +192,22 @@ test('a daemon that never comes back is given about three minutes', async () => 
     assert.equal(rig.cli.delays, 60)
 })
 
+test('the successor of an update is its registration on another CLI over a live lease', async () => {
+    const back = daemon({ cliVersion: '4.6.0' })
+    const rig = build({
+        registrations: [daemon(), daemon({ cliVersion: '4.6.0', ...offline }), back]
+    })
+    const got = await rig.cli.awaitSuccessor(host(), '3.0.1', 5)
+    assert.equal(got, back)
+    assert.equal(rig.cli.delays, 3)
+})
+
+test('a successor that does not report within its polls is not there', async () => {
+    const rig = build({ registrations: [daemon()] })
+    assert.equal(await rig.cli.awaitSuccessor(host(), '3.0.1', 4), null)
+    assert.equal(rig.cli.delays, 4)
+})
+
 test('callers that need the same host updated share one update', async () => {
     const back = daemon({
         cliVersion: '4.6.0',
@@ -269,4 +289,41 @@ test('every feature a caller needs has to be there', async () => {
         (err: { response?: { code?: string } }) =>
             err.response?.code === 'SANDBOX_DAEMON_TOO_OLD'
     )
+})
+
+// A daemon with work in progress defers the update, takes no new work, and
+// updates when that work ends or its own drain deadline passes. The caller is
+// told to retry soon instead of waiting minutes for a successor, and the update
+// is not asked for again while it drains: re-asking re-armed the deadline.
+test('a daemon that defers the update for its current work is left to drain', async () => {
+    const rig = build({ registrations: [spriteDaemon()], deferred: true })
+    await assert.rejects(
+        rig.cli.ensure(spriteHost(), { features: [DAEMON_FEATURE_EXEC_ROOTS] }),
+        (err: { response?: { code?: string; message?: string } }) =>
+            err.response?.code === 'SANDBOX_DAEMON_UPDATING' &&
+            /once its current work finishes/.test(err.response?.message ?? '')
+    )
+    assert.equal(rig.upgrades.length, 1)
+    assert.ok(rig.cli.delays < 10, 'the caller waits a moment, not minutes')
+    await assert.rejects(
+        rig.cli.ensure(spriteHost(), { features: [DAEMON_FEATURE_EXEC_ROOTS] }),
+        (err: { response?: { code?: string } }) =>
+            err.response?.code === 'SANDBOX_DAEMON_UPDATING'
+    )
+    assert.equal(rig.upgrades.length, 1, 'no second request while it drains')
+})
+
+test('a drained daemon is used once its successor is back', async () => {
+    const back = spriteDaemon({
+        cliVersion: '4.6.0',
+        clientFeatures: [DAEMON_FEATURE_MANUAL_UPDATE, DAEMON_FEATURE_EXEC_ROOTS]
+    })
+    const rig = build({
+        registrations: [spriteDaemon(), spriteDaemon(), back],
+        deferred: true
+    })
+    const got = await rig.cli.ensure(spriteHost(), {
+        features: [DAEMON_FEATURE_EXEC_ROOTS]
+    })
+    assert.equal(got, back)
 })

@@ -49,6 +49,8 @@ interface Harness {
     cooldowns: Array<{ hostId: string; until: Date }>
     created: string[]
     destroyed: string[]
+    // The sprite each framework setup ran on: a coding CLI's through the
+    // daemon session, a service framework's bootstrap on its sprite.
     bootstrappedOn: string[]
 }
 
@@ -163,6 +165,14 @@ const buildHarness = (opts: {
             return opts.bootstrap ? await opts.bootstrap() : { homeDir: '/home/sprite' }
         }
     }
+    const session = (host: RuntimeHostRow) => ({
+        rpc: async () => ({}),
+        exec: async (req: { stdin: string }) => {
+            if (req.stdin.includes('.gemini'))
+                bootstrappedOn.push((host.providerRef as { spriteName: string }).spriteName)
+            return { exitCode: 0, stdout: '0.9.0', stderr: '' }
+        }
+    })
 
     const provisioner = new SpritesProvisioner(
         {
@@ -217,23 +227,17 @@ const buildHarness = (opts: {
                     throw unhealthy(args.host)
                 // The daemon registering is what flips a new sandbox ready.
                 hosts.set(args.host.id, { ...hosts.get(args.host.id)!, status: 'ready' })
-                return work({ host: args.host, daemonId: args.host.id })
+                return work(session(args.host))
             }
         } as never,
         { revokeForHost: async () => 1 } as never,
         runtimes as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        bootstrap as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
-        { run: async () => ({ homeDir: undefined }) } as never,
         new SpriteServiceBootstraps(
-            { run: async () => ({ homeDir: undefined }) } as never,
+            { framework: 'hermes', ...bootstrap } as never,
             { run: async () => ({ homeDir: undefined }) } as never
         ),
         runtimeAccess as never,
         { get: () => undefined } as never,
-        { write: async () => {}, installCli: async () => {} } as never,
         {} as never,
         { settleHostNotRunning: async () => {} } as never
     )
@@ -250,10 +254,14 @@ const buildHarness = (opts: {
     }
 }
 
-const provision = (harness: Harness, attachHostId?: string): Promise<unknown> =>
+const provision = (
+    harness: Harness,
+    attachHostId?: string,
+    framework: 'gemini-cli' | 'hermes' = 'gemini-cli'
+): Promise<unknown> =>
     harness.provisioner.provisionRuntime({
         userId: 'user-1',
-        framework: 'gemini-cli',
+        framework,
         providerId: null,
         attachHostId: attachHostId ?? null,
         isAdmin: false,
@@ -283,7 +291,7 @@ test('a create with no named sandbox never touches an existing one', async () =>
     assert.deepEqual(harness.created, ['sbx_fresh1'], 'the fresh VM is the adapter\'s')
     assert.deepEqual(
         harness.daemonAsked,
-        ['sbx_fresh1'],
+        ['sbx_fresh1', 'sbx_fresh1'],
         'only the fresh host\'s daemon is brought up; no existing sandbox is probed'
     )
     assert.deepEqual(harness.bootstrappedOn, ['sbx-fresh1'])
@@ -322,6 +330,8 @@ test('an explicit attach to an unhealthy sandbox fails loudly instead of moving 
     assert.deepEqual(harness.created, [], 'a failed attach must not fall back to creating a VM')
 })
 
+// A service framework's bootstrap still talks to its sprite directly (P8
+// moves it onto the daemon), so a sprites transport failure can land there.
 test('a transient sprite failure while bootstrapping an attached host quarantines that host', async () => {
     const harness = buildHarness({
         candidates: [{ id: 'sbx_reused', spriteName: 'sbx-reused' }],
@@ -336,7 +346,7 @@ test('a transient sprite failure while bootstrapping an attached host quarantine
         }
     })
 
-    await assert.rejects(provision(harness, 'sbx_reused'), /handshake failed: HTTP 502/)
+    await assert.rejects(provision(harness, 'sbx_reused', 'hermes'), /handshake failed: HTTP 502/)
 
     assert.deepEqual(
         harness.cooldowns.map((c) => c.hostId),
@@ -359,7 +369,7 @@ test('a non-transient bootstrap failure on an attached host records no cooldown'
         }
     })
 
-    await assert.rejects(provision(harness, 'sbx_reused'), /token rejected/)
+    await assert.rejects(provision(harness, 'sbx_reused', 'hermes'), /token rejected/)
 
     assert.deepEqual(
         harness.cooldowns,

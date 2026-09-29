@@ -114,13 +114,16 @@ export const isServiceFrameworkName = (name: string): boolean =>
     frameworkDefinition(name)?.kind === 'service'
 
 // Sprite activity tasks (`/v1/tasks`) registered by the Manyfold platform. The
-// keep-alive lease service names its tasks `nca-<framework>-<unique>-<gen>`;
-// pre-refactor fleets still carry legacy `<framework>-keepalive` leases whose
-// fused renew loop would silently resurrect them after a delete. The awake
-// hold an API instance keeps while it works on the machine (ADR-0038) is
-// `mf-hold-<instance>`. Shared by the sandbox Tasks keepAlive display flag and
-// the task-deletion guard so the two can't drift.
+// awake hold an API instance keeps while it works on the machine (ADR-0038) is
+// `mf-hold-<instance>`; the user's keep-awake switch holds `mf-keep`. Machines
+// not yet swept by the keep-awake cutover still carry the in-VM lease loop's
+// `nca-...` tasks and older `<framework>-keepalive` ones, whose loop would
+// resurrect them after a delete. Shared by the sandbox Tasks keepAlive display
+// flag and the task-deletion guard so the two can't drift.
 export const PLATFORM_TASK_PREFIX = 'nca-'
+
+// One per host: the switch, not an instance, owns it.
+export const AWAKE_KEEP_TASK_NAME = 'mf-keep'
 
 // A sprite is one host, so an instance tag alone names that instance's hold.
 export const AWAKE_HOLD_TASK_PREFIX = 'mf-hold-'
@@ -133,6 +136,7 @@ export const isAwakeHoldTaskName = (name: string): boolean =>
     AWAKE_HOLD_TASK_NAME.test(name)
 
 export const isPlatformTaskName = (name: string): boolean =>
+    name === AWAKE_KEEP_TASK_NAME ||
     name.startsWith(PLATFORM_TASK_PREFIX) ||
     isAwakeHoldTaskName(name) ||
     (name.endsWith(LEGACY_KEEPALIVE_SUFFIX) &&

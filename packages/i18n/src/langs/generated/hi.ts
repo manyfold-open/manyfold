@@ -4113,7 +4113,14 @@ const hi: Record<string, string> = {
     'web.selfOwned.retire': 'सेवानिवृत्त करें',
     'web.selfOwned.retireHostTitle': 'मशीन सेवानिवृत्त करें',
     'web.selfOwned.retireHostDesc': 'इसका डेमॉन डिस्कनेक्ट हो जाता है और इसका टोकन रद्द कर दिया जाता है; मशीन दोबारा नहीं जुड़ सकती। इस पर मौजूद एजेंट चलना बंद कर देते हैं। मशीन पर कार्यक्षेत्र डेटा रखा जाता है।',
-    'web.selfOwned.msgMachineRetired': 'मशीन सेवानिवृत्त हुई'
+    'web.selfOwned.msgMachineRetired': 'मशीन सेवानिवृत्त हुई',
+    'web.settingsMenu.useInAgent': 'अपने एजेंट में इस्तेमाल करें',
+    'web.useInAgent.title': 'अपने एजेंट में Manyfold इस्तेमाल करें',
+    'web.useInAgent.description': 'यह प्रॉम्प्ट अपने AI एजेंट में कॉपी करें। ज़रूरत होने पर यह mf CLI इंस्टॉल करता है, आपके ब्राउज़र से साइन इन कराता है और Manyfold प्लगइन जोड़ता है।',
+    'web.useInAgent.hint': 'Claude Code, Codex और शेल कमांड चला सकने वाले किसी भी एजेंट के साथ काम करता है।',
+    'web.useInAgent.prompt': 'इस एजेंट को Manyfold से जोड़ो: `curl` से {{url}} लाओ और उसके सारे निर्देश अंत तक पूरे करो।',
+    'web.useInAgent.promptLocal': 'यह {{host}} पर मेरा लोकल Manyfold डेवलपमेंट स्टैक है: इसके लिए अलग `mf` प्रोफ़ाइल इस्तेमाल करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।',
+    'web.useInAgent.promptOther': 'यह {{host}} पर Manyfold डिप्लॉयमेंट है: इसके लिए अलग `mf` प्रोफ़ाइल इस्तेमाल करो और मेरे बाकी `mf` लॉगिन और इंस्टॉल किए गए `mf` को मत छेड़ो।'
 }
 
 export default hi

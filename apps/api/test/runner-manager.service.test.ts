@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
     DAEMON_FEATURE_EXEC_FILES,
@@ -16,7 +17,10 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
-import { HostCliTooOldError } from '../src/modules/chat/runner/host-cli.service'
+import {
+    HostCliTooOldError,
+    HostCliUpdatingError
+} from '../src/modules/chat/runner/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -43,6 +47,8 @@ interface HarnessOptions {
     // The machine as the inspect finds it.
     installed?: boolean
     registered?: boolean
+    // The API its daemon config names; omitted = a config that does not say.
+    registeredApiUrl?: string
     version?: string | null
     herdr?: boolean
     // Whether a started daemon dials in (the fake heartbeat) — and, for a
@@ -207,6 +213,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
                     stdout: [
                         `installed=${state.installed ? 1 : 0}`,
                         `registered=${state.registered ? 1 : 0}`,
+                        `apiUrl=${opts.registeredApiUrl ?? ''}`,
                         `version=${state.version ?? ''}`,
                         `herdr=${opts.herdr === false ? 0 : 1}`
                     ].join('\n'),
@@ -297,6 +304,17 @@ const buildHarness = (opts: HarnessOptions = {}) => {
 
 const scriptsOf = (h: ReturnType<typeof buildHarness>) => h.execs.map((e) => e.script)
 
+const withPublicApi = async (base: string, fn: () => Promise<void>): Promise<void> => {
+    const previous = process.env.PUBLIC_API_BASE_URL
+    process.env.PUBLIC_API_BASE_URL = base
+    try {
+        await fn()
+    } finally {
+        if (previous === undefined) delete process.env.PUBLIC_API_BASE_URL
+        else process.env.PUBLIC_API_BASE_URL = previous
+    }
+}
+
 test('a local host whose daemon is online is admitted with no adapter call', async () => {
     const h = buildHarness({
         host: { id: 'dh_1', kind: 'local', providerId: null, providerRef: null },
@@ -350,11 +368,35 @@ test('a cold machine is inspected, installed, registered with a bound token, sta
     assert.match(register.script, /--name 'sandbox-001'/)
 })
 
+// Every shell on a sprite reads MF_API_URL and MF_DEPLOY_ENV from a profile
+// block, so `mf` run by an agent or in a terminal talks to the API its daemon
+// does. Registering writes it: in a subshell that reads nothing, because the
+// token rides the same exec's stdin. A pod's shells get both from its env.
+test('registering a sprite daemon writes the shell env block first, reading nothing from stdin', async () => {
+    const h = buildHarness({ installed: true, registered: false })
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+    const register = h.execs.find((e) => e.script.includes('daemon register'))!
+    const [shellEnv, command] = register.script.split("\n) </dev/null >/dev/null 2>&1 || echo 'mf shell env not written' >&2\n")
+    assert.ok(command, 'the block runs in its own subshell before the register')
+    assert.match(shellEnv, /export MF_API_URL=/)
+    assert.match(shellEnv, /export MF_DEPLOY_ENV=/)
+    assert.match(command, /daemon register --token -/)
+    assert.ok(!shellEnv.includes('ldt_secret_value'))
+    const syntax = spawnSync('bash', ['-n'], { input: register.script })
+    assert.equal(syntax.status, 0, syntax.stderr.toString())
+
+    const pod = buildHarness({ providerKind: 'k8s', registered: false })
+    await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
+    const podRegister = pod.execs.find((e) => e.script.includes('daemon register'))!
+    assert.doesNotMatch(podRegister.script, /MF_API_URL/)
+})
+
 test('the inspect probes the ADR-0014 profile layout of the machine kind', async () => {
     const sprite = buildHarness({ registered: true })
     await sprite.service.ensureHostDaemon({ host: sprite.state.host, waitOnlineMs: 50 })
     const spriteProbe = profilePaths('$HOME/.manyfold', RUNNER_PROFILE).daemonConfigPath
     assert.ok(scriptsOf(sprite)[0].includes(`test -f "${spriteProbe}"`))
+    assert.ok(scriptsOf(sprite)[0].includes(`grep -o '"apiUrl": *"[^"]*"' "${spriteProbe}"`))
 
     const pod = buildHarness({ providerKind: 'k8s', registered: true })
     await pod.service.ensureHostDaemon({ host: pod.state.host, waitOnlineMs: 50 })
@@ -421,6 +463,30 @@ test('a daemon whose credential is rejected is re-registered once', async () => 
     assert.equal(res.handle, null)
     assert.deepEqual(h.calls, ['power', 'inspect', 'start', 'tail', 'register', 'start'])
     assert.equal(h.mints.length, 1)
+})
+
+// Seen on a local stack [2026-09-28]: `daemon start` keeps dialing the address
+// saved at register time, so a sandbox registered before this deployment's
+// public URL moved never connects again unless it is registered anew.
+test('a daemon registered against another API address is registered again before it starts', async () => {
+    await withPublicApi('https://api.example.com', async () => {
+        const h = buildHarness({ registered: true, registeredApiUrl: 'https://old-tunnel.example.com/api' })
+        const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+        assert.equal(res.handle?.daemonId, 'sbx_1')
+        assert.deepEqual(h.calls, ['power', 'inspect', 'register', 'start'])
+        const register = h.execs.find((e) => e.script.includes('daemon register'))!
+        assert.match(register.script, /--api-url https:\/\/api\.example\.com\/api daemon register/)
+        assert.equal(h.mints.length, 1)
+    })
+})
+
+test('a daemon registered against this API is left as it is', async () => {
+    await withPublicApi('https://api.example.com/', async () => {
+        const h = buildHarness({ registered: true, registeredApiUrl: 'https://api.example.com/api/' })
+        await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+        assert.deepEqual(h.calls, ['power', 'inspect', 'start'])
+        assert.equal(h.mints.length, 0)
+    })
 })
 
 test('a CLI below the floor is upgraded before the daemon is used', async () => {
@@ -625,6 +691,25 @@ test('an update that cannot bring the feature answers runner_cli_too_old', async
     })
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_cli_too_old')
+})
+
+// A daemon finishing its current work before it updates is a retry-soon, not
+// a CLI too old to use.
+test('a daemon draining for its update answers runner_updating', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (host) => {
+                throw new HostCliUpdatingError(host)
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_updating')
 })
 
 test('an update that failed for another reason stays retryable', async () => {

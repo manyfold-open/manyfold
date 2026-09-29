@@ -95,10 +95,8 @@ import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
-import {
-    MANYFOLD_CONTEXT_VERSION,
-    contextDocInstructionFile
-} from '@/modules/agent-self/agent-context-doc.service'
+import { contextDocInstructionFile } from '@/modules/agent-self/agent-context-doc.service'
+import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { ExternalAgentProvisioner } from '@/modules/agent-runtimes/provisioning/external-provisioner'
 import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
@@ -226,7 +224,8 @@ export class AgentOrchestratorService {
         // (ADR-0034); absent means only the core frameworks.
         @Optional()
         private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry(),
-        @Optional() private readonly changes?: ResourceChangesService
+        @Optional() private readonly changes?: ResourceChangesService,
+        @Optional() private readonly contextDoc?: AgentContextDocManageService
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -1303,21 +1302,7 @@ export class AgentOrchestratorService {
                     framework: dto.framework,
                     status: 'pending',
                     mountPath: workspacePath,
-                    extras: workspaceExtras(
-                        workspace.managed,
-                        // Bootstrap (above, in provisionRuntime) already wrote
-                        // AGENTS.manyfold.md for coding frameworks, but the agents
-                        // row didn't exist yet to record it — seed the version so
-                        // the status card reads correctly without waking the VM.
-                        contextDocInstructionFile(dto.framework)
-                            ? {
-                                  contextDoc: {
-                                      version: MANYFOLD_CONTEXT_VERSION,
-                                      generatedAt: new Date().toISOString()
-                                  }
-                              }
-                            : {}
-                    ),
+                    extras: workspaceExtras(workspace.managed),
                     currentPhase: null,
                     runtimeId: runtime.id,
                     workspacePath,
@@ -1433,6 +1418,11 @@ export class AgentOrchestratorService {
                     updatedAt: now
                 })
                 .where(eq(agents.id, agentId))
+            // Delivered through the machine's daemon now that the agent row
+            // exists to record it, as for an agent added later (ADR-0037 R6).
+            // Best effort: the status card offers the refresh.
+            if (contextDocInstructionFile(dto.framework))
+                await this.contextDoc?.refreshOnChange(insertedAgent)
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_CREATE_SUCCEEDED,

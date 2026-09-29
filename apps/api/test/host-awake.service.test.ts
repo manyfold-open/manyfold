@@ -149,3 +149,21 @@ test('a provider that refuses the lease settles false and the hold still release
     await settle()
     assert.deepEqual(calls.map((c) => c.op), ['release'])
 })
+
+// Nothing renews a lease once its instance is gone, and one left behind keeps
+// its machine awake for the rest of its TTL, so an instance shutting down lets
+// go of every machine it holds: held, or waiting out its grace.
+test('an instance shutting down lets go of every machine it holds', async () => {
+    const { service, calls } = build({ graceMs: 60_000 })
+    const held = host({ id: 'sbx_held' })
+    const graced = host({ id: 'sbx_graced' })
+    service.hold(held, 'terminal')
+    const other = service.hold(graced, 'turn')
+    await settle()
+    await other.release()
+    assert.deepEqual(calls.filter((c) => c.op === 'release'), [], 'the grace is still running')
+    await service.onModuleDestroy()
+    assert.equal(calls.filter((c) => c.op === 'release').length, 2)
+    assert.equal(service.holders(held.id), 0)
+    assert.equal(service.holders(graced.id), 0)
+})

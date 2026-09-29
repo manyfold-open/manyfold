@@ -894,6 +894,7 @@ const zh: Translations = {
             usageWindow7d: '1 周',
             theme: '主题',
             language: '语言',
+            useInAgent: '在你的 agent 中使用',
             learnMore: '了解更多',
             learnMoreMenu: '了解更多链接',
             docs: '文档',
@@ -908,6 +909,17 @@ const zh: Translations = {
             privacyPolicy: '隐私政策',
             termsOfService: '服务条款',
             logOut: '退出登录'
+        },
+        useInAgent: {
+            title: '在你的 agent 中使用 Manyfold',
+            description:
+                '把这段 prompt 复制到你自己的 AI agent 里。它会按需安装 mf CLI，通过浏览器帮你登录，并添加 Manyfold 插件。',
+            hint: '适用于 Claude Code、Codex，以及任何能运行 shell 命令的 agent。',
+            prompt: '把这个 agent 接入 Manyfold：用 `curl` 读取 {{url}} ，按里面的步骤做完。',
+            promptLocal:
+                '这是我本地的 Manyfold 开发环境（{{host}}）：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。',
+            promptOther:
+                '这是位于 {{host}} 的 Manyfold 部署：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。'
         },
         agentSettings: {
             timing: {

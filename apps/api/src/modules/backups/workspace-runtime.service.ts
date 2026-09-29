@@ -3,36 +3,29 @@ import { createHash } from 'node:crypto'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { Agent, HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
-    DAEMON_FEATURE_FS_WRITE_BINARY,
-    DAEMON_FEATURE_FS_WRITE_MODE,
-    DAEMON_FS_WRITE_MAX_BYTES,
+    DAEMON_FEATURE_FS_ROOTS,
+    DAEMON_FEATURE_FS_WRITE_STREAM,
     type AgentRuntime
 } from '@manyfold/shared'
-import {
-    execSprite,
-    spriteFsReadFile,
-    spriteFsWriteFile,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
-import { drainText, type PodExecStreamHandle } from '@/modules/k8s/pod-exec'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     RuntimeContextService,
     type RuntimeContext
 } from '@/modules/hosts/runtime-context.service'
 import { assertAgentReady } from '@/modules/agents/files/files-context'
-import { HostProviderClients } from '@/modules/hosts/providers/host-provider-clients.service'
+import {
+    HostDaemonAccess,
+    type HostSession
+} from '@/modules/agents/adapters/host-daemon-access'
+import {
+    readFileStream,
+    writeFileStream
+} from '@/modules/agents/adapters/host-file-stream'
 import {
     cancelWorkspaceOperationScript,
     shellQuote,
     trackedWorkspaceScript,
     workspaceOperationRoot
 } from './workspace-operation-scripts'
-
-// Daemon RPC and pod exec both hold the archive in memory on the way through
-// (neither gives backpressure), so both cap it.
-const BUFFERED_BACKUP_MAX_BYTES = 100 * 1024 * 1024
 
 export interface WorkspaceArchive {
     path: string
@@ -48,8 +41,6 @@ export interface WorkspaceRestoreResult {
 }
 
 const EXEC_TIMEOUT_MS = 10 * 60_000
-const RESTORE_WRITE_TIMEOUT_MS = 10 * 60_000
-const POD_PROBE_TIMEOUT_MS = 30_000
 
 // The machine a workspace operation runs on (ADR-0037): the agent's host and
 // the placement that decides which transport carries the bytes.
@@ -65,8 +56,7 @@ export class WorkspaceRuntimeService {
 
     constructor(
         private readonly runtimeContext: RuntimeContextService,
-        private readonly hostClients: HostProviderClients,
-        private readonly daemonRegistry: DaemonRegistryService
+        private readonly hostAccess: HostDaemonAccess
     ) {}
 
     private async target(agent: Agent): Promise<WorkspaceTarget> {
@@ -122,15 +112,6 @@ export class WorkspaceRuntimeService {
         }
         const metrics = parseMetrics(result.stdout)
         const archiveBytes = numberMetric(metrics, 'archiveBytes')
-        if (
-            target.placement !== 'sprites' &&
-            archiveBytes > BUFFERED_BACKUP_MAX_BYTES
-        ) {
-            await this.cleanupPath(agent, archivePath)
-            throw new Error(
-                `workspace archive too large for ${target.placement} backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB, actual ${Math.ceil(archiveBytes / (1024 * 1024))} MB)`
-            )
-        }
         const archive = await this.readFile(agent, archivePath)
         return {
             path: archivePath,
@@ -223,289 +204,88 @@ export class WorkspaceRuntimeService {
         )
     }
 
+    // A workspace operation is its machine's daemon's (ADR-0037 R6), under the
+    // machine's hold, a hosted daemon brought up for it. The platform owns a
+    // hosted machine's filesystem, so the workspace is vouched for on each
+    // call (DAEMON_FEATURE_FS_ROOTS); a self-owned computer's daemon admits the
+    // workspaces it registered.
+    private async onHost<T>(
+        agent: Agent,
+        reason: string,
+        requiredFeatures: string[],
+        work: (session: HostSession, roots: string[] | undefined) => Promise<T>
+    ): Promise<T> {
+        const target = await this.target(agent)
+        const hosted = target.host.kind === 'hosted'
+        return this.hostAccess.withHost(
+            {
+                host: target.host,
+                daemon: target.daemon,
+                placement: target.placement,
+                agentId: agent.id,
+                reason,
+                requiredFeatures: hosted
+                    ? [DAEMON_FEATURE_FS_ROOTS, ...requiredFeatures]
+                    : requiredFeatures
+            },
+            (session) =>
+                work(session, hosted ? [workspaceRoot(agent)] : undefined)
+        )
+    }
+
+    // The archive streams out as it is read, holding the machine until the
+    // download ends.
     private async readFile(
         agent: Agent,
         absPath: string
     ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        const target = await this.target(agent)
-        if (target.placement === 'sprites') {
-            const { client, spriteName, logger } =
-                await this.spriteTarget(target)
-            const result = await spriteFsReadFile(
-                client,
-                spriteName,
-                absPath,
-                logger
-            )
-            if (!result) throw new NotFoundException(`no such file: ${absPath}`)
-            return { stream: result.stream }
-        }
-        if (target.placement === 'daemon')
-            return this.readFileFromDaemon(target, absPath)
-        return this.readFileFromPod(target, absPath)
+        return this.onHost(agent, 'backup-read', [], async (session, roots) => {
+            const hold = this.hostAccess.hold(session.host, 'backup-read')
+            const { stream } = readFileStream(session, {
+                path: absPath,
+                roots,
+                release: () => void hold.release()
+            })
+            return { stream }
+        })
     }
 
+    // Chunks land in an owner-only part file that becomes the archive at
+    // commit, so a cut upload never leaves a partial archive to restore.
     private async writeFile(
         agent: Agent,
         absPath: string,
         stream: AsyncIterable<Uint8Array>
     ): Promise<void> {
-        const target = await this.target(agent)
-        if (target.placement === 'sprites') {
-            const { client, spriteName, logger } =
-                await this.spriteTarget(target)
-            await spriteFsWriteFile(
-                client,
-                spriteName,
-                {
-                    absPath,
+        await this.onHost(
+            agent,
+            'backup-write',
+            [DAEMON_FEATURE_FS_WRITE_STREAM],
+            (session, roots) =>
+                writeFileStream(session, {
+                    path: absPath,
                     body: stream,
-                    mode: '0600',
-                    timeoutMs: RESTORE_WRITE_TIMEOUT_MS
-                },
-                logger
-            )
-            return
-        }
-        if (target.placement === 'daemon')
-            return this.writeFileToDaemon(target, absPath, stream)
-        await this.writeFileToPod(target, absPath, stream)
+                    roots,
+                    mode: '600'
+                })
+        )
     }
 
     private async run(
         agent: Agent,
         script: string
     ): Promise<{ stdout: string; stderr: string }> {
-        const target = await this.target(agent)
-        if (target.placement === 'sprites') {
-            const { client, spriteName, logger } =
-                await this.spriteTarget(target)
-            const result = await execSprite(
-                client,
-                spriteName,
-                {
-                    cmd: ['bash', '-lc', script],
-                    stdin: '',
-                    timeoutMs: EXEC_TIMEOUT_MS
-                },
-                logger
-            )
-            if (result.exitCode !== 0)
-                throw new Error(
-                    `sprite workspace command exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
-                )
-            return { stdout: result.stdout, stderr: result.stderr }
-        }
-        if (target.placement === 'daemon')
-            return this.runOnDaemon(target, script)
-        const exec = await this.hostClients.podExecForHost(target.host)
-        const result = await exec.run({
-            cmd: ['bash', '-lc', script],
-            timeoutMs: EXEC_TIMEOUT_MS
-        })
+        const result = await this.onHost(agent, 'backup', [], (session) =>
+            session.exec({
+                cmd: ['bash', '-lc', script],
+                timeoutMs: EXEC_TIMEOUT_MS
+            })
+        )
         if (result.exitCode !== 0)
             throw new Error(
-                `k8s workspace command exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
+                `workspace command exited ${result.exitCode}: ${result.stderr.slice(0, 512)}`
             )
         return { stdout: result.stdout, stderr: result.stderr }
-    }
-
-    private async runOnDaemon(
-        target: WorkspaceTarget,
-        script: string
-    ): Promise<{ stdout: string; stderr: string }> {
-        const daemonId = target.host.id
-        const stdoutChunks: string[] = []
-        const stderrChunks: string[] = []
-        const stream = this.daemonRegistry.streamRpc({
-            daemonId,
-            method: 'exec.start',
-            payload: {
-                cmd: ['bash', '-lc', script],
-                env: {},
-                timeoutMs: EXEC_TIMEOUT_MS
-            },
-            timeoutMs: EXEC_TIMEOUT_MS + 5_000,
-            onEvent: (kind, data) => {
-                if (kind === 'stdout') stdoutChunks.push(data)
-                else if (kind === 'stderr') stderrChunks.push(data)
-            }
-        })
-        const payload = await stream.result
-        const exitCode = Number(
-            (payload as { exitCode?: number })?.exitCode ?? 0
-        )
-        if (exitCode !== 0)
-            throw new Error(
-                `daemon workspace command exited ${exitCode}: ${stderrChunks
-                    .join('')
-                    .slice(0, 512)}`
-            )
-        return {
-            stdout: stdoutChunks.join(''),
-            stderr: stderrChunks.join('')
-        }
-    }
-
-    private async readFileFromDaemon(
-        target: WorkspaceTarget,
-        absPath: string
-    ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        const daemonId = target.host.id
-        const chunks: Buffer[] = []
-        let totalBytes = 0
-        const stream = this.daemonRegistry.streamRpc({
-            daemonId,
-            method: 'fs.read',
-            payload: { path: absPath, chunked: true },
-            timeoutMs: RESTORE_WRITE_TIMEOUT_MS,
-            onEvent: (kind, data) => {
-                if (kind !== 'fs.chunk') return
-                const buf = Buffer.from(data, 'base64')
-                totalBytes += buf.length
-                if (totalBytes > BUFFERED_BACKUP_MAX_BYTES) {
-                    stream.cancel()
-                    return
-                }
-                chunks.push(buf)
-            }
-        })
-        try {
-            await stream.result
-        } catch (err) {
-            if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
-                throw new Error(
-                    `workspace archive too large for daemon backup (limit ${BUFFERED_BACKUP_MAX_BYTES / (1024 * 1024)} MB)`
-                )
-            const msg = (err as Error).message
-            if (/ENOENT|no such file/i.test(msg))
-                throw new NotFoundException(`no such file: ${absPath}`)
-            throw err
-        }
-        const buf = Buffer.concat(chunks)
-        async function* iter(): AsyncIterable<Uint8Array> {
-            yield buf
-        }
-        return { stream: iter() }
-    }
-
-    // One fs.write carries the archive: base64 keeps its bytes intact, and
-    // mode 600 because an archive holds whatever the workspace does. It used
-    // to be inlined into a `bash -lc` argument, which Linux caps at 128 KiB a
-    // piece, so a restore of any real workspace failed. The whole archive
-    // rides one daemon frame, so that frame's size is the cap.
-    private async writeFileToDaemon(
-        target: WorkspaceTarget,
-        absPath: string,
-        stream: AsyncIterable<Uint8Array>
-    ): Promise<void> {
-        const features = target.daemon?.clientFeatures ?? []
-        const missing = [
-            DAEMON_FEATURE_FS_WRITE_BINARY,
-            DAEMON_FEATURE_FS_WRITE_MODE
-        ].filter((feature) => !features.includes(feature))
-        if (missing.length > 0)
-            throw new Error(
-                `update the Manyfold CLI on ${target.host.name} to restore a backup (needs ${missing.join(', ')})`
-            )
-        const chunks: Buffer[] = []
-        let totalBytes = 0
-        for await (const chunk of stream) {
-            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-            totalBytes += buf.length
-            if (totalBytes > DAEMON_FS_WRITE_MAX_BYTES)
-                throw new Error(
-                    `daemon restore archive exceeds the ${Math.floor(DAEMON_FS_WRITE_MAX_BYTES / (1024 * 1024))} MB one daemon write carries`
-                )
-            chunks.push(buf)
-        }
-        await this.daemonRegistry.rpc({
-            daemonId: target.host.id,
-            method: 'fs.write',
-            payload: {
-                path: absPath,
-                content: Buffer.concat(chunks).toString('base64'),
-                encoding: 'base64',
-                mode: '600'
-            },
-            timeoutMs: RESTORE_WRITE_TIMEOUT_MS
-        })
-    }
-
-    // Over the exec websocket rather than the gateway, whose request body
-    // (stdin) is capped far below an archive. stdout arrives as text, so the
-    // archive crosses base64-encoded.
-    private async readFileFromPod(
-        target: WorkspaceTarget,
-        absPath: string
-    ): Promise<{ stream: AsyncIterable<Uint8Array> }> {
-        const exec = await this.hostClients.podExecForHost(target.host)
-        const q = shellQuote(absPath)
-        const probe = await exec.run({
-            cmd: ['bash', '-c', `[ -f ${q} ]`],
-            timeoutMs: POD_PROBE_TIMEOUT_MS
-        })
-        if (probe.exitCode !== 0)
-            throw new NotFoundException(`no such file: ${absPath}`)
-        const handle = exec.stream({
-            cmd: ['bash', '-c', `base64 -w0 < ${q}`],
-            timeoutMs: EXEC_TIMEOUT_MS
-        })
-        // Observed now, awaited once stdout is drained: see observedResult.
-        void handle.result.catch(() => undefined)
-        return { stream: decodeBase64Stdout(handle, absPath) }
-    }
-
-    private async writeFileToPod(
-        target: WorkspaceTarget,
-        absPath: string,
-        stream: AsyncIterable<Uint8Array>
-    ): Promise<void> {
-        const exec = await this.hostClients.podExecForHost(target.host)
-        const q = shellQuote(absPath)
-        const handle = exec.streamInteractive({
-            cmd: [
-                'bash',
-                '-c',
-                `set -euo pipefail; mkdir -p "$(dirname ${q})"; umask 077; cat > ${q}`
-            ],
-            timeoutMs: RESTORE_WRITE_TIMEOUT_MS
-        })
-        void handle.result.catch(() => undefined)
-        const stderr = drainText(handle.stderr)
-        void drainText(handle.stdout)
-        let totalBytes = 0
-        try {
-            for await (const chunk of stream) {
-                totalBytes += chunk.byteLength
-                if (totalBytes > BUFFERED_BACKUP_MAX_BYTES)
-                    throw new Error(
-                        `k8s restore archive exceeds ${BUFFERED_BACKUP_MAX_BYTES} bytes`
-                    )
-                handle.stdin.write(Buffer.from(chunk))
-            }
-        } catch (err) {
-            handle.abort()
-            await handle.result.catch(() => undefined)
-            throw err
-        }
-        handle.stdin.end()
-        const result = await handle.result
-        if (result.exitCode !== 0)
-            throw new Error(
-                `k8s restore write exited ${result.exitCode}: ${(await stderr).slice(0, 512)}`
-            )
-    }
-
-    private async spriteTarget(target: WorkspaceTarget): Promise<{
-        client: SpritesClient
-        spriteName: string
-        logger: SpritesLogger
-    }> {
-        const logger = spritesLoggerFor(this.log)
-        const { client, spriteName } =
-            await this.hostClients.spritesClientForHost(target.host, logger)
-        return { client, spriteName, logger }
     }
 }
 
@@ -639,40 +419,4 @@ const numberMetric = (metrics: Record<string, string>, key: string): number => {
     const value = Number.parseInt(metrics[key] ?? '', 10)
     if (!Number.isFinite(value)) throw new Error(`missing metric ${key}`)
     return value
-}
-
-const spritesLoggerFor = (log: Logger): SpritesLogger => ({
-    debug: (m, meta) =>
-        log.debug?.(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    info: (m, meta) => log.log(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    warn: (m, meta) => log.warn(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`),
-    error: (m, meta) =>
-        log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
-})
-
-async function* decodeBase64Stdout(
-    handle: PodExecStreamHandle,
-    absPath: string
-): AsyncIterable<Uint8Array> {
-    const stderr = drainText(handle.stderr)
-    let done = false
-    try {
-        let pending = ''
-        for await (const chunk of handle.stdout) {
-            pending += chunk.replace(/\s+/g, '')
-            const whole = pending.length - (pending.length % 4)
-            if (whole === 0) continue
-            yield Buffer.from(pending.slice(0, whole), 'base64')
-            pending = pending.slice(whole)
-        }
-        if (pending) yield Buffer.from(pending, 'base64')
-        const result = await handle.result
-        done = true
-        if (result.exitCode !== 0)
-            throw new Error(
-                `k8s read of ${absPath} exited ${result.exitCode}: ${(await stderr).slice(0, 512)}`
-            )
-    } finally {
-        if (!done) handle.abort()
-    }
 }

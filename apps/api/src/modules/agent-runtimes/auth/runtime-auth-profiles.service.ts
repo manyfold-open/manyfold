@@ -15,9 +15,6 @@ import {
     type AgentRuntime,
     runtimeLocalInspectFeature,
     DAEMON_FEATURE_AUTH_CONTEXT,
-    runtimeAuthRoot,
-    runtimeAuthProfileEnv,
-
     DAEMON_FEATURE_AUTH_PROFILES,
     RUNTIME_AUTH_ERROR,
     createObjectId,
@@ -42,7 +39,6 @@ import {
     type RuntimeAuthProfileView
 } from '@manyfold/shared'
 import {
-    type Agent,
     agentRuntimes,
     agents,
     runtimeAuthOperations,
@@ -66,7 +62,6 @@ import {
 } from '@/modules/runtime-access/runtime-access.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RuntimeAccountService } from '../account/runtime-account.service'
-import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
@@ -1292,48 +1287,6 @@ export class RuntimeAuthProfilesService {
             .where(eq(runtimeAuthOperations.id, operation.id))
             .limit(1)
         return this.operationView(updated ?? operation)
-    }
-
-    // The credential-context env for a profile-bound agent's terminal on a
-    // HOSTED machine whose shell is opened provider-natively (a sprites.dev
-    // pty, not a daemon call): the API composes the (non-secret) relocation
-    // vars from the daemon's store layout,
-    // <home>/.manyfold/runtime-auth/<hostId>/<runtimeId>/…
-    // A daemon-opened pty never uses this — the daemon resolves its own paths.
-    async sessionEnvForAgent(
-        ctx: RuntimeContext & { agent: Agent }
-    ): Promise<Record<string, string> | null> {
-        const { agent, host, daemon } = ctx
-        const ref = authContextRefFor(agent, ctx.placement)
-        if (!ref || !host || host.kind !== 'hosted') return null
-        const runtime = ctx.runtime
-        if (runtime.id !== ref.runtimeId || runtime.userId !== agent.userId)
-            return null
-        // The env is a path under the daemon's store, derived from the
-        // daemon ROW (whether that build lays the store out); the daemon does
-        // not have to be answering for it — the terminal's own exec is what
-        // wakes the machine, and a warm sandbox must not turn a
-        // profile-bound shell away.
-        if (
-            !daemon ||
-            !daemon.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES) ||
-            !daemon.clientFeatures.includes(DAEMON_FEATURE_AUTH_CONTEXT)
-        )
-            return null
-        const [profile] = await this.db
-            .select({ id: runtimeAuthProfiles.id, lifecycle: runtimeAuthProfiles.lifecycle })
-            .from(runtimeAuthProfiles)
-            .where(eq(runtimeAuthProfiles.id, ref.profileId))
-            .limit(1)
-        if (!profile || profile.lifecycle === 'deleted') return null
-        const home = host.homeDir ?? '/home/sprite'
-        const viewDir = `${runtimeAuthRoot(`${home}/.manyfold`)}/${host.id}/${runtime.id}/profiles/${ref.profileId}/view`
-        return {
-            ...runtimeAuthProfileEnv(ref.framework, viewDir),
-            ...(ref.framework === 'codex'
-                ? { CODEX_SQLITE_HOME: `${home}/.codex` }
-                : {})
-        }
     }
 
     async setDefault(

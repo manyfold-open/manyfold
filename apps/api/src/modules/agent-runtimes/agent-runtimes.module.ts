@@ -16,11 +16,6 @@ import { K8sCreateCleanupService } from './provisioning/k8s-create-cleanup.servi
 import { PodHostServices } from './provisioning/pod-host-services'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
-import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
-import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
-import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
-import { AntigravityCliBootstrap } from '@/modules/agents/bootstrap/antigravity-cli'
-import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
 import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
@@ -62,11 +57,6 @@ import { RunnerModule } from '@/modules/chat/runner/runner.module'
         PodHostServices,
         PodRunnerProvisioner,
         ExternalAgentProvisioner,
-        ClaudeCodeBootstrap,
-        CodexBootstrap,
-        PiBootstrap,
-        AntigravityCliBootstrap,
-        GeminiCliBootstrap,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,
         SpriteServiceBootstraps,

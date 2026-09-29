@@ -1,7 +1,7 @@
 // Scripts for the sprite-local /v1/tasks activity API, reachable only from
 // inside the VM via /.sprite/api.sock. POST creates {name, expire}; PUT
-// renews {expire}; DELETE releases the named task. Framework services and
-// renewable keep-alive leases have separate scripts and lifetimes.
+// renews {expire}; DELETE releases the named task. Nothing here creates one:
+// the platform's holds are placed and renewed by the API (ADR-0038).
 
 export interface ServiceStartScriptOptions {
     /** Argv to exec as the framework service process. */
@@ -28,44 +28,12 @@ export interface RuntimeReportEnvFileOptions {
     healthUrl: string
 }
 
-export interface KeepAliveLeaseScriptOptions {
-    taskName: string
-    taskPrefix: string
-    ttl: string
-    refreshIntervalSeconds: number
-    stateDir: string
-}
-
 export interface KeepAliveCleanupOptions {
     taskName?: string
     taskPrefix: string
     stateDir: string
     startScriptPath?: string
     killStartScriptProcesses?: boolean
-    /**
-     * Kill the pid recorded in app.pid (the framework process). Default true.
-     * false = lease-only cleanup: kills only the renewer (renew.pid plus a
-     * /proc cmdline scan for keepalive.sh) and deletes tasks — structurally
-     * incapable of killing an in-flight agent turn.
-     */
-    killAppProcesses?: boolean
-}
-
-const SECONDS_PER_UNIT: Record<string, number> = {
-    s: 1,
-    m: 60,
-    h: 3600,
-    d: 86400
-}
-
-const parseTtlSeconds = (ttl: string): number => {
-    const match = /^(\d+)([smhd])$/.exec(ttl)
-    if (!match) {
-        throw new Error(
-            `invalid ttl '${ttl}' — expected '30s' | '5m' | '1h' | '24h'`
-        )
-    }
-    return Number(match[1]) * SECONDS_PER_UNIT[match[2]]
 }
 
 export const shellSingleQuote = (s: string): string =>
@@ -213,73 +181,6 @@ export const buildRuntimeReportEnvFile = (
         ''
     ].join('\n')
 
-export const buildKeepAliveLeaseScript = (
-    opts: KeepAliveLeaseScriptOptions
-): string => {
-    assertTaskIdentifier('taskName', opts.taskName)
-    assertTaskIdentifier('taskPrefix', opts.taskPrefix)
-    assertAbsolutePath('stateDir', opts.stateDir)
-    const ttlSeconds = parseTtlSeconds(opts.ttl)
-    if (opts.refreshIntervalSeconds <= 0) {
-        throw new Error('keep-alive lease refresh interval must be > 0')
-    }
-    if (opts.refreshIntervalSeconds >= ttlSeconds) {
-        throw new Error(
-            `refresh interval (${opts.refreshIntervalSeconds}s) must be < ttl (${ttlSeconds}s)`
-        )
-    }
-    const createBody = JSON.stringify({
-        name: opts.taskName,
-        expire: opts.ttl
-    })
-    const renewBody = JSON.stringify({ expire: opts.ttl })
-    return [
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        `TASK_NAME=${shellSingleQuote(opts.taskName)}`,
-        `STATE_DIR=${shellSingleQuote(opts.stateDir)}`,
-        'mkdir -p "$STATE_DIR"',
-        '',
-        '# Single-instance guard: concurrent spawns (toggle + reconcile in the',
-        '# same minute) collapse to one loop.',
-        'exec 9>"$STATE_DIR/keepalive.lock"',
-        'flock -n 9 || exit 0',
-        '',
-        '# SAME pid file the legacy fused start.sh used — one cleanup kill path',
-        '# covers both the legacy renewer and this loop.',
-        `printf '%s\\n' "$$" > "$STATE_DIR/renew.pid"`,
-        '',
-        'task_create() {',
-        `    sprite-env curl -sS -X POST /v1/tasks -d ${shellSingleQuote(createBody)} >/dev/null`,
-        '}',
-        'task_renew() {',
-        `    sprite-env curl -sS -X PUT "/v1/tasks/$TASK_NAME" -d ${shellSingleQuote(renewBody)} >/dev/null`,
-        '}',
-        'task_delete() {',
-        '    sprite-env curl -s -X DELETE "/v1/tasks/$TASK_NAME" >/dev/null 2>&1 || true',
-        '}',
-        'cleanup() {',
-        '    task_delete',
-        '    rm -f "$STATE_DIR/renew.pid"',
-        '}',
-        'trap cleanup EXIT',
-        "trap 'exit 0' TERM",
-        "trap 'exit 130' INT",
-        '',
-        '# Hold the slot promptly at spawn',
-        'task_create || task_renew',
-        '',
-        '# Interruptible sleep: bash runs a pending TERM trap when `wait` returns,',
-        '# BEFORE the next renewal — a killed loop can never re-create the task',
-        '# after cleanup deleted it.',
-        'while true; do',
-        `    sleep ${opts.refreshIntervalSeconds} & wait $! || true`,
-        '    task_renew || task_create || echo "keep-alive renewal failed for $TASK_NAME" >&2',
-        'done',
-        ''
-    ].join('\n')
-}
-
 export const buildKeepAliveCleanupScript = (
     opts: KeepAliveCleanupOptions
 ): string => {
@@ -297,7 +198,6 @@ export const buildKeepAliveCleanupScript = (
         `export STATE_DIR=${shellSingleQuote(opts.stateDir)}`,
         `export START_SCRIPT_PATH=${shellSingleQuote(opts.startScriptPath ?? '')}`,
         `export KILL_START_SCRIPT_PROCESSES=${opts.killStartScriptProcesses ? '1' : '0'}`,
-        `export KILL_APP_PROCESSES=${opts.killAppProcesses === false ? '0' : '1'}`,
         "python3 - <<'PY'",
         'import json, os, signal, subprocess, time',
         '',
@@ -306,7 +206,6 @@ export const buildKeepAliveCleanupScript = (
         'state_dir = os.environ["STATE_DIR"]',
         'start_script_path = os.environ.get("START_SCRIPT_PATH", "")',
         'kill_start_script_processes = os.environ.get("KILL_START_SCRIPT_PROCESSES") == "1"',
-        'kill_app_processes = os.environ.get("KILL_APP_PROCESSES") == "1"',
         'errors = []',
         'deleted = []',
         'killed = []',
@@ -348,25 +247,16 @@ export const buildKeepAliveCleanupScript = (
         '    except Exception as exc:',
         '        errors.append({"op": "kill", "pid": pid, "error": str(exc)})',
         '',
-        'pid_files = ["renew.pid"] + (["app.pid"] if kill_app_processes else [])',
-        'for pid_file in pid_files:',
-        '    path = os.path.join(state_dir, pid_file)',
-        '    try:',
-        '        with open(path, "r", encoding="utf-8") as fh:',
-        '            kill_pid(int(fh.read().strip()))',
-        '    except FileNotFoundError:',
-        '        pass',
-        '    except Exception as exc:',
-        '        errors.append({"op": "pid_file", "path": path, "error": str(exc)})',
+        'path = os.path.join(state_dir, "app.pid")',
+        'try:',
+        '    with open(path, "r", encoding="utf-8") as fh:',
+        '        kill_pid(int(fh.read().strip()))',
+        'except FileNotFoundError:',
+        '    pass',
+        'except Exception as exc:',
+        '    errors.append({"op": "pid_file", "path": path, "error": str(exc)})',
         '',
-        '# The lease loop is ALWAYS scanned for by cmdline, in every mode: a',
-        '# lost renew.pid (the legacy fused start.sh trap rm\'s it when',
-        '# stopService TERMs the parent shell) must be structurally unable to',
-        '# orphan a renewer.',
-        'scan_targets = [os.path.join(state_dir, "keepalive.sh")]',
-        '# report.sh joins the scan only on FULL cleanup: wake/stop must kill',
-        '# stale probe loops, but a lease-only cleanup must leave the current',
-        "# boot's reporter alone.",
+        'scan_targets = []',
         'if kill_start_script_processes:',
         '    scan_targets.append(os.path.join(state_dir, "report.sh"))',
         'if kill_start_script_processes and start_script_path:',

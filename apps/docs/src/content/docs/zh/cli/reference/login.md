@@ -13,5 +13,6 @@ order: 3
 | `--token <token>` | API token ("-" reads stdin; direct values may appear in shell history and process lists) |
 | `--no-launch-browser` | print the auth URL instead of launching a browser |
 | `--auth-code <code>` | auth code copied from the browser |
+| `--print-auth-url` | print the auth URL and exit, then finish with --auth-code (for agents and remote shells) |
 | `--json` | output the result as JSON (token is never echoed) |
 | `-h, --help` | display help for command |

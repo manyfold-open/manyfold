@@ -4,11 +4,6 @@ import type {
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import {
-    execSprite,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
 import { agents, jsonbMerge, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { ConnectionsService } from '@/modules/connections/connections.service'
@@ -117,24 +112,11 @@ const buildContextScript = (input: {
         'echo MF_CTX_OK'
     ].join('\n')
 
-// One exec seam per runtime kind: the script is plain bash either way, so the
-// sprite path wraps execSprite and the daemon path wraps the daemon exec RPC.
+// The exec the doc is written through: plain bash over the host daemon.
 export type ContextDocRunner = (
     script: string,
     timeoutMs: number
 ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
-
-export const spriteContextDocRunner = (
-    client: SpritesClient,
-    spriteName: string,
-    logger?: SpritesLogger
-): ContextDocRunner => async (script, timeoutMs) =>
-    execSprite(
-        client,
-        spriteName,
-        { cmd: ['bash', '-lc', script], stdin: '', timeoutMs },
-        logger
-    )
 
 @Injectable()
 export class AgentContextDocService {

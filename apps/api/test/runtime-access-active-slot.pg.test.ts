@@ -26,7 +26,7 @@ import { RuntimeAccessService } from '../src/modules/runtime-access/runtime-acce
 //   TypeError [ERR_INVALID_ARG_TYPE]: The "string" argument must be of type
 //   string or an instance of Buffer or ArrayBuffer. Received an instance of Date
 // reserveActiveSlot is the shared admission path for BOTH a chat turn
-// (ExecDriverFactory.forAgent) and an interactive terminal (SpritesTerminal.tunnel),
+// (ExecDriverFactory.forAgent) and an interactive terminal (TerminalGateway),
 // so the crash surfaced as a chat SSE `adapter_error` and as `terminal.tunnel_failed`.
 // The fix coerces the Date to a ms-precision ISO string with a ::timestamptz cast.
 //

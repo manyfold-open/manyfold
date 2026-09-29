@@ -5,12 +5,6 @@ import {
     mcpConfigFromExtras
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
-import {
-    spriteReadFile,
-    spriteWriteFile,
-    type SpritesClient,
-    type SpritesLogger
-} from '@manyfold/sprites'
 import { type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -35,9 +29,8 @@ import {
     type McpScopeTarget
 } from '@/modules/agent-runtimes/mcp/mcp-config'
 
-// One read-modify-write surface per transport. The daemon impl drives the
-// host daemon's fs RPCs (#781); the sprite impl wraps the sprites fs client
-// for the provisioner's bootstrap, before the machine's daemon is up.
+// The read-modify-write surface a delivery writes through: the host daemon's
+// fs RPCs (#781), whatever provider made the machine (ADR-0037 R6).
 export interface ScopeFileIo {
     read(absPath: string): Promise<string | null>
     write(absPath: string, text: string): Promise<void>
@@ -59,28 +52,6 @@ export interface MaterializeMcpArgs {
     composioKey?: string | null
     safeErrors?: boolean
 }
-
-export const spriteScopeIo = (
-    client: SpritesClient,
-    spriteName: string,
-    logger: SpritesLogger,
-    timeoutMs?: number
-): ScopeFileIo => ({
-    read: (absPath) => readFileText(client, spriteName, absPath, logger),
-    write: async (absPath, text) => {
-        await spriteWriteFile(
-            client,
-            spriteName,
-            {
-                absPath,
-                body: Buffer.from(text, 'utf8'),
-                mode: '600',
-                timeoutMs
-            },
-            logger
-        )
-    }
-})
 
 // Writes per-scope MCP config into a coding agent's runtime. DB (agent.extras.mcp)
 // is the source of truth; this projects it onto each framework's real config
@@ -372,18 +343,3 @@ const composioInjection = (
         }
     return undefined
 }
-
-export const readFileText = async (
-    client: SpritesClient,
-    spriteName: string,
-    absPath: string,
-    logger: SpritesLogger
-): Promise<string | null> => {
-    const file = await spriteReadFile(client, spriteName, absPath, logger)
-    if (!file) return null
-    const chunks: Buffer[] = []
-    for await (const chunk of file.stream) chunks.push(chunk)
-    await file.done
-    return Buffer.concat(chunks).toString('utf8')
-}
-

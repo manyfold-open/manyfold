@@ -4116,7 +4116,14 @@ const ru: Record<string, string> = {
     'web.selfOwned.retire': 'Вывести из эксплуатации',
     'web.selfOwned.retireHostTitle': 'Вывести машину из эксплуатации',
     'web.selfOwned.retireHostDesc': 'Её демон отключается, а токен отзывается; машина больше не сможет подключиться. Агенты на ней перестают работать. Данные рабочей области на машине сохраняются.',
-    'web.selfOwned.msgMachineRetired': 'Машина выведена из эксплуатации'
+    'web.selfOwned.msgMachineRetired': 'Машина выведена из эксплуатации',
+    'web.settingsMenu.useInAgent': 'Использовать в своём агенте',
+    'web.useInAgent.title': 'Использовать Manyfold в своём агенте',
+    'web.useInAgent.description': 'Скопируйте этот промпт в своего ИИ-агента. Он при необходимости установит mf CLI, выполнит вход через ваш браузер и добавит плагин Manyfold.',
+    'web.useInAgent.hint': 'Работает с Claude Code, Codex и любым агентом, который умеет выполнять команды оболочки.',
+    'web.useInAgent.prompt': 'Подключи этого агента к Manyfold: загрузи {{url}} с помощью `curl` и выполни все шаги до конца.',
+    'web.useInAgent.promptLocal': 'Это мой локальный стенд разработки Manyfold на {{host}}: используй для него отдельный профиль `mf` и не трогай мои другие входы в `mf` и установленный `mf`.',
+    'web.useInAgent.promptOther': 'Это развёртывание Manyfold на {{host}}: используй для него отдельный профиль `mf` и не трогай мои другие входы в `mf` и установленный `mf`.'
 }
 
 export default ru

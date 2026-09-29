@@ -4115,7 +4115,14 @@ const fr: Record<string, string> = {
     'web.selfOwned.retire': 'Retirer',
     'web.selfOwned.retireHostTitle': 'Retirer la machine',
     'web.selfOwned.retireHostDesc': 'Son démon est déconnecté et son jeton révoqué ; la machine ne peut plus se reconnecter. Les agents qui s’y trouvent cessent de s’exécuter. Les données de l’espace de travail sur la machine sont conservées.',
-    'web.selfOwned.msgMachineRetired': 'Machine retirée'
+    'web.selfOwned.msgMachineRetired': 'Machine retirée',
+    'web.settingsMenu.useInAgent': 'Utiliser dans votre agent',
+    'web.useInAgent.title': 'Utiliser Manyfold dans votre agent',
+    'web.useInAgent.description': 'Copiez ce prompt dans votre propre agent IA. Il installe la CLI mf si nécessaire, vous connecte via votre navigateur et ajoute le plugin Manyfold.',
+    'web.useInAgent.hint': 'Fonctionne avec Claude Code, Codex et tout agent capable d’exécuter des commandes shell.',
+    'web.useInAgent.prompt': 'Connecte cet agent à Manyfold : récupère {{url}} avec `curl` et suis ses instructions jusqu’au bout.',
+    'web.useInAgent.promptLocal': 'Voici mon environnement de développement Manyfold local sur {{host}} : utilise un profil `mf` distinct pour lui et ne touche ni à mes autres connexions `mf` ni au `mf` installé.',
+    'web.useInAgent.promptOther': 'Voici le déploiement Manyfold sur {{host}} : utilise un profil `mf` distinct pour lui et ne touche ni à mes autres connexions `mf` ni au `mf` installé.'
 }
 
 export default fr

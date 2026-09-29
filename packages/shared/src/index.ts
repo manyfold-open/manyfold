@@ -553,6 +553,7 @@ export {
     frameworkMcpSupport,
     isKnownMcpScope,
     AWAKE_HOLD_TASK_PREFIX,
+    AWAKE_KEEP_TASK_NAME,
     HERMES_DASHBOARD_SERVICE,
     HERMES_PROXY_SERVICE,
     PLATFORM_TASK_PREFIX
@@ -1183,6 +1184,8 @@ export {
     PROFILE_NAME_RE,
     RUNNER_PROFILE,
     buildPodRunnerEnv,
+    cliProfileForApiUrl,
+    isLoopbackHostname,
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,
@@ -1191,6 +1194,8 @@ export {
     runtimeAuthRoot
 } from './profile-paths'
 export type { ProfilePaths } from './profile-paths'
+export { renderAgentSetupGuide } from './agentSetupGuide'
+export type { AgentSetupGuideInput } from './agentSetupGuide'
 export {
     RUNTIME_AUTH_METHODS,
     RUNTIME_AUTH_LIFECYCLES,
