@@ -142,6 +142,19 @@ test('a repeated request while draining replaces the pending target', async () =
     assert.deepEqual(h.applied, [{ targetVersion: '2.1.0' }])
 })
 
+// A caller that keeps asking must not keep postponing: the deadline is the
+// first request's, and the update runs when it passes.
+test('a repeated request while draining keeps the first deadline', async () => {
+    const h = makeHarness({ drainTimeoutMs: 60 })
+    h.setActive(1)
+    await h.coordinator.request({ targetVersion: '2.0.0' })
+    await sleep(40)
+    await h.coordinator.request({ targetVersion: '2.0.0' })
+    await sleep(40)
+    assert.deepEqual(h.applied, [{ targetVersion: '2.0.0' }])
+    assert.equal(h.restarts, 1)
+})
+
 test('requestIfIdle applies immediately on an idle daemon', async () => {
     const h = makeHarness()
     const outcome = await h.coordinator.requestIfIdle({

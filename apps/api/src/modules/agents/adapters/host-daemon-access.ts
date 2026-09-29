@@ -358,7 +358,9 @@ export class HostDaemonOfflineError extends Error {
         readonly execFailure?: RunnerExecFailure
     ) {
         super(
-            reason === 'runner_cli_too_old'
+            reason === 'runner_updating'
+                ? `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
+                : reason === 'runner_cli_too_old'
                 ? host.kind === 'local'
                     ? `the Manyfold CLI on ${host.name} is too old for this; update it and retry`
                     : `the Manyfold CLI on ${host.name} is too old for this, and no update carrying what it needs is published yet`

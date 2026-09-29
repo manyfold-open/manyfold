@@ -52,7 +52,10 @@ export class UpdateDrainCoordinator {
             return { kind: 'applied', result: await this.apply(spec) }
         }
         this.pending = spec
-        this.armDeadline()
+        // A request repeated while the drain runs keeps its deadline:
+        // re-arming it on every retry let a busy daemon put the update off
+        // for good.
+        if (!this.deadlineTimer) this.armDeadline()
         return { kind: 'deferred', activeSessions: active }
     }
 

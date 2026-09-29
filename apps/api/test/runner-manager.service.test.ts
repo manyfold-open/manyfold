@@ -17,7 +17,10 @@ import type {
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
-import { HostCliTooOldError } from '../src/modules/chat/runner/host-cli.service'
+import {
+    HostCliTooOldError,
+    HostCliUpdatingError
+} from '../src/modules/chat/runner/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -688,6 +691,25 @@ test('an update that cannot bring the feature answers runner_cli_too_old', async
     })
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_cli_too_old')
+})
+
+// A daemon finishing its current work before it updates is a retry-soon, not
+// a CLI too old to use.
+test('a daemon draining for its update answers runner_updating', async () => {
+    const h = buildHarness({
+        daemon: daemonRow({ clientFeatures: [] }),
+        hostCli: {
+            ensure: async (host) => {
+                throw new HostCliUpdatingError(host)
+            }
+        }
+    })
+    const res = await h.service.ensureHostDaemon({
+        host: h.state.host,
+        requiredFeatures: ['exec.roots.v1']
+    })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_updating')
 })
 
 test('an update that failed for another reason stays retryable', async () => {

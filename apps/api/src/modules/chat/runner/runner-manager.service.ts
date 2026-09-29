@@ -46,7 +46,11 @@ import {
 import { recordPower } from '@/modules/hosts/providers/generation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
-import { HostCliService, HostCliTooOldError } from './host-cli.service'
+import {
+    HostCliService,
+    HostCliTooOldError,
+    HostCliUpdatingError
+} from './host-cli.service'
 
 // Bring a hosted host's daemon up so a turn — or anything else that happens
 // inside the machine — can go through the daemon protocol (ADR-0037 R11):
@@ -137,6 +141,8 @@ export type RunnerFallbackReason =
     | 'runner_missing_turn_rpc'
     // the host's daemon is older than the floor and could not be updated.
     | 'runner_cli_too_old'
+    // the host's daemon updates once the work it has finishes: retry soon.
+    | 'runner_updating'
 
 // How the sprite's exec endpoint refused the inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run.
@@ -380,9 +386,11 @@ export class RunnerManagerService {
                     `daemon on host ${host.id} was not updated for ${missing.join(',')}: ${(err as Error).message}`
                 )
                 return unavailable(
-                    err instanceof HostCliTooOldError
-                        ? 'runner_cli_too_old'
-                        : 'runner_unavailable'
+                    err instanceof HostCliUpdatingError
+                        ? 'runner_updating'
+                        : err instanceof HostCliTooOldError
+                          ? 'runner_cli_too_old'
+                          : 'runner_unavailable'
                 )
             }
         }
