@@ -172,7 +172,11 @@ export class TerminalResumeService {
                       { agentId: args.agentId, userId: args.userId }
                   )
                 : args.framework === 'codex'
-                  ? await this.codexPlatformResume(args.runtimeId, command)
+                  ? await this.codexPlatformResume(
+                        args.runtimeId,
+                        command,
+                        args.model ?? null
+                    )
                   : {
                       command,
                       env: await this.claudeCredentialEnv(args.runtimeId)
@@ -202,10 +206,14 @@ export class TerminalResumeService {
 
     // codex resumes on the provider its turns run on, with the key in the
     // env and the endpoint in `-c` overrides (codex-platform-exec.ts): the
-    // machine keeps no platform key for a plain `codex` to find.
+    // machine keeps no platform key for a plain `codex` to find. Those
+    // overrides also stop codex from restoring the thread's own model — it
+    // takes config.toml's then — so the agent's model is passed as well, as
+    // the turns do.
     private async codexPlatformResume(
         runtimeId: string,
-        command: string[]
+        command: string[],
+        model: string | null
     ): Promise<ResolvedTerminalResume | null> {
         const creds = (await this.storedCredentials(runtimeId)) as {
             openaiApiKey?: string
@@ -217,6 +225,7 @@ export class TerminalResumeService {
             openaiApiKey: creds.openaiApiKey,
             openaiBaseUrl: creds.openaiBaseUrl ?? undefined
         })
+        if (model?.trim()) argv.push('--model', model.trim())
         return { command: argv, env }
     }
 
