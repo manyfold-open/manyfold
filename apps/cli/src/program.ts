@@ -10,6 +10,7 @@ import { registerFiles } from '@/commands/files'
 import { registerConnections } from '@/commands/connections'
 import { registerHelp } from '@/commands/help'
 import { registerModelConfig } from '@/commands/model-config'
+import { registerModelProviders } from '@/commands/model-providers'
 import { registerProfile } from '@/commands/profile'
 import { registerRuntime } from '@/commands/runtime'
 import { registerSandbox } from '@/commands/sandbox'
@@ -73,6 +74,7 @@ export const buildProgram = (): Command => {
     registerFiles(program)
     registerConnections(program)
     registerModelConfig(program)
+    registerModelProviders(program)
     registerRuntime(program)
     registerSandbox(program)
     registerSkills(program)

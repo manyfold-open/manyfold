@@ -79,11 +79,12 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 - `mf help automations --agent` — scheduled jobs: create, run, update, delete
 - `mf help files --agent` — agent workspace files: list, read, write, mv, rm
 - `mf help model-config --agent` — read or update the agent model configuration
+- `mf help model-providers --agent` — which saved or managed providers can serve a new agent, and its models
 - `mf help skills --agent` — install, discover and manage agent skills
 - `mf help connections --agent` — external accounts (GitHub, Cloudflare, Composio) linked to the agent
 - `mf help runtime --agent` — runtime lifecycle, control UI, dashboard
-- `mf help sandbox --agent` — scoped sandbox storage, cached readings and attribution
-- `mf help agent --agent` — agent CRUD, storage, credentials, logs
+- `mf help sandbox --agent` — list and delete sandboxes; storage readings and attribution
+- `mf help agent --agent` — create (model source, sandbox reuse), list, update, delete, credentials
 - `mf help backups --agent` — agent snapshots: list, create, restore
 - `mf help usage --agent` — token and cost statistics
 - `mf help a2a --agent` — call A2A servers or manage this agent’s A2A exposure and callers
@@ -91,11 +92,14 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 Add `--json` to any `mf help … --agent` call for a machine-readable
 envelope (`topic`, `cliVersion`, `topics`, `content`). Most commands also
 accept `--json`; with it, the result is raw JSON on stdout and a failure is
-emitted as `{ "error": { "code", "status"?, "message", "hint"? } }` on
-stderr (never the raw response body), so both success and failure stay
-parseable. Exit codes are stable in every mode: 2 network failure, 3 auth
-(401/403), 4 not found, 5 invalid usage or arguments (400/422), 1 anything
-else. `mf <command> --help` shows human-readable flags.
+emitted on stderr as
+`{ "error": { "code", "status"?, "message", "hint"?, "details"? } }`
+(never the raw response body), so both success and failure stay parseable.
+`details` comes with the codes a script can act on, such as
+`RUNTIME_LIMIT_REACHED`. Exit codes are stable in every mode: 2 network
+failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
+(400/422), 130 interrupted (Ctrl-C), 1 anything else. `mf <command> --help`
+shows human-readable flags.
 
 ## Execution and recovery
 
@@ -105,6 +109,8 @@ else. `mf <command> --help` shows human-readable flags.
   acceptance from completion and inspect the exact returned run/job ID.
 - After a timeout, inspect whether a create or run request took effect before
   retrying it. A failed run is not permission to submit another one.
+  `mf agent create` is the exception: rerunning the same command attaches
+  to its create if that is still under way, or returns the agent it made.
 - An ownership rejection requires checking identity and target, not
   repeatedly requesting scopes. Unknown flags require current command help.
 - Follow existing user authorization; creating a schedule, running it now,

@@ -1,5 +1,6 @@
 import {
     ACCOUNT_SCOPE_HEADER,
+    AGENT_CREATE_REQUEST_HEADER,
     CHAT_MESSAGE_SOFT_LIMIT,
     apiPaths,
     isObjectId
@@ -356,6 +357,17 @@ export interface AgentPermissionsClient {
 export interface AgentCreateStreamOptions {
     signal?: AbortSignal
     idempotencyKey?: string
+    // A create this client saw accepted (the request id onAccepted reported):
+    // the API follows that create to whatever end it came to and starts
+    // nothing new.
+    resume?: string
+    // Called once the API accepts the create, with the request id it named;
+    // null from an API that cannot attach a repeat.
+    onAccepted?: (requestId: string | null) => void
+    // Give up on a stream that sends nothing, not even a keepalive, for this
+    // long. Applied only when the API named the request: that API sends a
+    // keepalive every 15 s, where an older one is silent through long steps.
+    idleTimeoutMs?: number
 }
 
 export interface HostStatusStreamHandlers {
@@ -1838,6 +1850,8 @@ const buildAgentsClient = (
             if (token) headers.set('Authorization', `Bearer ${token}`)
             if (options?.idempotencyKey)
                 headers.set('Idempotency-Key', options.idempotencyKey)
+            if (options?.resume)
+                headers.set(AGENT_CREATE_REQUEST_HEADER, options.resume)
             const res = await fetchImpl(`${baseUrl}${paths.base}`, {
                 method: 'POST',
                 headers,
@@ -1847,7 +1861,33 @@ const buildAgentsClient = (
             if (!res.ok || !res.body) {
                 throw await buildApiError(res)
             }
+            const requestId = res.headers.get(AGENT_CREATE_REQUEST_HEADER)
+            options?.onAccepted?.(requestId)
             const reader = res.body.getReader()
+            const idleMs = requestId ? options?.idleTimeoutMs : undefined
+            const read = async (): Promise<
+                ReadableStreamReadResult<Uint8Array>
+            > => {
+                if (!idleMs) return reader.read()
+                let timer: ReturnType<typeof setTimeout> | undefined
+                const quiet = new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => {
+                        // Settled before the cancel, which ends the pending
+                        // read as done and would otherwise win the race.
+                        reject(
+                            new Error(
+                                `the agent create stream sent nothing for ${Math.round(idleMs / 1000)} s`
+                            )
+                        )
+                        void reader.cancel().catch(() => undefined)
+                    }, idleMs)
+                })
+                try {
+                    return await Promise.race([reader.read(), quiet])
+                } finally {
+                    clearTimeout(timer)
+                }
+            }
             const decoder = new TextDecoder()
             let buffer = ''
             let completed: AgentSummary | null = null
@@ -1861,7 +1901,7 @@ const buildAgentsClient = (
                 if (event.type === 'error') errored = event
             }
             while (true) {
-                const { value, done } = await reader.read()
+                const { value, done } = await read()
                 if (done) break
                 buffer += decoder.decode(value, { stream: true })
                 let nl = buffer.indexOf('\n')

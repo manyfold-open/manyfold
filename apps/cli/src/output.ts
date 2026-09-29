@@ -34,6 +34,7 @@ export interface CliErrorDetail {
     hint?: string
     scopes?: string[]
     consentUrl?: string
+    details?: unknown
 }
 
 export interface CliFailure {
@@ -133,7 +134,36 @@ const profileHint = (): string => {
     }
 }
 
+// What to do next for a failure a script can act on, by its code; these
+// codes also pass their `details` through to `--json` output.
+type CodeHint = (details: Record<string, unknown>) => string
+
+const CODE_HINTS: Record<string, CodeHint> = {
+    RUNTIME_LIMIT_REACHED: () =>
+        'Every sandbox your plan includes is in use: add the agent to one with --sandbox <id|name>, or free one with mf sandbox list and mf sandbox delete.',
+    AGENT_NAME_TAKEN: (details) =>
+        typeof details.agentId === 'string'
+            ? `Pick another name, or look at that agent with mf agent get ${details.agentId}.`
+            : 'Pick another name.',
+    AGENT_CREATE_IN_PROGRESS: () =>
+        'A create of this name with other settings is under way: wait for it to finish, or pick another name.',
+    AGENT_CREATE_INTERRUPTED: (details) =>
+        typeof details.hostId === 'string'
+            ? `Run the command again to start over; mf sandbox list shows the sandbox it may have left (${details.hostId}).`
+            : 'Run the command again to start over.',
+    AGENT_CREATE_NOT_FOUND: () =>
+        'The create this connection followed is gone; check mf agent list before running the command again.',
+    SANDBOX_NOT_FOUND: () => 'Check the sandbox with mf sandbox list.'
+}
+
+const recordOf = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+
 const apiErrorHint = (error: ApiError): string | undefined => {
+    const byCode = CODE_HINTS[error.code]
+    if (byCode) return byCode(recordOf(error.details))
     const status = error.status
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
     if (status === 403)
@@ -197,7 +227,10 @@ export const normalizeCliError = (
                 code: error.code,
                 status: error.status,
                 message: apiErrorMessage(error),
-                ...errorExtra({ hint: apiErrorHint(error), ...extra })
+                ...errorExtra({ hint: apiErrorHint(error), ...extra }),
+                ...(CODE_HINTS[error.code] && error.details !== undefined
+                    ? { details: error.details }
+                    : {})
             },
             exitCode: exitCodeForStatus(error.status)
         }

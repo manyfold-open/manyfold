@@ -15,7 +15,8 @@ export const HUMAN_HELP_GROUPS: readonly HumanHelpGroup[] = [
             'agent',
             'runtime',
             'sandbox',
-            'model-config'
+            'model-config',
+            'model-providers'
         ]
     },
     {

@@ -79,6 +79,44 @@ test('ApiError normalization preserves safe fields and stable exit codes', () =>
     }
 })
 
+// A failure a script can act on: its hint says what to do, and its details
+// (the quota, the agent in the way) reach --json output. Other codes keep
+// their details to themselves.
+test('codes a script can act on get their own hint and keep their details', () => {
+    const quota = {
+        kind: 'sprites',
+        current: 3,
+        limit: 3,
+        planName: 'Free'
+    }
+    const limit = normalizeCliError(
+        apiError(403, {
+            code: 'RUNTIME_LIMIT_REACHED',
+            serverMessage: 'Stateful sandbox limit reached (3 for Free plan)',
+            details: quota
+        })
+    )
+    assert.match(
+        limit.error.hint ?? '',
+        /--sandbox <id\|name>.*mf sandbox delete/
+    )
+    assert.deepEqual(limit.error.details, quota)
+    const taken = normalizeCliError(
+        apiError(409, {
+            code: 'AGENT_NAME_TAKEN',
+            serverMessage: 'agent "x" already exists for this user',
+            details: { agentId: 'agt_1' }
+        })
+    )
+    assert.match(taken.error.hint ?? '', /mf agent get agt_1/)
+    assert.deepEqual(taken.error.details, { agentId: 'agt_1' })
+    const other = normalizeCliError(
+        apiError(409, { code: 'SOMETHING_ELSE', serverMessage: 'no' })
+    )
+    assert.ok(!('details' in other.error))
+    assert.match(other.error.hint ?? '', /Refresh/)
+})
+
 test('ApiError uses a server message but never an unparsed response body', () => {
     const withMessage = normalizeCliError(
         apiError(422, { serverMessage: 'title is required' })

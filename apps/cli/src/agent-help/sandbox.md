@@ -1,4 +1,24 @@
-# Sandbox storage
+# Sandboxes
+
+## List and delete
+
+```sh
+mf sandbox list --json
+mf sandbox delete <sandbox-id|name> --yes
+```
+
+`list` shows each sandbox with its state, agent count and the frameworks
+installed on it (`runtimes`), plus how many sandboxes the plan includes
+(`quota`: `used`, `limit`, `plan`). Deleting an agent does not free its
+sandbox; deleting the sandbox does. `delete` is irreversible, refuses
+without `--yes`/`-y`, and answers `HOST_NOT_EMPTY` while agents are on it,
+naming them. It needs `sandboxes:read` and `sandboxes:edit`; `list` needs
+`sandboxes:read` and `agent-runtimes:read`.
+
+To reuse a sandbox instead of creating one, pass it to
+`mf agent create <name> --sandbox <id|name>` (`mf help agent --agent`).
+
+## Storage
 
 `mf sandbox storage-usage --json` reports the current agent's sandbox. It uses
 `--agent-id`, `MF_AGENT_ID`, or the authenticated runtime identity. A human token

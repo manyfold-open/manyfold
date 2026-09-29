@@ -11,6 +11,7 @@ export const AGENT_HELP_TOPICS = [
     'automations',
     'files',
     'model-config',
+    'model-providers',
     'skills',
     'connections',
     'runtime',
@@ -33,11 +34,13 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     automations: 'scheduled jobs: create, run, update, delete',
     files: 'agent workspace files: list, read, write, mv, rm',
     'model-config': 'read or update the agent model configuration',
+    'model-providers':
+        'which saved or managed providers can serve a new agent, and its models',
     skills: 'install, discover and manage agent skills',
     connections: 'external accounts (GitHub, Cloudflare, Composio) linked to the agent',
     runtime: 'runtime lifecycle, control UI, dashboard',
-    sandbox: 'scoped sandbox storage, cached readings and attribution',
-    agent: 'agent CRUD, storage, credentials, logs',
+    sandbox: 'list and delete sandboxes; storage readings and attribution',
+    agent: 'create (model source, sandbox reuse), list, update, delete, credentials',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',
     a2a: 'call A2A servers or manage this agent’s A2A exposure and callers'
@@ -53,7 +56,8 @@ const TOPIC_ALIASES: Record<string, AgentHelpTopic> = {
     automation: 'automations',
     agents: 'agent',
     'agent-runtimes': 'runtime',
-    backup: 'backups'
+    backup: 'backups',
+    'model-provider': 'model-providers'
 }
 
 const isAgentHelpTopic = (value: string): value is AgentHelpTopic =>

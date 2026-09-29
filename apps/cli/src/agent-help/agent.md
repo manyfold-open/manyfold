@@ -17,6 +17,9 @@ documented in `mf help model-config --agent`.
 
 - `agents:read` — `list`, `get`, `storage-usage`
 - `agents:edit` — `create`, `update`, `delete`
+- `create` also reads what it names: `model-providers:read` for a
+  `--model-provider` other than `subscription`, `sandboxes:read` and
+  `agent-runtimes:read` for `--sandbox`
 - `secrets:read` — `credentials get`, `credentials reveal`
 - `secrets:edit` — `credentials update`
 
@@ -27,7 +30,7 @@ For a scope denial, follow `mf help auth --agent` for the current identity.
 ```sh
 mf agent list
 mf agent get <agent-id> --json
-mf agent create <name> --framework codex --openai-api-key <key>
+mf agent create <name> --framework codex --model-provider managed --json
 mf agent update <agent-id> --name <new-name> --json
 mf agent delete <agent-id> --yes
 mf agent storage-usage <agent-id>
@@ -35,23 +38,59 @@ mf agent credentials reveal <agent-id>
 mf agent credentials update <agent-id> --body '<json-or-@file>'
 ```
 
-- `create` frameworks: `claude-code` (default) | `codex` | `gemini-cli` | `pi`
-  | `antigravity-cli`. Each requires its provider key via flag or env:
-  `--anthropic-auth-token` / `ANTHROPIC_AUTH_TOKEN`,
-  `--openai-api-key` / `OPENAI_API_KEY`,
-  `--google-api-key` / `GEMINI_API_KEY` (gemini-cli and antigravity-cli; pick
-  an agy model with `--agy-model`),
-  `--pi-api-key` / `PI_API_KEY` together with `--pi-provider`
-  (`anthropic` | `openai` | `google`).
 - `update` needs at least one of `--name`, `--model`, `--clear-model`.
 - `delete` (alias `rm`) is irreversible and refuses without `--yes`/`-y`.
 
+## Creating an agent
+
+`create` makes a coding agent — `--framework` `claude-code` (default) |
+`codex` | `gemini-cli` | `pi` | `antigravity-cli` — on a new sandbox, or
+adds it to one the account has with `--sandbox <id|name>`
+(`mf sandbox list`). A new sandbox counts against the plan's sandboxes.
+
+A new sandbox needs exactly one model source:
+
+- `--model-provider managed` — Manyfold managed models.
+- `--model-provider subscription` — the user's own subscription, signed in
+  on the sandbox after the create. The output prints the sign-in command
+  and the chat link whose sign-in card walks through it.
+- `--model-provider <id|name>` — a saved provider from
+  `mf model-providers list --framework <fw>`; it must have been tested.
+- The framework's key flag: `--anthropic-auth-token`, `--openai-api-key`,
+  `--google-api-key` (gemini-cli, antigravity-cli) or `--pi-api-key` with
+  `--pi-provider anthropic|openai|google`. Pass `-` and pipe the key in, as
+  below; a key in argv lands in shell history. Environment variables are
+  not read.
+
+```sh
+printenv OPENAI_API_KEY | mf agent create reviewer --framework codex --openai-api-key -
+```
+
+`--model <id>` picks one of the provider's tested models (listed by
+`mf model-providers list --framework <fw>`). With a pasted key it applies
+to gemini-cli, pi and antigravity-cli only.
+
+On `--sandbox` where the framework already runs, the agent shares that
+instance's credentials with every agent on it: pass no model source (or
+`--model-provider subscription` to use the sandbox's own sign-in). Where
+it does not run yet, the create installs it there and needs a model
+source as above.
+
+Progress goes to stderr, one line per finished step. If the connection
+drops, `create` picks the running create up again on its own. After a
+Ctrl-C (exit 130) the create goes on on the server: running the same
+command again attaches to it, or returns the agent it made.
+
 ## Output
 
-- `list` / `get` / `create` / `update` print one line per agent:
-  `id  name  framework/runtime  status`. All four accept `--json` (the
+- `list` / `get` / `update` print one line per agent:
+  `id  name  framework/runtime  status`. All accept `--json` (the
   scoped `{ scope, agents }` result for `list`, the full record otherwise);
   `delete` emits `{ ok, id }`. The list scope is `agent` or `account`.
+- `create --json` prints the agent record plus `create`: `resumed`
+  (this run picked up a create already under way), `sandbox`
+  (`id`, `name`, `created`), `modelSource`, `chatUrl` and
+  `signInCommand` (for a subscription still to be signed in).
 - Agent records expose `workspaceBytes` and `workspaceMeasuredAt`, never the
   old mixed-unit `storageBytes`. Unknown historical readings are null. These
   values describe an agent's workspace, not its sandbox or the whole account.
@@ -70,8 +109,15 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
 
 - "not authenticated" → `mf help auth --agent`
 {{AUTH_RECOVERY}}
-- `create` fails with "requires --…" → pass the provider key flag or
-  set the matching env var for the chosen framework
+- `create` exits 5 with "say who serves …'s model" → add one of the model
+  sources it lists
+- `RUNTIME_LIMIT_REACHED` → every sandbox the plan includes is in use: add
+  the agent to one with `--sandbox`, or free one with `mf sandbox delete`
+- `AGENT_NAME_TAKEN` (`details.agentId`) → pick another name
+- `AGENT_CREATE_IN_PROGRESS` → a create of that name with other settings is
+  under way; wait, or pick another name
+- `AGENT_CREATE_INTERRUPTED` → the API restarted mid-create; run it again
+  (`details.hostId` names a sandbox it may have left)
 - "nothing to update" → pass at least one update flag (see above)
 - "refusing to delete … without --yes" → add `--yes` only after the
   user confirms the deletion
