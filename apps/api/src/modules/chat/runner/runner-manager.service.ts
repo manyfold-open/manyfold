@@ -568,16 +568,26 @@ export class RunnerManagerService {
                 return { handle: null }
             }
             await recordPower(this.hosts, host.id, power)
-            if (power === 'suspended' || power === 'stopped') {
+            const asleep = power === 'suspended' || power === 'stopped'
+            if (asleep)
                 await adapter.wake({ host, provider, generation: host.generation })
-                const woken = await this.waitForLease(
+            // A registered daemon on a machine that just thawed — woken here or
+            // by the awake hold's own exec — dials back in by itself within
+            // seconds; restarting it instead ends every exec it still carries.
+            // Seen on staging [2026-09-29]: a bring-up restarted a daemon that
+            // had reconnected in the same second, with 13 streams in flight.
+            if (asleep || (await this.hostDaemons.findByHostId(host.id))) {
+                const back = await this.waitForLease(
                     host,
                     since,
-                    WAKE_RECONNECT_WAIT_MS
+                    Math.min(
+                        WAKE_RECONNECT_WAIT_MS,
+                        args.waitOnlineMs ?? WAKE_RECONNECT_WAIT_MS
+                    )
                 )
-                if (woken) {
-                    this.logger.log(`daemon reconnected after wake ${tag}`)
-                    return { handle: woken }
+                if (back) {
+                    this.logger.log(`daemon reconnected ${tag}`)
+                    return { handle: back }
                 }
             }
             const generation = await this.hosts.bumpGeneration(host.id)
