@@ -406,7 +406,7 @@ test('AgentModelConfigService filters Codex models and rejects ineligible fast',
     const db = new FakeDb({
         ...baseAgent,
         framework: 'codex',
-        model: 'provider/gpt-5.4-mini',
+        model: 'provider/operator-model',
         extras: {
             modelConfig: {
                 codex: {
@@ -419,6 +419,7 @@ test('AgentModelConfigService filters Codex models and rejects ineligible fast',
     db.credentialPayload = { openaiApiKey: 'sk-openai-test' }
     const service = makeService(db, [
         'provider/gpt-5.5',
+        'provider/operator-model',
         'foo/gpt-5.4-mini',
         'gpt-4.1'
     ])
@@ -427,7 +428,7 @@ test('AgentModelConfigService filters Codex models and rejects ineligible fast',
 
     assert.deepEqual(
         view.options.map((option) => option.value),
-        ['provider/gpt-5.5', 'foo/gpt-5.4-mini']
+        ['provider/gpt-5.5', 'provider/operator-model']
     )
     assert.equal(view.validation.valid, false)
     assert.match(view.validation.messages.join('\n'), /fast speed/)
@@ -437,12 +438,12 @@ test('AgentModelConfigService excludes disabled saved provider models', async ()
     const db = new FakeDb({
         ...baseAgent,
         framework: 'codex',
-        model: 'foo/gpt-5.4-mini'
+        model: 'foo/gpt-6-luna'
     })
     db.credentialPayload = { openaiApiKey: 'sk-openai-test' }
     const service = makeService(
         db,
-        ['provider/gpt-5.5', 'foo/gpt-5.4-mini'],
+        ['provider/gpt-5.5', 'foo/gpt-6-luna'],
         undefined,
         undefined,
         { openai_responses: ['provider/gpt-5.5'] }
@@ -491,6 +492,8 @@ test('AgentModelConfigService persists Codex defaults in agent extras', async ()
 test('AgentModelConfigService gates max and ultra per Codex model', async () => {
     const providerModels = [
         'provider/gpt-6-astra',
+        'provider/gpt-6-sol',
+        'provider/gpt-6-luna',
         'provider/gpt-5.6-luna',
         'provider/gpt-5.5'
     ]
@@ -535,6 +538,19 @@ test('AgentModelConfigService gates max and ultra per Codex model', async () => 
         }
     })
 
+    const sol = await save('provider/gpt-6-sol', 'ultra')
+    assert.deepEqual(sol.lastAgentPatch?.extras?.modelConfig, {
+        source: 'platform',
+        codex: {
+            speed: 'standard',
+            intelligence: 'ultra'
+        }
+    })
+
+    await assert.rejects(
+        () => save('provider/gpt-6-luna', 'ultra'),
+        /does not support intelligence ultra/
+    )
     await assert.rejects(
         () => save('provider/gpt-5.6-luna', 'ultra'),
         /does not support intelligence ultra/
@@ -1745,6 +1761,9 @@ const makeFakeCatalog = () => {
                 isDefault: false
             }
         ],
+        // the codex rows the release step leaves active
+        // (framework-model-catalog.yaml), plus one an operator added by hand
+        // without the fast tier
         codex: [
             {
                 modelKey: 'gpt-6-astra',
@@ -1753,10 +1772,22 @@ const makeFakeCatalog = () => {
                 isDefault: false
             },
             {
-                modelKey: 'gpt-5.6-sol',
+                modelKey: 'gpt-6-sol',
                 kind: 'model',
                 capabilities: { fast: true },
                 isDefault: false
+            },
+            {
+                modelKey: 'gpt-6-luna',
+                kind: 'model',
+                capabilities: { fast: true },
+                isDefault: false
+            },
+            {
+                modelKey: 'gpt-5.6-sol',
+                kind: 'model',
+                capabilities: { fast: true },
+                isDefault: true
             },
             {
                 modelKey: 'gpt-5.6-terra',
@@ -1774,22 +1805,10 @@ const makeFakeCatalog = () => {
                 modelKey: 'gpt-5.5',
                 kind: 'model',
                 capabilities: { fast: true },
-                isDefault: true
-            },
-            {
-                modelKey: 'gpt-5.4',
-                kind: 'model',
-                capabilities: { fast: true },
                 isDefault: false
             },
             {
-                modelKey: 'gpt-5.4-mini',
-                kind: 'model',
-                capabilities: {},
-                isDefault: false
-            },
-            {
-                modelKey: 'gpt-5.2',
+                modelKey: 'operator-model',
                 kind: 'model',
                 capabilities: {},
                 isDefault: false

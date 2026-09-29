@@ -644,7 +644,7 @@ const managedOpenAI = providerRow({
     source: 'managed',
     inferenceProtocol: 'openai_responses',
     managedBrand: 'openai',
-    lastTestModels: { openai_responses: ['gpt-5.2', 'gpt-5.4-mini', 'gpt-6'] }
+    lastTestModels: { openai_responses: ['gpt-5.2', 'gpt-5.4-mini', 'gpt-6', 'gpt-6-sol'] }
 })
 const managedGemini = providerRow({
     id: 'm-gemini',

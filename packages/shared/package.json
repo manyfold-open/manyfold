@@ -17,10 +17,12 @@
         "build": "tsc",
         "dev": "tsc --watch --preserveWatchOutput",
         "check": "tsc --noEmit && tsc --project tsconfig.tests.json",
-        "test": "node --import tsx --test test/*.test.ts"
+        "test": "node --import tsx --test test/*.test.ts",
+        "catalog:generate": "tsx scripts/generate-framework-model-catalog.ts"
     },
     "devDependencies": {
         "tsx": "^4.19.2",
-        "typescript": "^5.6.3"
+        "typescript": "^5.6.3",
+        "yaml": "^2.8.3"
     }
 }

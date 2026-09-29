@@ -132,6 +132,27 @@ test('a codex TUI resumes on the platform provider with the key in its env', asy
     assert.ok(command.includes('model_providers.Manyfold.env_key="OPENAI_API_KEY"'))
     assert.ok(!command.some((arg) => arg.includes('sk-fixture-codex-key')))
     assert.equal(resolved.resume?.env.OPENAI_API_KEY, 'sk-fixture-codex-key')
+    assert.ok(!command.includes('--model'))
+})
+
+// The `-c model_provider` override also stops codex from restoring the
+// thread's own model (it would take config.toml's), so the agent's model is
+// passed as a turn passes it.
+test('a codex TUI resumes on the agent’s model', async () => {
+    const resolved = await resolveWith(
+        'codex',
+        {
+            openaiApiKey: 'sk-fixture-codex-key',
+            openaiBaseUrl: 'https://gw.example/v1'
+        },
+        undefined,
+        'gpt-6-sol'
+    )
+    assert.equal(resolved.outcome, 'applied')
+    assert.deepEqual((resolved.resume?.command ?? []).slice(-2), [
+        '--model',
+        'gpt-6-sol'
+    ])
 })
 
 test('a codex credential without a key leaves a plain shell', async () => {

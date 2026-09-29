@@ -178,6 +178,25 @@ test('claude inspect reports no credential trace on an empty home', async () => 
     })
 })
 
+// Next to the aliases and what the machine configures itself, runtime-local
+// offers the models of the built-in catalog (framework-model-catalog.yaml).
+test('model inspect offers the catalog models and none it retired', async () => {
+    await withHome(async () => {
+        const claude = await inspect('claude-code')
+        for (const model of [
+            'claude-opus-5-5',
+            'claude-sonnet-5-5',
+            'claude-fable-5-1'
+        ])
+            assert.ok(claude.models.includes(model), model)
+        const codex = await inspect('codex')
+        for (const model of ['gpt-6-sol', 'gpt-6-luna'])
+            assert.ok(codex.models.includes(model), model)
+        for (const model of ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2'])
+            assert.ok(!codex.models.includes(model), model)
+    })
+})
+
 test('codex inspect decodes the access token expiry', async () => {
     await withHome(async (home) => {
         await mkdir(join(home, '.codex'), { recursive: true })

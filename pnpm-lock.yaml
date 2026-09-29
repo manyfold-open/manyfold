@@ -787,6 +787,9 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      yaml:
+        specifier: ^2.8.3
+        version: 2.9.0
 
   packages/sprites:
     dependencies:

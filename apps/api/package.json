@@ -14,6 +14,8 @@
         "db:generate": "drizzle-kit generate",
         "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
         "db:migrate:prod": "node dist/db/migrate.js",
+        "catalog:import": "tsx --env-file=.env src/db/framework-catalog.ts import",
+        "catalog:export": "tsx --env-file=.env src/db/framework-catalog.ts export",
         "db:studio": "drizzle-kit studio"
     },
     "dependencies": {
