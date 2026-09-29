@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Injectable, Optional } from '@nestjs/common'
 import type {
-    AgentRuntime,
+    RuntimePlacement,
     DaemonRpcMethod,
     DaemonStreamKind
 } from '@manyfold/shared'
@@ -20,15 +20,15 @@ import {
     DaemonRpcResponseError
 } from '@/modules/daemon/daemon-registry.service'
 import {
-    RunnerManagerService,
-    type RunnerExecFailure,
-    type RunnerFallbackReason
-} from '@/modules/chat/runner/runner-manager.service'
+    HostBringUpService,
+    type BringUpFallbackReason
+} from '@/modules/hosts/bring-up/host-bring-up.service'
+import type { ExecEndpointFailure } from '@/modules/hosts/providers/sandbox-provider'
 
 export interface EnsureHostDaemonArgs {
     host: RuntimeHostRow
     daemon: HostDaemonRow | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
     agentId?: string
     workspacePath?: string | null
     extraRoots?: readonly string[]
@@ -43,8 +43,8 @@ export interface EnsureHostDaemonArgs {
 export interface EnsureHostDaemonResult {
     daemon: HostDaemonRow | null
     online: boolean
-    fallbackReason?: RunnerFallbackReason
-    execFailure?: RunnerExecFailure
+    fallbackReason?: BringUpFallbackReason
+    execFailure?: ExecEndpointFailure
 }
 
 export interface HostRpcArgs {
@@ -100,7 +100,7 @@ export interface HostSession {
     host: RuntimeHostRow
     daemon: HostDaemonRow
     // The host id: the daemon's routing key.
-    daemonId: string
+    hostId: string
     // An RPC to the daemon that survives the one thing a held machine still
     // does on its own — reconnect after a thaw: a call lost to a closed,
     // replaced or frozen socket waits for the fresh lease and goes once more.
@@ -133,16 +133,16 @@ export class HostDaemonAccess {
         private readonly hostDaemons: HostDaemonsService,
         private readonly registry: DaemonRegistryService,
         @Optional() private readonly awake?: HostAwakeService,
-        @Optional() private readonly runnerManager?: RunnerManagerService
+        @Optional() private readonly bringUp?: HostBringUpService
     ) {}
 
     async ensure(args: EnsureHostDaemonArgs): Promise<EnsureHostDaemonResult> {
         if (
             args.host.kind === 'hosted' &&
             args.wake !== false &&
-            this.runnerManager
+            this.bringUp
         ) {
-            const resolution = await this.runnerManager.ensureHostDaemon({
+            const resolution = await this.bringUp.ensureHostDaemon({
                 host: args.host,
                 agentId: args.agentId,
                 workspacePath: args.workspacePath,
@@ -220,7 +220,7 @@ export class HostDaemonAccess {
             return await work({
                 host: args.host,
                 daemon: ensured.daemon,
-                daemonId: args.host.id,
+                hostId: args.host.id,
                 rpc: (call) => this.rpc(args.host, call),
                 exec: (req) => this.exec(args.host, req),
                 stream: (call) =>
@@ -270,8 +270,8 @@ export class HostDaemonAccess {
             })
         } catch (err) {
             if (!isTransportLoss(err, call.retryOnTimeout === true)) throw err
-            const back = this.runnerManager
-                ? await this.runnerManager.awaitReconnect(host, since)
+            const back = this.bringUp
+                ? await this.bringUp.awaitReconnect(host, since)
                 : null
             if (!back) throw err
             return this.registry.rpc({
@@ -324,8 +324,8 @@ export class HostDaemonAccess {
             return await attempt()
         } catch (err) {
             if (!isTransportLoss(err, false)) throw err
-            const back = this.runnerManager
-                ? await this.runnerManager.awaitReconnect(host, since)
+            const back = this.bringUp
+                ? await this.bringUp.awaitReconnect(host, since)
                 : null
             if (!back) throw err
             return attempt()
@@ -352,10 +352,10 @@ export const isTransportLoss = (err: unknown, includeTimeout: boolean): boolean 
 export class HostDaemonOfflineError extends Error {
     constructor(
         readonly host: RuntimeHostRow,
-        readonly reason: RunnerFallbackReason,
+        readonly reason: BringUpFallbackReason,
         // What the bring-up's first exec proved about the provider's exec
         // endpoint, when that is why there is no daemon.
-        readonly execFailure?: RunnerExecFailure
+        readonly execFailure?: ExecEndpointFailure
     ) {
         super(
             reason === 'runner_updating'

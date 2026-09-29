@@ -238,7 +238,7 @@ test('the initial codex dispatch hitting a lookup failure still fails retryably'
         daemonId: undefined,
         daemonExecRef: undefined,
         fromSeq: undefined,
-        runnerDaemonId: undefined,
+        turnHostId: undefined,
         frameworkSessionRef: null
     } as unknown as ApiChatAdapterContext
     const userMessage = {

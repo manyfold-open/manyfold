@@ -12,7 +12,7 @@ import {
 import { and, eq, ne } from 'drizzle-orm'
 import {
     DAEMON_FEATURE_AUTH_API_KEY,
-    type AgentRuntime,
+    type RuntimePlacement,
     runtimeLocalInspectFeature,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_AUTH_PROFILES,
@@ -53,7 +53,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '@/modules/hosts/bring-up/host-bring-up.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     CONCURRENT_ACTIVE_LIMIT_CODE,
@@ -119,7 +119,7 @@ const takesStoredApiKey = (framework: string): boolean => framework !== 'pi'
 export interface ResolvedHost {
     host: RuntimeHostRow | null
     daemon: HostDaemonRow | null
-    placement: AgentRuntime
+    placement: RuntimePlacement
     availability: RuntimeAuthAvailability
 }
 
@@ -166,7 +166,7 @@ export class RuntimeAuthProfilesService {
         private readonly account: RuntimeAccountService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly hostAccess: HostDaemonAccess,
-        private readonly runnerManager: RunnerManagerService
+        private readonly bringUp: HostBringUpService
     ) {}
 
     // ---- lookups -----------------------------------------------------------
@@ -331,7 +331,7 @@ export class RuntimeAuthProfilesService {
     private armAuthHold(runtimeId: string, host: RuntimeHostRow, holdMs: number): void {
         const existing = this.authHolds.get(runtimeId)
         if (existing) clearTimeout(existing.timer)
-        const hold = existing?.hold ?? this.runnerManager.holdAwake(host, `auth-${runtimeId}`)
+        const hold = existing?.hold ?? this.bringUp.holdAwake(host, `auth-${runtimeId}`)
         const timer = setTimeout(() => {
             void this.releaseAuthHold(runtimeId)
         }, holdMs)
@@ -1052,7 +1052,7 @@ export class RuntimeAuthProfilesService {
     ): Promise<{
         host: RuntimeHostRow
         daemon: HostDaemonRow
-        placement: AgentRuntime
+        placement: RuntimePlacement
         runtime: AgentRuntimeRow
         authLogin: DaemonPtyAuthLogin
     }> {

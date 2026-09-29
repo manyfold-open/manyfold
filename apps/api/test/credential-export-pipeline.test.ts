@@ -45,7 +45,7 @@ test('the actual telemetry bootstrap scrubs console, OTLP and Sentry payloads', 
         const url = 'wss://api.test/api/daemon/ws?to%6ben=' + encodeURIComponent(secret)
         const logger = new OtelNestLogger()
         const error = new Error('runner failure ' + url)
-        logger.error(error, { token: secret, detail: url }, 'RunnerManagerService')
+        logger.error(error, { token: secret, detail: url }, 'HostBringUpService')
         otelEventsLogger().emit({ body: 'direct event ' + url, attributes: { token: secret, detail: url } })
         diag.warn('credential diagnostic ' + url, { Authorization: 'Bearer ' + secret })
         captureApiException(error, { token: secret, url })

@@ -1,5 +1,5 @@
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
-import { ChatRunnerError } from '../runner/chat-runner'
+import { TurnDaemonError } from '@/modules/chat/turn-daemon'
 import {
     DAEMON_FEATURE_TURN_HERMES,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
@@ -282,16 +282,16 @@ export class HermesAdapter implements ApiChatAdapter {
         // id rides the context; a hosted machine's daemon is the runner
         // ChatService brought up for this turn, and without one there is no
         // transport.
-        const daemonId = localMachine ? agentRow.hostId : ctx.runnerDaemonId
-        if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
+        const daemonId = localMachine ? agentRow.hostId : ctx.turnHostId
+        if (!daemonId) throw new TurnDaemonError(ctx.runtimeKind, 'runner missing')
         try {
             if (!await this.requireTurnHermes(daemonId)) {
-                yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'turn.hermes missing', true).chatError }
+                yield { type: 'error', error: new TurnDaemonError(ctx.runtimeKind, 'turn.hermes missing', true).chatError }
                 return
             }
         } catch (err) {
             const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
-            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, `capability lookup failed: ${detail}`).chatError }
+            yield { type: 'error', error: new TurnDaemonError(ctx.runtimeKind, `capability lookup failed: ${detail}`).chatError }
             return
         }
         const override = await this.daemonModelOverride({ daemonId, modelTarget, explicit: explicitModelSwitch })

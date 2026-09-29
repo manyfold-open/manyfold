@@ -1,5 +1,5 @@
 import type { AgentSummary } from './dtos'
-import type { AgentFramework, AgentRuntime } from './constants'
+import type { AgentFramework, RuntimePlacement } from './constants'
 import { frameworkCapability } from './framework-capability'
 
 export const agentCreateStep = {
@@ -134,7 +134,7 @@ export const externalSteps: AgentCreateStep[] = [
 // runtimes self-register and never hit the streaming create path.
 export const stepsFor = (
     framework: AgentFramework,
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): AgentCreateStep[] => {
     if (runtime === 'external') return externalSteps
     const { kind } = frameworkCapability(framework)

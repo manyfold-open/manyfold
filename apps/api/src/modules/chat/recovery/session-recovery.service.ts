@@ -5,7 +5,7 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     ChatContentBlock,
     ChatMessage,
     ChatSessionOrigin,
@@ -118,7 +118,7 @@ interface RawSourceComparison {
     degraded: boolean
 }
 
-type RecoveryAgent = Agent & { runtime: AgentRuntime; hostId: string | null }
+type RecoveryAgent = Agent & { runtime: RuntimePlacement; hostId: string | null }
 
 @Injectable()
 export class SessionRecoveryService {
@@ -166,7 +166,7 @@ export class SessionRecoveryService {
 
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -390,7 +390,7 @@ export class SessionRecoveryService {
                     )
                     openclawRpc =
                         agent.framework === 'openclaw'
-                            ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                            ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                             : null
                     const listing = await reader.listCandidates({
                         fs: handle.fs,
@@ -441,7 +441,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         try {
             // A caller that names the session already has the list; scanning
@@ -633,7 +633,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -753,7 +753,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: {
             messages: RecoveredMessage[]
@@ -914,7 +914,7 @@ export class SessionRecoveryService {
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
             agent.framework === 'openclaw'
-                ? await this.drivers.openclawRpcForAgent(agent.id, handle.daemonId)
+                ? await this.drivers.openclawRpcForAgent(agent.id, handle.hostId)
                 : null
         let result: ReaderResult
         try {
@@ -1763,7 +1763,7 @@ const buildLocalRecoverySourceRows = (input: {
     existingRows: DbChatMessage[]
     sessionId: string
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     sourceRef: string
     sourceFile: string | null
 }): NewChatMessageSource[] => {
@@ -1793,7 +1793,7 @@ const buildRecoverySourceRowsForMessages = (input: {
     messageRows: NewChatMessage[]
     sessionId: string
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     sourceRef: string
     sourceFile: string | null
 }): NewChatMessageSource[] => {
@@ -1846,7 +1846,7 @@ const buildSourcesForMessage = (
     input: {
         sessionId: string
         framework: AgentFramework
-        runtime: AgentRuntime
+        runtime: RuntimePlacement
         sourceRef: string
         sourceFile: string | null
     },

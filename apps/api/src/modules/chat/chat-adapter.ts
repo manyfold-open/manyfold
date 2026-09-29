@@ -2,7 +2,7 @@ import type { ServedPriceScope } from '../usage/served-price-scope'
 import type {
     AgentFramework,
     AgentModelConfig,
-    AgentRuntime,
+    RuntimePlacement,
     ChannelProviderName,
     ChatCapabilities,
     ChatError,
@@ -108,7 +108,7 @@ export interface ApiChatAdapterContext {
     sessionId: string
     messageId: string
     framework: AgentFramework
-    runtimeKind: AgentRuntime
+    runtimeKind: RuntimePlacement
     model: string | null
     modelOverride: string | null
     // The provider row serving this turn and its built-in catalog id, when
@@ -160,7 +160,7 @@ export interface ApiChatAdapterContext {
     }) => void | Promise<void>
     // Required at dispatch for runtime-backed chat; external adapters omit it.
     // The carrying daemon is stamped durably before the adapter starts.
-    runnerDaemonId?: string | null
+    turnHostId?: string | null
 }
 
 export type EmittedTokenEvent = { type: 'token'; text: string }

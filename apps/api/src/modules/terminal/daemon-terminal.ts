@@ -13,7 +13,7 @@ import {
     envTextToRecord,
     isObjectId,
     placementOf,
-    type AgentRuntime
+    type RuntimePlacement
 } from '@manyfold/shared'
 import {
     BadGatewayException,
@@ -53,7 +53,7 @@ export interface DaemonTerminalRequest {
     // The machine's host id is the daemon's routing key (ADR-0037); the
     // placement decides which sign-in the agent's shell runs under.
     hostId: string
-    placement: AgentRuntime
+    placement: RuntimePlacement
     // The terminal's durable identity (ADR-0029 §1), injected as
     // MF_TERMINAL_ID so the CLI session hooks report from this shell.
     terminalId?: string | null
@@ -130,7 +130,7 @@ export interface DaemonHerdrOpenRequest {
     cwd?: string
     // The host whose daemon opens the pane: the agent's machine (ADR-0031).
     hostId: string
-    placement: AgentRuntime
+    placement: RuntimePlacement
     onToken?: (tokenId: string) => void
 }
 

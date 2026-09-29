@@ -1,6 +1,6 @@
 import { runtimeAvailability } from '@manyfold/shared'
 import type {
-    AgentRuntime,
+    RuntimePlacement,
     RuntimeAvailability,
     RuntimeHostKind,
     RuntimeHostPowerState,
@@ -173,7 +173,7 @@ export const daemonPresenceLabel = (
           ? t('web.hostStatus.daemon.online')
           : t('web.hostStatus.daemon.offline')
 
-export const placementLabel = (placement: AgentRuntime): string =>
+export const placementLabel = (placement: RuntimePlacement): string =>
     t(`web.hostStatus.placement.${placement}`)
 
 // The sidebar / picker key of a machine: one host is one machine (ADR-0037),

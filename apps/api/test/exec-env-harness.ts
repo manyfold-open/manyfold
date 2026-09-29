@@ -8,7 +8,7 @@ import {
 import type {
     DaemonAuthContextRef,
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     DetectedFramework
 } from '@manyfold/shared'
 import { agentCredentials, hostDaemons, runtimeHosts } from '@manyfold/db'
@@ -178,7 +178,7 @@ const captureDriver = (
 // driver with nothing attached.
 const factoryHandleFor = (
     seam: Seam,
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     framework: AgentFramework,
     authContext: DaemonAuthContextRef | null = null
 ): Record<string, unknown> => {
@@ -239,7 +239,7 @@ export const createSeam = (): Seam => ({
 
 const driversFor = (
     seam: Seam,
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     framework: AgentFramework,
     authContext: DaemonAuthContextRef | null = null
 ) => ({
@@ -287,7 +287,7 @@ const registryFor = (seam: Seam) => ({
 // gate, the openclaw gateway admission and the alias derivation run for real
 // rather than being stubbed out.
 const dbFor = (opts: {
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     framework: AgentFramework
     clientFeatures: string[]
     detectedFrameworks: DetectedFramework[]
@@ -385,7 +385,7 @@ export interface AdapterUnderTest {
 
 export interface BuildOptions {
     framework: AgentFramework
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
     // A profile-bound agent: the factory handle carries this ref and the
     // adapter must hand it to daemonDriverFor() on the runner swap.
     authContext?: DaemonAuthContextRef | null
@@ -557,7 +557,7 @@ export const withGatewayFetch = async (
 
 export const adapterCtx = (
     framework: AgentFramework,
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     extra: Partial<ApiChatAdapterContext> = {}
 ): ApiChatAdapterContext =>
     ({
@@ -580,7 +580,7 @@ export const adapterCtx = (
 
 export const resumeCtx = (
     framework: AgentFramework,
-    runtime: AgentRuntime,
+    runtime: RuntimePlacement,
     extra: Partial<ApiChatResumeContext> = {}
 ): ApiChatResumeContext =>
     ({

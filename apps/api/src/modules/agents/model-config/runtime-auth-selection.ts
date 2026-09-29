@@ -5,7 +5,7 @@ import {
     isModelConfigFramework,
     isRuntimeAuthProfileFramework,
     type AgentModelConfigSource,
-    type AgentRuntime,
+    type RuntimePlacement,
     type DaemonAuthContextRef,
     type RuntimeAuthSelection
 } from '@manyfold/shared'
@@ -25,7 +25,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 // when it is one the agent may use, else the runtime-kind default.
 export const effectiveModelConfigSource = (
     agent: Pick<Agent, 'framework' | 'extras'>,
-    placement: AgentRuntime
+    placement: RuntimePlacement
 ): AgentModelConfigSource => {
     const stored = asRecord(asRecord(agent.extras)?.modelConfig)?.source
     const runtimeLocalAllowed = isModelConfigFramework(agent.framework)
@@ -45,7 +45,7 @@ export const runtimeAuthSelectionFor = (
         | 'runtimeAuthProfileId'
         | 'runtimeAuthBindingVersion'
     >,
-    placement: AgentRuntime
+    placement: RuntimePlacement
 ): RuntimeAuthSelection =>
     agent.runtimeAuthProfileId &&
     effectiveModelConfigSource(agent, placement) === 'runtime-local'
@@ -67,7 +67,7 @@ export const authContextRefFor = (
         | 'runtimeAuthProfileId'
         | 'runtimeAuthBindingVersion'
     >,
-    placement: AgentRuntime
+    placement: RuntimePlacement
 ): DaemonAuthContextRef | null => {
     const selection = runtimeAuthSelectionFor(agent, placement)
     if (selection.mode !== 'profile') return null

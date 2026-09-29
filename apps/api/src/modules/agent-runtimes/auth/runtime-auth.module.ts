@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
-import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
 import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
@@ -19,7 +19,7 @@ import { RuntimeAuthProfilesService } from './runtime-auth-profiles.service'
         AuthModule,
         AgentRuntimesModule,
         DaemonModule,
-        RunnerModule,
+        HostBringUpModule,
         RuntimeAccessModule,
         HostsModule,
         HostDaemonAccessModule

@@ -1,6 +1,6 @@
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     InferenceProtocol,
     ModelPriceSource,
     ProviderTestModel,
@@ -129,7 +129,7 @@ export interface ManagedChannelAdmission {
     protocol?: InferenceProtocol | null
     model?: string | null
     framework?: AgentFramework | null
-    runtimeKind?: AgentRuntime | null
+    runtimeKind?: RuntimePlacement | null
 }
 
 export interface ManagedChannelTurnFacts {
@@ -137,7 +137,7 @@ export interface ManagedChannelTurnFacts {
     protocol?: InferenceProtocol | null
     model?: string | null
     framework?: AgentFramework | null
-    runtimeKind?: AgentRuntime | null
+    runtimeKind?: RuntimePlacement | null
 }
 
 // Failure-code vocabulary shared with core chat/credential error paths; the

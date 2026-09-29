@@ -1,4 +1,4 @@
-import { agentRuntime } from '@manyfold/shared'
+import { runtimePlacements } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { resolveRuntime } from '../src/modules/agents/orchestration/agent-orchestrator.service'
@@ -8,7 +8,7 @@ test('resolveRuntime uses configured admin defaults for configurable service fra
         resolveRuntime('openclaw', undefined, {
             defaults: { hermes: 'sprites', openclaw: 'k8s' }
         }),
-        agentRuntime.K8S
+        runtimePlacements.K8S
     )
 })
 
@@ -20,17 +20,17 @@ test('resolveRuntime fails when configurable service framework default is missin
 })
 
 test('resolveRuntime keeps explicit platform defaults for coding frameworks', () => {
-    assert.equal(resolveRuntime('codex'), agentRuntime.SPRITES)
+    assert.equal(resolveRuntime('codex'), runtimePlacements.SPRITES)
 })
 
 test('resolveRuntime still lets caller-explicit runtime win', () => {
     assert.equal(
         resolveRuntime(
             'hermes',
-            agentRuntime.SPRITES,
+            runtimePlacements.SPRITES,
             { defaults: { hermes: 'k8s', openclaw: 'k8s' } },
             { overrides: { hermes: 'k8s' } }
         ),
-        agentRuntime.SPRITES
+        runtimePlacements.SPRITES
     )
 })

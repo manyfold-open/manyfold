@@ -163,7 +163,7 @@ test('turn.start requires a runner and capability and never calls direct HTTP', 
         a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: 'gpt-x' })
         a.daemonSupportsTurnRpc = async () => feature
         a.sendViaTurnRpc = async function* () { routes.push('turn'); yield { type: 'done', finalMessageId: 'msg_1' } }
-        const send = drain(adapter.sendMessage(ctx({ runnerDaemonId: runner }), userMsg))
+        const send = drain(adapter.sendMessage(ctx({ turnHostId: runner }), userMsg))
         if (feature && runner) await send
         else await assert.rejects(send, /runner/i)
         assert.deepEqual(routes, feature && runner ? ['turn'] : [])
@@ -185,7 +185,7 @@ test('the daemon gets the exact request the API would have sent', async () => {
         })
         a.daemonSupportsTurnRpc = async () => true
         const events = await drain(
-            h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+            h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), userMsg)
         )
         assert.equal(h.calls.length, 1)
         const call = h.calls[0]
@@ -288,7 +288,7 @@ test('a gateway turn cancelled during setup never reaches the runner', async () 
     const a = asAny(h.adapter)
     a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: null })
     a.daemonSupportsTurnRpc = async () => true
-    const events = await drain(h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner', abortSignal: controller.signal }), userMsg))
+    const events = await drain(h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner', abortSignal: controller.signal }), userMsg))
     assert.equal(h.calls.length, 0)
     assert.equal(events.at(-1)?.type, 'error')
 })
@@ -304,7 +304,7 @@ test('an owned structured pool exhaustion is marked on the error', async () => {
     a.resolveRuntime = async () => ({ gatewayToken: 'tok', modelId: 'fixture-model', displayModel: null })
     a.daemonSupportsTurnRpc = async () => true
     const events = await drain(
-        adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+        adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), userMsg)
     )
     const error = events.find((event) => event.type === 'error')
     assert.ok(error && error.type === 'error')

@@ -3,7 +3,7 @@ import {
     DAEMON_FEATURE_FS_WRITE_STREAM,
     frameworkDefinition,
     isRuntimeUsable,
-    type AgentRuntime,
+    type RuntimePlacement,
     type DaemonRpcMethod
 } from '@manyfold/shared'
 import type {
@@ -62,7 +62,7 @@ export interface FilesContext {
     agent: Agent
     // The product placement of the agent's host (placementOf, ADR-0037);
     // absent on a context a framework builds for its own files.
-    placement?: AgentRuntime
+    placement?: RuntimePlacement
     root: FileRoot
     mountPath: string
     list(absPath: string): Promise<FsEntrySdk[]>
@@ -248,7 +248,7 @@ export class FilesContextBuilder {
     }
 
     // Where a terminal opens when the caller names no directory.
-    defaultTerminalCwd(agent: Agent, placement: AgentRuntime): string {
+    defaultTerminalCwd(agent: Agent, placement: RuntimePlacement): string {
         const fromProvider = this.extensions
             .get(agent.framework)
             ?.files?.defaultTerminalCwd?.(agent)

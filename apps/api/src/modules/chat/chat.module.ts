@@ -36,7 +36,7 @@ import { DaemonFencedDispatchService } from '@/modules/chat/adapters/daemon-fenc
 import { ConnectionsModule } from '@/modules/connections/connections.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { ModelProvidersModule } from '@/modules/model-providers/model-providers.module'
-import { RunnerModule } from './runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { HostStorageModule } from '@/modules/agents/host-storage/host-storage.module'
@@ -72,7 +72,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         AdminSettingsModule,
         ChatUploadsModule,
         ConnectionsModule,
-        RunnerModule
+        HostBringUpModule
     ],
     controllers: [
         ChatController,

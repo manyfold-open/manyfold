@@ -7,7 +7,7 @@ import {
     DAEMON_FEATURE_SERVICES,
     DAEMON_MIN_CLI_VERSION
 } from '@manyfold/shared'
-import { HostCliService } from '../src/modules/chat/runner/host-cli.service'
+import { HostCliService } from '../src/modules/hosts/bring-up/host-cli.service'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
 // A hosted machine's mf CLI (ADR-0035 §5, ADR-0038): how it is updated, and

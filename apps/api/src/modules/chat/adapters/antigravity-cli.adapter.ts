@@ -122,7 +122,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
               : undefined
         const {
             driver,
-            daemonId: carryingDaemonId,
+            hostId: carryingDaemonId,
             agent,
             creds,
             runtime,
@@ -131,7 +131,7 @@ export class AntigravityCliAdapter implements ApiChatAdapter {
             ctx.agentId,
             ctx.agent,
             turnSource,
-            ctx.runnerDaemonId ?? undefined
+            ctx.turnHostId ?? undefined
         )
         const runtimeLocal =
             (turnSource ?? effectiveModelConfigSource(agent, runtime)) ===

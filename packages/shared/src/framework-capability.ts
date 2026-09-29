@@ -1,4 +1,4 @@
-import type { AgentRuntime } from './constants'
+import type { RuntimePlacement } from './constants'
 import type { AgentFramework } from './frameworks/core'
 import {
     frameworkDefinition,
@@ -39,7 +39,7 @@ export interface FrameworkMcpSupport {
 // `runtimes` is the support set; sandbox/daemon/external all derive from it.
 export interface FrameworkCapability {
     kind: FrameworkKind
-    runtimes: readonly AgentRuntime[]
+    runtimes: readonly RuntimePlacement[]
     configHome?: FrameworkConfigHome
     mcp?: FrameworkMcpSupport
 }
@@ -57,7 +57,7 @@ export const frameworkKind = (
 
 export const supportsRuntime = (
     framework: AgentFramework,
-    runtime: AgentRuntime
+    runtime: RuntimePlacement
 ): boolean =>
     frameworkDefinition(framework)?.runtimes.includes(runtime) ?? false
 

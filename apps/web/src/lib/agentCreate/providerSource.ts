@@ -11,7 +11,7 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime,
+    RuntimePlacement,
     BuiltInProviderEntry,
     InferenceProtocol,
     RuntimeAuthListView,
@@ -47,7 +47,7 @@ export const INITIAL_LOCAL_CREDENTIALS: LocalCredentialSelection = {
 
 export interface ProviderTarget {
     runtimeMode: 'new' | 'existing'
-    runtimeKind: AgentRuntime | null
+    runtimeKind: RuntimePlacement | null
 }
 
 export const NEW_RUNTIME_TARGET: ProviderTarget = {

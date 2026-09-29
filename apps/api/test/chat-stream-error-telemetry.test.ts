@@ -12,7 +12,7 @@ import type {
     ApiChatAdapterContext,
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
-import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
 import { ChatService } from '../src/modules/chat/chat.service'
 import {
     contextOf,
@@ -514,7 +514,7 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         undefined,
         undefined,
         undefined,
-        readyChatRunner(opts.runnerThrows ? { resolveRunner: async () => { throw opts.runnerThrows } } : undefined),
+        readyChatRunner(opts.runnerThrows ? { resolveTurnDaemon: async () => { throw opts.runnerThrows } } : undefined),
         undefined,
         undefined,
         undefined,
@@ -654,7 +654,7 @@ test('runner admission preserves the quota code and never dispatches the adapter
 
 for (const stage of ['runner', 'adapter'] as const) {
     test(`${stage} exception preserves the non-retryable runner upgrade error`, async () => {
-        const error = new ChatRunnerError('k8s', 'missing capability', true)
+        const error = new TurnDaemonError('k8s', 'missing capability', true)
         const harness = makeHarness(stage === 'runner' ? { runnerThrows: error } : { throws: error })
         await harness.send()
         assert.equal(harness.streamErrors.length, 1)

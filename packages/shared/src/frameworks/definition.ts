@@ -1,5 +1,5 @@
 import type { ChatCapabilities } from '../chat'
-import type { AgentRuntime } from '../constants'
+import type { RuntimePlacement } from '../constants'
 import type { FrameworkCapability } from '../framework-capability'
 import type { FrameworkUpgradeMode } from '../framework-versions'
 import type { FrameworkRepoCandidate } from '../frameworkVersionSources'
@@ -30,7 +30,7 @@ export interface FrameworkRunnerFacts {
     // Directories, per runtime, that the runner must admit besides the
     // agent's workspace (the framework's own home). The API registers them
     // with the runner; the daemon persists what it registers.
-    homeRoots?: Partial<Record<AgentRuntime, readonly string[]>>
+    homeRoots?: Partial<Record<RuntimePlacement, readonly string[]>>
 }
 
 // Every static fact about one framework that more than one surface reads
@@ -58,7 +58,7 @@ export interface FrameworkDefinition extends FrameworkCapability {
     reservedEnvPrefixes?: readonly string[]
     // Where a create request lands when it names no runtime and no admin or
     // user default applies. Absent: the caller must choose one.
-    defaultRuntime?: AgentRuntime
+    defaultRuntime?: RuntimePlacement
     // 'runtime-ui': the runtime manages its own model credentials in its own
     // UI. Manyfold stores none for it, and its credential surfaces refuse to
     // show or edit any. Absent means 'platform'.

@@ -1,4 +1,4 @@
-import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import type { AgentFramework, RuntimePlacement } from '@manyfold/shared'
 import { workspaceValidationMessage } from '@/lib/agentCreateDraft'
 
 export const CREATE_STEP_ORDER = ['type', 'runtime', 'cost', 'name'] as const
@@ -24,7 +24,7 @@ export type RuntimeChoice =
           sandboxId: string | null
           // A cloud computer a service framework installs onto at create.
           podHostId?: string
-          hostKind: AgentRuntime
+          hostKind: RuntimePlacement
           hostLabel: string
           // Only a daemon host makes the workspace a real question, so only it
           // turns step ④'s workspace line into an input.

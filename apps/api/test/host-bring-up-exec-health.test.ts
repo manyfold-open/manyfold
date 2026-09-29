@@ -5,7 +5,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { SpritesError, execSprite, type SpritesClient } from '@manyfold/sprites'
 import type { RuntimeHostRow } from '@manyfold/db'
-import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '../src/modules/hosts/bring-up/host-bring-up.service'
 import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 
 // #730. A sprite whose exec endpoint 502s the WebSocket UPGRADE fails the
@@ -13,7 +13,7 @@ import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provid
 // exactly the wrong conclusion: the transport that just died is the sprite's
 // own exec endpoint, and the caller has to quarantine the host on that fact.
 //
-// These drive the real RunnerManagerService against a real socket, because the
+// These drive the real HostBringUpService against a real socket, because the
 // classification depends on how `ws` actually reports a pre-open failure, not on
 // a stub of it: `unexpected-response` (status-carrying) vs `error` (no status).
 
@@ -136,7 +136,7 @@ const host = {
 const managerHarness = () => {
     let minted = 0
     let generation = 1
-    class TestRunnerManager extends RunnerManagerService {
+    class TestRunnerManager extends HostBringUpService {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }

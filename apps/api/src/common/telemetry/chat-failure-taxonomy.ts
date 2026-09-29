@@ -1,7 +1,7 @@
-import { agentRuntime, isRegisteredFramework } from '@manyfold/shared'
+import { isRegisteredFramework, runtimePlacements } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime
+    RuntimePlacement
 } from '@manyfold/shared'
 
 export const CHAT_STREAM_ERROR_EVENT = 'chat.stream.error'
@@ -43,11 +43,11 @@ export type ChatTurnPhase = (typeof chatTurnPhases)[number]
 // dashboard operators route by.
 export const UNKNOWN_RUNTIME_KIND = 'unknown'
 
-export type ChatFailureRuntimeKind = AgentRuntime | typeof UNKNOWN_RUNTIME_KIND
+export type ChatFailureRuntimeKind = RuntimePlacement | typeof UNKNOWN_RUNTIME_KIND
 
 const phases: ReadonlySet<string> = new Set(chatTurnPhases)
 const runtimeKinds: ReadonlySet<string> = new Set([
-    ...Object.values(agentRuntime),
+    ...Object.values(runtimePlacements),
     UNKNOWN_RUNTIME_KIND
 ])
 
