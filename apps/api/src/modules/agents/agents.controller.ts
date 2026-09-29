@@ -1,4 +1,5 @@
 import {
+    AGENT_CREATE_REQUEST_HEADER,
     AgentContextDocStatus,
     AgentCredentialsView,
     AgentModelConfigView,
@@ -42,14 +43,19 @@ import {
     SubjectAgentFromPath
 } from '@/common/decorators/subject-agent.decorator'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentOrchestratorService } from '@/modules/agents/orchestration/agent-orchestrator.service'
+import {
+    AgentOrchestratorService,
+    type AgentProgressEmitter
+} from '@/modules/agents/orchestration/agent-orchestrator.service'
 import { AgentCredentialsService } from '@/modules/agents/credentials/agent-credentials.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import {
+    headerValue,
     resolveCreateStreamPlan,
     sanitizeMessage,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
+import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
 import { UpdateAgentCredentialsDto } from '@/modules/agents/dto/update-agent-credentials.dto'
@@ -85,7 +91,8 @@ export class AgentsController {
         private readonly mcpMaterializer: McpConfigMaterializer,
         private readonly frameworkUpgrade: FrameworkUpgradeService,
         private readonly serviceRestart: AgentServiceRestartService,
-        private readonly contextDoc: AgentContextDocManageService
+        private readonly contextDoc: AgentContextDocManageService,
+        private readonly createRequests: AgentCreateRequestsService
     ) {}
 
     @Get()
@@ -113,38 +120,57 @@ export class AgentsController {
             throw new BadRequestException(
                 'targetUserId not allowed on /agents; use /admin/agents'
             )
-        const accept = (req.headers['accept'] ?? '') as string
-        if (!accept.includes('application/x-ndjson')) {
-            const agent = await this.orchestrator.create({
-                userId: user.userId,
-                actorUserId: user.userId,
-                dto,
-                isAdmin: false
-            })
-            await res.code(201).send(agent)
+        const stream = ((req.headers['accept'] ?? '') as string).includes(
+            'application/x-ndjson'
+        )
+        // Placement first: a create that cannot be placed must not hold the
+        // name it would have reserved.
+        const plan = stream
+            ? await resolveCreateStreamPlan(
+                  { adminSettings: this.adminSettings, users: this.users },
+                  user.userId,
+                  dto
+              )
+            : null
+        const claim = await this.createRequests.claim({
+            userId: user.userId,
+            actorUserId: user.userId,
+            name: dto.name,
+            fingerprint: this.createRequests.fingerprint('create', dto),
+            resume: headerValue(req.headers[AGENT_CREATE_REQUEST_HEADER])
+        })
+        const execute = (emitter?: AgentProgressEmitter) =>
+            this.createRequests.execute(
+                claim,
+                emitter,
+                (tracked) =>
+                    this.orchestrator.create(
+                        {
+                            userId: user.userId,
+                            actorUserId: user.userId,
+                            dto,
+                            isAdmin: false
+                        },
+                        tracked
+                    ),
+                (agentId) => this.agents.summaryFor(agentId)
+            )
+        if (!plan) {
+            const agent = await execute()
+            await res
+                .header(AGENT_CREATE_REQUEST_HEADER, claim.request.id)
+                .code(201)
+                .send(agent)
             return
         }
-
-        const plan = await resolveCreateStreamPlan(
-            { adminSettings: this.adminSettings, users: this.users },
-            user.userId,
-            dto
-        )
         await streamAgentCreate({
             res,
             framework: dto.framework,
             plan,
             log: this.log,
-            run: (emitter) =>
-                this.orchestrator.create(
-                    {
-                        userId: user.userId,
-                        actorUserId: user.userId,
-                        dto,
-                        isAdmin: false
-                    },
-                    emitter
-                )
+            requestId: claim.request.id,
+            resumed: claim.kind === 'attach',
+            run: execute
         })
     }
 

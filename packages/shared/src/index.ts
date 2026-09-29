@@ -515,6 +515,7 @@ export {
     describeChannelScope
 } from './channels'
 export {
+    AGENT_CREATE_REQUEST_HEADER,
     agentCreateStep,
     spritesSteps,
     spritesServiceSteps,

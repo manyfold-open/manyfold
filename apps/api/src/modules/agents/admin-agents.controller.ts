@@ -1,4 +1,5 @@
 import {
+    AGENT_CREATE_REQUEST_HEADER,
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
@@ -29,12 +30,17 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { UsersService } from '@/modules/users/users.service'
 import { AgentsService } from '@/modules/agents/agents.service'
-import { AgentOrchestratorService } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import {
+    AgentOrchestratorService,
+    type AgentProgressEmitter
+} from '@/modules/agents/orchestration/agent-orchestrator.service'
+import {
+    headerValue,
     resolveCreateStreamPlan,
     sanitizeMessage,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
+import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
@@ -62,7 +68,8 @@ export class AdminAgentsController {
         private readonly users: UsersService,
         private readonly frameworkVersionProbe: FrameworkVersionProbeService,
         private readonly frameworkUpgrade: FrameworkUpgradeService,
-        private readonly serviceRestart: AgentServiceRestartService
+        private readonly serviceRestart: AgentServiceRestartService,
+        private readonly createRequests: AgentCreateRequestsService
     ) {}
 
     @Get()
@@ -83,38 +90,57 @@ export class AdminAgentsController {
             user.userId,
             dto.targetUserId
         )
-        const accept = (req.headers['accept'] ?? '') as string
-        if (!accept.includes('application/x-ndjson')) {
-            const agent = await this.orchestrator.create({
-                userId: ownerUserId,
-                actorUserId: user.userId,
-                dto,
-                isAdmin: true
-            })
-            await res.code(201).send(agent)
+        const stream = ((req.headers['accept'] ?? '') as string).includes(
+            'application/x-ndjson'
+        )
+        // Placement first: a create that cannot be placed must not hold the
+        // name it would have reserved.
+        const plan = stream
+            ? await resolveCreateStreamPlan(
+                  { adminSettings: this.adminSettings, users: this.users },
+                  ownerUserId,
+                  dto
+              )
+            : null
+        const claim = await this.createRequests.claim({
+            userId: ownerUserId,
+            actorUserId: user.userId,
+            name: dto.name,
+            fingerprint: this.createRequests.fingerprint('create', dto),
+            resume: headerValue(req.headers[AGENT_CREATE_REQUEST_HEADER])
+        })
+        const execute = (emitter?: AgentProgressEmitter) =>
+            this.createRequests.execute(
+                claim,
+                emitter,
+                (tracked) =>
+                    this.orchestrator.create(
+                        {
+                            userId: ownerUserId,
+                            actorUserId: user.userId,
+                            dto,
+                            isAdmin: true
+                        },
+                        tracked
+                    ),
+                (agentId) => this.agents.summaryFor(agentId)
+            )
+        if (!plan) {
+            const agent = await execute()
+            await res
+                .header(AGENT_CREATE_REQUEST_HEADER, claim.request.id)
+                .code(201)
+                .send(agent)
             return
         }
-
-        const plan = await resolveCreateStreamPlan(
-            { adminSettings: this.adminSettings, users: this.users },
-            ownerUserId,
-            dto
-        )
         await streamAgentCreate({
             res,
             framework: dto.framework,
             plan,
             log: this.log,
-            run: (emitter) =>
-                this.orchestrator.create(
-                    {
-                        userId: ownerUserId,
-                        actorUserId: user.userId,
-                        dto,
-                        isAdmin: true
-                    },
-                    emitter
-                )
+            requestId: claim.request.id,
+            resumed: claim.kind === 'attach',
+            run: execute
         })
     }
 

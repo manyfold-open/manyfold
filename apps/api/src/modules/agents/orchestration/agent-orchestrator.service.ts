@@ -124,6 +124,13 @@ interface OrchestratorContext {
 
 export interface AgentProgressEmitter {
     step(step: AgentCreateStep): void
+    // Where a sandbox create landed, as soon as the host and runtime rows
+    // exist: what an interrupted create leaves behind.
+    placed?(where: {
+        hostId: string
+        runtimeId: string
+        hostCreated: boolean
+    }): void
 }
 
 const noopEmitter: AgentProgressEmitter = { step: () => {} }

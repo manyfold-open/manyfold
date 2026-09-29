@@ -21,6 +21,10 @@ import {
     k8sHostRow,
     runtimeRow as fixtureRuntime
 } from './helpers/runtime-context-fixture'
+import {
+    headerOnlyReply,
+    passThroughCreateRequests
+} from './helpers/create-requests-fake'
 
 test('agent name helper accepts Unicode display names', () => {
     for (const name of ['中文助手', '研发助手 🚀', 'Agent 1', 'my-agent.v2']) {
@@ -252,7 +256,8 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
         adapterRegistry as never,
         attach,
         {} as never,
-        { recordFirstAgentCreated: async () => {} } as never
+        { recordFirstAgentCreated: async () => {} } as never,
+        passThroughCreateRequests()
     )
     const dto = plainToInstance(AddRuntimeAgentDto, {
         name: '  研究助手 🚀  '
@@ -262,7 +267,8 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
     const result = await controller.addAgent(
         { userId: 'user-1' } as never,
         runtime.id,
-        dto
+        dto,
+        headerOnlyReply()
     )
 
     const capturedAdapterInput = adapterInput as {

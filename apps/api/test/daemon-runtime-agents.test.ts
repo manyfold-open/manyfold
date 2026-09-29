@@ -15,6 +15,10 @@ import {
     runtimeRow as fixtureRuntime,
     spritesHostRow
 } from './helpers/runtime-context-fixture'
+import {
+    headerOnlyReply,
+    passThroughCreateRequests
+} from './helpers/create-requests-fake'
 
 const runtime = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
     fixtureRuntime({
@@ -125,13 +129,15 @@ for (const { kind, failInstall } of [
             adapterRegistry as never,
             attach,
             {} as never,
-            { recordFirstAgentCreated: async () => {} } as never
+            { recordFirstAgentCreated: async () => {} } as never,
+            passThroughCreateRequests()
         )
 
         const result = await controller.addAgent(
             { userId: 'u1' } as never,
             'art-daemon-1',
-            { name: 'local claude' } as never
+            { name: 'local claude' } as never,
+            headerOnlyReply()
         )
 
         const capturedInserted = inserted as NewAgent | null

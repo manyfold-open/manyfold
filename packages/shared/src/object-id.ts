@@ -8,6 +8,7 @@ export const objectIdPrefixes = Object.freeze({
     agentBackup: 'abk',
     agentBackupRestore: 'abr',
     agentCredential: 'acr',
+    agentCreateRequest: 'acq',
     agentRuntime: 'art',
     agentRuntimeToken: 'rtk',
     agentPermission: 'agp',

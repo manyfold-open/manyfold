@@ -421,6 +421,7 @@ export class SpritesProvisioner {
             throw new Error(
                 `reserveSpriteRuntime assigned no host for ${runtimeId}`
             )
+        emitter.placed?.({ hostId: reserved.hostId, runtimeId, hostCreated })
         let host = await this.requireHost(reserved.hostId)
 
         try {

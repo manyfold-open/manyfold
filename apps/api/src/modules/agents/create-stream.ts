@@ -1,4 +1,5 @@
 import {
+    AGENT_CREATE_REQUEST_HEADER,
     runtimePlacements,
     stepsFor,
     type AgentCreateEvent,
@@ -91,11 +92,25 @@ export const errorEventFields = (
     return details === undefined ? { code, status } : { code, status, details }
 }
 
+// The request id a client sends back to resume a create; a header repeated
+// with several values names no one request.
+export const headerValue = (
+    value: string | string[] | undefined
+): string | undefined =>
+    typeof value === 'string' && value ? value : undefined
+
+// Long steps (a VM boot, a framework install) send nothing for a minute or
+// more; a blank line keeps proxies and client idle timers from cutting the
+// stream. NDJSON readers skip it.
+const KEEPALIVE_MS = 15_000
+
 export const streamAgentCreate = async (args: {
     res: FastifyReply
     framework: string
     plan: CreateStreamPlan
     log: Logger
+    requestId?: string
+    resumed?: boolean
     run: (emitter: AgentProgressEmitter) => Promise<AgentSummary>
 }): Promise<void> => {
     const { res, plan, log } = args
@@ -121,11 +136,16 @@ export const streamAgentCreate = async (args: {
         ...corsHeadersForOrigin(res.request.headers),
         'content-type': 'application/x-ndjson',
         'cache-control': 'no-cache',
-        'x-accel-buffering': 'no'
+        'x-accel-buffering': 'no',
+        ...(args.requestId
+            ? { [AGENT_CREATE_REQUEST_HEADER]: args.requestId }
+            : {})
     })
     const write = (ev: AgentCreateEvent): void => {
         res.raw.write(JSON.stringify(ev) + '\n')
     }
+    const keepalive = setInterval(() => res.raw.write('\n'), KEEPALIVE_MS)
+    keepalive.unref?.()
 
     let lastStep: AgentCreateStep | null = null
     const emitter: AgentProgressEmitter = {
@@ -143,7 +163,11 @@ export const streamAgentCreate = async (args: {
 
     try {
         const agent = await args.run(emitter)
-        write({ type: 'complete', agent })
+        write(
+            args.resumed
+                ? { type: 'complete', agent, resumed: true }
+                : { type: 'complete', agent }
+        )
     } catch (err) {
         write({
             type: 'error',
@@ -153,6 +177,7 @@ export const streamAgentCreate = async (args: {
             ...errorEventFields(err)
         })
     } finally {
+        clearInterval(keepalive)
         res.raw.end()
     }
 }

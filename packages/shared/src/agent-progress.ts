@@ -28,6 +28,12 @@ export const agentCreateStep = {
 export type AgentCreateStep =
     (typeof agentCreateStep)[keyof typeof agentCreateStep]
 
+// Names the create request an agent-create response belongs to. Sent back on
+// a repeat of that request, it asks to follow that create to whatever end it
+// came to instead of starting another; an API that does not name one cannot
+// attach a repeat at all.
+export const AGENT_CREATE_REQUEST_HEADER = 'x-agent-create-request'
+
 export type AgentCreateEvent =
     | {
           type: 'step'
@@ -36,7 +42,13 @@ export type AgentCreateEvent =
           total: number
           startedAt: string
       }
-    | { type: 'complete'; agent: AgentSummary }
+    | {
+          type: 'complete'
+          agent: AgentSummary
+          // This request repeated a create already running, or finished, for
+          // the same name and settings; the agent is the one that create made.
+          resumed?: boolean
+      }
     | {
           type: 'error'
           step: AgentCreateStep | null
