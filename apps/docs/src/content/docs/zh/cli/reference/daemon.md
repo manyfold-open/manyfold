@@ -1,7 +1,7 @@
 ---
 title: "mf daemon"
 description: "Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli)"
-order: 17
+order: 18
 ---
 **用法:** `mf daemon [command]`
 

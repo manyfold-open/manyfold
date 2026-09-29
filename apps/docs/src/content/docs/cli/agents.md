@@ -50,37 +50,64 @@ Incomplete or inconsistent measurements keep attribution unknown.
 This is a breaking API/CLI contract change. Upgrade the API and CLI together;
 storage commands and agent list/get reject older ambiguous responses explicitly.
 
-## Create a sprites.dev coding agent
+## Create a coding agent
 
-`mf agent create` currently provisions a new agent on sprites.dev. It supports
-Claude Code, Codex, Gemini CLI, Pi, and Antigravity CLI:
+`mf agent create` makes a Claude Code, Codex, Gemini CLI, Pi, or Antigravity
+CLI agent. Say who serves the agent's model:
 
 ```sh
-mf agent create review-bot \
-  --framework codex \
-  --openai-api-key "$OPENAI_API_KEY"
+mf agent create review-bot --framework codex --model-provider managed
+mf agent create review-bot --model-provider subscription
+mf agent create review-bot --framework codex --model-provider "Team OpenAI" --model gpt-6-sol
+printenv OPENAI_API_KEY | mf agent create review-bot --framework codex --openai-api-key -
 ```
 
-Provider keys can come from the framework's environment variable. Avoid
-putting a literal key in shell history. Run `mf agent create --help` for each
-framework's base URL and model options. Pi takes `--pi-api-key` together with
-`--pi-provider anthropic|openai|google`, the vendor the key belongs to.
-Antigravity CLI takes a Gemini key with `--google-api-key` and one of its own
-model names, such as `gemini-3.1-pro-low`, with `--agy-model`.
+- `managed` uses Manyfold managed models.
+- `subscription` uses your own subscription to the framework's vendor. A new
+  sandbox is not signed in yet: open the chat link the command prints and
+  follow its sign-in card, or run the sign-in command it prints in the
+  sandbox's terminal.
+- A provider id or name uses a model provider you saved and tested in the
+  web app. `mf model-providers list --framework codex` shows which of yours
+  can serve a framework, and which models `--model` accepts from each.
+- A key flag uses your own key. `-` reads the key from stdin, which keeps it
+  out of shell history. The CLI does not read keys from environment
+  variables. Pi takes `--pi-api-key` together with
+  `--pi-provider anthropic|openai|google`, the vendor the key belongs to.
+
+Each create makes a new sandbox, which counts against your plan's sandboxes.
+To add the agent to a sandbox you already have, name it with `--sandbox`:
+
+```sh
+mf sandbox list
+mf agent create second-bot --sandbox sandbox-2
+```
+
+An agent added to a sandbox where its framework already runs shares the
+credentials of the agents there, so pass no model source; to use the
+sandbox's own sign-in, pass `--model-provider subscription`. Deleting an
+agent does not free its sandbox: once a sandbox has no agents left,
+`mf sandbox delete <id|name> --yes` removes it.
+
+The command prints each step as it finishes. If the connection drops, it
+picks the create up again. If you press Ctrl-C, the create goes on: run the
+same command again to pick it up, or to get the agent it made.
 
 This command does not create daemon, Kubernetes, cloud-computer, external,
 Hermes, or OpenClaw agents. Use the web **New agent** flow for the full
-framework/runtime matrix. To add another framework agent to an existing
-multi-agent runtime, use `mf runtime agents add`.
+framework/runtime matrix. To add an agent to a runtime by its id, use
+`mf runtime agents add`.
 
 ## Update or delete an agent
 
 ```sh
 mf agent update agt_xxx --name reviewer
-mf agent update agt_xxx --model gpt-5.6
-mf agent update agt_xxx --clear-model
+mf model-config update agt_xxx --model gpt-5.6
 mf agent delete agt_xxx --yes
 ```
+
+A coding agent's model is set with `mf model-config update`;
+`mf agent update --model` applies to the other frameworks.
 
 > **Warning:** Deletion is irreversible. The CLI refuses to proceed without
 > `--yes`; it does not open an interactive prompt. Pass it only after

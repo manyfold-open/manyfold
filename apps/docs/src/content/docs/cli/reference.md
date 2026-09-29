@@ -24,8 +24,9 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf files`](/docs/cli/reference/files/) | Read/write files on an agent runtime |
 | [`mf connections`](/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/docs/cli/reference/model-config/) | Read/update agent model configuration |
+| [`mf model-providers`](/docs/cli/reference/model-providers/) | List the model providers agents can be created with |
 | [`mf runtime`](/docs/cli/reference/runtime/) | Manage agent runtimes (a framework on one of your computers) |
-| [`mf sandbox`](/docs/cli/reference/sandbox/) | Inspect sandbox storage |
+| [`mf sandbox`](/docs/cli/reference/sandbox/) | List, delete and inspect your sandboxes |
 | [`mf skills`](/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |

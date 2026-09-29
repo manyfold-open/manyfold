@@ -32,6 +32,7 @@ interface ReferenceCopy {
     argument: string
     purpose: string
     required: string
+    choices: string
     defaultValue: string
 }
 
@@ -56,6 +57,7 @@ const copy: Record<'en' | 'zh', ReferenceCopy> = {
         argument: 'Argument',
         purpose: 'Purpose',
         required: 'Required.',
+        choices: 'One of',
         defaultValue: 'Default'
     },
     zh: {
@@ -78,6 +80,7 @@ const copy: Record<'en' | 'zh', ReferenceCopy> = {
         argument: '参数',
         purpose: '用途',
         required: '必填。',
+        choices: '可选值',
         defaultValue: '默认值'
     }
 }
@@ -134,6 +137,10 @@ const usage = (command: Command): string => {
 const optionDescription = (option: Option, labels: ReferenceCopy): string => {
     const parts = [option.description]
     if (option.mandatory) parts.push(labels.required)
+    if (option.argChoices?.length)
+        parts.push(
+            `${labels.choices}: ${option.argChoices.map((choice) => `\`${choice}\``).join(', ')}.`
+        )
     if (
         option.defaultValue !== undefined &&
         option.defaultValue !== false &&

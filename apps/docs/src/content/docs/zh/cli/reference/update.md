@@ -1,7 +1,7 @@
 ---
 title: "mf update"
 description: "Update the mf CLI to the latest version"
-order: 19
+order: 20
 ---
 **用法:** `mf update [options]`
 

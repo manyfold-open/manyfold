@@ -19,7 +19,7 @@ order: 5
 | --- | --- |
 | [`mf agent list`](#mf-agent-list) | List visible agents: runtime identity defaults to self; --account requires consent |
 | [`mf agent get`](#mf-agent-get) | Show a single agent |
-| [`mf agent create`](#mf-agent-create) | Create a new agent on sprites.dev |
+| [`mf agent create`](#mf-agent-create) | Create a coding agent on a new sandbox, or add one to a sandbox you have |
 | [`mf agent update`](#mf-agent-update) | Update agent name or model |
 | [`mf agent delete`](#mf-agent-delete) | Delete an agent (irreversible) |
 | [`mf agent storage-usage`](#mf-agent-storage-usage) | Report agent-owned path usage, separate from sandbox and account storage |
@@ -62,7 +62,7 @@ Show a single agent
 
 ## `mf agent create`
 
-Create a new agent on sprites.dev
+Create a coding agent on a new sandbox, or add one to a sandbox you have
 
 **Usage:** `mf agent create [options] <name>`
 
@@ -76,20 +76,20 @@ Create a new agent on sprites.dev
 
 | Options | Purpose |
 | --- | --- |
-| `--framework <framework>` | claude-code \| codex \| gemini-cli \| pi \| antigravity-cli Default: `claude-code`. |
-| `--anthropic-auth-token <token>` | Anthropic auth token (claude-code only; or env ANTHROPIC_AUTH_TOKEN) |
-| `--anthropic-base-url <url>` | Anthropic base URL override (claude-code only) |
-| `--openai-api-key <key>` | OpenAI API key (codex only; or env OPENAI_API_KEY) |
-| `--openai-base-url <url>` | OpenAI base URL override (codex only) |
-| `--google-api-key <key>` | Gemini API key (gemini-cli and antigravity-cli; or env GEMINI_API_KEY / GOOGLE_API_KEY) |
-| `--google-gemini-base-url <url>` | Gemini base URL override (gemini-cli and antigravity-cli; or env GOOGLE_GEMINI_BASE_URL) |
-| `--gemini-model <model>` | Gemini model override (gemini-cli only) |
-| `--pi-api-key <key>` | Vendor API key for pi (pi only; pair with --pi-provider) |
-| `--pi-provider <provider>` | Which vendor the pi key belongs to: anthropic \| openai \| google (pi only) |
-| `--pi-base-url <url>` | Vendor base URL override for pi (pi only; sandbox runtimes only) |
-| `--pi-model <model>` | pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only) |
-| `--agy-model <model>` | Antigravity CLI model as `agy models` names it, e.g. gemini-3.1-pro-low (antigravity-cli only) |
-| `--provider-id <id>` | Admin only: place the new sandbox on a specific runtime provider |
+| `--framework <framework>` | coding framework One of: `claude-code`, `codex`, `gemini-cli`, `pi`, `antigravity-cli`. Default: `claude-code`. |
+| `--model-provider <source>` | who serves the model: managed \| subscription \| a saved provider id or name (mf model-providers list) |
+| `--model <model>` | model to run, from the provider's tested models; with a pasted key only for gemini-cli, pi and antigravity-cli |
+| `--sandbox <sandbox>` | add the agent to this sandbox (id or name, mf sandbox list) instead of creating one |
+| `--anthropic-auth-token <token>` | Anthropic key for claude-code; "-" reads it from stdin |
+| `--anthropic-base-url <url>` | Anthropic base URL override (claude-code) |
+| `--openai-api-key <key>` | OpenAI key for codex; "-" reads it from stdin |
+| `--openai-base-url <url>` | OpenAI base URL override (codex) |
+| `--google-api-key <key>` | Gemini key for gemini-cli and antigravity-cli; "-" reads it from stdin |
+| `--google-gemini-base-url <url>` | Gemini base URL override (gemini-cli, antigravity-cli) |
+| `--pi-api-key <key>` | vendor key for pi, with --pi-provider; "-" reads it from stdin |
+| `--pi-provider <provider>` | the vendor the pi key belongs to: anthropic \| openai \| google |
+| `--pi-base-url <url>` | vendor base URL override for pi |
+| `--runtime-provider <id>` | admin only: the runtime provider a new sandbox is placed on |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 

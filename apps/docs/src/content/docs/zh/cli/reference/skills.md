@@ -1,7 +1,7 @@
 ---
 title: "mf skills"
 description: "Manage installed agent skills"
-order: 14
+order: 15
 ---
 **用法:** `mf skills [command]`
 

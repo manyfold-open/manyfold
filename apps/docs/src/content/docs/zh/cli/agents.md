@@ -42,37 +42,60 @@ Sandbox 报告另有已知路径归属，处理嵌套目录和路径别名，但
 `agent list --json` 返回 `{ "scope": "agent" | "account", "agents": [...] }`。
 这是 API/CLI 的破坏性契约变更，应一起升级。存储命令和 Agent list/get 会明确拒绝旧版的歧义响应。
 
-## 创建 sprites.dev coding Agent
+## 创建 coding Agent
 
-`mf agent create` 当前只会在 sprites.dev 上创建新 Agent，支持 Claude Code、
-Codex、Gemini CLI、Pi 和 Antigravity CLI：
+`mf agent create` 创建 Claude Code、Codex、Gemini CLI、Pi 或 Antigravity CLI
+Agent。需要说明 Agent 的 model 由谁提供：
 
 ```sh
-mf agent create review-bot \
-  --framework codex \
-  --openai-api-key "$OPENAI_API_KEY"
+mf agent create review-bot --framework codex --model-provider managed
+mf agent create review-bot --model-provider subscription
+mf agent create review-bot --framework codex --model-provider "Team OpenAI" --model gpt-6-sol
+printenv OPENAI_API_KEY | mf agent create review-bot --framework codex --openai-api-key -
 ```
 
-Provider key 可以来自 framework 对应的环境变量。避免把 literal key 放进 shell
-history。每个 framework 的 base URL 和 model option 请查看
-`mf agent create --help`。Pi 需要同时传 `--pi-api-key` 和
-`--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
-Antigravity CLI 用 `--google-api-key` 传 Gemini key，用 `--agy-model` 选择它自己的
-模型名，例如 `gemini-3.1-pro-low`。
+- `managed` 使用 Manyfold 托管模型。
+- `subscription` 使用你自己在该 framework 厂商的订阅。新 sandbox 还没有登录：
+  打开命令输出的聊天链接，按其中的登录卡片操作；或在 sandbox 的 terminal 中运行
+  命令输出的登录命令。
+- Provider id 或名称使用你在网页中保存并测试过的 model provider。
+  `mf model-providers list --framework codex` 列出哪些 provider 能服务该
+  framework，以及 `--model` 可以选哪些模型。
+- Key flag 使用你自己的 key。传 `-` 时从 stdin 读取，key 不会进入 shell
+  history。CLI 不读取环境变量中的 key。Pi 需要同时传 `--pi-api-key` 和
+  `--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
+
+每次创建都会新建一个 sandbox，并计入套餐的 sandbox 数量。要把 Agent 加到已有的
+sandbox，用 `--sandbox` 指定：
+
+```sh
+mf sandbox list
+mf agent create second-bot --sandbox sandbox-2
+```
+
+加入一个已经在运行该 framework 的 sandbox 时，Agent 与其中已有的 Agent 共用
+credential，因此不要传 model 来源；要使用该 sandbox 自己的登录，传
+`--model-provider subscription`。删除 Agent 不会释放它的 sandbox：sandbox 上的
+Agent 都删除后，用 `mf sandbox delete <id|name> --yes` 删除 sandbox。
+
+命令会在每一步完成时打印进度。连接中断时会自动重新接上。按 Ctrl-C 之后创建仍会
+继续：再次运行同一条命令即可接上，或拿到已经创建好的 Agent。
 
 这个命令不会创建 daemon、Kubernetes、cloud-computer、external、Hermes 或
 OpenClaw Agent。完整 framework/runtime matrix 请使用网页
-**New agent** 流程。在现有 multi-agent runtime 中增加 framework Agent，请使用
+**New agent** 流程。按 runtime id 向 runtime 中增加 Agent，请使用
 `mf runtime agents add`。
 
 ## 更新或删除 Agent
 
 ```sh
 mf agent update agt_xxx --name reviewer
-mf agent update agt_xxx --model gpt-5.6
-mf agent update agt_xxx --clear-model
+mf model-config update agt_xxx --model gpt-5.6
 mf agent delete agt_xxx --yes
 ```
+
+Coding Agent 的 model 用 `mf model-config update` 设置；`mf agent update --model`
+只适用于其他 framework。
 
 > **警告：** 删除不可恢复。CLI 不会打开 interactive prompt；没有 `--yes` 会直接拒绝执行。只有已独立核对 target ID，且重要 workspace 已有 backup 时，才传入该 option。
 

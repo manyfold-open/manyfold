@@ -1,7 +1,7 @@
 ---
 title: "mf a2a"
 description: "Talk to A2A servers and manage this agent exposure and callers"
-order: 16
+order: 17
 ---
 **用法:** `mf a2a [command]`
 
