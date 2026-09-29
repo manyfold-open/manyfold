@@ -84,7 +84,7 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 - `mf help connections --agent` — external accounts (GitHub, Cloudflare, Composio) linked to the agent
 - `mf help runtime --agent` — runtime lifecycle, control UI, dashboard
 - `mf help sandbox --agent` — list and delete sandboxes; storage readings and attribution
-- `mf help agent --agent` — create (model source, sandbox reuse), list, update, delete, credentials
+- `mf help agent --agent` — create (model source, sandbox reuse), list, update, send (talk to an agent), delete, credentials
 - `mf help backups --agent` — agent snapshots: list, create, restore
 - `mf help usage --agent` — token and cost statistics
 - `mf help a2a --agent` — call A2A servers or manage this agent’s A2A exposure and callers

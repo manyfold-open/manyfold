@@ -1,12 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { CommanderError } from 'commander'
 import type {
     AgentRuntimeSummary,
@@ -20,6 +19,7 @@ import {
     type Route,
     type Run as FakeRun
 } from './fixtures/fake-api'
+import { spawnMf } from './fixtures/spawn-mf'
 
 // `mf agent create` against a fake API: what it sends for each model source
 // and placement, what it refuses before sending anything, and how it follows
@@ -682,30 +682,6 @@ test('a run that attached to a create already under way says so', async () => {
 })
 
 // A real child process: stdin, the exit code of a usage error, and Ctrl-C.
-const cliDir = resolve(import.meta.dirname, '..')
-
-const spawnMf = (args: string[], env: Record<string, string>) =>
-    spawn(
-        process.execPath,
-        [
-            '--import',
-            'tsx',
-            '--import',
-            './test/md-text-loader.mjs',
-            'src/index.ts',
-            ...args
-        ],
-        {
-            cwd: cliDir,
-            env: {
-                PATH: process.env.PATH ?? '',
-                TSX_TSCONFIG_PATH: join(cliDir, 'tsconfig.json'),
-                ...env
-            },
-            stdio: ['pipe', 'pipe', 'pipe']
-        }
-    )
-
 test(
     'a usage error exits 5 with a JSON error, before any request',
     { timeout: 60_000 },

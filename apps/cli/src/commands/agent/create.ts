@@ -536,16 +536,17 @@ const streamCreate = async (
     }
 }
 
-// Where the agent's chat lives in the web app, as this deployment names its
-// own address; null when the API does not say.
-const chatLink = async (
+// Where the agent's chat (or one session of it) lives in the web app, as
+// this deployment names its own address; null when the API does not say.
+export const chatLink = async (
     client: NcaClient,
-    agentId: string
+    agentId: string,
+    sessionId?: string
 ): Promise<string | null> => {
     try {
         const { branding } = await client.config.capabilities()
         if (!branding?.webBaseUrl) return null
-        return `${branding.webBaseUrl.replace(/\/+$/, '')}/agents/${encodeURIComponent(agentId)}/chat`
+        return `${branding.webBaseUrl.replace(/\/+$/, '')}/agents/${encodeURIComponent(agentId)}/chat${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
     } catch {
         return null
     }

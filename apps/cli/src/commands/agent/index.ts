@@ -6,6 +6,7 @@ import { registerAgentDiag } from '@/commands/agent/diag'
 import { registerAgentGet } from '@/commands/agent/get'
 import { registerAgentList } from '@/commands/agent/list'
 import { registerAgentModelConfig } from '@/commands/agent/model-config'
+import { registerAgentSend } from '@/commands/agent/send'
 import { registerAgentUpdate } from '@/commands/agent/update'
 
 export const registerAgent = (program: Command): void => {
@@ -17,6 +18,7 @@ export const registerAgent = (program: Command): void => {
     registerAgentGet(cmd, program)
     registerAgentCreate(cmd, program)
     registerAgentUpdate(cmd, program)
+    registerAgentSend(cmd, program)
     registerAgentDelete(cmd, program)
     registerAgentDiag(cmd, program)
     registerAgentModelConfig(cmd, program)

@@ -11,7 +11,9 @@ import { buildProgram } from '../../src/program'
 export interface Call {
     method: string
     path: string
+    query: URLSearchParams
     headers: Headers
+    // A JSON body parsed; any other (a streamed upload) as its bytes.
     body: unknown
 }
 
@@ -33,8 +35,13 @@ const apiFetch =
         const call: Call = {
             method,
             path,
+            query: url.searchParams,
             headers: new Headers(init?.headers),
-            body: init?.body ? JSON.parse(String(init.body)) : undefined
+            body: !init?.body
+                ? undefined
+                : typeof init.body === 'string'
+                  ? JSON.parse(init.body)
+                  : Buffer.from(await new Response(init.body).arrayBuffer())
         }
         const index = calls.filter(
             (earlier) => earlier.method === method && earlier.path === path

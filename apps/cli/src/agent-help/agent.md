@@ -22,6 +22,8 @@ documented in `mf help model-config --agent`.
   `agent-runtimes:read` for `--sandbox`
 - `secrets:read` — `credentials get`, `credentials reveal`
 - `secrets:edit` — `credentials update`
+- `chat:edit` — `send`; `chat:read` for its reply and `--continue`;
+  `files:edit` for `--file`
 
 For a scope denial, follow `mf help auth --agent` for the current identity.
 
@@ -32,6 +34,7 @@ mf agent list
 mf agent get <agent-id> --json
 mf agent create <name> --framework codex --model-provider managed --json
 mf agent update <agent-id> --name <new-name> --json
+mf agent send <agent-id> "<message>"
 mf agent delete <agent-id> --yes
 mf agent storage-usage <agent-id>
 mf agent credentials reveal <agent-id>
@@ -91,6 +94,35 @@ drops, `create` picks the running create up again on its own. After a
 Ctrl-C (exit 130) the create goes on on the server: running the same
 command again attaches to it, or returns the agent it made.
 
+## Talking to an agent
+
+`send` sends one message and prints the reply:
+
+```sh
+mf agent send <agent-id> "summarise the open PRs"
+git diff | mf agent send <agent-id> -
+mf agent send <agent-id> -c "and the failing test?"
+mf agent send <agent-id> "what is in it?" --file ./screenshot.png
+```
+
+- A new session each time, unless `--session <id>` names one or `-c`
+  continues the one last active (sessions a channel drives are left out).
+  The footer on stderr names the session and how to go on in it.
+- The message comes from the arguments, or from stdin for `-` (and when
+  there are no arguments and stdin is a pipe).
+- The agent's saved model and permission settings apply; nothing is saved.
+- `--file` (repeatable) uploads a local file to `chat-attachments/<session>/`
+  in the agent's workspace and attaches it; the agent reads it there,
+  images included. At most 10 files, 25 MiB each, 100 MiB together.
+- The reply goes to stdout, streamed on a terminal and whole when piped;
+  tool calls and the footer (model, tokens, cost, time) go to stderr.
+  `--json` prints one object: `sessionId`, `userMessageId`,
+  `assistantMessageId`, `text`, `usage`, `error`.
+- Exit codes: 0 when the turn ends, 1 when it fails (its error is printed),
+  130 after Ctrl-C, which stops the turn on the server (a second Ctrl-C
+  leaves at once). A dropped stream is picked up again; when it cannot be,
+  the turn goes on on the server and the chat link says where to follow it.
+
 ## Output
 
 - `list` / `get` / `update` print one line per agent:
@@ -136,6 +168,10 @@ command again attaches to it, or returns the agent it made.
 - `SANDBOX_RUNNER_NOT_CONNECTED` → the runner inside the new sandbox (not a
   daemon on this computer) could not reach `details.apiUrl`; the sandbox
   was removed. Check that the address is reachable, then run it again
+- `send`: "A turn is still running in this session" (409) → wait for it,
+  or start a new session (leave out `--session` / `-c`);
+  `session_held_by_terminal` → the session is open in a terminal: close it
+  there, or start a new session
 - "nothing to update" → pass at least one update flag (see above)
 - "refusing to delete … without --yes" → add `--yes` only after the
   user confirms the deletion

@@ -1,0 +1,5 @@
+---
+'@manyfold/cli': minor
+---
+
+`mf agent send <agent> "message"` talks to an agent from the terminal and prints its reply. It starts a session, or continues one with `--session <id>` or `-c` (the one last active), sends the message the way the web chat does, and follows the reply on the session's stream: streamed to stdout in a terminal, printed whole when piped, with tool calls and a footer (model, tokens, cost, time, and how to continue the session) on stderr. The message can come from stdin (`-`). `--file <path>` (repeatable) uploads a local file into the agent's workspace and attaches it, images included, within the chat limits (10 files, 25 MiB each, 100 MiB in all), checked before anything is sent. `--json` prints the turn as one object. Ctrl-C stops the turn on the server and exits 130; a dropped stream is picked up where it left off. The agent's saved model and permission settings apply, and nothing is saved. A session open in a terminal (`session_held_by_terminal`) or still taking in what one wrote (`session_import_pending`) gets a hint that says what to do.

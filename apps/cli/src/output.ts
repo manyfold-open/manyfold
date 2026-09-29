@@ -156,6 +156,10 @@ const CODE_HINTS: Record<string, CodeHint> = {
     AGENT_MODEL_IN_MODEL_CONFIG: (details) =>
         `${typeof details.framework === 'string' ? details.framework : 'This framework'} keeps its model in the agent's model settings: mf model-config update ${typeof details.agentId === 'string' ? details.agentId : '<agent-id>'} --model <model>.`,
     SANDBOX_NOT_FOUND: () => 'Check the sandbox with mf sandbox list.',
+    session_held_by_terminal: () =>
+        'The session is open in a terminal: close it there or take the session back in the web chat, or leave out --session / --continue to start a new session.',
+    session_import_pending: () =>
+        'The session is still taking in what its terminal wrote; try again in a moment.',
     SANDBOX_API_UNREACHABLE: (details) =>
         `A sandbox's runner cannot reach this API${typeof details.apiUrl === 'string' ? ` at ${details.apiUrl}` : ''}. Set PUBLIC_API_BASE_URL on the API to an address reachable from the internet (for a local stack, a tunnel URL) and restart it. Nothing was created.`,
     SANDBOX_RUNNER_NOT_CONNECTED: (details) =>

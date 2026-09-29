@@ -90,6 +90,22 @@ OpenClaw Agent。完整 framework/runtime matrix 请使用网页
 **New agent** 流程。按 runtime id 向 runtime 中增加 Agent，请使用
 `mf runtime agents add`。
 
+## 与 Agent 对话
+
+```sh
+mf agent send agt_xxx "总结一下未合并的 pull request"
+git diff | mf agent send agt_xxx -
+mf agent send agt_xxx -c "那个失败的测试呢？"
+mf agent send agt_xxx "这张截图里是什么？" --file ./shot.png
+```
+
+`mf agent send` 发送一条消息并打印回复：回复写到 stdout，在终端里流式输出，
+通过管道时一次性输出；工具调用和结尾信息（model、token、费用、session）写到
+stderr。每次运行都会新建 session，除非用 `--session <id>` 指定，或用 `-c`
+继续最近用过的那个。消息也可以从 stdin 读取（`-`）。`--file` 会把本地文件上传到
+Agent 的 workspace 并作为附件发送，图片也一样；一条消息最多 10 个文件，每个
+25 MiB。`--json` 把这一轮输出为一个对象。按 Ctrl-C 会停止这一轮。
+
 ## 更新或删除 Agent
 
 ```sh

@@ -876,6 +876,7 @@ export type {
     SharedChatMessagesPage
 } from './chat'
 export {
+    CHAT_MESSAGE_MAX_TEXT,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,

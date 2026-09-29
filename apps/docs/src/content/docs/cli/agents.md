@@ -102,6 +102,24 @@ Hermes, or OpenClaw agents. Use the web **New agent** flow for the full
 framework/runtime matrix. To add an agent to a runtime by its id, use
 `mf runtime agents add`.
 
+## Talk to an agent
+
+```sh
+mf agent send agt_xxx "summarise the open pull requests"
+git diff | mf agent send agt_xxx -
+mf agent send agt_xxx -c "and the failing test?"
+mf agent send agt_xxx "what is in this screenshot?" --file ./shot.png
+```
+
+`mf agent send` sends one message and prints the reply: on stdout, streamed
+in a terminal and whole when piped, with tool calls and a footer (model,
+tokens, cost, session) on stderr. Each run starts a new session unless
+`--session <id>` names one or `-c` continues the one you used last. The
+message can come from stdin (`-`). `--file` uploads a local file into the
+agent's workspace and attaches it, images included; a message takes up to
+10 files of 25 MiB each. `--json` prints the turn as one object. Ctrl-C
+stops the turn.
+
 ## Update or delete an agent
 
 ```sh
