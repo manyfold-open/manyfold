@@ -86,6 +86,10 @@ export interface ExecDriverHandle {
     authContext: DaemonAuthContextRef | null
 }
 
+// For reads made right after it resolves: resolving is what admitted the wake
+// (the active slot, the bring-up). Each read holds a sandbox only while it
+// runs, so a read made once the sandbox has gone back to sleep wakes it again
+// outside that admission.
 export interface RecoveryFsHandle {
     hostId: string
     fs: RecoveryFs

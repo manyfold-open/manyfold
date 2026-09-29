@@ -1,23 +1,5 @@
 import type { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import type { AwakeHold } from '@/modules/hosts/host-awake.service'
-
-// A read from a machine that sleeps holds it for as long as the read runs,
-// and nothing holds it between reads (ADR-0038); the release grace keeps
-// back-to-back reads on one lease. A hold handed to the caller instead is one
-// a caller can forget, and a forgotten hold is renewed until the API restarts.
-// Seen on staging [2026-09-29]: four callers forgot it, and a sandbox read by
-// a gemini automation every 2 h ran 14–20 h a day from 2026-09-20.
-export const whileHeld = async <T>(
-    hold: (() => AwakeHold) | undefined,
-    work: () => Promise<T>
-): Promise<T> => {
-    const held = hold?.()
-    try {
-        return await work()
-    } finally {
-        void held?.release()
-    }
-}
+import { whileHeld, type AwakeHold } from '@/modules/hosts/host-awake.service'
 
 const LOCATE_TIMEOUT_MS = 30_000
 const BINARY_READ_TIMEOUT_MS = 90_000

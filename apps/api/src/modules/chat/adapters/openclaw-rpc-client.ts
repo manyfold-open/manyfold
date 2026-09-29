@@ -1,6 +1,5 @@
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
-import type { AwakeHold } from '@/modules/hosts/host-awake.service'
-import { whileHeld } from '@/modules/chat/recovery/recovery-fs'
+import { whileHeld, type AwakeHold } from '@/modules/hosts/host-awake.service'
 import type { ExecDriver } from './exec-driver'
 
 export class OpenclawRpcClient {

@@ -35,6 +35,25 @@ export const NOOP_HOLD: AwakeHold = {
     detach: () => {}
 }
 
+// A hold for exactly one piece of work: taken before it, released after it,
+// nothing held between two of them; the release grace keeps back-to-back work
+// on one lease. A hold handed to the caller instead is one a caller can
+// forget, and a forgotten hold is renewed until the API restarts.
+// Seen on staging [2026-09-29]: four callers forgot the hold a history-read
+// handle carried, and a sandbox read by a gemini automation every 2 h ran
+// 14–20 h a day from 2026-09-20.
+export const whileHeld = async <T>(
+    hold: (() => AwakeHold) | undefined,
+    work: () => Promise<T>
+): Promise<T> => {
+    const held = hold?.()
+    try {
+        return await work()
+    } finally {
+        void held?.release()
+    }
+}
+
 // The lease bounds the leak when the owning instance dies mid-work: the
 // machine keeps executing (that is the whole point) and suspends on its own
 // soon after. Renewed at a third of the TTL so one failed renew is not fatal.
