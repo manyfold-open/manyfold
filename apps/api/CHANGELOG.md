@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 9.2.0
+
+### Minor Changes
+
+- [#617](https://github.com/manyfold-open/manyfold/pull/617) [`1b6cc24`](https://github.com/manyfold-open/manyfold/commit/1b6cc249b0b07215dd6468ad3883be0f063e1977) Thanks [@yingca1](https://github.com/yingca1)! - A program left running in a sandbox terminal from before terminals moved to the sandbox's daemon no longer keeps that sandbox running for good. The exec-session reaper now ends a terminal (TTY) exec session once it is more than six hours old, even while it is still drawing to the screen. An operator's own console session on a sandbox is ended the same way. The reaper's log line and telemetry say whether a session was ended for being idle or for its age.
+
+### Patch Changes
+
+- [#617](https://github.com/manyfold-open/manyfold/pull/617) [`1b6cc24`](https://github.com/manyfold-open/manyfold/commit/1b6cc249b0b07215dd6468ad3883be0f063e1977) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox stays awake for work that starts on it just as earlier work lets go of it. The earlier work's release and the new work's hold could reach the sandbox together, and when the release landed last the sandbox could fall asleep under the new work for up to ten minutes.
+
+- [#617](https://github.com/manyfold-open/manyfold/pull/617) [`1b6cc24`](https://github.com/manyfold-open/manyfold/commit/1b6cc249b0b07215dd6468ad3883be0f063e1977) Thanks [@yingca1](https://github.com/yingca1)! - Sandboxes fall asleep again after gemini and codex turns, after a turn picked back up following an API restart, and after a session is imported from a terminal. Each of those read the agent's session history from the sandbox and left it held awake, and billed as active, until the API restarted; a history read now keeps the sandbox awake only while it runs. A turn that fails before it starts no longer keeps its sandbox awake either.
+
 ## 9.1.2
 
 ### Patch Changes
