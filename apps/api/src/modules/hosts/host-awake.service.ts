@@ -62,6 +62,12 @@ export class HostAwakeService implements OnModuleDestroy {
     // deletes it on a user's stop.
     private readonly leaseName = `${AWAKE_HOLD_TASK_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 8)}`
     private readonly leases = new Map<string, Lease>()
+    // A closed lease's release still in flight, by host. Every lease of this
+    // instance has the same name, so the next lease on that host acquires only
+    // once the release has landed: a PUT that overtook the DELETE would be
+    // deleted by it, and its holders would believe the machine held while
+    // nothing holds it until the next renew.
+    private readonly closing = new Map<string, Promise<void>>()
 
     constructor(
         private readonly providers: SandboxProviderRegistry,
@@ -129,7 +135,11 @@ export class HostAwakeService implements OnModuleDestroy {
             if (lease.grace) clearTimeout(lease.grace)
         }
         await Promise.race([
-            Promise.allSettled(leases.map((lease) => this.release(lease))),
+            Promise.allSettled([
+                ...leases.map((lease) => this.release(lease)),
+                // Leases already closing: their release is half done.
+                ...this.closing.values()
+            ]),
             new Promise<void>((resolve) =>
                 setTimeout(resolve, SHUTDOWN_RELEASE_MS).unref()
             )
@@ -148,11 +158,14 @@ export class HostAwakeService implements OnModuleDestroy {
 
     private open(host: RuntimeHostRow): Lease {
         const name = this.leaseName
+        const closing = this.closing.get(host.id)
         const lease: Lease = {
             host,
             name,
             count: 0,
-            pending: this.acquire(host, name),
+            pending: closing
+                ? closing.then(() => this.acquire(host, name))
+                : this.acquire(host, name),
             renew: setInterval(() => {
                 lease.pending = this.acquire(host, name)
             }, AWAKE_RENEW_MS),
@@ -167,7 +180,11 @@ export class HostAwakeService implements OnModuleDestroy {
         if (this.leases.get(lease.host.id) !== lease || lease.count > 0) return
         clearInterval(lease.renew)
         this.leases.delete(lease.host.id)
-        await this.release(lease)
+        const released = this.release(lease)
+        this.closing.set(lease.host.id, released)
+        await released
+        if (this.closing.get(lease.host.id) === released)
+            this.closing.delete(lease.host.id)
     }
 
     private async release(lease: Lease): Promise<void> {
