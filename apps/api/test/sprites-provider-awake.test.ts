@@ -146,6 +146,23 @@ test('the listing reads every lease, the platform holds among them', async () =>
     assert.deepEqual(execs[0].cmd, ['sprite-env', 'curl', '-s', '/v1/tasks'])
 })
 
+// WHY: an unreadable listing used to read as no tasks, so the Tasks view and a
+// stop reported nothing holding a sandbox that a task could be holding.
+test('a listing that is not one is an error, not an empty list', async () => {
+    const { adapter } = build(['curl: (7) Failed to connect'])
+
+    await assert.rejects(
+        adapter.listAwake(call),
+        /sprite task listing unreadable/
+    )
+})
+
+test('an empty listing is no tasks', async () => {
+    const { adapter } = build([listing([])])
+
+    assert.deepEqual(await adapter.listAwake(call), [])
+})
+
 // WHY: a hold left behind keeps the VM running, and billed, for its full TTL.
 test('a release the listing still shows fails loudly', async () => {
     const { adapter } = build([listing([{ name: 'mf-hold-0123abcd' }])])

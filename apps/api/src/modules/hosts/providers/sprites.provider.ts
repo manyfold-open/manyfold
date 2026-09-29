@@ -531,6 +531,8 @@ export class SpritesProvider implements SandboxProvider {
             throw new AwakeLeaseStillHeldError(lease.name)
     }
 
+    // An unreadable listing is not an empty one: read as empty, the Tasks view
+    // and a stop report nothing holding a sandbox that a task may be holding.
     async listAwake(
         args: Omit<ProviderCall, 'generation'>
     ): Promise<AwakeLease[]> {
@@ -542,7 +544,12 @@ export class SpritesProvider implements SandboxProvider {
             cmd: ['sprite-env', 'curl', '-s', '/v1/tasks'],
             timeoutMs: AWAKE_LIST_TIMEOUT_MS
         })
-        return parseTaskList(res.stdout) ?? []
+        const listed = parseTaskList(res.stdout)
+        if (!listed)
+            throw new Error(
+                `sprite task listing unreadable (exit ${res.exitCode})`
+            )
+        return listed
     }
 
     // One exec: the task call, then the listing it is proven by (null when the

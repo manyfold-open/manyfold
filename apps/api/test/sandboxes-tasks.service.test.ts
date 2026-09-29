@@ -27,13 +27,14 @@ const baseHost = (over: Record<string, unknown> = {}) => ({
 })
 
 const fakeAdapter = (
-    opts: { leases?: AwakeLease[]; release?: 'held' | Error } = {}
+    opts: { leases?: AwakeLease[] | Error; release?: 'held' | Error } = {}
 ) => {
     const calls: string[] = []
     return {
         calls,
         listAwake: async () => {
             calls.push('list')
+            if (opts.leases instanceof Error) throw opts.leases
             return opts.leases ?? []
         },
         releaseAwake: async (_call: unknown, lease: { name: string }) => {
@@ -163,6 +164,24 @@ test('listTasks flags platform holds as keepAlive', async () => {
             ['mf-hold-0123abcd', true],
             ['my-http-server', false]
         ]
+    )
+})
+
+test('listTasks answers unavailable, not empty, when the listing cannot be read', async () => {
+    const svc = makeService(
+        baseHost(),
+        fakeAdapter({
+            leases: new Error('sprite task listing unreadable (exit 7)')
+        })
+    )
+
+    await assert.rejects(
+        svc.listTasks('u1', 'sbx_1'),
+        (err: Error) =>
+            err instanceof ServiceUnavailableException &&
+            /failed to read tasks: sprite task listing unreadable/.test(
+                err.message
+            )
     )
 })
 
