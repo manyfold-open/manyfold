@@ -8,7 +8,7 @@ import {
 import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { POD_HOST_WORKSPACE_BASE } from '../src/modules/agent-runtimes/provisioning/k8s-container-provisioner'
-import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '../src/modules/hosts/bring-up/host-bring-up.service'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 // A pod host's daemon IS the host's daemon (ADR-0037): the pod's boot loop
@@ -142,7 +142,7 @@ const buildResolver = (opts: { daemon?: Partial<HostDaemonRow> | null }) => {
                   ...opts.daemon
               } as HostDaemonRow)
     let adapterCalls = 0
-    const service = new RunnerManagerService(
+    const service = new HostBringUpService(
         { findById: async () => podHost(), patch: async () => null, bumpGeneration: async () => 2 } as never,
         { findByHostId: async () => daemon } as never,
         {

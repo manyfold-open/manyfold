@@ -102,7 +102,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     HostCliService,
     updatesItself
-} from '@/modules/chat/runner/host-cli.service'
+} from '@/modules/hosts/bring-up/host-cli.service'
 
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000

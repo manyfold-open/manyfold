@@ -54,11 +54,10 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { HostStorageService } from '@/modules/agents/host-storage/host-storage.service'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import {
-    RunnerManagerService,
-    type RunnerExecFailureClass
-} from '@/modules/chat/runner/runner-manager.service'
+    HostBringUpService
+} from '@/modules/hosts/bring-up/host-bring-up.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
-import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
+import { TurnDaemonError, type TurnDaemon } from '@/modules/chat/turn-daemon'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
@@ -69,6 +68,7 @@ import {
 } from '@/modules/hosts/runtime-context.service'
 import { HostDaemonsService } from '@/modules/hosts/host-daemons.service'
 import { HostDaemonAccess } from '@/modules/agents/adapters/host-daemon-access'
+import type { ExecEndpointFailureClass } from '@/modules/hosts/providers/sandbox-provider'
 
 export type ExecPlacement = Exclude<RuntimePlacement, 'external'>
 
@@ -121,7 +121,7 @@ export class ExecDriverFactory {
         // simply gets no MF_API_TOKEN (#781).
         @Optional()
         private readonly runtimeTokens?: RuntimeTokenService,
-        @Optional() private readonly runnerManager?: RunnerManagerService
+        @Optional() private readonly bringUp?: HostBringUpService
     ) {}
 
     // The agent with its machine, for every path below; an external agent
@@ -161,7 +161,7 @@ export class ExecDriverFactory {
 
         const runner = carryingDaemonId
             ? { daemonId: carryingDaemonId, roots: turnRoots(agent, placement) }
-            : await this.resolveRunner(ctx)
+            : await this.resolveTurnDaemon(ctx)
         const daemonId = runner.daemonId
         const coding = frameworkCapability(agent.framework).kind === 'coding'
         // A turn on the CLI's own sign-in needs no stored credential, and a
@@ -214,9 +214,9 @@ export class ExecDriverFactory {
 
     // The daemon that will carry a turn for this agent, brought up when the
     // host is hosted and asleep (R11). The handle's daemonId is the host id.
-    async resolveRunner(
+    async resolveTurnDaemon(
         input: Agent | string | (RuntimeContext & { agent: Agent })
-    ): Promise<ChatRunner> {
+    ): Promise<TurnDaemon> {
         const loaded =
             typeof input === 'string'
                 ? await this.contextFor(input)
@@ -228,9 +228,9 @@ export class ExecDriverFactory {
         // The machine is its owner's: an agent never inherits another
         // user's runtime, whatever row points at it.
         if (host.userId !== agent.userId)
-            throw new ChatRunnerError(placement, 'runtime owner mismatch')
+            throw new TurnDaemonError(placement, 'runtime owner mismatch')
         if (ctx.availability === 'unavailable')
-            throw new ChatRunnerError(placement, 'runtime unavailable')
+            throw new TurnDaemonError(placement, 'runtime unavailable')
         const runnerFacts = frameworkDefinition(agent.framework)?.runner
         const roots = turnRoots(agent, placement)
         // A root the daemon does not own by construction (the agent's
@@ -263,7 +263,7 @@ export class ExecDriverFactory {
             firstExecTimeoutMs: spriteExecHealthConfig().firstExecTimeoutMs
         })
         if (!ensured.online || !ensured.daemon)
-            throw new ChatRunnerError(
+            throw new TurnDaemonError(
                 placement,
                 ensured.fallbackReason ?? 'runner unavailable',
                 ensured.fallbackReason === 'runner_cli_too_old' ||
@@ -277,7 +277,7 @@ export class ExecDriverFactory {
                 (feature) => !(daemon.clientFeatures ?? []).includes(feature)
             )
         )
-            throw new ChatRunnerError(
+            throw new TurnDaemonError(
                 placement,
                 'runner version or capability',
                 true
@@ -289,7 +289,7 @@ export class ExecDriverFactory {
     // a fresh lease (ADR-0038): the turn holds the machine awake, so a socket
     // the thaw replaced is back within seconds.
     private reconnectFor(host: RuntimeHostRow): ((since: Date) => Promise<boolean>) | undefined {
-        const manager = this.runnerManager
+        const manager = this.bringUp
         if (!manager) return undefined
         return async (since) => (await manager.awaitReconnect(host, since)) !== null
     }
@@ -299,15 +299,15 @@ export class ExecDriverFactory {
     async probeExecForAgent(
         agentId: string,
         timeoutMs: number
-    ): Promise<'ok' | 'inconclusive' | RunnerExecFailureClass | null> {
+    ): Promise<'ok' | 'inconclusive' | ExecEndpointFailureClass | null> {
         const ctx = await this.contextFor(agentId)
-        if (ctx.placement !== 'sprites' || !ctx.host || !this.runnerManager)
+        if (ctx.placement !== 'sprites' || !ctx.host || !this.bringUp)
             return null
         await this.runtimeAccess.reserveActiveSlot({
             userId: ctx.agent.userId,
             hostId: ctx.host.id
         })
-        return this.runnerManager.probeExec(ctx.host, timeoutMs)
+        return this.bringUp.probeExec(ctx.host, timeoutMs)
     }
 
     private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
@@ -355,15 +355,15 @@ export class ExecDriverFactory {
             await this.contextFor(agentId),
             'recovery filesystem'
         )
-        const runner = await this.resolveRunner(ctx)
+        const runner = await this.resolveTurnDaemon(ctx)
         return {
             daemonId: runner.daemonId,
             fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
             runtime: ctx.placement as ExecPlacement,
             agent: ctx.agent,
-            ...(ctx.placement === 'sprites' && this.runnerManager
+            ...(ctx.placement === 'sprites' && this.bringUp
                 ? {
-                      awakeHold: this.runnerManager.holdAwake(
+                      awakeHold: this.bringUp.holdAwake(
                           ctx.host,
                           `recovery-${ctx.agent.id}`
                       )
@@ -381,7 +381,7 @@ export class ExecDriverFactory {
         if (ctx.agent.framework !== 'openclaw') return null
         const daemonId =
             carryingDaemonId ??
-            (await this.resolveRunner(ctx as RuntimeContext & { agent: Agent })).daemonId
+            (await this.resolveTurnDaemon(ctx as RuntimeContext & { agent: Agent })).daemonId
         return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
     }
 

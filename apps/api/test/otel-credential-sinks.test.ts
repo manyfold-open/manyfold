@@ -63,7 +63,7 @@ test('all Nest levels scrub before console and OTLP, including detail and Error 
         logger[level](
             new Error(`runner ${url}`),
             { detail: url, token: secret },
-            'RunnerManagerService'
+            'HostBringUpService'
         )
     provider.getLogger('direct-event').emit({
         body: { url, headers: { authorization: `Bearer ${secret}` } },
@@ -78,7 +78,7 @@ test('all Nest levels scrub before console and OTLP, including detail and Error 
     assert(
         records
             .slice(0, 6)
-            .every((r) => r.attributes.context === 'RunnerManagerService')
+            .every((r) => r.attributes.context === 'HostBringUpService')
     )
     assert(records.every((r) => !('url.query' in r.attributes)))
 })

@@ -5,7 +5,7 @@ import { AgentsModule } from '@/modules/agents/agents.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { HostsModule } from '@/modules/hosts/hosts.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
-import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 import { PodHostsController } from './pod-hosts.controller'
 import { PodHostsService } from './pod-hosts.service'
 
@@ -17,7 +17,7 @@ import { PodHostsService } from './pod-hosts.service'
         AdminSettingsModule,
         HostsModule,
         DaemonModule,
-        RunnerModule
+        HostBringUpModule
     ],
     controllers: [PodHostsController],
     providers: [PodHostsService]

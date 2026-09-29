@@ -1800,7 +1800,7 @@ export class AgentModelConfigService {
     ): Promise<DaemonFrameworkModelCapability> {
         if (!this.execDrivers || !this.hostAccess)
             throw new BadRequestException('daemon runner unavailable')
-        const runner = await this.execDrivers.resolveRunner(agent)
+        const runner = await this.execDrivers.resolveTurnDaemon(agent)
         return this.modelInspectViaDaemon(
             runner.daemonId,
             agent,

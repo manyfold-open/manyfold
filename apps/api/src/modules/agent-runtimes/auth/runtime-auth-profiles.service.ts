@@ -53,7 +53,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '@/modules/hosts/bring-up/host-bring-up.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     CONCURRENT_ACTIVE_LIMIT_CODE,
@@ -166,7 +166,7 @@ export class RuntimeAuthProfilesService {
         private readonly account: RuntimeAccountService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly hostAccess: HostDaemonAccess,
-        private readonly runnerManager: RunnerManagerService
+        private readonly bringUp: HostBringUpService
     ) {}
 
     // ---- lookups -----------------------------------------------------------
@@ -331,7 +331,7 @@ export class RuntimeAuthProfilesService {
     private armAuthHold(runtimeId: string, host: RuntimeHostRow, holdMs: number): void {
         const existing = this.authHolds.get(runtimeId)
         if (existing) clearTimeout(existing.timer)
-        const hold = existing?.hold ?? this.runnerManager.holdAwake(host, `auth-${runtimeId}`)
+        const hold = existing?.hold ?? this.bringUp.holdAwake(host, `auth-${runtimeId}`)
         const timer = setTimeout(() => {
             void this.releaseAuthHold(runtimeId)
         }, holdMs)

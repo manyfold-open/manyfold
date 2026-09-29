@@ -105,7 +105,7 @@ import {
     type PersistedStreamEventType
 } from '@/modules/chat/sse-broadcaster'
 import { ChatAdapterRegistry } from '@/modules/chat/adapters/adapter-registry.service'
-import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
+import { TurnDaemonError, type TurnDaemon } from '@/modules/chat/turn-daemon'
 import type {
     ChannelSource,
     ChatTurnTimings,
@@ -155,9 +155,8 @@ import {
     TURN_LEASE_RENEW_MS
 } from '@/modules/chat/turn-adoption.service'
 import {
-    RunnerManagerService,
-    type RunnerExecFailure
-} from '@/modules/chat/runner/runner-manager.service'
+    HostBringUpService
+} from '@/modules/hosts/bring-up/host-bring-up.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import {
     SpriteExecHealthService,
@@ -232,6 +231,7 @@ import {
     isTerminalTurnExecutionState
 } from './turn-outcome'
 import { inBackgroundContext, inRequestContinuation } from '@/common/telemetry/background-context'
+import type { ExecEndpointFailure } from '@/modules/hosts/providers/sandbox-provider'
 
 export type ChatTurnObserver = (event: EmittedChatEvent) => void
 
@@ -643,7 +643,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // positionally, and an unresolvable constructor dep takes the whole app
         // down at boot (2026-07-25).
         @Optional()
-        private readonly runnerManager?: RunnerManagerService,
+        private readonly bringUp?: HostBringUpService,
         @Optional()
         private readonly cancelBus?: ChatCancelBus,
         @Optional()
@@ -1909,7 +1909,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // that owes the user an answer.
             if (await this.spriteExecHealth?.isKnownUnavailable(agentCtx.hostId))
                 return
-            await this.execDrivers!.resolveRunner(agentId)
+            await this.execDrivers!.resolveTurnDaemon(agentId)
             this.telemetry.event('chat.prewarm', { agentId })
         } catch (err) {
             // Quota rejections and transient wake failures are expected here;
@@ -3201,9 +3201,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         agentCtx: { runtime: RuntimePlacement; host: RuntimeHostRow | null },
         args: { turnId: string }
     ): Promise<AwakeHold | null> {
-        if (!this.runnerManager) return null
+        if (!this.bringUp) return null
         if (agentCtx.runtime !== 'sprites' || !agentCtx.host) return null
-        return this.runnerManager.holdAwake(agentCtx.host, args.turnId)
+        return this.bringUp.holdAwake(agentCtx.host, args.turnId)
     }
 
     // One rule for every path that holds a turn's awake lease. Only a real
@@ -3471,8 +3471,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // second. Built on the handle already resolved above: resolving
             // another costs a second agent read, admission reservation and
             // client for nothing.
-            if (this.runnerManager && agentCtx.host && agentCtx.runtime === 'sprites')
-                awakeHold = this.runnerManager.holdAwake(agentCtx.host, row.messageId)
+            if (this.bringUp && agentCtx.host && agentCtx.runtime === 'sprites')
+                awakeHold = this.bringUp.holdAwake(agentCtx.host, row.messageId)
             await this.broadcaster.beginResumeStream(
                 session.id,
                 row.messageId,
@@ -4603,7 +4603,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     private async markSpriteExecUnavailable(
         agentId: string,
         hostId: string | null,
-        failure: RunnerExecFailure
+        failure: ExecEndpointFailure
     ): Promise<SpriteExecTerminal> {
         // Armed only when there is a host row and a breaker to write it. Without
         // one the turn is still spared — nothing changes the fact that the only
@@ -5611,20 +5611,20 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // reverse-WS resume path finds an orphan by (daemon_id, daemon_exec_ref).
         // A runner turn needs the same row, so resolve the runner FIRST and stamp
         // whichever daemon will actually carry the stream.
-        let runner: ChatRunner | null = null
+        let runner: TurnDaemon | null = null
         let runnerFailure: EmittedErrorEvent | null = null
-        let runnerExecFailure: ChatRunnerError['execFailure']
+        let runnerExecFailure: TurnDaemonError['execFailure']
         if (!fastFail && !blockedTerminal && agentCtx.runtime !== 'external') {
             try {
-                if (!this.execDrivers) throw new ChatRunnerError(agentCtx.runtime, 'runner service unavailable')
-                runner = await this.execDrivers.resolveRunner(agent ?? session.agentId)
+                if (!this.execDrivers) throw new TurnDaemonError(agentCtx.runtime, 'runner service unavailable')
+                runner = await this.execDrivers.resolveTurnDaemon(agent ?? session.agentId)
             } catch (err) {
                 runnerFailure = adapterExceptionEvent(
-                    err instanceof ChatRunnerError || err instanceof HttpException
+                    err instanceof TurnDaemonError || err instanceof HttpException
                         ? err
-                        : new ChatRunnerError(agentCtx.runtime, 'runner resolution failed')
+                        : new TurnDaemonError(agentCtx.runtime, 'runner resolution failed')
                 )
-                if (err instanceof ChatRunnerError) runnerExecFailure = err.execFailure
+                if (err instanceof TurnDaemonError) runnerExecFailure = err.execFailure
                 this.logger.warn(`runner resolution failed agentId=${session.agentId} class=${safeErrorClass(err)}`)
             }
             this.telemetry.event('chat.runner.resolve', {
@@ -5638,7 +5638,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             (runnerExecFailure
                 ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerExecFailure)
                 : null)
-        const runnerDaemonId = runner?.daemonId ?? null
+        const turnHostId = runner?.daemonId ?? null
         // A runner turn produces no platform-visible activity, so the sprite
         // would suspend under it. Held for the turn's whole life and released
         // at the terminal; if THIS instance dies mid-turn the lease survives on
@@ -5647,10 +5647,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // Only a sprite host suspends: a pod never does, so there is nothing
         // to hold awake and no lease to pay for.
         const awakeHold =
-            runner && this.runnerManager && agentCtx.runtime === 'sprites' && agentCtx.host
-                ? this.runnerManager.holdAwake(agentCtx.host, assistantMessageId)
+            runner && this.bringUp && agentCtx.runtime === 'sprites' && agentCtx.host
+                ? this.bringUp.holdAwake(agentCtx.host, assistantMessageId)
                 : null
-        const carryingDaemonId = runnerDaemonId
+        const carryingDaemonId = turnHostId
         // A fail-fast turn never reaches a daemon and is terminal within
         // milliseconds, so it needs neither a resume ref nor an adoption lease:
         // stamping either would advertise work nobody is doing. A turn spared by
@@ -5911,7 +5911,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             agent?.id === session.agentId ? agent : undefined,
                         channelSource: channelSource ?? undefined,
                         timings,
-                        runnerDaemonId,
+                        turnHostId,
                         // Persisted the moment the upstream names the work,
                         // not at the terminal: the whole point is that this
                         // instance may not live long enough to see one. The
@@ -7088,7 +7088,7 @@ const adapterErrorEvent = (
 })
 
 const adapterExceptionEvent = (err: unknown): EmittedErrorEvent =>
-    err instanceof ChatRunnerError
+    err instanceof TurnDaemonError
         ? { type: 'error', error: normalizeChatError(err.chatError) }
         : adapterErrorEvent(err instanceof Error ? err.message : String(err), httpErrorCode(err))
 

@@ -274,7 +274,7 @@ test('a runner-carried sprite turn injects the provider alias env', async () => 
     h.a.requireTurnHermes = async () => true
     h.a.providerAliasEnv = async () => ({ OPENROUTER_API_KEY: 'sk-1' })
     const events = await drain(
-        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+        h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), userMsg)
     )
     assert.deepEqual(h.routes, [
         { via: 'turn', env: { OPENROUTER_API_KEY: 'sk-1' } }
@@ -803,7 +803,7 @@ test('Hermes admission and credential failures retain redacted diagnostic contex
         const h = routingHarness({ runtime: 'sprites', daemonId: null })
         h.a.requireTurnHermes = async () => true
         h.a[phase] = async () => { throw new Error('database unavailable; token=private-fixture-token') }
-        const events = await drain(h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg))
+        const events = await drain(h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), userMsg))
         assert.deepEqual(h.routes, [])
         const err = events[0] as { error: { code: string; message: string; retryable: boolean } }
         assert.equal(err.error.code, phase === 'requireTurnHermes' ? 'chat_runner_unavailable' : 'hermes_daemon_acp_failed')

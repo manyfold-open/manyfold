@@ -110,7 +110,7 @@ test('a runner-carried sprite hermes turn goes to ACP over that runner', async (
     const h = buildHarness({ runtime: 'sprites' })
 
     const out = await drain(
-        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), {
+        h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), {
             role: 'user',
             contentBlocks: [{ type: 'text', text: 'hi' }]
         } as never)
@@ -155,7 +155,7 @@ test("a daemon hermes turn still uses the agent's own daemon, not a runner", asy
     // A runner id must never override the agent's own daemon: a daemon-runtime
     // agent has no sprite, and its work belongs on the machine it registered.
     await drain(
-        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), {
+        h.adapter.sendMessage(ctx({ turnHostId: 'dh_runner' }), {
             role: 'user',
             contentBlocks: [{ type: 'text', text: 'hi' }]
         } as never)

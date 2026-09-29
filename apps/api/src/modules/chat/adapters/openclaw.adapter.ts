@@ -1,4 +1,4 @@
-import { ChatRunnerError } from '../runner/chat-runner'
+import { TurnDaemonError } from '@/modules/chat/turn-daemon'
 import {
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     acpEventsFromFrame
@@ -211,8 +211,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         userMessage: ChatMessage,
         agentRow: GatewayAgentRow
     ): AsyncIterable<EmittedChatEvent> {
-        const daemonId = ctx.runnerDaemonId ?? agentRow.hostId
-        if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
+        const daemonId = ctx.turnHostId ?? agentRow.hostId
+        if (!daemonId) throw new TurnDaemonError(ctx.runtimeKind, 'runner missing')
         const refusal = await this.daemonAdmissionRefusal(daemonId, {
             // Only a BYOD daemon's gateway is discovered. A sprite's or cloud
             // computer's is the platform's own service (a sprite service, or

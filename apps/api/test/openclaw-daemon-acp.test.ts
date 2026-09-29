@@ -381,7 +381,7 @@ test('a cloud computer\'s gateway is the platform\'s service: no detection gate'
     })
     const events = await drain(
         rig.adapter.sendMessage(
-            ctx({ runtimeKind: 'k8s', runnerDaemonId: 'dh_pod' }),
+            ctx({ runtimeKind: 'k8s', turnHostId: 'dh_pod' }),
             USER_MSG
         )
     )
@@ -413,7 +413,7 @@ test('a sprite runner\'s gateway is the platform\'s service: an unreachable prob
     })
     const events = await drain(
         rig.adapter.sendMessage(
-            ctx({ runtimeKind: 'sprites', runnerDaemonId: 'dh_sprite' }),
+            ctx({ runtimeKind: 'sprites', turnHostId: 'dh_sprite' }),
             USER_MSG
         )
     )

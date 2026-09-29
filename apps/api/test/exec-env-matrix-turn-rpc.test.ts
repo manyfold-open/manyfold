@@ -72,7 +72,7 @@ const dispatch = async (
                 adapter.sendMessage(
                     adapterCtx(surface.framework, surface.runtime, {
                         ...(carriesRunner(surface)
-                            ? { runnerDaemonId: RUNNER_DAEMON_ID }
+                            ? { turnHostId: RUNNER_DAEMON_ID }
                             : {})
                     } as never),
                     USER_MESSAGE
@@ -272,7 +272,7 @@ test('every transport observed at the seam has a declared surface', async () => 
                                 adapter.sendMessage(
                                     adapterCtx(framework, runtime, {
                                         ...(carrier
-                                            ? { runnerDaemonId: carrier }
+                                            ? { turnHostId: carrier }
                                             : {})
                                     } as never),
                                     USER_MESSAGE

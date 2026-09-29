@@ -5,13 +5,13 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { getTableName } from 'drizzle-orm'
 import { execSprite, type SpritesClient } from '@manyfold/sprites'
-import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 import { ChatService } from '../src/modules/chat/chat.service'
-import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '../src/modules/hosts/bring-up/host-bring-up.service'
 import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 import {
     SANDBOX_EXEC_UNAVAILABLE_CODE,
@@ -38,7 +38,7 @@ import {
 // are proven against a real Postgres in sprite-exec-health.pg.test.ts; they are
 // cited here, not re-run. What is proven here is the CROSS-LAYER contract those
 // semantics are useless without, driven through the real sendMessage →
-// startAssistantTurn → runAdapter path, a real RunnerManagerService and a real
+// startAssistantTurn → runAdapter path, a real HostBringUpService and a real
 // socket that fails the way the staging sprite did:
 //
 //   * the verdict is consulted before the turn's first exec, and a refusal costs
@@ -369,8 +369,8 @@ test('a failed probe re-arms its own lease and dispatches nothing', async () => 
     }
 })
 
-// The false-positive boundary, from the probe's side. RunnerManagerService owns
-// the same exclusion for the inspect (runner-manager-exec-health.test.ts); this
+// The false-positive boundary, from the probe's side. HostBringUpService owns
+// the same exclusion for the inspect (host-bring-up-exec-health.test.ts); this
 // is the assertion that the probe did not grow a second, looser opinion.
 test('an inconclusive account-wide probe dispatches no user work and reports no health verdict', async () => {
     const server = await startRejectingServer(401)
@@ -678,7 +678,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     const execDrivers = {
         probeExecForAgent: async (_agentId: string, timeoutMs: number) =>
             runnerManager.probeExec(HOST, timeoutMs),
-        resolveRunner: async () => {
+        resolveTurnDaemon: async () => {
             calls.forAgent += 1
             if (!opts.runner) return { daemonId: HOST_ID }
             const resolution = await runnerManager.ensureHostDaemon({
@@ -687,12 +687,12 @@ const makeHarness = (opts: HarnessOptions): Harness => {
                 firstExecTimeoutMs: 1000
             })
             if (!resolution.handle)
-                throw new ChatRunnerError('sprites', resolution.fallbackReason ?? 'runner unavailable', false, resolution.execFailure)
+                throw new TurnDaemonError('sprites', resolution.fallbackReason ?? 'runner unavailable', false, resolution.execFailure)
             return { daemonId: resolution.handle.daemonId }
         }
     }
 
-    class TestRunnerManager extends RunnerManagerService {
+    class TestRunnerManager extends HostBringUpService {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }

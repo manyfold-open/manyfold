@@ -160,7 +160,7 @@ export interface ApiChatAdapterContext {
     }) => void | Promise<void>
     // Required at dispatch for runtime-backed chat; external adapters omit it.
     // The carrying daemon is stamped durably before the adapter starts.
-    runnerDaemonId?: string | null
+    turnHostId?: string | null
 }
 
 export type EmittedTokenEvent = { type: 'token'; text: string }

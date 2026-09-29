@@ -291,7 +291,7 @@ test('the turn rides the runner the pipeline admitted and reports the price scop
     const events = await drain(
         adapter.sendMessage(
             ctx({
-                runnerDaemonId: 'dh_runner',
+                turnHostId: 'dh_runner',
                 onServedPriceScope: async (scope) => {
                     scopes.push(scope)
                 }

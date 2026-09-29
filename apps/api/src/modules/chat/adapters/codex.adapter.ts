@@ -102,7 +102,7 @@ export class CodexAdapter implements ApiChatAdapter {
             runtime
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
             ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
-            ctx.runnerDaemonId ?? undefined)
+            ctx.turnHostId ?? undefined)
         const codexCreds = creds as ResolvedCodexCredentials | null
         const resumeSessionRef = ctx.frameworkSessionRef?.trim() || null
         const prompt = resumeSessionRef

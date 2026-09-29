@@ -17,12 +17,12 @@ import type {
     RuntimeProvider
 } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
-import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '../src/modules/hosts/bring-up/host-bring-up.service'
 import { spritesErrorFacts } from '../src/modules/hosts/providers/sprites.provider'
 import {
     HostCliTooOldError,
     HostCliUpdatingError
-} from '../src/modules/chat/runner/host-cli.service'
+} from '../src/modules/hosts/bring-up/host-cli.service'
 import { StaleGenerationError } from '../src/modules/hosts/providers/sandbox-provider'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
 
@@ -275,7 +275,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         }
     }
 
-    class TestRunnerManager extends RunnerManagerService {
+    class TestRunnerManager extends HostBringUpService {
         protected override delay(): Promise<void> {
             return Promise.resolve()
         }

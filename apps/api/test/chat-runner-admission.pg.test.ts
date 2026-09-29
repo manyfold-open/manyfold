@@ -6,7 +6,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { DAEMON_FEATURE_EXEC_ROOTS } from '@manyfold/shared'
 import { agentRuntimes, agents, createDb, hostDaemons, users } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
-import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
+import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
 import { HostDaemonAccess } from '../src/modules/agents/adapters/host-daemon-access'
 import { HostDaemonsService } from '../src/modules/hosts/host-daemons.service'
 import { RuntimeContextService } from '../src/modules/hosts/runtime-context.service'
@@ -92,16 +92,16 @@ test(
         )
         // Another user's agent on the same runtime is refused: the machine
         // is the runtime owner's, and an agent never inherits it.
-        await assert.rejects(factory.resolveRunner(otherAgent), ChatRunnerError)
-        assert.equal((await factory.resolveRunner(ownAgent)).daemonId, hostId)
+        await assert.rejects(factory.resolveTurnDaemon(otherAgent), TurnDaemonError)
+        assert.equal((await factory.resolveTurnDaemon(ownAgent)).daemonId, hostId)
         // The socket is gone: a heartbeat, however fresh, is not reachability
         // (ADR-0038).
         await db
             .update(hostDaemons)
             .set({ rpcInstanceId: null, rpcConnectionToken: null, rpcInbox: null, rpcConnectedAt: null })
             .where(eq(hostDaemons.hostId, hostId))
-        await assert.rejects(factory.resolveRunner(ownAgent), (error: unknown) => {
-            assert.ok(error instanceof ChatRunnerError)
+        await assert.rejects(factory.resolveTurnDaemon(ownAgent), (error: unknown) => {
+            assert.ok(error instanceof TurnDaemonError)
             assert.equal(error.chatError.code, 'chat_runner_unavailable')
             return true
         })
@@ -116,8 +116,8 @@ test(
                 clientFeatures: []
             })
             .where(eq(hostDaemons.hostId, hostId))
-        await assert.rejects(factory.resolveRunner(ownAgent), (error: unknown) => {
-            assert.ok(error instanceof ChatRunnerError)
+        await assert.rejects(factory.resolveTurnDaemon(ownAgent), (error: unknown) => {
+            assert.ok(error instanceof TurnDaemonError)
             assert.equal(error.chatError.code, 'chat_runner_upgrade_required')
             return true
         })

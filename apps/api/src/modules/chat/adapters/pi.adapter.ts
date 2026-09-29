@@ -107,7 +107,7 @@ export class PiAdapter implements ApiChatAdapter {
             ctx.agentId,
             ctx.agent,
             turnSource,
-            ctx.runnerDaemonId ?? undefined
+            ctx.turnHostId ?? undefined
         )
         // Runtime-local runs pi exactly as the runtime has it — the machine's
         // own agent dir, or the bound profile's view, which the driver's auth

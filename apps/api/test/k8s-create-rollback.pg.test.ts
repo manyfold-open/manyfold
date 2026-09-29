@@ -54,7 +54,7 @@ import { k8sCreateLeaseName } from '../src/modules/agent-runtimes/provisioning/k
 import { K8sProvisioner } from '../src/modules/agent-runtimes/provisioning/k8s-provisioner'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { podHostResourceName } from '../src/modules/hosts/providers/pod-host-resources'
-import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
+import { HostBringUpService } from '../src/modules/hosts/bring-up/host-bring-up.service'
 import { HostDaemonAccess } from '../src/modules/agents/adapters/host-daemon-access'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 import { ChatService } from '../src/modules/chat/chat.service'
@@ -171,7 +171,7 @@ const fixture = async (t: TestContext) => {
             }
         }
     }
-    const runnerManager = new RunnerManagerService(
+    const runnerManager = new HostBringUpService(
         hosts,
         hostDaemonsService,
         providers,

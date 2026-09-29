@@ -72,7 +72,7 @@ const dispatch = async (
             adapter.sendMessage(
                 adapterCtx(surface.framework, surface.runtime, {
                     ...(surface.transport === 'runner-exec'
-                        ? { runnerDaemonId: RUNNER_DAEMON_ID }
+                        ? { turnHostId: RUNNER_DAEMON_ID }
                         : {}),
                     ...extraCtx
                 } as never),

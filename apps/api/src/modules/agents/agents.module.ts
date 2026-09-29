@@ -58,7 +58,7 @@ import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-dur
 import { BackupsModule } from '@/modules/backups/backups.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
-import { RunnerModule } from '@/modules/chat/runner/runner.module'
+import { HostBringUpModule } from '@/modules/hosts/bring-up/host-bring-up.module'
 import { HostSessionRegistry } from '@/modules/agents/host-sessions/host-sessions.registry'
 import {
     A2aAgentAdapter,
@@ -71,7 +71,7 @@ import {
         HostDaemonAccessModule,
         ResourceEventsModule,
         AuthModule,
-        RunnerModule,
+        HostBringUpModule,
         HostsModule,
         AgentRuntimesModule,
         RuntimeAuthModule,

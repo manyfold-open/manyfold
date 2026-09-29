@@ -88,7 +88,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             agent
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
             ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
-            ctx.runnerDaemonId ?? undefined)
+            ctx.turnHostId ?? undefined)
         const claudeCreds = creds as ResolvedClaudeCodeCredentials | null
         const prompt = messageToPromptText(userMessage)
 

@@ -1,22 +1,22 @@
 import type { RuntimePlacement, ChatError } from '@manyfold/shared'
-import type { RunnerExecFailure } from './runner-manager.service'
+import type { ExecEndpointFailure } from '@/modules/hosts/providers/sandbox-provider'
 
 // The daemon a turn was resolved to: the host id is its routing key.
-export interface ChatRunner {
+export interface TurnDaemon {
     daemonId: string
     // The directories this agent's turns run in beyond the daemon's own
     // roots; they travel on every exec.start (DAEMON_FEATURE_EXEC_ROOTS).
     roots: readonly string[]
 }
 
-export class ChatRunnerError extends Error {
+export class TurnDaemonError extends Error {
     readonly chatError: ChatError
 
     constructor(
         runtime: RuntimePlacement,
         reason: string,
         upgradeRequired = false,
-        readonly execFailure?: RunnerExecFailure
+        readonly execFailure?: ExecEndpointFailure
     ) {
         const action = upgradeRequired
             ? runtime === 'k8s'
