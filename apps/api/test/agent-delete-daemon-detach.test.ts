@@ -322,8 +322,34 @@ test('openclaw removeAgent: a real CLI failure still throws', async () => {
 })
 
 test('hermes removeAgent: already-absent remote profile resolves idempotently', async () => {
-    const adapter = new HermesAgentAdapter(
-        execReturning({ exitCode: 1, stderr: 'no such profile: prof-9' })
-    )
-    await adapter.removeAgent(removeCtx('prof-9'))
+    // hermes' own output, current and before NousResearch/hermes-agent 23036e20
+    for (const stderr of [
+        "Error: No profile named 'prof-9'. See your profiles with: hermes profile list\n",
+        "Error: Profile 'prof-9' does not exist.\n"
+    ]) {
+        const adapter = new HermesAgentAdapter(
+            execReturning({ exitCode: 1, stderr })
+        )
+        await adapter.removeAgent(removeCtx('prof-9'))
+    }
+})
+
+test('hermes removeAgent: a refusal or a missing CLI still throws', async () => {
+    for (const res of [
+        {
+            exitCode: 1,
+            stderr: 'Error: Cannot delete the default profile (~/.hermes).\n'
+        },
+        { exitCode: 127, stderr: 'sh: 1: hermes: not found\n' },
+        {
+            exitCode: 1,
+            stderr: "Error: No profile named 'other'. See your profiles with: hermes profile list\n"
+        }
+    ]) {
+        const adapter = new HermesAgentAdapter(execReturning(res))
+        await assert.rejects(
+            adapter.removeAgent(removeCtx('prof-9')),
+            /hermes profile delete failed/
+        )
+    }
 })
