@@ -70,9 +70,11 @@ Create a new automation
 | `--agent-id <id>` | agent id to run as (defaults to $MF_AGENT_ID) |
 | `--title <title>` | short title 必填。 |
 | `--prompt <prompt>` | prompt body 必填。 |
-| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly \| custom 必填。 |
-| `--rrule <rrule>` | RRULE string (iCalendar) 必填。 |
-| `--timezone <tz>` | IANA timezone (e.g. UTC) 必填。 |
+| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly (timed with --at, and --day for weekly); custom goes with --rrule |
+| `--at <time>` | time of day for a preset, HH:MM (default 09:00) |
+| `--day <weekday>` | weekday for the weekly preset, mon … sun (default mon) |
+| `--rrule <rrule>` | iCalendar RRULE for a custom schedule (the preset is then custom) |
+| `--timezone <tz>` | IANA timezone the schedule keeps (default: this machine's) |
 | `--dtstart <iso>` | first run start (ISO8601) |
 | `--model <model>` | model override |
 | `--json` | emit raw JSON |
@@ -97,8 +99,10 @@ Update an existing automation
 | `--title <title>` | new title |
 | `--prompt <prompt>` | new prompt |
 | `--status <status>` | active \| paused |
-| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly \| custom |
-| `--rrule <rrule>` | new RRULE |
+| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly (timed with --at, and --day for weekly); custom goes with --rrule |
+| `--at <time>` | new time of day, HH:MM; alone it re-times the current preset |
+| `--day <weekday>` | new weekday for the weekly preset |
+| `--rrule <rrule>` | new RRULE (the preset is then custom) |
 | `--timezone <tz>` | new IANA timezone |
 | `--dtstart <iso>` | new dtstart |
 | `--model <model>` | new model override |

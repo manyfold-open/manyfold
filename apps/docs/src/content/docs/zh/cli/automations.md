@@ -13,24 +13,25 @@ mf automations create \
   --agent-id agt_xxx \
   --title "Weekday summary" \
   --prompt "Summarize open work and blockers." \
-  --schedule-preset weekdays \
-  --rrule 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0' \
-  --timezone Europe/London
+  --schedule-preset weekdays --at 09:00
 ```
 
-Preset 包括 `hourly`、`daily`、`weekdays`、`weekly` 和 `custom`。每个
-schedule 都必须传 iCalendar RRULE 和 IANA timezone；`RRULE:` prefix
-可省略。可选 ISO8601 `--dtstart` 用于控制首次触发时间：
+用 preset 说明何时运行：`hourly`、`daily`、`weekdays` 或 `weekly`，用
+`--at HH:MM` 指定时间（默认 09:00；`hourly` 只取分钟），`weekly` 再用
+`--day mon … sun` 指定星期几。其他 schedule 改传 iCalendar `--rrule`，preset
+此时为 `custom`；`RRULE:` prefix 可省略：
 
 ```sh
 mf automations create \
   --agent-id agt_xxx \
-  --title "Monday review" \
-  --prompt "Review last week's incidents." \
-  --schedule-preset custom \
-  --rrule 'FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0' \
-  --timezone Europe/London
+  --title "Monthly review" \
+  --prompt "Review last month's incidents." \
+  --rrule 'FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0'
 ```
+
+schedule 默认使用本机的 timezone，也可以用 `--timezone` 指定 IANA timezone，例如
+`Europe/London`。可选 ISO8601 `--dtstart` 用于控制首次触发时间。`create` 会打印
+schedule 和下一次运行时间。
 
 只有这个 job 需要覆盖 Agent 默认 model 时才使用 `--model`。
 
@@ -49,7 +50,9 @@ mf automations run aut_xxx
 ```sh
 mf automations update aut_xxx --status paused
 mf automations update aut_xxx --status active
-mf automations update aut_xxx --schedule-preset daily --timezone UTC
+mf automations update aut_xxx --schedule-preset daily --at 18:00
+mf automations update aut_xxx --at 07:30   # 同一个 preset，换个时间
+mf automations update aut_xxx --timezone UTC
 mf automations update aut_xxx --clear-model
 mf automations delete aut_xxx --yes
 ```

@@ -23,22 +23,25 @@ mf automations list --json                      # your own agent (no scope)
 mf automations list --account --json            # ALL your agents (needs grant)
 mf automations get <automation-id>
 mf automations create --agent-id $MF_AGENT_ID --title <title> \
-  --prompt <prompt> --schedule-preset daily \
-  --rrule 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0' --timezone UTC
+  --prompt <prompt> --schedule-preset daily --at 09:00
+mf automations create --agent-id $MF_AGENT_ID --title <title> \
+  --prompt <prompt> --rrule 'FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9'
 mf automations update <automation-id> --status paused
-mf automations update <automation-id> --schedule-preset weekly \
-  --rrule 'FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0' --timezone Europe/London
+mf automations update <automation-id> --schedule-preset weekly --day mon \
+  --at 08:00 --timezone Europe/London
 mf automations run <automation-id> --json
 mf automations delete <automation-id> --yes
 ```
 
-- Schedule format is an iCalendar RRULE, NOT cron. The `RRULE:` prefix is
-  optional (added server-side); single line only; must yield a future
-  occurrence.
-- `--schedule-preset` is one of `hourly`, `daily`, `weekdays`, `weekly`,
-  `custom` — a label; pick the one matching your `--rrule`.
-- `--timezone` is an IANA name (e.g. `UTC`); `--dtstart <iso>` sets the
-  first run start (ISO8601, defaults to now).
+- Say when it runs once: `--schedule-preset hourly | daily | weekdays |
+  weekly`, timed with `--at HH:MM` (default 09:00; hourly takes the
+  minutes) and, weekly, `--day mon … sun`; or an iCalendar `--rrule` (NOT
+  cron; the preset is then `custom`; `RRULE:` optional; single line; must
+  yield a future occurrence). Both together are taken as given.
+- `update --at` or `--day` alone re-times the automation's own preset.
+- `--timezone` is an IANA name (e.g. `UTC`), defaulting to this machine's
+  zone; `--dtstart <iso>` sets the first run start (ISO8601, defaults to
+  now).
 - `--model <model>` overrides the agent model; `--clear-model` (update
   only) removes it. `update` also takes `--title` and `--prompt`.
 
@@ -47,7 +50,8 @@ mf automations delete <automation-id> --yes
 - `list`: one line per automation — `id title status preset agentId`;
   `--json` for raw data.
 - `get`: always raw JSON — automation detail plus a `runs` array.
-- `create` / `update`: `id title status` line; `--json` for full detail.
+- `create` / `update`: `id title status schedule (timezone) · next <time>`,
+  the next run on the automation's clock; `--json` for full detail.
 - `run`: `id trigger status` — status starts `running`, later
   `succeeded` or `failed`; `--json` available.
 - `delete`: prints `✓ deleted <id>`; `--json` emits `{ ok, id }`. No

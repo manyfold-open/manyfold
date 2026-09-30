@@ -13,25 +13,26 @@ mf automations create \
   --agent-id agt_xxx \
   --title "Weekday summary" \
   --prompt "Summarize open work and blockers." \
-  --schedule-preset weekdays \
-  --rrule 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0' \
-  --timezone Europe/London
+  --schedule-preset weekdays --at 09:00
 ```
 
-Presets are `hourly`, `daily`, `weekdays`, `weekly`, and `custom`. Every
-schedule requires an iCalendar RRULE and an IANA timezone; `RRULE:` is an
-optional prefix. Use optional ISO8601 `--dtstart` to control the first
-occurrence:
+Say when it runs with a preset: `hourly`, `daily`, `weekdays` or `weekly`,
+timed with `--at HH:MM` (09:00 by default; `hourly` takes its minutes) and,
+for `weekly`, `--day mon … sun`. For any other schedule, pass an iCalendar
+`--rrule` instead; the preset is then `custom`, and `RRULE:` is an optional
+prefix:
 
 ```sh
 mf automations create \
   --agent-id agt_xxx \
-  --title "Monday review" \
-  --prompt "Review last week's incidents." \
-  --schedule-preset custom \
-  --rrule 'FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0' \
-  --timezone Europe/London
+  --title "Monthly review" \
+  --prompt "Review last month's incidents." \
+  --rrule 'FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0'
 ```
+
+The schedule keeps this machine's timezone unless `--timezone` names an IANA
+zone such as `Europe/London`. Use optional ISO8601 `--dtstart` to control the
+first occurrence. `create` prints the schedule and when it runs next.
 
 Use `--model` only when this job should override the agent's normal model.
 
@@ -51,7 +52,9 @@ the saved schedule.
 ```sh
 mf automations update aut_xxx --status paused
 mf automations update aut_xxx --status active
-mf automations update aut_xxx --schedule-preset daily --timezone UTC
+mf automations update aut_xxx --schedule-preset daily --at 18:00
+mf automations update aut_xxx --at 07:30   # the same preset, another time
+mf automations update aut_xxx --timezone UTC
 mf automations update aut_xxx --clear-model
 mf automations delete aut_xxx --yes
 ```
