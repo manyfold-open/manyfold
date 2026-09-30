@@ -30,6 +30,7 @@ import { CreateMenu } from '@/components/CreateMenu'
 import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
 import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
+import { apiErrorMessage } from '@/lib/errorMessage'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import OverflowMenu, { type OverflowMenuItem } from '@/components/OverflowMenu'
 import RuntimeDetailPanel, {
@@ -2382,7 +2383,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
             try {
                 await client.sandboxes.retry(hostId)
             } catch (e) {
-                setError((e as Error).message)
+                setError(apiErrorMessage(e))
             }
             refresh()
         },

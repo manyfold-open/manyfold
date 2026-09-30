@@ -50,6 +50,7 @@ export interface EnsureHostDaemonResult {
     fallbackReason?: BringUpFallbackReason
     execFailure?: ExecEndpointFailure
     cliRefusal?: HostCliRefusal
+    registerFailure?: string
 }
 
 export interface HostRpcArgs {
@@ -165,7 +166,10 @@ export class HostDaemonAccess {
                     ? undefined
                     : (resolution.fallbackReason ?? 'runner_unavailable'),
                 execFailure: resolution.execFailure,
-                cliRefusal: online ? undefined : resolution.cliRefusal
+                cliRefusal: online ? undefined : resolution.cliRefusal,
+                registerFailure: online
+                    ? undefined
+                    : resolution.registerFailure
             }
         }
         const daemon =
@@ -204,7 +208,8 @@ export class HostDaemonAccess {
                 {
                     cliVersion: result.daemon?.cliVersion ?? null,
                     refusal: result.cliRefusal
-                }
+                },
+                result.registerFailure
             )
         return args.host.id
     }
@@ -230,7 +235,8 @@ export class HostDaemonAccess {
                     {
                         cliVersion: ensured.daemon?.cliVersion ?? null,
                         refusal: ensured.cliRefusal
-                    }
+                    },
+                    ensured.registerFailure
                 )
             return await work({
                 host: args.host,
@@ -375,7 +381,9 @@ export class HostDaemonOfflineError extends Error {
         readonly execFailure?: ExecEndpointFailure,
         // With runner_cli_too_old: the daemon's CLI, and why an update did
         // not give it what was needed when one was tried.
-        cli: { cliVersion?: string | null; refusal?: HostCliRefusal } = {}
+        cli: { cliVersion?: string | null; refusal?: HostCliRefusal } = {},
+        // What the machine's own `mf daemon register` said when it failed.
+        readonly registerFailure?: string
     ) {
         const cliVersion = cli.refusal?.cliVersion ?? cli.cliVersion ?? null
         super(

@@ -62,7 +62,11 @@ const en = {
             AUTOMATION_RUN_QUOTA_REACHED:
                 "You've used all the automation runs included in your plan for this billing period. Upgrade your plan to keep them running.",
             API_REQUEST_QUOTA_REACHED:
-                "You've used all the API requests included in your plan for this billing period. Upgrade your plan to keep going."
+                "You've used all the API requests included in your plan for this billing period. Upgrade your plan to keep going.",
+            SANDBOX_API_UNREACHABLE:
+                "Sandboxes can't connect back to Manyfold at {{apiUrl}}, so none was built. Set PUBLIC_API_BASE_URL to an address the sandbox provider can reach (locally, a tunnel URL) and restart the API.",
+            SANDBOX_RUNNER_NOT_CONNECTED:
+                "The new sandbox couldn't connect back to Manyfold at {{apiUrl}}. Retry it; if it fails again, the sandbox provider can't reach that address."
         },
         agentName: {
             empty: 'Agent name is required.',

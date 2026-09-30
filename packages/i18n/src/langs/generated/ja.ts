@@ -34,6 +34,8 @@ const ja: Record<string, string> = {
     'errors.api.AUTOMATION_LIMIT_REACHED': 'プランで許可されている自動化の数に達しました。1 つ削除するか、プランをアップグレードしてください。',
     'errors.api.AUTOMATION_RUN_QUOTA_REACHED': 'この請求期間のプランに含まれるすべての自動化実行を使用しました。プランをアップグレードして、継続的に実行してください。',
     'errors.api.API_REQUEST_QUOTA_REACHED': 'この請求期間のプランに含まれているすべての API リクエストを使用しました。継続するにはプランをアップグレードしてください。',
+    'errors.api.SANDBOX_API_UNREACHABLE': 'サンドボックスが {{apiUrl}} の Manyfold に接続できないため、作成しませんでした。サンドボックスのプロバイダーから到達できるアドレスを PUBLIC_API_BASE_URL に設定し（ローカルではトンネルの URL）、API を再起動してください。',
+    'errors.api.SANDBOX_RUNNER_NOT_CONNECTED': '新しいサンドボックスが {{apiUrl}} の Manyfold に接続できませんでした。再試行してください。再び失敗する場合、サンドボックスのプロバイダーからこのアドレスに到達できません。',
     'errors.agentName.empty': 'エージェント名は必須です。',
     'errors.agentName.tooLong': 'エージェント名は {{max}} 文字以下にする必要があります。',
     'errors.agentName.controlCharacter': 'エージェント名に制御文字を含めることはできません。',

@@ -34,6 +34,8 @@ const fr: Record<string, string> = {
     'errors.api.AUTOMATION_LIMIT_REACHED': 'Vous avez atteint le nombre d\'automatisations autorisé par votre plan. Supprimez-en un ou mettez à niveau votre forfait.',
     'errors.api.AUTOMATION_RUN_QUOTA_REACHED': 'Vous avez utilisé toutes les exécutions d\'automatisation incluses dans votre forfait pour cette période de facturation. Mettez à niveau votre plan pour les faire fonctionner.',
     'errors.api.API_REQUEST_QUOTA_REACHED': 'Vous avez utilisé toutes les requêtes API incluses dans votre forfait pour cette période de facturation. Mettez votre forfait à niveau pour continuer.',
+    'errors.api.SANDBOX_API_UNREACHABLE': 'Les bacs à sable ne peuvent pas rejoindre Manyfold à l\'adresse {{apiUrl}}, aucun n\'a donc été créé. Définissez PUBLIC_API_BASE_URL sur une adresse que le fournisseur de bacs à sable peut atteindre (en local, l\'URL d\'un tunnel), puis redémarrez l\'API.',
+    'errors.api.SANDBOX_RUNNER_NOT_CONNECTED': 'Le nouveau bac à sable n\'a pas pu rejoindre Manyfold à l\'adresse {{apiUrl}}. Réessayez ; en cas de nouvel échec, le fournisseur de bacs à sable ne peut pas atteindre cette adresse.',
     'errors.agentName.empty': 'Le nom de l\'agent est requis.',
     'errors.agentName.tooLong': 'Le nom de l\'agent doit contenir au maximum {{max}} caractères.',
     'errors.agentName.controlCharacter': 'Le nom de l\'agent ne peut pas contenir de caractères de contrôle.',

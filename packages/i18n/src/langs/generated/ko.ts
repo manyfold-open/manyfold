@@ -34,6 +34,8 @@ const ko: Record<string, string> = {
     "errors.api.AUTOMATION_LIMIT_REACHED": "요금제에서 허용하는 자동화 수에 도달했습니다. 하나를 삭제하거나 요금제를 업그레이드하세요.",
     "errors.api.AUTOMATION_RUN_QUOTA_REACHED": "이번 청구 기간에 요금제에 포함된 자동화 실행을 모두 사용했습니다. 자동화를 계속 실행하려면 요금제를 업그레이드하세요.",
     "errors.api.API_REQUEST_QUOTA_REACHED": "이번 청구 기간에 요금제에 포함된 API 요청을 모두 사용했습니다. 계속 사용하려면 요금제를 업그레이드하세요.",
+    "errors.api.SANDBOX_API_UNREACHABLE": "샌드박스가 {{apiUrl}}의 Manyfold에 다시 연결할 수 없어 샌드박스를 만들지 않았습니다. 샌드박스 제공자가 접근할 수 있는 주소를 PUBLIC_API_BASE_URL에 설정한 뒤(로컬에서는 터널 URL) API를 다시 시작하세요.",
+    "errors.api.SANDBOX_RUNNER_NOT_CONNECTED": "새 샌드박스가 {{apiUrl}}의 Manyfold에 다시 연결하지 못했습니다. 다시 시도하세요. 또 실패하면 샌드박스 제공자가 이 주소에 접근할 수 없는 것입니다.",
     "errors.agentName.empty": "에이전트 이름이 필요합니다.",
     "errors.agentName.tooLong": "에이전트 이름은 {{max}}자 이하여야 합니다.",
     "errors.agentName.controlCharacter": "에이전트 이름에는 제어 문자가 포함될 수 없습니다.",

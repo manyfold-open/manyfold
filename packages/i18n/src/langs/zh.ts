@@ -62,7 +62,11 @@ const zh: Translations = {
             AUTOMATION_RUN_QUOTA_REACHED:
                 '本账期内套餐包含的自动化运行次数已用完，升级套餐后可继续运行。',
             API_REQUEST_QUOTA_REACHED:
-                '本账期内套餐包含的 API 请求次数已用完，升级套餐后可继续使用。'
+                '本账期内套餐包含的 API 请求次数已用完，升级套餐后可继续使用。',
+            SANDBOX_API_UNREACHABLE:
+                '沙箱无法回连 {{apiUrl}} 上的 Manyfold，因此没有创建。请把 PUBLIC_API_BASE_URL 设为沙箱服务商能访问的地址（本地环境用隧道 URL），然后重启 API。',
+            SANDBOX_RUNNER_NOT_CONNECTED:
+                '新沙箱无法回连 {{apiUrl}} 上的 Manyfold。请重试；如果再次失败，说明沙箱服务商访问不到这个地址。'
         },
         agentName: {
             empty: '请填写 Agent 名称。',

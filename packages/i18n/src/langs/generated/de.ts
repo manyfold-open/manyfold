@@ -34,6 +34,8 @@ const de: Record<string, string> = {
     'errors.api.AUTOMATION_LIMIT_REACHED': 'Sie haben die Anzahl der Automatisierungen erreicht, die Ihr Plan zulässt. Löschen Sie einen oder aktualisieren Sie Ihren Plan.',
     'errors.api.AUTOMATION_RUN_QUOTA_REACHED': 'Sie haben alle in Ihrem Plan enthaltenen Automatisierungsläufe für diesen Abrechnungszeitraum genutzt. Aktualisieren Sie Ihren Plan, um sie am Laufen zu halten.',
     'errors.api.API_REQUEST_QUOTA_REACHED': 'Sie haben für diesen Abrechnungszeitraum alle in Ihrem Plan enthaltenen API-Anfragen genutzt. Aktualisieren Sie Ihren Plan, um weiterzumachen.',
+    'errors.api.SANDBOX_API_UNREACHABLE': 'Sandboxes können Manyfold unter {{apiUrl}} nicht erreichen, daher wurde keine erstellt. Setzen Sie PUBLIC_API_BASE_URL auf eine Adresse, die der Sandbox-Anbieter erreichen kann (lokal eine Tunnel-URL), und starten Sie die API neu.',
+    'errors.api.SANDBOX_RUNNER_NOT_CONNECTED': 'Die neue Sandbox konnte Manyfold unter {{apiUrl}} nicht erreichen. Versuchen Sie es erneut; schlägt es wieder fehl, kann der Sandbox-Anbieter diese Adresse nicht erreichen.',
     'errors.agentName.empty': 'Der Name des Agenten ist erforderlich.',
     'errors.agentName.tooLong': 'Der Agentenname darf höchstens {{max}} Zeichen lang sein.',
     'errors.agentName.controlCharacter': 'Der Agentenname darf keine Steuerzeichen enthalten.',
