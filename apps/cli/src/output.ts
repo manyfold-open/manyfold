@@ -196,7 +196,9 @@ const CODE_HINTS: Record<string, CodeHint> = {
     ALWAYS_ONLINE_AGENT_LIMIT_REACHED: (details) =>
         `Every always-online agent your plan includes is in use${planUse(details)}: remove one with mf agent delete <id>, or upgrade your plan.`,
     ALWAYS_ONLINE_LIMIT_REACHED: (details) =>
-        `Every always-online computer your plan includes is in use${planUse(details)}: remove one, or upgrade your plan.`
+        `Every always-online computer your plan includes is in use${planUse(details)}: remove one, or upgrade your plan.`,
+    channel_session_archived: (details) =>
+        `A deleted session stays archived: start a new one with mf channels sessions new ${typeof details.channelId === 'string' ? details.channelId : '<channelId>'} --scope-key '${typeof details.scopeKey === 'string' ? details.scopeKey : '<key>'}'.`
 }
 
 // A plan limit is a 403 like a missing scope, but no token fixes it.

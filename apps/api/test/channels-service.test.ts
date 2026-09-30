@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ConflictException } from '@nestjs/common'
 import type {
     ChannelDeliveryRow,
     ChannelRow,
@@ -701,4 +702,64 @@ test('update allows rebinding a flag-on channel to another agent that delivers i
     await h.service.update('user-1', 'channel-1', { agentId: 'agent-2' })
 
     assert.deepEqual(h.rebinds, [{ id: 'channel-1', agentId: 'agent-2' }])
+})
+
+test('switching to an archived channel session is a conflict and renames nothing', async () => {
+    const renamed: unknown[] = []
+    const switched: unknown[] = []
+    const channel = makeServiceRow()
+    const repo = {
+        getById: async () => channel,
+        getOwned: async () => channel,
+        findSessionById: async () => ({
+            id: 'chs-1',
+            channelId: 'channel-1',
+            scopeKey: 'telegram:42',
+            isActive: false,
+            archivedAt: new Date('2026-09-01T00:00:00Z')
+        }),
+        renameSession: async (...args: unknown[]) => {
+            renamed.push(args)
+        }
+    }
+    const service = new ChannelsService(
+        {} as never,
+        repo as never,
+        { get: () => ({}) } as never,
+        {
+            encrypt: () => ({ ciphertext: 'ciphertext', keyVersion: 1 }),
+            decrypt: () => '{}'
+        } as never,
+        { reload: async () => undefined } as never,
+        {
+            fork: async () => null,
+            switchTo: async (...args: unknown[]) => {
+                switched.push(args)
+            }
+        } as never,
+        { reserveChannelSlot: async () => undefined } as never,
+        { get: () => undefined } as never,
+        fixtureExtensions
+    )
+
+    await assert.rejects(
+        () =>
+            service.updateChannelSession('user-1', 'channel-1', 'chs-1', {
+                displayName: 'renamed',
+                makeActive: true
+            }),
+        (err) => {
+            assert.ok(err instanceof ConflictException)
+            const body = err.getResponse() as Record<string, unknown>
+            assert.equal(body.code, 'channel_session_archived')
+            assert.deepEqual(body.details, {
+                channelId: 'channel-1',
+                channelSessionId: 'chs-1',
+                scopeKey: 'telegram:42'
+            })
+            return true
+        }
+    )
+    assert.deepEqual(renamed, [], 'a refused PATCH must not half-apply')
+    assert.deepEqual(switched, [])
 })

@@ -230,6 +230,28 @@ test('plan limits and quotas say what to free up, with the numbers', () => {
     )
 })
 
+test('an archived channel session says how to start a new one', () => {
+    const details = {
+        channelId: 'chn_1',
+        channelSessionId: 'chs_1',
+        scopeKey: 'telegram:42'
+    }
+    const failure = normalizeCliError(
+        apiError(409, {
+            code: 'channel_session_archived',
+            serverMessage:
+                'an archived channel session cannot be made active; start a new one in its scope',
+            details
+        })
+    )
+    assert.equal(failure.exitCode, 1)
+    assert.equal(
+        failure.error.hint,
+        "A deleted session stays archived: start a new one with mf channels sessions new chn_1 --scope-key 'telegram:42'."
+    )
+    assert.deepEqual(failure.error.details, details)
+})
+
 // The runner these codes are about lives inside the sandbox. Pointing at
 // `mf daemon` (the daemon on this computer) sent a tester the wrong way.
 test('sandbox runner failures say where the runner is and what to fix', () => {

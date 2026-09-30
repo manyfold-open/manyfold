@@ -454,6 +454,14 @@ export class ChannelsRepository {
         opts: { activateFallback?: boolean } = {}
     ): Promise<ArchiveResult> {
         return this.db.transaction(async (tx) => {
+            const [prior] = await tx
+                .select()
+                .from(channelSessions)
+                .where(eq(channelSessions.id, id))
+                .for('update')
+            if (!prior) throw new Error(`channel_session ${id} not found`)
+            if (prior.archivedAt !== null)
+                return { archived: prior, fallbackActivated: null }
             const now = new Date()
             const [archived] = await tx
                 .update(channelSessions)
@@ -462,7 +470,10 @@ export class ChannelsRepository {
                 .returning()
             if (!archived)
                 throw new Error(`channel_session ${id} not found`)
-            if (!opts.activateFallback)
+            // Only the active session leaves its scope without one; activating
+            // a fallback beside another active session breaks the one-active
+            // unique index.
+            if (!opts.activateFallback || !prior.isActive)
                 return { archived, fallbackActivated: null }
             const [candidate] = await tx
                 .select()
@@ -481,9 +492,14 @@ export class ChannelsRepository {
             const [fallback] = await tx
                 .update(channelSessions)
                 .set({ isActive: true, updatedAt: now })
-                .where(eq(channelSessions.id, candidate.id))
+                .where(
+                    and(
+                        eq(channelSessions.id, candidate.id),
+                        isNull(channelSessions.archivedAt)
+                    )
+                )
                 .returning()
-            return { archived, fallbackActivated: fallback }
+            return { archived, fallbackActivated: fallback ?? null }
         })
     }
 

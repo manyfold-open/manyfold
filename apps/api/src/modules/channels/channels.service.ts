@@ -387,6 +387,17 @@ export class ChannelsService {
         const row = await this.repo.findSessionById(channelSessionId)
         if (!row || row.channelId !== channel.id)
             throw new NotFoundException('channel session not found')
+        if (patch.makeActive === true && row.archivedAt !== null)
+            throw new ConflictException({
+                code: 'channel_session_archived',
+                message:
+                    'an archived channel session cannot be made active; start a new one in its scope',
+                details: {
+                    channelId: channel.id,
+                    channelSessionId: row.id,
+                    scopeKey: row.scopeKey
+                }
+            })
         if (patch.displayName !== undefined)
             await this.repo.renameSession(row.id, patch.displayName)
         if (patch.makeActive === true && row.archivedAt === null && !row.isActive) {

@@ -72,3 +72,6 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 - `CHANNEL_LIMIT_REACHED` (403, exit 3) → every channel the plan includes
   is in use (`details`: `current`, `limit`, `planName`): delete one with
   `mf channels delete <id>`, or upgrade the plan.
+- `channel_session_archived` (409, exit 1) on `sessions switch` → a deleted
+  session cannot be made active again: start a new one with
+  `mf channels sessions new <channelId> --scope-key <key>`.
