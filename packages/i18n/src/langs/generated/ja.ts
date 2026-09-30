@@ -1238,6 +1238,7 @@ const ja: Record<string, string> = {
     'web.skills.searchAction': '検索',
     'web.skills.noResultsTitle': 'スキルが見つかりません',
     'web.skills.noResultsBody': '別の検索を試すか、SKILL.md ファイルを含むリポジトリを追加してください。',
+    'web.skills.stillReading': '{{repos}} のスキルをまだ読み込んでいます。しばらくしてから再読み込みしてください。',
     'web.skills.ownerPlaceholder': '所有者',
     'web.skills.repoPlaceholder': 'リポジトリ',
     'web.skills.branchPlaceholder': 'ブランチ',

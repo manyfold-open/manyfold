@@ -1427,6 +1427,16 @@ export interface DiscoverableSkillSummary {
 export interface DiscoverableSkillsPage {
     items: DiscoverableSkillSummary[]
     nextCursor: string | null
+    // Repos being read for the first time when the page was answered: their
+    // skills are not in it yet. Only on a first page, and only when any.
+    pendingRepos?: DiscoverablePendingRepo[]
+}
+
+export interface DiscoverablePendingRepo {
+    id: string
+    owner: string
+    name: string
+    branch: string
 }
 
 export interface SkillSecretRequirement {

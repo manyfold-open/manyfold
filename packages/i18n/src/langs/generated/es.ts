@@ -1246,6 +1246,7 @@ const es: Record<string, string> = {
     'web.skills.searchAction': 'Buscar',
     'web.skills.noResultsTitle': 'No se encontraron habilidades',
     'web.skills.noResultsBody': 'Pruebe con otra búsqueda o agregue un repositorio que contenga archivos SKILL.md.',
+    'web.skills.stillReading': 'Todavía se están leyendo las skills de {{repos}}; vuelve a cargar en un minuto para verlas.',
     'web.skills.ownerPlaceholder': 'dueño',
     'web.skills.repoPlaceholder': 'repositorio',
     'web.skills.branchPlaceholder': 'rama',

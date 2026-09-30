@@ -2252,6 +2252,7 @@ const ar: Record<string, string> = {
     'web.skills.library.urlLabel': 'عنوان URL لـ GitHub',
     'web.skills.managedSource': 'مُدار',
     'web.skills.noResultsBody': 'جرب بحثًا آخر أو أضف مستودعًا يحتوي على ملفات SKILL.md.',
+    'web.skills.stillReading': 'لا تزال قراءة المهارات من {{repos}} جارية؛ أعد التحميل بعد دقيقة لرؤيتها.',
     'web.skills.noResultsTitle': 'لم يتم العثور على مهارات',
     'web.skills.ownerPlaceholder': 'المالك',
     'web.skills.removeRepoAction': 'إزالة',

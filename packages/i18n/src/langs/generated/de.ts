@@ -1246,6 +1246,7 @@ const de: Record<string, string> = {
     'web.skills.searchAction': 'Suchen',
     'web.skills.noResultsTitle': 'Keine Fähigkeiten gefunden',
     'web.skills.noResultsBody': 'Versuchen Sie eine andere Suche oder fügen Sie ein Repository hinzu, das SKILL.md-Dateien enthält.',
+    'web.skills.stillReading': 'Skills aus {{repos}} werden noch gelesen; laden Sie die Seite in einer Minute neu, um sie zu sehen.',
     'web.skills.ownerPlaceholder': 'Eigentümer',
     'web.skills.repoPlaceholder': 'Repository',
     'web.skills.branchPlaceholder': 'Zweig',

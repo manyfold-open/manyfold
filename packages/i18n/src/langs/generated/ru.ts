@@ -1247,6 +1247,7 @@ const ru: Record<string, string> = {
     'web.skills.searchAction': 'Поиск',
     'web.skills.noResultsTitle': 'Навыки не найдены',
     'web.skills.noResultsBody': 'Попробуйте другой поиск или добавьте репозиторий, содержащий файлы SKILL.md.',
+    'web.skills.stillReading': 'Навыки из {{repos}} ещё считываются; обновите страницу через минуту, чтобы их увидеть.',
     'web.skills.ownerPlaceholder': 'владелец',
     'web.skills.repoPlaceholder': 'репозиторий',
     'web.skills.branchPlaceholder': 'ветвь',

@@ -1246,6 +1246,7 @@ const fr: Record<string, string> = {
     'web.skills.searchAction': 'Recherche',
     'web.skills.noResultsTitle': 'Aucune compétence trouvée',
     'web.skills.noResultsBody': 'Essayez une autre recherche ou ajoutez un référentiel contenant des fichiers SKILL.md.',
+    'web.skills.stillReading': 'Lecture des skills de {{repos}} en cours ; rechargez dans une minute pour les voir.',
     'web.skills.ownerPlaceholder': 'propriétaire',
     'web.skills.repoPlaceholder': 'dépôt',
     'web.skills.branchPlaceholder': 'branche',

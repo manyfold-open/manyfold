@@ -350,6 +350,7 @@ export type {
     SkillRepoSummary,
     DiscoverableSkillSummary,
     DiscoverableSkillsPage,
+    DiscoverablePendingRepo,
     SkillSecretRequirement,
     SkillReadmeMeta,
     SkillReadmeSource,

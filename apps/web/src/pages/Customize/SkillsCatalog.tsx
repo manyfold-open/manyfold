@@ -1,6 +1,7 @@
 import type {
     CatalogCategorySummary,
     CatalogSort,
+    DiscoverablePendingRepo,
     DiscoverableSkillSummary
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
@@ -31,6 +32,10 @@ const SkillsCatalog: FC = (): ReactNode => {
     const [categories, setCategories] = useState<CatalogCategorySummary[]>([])
     const [items, setItems] = useState<DiscoverableSkillSummary[]>([])
     const [nextCursor, setNextCursor] = useState<string | null>(null)
+    // Repos still being read for the first time when the list was loaded.
+    const [pendingRepos, setPendingRepos] = useState<DiscoverablePendingRepo[]>(
+        []
+    )
     const [query, setQuery] = useState('')
     const [categoryId, setCategoryId] = useState('')
     const [sort, setSort] = useState<CatalogSort>('featured')
@@ -72,6 +77,7 @@ const SkillsCatalog: FC = (): ReactNode => {
                 opts.append ? [...prev, ...page.items] : page.items
             )
             setNextCursor(page.nextCursor)
+            if (!opts.append) setPendingRepos(page.pendingRepos ?? [])
             setHasLoaded(true)
         } catch (err) {
             if (seq !== requestSeq.current) return
@@ -144,6 +150,16 @@ const SkillsCatalog: FC = (): ReactNode => {
             <div className='mb-4'>
                 <CatalogSortTabs value={sort} onChange={setSort} />
             </div>
+
+            {pendingRepos.length > 0 && (
+                <p className='text-ui text-muted mb-4'>
+                    {t('web.skills.stillReading', {
+                        repos: pendingRepos
+                            .map((repo) => `${repo.owner}/${repo.name}`)
+                            .join(', ')
+                    })}
+                </p>
+            )}
 
             {initialGate.showLoading && (
                 <div

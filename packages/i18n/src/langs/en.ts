@@ -2198,6 +2198,8 @@ const en = {
             noResultsTitle: 'No skills found',
             noResultsBody:
                 'Try another search or add a repository that contains SKILL.md files.',
+            stillReading:
+                'Still reading skills from {{repos}}; reload in a minute to see them.',
             ownerPlaceholder: 'owner',
             repoPlaceholder: 'repository',
             branchPlaceholder: 'branch',

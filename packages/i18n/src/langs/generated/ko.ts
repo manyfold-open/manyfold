@@ -1237,6 +1237,7 @@ const ko: Record<string, string> = {
     "web.skills.searchAction": "검색",
     "web.skills.noResultsTitle": "기술을 찾을 수 없습니다.",
     "web.skills.noResultsBody": "다른 검색을 시도하거나 SKILL.md 파일이 포함된 저장소를 추가하세요.",
+    "web.skills.stillReading": "{{repos}}의 스킬을 아직 읽는 중입니다. 잠시 후 새로고침하면 표시됩니다.",
     "web.skills.ownerPlaceholder": "소유자",
     "web.skills.repoPlaceholder": "저장소",
     "web.skills.branchPlaceholder": "브랜치",

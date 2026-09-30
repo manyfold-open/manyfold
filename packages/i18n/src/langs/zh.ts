@@ -2133,6 +2133,7 @@ const zh: Translations = {
             searchAction: '搜索',
             noResultsTitle: '没有找到 Skill',
             noResultsBody: '换个关键词，或添加包含 SKILL.md 的仓库。',
+            stillReading: '仍在读取 {{repos}} 的 skills，稍后刷新即可看到。',
             ownerPlaceholder: 'owner',
             repoPlaceholder: 'repository',
             branchPlaceholder: 'branch',

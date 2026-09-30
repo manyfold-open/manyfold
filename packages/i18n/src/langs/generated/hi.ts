@@ -1244,6 +1244,7 @@ const hi: Record<string, string> = {
     'web.skills.searchAction': 'खोज',
     'web.skills.noResultsTitle': 'कोई कौशल नहीं मिला',
     'web.skills.noResultsBody': 'दूसरी खोज का प्रयास करें या एक रिपॉजिटरी जोड़ें जिसमें SKILL.md फ़ाइलें हों।',
+    'web.skills.stillReading': '{{repos}} से स्किल्स अभी पढ़ी जा रही हैं; उन्हें देखने के लिए एक मिनट बाद रीलोड करें।',
     'web.skills.ownerPlaceholder': 'मालिक',
     'web.skills.repoPlaceholder': 'कोष',
     'web.skills.branchPlaceholder': 'शाखा',

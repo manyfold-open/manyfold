@@ -508,3 +508,83 @@ test('upsert does not crash on real PG and respects scan TTL when revision uncha
         await h.close()
     }
 })
+
+// A repo read for the first time: the first discover waits for that read,
+// here and while another process holds the scan, rather than answer as if
+// the repo had no skills.
+const firstReadRow = (h: Harness, slug: string): ScannedSkillSummary => ({
+    skillId: h.skillId(slug),
+    name: `pg ${slug}`,
+    description: 'read on the first discover',
+    repoOwner: h.repoOwner,
+    repoName: 'repo',
+    repoBranch: 'main',
+    sourcePath: `skills/${slug}`,
+    latestRevision: 'rev-first',
+    version: null,
+    readmeUrl: null,
+    installDir: `pg-${slug}`,
+    installed: false,
+    enabled: false,
+    userSkillId: null,
+    repoId: `builtin:${h.repoOwner}/repo@main`,
+    repoReadonly: true,
+    category: null,
+    tags: [],
+    featured: false
+})
+
+const scanKey = (h: Harness): string =>
+    JSON.stringify([h.repoOwner, 'repo', 'main'])
+
+test('a repo never read is read before the first discover answers', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
+    try {
+        await h.db.delete(skillRepoScans).where(eq(skillRepoScans.key, scanKey(h)))
+        h.discovery.scanResult = [firstReadRow(h, 'first')]
+
+        const page = await h.service.discoverPage({ userId: h.userId })
+
+        assert.deepEqual(page.items.map((item) => item.skillId), [h.skillId('first')])
+        assert.equal(page.pendingRepos, undefined)
+        assert.equal(h.discovery.scanCallCount, 1)
+    } finally {
+        await h.close()
+    }
+})
+
+test('a first read another process holds is waited for until it publishes', { skip: !RUN, timeout: 30_000 }, async (t) => {
+    const h = await buildHarness(t)
+    try {
+        await h.db
+            .update(skillRepoScans)
+            .set({
+                scannedAt: null,
+                publishedAliases: [],
+                holderId: 'elsewhere',
+                expiresAt: new Date(Date.now() + 60_000)
+            })
+            .where(eq(skillRepoScans.key, scanKey(h)))
+        const page = h.service.discoverPage({ userId: h.userId })
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        // The other process publishes its read.
+        await insertSkill(h, 'elsewhere')
+        await h.db
+            .update(skillRepoScans)
+            .set({
+                scannedAt: new Date(),
+                publishedAliases: [{ owner: h.repoOwner, name: 'repo' }],
+                holderId: null,
+                expiresAt: null
+            })
+            .where(eq(skillRepoScans.key, scanKey(h)))
+
+        const result = await page
+
+        assert.deepEqual(result.items.map((item) => item.skillId), [h.skillId('elsewhere')])
+        assert.equal(result.pendingRepos, undefined)
+        assert.equal(h.discovery.scanCallCount, 0, 'this process did not scan it')
+    } finally {
+        await h.close()
+    }
+})
