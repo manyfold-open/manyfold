@@ -47,6 +47,10 @@ bearer token。
 `status` 和 `hint` 只在可用时出现。CLI 不会把未解析的 response body 放进 error
 envelope。
 
+Plan limit 或 quota（`CHANNEL_LIMIT_REACHED`、`ACTIVE_HOURS_QUOTA_REACHED` 以及其它
+`*_LIMIT_REACHED` / `*_QUOTA_REACHED` code）还会带上 `details`，包含 `current`、
+`limit` 和 `planName`。它和其它 `403` 一样退出码为 `3`，`hint` 会说明该释放什么。
+
 ## Exit code
 
 | Code | 含义                                           |

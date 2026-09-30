@@ -152,6 +152,84 @@ test('codes a script can act on get their own hint and keep their details', () =
     assert.match(other.error.hint ?? '', /Refresh/)
 })
 
+// A plan limit is a 403, so it exits like one; its hint must never send the
+// user to check token scopes, which is what a bare 403 gets.
+test('plan limits and quotas say what to free up, with the numbers', () => {
+    const cases: Array<[code: string, details: object, hint: RegExp]> = [
+        [
+            'CHANNEL_LIMIT_REACHED',
+            { current: 2, limit: 2, planName: 'Free' },
+            /\(2 of 2 on the Free plan\): delete one with mf channels delete <id>/
+        ],
+        [
+            'AUTOMATION_LIMIT_REACHED',
+            { current: 5, limit: 5, planName: 'Free' },
+            /\(5 of 5 on the Free plan\): delete one with mf automations delete <id>/
+        ],
+        [
+            'AUTOMATION_RUN_QUOTA_REACHED',
+            {
+                current: 100,
+                limit: 100,
+                planName: 'Free',
+                resetAt: '2026-10-01T00:00:00.000Z'
+            },
+            /\(100 of 100 on the Free plan\); they renew at 2026-10-01T00:00:00\.000Z\. Upgrade/
+        ],
+        [
+            'ACTIVE_HOURS_QUOTA_REACHED',
+            { current: 10.04, limit: 10, planName: 'Free' },
+            /\(10h of 10h on the Free plan\)\. Upgrade/
+        ],
+        [
+            'STORAGE_LIMIT_REACHED',
+            { current: 5_300_000_000, limit: 5_000_000_000, planName: 'Free' },
+            /\(5\.3 GB of 5\.0 GB on the Free plan\): free up space \(mf sandbox storage-usage/
+        ],
+        [
+            'CONCURRENT_ACTIVE_LIMIT_REACHED',
+            { current: 1, limit: 1, planName: 'Free' },
+            /\(1 of 1 on the Free plan\): try again once one goes to sleep/
+        ],
+        [
+            'ALWAYS_ONLINE_AGENT_LIMIT_REACHED',
+            { kind: 'sprites', current: 0, limit: 0, planName: 'Free' },
+            /\(0 of 0 on the Free plan\): remove one with mf agent delete <id>/
+        ],
+        [
+            'ALWAYS_ONLINE_LIMIT_REACHED',
+            { kind: 'daemon', current: 1, limit: 1, planName: 'Free' },
+            /\(1 of 1 on the Free plan\): remove one, or upgrade/
+        ],
+        [
+            'FUTURE_THING_LIMIT_REACHED',
+            { current: 3, limit: 3, planName: 'Plus' },
+            /^This is a limit of your plan, not of the token \(3 of 3 on the Plus plan\)/
+        ]
+    ]
+    for (const [code, details, hint] of cases) {
+        const failure = normalizeCliError(
+            apiError(403, { code, serverMessage: 'limit reached', details })
+        )
+        assert.equal(failure.exitCode, 3, code)
+        assert.match(failure.error.hint ?? '', hint, code)
+        assert.doesNotMatch(failure.error.hint ?? '', /scope/, code)
+        assert.deepEqual(failure.error.details, details, code)
+    }
+
+    const withoutNumbers = normalizeCliError(
+        apiError(403, {
+            code: 'CHANNEL_LIMIT_REACHED',
+            serverMessage: 'limit reached',
+            details: undefined
+        })
+    )
+    assert.match(
+        withoutNumbers.error.hint ?? '',
+        /^Every channel your plan includes is in use: delete/
+    )
+})
+
 // The runner these codes are about lives inside the sandbox. Pointing at
 // `mf daemon` (the daemon on this computer) sent a tester the wrong way.
 test('sandbox runner failures say where the runner is and what to fix', () => {

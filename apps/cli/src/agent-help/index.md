@@ -72,7 +72,9 @@ emitted on stderr as
 `{ "error": { "code", "status"?, "message", "hint"?, "details"? } }`
 (never the raw response body), so both success and failure stay parseable.
 `details` comes with the codes a script can act on, such as
-`RUNTIME_LIMIT_REACHED`. Exit codes are stable in every mode: 2 network
+`RUNTIME_LIMIT_REACHED`; every plan limit or quota (`*_LIMIT_REACHED`,
+`*_QUOTA_REACHED`) puts `current`, `limit` and `planName` there. Exit codes
+are stable in every mode: 2 network
 failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
 (400/422), 130 interrupted (Ctrl-C), 1 anything else. A command that runs
 a check (`mf doctor`, `mf model-providers test`, `mf channels test` and

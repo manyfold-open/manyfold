@@ -136,8 +136,20 @@ const profileHint = (): string => {
 }
 
 // What to do next for a failure a script can act on, by its code; these
-// codes also pass their `details` through to `--json` output.
+// codes, and every plan limit or quota, also pass their `details` through to
+// `--json` output.
 type CodeHint = (details: Record<string, unknown>) => string
+
+// " (2 of 2 on the Free plan)", when the API sent the numbers.
+const planUse = (
+    details: Record<string, unknown>,
+    unit: (value: number) => string = String
+): string =>
+    typeof details.current === 'number' &&
+    typeof details.limit === 'number' &&
+    typeof details.planName === 'string'
+        ? ` (${unit(details.current)} of ${unit(details.limit)} on the ${details.planName} plan)`
+        : ''
 
 const CODE_HINTS: Record<string, CodeHint> = {
     RUNTIME_LIMIT_REACHED: () =>
@@ -168,8 +180,33 @@ const CODE_HINTS: Record<string, CodeHint> = {
     SANDBOX_CLI_TOO_OLD: (details) =>
         `Update it: mf sandbox update ${typeof details.hostName === 'string' ? details.hostName : typeof details.hostId === 'string' ? details.hostId : '<sandbox>'} (--to <version> for a build newer than its channel's latest), or from the Update Center in the web app.`,
     SANDBOX_DAEMON_OFFLINE: () =>
-        'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.'
+        'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.',
+    CHANNEL_LIMIT_REACHED: (details) =>
+        `Every channel your plan includes is in use${planUse(details)}: delete one with mf channels delete <id> (mf channels list shows them), or upgrade your plan.`,
+    AUTOMATION_LIMIT_REACHED: (details) =>
+        `Every automation your plan includes is in use${planUse(details)}: delete one with mf automations delete <id> (mf automations list shows them), or upgrade your plan.`,
+    AUTOMATION_RUN_QUOTA_REACHED: (details) =>
+        `The automation runs included this billing period are used up${planUse(details)}${typeof details.resetAt === 'string' ? `; they renew at ${details.resetAt}` : ''}. Upgrade your plan to keep them running.`,
+    ACTIVE_HOURS_QUOTA_REACHED: (details) =>
+        `The sandbox active hours included this billing period are used up${planUse(details, (hours) => `${Math.round(hours * 10) / 10}h`)}. Upgrade your plan to keep going.`,
+    STORAGE_LIMIT_REACHED: (details) =>
+        `Sandbox storage is full${planUse(details, (bytes) => `${(bytes / 1e9).toFixed(1)} GB`)}: free up space (mf sandbox storage-usage shows where it goes), or upgrade your plan.`,
+    CONCURRENT_ACTIVE_LIMIT_REACHED: (details) =>
+        `As many sandboxes as your plan runs at once are running${planUse(details)}: try again once one goes to sleep, or upgrade your plan.`,
+    ALWAYS_ONLINE_AGENT_LIMIT_REACHED: (details) =>
+        `Every always-online agent your plan includes is in use${planUse(details)}: remove one with mf agent delete <id>, or upgrade your plan.`,
+    ALWAYS_ONLINE_LIMIT_REACHED: (details) =>
+        `Every always-online computer your plan includes is in use${planUse(details)}: remove one, or upgrade your plan.`
 }
+
+// A plan limit is a 403 like a missing scope, but no token fixes it.
+const PLAN_LIMIT_CODE = /_(?:LIMIT|QUOTA)_REACHED$/
+
+const planLimitHint: CodeHint = (details) =>
+    `This is a limit of your plan, not of the token${planUse(details)}: free up what it counts, or upgrade your plan.`
+
+const codeHint = (code: string): CodeHint | undefined =>
+    CODE_HINTS[code] ?? (PLAN_LIMIT_CODE.test(code) ? planLimitHint : undefined)
 
 const recordOf = (value: unknown): Record<string, unknown> =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -177,7 +214,7 @@ const recordOf = (value: unknown): Record<string, unknown> =>
         : {}
 
 const apiErrorHint = (error: ApiError): string | undefined => {
-    const byCode = CODE_HINTS[error.code]
+    const byCode = codeHint(error.code)
     if (byCode) return byCode(recordOf(error.details))
     const status = error.status
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
@@ -243,7 +280,7 @@ export const normalizeCliError = (
                 status: error.status,
                 message: apiErrorMessage(error),
                 ...errorExtra({ hint: apiErrorHint(error), ...extra }),
-                ...(CODE_HINTS[error.code] && error.details !== undefined
+                ...(codeHint(error.code) && error.details !== undefined
                     ? { details: error.details }
                     : {})
             },

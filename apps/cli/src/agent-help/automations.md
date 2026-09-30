@@ -81,6 +81,10 @@ mf automations delete <automation-id> --yes
 - `400` "schedule has no future occurrence" → rrule + dtstart never fire
   again; adjust the schedule
 - "nothing to update" → pass at least one update flag
+- `AUTOMATION_LIMIT_REACHED` → every automation the plan includes is in
+  use: delete one with `mf automations delete <id>`, or upgrade the plan
+- `AUTOMATION_RUN_QUOTA_REACHED` → this billing period's runs are used up;
+  `details.resetAt` says when they renew
 - "refusing to delete … without --yes" → re-run with `--yes` (or `-y`)
 - run `failed` → `mf automations result <id> --run <run-id>` says why
 - `409` "automation already has a running run" → follow it:

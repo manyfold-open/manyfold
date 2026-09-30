@@ -69,3 +69,6 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 - "pass at least one of --label, --status, --config, --credentials" →
   `update` requires at least one field.
 - "agent id is required" → pass `--agent-id` or rely on `$MF_AGENT_ID`.
+- `CHANNEL_LIMIT_REACHED` (403, exit 3) → every channel the plan includes
+  is in use (`details`: `current`, `limit`, `planName`): delete one with
+  `mf channels delete <id>`, or upgrade the plan.

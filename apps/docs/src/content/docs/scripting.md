@@ -49,6 +49,11 @@ On failure, stderr contains:
 `status` and `hint` appear only when available. The CLI never includes an
 unparsed response body in the error envelope.
 
+A plan limit or quota (`CHANNEL_LIMIT_REACHED`, `ACTIVE_HOURS_QUOTA_REACHED`
+and the other `*_LIMIT_REACHED` / `*_QUOTA_REACHED` codes) also carries
+`details` with `current`, `limit` and `planName`. It exits `3` like any `403`,
+and its `hint` says what to free up.
+
 ## Exit codes
 
 | Code | Meaning                                       |
