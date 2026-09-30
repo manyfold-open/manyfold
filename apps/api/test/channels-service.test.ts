@@ -253,7 +253,8 @@ const makeServiceRow = (overrides: Partial<ChannelRow> = {}): ChannelRow => ({
 
 const makeRegisterHarness = (
     initial: ChannelRow,
-    registerResult: () => Promise<{ ok: boolean; message?: string }>
+    registerResult: () => Promise<{ ok: boolean; message?: string }>,
+    testResult?: () => Promise<{ ok: boolean; message: string }>
 ): {
     service: ChannelsService
     row: () => ChannelRow
@@ -273,7 +274,8 @@ const makeRegisterHarness = (
     const provider = {
         validateConfig: (config: unknown) => config,
         validateCredentials: () => null,
-        register: registerResult
+        register: registerResult,
+        ...(testResult ? { test: testResult } : {})
     }
     const db = {
         select: () => ({
@@ -342,6 +344,22 @@ test('register failure on a draft channel still degrades it to error', async () 
 
     assert.equal(result.ok, false)
     assert.equal(h.row().status, 'error')
+})
+
+test('an auto-register that fails on a missing bot token does not point at the public URL', async () => {
+    const h = makeRegisterHarness(
+        makeServiceRow({ status: 'draft' }),
+        async () => ({ ok: false, message: 'botToken missing' }),
+        async () => ({ ok: false, message: '✗ botToken missing' })
+    )
+
+    const result = await h.service.test('user-1', 'channel-1')
+
+    assert.equal(result.ok, false)
+    assert.equal(
+        result.message,
+        '✗ botToken missing\n\n→ Auto-register failed: botToken missing'
+    )
 })
 
 test('update resets the reconnect backoff so the tick retries promptly', async () => {

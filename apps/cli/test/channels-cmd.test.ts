@@ -8,6 +8,7 @@ import type { ChannelDetail } from '@manyfold/shared'
 import { buildSendBody } from '../src/commands/channels/send'
 import { maskSensitive, parseJsonArg } from '../src/commands/channels/helpers'
 import { UsageError } from '../src/usage-error'
+import { json, runMf } from './fixtures/fake-api'
 import { spawnMf } from './fixtures/spawn-mf'
 
 const usage =
@@ -226,3 +227,23 @@ test(
         assert.equal(stderr, 'error: provide --text, --file, or both\n')
     }
 )
+
+test('channels test and register exit 1 when the check fails', async () => {
+    for (const verb of ['test', 'register']) {
+        const failed = await runMf(['channels', verb, 'chn_1'], {
+            [`POST /channels/chn_1/${verb}`]: () =>
+                json({ ok: false, message: 'botToken missing' })
+        })
+        assert.equal(failed.error, undefined, String(failed.error))
+        assert.equal(failed.exitCode, 1)
+        assert.equal(JSON.parse(failed.out.join('\n')).ok, false)
+        assert.deepEqual(failed.err, [])
+
+        const passed = await runMf(['channels', verb, 'chn_1'], {
+            [`POST /channels/chn_1/${verb}`]: () =>
+                json({ ok: true, message: 'registration completed' })
+        })
+        assert.equal(passed.error, undefined, String(passed.error))
+        assert.equal(passed.exitCode, undefined)
+    }
+})

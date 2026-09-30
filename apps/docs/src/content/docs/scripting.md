@@ -72,9 +72,11 @@ else
 fi
 ```
 
-`mf doctor` is the one exception: it exits `1` when any check fails, but its
-report still goes to stdout and stderr stays empty. Read `ok`, or each check's
-`status`, from `mf doctor --json`.
+Commands that run a check are the exception: `mf doctor`,
+`mf model-providers test`, `mf channels test` and `mf channels register` exit
+`1` when the check fails, but their report still goes to stdout and stderr
+stays empty. Read the report's `ok` (and, from `mf doctor --json`, each
+check's `status`).
 
 ## Commands without JSON mode
 

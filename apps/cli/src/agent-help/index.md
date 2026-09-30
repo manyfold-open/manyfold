@@ -74,8 +74,10 @@ emitted on stderr as
 `details` comes with the codes a script can act on, such as
 `RUNTIME_LIMIT_REACHED`. Exit codes are stable in every mode: 2 network
 failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
-(400/422), 130 interrupted (Ctrl-C), 1 anything else. `mf <command> --help`
-shows human-readable flags.
+(400/422), 130 interrupted (Ctrl-C), 1 anything else. A command that runs
+a check (`mf doctor`, `mf model-providers test`, `mf channels test` and
+`register`) also exits 1 when the check fails, with its report still on
+stdout. `mf <command> --help` shows human-readable flags.
 
 ## Execution and recovery
 

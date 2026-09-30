@@ -179,12 +179,25 @@ export class TelegramChannelProvider implements ChannelProvider {
         )
         const secret =
             credentials.webhookSecret ?? randomBytes(24).toString('hex')
-        await this.callApi(credentials.botToken, 'setWebhook', {
-            url: inboundUrl,
-            secret_token: secret,
-            allowed_updates: ['message', 'edited_message', 'callback_query'],
-            drop_pending_updates: true
-        })
+        try {
+            await this.callApi(credentials.botToken, 'setWebhook', {
+                url: inboundUrl,
+                secret_token: secret,
+                allowed_updates: [
+                    'message',
+                    'edited_message',
+                    'callback_query'
+                ],
+                drop_pending_updates: true
+            })
+        } catch (err) {
+            // getMe has already accepted the token, so a webhook refusal is
+            // about the URL Telegram was given.
+            throw new Error(
+                `${(err as Error).message} (check PUBLIC_API_BASE_URL: Telegram requires a public HTTPS URL)`,
+                { cause: err }
+            )
+        }
         let message = `webhook registered for @${me.username ?? me.first_name ?? 'bot'}`
         try {
             await this.callApi(credentials.botToken, 'setMyCommands', {

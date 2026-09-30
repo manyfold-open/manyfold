@@ -55,7 +55,8 @@ from the user. Ask for them, pass them straight into the flag (prefer
 - Secret-bearing fields (`credentials`, `token`, `secret`, `apiKey`, and
   nested values such as Lark `verificationToken`/`encryptKey`) are masked
   as `[redacted]` at every nesting level in channel output.
-- `mf channels test` prints a JSON object: `ok` (boolean) + `message`.
+- `mf channels test` prints a JSON object: `ok` (boolean) + `message`,
+  and exits 1 when `ok` is false.
 
 ## Failure recovery
 

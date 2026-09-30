@@ -715,13 +715,9 @@ export class ChannelsService {
         const refreshed = await this.repo.getById(id)
         if (!refreshed) return first
         if (!registration.ok) {
-            const hint =
-                channel.provider === 'telegram'
-                    ? '\n  (Check PUBLIC_API_BASE_URL — Telegram requires a public HTTPS URL.)'
-                    : ''
             return {
                 ok: false,
-                message: `${first.message}\n\n→ Auto-register failed: ${registration.message ?? 'registration failed'}${hint}`
+                message: `${first.message}\n\n→ Auto-register failed: ${registration.message ?? 'registration failed'}`
             }
         }
         const second = await runOnce(refreshed)

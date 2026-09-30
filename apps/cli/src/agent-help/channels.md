@@ -51,7 +51,8 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
   `--json` emits the JSON array. Every `sessions` subcommand accepts `--json`.
 - `get`/`create`/`update` print the channel as pretty JSON and accept
   `--json`; `delete` emits `{ ok, id }`; `test` and `register` always
-  print the raw JSON result (`--json` accepted, already the default).
+  print the raw JSON result (`--json` accepted, already the default) and
+  exit 1 when its `ok` is false.
 - Secret-bearing fields (`credentials`, `apiKey`, `token`, `secret`, and
   nested values such as Lark `verificationToken`/`encryptKey`) are masked
   as `[redacted]` at every nesting level, including in `list --json`.
