@@ -918,7 +918,8 @@ export class SessionRecoveryService {
                     agentId: agent.id,
                     frameworkSessionRef: ref,
                     workspacePath: agent.workspacePath,
-                    openclawRpc
+                    openclawRpc,
+                    syncCursor: session.runtimeSyncCursor
                 })
             )
         } finally {
@@ -1080,7 +1081,8 @@ export class SessionRecoveryService {
                 fs: handle.fs,
                 agentId: agent.id,
                 frameworkSessionRef: ref,
-                workspacePath: agent.workspacePath
+                workspacePath: agent.workspacePath,
+                syncCursor: session.runtimeSyncCursor
             })
         )
         const warnings = [...result.warnings]

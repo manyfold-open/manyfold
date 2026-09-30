@@ -109,7 +109,12 @@ export class PiSessionReader implements SessionReader {
         return {
             sourceFile,
             transcript: 'read',
-            ...parsePiJsonl(text, sourceFile, ctx.frameworkSessionRef)
+            ...parsePiJsonl(
+                text,
+                sourceFile,
+                ctx.frameworkSessionRef,
+                ctx.syncCursor
+            )
         }
     }
 
@@ -174,6 +179,7 @@ const summarizePiHead = (
     let timestamp: string | null = null
     let messageCount = 0
     let model: string | null = null
+    let lastCounted: unknown = null
     for (const raw of text.split('\n')) {
         const entry = parseEntry(raw)
         if (!entry) continue
@@ -193,11 +199,15 @@ const summarizePiHead = (
         if (message.role !== 'user' && message.role !== 'assistant') continue
         const messageText = contentText(message.content)
         if (!messageText) continue
+        if (message.role === 'assistant')
+            model = qualifiedModel(message.provider, message.model) ?? model
+        // A reply counts once, however many of its model calls wrote text.
+        if (message.role === 'assistant' && lastCounted === 'assistant')
+            continue
+        lastCounted = message.role
         messageCount++
         if (!firstUserMessage && message.role === 'user')
             firstUserMessage = messageText.slice(0, 200)
-        if (message.role === 'assistant')
-            model = qualifiedModel(message.provider, message.model) ?? model
     }
     return { sessionRef, firstUserMessage, timestamp, messageCount, model }
 }
@@ -319,10 +329,16 @@ export const piSessionPath = (
     return { path, lines, warnings }
 }
 
+// pi writes one assistant entry per model call, and the reply to a prompt is
+// every call its tool results led to. That reply is one chat message, as the
+// live stream persists it; read per call, one prompt showed as a run of
+// separate answers. A sync cursor inside a reply is the one place it breaks,
+// at the cursor, since the part before it is in the cloud already.
 export const parsePiJsonl = (
     text: string,
     sourceFile?: string | null,
-    sourceRef?: string | null
+    sourceRef?: string | null,
+    syncCursor?: number | null
 ): Pick<ReaderResult, 'messages' | 'warnings' | 'lineCount'> => {
     const { path, lines, warnings } = piSessionPath(text, sourceRef)
     const lineCount = text.endsWith('\n') ? lines.length - 1 : lines.length
@@ -331,6 +347,9 @@ export const parsePiJsonl = (
     let pending: PendingAssistant | null = null
     let lastUserExternalId: string | null = null
     let currentModel: string | null = null
+    // The assistant entry whose calls the next tool results answer: a
+    // result's raw line keeps naming it, whichever message the line lands in.
+    let callerExternalId: string | null = null
 
     const flush = (): void => {
         if (pending && pending.blocks.length > 0)
@@ -344,6 +363,18 @@ export const parsePiJsonl = (
                 sources: pending.sources
             })
         pending = null
+    }
+
+    // The reply an entry at this line continues, if any.
+    const continuing = (entryLine: number): PendingAssistant | null => {
+        if (
+            pending &&
+            syncCursor != null &&
+            entryLine > syncCursor &&
+            pending.sources.some((source) => source.sourceSeq <= syncCursor)
+        )
+            flush()
+        return pending
     }
 
     for (const { entry, lineNo: entryLine } of path) {
@@ -371,6 +402,7 @@ export const parsePiJsonl = (
 
         if (message.role === 'user') {
             flush()
+            callerExternalId = null
             const messageText = contentText(message.content)
             if (!messageText) continue
             messages.push({
@@ -386,7 +418,6 @@ export const parsePiJsonl = (
         }
 
         if (message.role === 'assistant') {
-            flush()
             // A failed attempt: pi retried it (and, since 0.87, edited it out
             // of the model's context) or gave up with the error shown, which
             // is not something the model said.
@@ -419,30 +450,46 @@ export const parsePiJsonl = (
                             args: block.arguments ?? null
                         })
                 }
-            pending = {
-                blocks,
-                timestamp,
-                externalId,
-                parentExternalId: lastUserExternalId,
-                model,
-                sources: [rawSource]
+            callerExternalId = externalId
+            const reply = continuing(entryLine)
+            if (!reply) {
+                pending = {
+                    blocks,
+                    timestamp,
+                    externalId,
+                    parentExternalId: lastUserExternalId,
+                    model,
+                    sources: [rawSource]
+                }
+                continue
             }
+            // Text from two calls with nothing between stays two paragraphs.
+            if (
+                reply.blocks[reply.blocks.length - 1]?.type === 'text' &&
+                blocks[0]?.type === 'text'
+            )
+                reply.blocks.push({ type: 'text', text: '\n\n' })
+            reply.blocks.push(...blocks)
+            reply.model = model ?? reply.model
+            reply.sources.push(rawSource)
             continue
         }
 
         if (message.role === 'toolResult') {
             if (typeof message.toolCallId !== 'string') continue
-            // A result belongs to the assistant message that made the call;
-            // pi persists it as its own entry, so it is folded back in.
-            pending = pending ?? {
-                blocks: [],
-                timestamp,
-                externalId,
-                parentExternalId: lastUserExternalId,
-                model: currentModel,
-                sources: []
-            }
-            pending.blocks.push({
+            // A result belongs to the reply that made the call; pi persists
+            // it as its own entry, so it is folded back in.
+            const reply =
+                continuing(entryLine) ??
+                (pending = {
+                    blocks: [],
+                    timestamp,
+                    externalId,
+                    parentExternalId: lastUserExternalId,
+                    model: currentModel,
+                    sources: []
+                })
+            reply.blocks.push({
                 type: 'tool_result',
                 toolCallId: message.toolCallId,
                 result: {
@@ -451,9 +498,9 @@ export const parsePiJsonl = (
                     isError: message.isError === true
                 }
             })
-            pending.sources.push({
+            reply.sources.push({
                 ...rawSource,
-                externalId: pending.externalId
+                externalId: callerExternalId ?? reply.externalId
             })
             continue
         }

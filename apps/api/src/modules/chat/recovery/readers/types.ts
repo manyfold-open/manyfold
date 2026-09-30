@@ -29,6 +29,11 @@ export interface ReaderContext {
     // cwd and can hold the same id in two of them (pi's `--session-id`).
     workspacePath?: string | null
     openclawRpc?: OpenclawRpcClient | null
+    // The runtime-sync cursor a read continues from, when only what lies past
+    // it is taken. A reader that folds several entries into one message never
+    // lets a message span it: one that did would start before the cursor and
+    // be skipped with everything it holds past it.
+    syncCursor?: number | null
 }
 
 export interface RecoveryParentLink {
