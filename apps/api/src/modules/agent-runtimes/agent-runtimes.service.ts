@@ -641,7 +641,6 @@ export class AgentRuntimesService {
                 dashboardState: runtime.dashboardState,
                 currentPhase: runtime.currentPhase,
                 failureReason: runtime.failureReason,
-                primaryAgentId: runtime.primaryAgentId,
                 lastBootstrappedAt:
                     runtime.lastBootstrappedAt?.toISOString() ?? null,
                 createdAt: runtime.createdAt.toISOString(),

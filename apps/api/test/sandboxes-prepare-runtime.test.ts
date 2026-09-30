@@ -44,7 +44,6 @@ const runtimeRow = (overrides: Record<string, unknown> = {}) => ({
     framework: 'claude-code',
     status: 'ready',
     hostId: 'sbx_1',
-    primaryAgentId: null,
     ...overrides
 })
 

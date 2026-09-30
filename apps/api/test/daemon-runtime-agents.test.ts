@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentRuntimeRow, Database, NewAgent } from '@manyfold/db'
-import { agentRuntimes } from '@manyfold/db'
+import { agentRuntimes, agents } from '@manyfold/db'
 import { PLATFORM_DEFAULT_SKILL_IDS } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
@@ -60,7 +60,14 @@ for (const { kind, failInstall } of [
                         limit: async () =>
                             table === agentRuntimes
                                 ? [runtime()]
-                                : [{ managed: false }]
+                                : [{ managed: false }],
+                        // An agent is already there, so this one joins beside it.
+                        orderBy: () => ({
+                            limit: async () =>
+                                table === agents
+                                    ? [{ modelProviderId: null }]
+                                    : []
+                        })
                     })
                 })
             }),
@@ -130,7 +137,9 @@ for (const { kind, failInstall } of [
             attach,
             {} as never,
             { recordFirstAgentCreated: async () => {} } as never,
-            passThroughCreateRequests()
+            passThroughCreateRequests(),
+            {} as never,
+            {} as never
         )
 
         const result = await controller.addAgent(
@@ -157,11 +166,16 @@ for (const { kind, failInstall } of [
 test('a daemon attach gates the managed provider inherited by the new agent', async () => {
     let adapterCalls = 0
     let gateArgs: unknown[] | null = null
+    // The runtime's first agent, whose provider a joiner inherits.
     const db = {
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [{ id: 'provider-managed-open' }]
+                    orderBy: () => ({
+                        limit: async () => [
+                            { modelProviderId: 'provider-managed-open' }
+                        ]
+                    })
                 })
             })
         })
@@ -188,7 +202,7 @@ test('a daemon attach gates the managed provider inherited by the new agent', as
         } as never,
         fakeRuntimeContext(
             contextOf({
-                runtime: runtime({ primaryAgentId: 'agt_primary' }),
+                runtime: runtime(),
                 host: hostFor('daemon')
             })
         ) as never
@@ -196,7 +210,7 @@ test('a daemon attach gates the managed provider inherited by the new agent', as
 
     await assert.rejects(
         attach.attach({
-            runtime: runtime({ primaryAgentId: 'agt_primary' }),
+            runtime: runtime(),
             expectedOwnerUserId: 'u1',
             name: 'attached'
         }),

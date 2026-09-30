@@ -15,7 +15,6 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     accountId: null,
     spriteName: null,
     spriteId: null,
-    primaryAgentId: 'agent-1',
     mountPath: HOME,
     homeDir: null,
     namespace: 'nca-dev',
@@ -54,7 +53,7 @@ const makeAdapter = (dispatch: (cmd: string[]) => ExecResult) => {
 }
 
 const listCtx = () =>
-    ({ runtime: fakeRuntime(), primaryAgentId: 'agent-1' }) as never
+    ({ runtime: fakeRuntime() }) as never
 
 const isPythonDiscovery = (cmd: string[]) => cmd[1] === '-c'
 const isFilesystemScan = (cmd: string[]) => cmd[0] === 'sh'
@@ -179,7 +178,6 @@ test('hermes addAgent: enrichment stays lenient when python discovery is broken 
 
     const result = await adapter.addAgent({
         runtime: fakeRuntime(),
-        primaryAgentId: 'agent-1',
         agentId: 'agent-2',
         internalId: 'p2',
         name: 'p2'

@@ -83,7 +83,7 @@ test(
 )
 
 test(
-    'two agents on one framework installation share the same upgrade lock across API instances',
+    'two upgrades of one framework installation share the same lock across API instances',
     {
         skip: process.env.RUN_PG_E2E !== '1' && 'set RUN_PG_E2E=1 to run'
     },
@@ -116,13 +116,6 @@ test(
                 new FrameworkUpgradeService(
                     { transaction: db.transaction.bind(db) } as never,
                     {
-                        findForCaller: async (id: string) => ({
-                            id,
-                            framework: 'codex',
-                            runtimeId: 'runtime'
-                        })
-                    } as never,
-                    {
                         getForFramework: async () => ({
                             versions: ['1.0.0'],
                             blocked: []
@@ -147,13 +140,13 @@ test(
                 )
         )
         const first = assert.rejects(
-            services[0].upgrade('agent-a', 'owner', '1.0.0', false),
+            services[0].upgrade(runtime, '1.0.0', false),
             /sprite boundary/
         )
         await started
         try {
             await assert.rejects(
-                services[1].upgrade('agent-b', 'owner', '1.0.0', false),
+                services[1].upgrade(runtime, '1.0.0', false),
                 (err: unknown) =>
                     err instanceof ConflictException && err.getStatus() === 409
             )
@@ -162,7 +155,7 @@ test(
             await first
         }
         await assert.rejects(
-            services[1].upgrade('agent-b', 'owner', '1.0.0', false),
+            services[1].upgrade(runtime, '1.0.0', false),
             /sprite boundary/
         )
     }

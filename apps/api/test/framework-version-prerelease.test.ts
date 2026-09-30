@@ -78,13 +78,6 @@ const upgradeWith = (opts: {
     new FrameworkUpgradeService(
         runtimeDb(opts.installedVersion ?? 'v1.15.0') as never,
         {
-            findForCaller: async () => ({
-                id: 'agt_1',
-                framework: FIXTURE,
-                runtimeId: 'rt_1'
-            })
-        } as never,
-        {
             getForFramework: async () =>
                 opts.catalog ??
                 (opts.allowPrerelease ? CATALOG_ON : CATALOG_OFF),
@@ -128,9 +121,12 @@ const upgradeTo = (
     service: FrameworkUpgradeService,
     version: string
 ): Promise<unknown> =>
-    service.upgradeStreaming('agt_1', 'usr_1', version, false, {
-        step: () => undefined
-    })
+    service.upgradeStreaming(
+        runtimeRow({ id: 'rt_1', framework: FIXTURE, hostId: 'rth_1' }),
+        version,
+        false,
+        { step: () => undefined }
+    )
 
 test('a pre-release upgrade names the switch to flip, not a catalog miss', async () => {
     await assert.rejects(

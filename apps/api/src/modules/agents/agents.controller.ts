@@ -5,8 +5,6 @@ import {
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
-    FrameworkUpgradeEvent,
-    FrameworkUpgradeStep,
     MaterializeAgentMcpResponse,
     RefreshAgentMcpResponse,
     RefreshAgentModelConfigModelsResponse,
@@ -34,7 +32,6 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { UsersService } from '@/modules/users/users.service'
-import { corsHeadersForOrigin } from '@/common/cors-headers'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
@@ -55,7 +52,6 @@ import {
     resolveCreateStreamPlan,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
-import { sanitizeMessage } from '@/modules/agents/failure-report'
 import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
@@ -67,16 +63,13 @@ import {
 import { UpdateAgentRuntimeAuthDto } from '@/modules/agents/dto/update-agent-runtime-auth.dto'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
-import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import { McpImportService } from '@/modules/agents/mcp-import.service'
 import { McpConfigMaterializer } from '@/modules/agent-runtimes/mcp/mcp-config-materializer.service'
 import {
     DAEMON_CONFIG_REQUEST_WAIT_MS,
     DaemonConfigDeliveryError
 } from '@/modules/daemon/daemon-config-delivery.service'
-import { FrameworkUpgradeService } from '@/modules/agents/framework-versions/framework-upgrade.service'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
-import { UpgradeFrameworkVersionDto } from '@/modules/agents/dto/upgrade-framework-version.dto'
 
 @Controller('agents')
 @UseGuards(AuthGuard)
@@ -91,10 +84,8 @@ export class AgentsController {
         private readonly modelConfig: AgentModelConfigService,
         private readonly adminSettings: AdminSettingsService,
         private readonly users: UsersService,
-        private readonly frameworkVersionProbe: FrameworkVersionProbeService,
         private readonly mcpImport: McpImportService,
         private readonly mcpMaterializer: McpConfigMaterializer,
-        private readonly frameworkUpgrade: FrameworkUpgradeService,
         private readonly serviceRestart: AgentServiceRestartService,
         private readonly contextDoc: AgentContextDocManageService,
         private readonly createRequests: AgentCreateRequestsService
@@ -212,17 +203,6 @@ export class AgentsController {
         return this.orchestrator.rotateRuntimeToken(id, user.userId, false)
     }
 
-    @Post(':id/framework-version/refresh')
-    @HttpCode(200)
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async refreshFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<AgentSummary> {
-        return this.frameworkVersionProbe.refresh(id, user.userId, false)
-    }
-
     @Post(':id/mcp/refresh')
     @HttpCode(200)
     @RequireApiTokenScope('agents:edit')
@@ -267,69 +247,6 @@ export class AgentsController {
         return {
             agent: await this.agents.get(id, user.userId, false),
             scopes
-        }
-    }
-
-    @Post(':id/framework-version/upgrade')
-    @HttpCode(200)
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async upgradeFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto
-    ): Promise<AgentSummary> {
-        return this.frameworkUpgrade.upgrade(
-            id,
-            user.userId,
-            dto.targetVersion,
-            false
-        )
-    }
-
-    @Post(':id/framework-version/upgrade-stream')
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async upgradeFrameworkStream(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto,
-        @Res() res: FastifyReply
-    ): Promise<void> {
-        let started = false
-        const write = (ev: FrameworkUpgradeEvent): void => {
-            if (!started) {
-                res.hijack()
-                res.raw.writeHead(200, {
-                    ...corsHeadersForOrigin(res.request.headers),
-                    'content-type': 'application/x-ndjson',
-                    'cache-control': 'no-cache',
-                    'x-accel-buffering': 'no'
-                })
-                started = true
-            }
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-        let lastStep: FrameworkUpgradeStep | null = null
-        try {
-            const agent = await this.frameworkUpgrade.upgradeStreaming(
-                id,
-                user.userId,
-                dto.targetVersion,
-                false,
-                {
-                    step: (s): void => {
-                        lastStep = s
-                        write({ type: 'step', step: s })
-                    }
-                }
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            if (!started) throw err
-            write({ type: 'error', step: lastStep, message: sanitizeMessage(err) })
-        } finally {
-            if (started) res.raw.end()
         }
     }
 

@@ -531,12 +531,12 @@ test(
             []
         )
         assert.equal(row.currentPhase, null)
-        assert.equal(row.primaryAgentId, summary.id)
         const [agent] = await h.db
             .select()
             .from(agents)
             .where(eq(agents.id, summary.id))
         assert.equal(agent.status, 'ready')
+        assert.equal(agent.runtimeId, row.id)
         assert(h.api.runtimeResources().length > 0)
     }
 )
@@ -1238,7 +1238,9 @@ test(
             h.attach,
             h.runtimeContext,
             { recordFirstAgentCreated: async () => {} } as never,
-            new AgentCreateRequestsService(h.db, h.config)
+            new AgentCreateRequestsService(h.db, h.config),
+            {} as never,
+            {} as never
         )
         await controller.addAgent(
             { userId: h.userId } as never,

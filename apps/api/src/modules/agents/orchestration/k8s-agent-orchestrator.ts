@@ -10,12 +10,11 @@ import { eq } from 'drizzle-orm'
 import { agents, auditLogs, type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
-import { isBuiltInProfileAgent } from '@/modules/agents/reconcile/agent-reconcile.service'
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 
-// Removes a non-primary agent from its k8s runtime. Pod hosts and their
-// framework runtimes are created by K8sContainerProvisioner (ADR-0035); a
-// runtime's primary agent goes with the runtime.
+// Removes an agent from its k8s runtime while other agents stay on it. Pod
+// hosts and their framework runtimes are created by K8sContainerProvisioner
+// (ADR-0035); a runtime's last agent goes with the runtime.
 @Injectable()
 export class K8sAgentOrchestrator {
     private readonly log = new Logger(K8sAgentOrchestrator.name)
@@ -25,11 +24,11 @@ export class K8sAgentOrchestrator {
         private readonly adapterRegistry: AgentAdapterRegistry
     ) {}
 
-    async deleteNonPrimary(
+    async deleteAgent(
         ctx: RuntimeContext & { agent: Agent },
         actorUserId: string
     ): Promise<void> {
-        const { agent: row, runtime } = ctx
+        const { agent: row } = ctx
         const adapter = this.adapterRegistry.get(row.framework)
         await this.audit(
             actorUserId,
@@ -38,18 +37,12 @@ export class K8sAgentOrchestrator {
             {
                 framework: row.framework,
                 runtime: 'k8s',
-                nonPrimary: true,
                 ownerUserId: row.userId,
                 onBehalfOf: actorUserId !== row.userId
             }
         )
         try {
-            if (!isBuiltInProfileAgent(ctx, row))
-                await adapter.removeAgent({
-                    ...ctx,
-                    agent: row,
-                    primaryAgentId: runtime.primaryAgentId ?? null
-                })
+            await adapter.removeAgent({ ...ctx, agent: row })
         } catch (err) {
             const reason = sanitizeReason(err)
             await this.audit(
@@ -77,7 +70,6 @@ export class K8sAgentOrchestrator {
             {
                 framework: row.framework,
                 runtime: 'k8s',
-                nonPrimary: true,
                 ownerUserId: row.userId,
                 onBehalfOf: actorUserId !== row.userId
             }

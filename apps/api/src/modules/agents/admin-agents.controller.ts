@@ -3,8 +3,6 @@ import {
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
-    FrameworkUpgradeEvent,
-    FrameworkUpgradeStep,
     RefreshAgentModelConfigModelsResponse
 } from '@manyfold/shared'
 import {
@@ -23,7 +21,6 @@ import {
     UseGuards
 } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { corsHeadersForOrigin } from '@/common/cors-headers'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
@@ -39,7 +36,6 @@ import {
     resolveCreateStreamPlan,
     streamAgentCreate
 } from '@/modules/agents/create-stream'
-import { sanitizeMessage } from '@/modules/agents/failure-report'
 import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
@@ -49,10 +45,7 @@ import {
     UpdateAgentModelConfigDto
 } from '@/modules/agents/dto/update-agent-model-config.dto'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
-import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
-import { FrameworkUpgradeService } from '@/modules/agents/framework-versions/framework-upgrade.service'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
-import { UpgradeFrameworkVersionDto } from '@/modules/agents/dto/upgrade-framework-version.dto'
 
 @Controller('admin/agents')
 @UseGuards(AuthGuard, AdminGuard)
@@ -66,8 +59,6 @@ export class AdminAgentsController {
         private readonly modelConfig: AgentModelConfigService,
         private readonly adminSettings: AdminSettingsService,
         private readonly users: UsersService,
-        private readonly frameworkVersionProbe: FrameworkVersionProbeService,
-        private readonly frameworkUpgrade: FrameworkUpgradeService,
         private readonly serviceRestart: AgentServiceRestartService,
         private readonly createRequests: AgentCreateRequestsService
     ) {}
@@ -218,74 +209,6 @@ export class AdminAgentsController {
         @Param('id') id: string
     ): Promise<AgentStorageUsageResponse> {
         return this.diagnostics.storageUsage(user.userId, id, true)
-    }
-
-    @Post(':id/framework-version/refresh')
-    @HttpCode(200)
-    async refreshFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<AgentSummary> {
-        return this.frameworkVersionProbe.refresh(id, user.userId, true)
-    }
-
-    @Post(':id/framework-version/upgrade')
-    @HttpCode(200)
-    async upgradeFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto
-    ): Promise<AgentSummary> {
-        return this.frameworkUpgrade.upgrade(
-            id,
-            user.userId,
-            dto.targetVersion,
-            true
-        )
-    }
-
-    @Post(':id/framework-version/upgrade-stream')
-    async upgradeFrameworkStream(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto,
-        @Res() res: FastifyReply
-    ): Promise<void> {
-        let started = false
-        const write = (ev: FrameworkUpgradeEvent): void => {
-            if (!started) {
-                res.hijack()
-                res.raw.writeHead(200, {
-                    ...corsHeadersForOrigin(res.request.headers),
-                    'content-type': 'application/x-ndjson',
-                    'cache-control': 'no-cache',
-                    'x-accel-buffering': 'no'
-                })
-                started = true
-            }
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-        let lastStep: FrameworkUpgradeStep | null = null
-        try {
-            const agent = await this.frameworkUpgrade.upgradeStreaming(
-                id,
-                user.userId,
-                dto.targetVersion,
-                true,
-                {
-                    step: (s): void => {
-                        lastStep = s
-                        write({ type: 'step', step: s })
-                    }
-                }
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            if (!started) throw err
-            write({ type: 'error', step: lastStep, message: sanitizeMessage(err) })
-        } finally {
-            if (started) res.raw.end()
-        }
     }
 
     private async resolveOwnerUserId(

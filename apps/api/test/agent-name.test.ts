@@ -9,7 +9,7 @@ import test from 'node:test'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import type { AgentRuntimeRow, Database, NewAgent } from '@manyfold/db'
-import { agentRuntimes } from '@manyfold/db'
+import { agentRuntimes, agents } from '@manyfold/db'
 import { CreateAgentDto } from '../src/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '../src/modules/agents/dto/update-agent.dto'
 import { AddRuntimeAgentDto } from '../src/modules/agents/dto/add-runtime-agent.dto'
@@ -202,7 +202,12 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
             from: (table: unknown) => ({
                 where: () => ({
                     limit: async () =>
-                        table === agentRuntimes ? [runtime] : []
+                        table === agentRuntimes ? [runtime] : [],
+                    // An agent is already there, so this one joins beside it.
+                    orderBy: () => ({
+                        limit: async () =>
+                            table === agents ? [{ modelProviderId: null }] : []
+                    })
                 })
             })
         }),
@@ -257,7 +262,9 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
         attach,
         {} as never,
         { recordFirstAgentCreated: async () => {} } as never,
-        passThroughCreateRequests()
+        passThroughCreateRequests(),
+        {} as never,
+        {} as never
     )
     const dto = plainToInstance(AddRuntimeAgentDto, {
         name: '  研究助手 🚀  '
@@ -296,7 +303,6 @@ const runtimeRow = (): AgentRuntimeRow =>
         framework: 'openclaw',
         hostId: 'pdh_test',
         mountPath: '/workspace',
-        primaryAgentId: 'agt_primary',
         createdAt: new Date('2026-05-06T00:00:00.000Z'),
         updatedAt: new Date('2026-05-06T00:00:00.000Z')
     })

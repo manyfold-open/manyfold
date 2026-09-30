@@ -664,7 +664,6 @@ const en = {
             copy: 'Copy',
             copied: 'Copied',
             versionPending: 'version pending',
-            primary: 'Primary',
             synced: 'synced {{time}}',
             secondsAgo: '{{count}}s ago',
             minutesAgo: '{{count}}m ago',
@@ -702,7 +701,6 @@ const en = {
             updating: 'Updating…',
             openDashboard: 'Open Dashboard ↗',
             details: 'Details',
-            primaryAgent: 'Primary agent',
             machine: 'Machine',
             endpoint: 'Endpoint',
             mountPath: 'Mount path',
@@ -4937,8 +4935,6 @@ const en = {
         agents: {
             title: 'Agents',
             empty: 'No agents yet. Create your first one to get started.',
-            primaryTooltip:
-                "This is the runtime's primary agent — remove it via Delete Runtime on the runtime page.",
             filters: {
                 framework: 'Framework',
                 runtime: 'Runtime',
@@ -5110,8 +5106,6 @@ const en = {
                 title: 'Agent Detail',
                 notFound: 'Agent not found.',
                 owner: 'owner',
-                primaryPill: 'Primary',
-                primaryDeleteButton: 'Delete runtime',
                 lastReconciledAt: 'lastReconciledAt',
                 internalId: 'internalId',
                 model: 'model',
@@ -5401,7 +5395,6 @@ const en = {
                     delete: 'Delete runtime'
                 },
                 info: {
-                    primaryAgentId: 'primaryAgentId',
                     hostName: 'Machine',
                     hostStatus: 'Machine status',
                     provider: 'Provider',

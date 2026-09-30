@@ -13,25 +13,28 @@ import {
 // and when that push outlasts the wait, says so with a code a client can
 // retry on.
 
+// The two collaborators the endpoint uses, set on the controller directly so
+// the test does not track its constructor's parameter order.
 const controllerWith = (
     materialize: () => Promise<unknown>
 ): { controller: AgentsController; calls: unknown[] } => {
     const calls: unknown[] = []
-    const deps: unknown[] = Array.from({ length: 14 }, () => ({}))
-    deps[0] = {
-        findForCaller: async () => ({ id: 'agt_1' }),
-        get: async () => ({ id: 'agt_1' })
-    }
-    deps[9] = {
-        materializeForAgent: async (_agent: unknown, options: unknown) => {
-            calls.push(options)
-            return materialize()
+    const controller = Object.create(
+        AgentsController.prototype
+    ) as AgentsController
+    Object.assign(controller, {
+        agents: {
+            findForCaller: async () => ({ id: 'agt_1' }),
+            get: async () => ({ id: 'agt_1' })
+        },
+        mcpMaterializer: {
+            materializeForAgent: async (_agent: unknown, options: unknown) => {
+                calls.push(options)
+                return materialize()
+            }
         }
-    }
-    const Controller = AgentsController as unknown as new (
-        ...args: unknown[]
-    ) => AgentsController
-    return { controller: new Controller(...deps), calls }
+    })
+    return { controller, calls }
 }
 
 const user = { userId: 'usr_1' } as never

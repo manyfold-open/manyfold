@@ -648,7 +648,6 @@ const zh: Translations = {
             copy: '复制',
             copied: '已复制',
             versionPending: '版本待定',
-            primary: '主要',
             synced: '同步于 {{time}}',
             secondsAgo: '{{count}} 秒前',
             minutesAgo: '{{count}} 分钟前',
@@ -686,7 +685,6 @@ const zh: Translations = {
             updating: '更新中…',
             openDashboard: '打开 Dashboard ↗',
             details: '详情',
-            primaryAgent: '主要 Agent',
             machine: '机器',
             endpoint: 'Endpoint',
             mountPath: '挂载路径',
@@ -4705,8 +4703,6 @@ const zh: Translations = {
         agents: {
             title: 'Agents',
             empty: '还没有 agent，创建第一个开始使用。',
-            primaryTooltip:
-                '这是 runtime 的主 agent — 请在 runtime 页面通过「删除 Runtime」移除。',
             filters: {
                 framework: '框架',
                 runtime: 'Runtime',
@@ -4870,8 +4866,6 @@ const zh: Translations = {
                 title: 'Agent 详情',
                 notFound: '未找到该 Agent。',
                 owner: '所属用户',
-                primaryPill: '主 Agent',
-                primaryDeleteButton: '删除 Runtime',
                 lastReconciledAt: '最近同步',
                 internalId: '内部 ID',
                 model: '模型',
@@ -5155,7 +5149,6 @@ const zh: Translations = {
                     delete: '删除 Runtime'
                 },
                 info: {
-                    primaryAgentId: '主 Agent ID',
                     hostName: '机器',
                     hostStatus: '机器状态',
                     provider: '供应商',

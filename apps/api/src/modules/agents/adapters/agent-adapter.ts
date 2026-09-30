@@ -27,9 +27,7 @@ export interface AgentAdapterCreateResult {
     workspacePath: string
 }
 
-export interface AgentAdapterListContext extends RuntimeTarget {
-    primaryAgentId: string | null
-}
+export type AgentAdapterListContext = RuntimeTarget
 
 export interface FrameworkAgent {
     id: string
@@ -40,7 +38,6 @@ export interface FrameworkAgent {
 }
 
 export interface AddAgentContext extends RuntimeTarget {
-    primaryAgentId: string | null
     agentId: string
     internalId: string
     name: string
@@ -58,7 +55,6 @@ export interface AddAgentResult {
 
 export interface RemoveAgentContext extends RuntimeTarget {
     agent: Agent
-    primaryAgentId: string | null
 }
 
 export interface UpdateAgentContext extends RuntimeTarget {

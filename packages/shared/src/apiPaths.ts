@@ -107,12 +107,6 @@ export const apiPaths = {
         `/agents/${agentId}/storage-usage`,
     AGENT_STORAGE_USAGE_REFRESH: (agentId: string) =>
         `/agents/${agentId}/storage-usage/refresh`,
-    AGENT_FRAMEWORK_VERSION_REFRESH: (id: string) =>
-        `/agents/${id}/framework-version/refresh`,
-    AGENT_FRAMEWORK_VERSION_UPGRADE: (id: string) =>
-        `/agents/${id}/framework-version/upgrade`,
-    AGENT_FRAMEWORK_VERSION_UPGRADE_STREAM: (id: string) =>
-        `/agents/${id}/framework-version/upgrade-stream`,
     AGENT_MCP_REFRESH: (id: string) => `/agents/${id}/mcp/refresh`,
     AGENT_MCP_MATERIALIZE: (id: string) => `/agents/${id}/mcp/materialize`,
     AGENT_SPRITE_STATUS_STREAM: '/agents/sprite-status/stream',
@@ -193,6 +187,12 @@ export const apiPaths = {
     AGENT_RUNTIME_CONTROL_UI_URL: (id: string) =>
         `/agent-runtimes/${id}/control-ui-url`,
     AGENT_RUNTIME_DASHBOARD: (id: string) => `/agent-runtimes/${id}/dashboard`,
+    AGENT_RUNTIME_FRAMEWORK_VERSION_REFRESH: (id: string) =>
+        `/agent-runtimes/${id}/framework-version/refresh`,
+    AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE: (id: string) =>
+        `/agent-runtimes/${id}/framework-version/upgrade`,
+    AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE_STREAM: (id: string) =>
+        `/agent-runtimes/${id}/framework-version/upgrade-stream`,
     AGENT_RUNTIME_RENAME: (id: string) => `/agent-runtimes/${id}/name`,
     AGENT_RUNTIME_ACCOUNT: (id: string) => `/agent-runtimes/${id}/account`,
     AGENT_RUNTIME_AUTH_PROFILES: (id: string) =>
@@ -260,6 +260,12 @@ export const apiPaths = {
         `/admin/agent-runtimes/${id}/control-ui-url`,
     ADMIN_AGENT_RUNTIME_DASHBOARD: (id: string) =>
         `/admin/agent-runtimes/${id}/dashboard`,
+    ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_REFRESH: (id: string) =>
+        `/admin/agent-runtimes/${id}/framework-version/refresh`,
+    ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE: (id: string) =>
+        `/admin/agent-runtimes/${id}/framework-version/upgrade`,
+    ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE_STREAM: (id: string) =>
+        `/admin/agent-runtimes/${id}/framework-version/upgrade-stream`,
     ADMIN_USERS: '/admin/users',
     ADMIN_PLANS: '/admin/plans',
     ADMIN_SETTINGS_LOGIN_PROVIDER: '/admin/settings/login-provider',
@@ -321,12 +327,6 @@ export const apiPaths = {
     ADMIN_AGENT_RESTORES: (id: string) => `/admin/agents/${id}/restores`,
     ADMIN_AGENT_STORAGE_USAGE: (id: string) =>
         `/admin/agents/${id}/storage-usage`,
-    ADMIN_AGENT_FRAMEWORK_VERSION_REFRESH: (id: string) =>
-        `/admin/agents/${id}/framework-version/refresh`,
-    ADMIN_AGENT_FRAMEWORK_VERSION_UPGRADE: (id: string) =>
-        `/admin/agents/${id}/framework-version/upgrade`,
-    ADMIN_AGENT_FRAMEWORK_VERSION_UPGRADE_STREAM: (id: string) =>
-        `/admin/agents/${id}/framework-version/upgrade-stream`,
     ADMIN_SANDBOXES: '/admin/sandboxes',
     ADMIN_SANDBOX_BY_ID: (id: string) => `/admin/sandboxes/${id}`,
     ADMIN_SANDBOX_TERMINAL: (id: string) => `/admin/sandboxes/${id}/terminal`,

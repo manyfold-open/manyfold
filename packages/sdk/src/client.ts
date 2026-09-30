@@ -417,7 +417,6 @@ export interface AgentsClient {
     storageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
     // Measures now; on a sleeping sandbox that wakes it.
     refreshStorageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
-    refreshFrameworkVersion: (agentId: string) => Promise<AgentSummary>
     refreshMcp: (
         agentId: string,
         opts?: AbortableRequestOptions
@@ -428,15 +427,6 @@ export interface AgentsClient {
         agentId: string,
         opts?: AbortableRequestOptions
     ) => Promise<MaterializeAgentMcpResponse>
-    upgradeFramework: (
-        agentId: string,
-        targetVersion: string
-    ) => Promise<AgentSummary>
-    upgradeFrameworkStream: (
-        agentId: string,
-        targetVersion: string,
-        onEvent: (event: FrameworkUpgradeEvent) => void
-    ) => Promise<AgentSummary>
     streamHostStatus: (
         handlers: HostStatusStreamHandlers
     ) => HostStatusStreamHandle
@@ -490,9 +480,6 @@ interface AgentsPaths {
     contextDocRefresh: (id: string) => string
     storageUsage: (id: string) => string
     storageUsageRefresh: (id: string) => string
-    frameworkVersionRefresh: (id: string) => string
-    frameworkVersionUpgrade: (id: string) => string
-    frameworkVersionUpgradeStream: (id: string) => string
     mcpRefresh: (id: string) => string
     mcpMaterialize: (id: string) => string
 }
@@ -633,6 +620,17 @@ export interface AgentRuntimesClient {
         runtimeId: string,
         opts?: { wake?: boolean; refreshUsage?: boolean }
     ) => Promise<RuntimeAccountView>
+    // The framework install is the runtime's, whatever agents run on it.
+    refreshFrameworkVersion: (runtimeId: string) => Promise<AgentRuntimeSummary>
+    upgradeFramework: (
+        runtimeId: string,
+        targetVersion: string
+    ) => Promise<AgentRuntimeSummary>
+    upgradeFrameworkStream: (
+        runtimeId: string,
+        targetVersion: string,
+        onEvent: (event: FrameworkUpgradeEvent) => void
+    ) => Promise<AgentRuntimeSummary>
 }
 
 // Runtime auth profiles: the vendor sign-ins a runtime's host holds. Login
@@ -2114,10 +2112,6 @@ const buildAgentsClient = (
                 paths.storageUsageRefresh(agentId),
                 { method: 'POST' }
             ),
-        refreshFrameworkVersion: (agentId) =>
-            request<AgentSummary>(paths.frameworkVersionRefresh(agentId), {
-                method: 'POST'
-            }),
         refreshMcp: (agentId, opts) =>
             request<RefreshAgentMcpResponse>(paths.mcpRefresh(agentId), {
                 method: 'POST',
@@ -2128,56 +2122,6 @@ const buildAgentsClient = (
                 paths.mcpMaterialize(agentId),
                 { method: 'POST', signal: opts?.signal }
             ),
-        upgradeFramework: (agentId, targetVersion) =>
-            request<AgentSummary>(paths.frameworkVersionUpgrade(agentId), {
-                method: 'POST',
-                body: JSON.stringify({ targetVersion })
-            }),
-        upgradeFrameworkStream: async (agentId, targetVersion, onEvent) => {
-            const token = await resolveToken(tokenOption)
-            const headers = new Headers()
-            headers.set('Content-Type', 'application/json')
-            headers.set('Accept', 'application/x-ndjson')
-            if (token) headers.set('Authorization', `Bearer ${token}`)
-            const res = await fetchImpl(
-                `${baseUrl}${paths.frameworkVersionUpgradeStream(agentId)}`,
-                {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ targetVersion })
-                }
-            )
-            if (!res.ok || !res.body) throw await buildApiError(res)
-            const reader = res.body.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let completed: AgentSummary | null = null
-            let errored: { message: string } | null = null
-            const dispatch = (line: string): void => {
-                if (!line) return
-                const event = JSON.parse(line) as FrameworkUpgradeEvent
-                onEvent(event)
-                if (event.type === 'complete') completed = event.agent
-                if (event.type === 'error') errored = { message: event.message }
-            }
-            while (true) {
-                const { value, done } = await reader.read()
-                if (done) break
-                buffer += decoder.decode(value, { stream: true })
-                let nl = buffer.indexOf('\n')
-                while (nl !== -1) {
-                    dispatch(buffer.slice(0, nl).trim())
-                    buffer = buffer.slice(nl + 1)
-                    nl = buffer.indexOf('\n')
-                }
-            }
-            if (buffer.trim()) dispatch(buffer.trim())
-            if (errored)
-                throw new Error((errored as { message: string }).message)
-            if (!completed)
-                throw new Error('stream ended without complete event')
-            return completed
-        },
         streamHostStatus: (handlers) => {
             const controller = new AbortController()
             let closed = false
@@ -2341,10 +2285,6 @@ const userAgentPaths: AgentsPaths = {
     contextDocRefresh: apiPaths.AGENT_CONTEXT_DOC_REFRESH,
     storageUsage: apiPaths.AGENT_STORAGE_USAGE,
     storageUsageRefresh: apiPaths.AGENT_STORAGE_USAGE_REFRESH,
-    frameworkVersionRefresh: apiPaths.AGENT_FRAMEWORK_VERSION_REFRESH,
-    frameworkVersionUpgrade: apiPaths.AGENT_FRAMEWORK_VERSION_UPGRADE,
-    frameworkVersionUpgradeStream:
-        apiPaths.AGENT_FRAMEWORK_VERSION_UPGRADE_STREAM,
     mcpRefresh: apiPaths.AGENT_MCP_REFRESH,
     mcpMaterialize: apiPaths.AGENT_MCP_MATERIALIZE
 }
@@ -2361,10 +2301,6 @@ const adminAgentPaths: AgentsPaths = {
     storageUsage: apiPaths.ADMIN_AGENT_STORAGE_USAGE,
     // No admin storage refresh; the admin agent UI never calls this.
     storageUsageRefresh: apiPaths.AGENT_STORAGE_USAGE_REFRESH,
-    frameworkVersionRefresh: apiPaths.ADMIN_AGENT_FRAMEWORK_VERSION_REFRESH,
-    frameworkVersionUpgrade: apiPaths.ADMIN_AGENT_FRAMEWORK_VERSION_UPGRADE,
-    frameworkVersionUpgradeStream:
-        apiPaths.ADMIN_AGENT_FRAMEWORK_VERSION_UPGRADE_STREAM,
     // No admin MCP-refresh endpoint; the admin agent UI never calls this.
     mcpRefresh: apiPaths.AGENT_MCP_REFRESH,
     mcpMaterialize: apiPaths.AGENT_MCP_MATERIALIZE
@@ -2473,6 +2409,9 @@ export const createClient = (options: ClientOptions): NcaClient => {
         dashboard: (id: string) => string
         rename: (id: string) => string
         account: (id: string) => string
+        frameworkVersionRefresh: (id: string) => string
+        frameworkVersionUpgrade: (id: string) => string
+        frameworkVersionUpgradeStream: (id: string) => string
     }): AgentRuntimesClient => ({
         list: () => request<AgentRuntimeSummary[]>(paths.list),
         get: (id) => request<AgentRuntimeSummary>(paths.byId(id)),
@@ -2540,6 +2479,64 @@ export const createClient = (options: ClientOptions): NcaClient => {
             return request<RuntimeAccountView>(
                 `${paths.account(runtimeId)}${query.length ? `?${query.join('&')}` : ''}`
             )
+        },
+        refreshFrameworkVersion: (runtimeId) =>
+            request<AgentRuntimeSummary>(
+                paths.frameworkVersionRefresh(runtimeId),
+                { method: 'POST' }
+            ),
+        upgradeFramework: (runtimeId, targetVersion) =>
+            request<AgentRuntimeSummary>(
+                paths.frameworkVersionUpgrade(runtimeId),
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ targetVersion })
+                }
+            ),
+        upgradeFrameworkStream: async (runtimeId, targetVersion, onEvent) => {
+            const token = await resolveToken(options.token)
+            const headers = new Headers()
+            headers.set('Content-Type', 'application/json')
+            headers.set('Accept', 'application/x-ndjson')
+            if (token) headers.set('Authorization', `Bearer ${token}`)
+            const res = await fetchImpl(
+                `${baseUrl}${paths.frameworkVersionUpgradeStream(runtimeId)}`,
+                {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ targetVersion })
+                }
+            )
+            if (!res.ok || !res.body) throw await buildApiError(res)
+            const reader = res.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            let completed: AgentRuntimeSummary | null = null
+            let errored: { message: string } | null = null
+            const dispatch = (line: string): void => {
+                if (!line) return
+                const event = JSON.parse(line) as FrameworkUpgradeEvent
+                onEvent(event)
+                if (event.type === 'complete') completed = event.runtime
+                if (event.type === 'error') errored = { message: event.message }
+            }
+            while (true) {
+                const { value, done } = await reader.read()
+                if (done) break
+                buffer += decoder.decode(value, { stream: true })
+                let nl = buffer.indexOf('\n')
+                while (nl !== -1) {
+                    dispatch(buffer.slice(0, nl).trim())
+                    buffer = buffer.slice(nl + 1)
+                    nl = buffer.indexOf('\n')
+                }
+            }
+            if (buffer.trim()) dispatch(buffer.trim())
+            if (errored)
+                throw new Error((errored as { message: string }).message)
+            if (!completed)
+                throw new Error('stream ended without complete event')
+            return completed
         }
     })
 
@@ -2583,7 +2580,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
         controlUiUrl: apiPaths.AGENT_RUNTIME_CONTROL_UI_URL,
         dashboard: apiPaths.AGENT_RUNTIME_DASHBOARD,
         rename: apiPaths.AGENT_RUNTIME_RENAME,
-        account: apiPaths.AGENT_RUNTIME_ACCOUNT
+        account: apiPaths.AGENT_RUNTIME_ACCOUNT,
+        frameworkVersionRefresh: apiPaths.AGENT_RUNTIME_FRAMEWORK_VERSION_REFRESH,
+        frameworkVersionUpgrade: apiPaths.AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE,
+        frameworkVersionUpgradeStream:
+            apiPaths.AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE_STREAM
     })
     const runtimeAuth: RuntimeAuthClient = {
         list: (runtimeId, opts) =>
@@ -2660,7 +2661,13 @@ export const createClient = (options: ClientOptions): NcaClient => {
         // no admin rename endpoint either: reuses the user path (ownership-checked)
         rename: apiPaths.AGENT_RUNTIME_RENAME,
         // no admin account endpoint: a user's vendor sign-in is not an operator concern
-        account: apiPaths.AGENT_RUNTIME_ACCOUNT
+        account: apiPaths.AGENT_RUNTIME_ACCOUNT,
+        frameworkVersionRefresh:
+            apiPaths.ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_REFRESH,
+        frameworkVersionUpgrade:
+            apiPaths.ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE,
+        frameworkVersionUpgradeStream:
+            apiPaths.ADMIN_AGENT_RUNTIME_FRAMEWORK_VERSION_UPGRADE_STREAM
     })
     const adminBackups = buildBackupsClient({
         list: apiPaths.ADMIN_BACKUPS,

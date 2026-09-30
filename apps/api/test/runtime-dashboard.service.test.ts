@@ -24,7 +24,6 @@ const runtime = (patch: Record<string, unknown> = {}) => ({
     status: 'ready',
     namespace: 'nca-user-1',
     clusterId: null,
-    primaryAgentId: 'agent-1',
     ingressHost: 'agent-1.example.test',
     mountPath: '/home/node/.hermes',
     controlUiEnabled: false,
@@ -189,15 +188,14 @@ test('getControlUiUrl builds openclaw URL with #token fragment', async () => {
     assert.equal(details.agentId, null)
 })
 
-test('getControlUiUrl mints an agent-scoped link for the runtime primary agent by default', async () => {
-    // B3 regression: previously agentId in audit was the caller-supplied
-    // value (null here) while the URL embedded primaryAgentId — diverged.
+// A link opened for no agent in particular names none; the audit says the
+// same as the URL.
+test('getControlUiUrl mints a link naming no agent when the caller names none', async () => {
     const audits: Array<Record<string, unknown>> = []
     const service = serviceFor({
         runtimes: runtimesFor([
             runtime({
                 framework: FIXTURE,
-                primaryAgentId: 'agent-1',
                 userId: 'mf_owner'
             })
         ]),
@@ -213,18 +211,17 @@ test('getControlUiUrl mints an agent-scoped link for the runtime primary agent b
         'mf_owner',
         false
     )
-    assert.equal(url, 'https://agent-1.example.test/ui?agent=agent-internal-1')
+    assert.equal(url, 'https://agent-1.example.test/ui?agent=')
     const details = audits[0].meta as Record<string, unknown>
-    assert.equal(details.agentId, 'agent-1')
+    assert.equal(details.agentId, null)
 })
 
-test('getControlUiUrl honors an explicit agentId over the primary agent', async () => {
+test('getControlUiUrl names the agent the caller opened it for', async () => {
     const audits: Array<Record<string, unknown>> = []
     const service = serviceFor({
         runtimes: runtimesFor([
             runtime({
                 framework: FIXTURE,
-                primaryAgentId: 'agent-1',
                 userId: 'mf_owner'
             })
         ]),

@@ -267,7 +267,6 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     assert.equal(db.credentialRows[0].keyVersion, 7)
     assert.match(String(db.credentialRows[0].payloadCiphertext), /sk-ant-test/)
 
-    assert.equal(provisionedRuntime.primaryAgentId, result.id)
     assert.equal(finalizedRuntimeId, provisionedRuntime.id)
     assert.equal(persistedInline, true)
     assert.deepEqual(defaultInstalls, [
@@ -575,7 +574,7 @@ test('AgentOrchestrator create runs A2A through external provisioning', async ()
             remoteRef: { selectedSkillId: 'skill-1' }
         }
     })
-    assert.equal(db.runtimeRows[0].primaryAgentId, result.id)
+    assert.equal(db.agentRows[0].runtimeId, db.runtimeRows[0].id)
     assert.deepEqual(steps, ['validating', 'inserting_agent'])
     assertStepsFollow(steps, stepsFor('a2a', 'external'))
 })
@@ -590,7 +589,6 @@ const runtimeRow = () => ({
     accountId: 'spa_1',
     spriteName: 'agt-core-agent',
     spriteId: 'sprite-1',
-    primaryAgentId: null as string | null,
     mountPath: '/repo/project',
     namespace: null,
     ingressHost: null,

@@ -30,13 +30,12 @@ export type UpdateSeverity = 'recommended' | 'required'
 // remotely and the row is selectable.
 //   manual   the update has to be run by a human on the machine itself
 //   offline  the machine is reachable in principle but not right now
-//   noAgent  a sprite runtime with no agent to address the upgrade endpoint by
-export type UpdateBlocker = 'manual' | 'offline' | 'noAgent'
+export type UpdateBlocker = 'manual' | 'offline'
 
 export type UpdateExec =
     | {
-          type: 'agentFramework'
-          agentId: string
+          type: 'runtimeFramework'
+          runtimeId: string
           framework: AgentFramework
           mode: FrameworkUpgradeMode
           targetVersion: string
@@ -45,7 +44,7 @@ export type UpdateExec =
     // which is what the endpoints do with an absent `targetVersion`.
     | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
     | { type: 'sandboxCli'; hostId: string; targetVersion: string | null }
-    // One of a sandbox's pre-installed CLIs with no agent to address: the
+    // One of a sandbox's pre-installed CLIs its runtime cannot move: the
     // sandbox moves it in place, runtime or not.
     | {
           type: 'sandboxFramework'
@@ -369,16 +368,16 @@ const frameworkRows = (
         const onOurs =
             runtime.kind === 'sprites' ||
             (runtime.kind === 'k8s' && upgradesInPlace(mode))
-        const remote = onOurs && mode !== null && runtime.primaryAgentId
-        // With no agent to address, a sandbox still moves the CLIs its image
-        // ships in place.
+        const remote = onOurs && mode !== null
+        // A sandbox still moves the CLIs its image ships in place when the
+        // runtime cannot.
         const inPlace =
             !remote &&
             runtime.kind === 'sprites' &&
             runtime.hostId !== null &&
             preinstalledOnSandbox(runtime.framework)
         const blocker: UpdateBlocker | null =
-            remote || inPlace ? null : onOurs ? 'noAgent' : 'manual'
+            remote || inPlace ? null : 'manual'
         const blocked = findBlockedVersionRange(
             runtime.frameworkVersion,
             entry.blocked
@@ -403,8 +402,8 @@ const frameworkRows = (
             exec:
                 remote && mode
                     ? {
-                          type: 'agentFramework',
-                          agentId: runtime.primaryAgentId as string,
+                          type: 'runtimeFramework',
+                          runtimeId: runtime.id,
                           framework: runtime.framework,
                           mode,
                           targetVersion: entry.latest
@@ -745,7 +744,7 @@ export type BatchStep =
     | {
           type: 'framework'
           rowId: string
-          agentId: string
+          runtimeId: string
           framework: AgentFramework
           mode: FrameworkUpgradeMode
           targetVersion: string
@@ -870,11 +869,11 @@ export const planBatch = (
                     targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
-            case 'agentFramework':
+            case 'runtimeFramework':
                 steps.push({
                     type: 'framework',
                     rowId: row.id,
-                    agentId: row.exec.agentId,
+                    runtimeId: row.exec.runtimeId,
                     framework: row.exec.framework,
                     mode: row.exec.mode,
                     targetVersion: picked ?? row.exec.targetVersion

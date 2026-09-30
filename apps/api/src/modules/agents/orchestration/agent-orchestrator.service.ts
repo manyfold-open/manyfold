@@ -33,7 +33,7 @@ import {
     Optional
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, count, eq, ne } from 'drizzle-orm'
 import {
     agents,
     agentCredentials,
@@ -91,6 +91,7 @@ import {
     type ProvisionAgentContainerResult
 } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-orchestrator'
+import { K8sProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-provisioner'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
@@ -104,7 +105,10 @@ import { CredentialsResolverService } from '@/modules/agents/credentials/credent
 import type { ResolvedAgentCredentials } from '@/modules/agents/credentials/resolved-credentials'
 import { BackupsService } from '@/modules/backups/backups.service'
 import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
-import { isBuiltInProfileAgent } from '@/modules/agents/reconcile/agent-reconcile.service'
+import {
+    isBuiltInProfileAgent,
+    serviceBuiltInProfile
+} from '@/modules/agents/built-in-agent'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import {
     resolveWorkspaceSelection,
@@ -251,7 +255,10 @@ export class AgentOrchestratorService {
         @Optional() private readonly contextDoc?: AgentContextDocManageService,
         // Appended last + @Optional: names a provider's error in the create
         // failure audit; absent, it reads as unknown.
-        @Optional() private readonly providers?: SandboxProviderRegistry
+        @Optional() private readonly providers?: SandboxProviderRegistry,
+        // Appended last + @Optional: tears a cloud computer's runtime down
+        // with its last agent.
+        @Optional() private readonly k8sRuntimes?: K8sProvisioner
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -756,22 +763,11 @@ export class AgentOrchestratorService {
         if (row.userId !== callerUserId && !isAdmin)
             throw new NotFoundException(`agent ${agentId} not found`)
 
-        const { runtime } = ctx
-        const isPrimary = runtime.primaryAgentId === row.id
-
-        if (ctx.placement === 'k8s') {
-            if (isPrimary)
-                throw new ConflictException({
-                    message: 'primary agent; delete the runtime instead',
-                    code: 'PRIMARY_AGENT_DELETE_RUNTIME'
-                })
-            await this.k8sOrchestrator.deleteNonPrimary(ctx, callerUserId)
-        } else if (ctx.placement === 'daemon') {
+        if (ctx.placement === 'sprites' || ctx.placement === 'k8s')
+            await this.deleteHostedAgent(ctx, callerUserId)
+        else if (ctx.placement === 'daemon')
             await this.deleteDaemonAgent(ctx, callerUserId)
-        } else if (ctx.placement === 'sprites') {
-            if (!isPrimary) await this.deleteSpritesSecondary(ctx, callerUserId)
-            else await this.deleteSpritesPrimaryWithPromote(ctx, callerUserId)
-        } else await this.deleteExternal(row, runtime, callerUserId)
+        else await this.deleteExternal(row, ctx.runtime, callerUserId)
         this.changes?.emit(row.userId, { resource: 'agent', resourceId: row.id, agentId: row.id, reason: 'deleted' })
         this.changes?.emit(row.userId, { resource: 'channel', reason: 'updated' })
         this.changes?.emit(row.userId, { resource: 'skill-library', reason: 'updated' })
@@ -896,10 +892,6 @@ export class AgentOrchestratorService {
                     startedAt: new Date(),
                     lastBootstrappedAt: new Date()
                 })
-            await this.db
-                .update(agentRuntimes)
-                .set({ primaryAgentId: agentId })
-                .where(eq(agentRuntimes.id, runtime.id))
             await this.audit(
                 actorUserId,
                 auditAction.AGENT_CREATE_EXTERNAL_SUCCEEDED,
@@ -958,11 +950,7 @@ export class AgentOrchestratorService {
             }
         )
         try {
-            await adapter.removeAgent({
-                ...ctx,
-                agent: row,
-                primaryAgentId: runtime.primaryAgentId ?? null
-            })
+            await adapter.removeAgent({ ...ctx, agent: row })
         } catch (err) {
             const reason = sanitizeReason(err)
             const failureClass = isDaemonUnavailableDetachError(reason)
@@ -1025,22 +1013,6 @@ export class AgentOrchestratorService {
                 }
             })
         }
-        const isPrimary = runtime.primaryAgentId === row.id
-        if (isPrimary) {
-            const candidates = await this.db
-                .select()
-                .from(agents)
-                .where(
-                    and(eq(agents.runtimeId, runtime.id), ne(agents.id, row.id))
-                )
-                .orderBy(asc(agents.createdAt))
-                .limit(1)
-            const successor = candidates[0]
-            await this.db
-                .update(agentRuntimes)
-                .set({ primaryAgentId: successor?.id ?? null })
-                .where(eq(agentRuntimes.id, runtime.id))
-        }
         await this.db.delete(agents).where(eq(agents.id, row.id))
         await this.audit(
             actorUserId,
@@ -1055,11 +1027,70 @@ export class AgentOrchestratorService {
         )
     }
 
-    private async deleteSpritesSecondary(
+    // On a sandbox or a cloud computer a runtime goes with its last agent.
+    // The framework's own agent (ADR-0040) is one the framework never deletes,
+    // so it leaves only with the runtime: while other agents remain, it stays.
+    private async deleteHostedAgent(
         ctx: AgentContext,
         actorUserId: string
     ): Promise<void> {
         const { agent: row, runtime } = ctx
+        const [others] = await this.db
+            .select({ value: count() })
+            .from(agents)
+            .where(and(eq(agents.runtimeId, runtime.id), ne(agents.id, row.id)))
+        const siblings = Number(others?.value ?? 0)
+        if (siblings > 0 && isBuiltInProfileAgent(ctx, row))
+            throw new ConflictException({
+                message: `${row.name} is ${runtime.framework}'s own agent on this runtime; delete the other agents on it first, or delete the runtime`,
+                code: 'BUILT_IN_AGENT_NOT_LAST'
+            })
+        if (siblings === 0) await this.deleteLastAgent(ctx, actorUserId)
+        else if (ctx.placement === 'k8s')
+            await this.k8sOrchestrator.deleteAgent(ctx, actorUserId)
+        else await this.deleteSpritesAgent(ctx, actorUserId)
+    }
+
+    // Tears the runtime down with its last agent (the row goes with it). A
+    // sandbox left empty is preserved (the reaper deletes it after the idle
+    // window) so the VM and workspace can be reused; DELETE /sandboxes
+    // removes it immediately. A cloud computer stays as it is.
+    private async deleteLastAgent(
+        ctx: AgentContext,
+        actorUserId: string
+    ): Promise<void> {
+        const { agent: row, runtime } = ctx
+        if (ctx.placement === 'k8s') {
+            if (!this.k8sRuntimes)
+                throw new InternalServerErrorException(
+                    'cloud computer runtimes are not available'
+                )
+            await this.k8sRuntimes.teardownRuntime(runtime, {
+                leavingAgentId: row.id
+            })
+        } else
+            await this.spritesProvisioner.teardownRuntime(runtime, {
+                leavingAgentId: row.id
+            })
+        await this.audit(
+            actorUserId,
+            auditAction.AGENT_DELETE_SUCCEEDED,
+            row.id,
+            {
+                framework: row.framework,
+                runtime: ctx.placement,
+                lastOnRuntime: true,
+                ownerUserId: row.userId,
+                onBehalfOf: actorUserId !== row.userId
+            }
+        )
+    }
+
+    private async deleteSpritesAgent(
+        ctx: AgentContext,
+        actorUserId: string
+    ): Promise<void> {
+        const { agent: row } = ctx
         const adapter = this.adapterRegistry.get(row.framework)
         await this.audit(
             actorUserId,
@@ -1068,18 +1099,12 @@ export class AgentOrchestratorService {
             {
                 framework: row.framework,
                 runtime: 'sprites',
-                nonPrimary: true,
                 ownerUserId: row.userId,
                 onBehalfOf: actorUserId !== row.userId
             }
         )
         try {
-            if (!isBuiltInProfileAgent(ctx, row))
-                await adapter.removeAgent({
-                    ...ctx,
-                    agent: row,
-                    primaryAgentId: runtime.primaryAgentId ?? null
-                })
+            await adapter.removeAgent({ ...ctx, agent: row })
         } catch (err) {
             const reason = sanitizeReason(err)
             await this.audit(
@@ -1095,7 +1120,7 @@ export class AgentOrchestratorService {
                 }
             )
             throw new InternalServerErrorException({
-                message: 'sprites secondary detach failed',
+                message: 'sprites agent detach failed',
                 reason
             })
         }
@@ -1107,57 +1132,10 @@ export class AgentOrchestratorService {
             {
                 framework: row.framework,
                 runtime: 'sprites',
-                nonPrimary: true,
                 ownerUserId: row.userId,
                 onBehalfOf: actorUserId !== row.userId
             }
         )
-    }
-
-    private async deleteSpritesPrimaryWithPromote(
-        ctx: AgentContext,
-        actorUserId: string
-    ): Promise<void> {
-        const { agent: row, runtime } = ctx
-        const candidates = await this.db
-            .select()
-            .from(agents)
-            .where(and(eq(agents.runtimeId, runtime.id), ne(agents.id, row.id)))
-            .orderBy(asc(agents.createdAt))
-            .limit(1)
-        const successor = candidates[0]
-        if (!successor) {
-            // Last agent on this runtime: tear the runtime down (deletes this
-            // agent + the runtime). The now-empty sandbox host is preserved (the
-            // reaper deletes it after the idle window) so the VM + workspace can
-            // be reused; DELETE /sandboxes removes it immediately.
-            await this.spritesProvisioner.teardownRuntime(runtime, {
-                leavingAgentId: row.id
-            })
-            await this.audit(
-                actorUserId,
-                auditAction.AGENT_DELETE_SUCCEEDED,
-                row.id,
-                {
-                    framework: row.framework,
-                    runtime: 'sprites',
-                    lastOnRuntime: true,
-                    ownerUserId: row.userId,
-                    onBehalfOf: actorUserId !== row.userId
-                }
-            )
-            return
-        }
-        await this.db
-            .update(agentRuntimes)
-            .set({ primaryAgentId: successor.id })
-            .where(eq(agentRuntimes.id, runtime.id))
-        const refreshed = await this.agentContext(row.id)
-        if (!refreshed)
-            throw new InternalServerErrorException(
-                `agent ${row.id} disappeared during promote`
-            )
-        await this.deleteSpritesSecondary(refreshed, actorUserId)
     }
 
     private async assertAgentNameFree(
@@ -1332,6 +1310,10 @@ export class AgentOrchestratorService {
         const workspacePath = workspace.path
 
         emitter.step('inserting_agent')
+        // A service framework's agent is its gateway's built-in profile,
+        // stored under the framework's name (ADR-0040).
+        const internalId =
+            serviceBuiltInProfile({ placement: 'sprites', runtime }) ?? agentId
         try {
             const [insertedAgent] = await this.db
                 .insert(agents)
@@ -1352,14 +1334,10 @@ export class AgentOrchestratorService {
                         mountPath: workspacePath,
                         homeDir: provisioned.homeDir ?? host.homeDir
                     }),
-                    internalId: agentId,
+                    internalId,
                     modelProviderId: resolved.providerId
                 })
                 .returning()
-            await this.db
-                .update(agentRuntimes)
-                .set({ primaryAgentId: agentId })
-                .where(eq(agentRuntimes.id, runtime.id))
 
             // Mint + inject the runtime identity token only now that the agents
             // row exists — the agent_runtime_tokens FK references agents.id, so
@@ -1389,10 +1367,10 @@ export class AgentOrchestratorService {
                 keyVersion: credEnc.keyVersion
             })
 
-            if (this.extensions.get(dto.framework)?.pushPrimaryAgent) {
+            if (this.extensions.get(dto.framework)?.pushCreatedAgent) {
                 // The framework's own agent list starts empty. Push the
-                // primary agent now so reconcile's listAgents finds it on the
-                // first pass (instead of marking it missing).
+                // agent now so reconcile's listAgents finds it on the first
+                // pass (instead of marking it missing).
                 const target = await this.runtimeContext.forRuntime(runtime.id)
                 if (!target)
                     throw new InternalServerErrorException(
@@ -1401,9 +1379,8 @@ export class AgentOrchestratorService {
                 const adapter = this.adapterRegistry.get(dto.framework)
                 await adapter.addAgent({
                     ...target,
-                    primaryAgentId: null,
                     agentId,
-                    internalId: agentId,
+                    internalId,
                     name: displayName
                 })
             }

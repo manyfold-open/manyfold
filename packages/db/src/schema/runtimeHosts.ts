@@ -140,9 +140,6 @@ export const runtimeHosts = pgTable(
         // switch; service processes are the daemon's service manifest's job.
         keepAwake: boolean('keep_awake').notNull().default(false),
         keepAwakeLease: jsonb('keep_awake_lease').$type<KeepAwakeLease>(),
-        // Whose identity the machine's persisted shell profile defaults to
-        // (bare interactive shells only — per-agent auth is injected per-exec).
-        primaryAgentId: text('primary_agent_id'),
         // hosted-only: opt-in terminal, off by default globally. Enabling
         // injects the user's api.full token per terminal session.
         terminalEnabled: boolean('terminal_enabled').notNull().default(false),

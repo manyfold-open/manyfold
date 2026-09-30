@@ -2253,7 +2253,7 @@ export type FrameworkUpgradeStep =
 // NDJSON events streamed by the heavy (rebuild) framework-upgrade endpoint.
 export type FrameworkUpgradeEvent =
     | { type: 'step'; step: FrameworkUpgradeStep }
-    | { type: 'complete'; agent: AgentSummary }
+    | { type: 'complete'; runtime: AgentRuntimeSummary }
     | { type: 'error'; step: FrameworkUpgradeStep | null; message: string }
 
 export type AgentProbeStatus = 'ok' | 'warning' | 'failed' | 'skipped'
@@ -2378,7 +2378,6 @@ export interface AgentRuntimeSummary {
     dashboardState: string | null
     currentPhase: string | null
     failureReason: string | null
-    primaryAgentId: string | null
     lastBootstrappedAt: string | null
     createdAt: string
     updatedAt: string

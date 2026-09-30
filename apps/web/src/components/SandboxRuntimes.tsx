@@ -195,12 +195,16 @@ const SandboxRuntimes: FC<{
                     version
                 )
             else if (change.mode === 'rebuild')
-                await client.agents.upgradeFrameworkStream(
-                    change.agentId,
+                await client.agentRuntimes.upgradeFrameworkStream(
+                    change.runtimeId,
                     version,
                     () => undefined
                 )
-            else await client.agents.upgradeFramework(change.agentId, version)
+            else
+                await client.agentRuntimes.upgradeFramework(
+                    change.runtimeId,
+                    version
+                )
             await onChanged()
         } catch (e) {
             setError(apiErrorMessage(e))

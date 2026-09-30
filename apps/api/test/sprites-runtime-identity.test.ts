@@ -42,7 +42,6 @@ const baseProvisionedRuntime = () => ({
     accountId: 'spa_1',
     spriteName: 'agt-core-agent',
     spriteId: 'sprite-1',
-    primaryAgentId: null as string | null,
     mountPath: '/repo/project',
     namespace: null,
     ingressHost: null,

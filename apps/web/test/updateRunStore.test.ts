@@ -60,8 +60,8 @@ interface Calls {
     installBatch: SkillBatchBody[]
     upgradeCli: CliCall[]
     upgradeHost: CliCall[]
-    upgradeFramework: Array<{ agentId: string; targetVersion: string }>
-    upgradeFrameworkStream: Array<{ agentId: string; targetVersion: string }>
+    upgradeFramework: Array<{ runtimeId: string; targetVersion: string }>
+    upgradeFrameworkStream: Array<{ runtimeId: string; targetVersion: string }>
     installFramework: Array<{
         id: string
         framework: string
@@ -74,11 +74,11 @@ interface Overrides {
     upgradeCli?: (sandboxId: string) => Promise<unknown>
     upgradeHost?: (hostId: string) => Promise<unknown>
     upgradeFramework?: (
-        agentId: string,
+        runtimeId: string,
         targetVersion: string
     ) => Promise<unknown>
     upgradeFrameworkStream?: (
-        agentId: string,
+        runtimeId: string,
         targetVersion: string,
         onEvent: (event: FrameworkUpgradeEvent) => void
     ) => Promise<unknown>
@@ -153,29 +153,29 @@ const fakeClient = (
                     : { ok: true }
             }
         },
-        agents: {
+        agentRuntimes: {
             upgradeFramework: async (
-                agentId: string,
+                runtimeId: string,
                 targetVersion: string
             ): Promise<unknown> => {
                 calls.order.push('upgradeFramework')
-                calls.upgradeFramework.push({ agentId, targetVersion })
+                calls.upgradeFramework.push({ runtimeId, targetVersion })
                 clock.now += 1_000
                 return over.upgradeFramework
-                    ? over.upgradeFramework(agentId, targetVersion)
+                    ? over.upgradeFramework(runtimeId, targetVersion)
                     : {}
             },
             upgradeFrameworkStream: async (
-                agentId: string,
+                runtimeId: string,
                 targetVersion: string,
                 onEvent: (event: FrameworkUpgradeEvent) => void
             ): Promise<unknown> => {
                 calls.order.push('upgradeFrameworkStream')
-                calls.upgradeFrameworkStream.push({ agentId, targetVersion })
+                calls.upgradeFrameworkStream.push({ runtimeId, targetVersion })
                 clock.now += 1_000
                 return over.upgradeFrameworkStream
                     ? over.upgradeFrameworkStream(
-                          agentId,
+                          runtimeId,
                           targetVersion,
                           onEvent
                       )
@@ -213,7 +213,7 @@ const daemonStep = (
 const frameworkStep = (mode: 'npm' | 'rebuild', n: number): BatchStep => ({
     type: 'framework',
     rowId: `framework:art_${n}`,
-    agentId: `agt_${n}`,
+    runtimeId: `art_${n}`,
     framework: mode === 'rebuild' ? 'hermes' : 'claude-code',
     mode,
     targetVersion: '2.1.0'
@@ -280,7 +280,7 @@ test('a started batch dispatches every step with no page mounted and no subscrib
         { id: 'sbx_1', targetVersion: undefined }
     ])
     assert.deepEqual(calls.upgradeFramework, [
-        { agentId: 'agt_1', targetVersion: '2.1.0' }
+        { runtimeId: 'art_1', targetVersion: '2.1.0' }
     ])
     assert.deepEqual(batch, {
         id: batch?.id,
@@ -472,7 +472,7 @@ test('any other error marks the row failed with the API message and moves on', a
 test('a rebuild forwards streamed phases into the row; npm mode never streams', async () => {
     const seen: Array<RowRun | undefined> = []
     const { client, calls } = fakeClient({
-        upgradeFrameworkStream: async (_agentId, _targetVersion, onEvent) => {
+        upgradeFrameworkStream: async (_runtimeId, _targetVersion, onEvent) => {
             onEvent({ type: 'step', step: 'rebuilding' })
             seen.push(runOf('framework:art_1'))
             onEvent({ type: 'step', step: 'verifying' })
@@ -489,10 +489,10 @@ test('a rebuild forwards streamed phases into the row; npm mode never streams', 
         { state: 'running', detail: { kind: 'phase', phase: 'verifying' } }
     ])
     assert.deepEqual(calls.upgradeFrameworkStream, [
-        { agentId: 'agt_1', targetVersion: '2.1.0' }
+        { runtimeId: 'art_1', targetVersion: '2.1.0' }
     ])
     assert.deepEqual(calls.upgradeFramework, [
-        { agentId: 'agt_2', targetVersion: '2.1.0' }
+        { runtimeId: 'art_2', targetVersion: '2.1.0' }
     ])
     assert.deepEqual(runOf('framework:art_1'), {
         state: 'succeeded',

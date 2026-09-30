@@ -1,6 +1,5 @@
 import {
     AgentFramework,
-    AgentSummary,
     FrameworkBlockedVersionRange,
     FrameworkUpgradeStep,
     blockedVersionMessage,
@@ -19,19 +18,16 @@ import {
     Injectable,
     InternalServerErrorException,
     Logger,
-    NotFoundException,
     Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import {
-    type Agent,
     type AgentRuntimeRow,
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
-import { AgentsService } from '@/modules/agents/agents.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import {
@@ -84,7 +80,6 @@ export class FrameworkUpgradeService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly agents: AgentsService,
         private readonly versions: FrameworkVersionsService,
         private readonly probe: FrameworkVersionProbeService,
         private readonly adminSettings: AdminSettingsService,
@@ -98,66 +93,62 @@ export class FrameworkUpgradeService {
         @Optional() private readonly hostAccess?: HostDaemonAccess
     ) {}
 
+    // The runtime's framework moved to `targetVersion` in place. The caller
+    // owns the runtime (the controller checked).
     async upgrade(
-        agentId: string,
-        callerUserId: string,
+        owned: AgentRuntimeRow,
         targetVersion: string,
         isAdmin: boolean
-    ): Promise<AgentSummary> {
-        const agent = await this.agents.findForCaller(
-            agentId,
-            callerUserId,
-            isAdmin
-        )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        if (!isVersionedFramework(agent.framework))
+    ): Promise<void> {
+        const framework = owned.framework
+        if (!isVersionedFramework(framework))
             throw new BadRequestException(
-                `${agent.framework} has no upgradeable framework version`
+                `${framework} has no upgradeable framework version`
             )
-        const descriptor = frameworkVersionDescriptor(agent.framework)
+        const descriptor = frameworkVersionDescriptor(framework)
         // npm and release-binary frameworks upgrade in place. A rebuild one
         // needs a heavy re-clone / re-installer, streamed by upgradeStreaming.
-        if (!upgradesInPlace(frameworkUpgradeMode(agent.framework)))
+        if (!upgradesInPlace(frameworkUpgradeMode(framework)))
             throw new BadRequestException(
-                `${agent.framework} upgrade is not supported yet`
+                `${framework} upgrade is not supported yet`
             )
-        const ctx = await this.hostedRuntime(agent)
+        const ctx = await this.hostedRuntime(owned)
         const { runtime, host } = ctx
 
-        const catalog = await this.versions.getForFramework(agent.framework)
+        const catalog = await this.versions.getForFramework(framework)
         // Blocked before "not in catalog": the denylist already removed the
         // release from `versions`, so without this the caller would be told the
         // version does not exist instead of why it is refused.
-        this.assertNotBlocked(agent.framework, targetVersion, catalog.blocked)
-        await this.assertPrereleaseAllowed(agent.framework, targetVersion)
+        this.assertNotBlocked(framework, targetVersion, catalog.blocked)
+        await this.assertPrereleaseAllowed(framework, targetVersion)
         if (!catalog.versions.includes(targetVersion))
             throw new BadRequestException(
-                `version "${targetVersion}" is not in the ${agent.framework} catalog`
+                `version "${targetVersion}" is not in the ${framework} catalog`
             )
         await this.assertVersionPolicy(
-            agent.framework,
+            framework,
             targetVersion,
             runtime.frameworkVersion ?? null,
             isAdmin,
             catalog.blocked
         )
 
-        return this.held(host, () => withRuntimeUpgradeLock(
+        await this.held(host, () => withRuntimeUpgradeLock(
             this.db,
-            upgradeLockTarget(runtime, agent.framework),
+            upgradeLockTarget(runtime, framework),
             async () => {
                 const shell = buildVersionInstallShell(
                     descriptor,
                     targetVersion,
                     descriptor.binary
                         ? await this.versions.releaseArtifacts(
-                              agent.framework,
+                              framework,
                               targetVersion
                           )
                         : null
                 )
                 this.log.log(
-                    `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
+                    `upgrading ${framework} on runtime ${runtime.id} to ${targetVersion}`
                 )
                 const exec = await this.execResolver.forRuntime(runtime, this.log)
                 const result = await runOnRuntimeHost(
@@ -172,7 +163,7 @@ export class FrameworkUpgradeService {
 
                 // A service framework runs off the upgraded binary: the
                 // host's daemon restarts it so the new version takes effect.
-                const recipe = serviceFrameworkRecipe(agent.framework)
+                const recipe = serviceFrameworkRecipe(framework)
                 if (recipe) await this.restartService(runtime, host, recipe)
 
                 // Re-probe persists the new version. Assert it actually changed —
@@ -181,7 +172,7 @@ export class FrameworkUpgradeService {
                 // CLI has no `--version` report null; don't hard-fail those (install +
                 // restart already succeeded), but a NON-null mismatch is still a hard
                 // failure for every framework.
-                const installed = await this.probe.probeAndPersist(agent)
+                const installed = await this.probe.probeAndPersist(runtime)
                 const verifiedOk =
                     installed === targetVersion ||
                     (installed === null && descriptor.runtimeKind === 'daemon')
@@ -189,8 +180,6 @@ export class FrameworkUpgradeService {
                     throw new InternalServerErrorException(
                         `framework upgrade verification mismatch: expected ${targetVersion}, the host reports ${installed ?? 'unknown'}`
                     )
-
-                return this.agents.get(agentId, callerUserId, isAdmin)
             }
         ))
     }
@@ -200,28 +189,21 @@ export class FrameworkUpgradeService {
     // A failed rebuild rolls back to the pre-upgrade app so the agent is never
     // bricked.
     async upgradeStreaming(
-        agentId: string,
-        callerUserId: string,
+        owned: AgentRuntimeRow,
         targetVersion: string,
         isAdmin: boolean,
         emitter: FrameworkUpgradeEmitter
-    ): Promise<AgentSummary> {
-        const agent = await this.agents.findForCaller(
-            agentId,
-            callerUserId,
-            isAdmin
-        )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        if (frameworkUpgradeMode(agent.framework) !== 'rebuild')
+    ): Promise<void> {
+        const framework = owned.framework
+        if (frameworkUpgradeMode(framework) !== 'rebuild')
             throw new BadRequestException(
-                `${agent.framework} does not use the streamed rebuild upgrade`
+                `${framework} does not use the streamed rebuild upgrade`
             )
-        if (!isVersionedFramework(agent.framework))
+        if (!isVersionedFramework(framework))
             throw new BadRequestException(
-                `${agent.framework} has no upgradeable framework version`
+                `${framework} has no upgradeable framework version`
             )
-        const framework = agent.framework
-        const ctx = await this.hostedRuntime(agent)
+        const ctx = await this.hostedRuntime(owned)
         const { runtime, host } = ctx
         const recipe = serviceFrameworkRecipe(framework)
         if (!recipe)
@@ -233,11 +215,11 @@ export class FrameworkUpgradeService {
         // Blocked before "not in catalog": the denylist already removed the
         // release from `versions`, so without this the caller would be told the
         // version does not exist instead of why it is refused.
-        this.assertNotBlocked(agent.framework, targetVersion, catalog.blocked)
-        await this.assertPrereleaseAllowed(agent.framework, targetVersion)
+        this.assertNotBlocked(framework, targetVersion, catalog.blocked)
+        await this.assertPrereleaseAllowed(framework, targetVersion)
         if (!catalog.versions.includes(targetVersion))
             throw new BadRequestException(
-                `version "${targetVersion}" is not in the ${agent.framework} catalog`
+                `version "${targetVersion}" is not in the ${framework} catalog`
             )
         if (
             !frameworkRepoCandidates(framework).some(
@@ -248,28 +230,25 @@ export class FrameworkUpgradeService {
                 `${framework} version catalog has no admitted repository; refresh it before upgrading`
             )
         await this.assertVersionPolicy(
-            agent.framework,
+            framework,
             targetVersion,
             runtime.frameworkVersion ?? null,
             isAdmin,
             catalog.blocked
         )
 
-        return this.held(host, () =>
+        await this.held(host, () =>
             withRuntimeUpgradeLock(
                 this.db,
-                upgradeLockTarget(runtime, agent.framework),
-                async () => {
-                    await this.rebuildOnHost({
-                        agent,
+                upgradeLockTarget(runtime, framework),
+                () =>
+                    this.rebuildOnHost({
                         ctx,
                         recipe,
                         targetVersion,
                         sourceRepo,
                         emitter
                     })
-                    return this.agents.get(agentId, callerUserId, isAdmin)
-                }
             )
         )
     }
@@ -312,20 +291,19 @@ export class FrameworkUpgradeService {
     // web UI is built again for the new checkout; the front proxy comes back
     // even when that build fails, since it holds the public URL.
     private async rebuildOnHost(args: {
-        agent: Agent
         ctx: HostedRuntime
         recipe: ServiceFrameworkRecipe
         targetVersion: string
         sourceRepo: string | null
         emitter: FrameworkUpgradeEmitter
     }): Promise<void> {
-        const { agent, ctx, recipe, emitter } = args
+        const { ctx, recipe, emitter } = args
         const { host, runtime } = ctx
         const exec = await this.execResolver.forRuntime(runtime, this.log)
         emitter.step('validating')
         const home = recipe.home(this.hostServices.serviceHost(host).home)
         const shells = this.rebuildShellsFor(
-            agent.framework,
+            runtime.framework,
             args.targetVersion,
             args.sourceRepo,
             home
@@ -357,7 +335,7 @@ export class FrameworkUpgradeService {
             for (const name of [recipe.serviceName, ...companions])
                 await this.hostServices.start(host, name).catch(() => undefined)
             throw new InternalServerErrorException(
-                `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
+                `${runtime.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
             )
         }
         emitter.step('starting_service')
@@ -382,7 +360,7 @@ export class FrameworkUpgradeService {
         }
         await this.hostServices.markReady(runtime)
         emitter.step('verifying')
-        const installed = await this.probe.probeAndPersist(agent)
+        const installed = await this.probe.probeAndPersist(runtime)
         // The probe reports the tag (1.8.3 / 2026.6.5 / 1.15.1-rc.1); the
         // target may carry a leading v. Precedence-aware, or a rebuild asked
         // for a prerelease and handed back its stable release would verify
@@ -392,7 +370,7 @@ export class FrameworkUpgradeService {
             compareSemverPrecedence(installed, args.targetVersion) !== 0
         )
             throw new InternalServerErrorException(
-                `${agent.framework} upgrade verification mismatch: expected ${args.targetVersion}, the host reports ${installed}`
+                `${runtime.framework} upgrade verification mismatch: expected ${args.targetVersion}, the host reports ${installed}`
             )
     }
 
@@ -474,10 +452,12 @@ export class FrameworkUpgradeService {
             )
     }
 
-    // The agent's runtime on a hosted machine (ADR-0037); a local machine's
-    // CLI is the user's own to upgrade.
-    private async hostedRuntime(agent: Agent): Promise<HostedRuntime> {
-        const ctx = await this.runtimeContext.forRuntime(agent.runtimeId)
+    // The runtime on a hosted machine (ADR-0037); a local machine's CLI is
+    // the user's own to upgrade.
+    private async hostedRuntime(
+        runtime: AgentRuntimeRow
+    ): Promise<HostedRuntime> {
+        const ctx = await this.runtimeContext.forRuntime(runtime.id)
         if (!ctx || !ctx.host || !hostsFrameworkCli(ctx.placement))
             throw new BadRequestException(
                 'framework upgrade is only supported on sprites and cloud computers'

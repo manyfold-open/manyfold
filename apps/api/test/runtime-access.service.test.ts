@@ -1458,7 +1458,6 @@ const runtimeRow = (overrides: {
     mountPath: '/workspace',
     currentPhase: null,
     failureReason: null,
-    primaryAgentId: null,
     controlUiEnabled: true,
     dashboardEnabled: false,
     lastBootstrappedAt: null,

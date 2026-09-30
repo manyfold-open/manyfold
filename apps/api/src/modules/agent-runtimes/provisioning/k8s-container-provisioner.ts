@@ -350,10 +350,6 @@ export class K8sContainerProvisioner {
                                             eq(
                                                 agentRuntimes.currentPhase,
                                                 K8S_CREATE_INITIAL_AGENT
-                                            ),
-                                            eq(
-                                                agentRuntimes.primaryAgentId,
-                                                agentId
                                             )
                                         )
                                     )

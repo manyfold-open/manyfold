@@ -78,7 +78,6 @@ const runtime = (
         dashboardState: null,
         currentPhase: null,
         failureReason: null,
-        primaryAgentId: null,
         lastBootstrappedAt: null,
         createdAt: '',
         updatedAt: '',
