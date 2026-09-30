@@ -1860,6 +1860,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (await this.repo.sessionHasMessages(sessionId))
             throw new ConflictException('session is not empty')
 
+        if ((await this.repo.listSessionChannels([sessionId])).length > 0)
+            throw new ConflictException({
+                code: 'session_bound_to_channel',
+                message:
+                    'the session belongs to a channel; only a forced delete removes it'
+            })
+
         throw new NotFoundException('session not found')
     }
 
