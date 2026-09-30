@@ -17,7 +17,7 @@ order: 15
 | --- | --- |
 | [`mf skills installed`](#mf-skills-installed) | List installed skills (optionally filter by agent) |
 | [`mf skills discover`](#mf-skills-discover) | Discover skills available to install |
-| [`mf skills install`](#mf-skills-install) | Install a skill on one agent (or many via --agent-ids) |
+| [`mf skills install`](#mf-skills-install) | Install a skill on one agent (or many via --agent-ids): its id, or its name |
 | [`mf skills update`](#mf-skills-update) | Enable or disable an installed skill |
 | [`mf skills delete`](#mf-skills-delete) | Uninstall a skill |
 | [`mf skills library`](#mf-skills-library) | Manage your personal skill library |
@@ -28,6 +28,8 @@ order: 15
 List installed skills (optionally filter by agent)
 
 **用法:** `mf skills installed [options]`
+
+**Alias:** `list`, `ls`
 
 **Option**
 
@@ -59,15 +61,21 @@ Discover skills available to install
 
 ## `mf skills install`
 
-Install a skill on one agent (or many via --agent-ids)
+Install a skill on one agent (or many via --agent-ids): its id, or its name
 
-**用法:** `mf skills install [options]`
+**用法:** `mf skills install [options] [skill]`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `[skill]` |  |
 
 **Option**
 
 | Option | 用途 |
 | --- | --- |
-| `--skill-id <id>` | skill id from discover or library 必填。 |
+| `--skill-id <id>` | skill id from discover or library (the same as [skill]) |
 | `--agent-id <id>` | agent id (defaults to the global --agent-id / $MF_AGENT_ID) |
 | `--agent-ids <ids>` | comma-separated agent ids for a batch install |
 | `--json` | emit raw JSON |

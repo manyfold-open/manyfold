@@ -8,6 +8,7 @@ import type { NcaClient } from '@manyfold/sdk'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { UsageError } from '@/usage-error'
 
 interface RootOpts {
     apiUrl?: string
@@ -32,7 +33,7 @@ interface DiscoverOpts {
 }
 
 interface InstallOpts {
-    skillId: string
+    skillId?: string
     agentId?: string
     agentIds?: string
     json?: boolean
@@ -148,6 +149,59 @@ const resolveLibrarySkillId = async (
     return match.id
 }
 
+// How far a name is looked for in the catalog: `q` matches names,
+// descriptions and repos alike, so a common word can fill several pages.
+const NAME_LOOKUP_PAGES = 10
+
+export interface SkillRef {
+    skillId: string
+    // Where a skill named on the command line was found; null for an id.
+    source: string | null
+}
+
+// A skill as the command line names it: an id passes through (a catalog id
+// holds a colon, a library one is skl_…); a name is looked for, exactly
+// and case-blind, in the library and in the catalog (by its name or its
+// folder's).
+export const resolveSkillRef = async (
+    client: NcaClient,
+    ref: string
+): Promise<SkillRef> => {
+    const name = ref.trim()
+    if (name.includes(':') || isObjectId(name, 'librarySkill'))
+        return { skillId: name, source: null }
+    const wanted = name.toLowerCase()
+    const found = new Map<string, string>()
+    for (const skill of await client.skills.library.list())
+        if (skill.name.toLowerCase() === wanted)
+            found.set(skill.id, 'your library')
+    let cursor: string | undefined
+    for (let page = 0; page < NAME_LOOKUP_PAGES; page++) {
+        const result = await client.skills.discoverPage({
+            q: name,
+            limit: 100,
+            ...(cursor ? { cursor } : {})
+        })
+        for (const skill of result.items) {
+            const folder = skill.sourcePath?.split('/').pop()?.toLowerCase()
+            if (skill.name.toLowerCase() === wanted || folder === wanted)
+                found.set(skill.skillId, `${skill.repoOwner}/${skill.repoName}`)
+        }
+        if (!result.nextCursor) break
+        cursor = result.nextCursor
+    }
+    const matches = [...found]
+    if (matches.length === 1)
+        return { skillId: matches[0][0], source: matches[0][1] }
+    if (matches.length === 0)
+        throw new Error(
+            `no skill named "${name}" in your library or the catalog (mf skills discover --q ${name} searches the catalog)`
+        )
+    throw new UsageError(
+        `${matches.length} skills are named "${name}"; pass the id of the one to install:\n${matches.map(([id, source]) => `  ${id}  ${source}`).join('\n')}`
+    )
+}
+
 interface UpdateRepoOpts {
     branch?: string
     enabled?: boolean
@@ -189,6 +243,7 @@ export const registerSkills = (program: Command): void => {
         .description('Manage installed agent skills')
 
     cmd.command('installed')
+        .aliases(['list', 'ls'])
         .description('List installed skills (optionally filter by agent)')
         .option('--agent-id <id>', 'filter to this agent')
         .option('--include-runtime', 'include runtime-level skills', false)
@@ -265,11 +320,19 @@ export const registerSkills = (program: Command): void => {
                 console.log(JSON.stringify(page, null, 2))
                 return
             }
+            if (page.items.length === 0)
+                console.log(kleur.dim('(no skills found)'))
             for (const s of page.items) {
                 console.log(
                     `${s.skillId}  ${kleur.cyan(s.name)}  ${kleur.dim(s.description ?? '')}`
                 )
             }
+            if (page.pendingRepos?.length)
+                console.error(
+                    kleur.dim(
+                        `still reading ${page.pendingRepos.map((repo) => `${repo.owner}/${repo.name}`).join(', ')}: their skills are not listed yet; run this again in a minute`
+                    )
+                )
             if (page.nextCursor)
                 console.error(
                     kleur.dim(
@@ -278,9 +341,15 @@ export const registerSkills = (program: Command): void => {
                 )
         })
 
-    cmd.command('install')
-        .description('Install a skill on one agent (or many via --agent-ids)')
-        .requiredOption('--skill-id <id>', 'skill id from discover or library')
+    const install = cmd
+        .command('install [skill]')
+        .description(
+            'Install a skill on one agent (or many via --agent-ids): its id, or its name'
+        )
+        .option(
+            '--skill-id <id>',
+            'skill id from discover or library (the same as [skill])'
+        )
         .option(
             '--agent-id <id>',
             'agent id (defaults to the global --agent-id / $MF_AGENT_ID)'
@@ -290,14 +359,35 @@ export const registerSkills = (program: Command): void => {
             'comma-separated agent ids for a batch install'
         )
         .option('--json', 'emit raw JSON', false)
-        .action(async (opts: InstallOpts) => {
-            const global = program.opts<RootOpts>()
-            const target = resolveInstallTarget({
-                skillId: opts.skillId,
-                agentId: resolveOptionalAgentId(opts.agentId, program),
+    install.action(async (skill: string | undefined, opts: InstallOpts) => {
+        try {
+            if (skill !== undefined && opts.skillId !== undefined)
+                throw new UsageError(
+                    'name the skill once: as [skill] or as --skill-id'
+                )
+            const ref = skill ?? opts.skillId
+            if (ref === undefined)
+                throw new UsageError(
+                    'which skill: pass its name or its id (mf skills discover lists them)'
+                )
+            const agentId = resolveOptionalAgentId(opts.agentId, program)
+            // The agent first: its check needs no request.
+            resolveInstallTarget({
+                skillId: ref,
+                agentId,
                 agentIds: opts.agentIds
             })
+            const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
+            const resolved = await resolveSkillRef(client, ref)
+            const target = resolveInstallTarget({
+                skillId: resolved.skillId,
+                agentId,
+                agentIds: opts.agentIds
+            })
+            const from = resolved.source
+                ? kleur.dim(`  from ${resolved.source}`)
+                : ''
             if (target.mode === 'batch') {
                 const res = await client.skills.installBatch({
                     skillId: target.skillId,
@@ -310,7 +400,7 @@ export const registerSkills = (program: Command): void => {
                 for (const item of res.results) {
                     console.log(
                         item.status === 'installed'
-                            ? `${item.agentId}  ${kleur.green('installed')}  ${item.skill?.id ?? ''}`
+                            ? `${item.agentId}  ${kleur.green('installed')}  ${item.skill?.id ?? ''}${from}`
                             : `${item.agentId}  ${kleur.red('failed')}  ${kleur.dim(item.error ?? '')}`
                     )
                 }
@@ -333,9 +423,14 @@ export const registerSkills = (program: Command): void => {
                       ? kleur.yellow('installing')
                       : kleur.green('installed')
             console.log(
-                `${res.id}  ${kleur.cyan(res.name)}  ${res.enabled ? 'enabled' : 'disabled'}  ${status}`
+                `${res.id}  ${kleur.cyan(res.name)}  ${res.enabled ? 'enabled' : 'disabled'}  ${status}${from}`
             )
-        })
+        } catch (err) {
+            if (err instanceof UsageError)
+                install.error(`error: ${err.message}`)
+            throw err
+        }
+    })
 
     cmd.command('update <userSkillId>')
         .description('Enable or disable an installed skill')

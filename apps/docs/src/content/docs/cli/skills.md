@@ -14,20 +14,29 @@ skills, the public/repository catalog, and your personal skill library.
 
 ```sh
 mf skills discover --q review
-mf skills install --skill-id skl_xxx --agent-id agt_xxx
+mf skills install code-review --agent-id agt_xxx
 mf skills installed --agent-id agt_xxx
 ```
+
+`install` takes a skill's name or its id (the `github:…` id `discover`
+prints, or a library skill's `skl_…`). A name is matched exactly, ignoring
+case, in your library and the catalog; when several skills share it, the
+command lists their ids and installs none, so install by id instead.
+`mf skills list` is the same as `installed`.
 
 Discovery is paginated: results arrive one page at a time (up to 100 per
 page, featured ranking by default; `--sort latest` ranks by recency). When
 more results exist the command prints a hint with the cursor to pass as
 `--cursor`, and `--json` output is the page object — `items` plus a
-`nextCursor` that is `null` on the last page.
+`nextCursor` that is `null` on the last page. A repository read for the
+first time, such as one you just added, is read before the answer; if
+that takes more than a few seconds, the command says it is still reading
+it, and its skills appear on a later run.
 
 Install to several agents with:
 
 ```sh
-mf skills install --skill-id skl_xxx --agent-ids agt_one,agt_two
+mf skills install code-review --agent-ids agt_one,agt_two
 ```
 
 Installation state is separate from enablement:
