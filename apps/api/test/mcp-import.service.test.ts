@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ServiceUnavailableException } from '@nestjs/common'
 import { McpImportService } from '../src/modules/agents/mcp-import.service'
-import { readJsonbMergePatch } from './jsonb-merge'
+import { readJsonbMergeNestedPatch } from './jsonb-merge'
 import {
     contextOf,
     hostRow,
@@ -74,9 +74,10 @@ class TestImport extends McpImportService {
     }
 }
 
-// Never-clobber at the service level: a scope whose file is absent (cold
-// sprite, pre-bootstrap) keeps its stored value in the single merged write,
-// and the response agent is re-read AFTER the update.
+// Never-clobber at the service level: only the scopes read in are written,
+// merged into the live row, so a scope whose file is absent (cold sprite,
+// pre-bootstrap) keeps its stored value; the response agent is re-read
+// AFTER the update.
 test('mcp import merges imported scopes and preserves skipped scopes', async () => {
     const db = fakeDb()
     const svc = new TestImport(db)
@@ -86,11 +87,13 @@ test('mcp import merges imported scopes and preserves skipped scopes', async () 
     const res = await svc.refresh('agent-1', 'user-1', false)
 
     assert.equal(db.updates.length, 1)
-    const patch = readJsonbMergePatch(db.updates[0].extras)
-    assert.ok(patch)
-    const mcp = patch.mcp as Record<string, string>
-    assert.deepEqual(JSON.parse(mcp.user), { new: { command: 'x' } })
-    assert.equal(mcp.project, '{"keep":{}}')
+    const write = readJsonbMergeNestedPatch(db.updates[0].extras)
+    assert.ok(write)
+    assert.equal(write.key, 'mcp')
+    assert.deepEqual(Object.keys(write.nested), ['user'])
+    assert.deepEqual(JSON.parse(write.nested.user as string), {
+        new: { command: 'x' }
+    })
     assert.equal(res.agent, summary as never)
     assert.deepEqual(
         res.scopes.map((s) => `${s.scopeId}:${s.status}`),
@@ -136,8 +139,10 @@ test('mcp import preserves a missing user config while importing the project sco
         ['user:skipped', 'project:imported']
     )
     assert.match(res.scopes[0].message ?? '', /config file not found/)
-    const patch = readJsonbMergePatch(db.updates[0].extras)
-    const mcp = patch?.mcp as Record<string, string>
-    assert.equal(mcp.user, '{"old":{}}')
-    assert.deepEqual(JSON.parse(mcp.project), { proj: { command: 'z' } })
+    const write = readJsonbMergeNestedPatch(db.updates[0].extras)
+    assert.ok(write)
+    assert.deepEqual(Object.keys(write.nested), ['project'])
+    assert.deepEqual(JSON.parse(write.nested.project as string), {
+        proj: { command: 'z' }
+    })
 })

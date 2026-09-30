@@ -10,6 +10,7 @@ import {
     agents,
     createDb,
     jsonbMerge,
+    jsonbMergeNested,
     users,
     type Database
 } from '@manyfold/db'
@@ -150,6 +151,59 @@ test(
             const extras = await readExtras(h)
             assert.equal(extras.envText, 'A=1')
             assert.deepEqual(extras.modelConfig, { source: 'agent-refresh' })
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'jsonbMergeNested merges one level deeper: what the patch leaves out keeps its value',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const write = (
+                nested: Record<string, unknown>,
+                patch: Record<string, unknown> = {}
+            ) =>
+                h.db
+                    .update(agents)
+                    .set({
+                        extras: jsonbMergeNested(
+                            agents.extras,
+                            patch,
+                            'mcp',
+                            nested
+                        )
+                    })
+                    .where(eq(agents.id, h.agentId))
+
+            // Nothing there yet, or something that is not an object: empty.
+            await h.db
+                .update(agents)
+                .set({ extras: jsonbMerge(agents.extras, { mcp: 'text' }) })
+                .where(eq(agents.id, h.agentId))
+            await write({ user: '{"a":{}}' })
+            assert.deepEqual((await readExtras(h)).mcp, { user: '{"a":{}}' })
+
+            // Two scope edits at once both land, each on the live row.
+            await Promise.all([
+                write({ user: '{"u":{}}' }),
+                write({ project: '{"p":{}}' }, { mcpDeliveryRevision: null })
+            ])
+            const extras = await readExtras(h)
+            assert.deepEqual(extras.mcp, {
+                user: '{"u":{}}',
+                project: '{"p":{}}'
+            })
+            assert.equal(extras.mcpDeliveryRevision, null)
+
+            await write({ project: '' })
+            assert.deepEqual((await readExtras(h)).mcp, {
+                user: '{"u":{}}',
+                project: ''
+            })
         } finally {
             await h.close()
         }

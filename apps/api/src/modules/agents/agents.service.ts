@@ -35,6 +35,7 @@ import {
     agents,
     hostDaemons,
     jsonbMerge,
+    jsonbMergeNested,
     runtimeHosts,
     runtimeProviders,
     users,
@@ -493,8 +494,20 @@ export class AgentsService {
             )
             extrasPatch.mcpDeliveryRevision = null
         }
-        if (Object.keys(extrasPatch).length > 0)
-            extrasMerge = jsonbMerge(agents.extras, extrasPatch)
+        if (Object.keys(extrasPatch).length > 0) {
+            // `mcp` merges per scope: a scope the body leaves out keeps its
+            // config, and '' clears one.
+            const { mcp, ...rest } = extrasPatch
+            extrasMerge =
+                mcp === undefined
+                    ? jsonbMerge(agents.extras, rest)
+                    : jsonbMergeNested(
+                          agents.extras,
+                          rest,
+                          'mcp',
+                          mcp as Record<string, string>
+                      )
+        }
         if (Object.keys(patch).length === 0 && !extrasMerge) {
             const row = summaryRowOf(ctx)
             return agentRowToSummary(row, await this.detailOptions(row))
