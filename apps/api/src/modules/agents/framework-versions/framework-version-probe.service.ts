@@ -1,18 +1,13 @@
-import {
-    AgentSummary,
-    isVersionedFramework,
-    parseProbedSemver
-} from '@manyfold/shared'
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { isVersionedFramework, parseProbedSemver } from '@manyfold/shared'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import {
     agentRuntimes,
     hostDaemons,
-    type Agent,
+    type AgentRuntimeRow,
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
-import { AgentsService } from '@/modules/agents/agents.service'
 import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
 import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
@@ -27,38 +22,23 @@ export class FrameworkVersionProbeService {
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly agents: AgentsService,
         private readonly runtimeContext: RuntimeContextService,
         private readonly execResolver: FrameworkExecResolver
     ) {}
 
-    // Probe + persist the installed framework version for an agent, then return
-    // the refreshed summary. Ownership is enforced via AgentsService.
-    async refresh(
-        agentId: string,
-        callerUserId: string,
-        isAdmin: boolean
-    ): Promise<AgentSummary> {
-        const agent = await this.agents.findForCaller(
-            agentId,
-            callerUserId,
-            isAdmin
-        )
-        if (!agent) throw new NotFoundException(`agent ${agentId} not found`)
-        await this.probeAndPersist(agent)
-        return this.agents.get(agentId, callerUserId, isAdmin)
-    }
-
+    // The installed version of a runtime's framework, probed and persisted.
     // Hosted machines only, through their daemon (ADR-0037). No-op for
     // non-versioned frameworks or other placements. A probe that cannot run
     // leaves the stored version untouched (never clobbers a known-good value
     // with null).
-    async probeAndPersist(agent: Agent): Promise<string | null> {
-        if (!isVersionedFramework(agent.framework)) return null
-        const ctx = await this.runtimeContext.forRuntime(agent.runtimeId)
+    async probeAndPersist(
+        runtime: Pick<AgentRuntimeRow, 'id' | 'framework'>
+    ): Promise<string | null> {
+        if (!isVersionedFramework(runtime.framework)) return null
+        const ctx = await this.runtimeContext.forRuntime(runtime.id)
         if (!ctx || !hostsFrameworkCli(ctx.placement)) return null
 
-        const descriptor = frameworkVersionDescriptor(agent.framework)
+        const descriptor = frameworkVersionDescriptor(runtime.framework)
         let parsed: string | null = null
         try {
             const exec = await this.execResolver.forRuntime(ctx.runtime, this.log)
@@ -70,7 +50,7 @@ export class FrameworkVersionProbeService {
             parsed = parseProbedSemver(`${result.stdout}\n${result.stderr}`)
         } catch (err) {
             this.log.warn(
-                `framework-version probe failed for agent ${agent.id}: ${(err as Error).message}`
+                `framework-version probe failed for runtime ${runtime.id}: ${(err as Error).message}`
             )
             return null
         }
@@ -87,7 +67,7 @@ export class FrameworkVersionProbeService {
         if (parsed && ctx.runtime.hostId)
             await this.recordOnHost(
                 ctx.runtime.hostId,
-                agent.framework,
+                runtime.framework,
                 parsed,
                 now
             )

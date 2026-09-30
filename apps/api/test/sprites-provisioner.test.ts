@@ -34,7 +34,6 @@ const runtimeRow = (
         hostId: 'sbx_testhost',
         capabilitiesJson: {},
         mountPath: '/home/sprite/.manyfold/workspaces/agt_test',
-        primaryAgentId: null,
         controlUiEnabled: true,
         dashboardEnabled: false,
         lastBootstrappedAt: null,

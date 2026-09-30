@@ -22,7 +22,6 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     accountId: 'acc-1',
     spriteName: 'nca-user-abc-main',
     spriteId: 'sp-1',
-    primaryAgentId: 'agent-1',
     mountPath: '/workspace',
     namespace: null,
     ingressHost: null,

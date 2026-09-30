@@ -33,14 +33,16 @@ const runtimeOnHost = (overrides: Record<string, unknown> = {}) =>
         framework: 'codex',
         hostId: 'sbx_1',
         mountPath: '/home/sprite',
-        primaryAgentId: 'agt_first',
         ...(overrides as Partial<AgentRuntimeRow>)
     })
 
 const emptyDb = {
     select: () => ({
         from: () => ({
-            where: () => ({ limit: async () => [] })
+            where: () => ({
+                limit: async () => [],
+                orderBy: () => ({ limit: async () => [] })
+            })
         })
     }),
     insert: () => ({

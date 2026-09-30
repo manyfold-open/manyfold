@@ -1,5 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { execFileSync } from 'node:child_process'
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DAEMON_FEATURE_SERVICES } from '@manyfold/shared'
 import { HostServices } from '../src/modules/agent-runtimes/provisioning/host-services'
 import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
@@ -184,6 +195,72 @@ test('the openclaw service writes its config owner-only under the host home and 
     assert.match(r.scripts[0].script, /umask 077/)
     assert.equal(r.scripts[0].script.includes('k-test'), false)
     assert.equal(recipe.sandbox.mountPath('/home/sprite'), '/home/sprite/.openclaw/workspace')
+})
+
+// `openclaw agents add` records an added agent in openclaw.json: in
+// agents.entries (with agents.ownership and defaults.systemAgent) on 2026.9.6,
+// in agents.list on 2026.7. A config rewrite without it left the gateway
+// knowing only `main`, and every other agent failed its next turn. The script
+// runs here for real.
+test('rewriting the openclaw config keeps the agents OpenClaw added', async () => {
+    for (const added of [
+        {
+            ownership: 'explicit',
+            entries: {
+                main: { workspace: '/w' },
+                agt_x: { workspace: '/w/workspace-agt_x' }
+            },
+            defaults: { systemAgent: { agentId: 'main' }, workspace: '/stale' }
+        },
+        { list: [{ id: 'main' }, { id: 'agt_x', workspace: '/w' }] }
+    ]) {
+        const home = mkdtempSync(join(tmpdir(), 'mf-openclaw-config-'))
+        try {
+            const recipe = serviceFrameworkRecipe('openclaw')!
+            const apply = async (
+                overrides: Record<string, unknown>
+            ): Promise<void> => {
+                const r = recorder()
+                await recipe.configure(
+                    r.runner as never,
+                    configureArgs({ host: { home, suspends: true }, ...overrides })
+                )
+                execFileSync('sh', ['-c', r.scripts[0].script], {
+                    env: { ...process.env, ...r.scripts[0].env }
+                })
+            }
+            const path = join(home, '.openclaw', 'openclaw.json')
+            await apply({})
+            const written = JSON.parse(readFileSync(path, 'utf8'))
+            const { defaults: addedDefaults, ...addedAgents } = added as {
+                defaults?: Record<string, unknown>
+            }
+            written.agents = {
+                ...written.agents,
+                ...addedAgents,
+                defaults: { ...written.agents.defaults, ...addedDefaults }
+            }
+            writeFileSync(path, JSON.stringify(written))
+
+            await apply({ controlUiEnabled: false })
+
+            const config = JSON.parse(readFileSync(path, 'utf8'))
+            const { defaults, ...agents } = config.agents
+            assert.deepEqual(agents, addedAgents)
+            if (addedDefaults)
+                assert.deepEqual(defaults.systemAgent, { agentId: 'main' })
+            assert.equal(
+                defaults.workspace,
+                join(home, '.openclaw', 'workspace'),
+                'the defaults Manyfold sets are its own'
+            )
+            assert.equal(config.gateway.controlUi.enabled, false)
+            assert.equal(statSync(path).mode & 0o777, 0o600)
+            assert.equal(existsSync(`${path}.next`), false)
+        } finally {
+            rmSync(home, { recursive: true, force: true })
+        }
+    }
 })
 
 // A runtime prepared on a sandbox has no provider until its first agent

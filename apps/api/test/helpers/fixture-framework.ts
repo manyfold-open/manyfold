@@ -205,7 +205,6 @@ export const fixtureFiles = (
 })
 
 export const fixtureControlUi: FrameworkControlUi = {
-    agentScoped: true,
     mint: ({ runtime, agentInternalId }) =>
         `https://${runtime.ingressHost}/ui?agent=${agentInternalId ?? ''}`
 }

@@ -33,7 +33,6 @@ const runtime = (over: Partial<AgentRuntimeSummary>): AgentRuntimeSummary =>
         status: 'ready',
         hostId: 'sbx_1',
         agentsCount: 1,
-        primaryAgentId: 'agt_1',
         ...over
     }) as AgentRuntimeSummary
 
@@ -103,7 +102,7 @@ test('"+" offers what the sandbox lacks, one service framework at most', () => {
     assert.ok(free.every((option) => option.blockedBy === null))
 
     const taken = sandboxInstallOptions(sandbox(), [
-        runtime({ id: 'art_oc', framework: 'openclaw', primaryAgentId: null })
+        runtime({ id: 'art_oc', framework: 'openclaw', agentsCount: 0 })
     ])
     const hermes = taken.find((option) => option.framework === 'hermes')
     assert.equal(hermes?.blockedBy, 'openclaw')
@@ -115,7 +114,7 @@ test('"+" offers what the sandbox lacks, one service framework at most', () => {
     )
 })
 
-test('a version moves through the agent, else the sandbox, else not from here', () => {
+test('a version moves through the runtime, else the sandbox, else not from here', () => {
     const itemFor = (
         framework: string,
         runtimes: AgentRuntimeSummary[],
@@ -129,7 +128,7 @@ test('a version moves through the agent, else the sandbox, else not from here', 
     })
     assert.equal(
         sandboxVersionChange(itemFor('pi', [runtime({})], box))?.via,
-        'agent'
+        'runtime'
     )
     assert.deepEqual(sandboxVersionChange(itemFor('claude-code', [], box)), {
         via: 'sandbox'
@@ -138,13 +137,14 @@ test('a version moves through the agent, else the sandbox, else not from here', 
         sandboxVersionChange(itemFor('antigravity-cli', [], box)),
         null
     )
+    // A runtime with no agent on it is still the handle for its install.
     assert.deepEqual(
         sandboxVersionChange(
             itemFor('codex', [
-                runtime({ framework: 'codex', primaryAgentId: null })
+                runtime({ id: 'art_codex', framework: 'codex', agentsCount: 0 })
             ])
         ),
-        { via: 'sandbox' }
+        { via: 'runtime', runtimeId: 'art_codex', mode: 'npm' }
     )
     assert.equal(
         sandboxVersionChange(

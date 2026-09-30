@@ -7,9 +7,9 @@ import {
     runtimeRow
 } from './helpers/runtime-context-fixture'
 
-// A non-primary agent on a cloud computer is removed in its framework, then
-// its row goes. The built-in profile is the one the primary runs as
-// (ADR-0035), so a row for it has nothing of its own there to remove.
+// An agent on a cloud computer that leaves other agents behind is removed in
+// its framework, then its row goes. The framework's own agent never gets here
+// (ADR-0040): it leaves only with its runtime.
 
 const build = () => {
     const removed: string[] = []
@@ -50,25 +50,15 @@ const onPod = (internalId: string) =>
         runtime: runtimeRow({
             id: 'art_1',
             framework: 'openclaw',
-            hostId: 'rth_1',
-            primaryAgentId: 'agt_1'
+            hostId: 'rth_1'
         }),
         host: k8sHostRow({ id: 'rth_1' })
     })
 
-test('a non-primary row for the built-in profile is deleted without touching the framework', async () => {
+test('an agent with a profile of its own is removed in the framework first', async () => {
     const { orchestrator, removed, deleted } = build()
 
-    await orchestrator.deleteNonPrimary(onPod('main'), 'user-1')
-
-    assert.deepEqual(removed, [])
-    assert.deepEqual(deleted, ['agents'])
-})
-
-test('a non-primary agent with a profile of its own is removed in the framework first', async () => {
-    const { orchestrator, removed, deleted } = build()
-
-    await orchestrator.deleteNonPrimary(onPod('research'), 'user-1')
+    await orchestrator.deleteAgent(onPod('research'), 'user-1')
 
     assert.deepEqual(removed, ['research'])
     assert.deepEqual(deleted, ['agents'])

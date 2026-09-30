@@ -1753,10 +1753,7 @@ const AgentNew: FC = (): ReactNode => {
                         : null,
                 changeable:
                     present &&
-                    (coding ||
-                        Boolean(
-                            runtime?.primaryAgentId && frameworkUpgradeMode(fw)
-                        )),
+                    (coding || Boolean(runtime && frameworkUpgradeMode(fw))),
                 installable: blockedBy === null,
                 blockedBy,
                 probed:
@@ -1775,9 +1772,8 @@ const AgentNew: FC = (): ReactNode => {
 
     // Check re-probes the sandbox; install and upgrade run the sandbox-level
     // install, except that a framework with a runtime on the host upgrades
-    // through that runtime's primary agent, as the runtime page does, and a
-    // service framework installs as an agent-less runtime (its gateway is
-    // the runtime).
+    // through that runtime, as the runtime page does, and a service framework
+    // installs as an agent-less runtime (its gateway is the runtime).
     const handleHostFrameworkAction = async (
         hostId: string,
         fw: AgentFramework,
@@ -1798,18 +1794,23 @@ const AgentNew: FC = (): ReactNode => {
             const runtime = runtimes.find(
                 (r) => r.hostId === hostId && r.framework === fw
             )
-            if (action === 'upgrade' && runtime?.primaryAgentId && latest) {
+            if (
+                action === 'upgrade' &&
+                runtime &&
+                frameworkUpgradeMode(fw) &&
+                latest
+            ) {
                 // The heavy frameworks re-clone and rebuild; their upgrade
                 // streams phases, which this card only waits out.
                 if (frameworkUpgradeMode(fw) === 'rebuild')
-                    await client.agents.upgradeFrameworkStream(
-                        runtime.primaryAgentId,
+                    await client.agentRuntimes.upgradeFrameworkStream(
+                        runtime.id,
                         latest,
                         () => {}
                     )
                 else
-                    await client.agents.upgradeFramework(
-                        runtime.primaryAgentId,
+                    await client.agentRuntimes.upgradeFramework(
+                        runtime.id,
                         latest
                     )
                 await Promise.all([refetchRuntimes(), refetchSandboxes()])

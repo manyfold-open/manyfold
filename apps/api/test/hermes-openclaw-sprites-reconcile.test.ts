@@ -34,7 +34,6 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     spriteId: 'sp-1',
     daemonId: null,
     hostId: 'host-1',
-    primaryAgentId: 'agent-1',
     mountPath: HERMES_HOME,
     homeDir: HERMES_HOME,
     namespace: null,
@@ -57,7 +56,7 @@ const fakeDbAgent = (over: Record<string, unknown> = {}) => ({
     runtimeId: 'rt-1',
     framework: 'hermes',
     runtime: 'sprites',
-    name: 'Primary Display',
+    name: 'Chosen Name',
     internalId: 'agent-1',
     status: 'failed',
     failureReason: 'not present in runtime',
@@ -186,7 +185,7 @@ test('serviceReady reconcile heals a false-failed hermes sprites agent through t
         cmd[0] === HERMES_VENV_PYTHON
             ? { exitCode: 0, stdout: HERMES_PROFILES_JSON, stderr: '' }
             : null
-    const db = makeDb([fakeDbAgent()])
+    const db = makeDb([fakeDbAgent({ internalId: 'default' })])
     const svc = reconcilerFor(db, registry)
 
     await svc.reconcileRuntime(
@@ -208,7 +207,7 @@ test('serviceReady reconcile heals a false-failed hermes sprites agent through t
     assert.equal(
         'name' in db.updates[0].set,
         false,
-        'the framework alias must not replace the user-facing primary name'
+        "the framework's name for its own agent must not replace the user-facing one"
     )
 })
 
@@ -221,6 +220,7 @@ test('serviceReady reconcile heals a false-failed openclaw sprites agent through
     const db = makeDb([
         fakeDbAgent({
             framework: 'openclaw',
+            internalId: 'main',
             workspacePath: OPENCLAW_WS,
             mountPath: OPENCLAW_WS
         })
@@ -249,11 +249,11 @@ test('serviceReady reconcile heals a false-failed openclaw sprites agent through
     assert.equal('name' in db.updates[0].set, false)
 })
 
-// WHY: after deleting a primary, the framework's undeletable built-in
-// default/main profile can coexist with the promoted secondary's exact
-// profile. The exact profile is authoritative; the built-in must not be
-// aliased onto the same row or inserted as a phantom agent.
-test('sprites reconcile ignores the built-in profile when the promoted primary has an exact live profile', async () => {
+// WHY: the built-in profile gets its row only from the agent it is created or
+// joined as. A runtime whose agents all have profiles of their own (joined
+// before its first agent took the built-in one) never shows it: adopted, it
+// became an agent no delete could remove.
+test('sprites reconcile never adopts the built-in profile from a listing', async () => {
     const { resolver, registry } = makeHarness()
     resolver.behavior = (cmd) =>
         cmd.join(' ') === 'openclaw agents list --json'
@@ -268,7 +268,7 @@ test('sprites reconcile ignores the built-in profile when the promoted primary h
                       {
                           id: 'agent-1',
                           workspace: '/workspace/promoted',
-                          identity: { name: 'Primary Display' }
+                          identity: { name: 'Chosen Name' }
                       }
                   ]),
                   stderr: ''

@@ -241,8 +241,8 @@ const runSteps = async (
                     }
                     case 'framework':
                         if (step.mode === 'rebuild')
-                            await client.agents.upgradeFrameworkStream(
-                                step.agentId,
+                            await client.agentRuntimes.upgradeFrameworkStream(
+                                step.runtimeId,
                                 step.targetVersion,
                                 (event) => {
                                     if (event.type === 'step')
@@ -253,8 +253,8 @@ const runSteps = async (
                                 }
                             )
                         else
-                            await client.agents.upgradeFramework(
-                                step.agentId,
+                            await client.agentRuntimes.upgradeFramework(
+                                step.runtimeId,
                                 step.targetVersion
                             )
                         succeed(ids)

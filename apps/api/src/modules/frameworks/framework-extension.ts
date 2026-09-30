@@ -28,10 +28,9 @@ export interface FrameworkFilesProvider {
     defaultTerminalCwd?(agent: Agent): string
 }
 
-// The runtime's own UI, opened through a link Manyfold mints.
+// The runtime's own UI, opened through a link Manyfold mints; the link may
+// name the agent the caller opened it for.
 export interface FrameworkControlUi {
-    // The link names one agent (the caller's, else the runtime's primary).
-    agentScoped: boolean
     mint(input: {
         runtime: AgentRuntimeRow & { ingressHost: string }
         credentials: Record<string, unknown>
@@ -75,9 +74,10 @@ export interface FrameworkExtension {
     framework: AgentFramework
     agentAdapter: AgentAdapter
     chatAdapter: ApiChatAdapter
-    // The framework keeps its own agent list: the primary agent is pushed
-    // into it right after provisioning, so the first reconcile finds it.
-    pushPrimaryAgent?: boolean
+    // The framework keeps its own agent list: the agent a sandbox is created
+    // with is pushed into it right after provisioning, so the first
+    // reconcile finds it.
+    pushCreatedAgent?: boolean
     // How a service framework is installed on a sandbox or a cloud computer
     // and run as a service of the machine's daemon (ADR-0035 §6).
     serviceRecipe?: ServiceFrameworkRecipe

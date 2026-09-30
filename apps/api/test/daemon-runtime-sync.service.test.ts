@@ -101,7 +101,6 @@ const defaults = (): Partial<AgentRuntimeRow> => ({
     status: 'ready',
     hostId: 'dh-1',
     capabilitiesJson: {},
-    primaryAgentId: null,
     defaultAuthProfileId: null,
     mountPath: '/workspace',
     controlUiEnabled: true,

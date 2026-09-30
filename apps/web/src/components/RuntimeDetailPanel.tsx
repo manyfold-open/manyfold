@@ -233,19 +233,13 @@ const InfoPanel: FC<{ children: ReactNode }> = ({ children }): ReactNode => (
     </div>
 )
 
-const AgentRow: FC<{ agent: SdkAgent; isPrimary: boolean }> = ({
-    agent: a,
-    isPrimary
-}): ReactNode => {
+const AgentRow: FC<{ agent: SdkAgent }> = ({ agent: a }): ReactNode => {
     const body = (
         <>
             <FrameworkLogo framework={a.framework} size={28} />
             <span className='min-w-0 flex-1'>
                 <span className='flex flex-wrap items-center gap-2'>
                     <span className='settings-card-label'>{a.name}</span>
-                    {isPrimary && (
-                        <span className='tag tag-neutral'>{translate('web.runtimeDetails.primary')}</span>
-                    )}
                 </span>
                 <span className='settings-card-copy block truncate'>
                     <span className='font-mono'>{a.internalId}</span>
@@ -521,9 +515,6 @@ const RuntimeDetailPanel: FC<{
         }
     }, [client, fwFramework, runtimeKind])
 
-    const getPrimaryAgent = (): SdkAgent | null =>
-        agents?.find((a) => a.id === runtime?.primaryAgentId) ?? null
-
     // Re-reads the version on the machine. A sandbox is probed as a whole,
     // every framework on it, so any runtime there can refresh, with or
     // without an agent to address.
@@ -544,8 +535,8 @@ const RuntimeDetailPanel: FC<{
     }
 
     // A version picked from the header's list, moved the way the Update Center
-    // moves it: through the runtime's agent, or in place on the sandbox for a
-    // CLI its image ships when no agent is there to address.
+    // moves it: through the runtime, or in place on the sandbox for a CLI its
+    // image ships that the runtime cannot upgrade.
     const handleUpgradeFramework = async (version: string): Promise<void> => {
         if (
             !runtime ||
@@ -553,23 +544,23 @@ const RuntimeDetailPanel: FC<{
             updateRunStore.isTargetUpdating(`framework:${runtimeId}`)
         )
             return
-        const agent = getPrimaryAgent()
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
         try {
-            if (agent) {
-                if (frameworkUpgradeMode(agent.framework) === 'rebuild')
-                    // heavy rebuild — stream phase events
-                    await client.agents.upgradeFrameworkStream(
-                        agent.id,
-                        version,
-                        (ev) => {
-                            if (ev.type === 'step') setFwStep(ev.step)
-                        }
-                    )
-                else await client.agents.upgradeFramework(agent.id, version)
-            } else if (runtime.hostId)
+            const mode = frameworkUpgradeMode(runtime.framework)
+            if (mode === 'rebuild')
+                // heavy rebuild — stream phase events
+                await client.agentRuntimes.upgradeFrameworkStream(
+                    runtime.id,
+                    version,
+                    (ev) => {
+                        if (ev.type === 'step') setFwStep(ev.step)
+                    }
+                )
+            else if (mode)
+                await client.agentRuntimes.upgradeFramework(runtime.id, version)
+            else if (runtime.hostId)
                 await client.sandboxes.installFramework(
                     runtime.hostId,
                     runtime.framework,
@@ -638,12 +629,8 @@ const RuntimeDetailPanel: FC<{
             </div>
         )
 
-    const primaryAgent =
-        agents?.find((a) => a.id === runtime.primaryAgentId) ?? null
     const fwUpgradeable =
-        runtime.kind === 'sprites' &&
-        isUpgradeableFramework(runtime.framework) &&
-        primaryAgent !== null
+        runtime.kind === 'sprites' && isUpgradeableFramework(runtime.framework)
     const fwUpgradeAvailable = frameworkUpgradeAvailable(
         runtime.frameworkVersion,
         fwLatest
@@ -651,7 +638,6 @@ const RuntimeDetailPanel: FC<{
     const fwChangeable =
         fwUpgradeable ||
         (runtime.kind === 'sprites' &&
-            primaryAgent === null &&
             runtime.hostId !== null &&
             (SANDBOX_PREINSTALLED_FRAMEWORKS as readonly string[]).includes(
                 runtime.framework
@@ -797,11 +783,7 @@ const RuntimeDetailPanel: FC<{
                 ) : (
                     <div className='settings-card'>
                         {agents.map((a) => (
-                            <AgentRow
-                                key={a.id}
-                                agent={a}
-                                isPrimary={a.id === runtime.primaryAgentId}
-                            />
+                            <AgentRow key={a.id} agent={a} />
                         ))}
                     </div>
                 )}
@@ -872,27 +854,6 @@ const RuntimeDetailPanel: FC<{
 
             <Section title={translate('web.runtimeDetails.details')}>
                 <InfoPanel>
-                    <Info
-                        label={translate('web.runtimeDetails.primaryAgent')}
-                        value={
-                            runtime.primaryAgentId ? (
-                                <span className='flex flex-wrap items-center gap-2'>
-                                    <Link
-                                        to={`/agents/${runtime.primaryAgentId}`}
-                                        className='text-link hover:text-fg font-medium'
-                                    >
-                                        {primaryAgent?.name ??
-                                            runtime.primaryAgentId}
-                                    </Link>
-                                    {primaryAgent && (
-                                        <span className='text-caption text-subtle font-mono'>
-                                            {runtime.primaryAgentId}
-                                        </span>
-                                    )}
-                                </span>
-                            ) : null
-                        }
-                    />
                     {runtime.hostId && (
                         <Info
                             label={translate('web.runtimeDetails.machine')}

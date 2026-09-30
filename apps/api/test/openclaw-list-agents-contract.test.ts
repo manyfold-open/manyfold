@@ -29,7 +29,7 @@ const makeAdapter = (result: { exitCode?: number; stdout: string }) => {
     } as never)
 }
 
-const listCtx = { runtime: fakeRuntime, primaryAgentId: 'agent-1' } as never
+const listCtx = { runtime: fakeRuntime } as never
 
 test('openclaw listAgents: exit 0 with empty stdout rejects', async () => {
     const adapter = makeAdapter({ stdout: '' })

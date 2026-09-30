@@ -24,7 +24,6 @@ const runtime = (overrides: Record<string, unknown> = {}) =>
         framework: 'pi',
         hostId: 'sbx_1',
         mountPath: '/home/sprite/.manyfold/workspaces',
-        primaryAgentId: null,
         ...(overrides as Partial<AgentRuntimeRow>)
     })
 
@@ -36,7 +35,8 @@ const attachWith = async (
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => []
+                    limit: async () => [],
+                    orderBy: () => ({ limit: async () => [] })
                 })
             })
         }),

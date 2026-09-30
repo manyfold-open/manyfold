@@ -18,7 +18,7 @@ import {
     type OnModuleDestroy,
     type OnModuleInit
 } from '@nestjs/common'
-import { eq, like, or } from 'drizzle-orm'
+import { and, eq, like, or } from 'drizzle-orm'
 import { WebSocket } from 'ws'
 import {
     agentCredentials,
@@ -48,6 +48,7 @@ import {
     type ServiceSettings
 } from '@/modules/agent-runtimes/provisioning/host-services'
 import { serviceFrameworkRecipe } from '@/modules/agents/bootstrap/service-frameworks'
+import { serviceBuiltInProfile } from '@/modules/agents/built-in-agent'
 
 const PROBE_ATTEMPTS = 10
 const PROBE_INTERVAL_MS = 3_000
@@ -128,7 +129,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 {
                     enabled,
                     runtimeId: runtime.id,
-                    primaryAgentId: runtime.primaryAgentId,
                     ownerUserId: runtime.userId,
                     onBehalfOf: callerUserId !== runtime.userId
                 }
@@ -146,7 +146,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                     enabled,
                     reason,
                     runtimeId: runtime.id,
-                    primaryAgentId: runtime.primaryAgentId,
                     ownerUserId: runtime.userId,
                     onBehalfOf: callerUserId !== runtime.userId
                 }
@@ -266,13 +265,10 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         if (!ingressHost)
             throw new BadRequestException('runtime has no ingress host')
 
-        // The URL we hand back is per-agent only for an agent-scoped control
-        // UI (its link names the agent). For openclaw/hermes the URL is
-        // runtime-scoped; we keep the caller-supplied agentId in the audit
-        // log so admin lookups still show which agent's dashboard was opened.
-        const resolvedAgentId = controlUi?.agentScoped
-            ? (agentId ?? runtime.primaryAgentId ?? null)
-            : (agentId ?? null)
+        // For openclaw/hermes the URL is runtime-scoped; an extension's link
+        // can name the agent it was opened for. The audit log keeps that agent
+        // so admin lookups show whose dashboard was opened.
+        const resolvedAgentId = agentId ?? null
 
         await this.audit(
             callerUserId,
@@ -280,7 +276,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             runtime.id,
             {
                 runtimeId: runtime.id,
-                primaryAgentId: runtime.primaryAgentId,
                 ownerUserId: runtime.userId,
                 onBehalfOf: callerUserId !== runtime.userId,
                 agentId: resolvedAgentId
@@ -383,7 +378,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 {
                     enabled,
                     runtimeId: runtime.id,
-                    primaryAgentId: runtime.primaryAgentId,
                     ownerUserId: runtime.userId,
                     onBehalfOf: callerUserId !== runtime.userId
                 }
@@ -406,7 +400,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                     enabled,
                     reason,
                     runtimeId: runtime.id,
-                    primaryAgentId: runtime.primaryAgentId,
                     ownerUserId: runtime.userId,
                     onBehalfOf: callerUserId !== runtime.userId
                 }
@@ -454,8 +447,8 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     }
 
     // The framework's config rewritten and its services restarted with one
-    // setting changed; the rest are the runtime's own, and its env the
-    // primary agent's.
+    // setting changed; the rest are the runtime's own, and its env that of the
+    // framework's own agent (ADR-0040).
     private async reconfigure(
         ctx: RuntimeContext,
         change: Partial<ServiceSettings>
@@ -463,11 +456,17 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
         const { runtime, host } = ctx
         if (!host)
             throw new BadRequestException(`runtime ${runtime.id} has no host`)
-        const [agent] = runtime.primaryAgentId
+        const builtIn = serviceBuiltInProfile(ctx)
+        const [agent] = builtIn
             ? await this.db
                   .select({ extras: agents.extras })
                   .from(agents)
-                  .where(eq(agents.id, runtime.primaryAgentId))
+                  .where(
+                      and(
+                          eq(agents.runtimeId, runtime.id),
+                          eq(agents.internalId, builtIn)
+                      )
+                  )
                   .limit(1)
             : []
         await this.hostServices.reconfigure(runtime, host, {

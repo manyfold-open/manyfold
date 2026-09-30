@@ -121,8 +121,7 @@ export class HermesAgentAdapter implements AgentAdapter {
             timeoutMs: EXEC_TIMEOUT_MS
         })
         if (res.exitCode === 0) return
-        const msg = (res.stderr || res.stdout).toLowerCase()
-        if (msg.includes('not found') || msg.includes('no such')) return
+        if (profileMissing(res.stderr || res.stdout, agent.internalId)) return
         throw new Error(
             `hermes profile delete failed (exit ${res.exitCode}): ${sanitizeMessage(new Error(res.stderr || res.stdout))}`
         )
@@ -139,6 +138,20 @@ export class HermesAgentAdapter implements AgentAdapter {
         )
         return tryFilesystemList(exec, hermesHome || DEFAULT_HERMES_HOME)
     }
+}
+
+// Hermes' own answer for a profile it does not have: "No profile named '<x>'"
+// since NousResearch/hermes-agent 23036e20 [2026-09-15], "Profile '<x>' does
+// not exist." before. Seen on staging [2026-09-30]: matching "not found" (which
+// hermes never prints) left an agent whose profile was already gone
+// undeletable.
+const profileMissing = (output: string, profile: string): boolean => {
+    const text = output.toLowerCase()
+    const name = profile.toLowerCase()
+    return (
+        text.includes(`no profile named '${name}'`) ||
+        text.includes(`profile '${name}' does not exist`)
+    )
 }
 
 const hermesPythonCandidates = (hermesHome: string): string[] => {

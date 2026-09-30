@@ -18,9 +18,8 @@ import {
     NotFoundException,
     ServiceUnavailableException
 } from '@nestjs/common'
-import { and, eq, isNull } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import {
-    agentRuntimes,
     agents,
     type AgentRuntimeRow,
     type Database,
@@ -40,10 +39,8 @@ import {
     type RuntimeTarget
 } from '@/modules/agents/adapters/agent-adapter'
 import { agentRowToSummary } from '@/modules/agents/agents.service'
-import {
-    AgentReconcileService,
-    serviceBuiltInProfile
-} from '@/modules/agents/reconcile/agent-reconcile.service'
+import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
+import { serviceBuiltInProfile } from '@/modules/agents/built-in-agent'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
@@ -71,17 +68,16 @@ const frameworkInternalIdForAgentId = (agentId: string): string =>
 const builtInProfileAgent = async (
     adapter: AgentAdapter,
     target: RuntimeTarget,
-    agentId: string,
     profile: string
 ): Promise<AddAgentResult> => {
-    const live = await adapter.listAgents({ ...target, primaryAgentId: null })
+    const live = await adapter.listAgents(target)
     const found = live.find((agent) => agent.id === profile)
     if (!found)
         throw new ServiceUnavailableException(
-            `${target.runtime.framework} on cloud computer ${target.runtime.hostId} lists no ${profile} profile`
+            `${target.runtime.framework} on host ${target.runtime.hostId} lists no ${profile} profile`
         )
     return {
-        internalId: agentId,
+        internalId: profile,
         workspace: found.workspace,
         model: found.model,
         extras: found.extras
@@ -140,11 +136,17 @@ export class RuntimeAgentAttachService {
             throw new ConflictException(
                 `framework ${runtime.framework} does not support add-agent`
             )
+        const [firstAgent] = await this.db
+            .select({ modelProviderId: agents.modelProviderId })
+            .from(agents)
+            .where(eq(agents.runtimeId, runtime.id))
+            .orderBy(asc(agents.createdAt))
+            .limit(1)
         if (ctx.placement === 'k8s') {
             const ownedInstalling =
                 runtime.status === 'installing' &&
                 runtime.currentPhase === K8S_CREATE_INITIAL_AGENT &&
-                runtime.primaryAgentId === null &&
+                firstAgent === undefined &&
                 !!input.agentCreateId
             if (
                 input.agentCreateId
@@ -173,32 +175,24 @@ export class RuntimeAgentAttachService {
             )
         const displayName = normalizeAgentName(input.name)
         const agentId = input.agentCreateId ?? createObjectId('agent')
-        // A service framework's first agent on a cloud computer is its
-        // gateway's built-in profile, the one the service is configured for
-        // and every chat session binds to, as on a sandbox; not a profile
-        // pushed beside it (ADR-0035).
-        const builtInProfile =
-            ctx.placement === 'k8s' && runtime.primaryAgentId === null
-                ? serviceBuiltInProfile(ctx)
-                : null
+        // A service framework's first agent on a sandbox or a cloud computer
+        // is its gateway's built-in profile, the one the service is configured
+        // for, stored under the framework's name (ADR-0040); not a profile
+        // pushed beside it.
+        const builtInProfile = firstAgent ? null : serviceBuiltInProfile(ctx)
         if (builtInProfile && (workspace || input.cloneFrom))
             throw new BadRequestException(
-                `the first ${runtime.framework} agent on a cloud computer is its gateway's own; a workspace or clone applies to the agents added after it`
+                `the first ${runtime.framework} agent on a machine is its gateway's own; a workspace or clone applies to the agents added after it`
             )
         const internalId =
-            isCodingAgentRuntime || builtInProfile
+            builtInProfile ??
+            (isCodingAgentRuntime
                 ? agentId
-                : frameworkInternalIdForAgentId(agentId)
-        const inheritedProviderId =
-            runtime.primaryAgentId !== null
-                ? ((
-                      await this.db
-                          .select({ id: agents.modelProviderId })
-                          .from(agents)
-                          .where(eq(agents.id, runtime.primaryAgentId))
-                          .limit(1)
-                  )[0]?.id ?? null)
-                : null
+                : frameworkInternalIdForAgentId(agentId))
+        // A joiner runs on the credentials stored with the runtime's first
+        // agent, so it takes that agent's provider for billing and the
+        // managed-channel gate.
+        const inheritedProviderId = firstAgent?.modelProviderId ?? null
         await this.credentialsResolver.assertManagedChannelBindable(
             runtime.userId,
             inheritedProviderId,
@@ -208,15 +202,9 @@ export class RuntimeAgentAttachService {
         try {
             await input.assertAgentCreateActive?.()
             const res = builtInProfile
-                ? await builtInProfileAgent(
-                      adapter,
-                      ctx,
-                      agentId,
-                      builtInProfile
-                  )
+                ? await builtInProfileAgent(adapter, ctx, builtInProfile)
                 : await adapter.addAgent({
                       ...ctx,
-                      primaryAgentId: runtime.primaryAgentId ?? null,
                       agentId,
                       internalId,
                       name: displayName,
@@ -272,8 +260,7 @@ export class RuntimeAgentAttachService {
                                 ...newAgent,
                                 createdAt: now,
                                 updatedAt: now
-                            } as never,
-                            primaryAgentId: runtime.primaryAgentId ?? null
+                            } as never
                         })
                     }
                 } catch (cleanupErr) {
@@ -283,18 +270,6 @@ export class RuntimeAgentAttachService {
                 }
                 throw insertErr
             }
-            // Promote to primary if the runtime has no primary yet. Conditional
-            // update keeps this race-safe under concurrent first-agent inserts.
-            await input.assertAgentCreateActive?.()
-            await this.db
-                .update(agentRuntimes)
-                .set({ primaryAgentId: agentId, updatedAt: new Date() })
-                .where(
-                    and(
-                        eq(agentRuntimes.id, runtime.id),
-                        isNull(agentRuntimes.primaryAgentId)
-                    )
-                )
             this.reconcile.touchAfterWrite(runtime.id)
             // The joiner's own auth choice. Failing here after the insert is
             // reported, not swallowed: an agent that silently kept the
