@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { agentCredentials, chatSessions, type Database } from '@manyfold/db'
-import { isPiProvider } from '@manyfold/shared'
+import {
+    claudeCliModel,
+    claudeModelMapEnv,
+    isPiProvider,
+    type ClaudeCodeAgentModelConfig
+} from '@manyfold/shared'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import type { AgentFramework, AntigravityCliAgentModelConfig } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
@@ -177,10 +182,12 @@ export class TerminalResumeService {
                         command,
                         args.model ?? null
                     )
-                  : {
-                      command,
-                      env: await this.claudeCredentialEnv(args.runtimeId)
-                  }
+                  : await this.claudePlatformResume(
+                        args.runtimeId,
+                        command,
+                        args.model ?? null,
+                        { agentId: args.agentId, userId: args.userId }
+                    )
         if (inject && !Object.keys(resume?.env ?? {}).length) {
             this.log.warn(
                 `terminal.resume.skipped agent=${args.agentId} reason=credentials-unreadable`
@@ -227,6 +234,42 @@ export class TerminalResumeService {
         })
         if (model?.trim()) argv.push('--model', model.trim())
         return { command: argv, env }
+    }
+
+    // claude resumes on the key and the model its turns run on: given no
+    // --model, Claude Code restores the session's last model, the one from
+    // before any switch. Its alias resolves through the agent's model map,
+    // as on a turn; without the agent's settings the TUI keeps the session's
+    // model rather than an alias Claude Code would map to its own default.
+    private async claudePlatformResume(
+        runtimeId: string,
+        command: string[],
+        agentModel: string | null,
+        selection: { agentId: string; userId?: string }
+    ): Promise<ResolvedTerminalResume | null> {
+        const env = await this.claudeCredentialEnv(runtimeId)
+        if (!Object.keys(env).length) return { command, env }
+        let config: ClaudeCodeAgentModelConfig | null = null
+        if (selection.userId && this.modelConfigs) {
+            try {
+                const turn = await this.modelConfigs.resolveTurnConfig({
+                    callerUserId: selection.userId,
+                    agentId: selection.agentId,
+                    modelConfigSource: 'platform'
+                })
+                if (turn.modelConfig?.framework === 'claude-code')
+                    config = turn.modelConfig
+            } catch {
+                this.log.warn(
+                    `terminal.resume.model-unresolved agent=${selection.agentId}`
+                )
+            }
+        }
+        const model = config ? claudeCliModel(config, agentModel) : null
+        return {
+            command: model ? [...command, '--model', model] : command,
+            env: { ...env, ...claudeModelMapEnv(config) }
+        }
     }
 
     private async claudeCredentialEnv(

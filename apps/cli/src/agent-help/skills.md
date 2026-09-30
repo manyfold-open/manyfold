@@ -34,20 +34,22 @@ For a scope denial, follow `mf help auth --agent` for the current identity.
 ## Common commands
 
 ```sh
-mf skills installed --agent-id "$MF_AGENT_ID" --json
+mf skills installed --agent-id "$MF_AGENT_ID" --json   # alias: list, ls
 mf skills installed --include-runtime
 mf skills discover --q <query> --json
 mf skills discover --repo-id <repo-id> --agent-id "$MF_AGENT_ID"
-mf skills install --skill-id <skill-id> --agent-id "$MF_AGENT_ID"
+mf skills install <name> --agent-id "$MF_AGENT_ID"
+mf skills install <skill-id> --agent-id "$MF_AGENT_ID"
 mf skills update <user-skill-id> --enabled
 mf skills delete <user-skill-id> --yes
 mf skills repos list --json
 mf skills library list --json
 mf skills library get <skl-id> --json
-mf skills library create --name <name> --content-file ./SKILL.md
+mf skills library create --content-file ./SKILL.md   # name from its frontmatter
 mf skills library update <skl-id> --content-file ./SKILL.md
+mf skills library publish ./my-skill                   # create or update, then push
 mf skills library import --url <github-url> --on-conflict rename
-mf skills library import --file ./my-skill.skill
+mf skills library import --file ./my-skill            # a folder, or a .skill/.zip
 mf skills library import --share https://manyfold.ai/skills/shared/<lss-id>
 mf skills library share <skl-id-or-name> --json
 mf skills library share <skl-id-or-name> --revoke
@@ -56,23 +58,38 @@ mf skills library files set <skl-id> --path references/guide.md --content-file .
 mf skills library files delete <skl-id> <skf-file-id>
 mf skills library push <skl-id>
 mf skills library delete <skl-id> --yes --force
-mf skills install --skill-id <skill-id> --agent-ids <id1>,<id2>
+mf skills install <name-or-id> --agent-ids <id1>,<id2>
 ```
 
-`install` returns a user-skill id — use that for `update` / `delete`, not
-the catalog `<skill-id>` from `discover`. `delete` has alias `rm`.
+`install` takes the skill's id (`github:…` from `discover`, `skl_…` from
+the library; `--skill-id <id>` is the same) or its name: an exact,
+case-blind match in your library and the catalog (a skill's folder name
+counts too); `<owner>/<name>` (e.g. `anthropics/mcp-builder`) takes that
+repo owner's. A name that several skills share lists them, as
+`<owner>/<name>` and id, and installs none (exit 5): install one of those. `install` returns a user-skill id — use
+that for `update` / `delete`, not the catalog `<skill-id>` from
+`discover`. `delete` has alias `rm`.
 
 `discover --json` prints a page object `{items, nextCursor}` (max 100 per
 page, `--sort featured|latest`); pass `nextCursor` back as `--cursor` until
-it is `null`.
+it is `null`. A repo read for the first time is read before the answer,
+for up to 15 s; one that takes longer is listed in `pendingRepos` (and
+named on stderr): its skills are not in the page yet, so run it again in
+a minute.
 
-Library skills install with the same `mf skills install`, passing the
-`skl_…` library id as `--skill-id`. `install` takes exactly one of
+Library skills install with the same `mf skills install`, by name or by
+the `skl_…` library id. `install` takes exactly one of
 `--agent-id` or `--agent-ids` (comma-separated batch; per-agent results,
-one failure does not abort the rest). `library import` accepts exactly one
-of `--url` (github.com repo / tree / SKILL.md blob), `--file` (`.skill` /
-`.zip`), `--catalog-skill-id`, or `--share` (a share link or `lss_…` id);
-`--on-conflict` is `fail` (default) | `overwrite` | `rename`.
+one failure does not abort the rest). `library create` takes the name from
+the content's frontmatter `name:` unless `--name` gives one. `library
+import` accepts exactly one of `--url` (github.com repo / tree / SKILL.md
+blob), `--file` (a local skill folder with `SKILL.md` at its top, or a
+`.skill` / `.zip` archive), `--catalog-skill-id`, or `--share` (a share
+link or `lss_…` id); `--on-conflict` is `fail` (default) | `overwrite` |
+`rename`. `library publish <folder>` is the local loop in one step: the
+folder's skill created, or (same name) overwritten in place, then pushed
+to every agent that has it; a folder's hidden files, license files and
+files over 1 MiB stay out, as in any import.
 `library share` mints (or prints, if one exists) an unlisted link anyone
 can open to view the skill and import a snapshot copy into their own
 library; `--revoke` disables the link (already-imported copies keep
@@ -86,8 +103,13 @@ unless `--force` (which uninstalls everywhere first).
 - `installed`: one header per agent (`<name> (<id>)`), then one line per
   skill: `<user-skill-id>  <install-dir>  enabled|disabled`. Prints
   `(no installed skills)` when empty.
-- `discover`: `<skill-id>  <name>  <description>` per line.
-- `install` / `update`: `<user-skill-id>  <name>  enabled|disabled`.
+- `discover`: `<skill-id>  <name>  <description>` per line;
+  `(no skills found)` when none.
+- `install` / `update`: `<user-skill-id>  <name>  enabled|disabled`;
+  `install` by name adds `from <owner>/<repo>` or `from your library`.
+- `library list`: `<skl-id>  <name>  <n> files, on <n> agents`.
+- `library publish`: `created|updated  <skl-id>  <name>  <n> files`, then
+  one line per agent pushed to (`pushed` or `failed  <why>`).
 - `delete`: `✓ deleted <id>` on success.
 - `--json` (raw JSON) exists on every subcommand; `delete` and
   `repos delete` emit `{ ok, id }`. Skills output contains no secrets.
@@ -98,6 +120,14 @@ unless `--force` (which uninstalls everywhere first).
 {{AUTH_RECOVERY}}
 - `pass exactly one of --enabled or --disabled` → `update` requires
   exactly one of the two flags.
+- `N skills are named "<name>"` → install one as listed (`<owner>/<name>`
+  or its id).
+- `<skl-id> is installed on N agents` (library delete) → `--force`
+  uninstalls it from them first.
+- `has no SKILL.md at its top` → the folder given is not a skill; point
+  at the folder that holds `SKILL.md`.
+- `no skill named "<name>"` → `mf skills discover --q <name>` for the
+  catalog, `mf skills library list` for yours; install by id.
 - `refusing to delete … without --yes` → deletes never prompt; add `--yes`
   (or `-y`) to confirm.
 - `401` on `mf skills repos …` despite a fresh grant → repos endpoints

@@ -37,7 +37,14 @@ mf model-config refresh-models $MF_AGENT_ID --json
 framework-shaped JSON object (claude-code: `model`, `effort`,
 `modelMap`; codex: `model`, `speed`, `intelligence`; gemini-cli and
 antigravity-cli: `model`). Pick `--model` values from the `options` array in `get`
-output — only entries with `enabled: true` are valid.
+output — only entries with `enabled: true` are valid. `--model` also takes
+the id an alias stands for and a name as people write it (`Sonnet 5`,
+`haiku 4.5`), and saves the option it names. A model outside the options
+is a usage error that lists them, except on gemini-cli and pi, whose
+providers may serve more than the options show; the API checks those.
+`mf agent update --model` makes the same change. `--clear-model` puts the
+agent back on the framework's default: on a provider, the model a new agent
+there gets; on a sign-in (`runtime-local`), the CLI's own default.
 
 ## Output
 

@@ -8,9 +8,9 @@ import {
     parseImportUrl,
     parseSkillArchive,
     setFrontmatterFields,
-    shallowestSkillMdRoot,
-    shouldIgnoreImportPath
+    shallowestSkillMdRoot
 } from '../src/modules/skills/library-skills.service'
+import { shouldIgnoreLibrarySkillPath } from '@manyfold/shared'
 import {
     assertSafeLibraryFilePath,
     libraryStoreKey
@@ -91,14 +91,14 @@ test('shallowestSkillMdRoot picks the least-nested SKILL.md', () => {
     assert.equal(shallowestSkillMdRoot(['readme.md']), null)
 })
 
-test('shouldIgnoreImportPath drops dotfiles, __MACOSX, licenses and nested SKILL.md', () => {
-    assert.equal(shouldIgnoreImportPath('.DS_Store'), true)
-    assert.equal(shouldIgnoreImportPath('ref/.hidden/file.md'), true)
-    assert.equal(shouldIgnoreImportPath('__MACOSX/x.md'), true)
-    assert.equal(shouldIgnoreImportPath('LICENSE'), true)
-    assert.equal(shouldIgnoreImportPath('license.txt'), true)
-    assert.equal(shouldIgnoreImportPath('nested/SKILL.md'), true)
-    assert.equal(shouldIgnoreImportPath('references/guide.md'), false)
+test('shouldIgnoreLibrarySkillPath drops dotfiles, __MACOSX, licenses and nested SKILL.md', () => {
+    assert.equal(shouldIgnoreLibrarySkillPath('.DS_Store'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('ref/.hidden/file.md'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('__MACOSX/x.md'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('LICENSE'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('license.txt'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('nested/SKILL.md'), true)
+    assert.equal(shouldIgnoreLibrarySkillPath('references/guide.md'), false)
 })
 
 test('parseSkillArchive imports a wrapper-dir layout', () => {

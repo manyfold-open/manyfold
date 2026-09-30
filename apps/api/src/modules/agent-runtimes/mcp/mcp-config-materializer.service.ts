@@ -15,7 +15,7 @@ import {
     daemonConfigWrite,
     daemonConfigRpc
 } from '@/modules/daemon/daemon-fs'
-import { DaemonConfigDeliveryService, DaemonConfigDeliveryError, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
+import { DAEMON_CONFIG_ON_CHANGE_WAIT_MS, DaemonConfigDeliveryService, DaemonConfigDeliveryError, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import {
@@ -163,7 +163,9 @@ export class McpConfigMaterializer {
             if (!frameworkMcpSupport(agent.framework)) return
             const ctx = await this.context.forAgent(agent.id)
             if (!ctx?.host) return
-            await this.materializeForAgent(agent)
+            await this.materializeForAgent(agent, {
+                leaseWaitMs: DAEMON_CONFIG_ON_CHANGE_WAIT_MS
+            })
         } catch {
             this.log.warn('daemon configuration mcp refresh deferred')
         }

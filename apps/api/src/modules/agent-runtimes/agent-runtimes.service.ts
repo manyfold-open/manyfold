@@ -320,7 +320,8 @@ export class AgentRuntimesService {
     // a retry reuses the row instead of installing a second copy.
     async findRuntimeOnHost(
         hostId: string,
-        framework: AgentRuntimeRow['framework']
+        framework: AgentRuntimeRow['framework'],
+        userId: string
     ): Promise<AgentRuntimeRow | null> {
         const [row] = await this.db
             .select()
@@ -328,7 +329,8 @@ export class AgentRuntimesService {
             .where(
                 and(
                     eq(agentRuntimes.hostId, hostId),
-                    eq(agentRuntimes.framework, framework)
+                    eq(agentRuntimes.framework, framework),
+                    eq(agentRuntimes.userId, userId)
                 )
             )
             .limit(1)

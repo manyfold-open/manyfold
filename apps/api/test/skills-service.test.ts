@@ -635,7 +635,8 @@ test('SkillsService discover marks installed state for the selected agent runtim
 
 test('SkillsService discover triggers stale cache refresh without blocking', async () => {
     const db = new FakeDb()
-    db.selectResults.push([targetRow], [], [], [], [])
+    // Read once, long ago: stale, not unread.
+    db.selectResults.push([targetRow], [], [], [freshnessRow(new Date(0))], [])
     const discovery = new FakeDiscovery()
     let finish!: (value: DiscoverableSkillSummary[]) => void
     discovery.scanPromise = new Promise<DiscoverableSkillSummary[]>((resolve) => { finish = resolve })
@@ -652,6 +653,106 @@ test('SkillsService discover triggers stale cache refresh without blocking', asy
     assert.equal(discovery.scanCalls[0].repos[0].id, discovered.repoId)
     finish([])
     await new Promise((resolve) => setImmediate(resolve))
+})
+
+// A repo read for the first time has nothing to show yet: the answer waits
+// for that read rather than show the repo as empty.
+test('SkillsService discover waits for a repo read for the first time', async () => {
+    const db = new FakeDb()
+    db.tableSelectResults.set(skillRepos, [[]])
+    db.tableSelectResults.set(skillRepoScans, [[], [freshnessRow(new Date())]])
+    db.tableSelectResults.set(skills, [[joinedRow({ ...skillRow, updatedAt: new Date() })]])
+    const discovery = new FakeDiscovery()
+    let release!: () => void
+    discovery.scanPromise = new Promise<DiscoverableSkillSummary[]>((resolve) => {
+        release = () => resolve([discovered])
+    })
+    const service = newService(db, new FakeMaterializer(), discovery)
+
+    let answered = false
+    const page = service.discoverPage({ userId: 'user-1' }).then((result) => {
+        answered = true
+        return result
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(answered, false, 'the answer waits for the read')
+    assert.equal(discovery.scanCalls.length, 1)
+    release()
+    const result = await page
+
+    assert.equal(result.items[0]?.skillId, discovered.skillId)
+    assert.equal(result.pendingRepos, undefined)
+})
+
+test('SkillsService discover names the repos still being read when its wait runs out', async () => {
+    const db = new FakeDb()
+    db.tableSelectResults.set(skillRepos, [[]])
+    db.tableSelectResults.set(skillRepoScans, [[], []])
+    db.tableSelectResults.set(skills, [[]])
+    const discovery = new FakeDiscovery()
+    let release!: () => void
+    discovery.scanPromise = new Promise<DiscoverableSkillSummary[]>((resolve) => {
+        release = () => resolve([discovered])
+    })
+    const service = newService(db, new FakeMaterializer(), discovery)
+    service.firstReadWaitMs = 50
+
+    try {
+        const result = await service.discoverPage({ userId: 'user-1' })
+        assert.deepEqual(result.pendingRepos, [{
+            id: 'builtin:anthropics/skills@main',
+            owner: 'anthropics',
+            name: 'skills',
+            branch: 'main'
+        }])
+    } finally {
+        release()
+    }
+})
+
+test('SkillsService discover waits for a repo another process is reading', async () => {
+    const db = new FakeDb()
+    db.scanClaimBusy = true
+    db.tableSelectResults.set(skillRepos, [[]])
+    const states = [[], [], [freshnessRow(new Date())], [freshnessRow(new Date())]]
+    db.tableSelectResults.set(skillRepoScans, states)
+    db.tableSelectResults.set(skills, [[joinedRow({ ...skillRow, updatedAt: new Date() })]])
+    const discovery = new FakeDiscovery()
+    const service = newService(db, new FakeMaterializer(), discovery)
+
+    const result = await service.discoverPage({ userId: 'user-1' })
+
+    assert.equal(discovery.scanCalls.length, 0, 'the other process scans it')
+    assert.equal(states.length, 0, 'it looked until that read landed')
+    assert.equal(result.items[0]?.skillId, discovered.skillId)
+    assert.equal(result.pendingRepos, undefined)
+})
+
+test('SkillsService discover reads each new repo on its own: one failing holds up no other', async (t) => {
+    const discovery = new FakeDiscovery()
+    const [anthropics] = await discovery.builtinRepos()
+    t.mock.method(discovery, 'builtinRepos', async () => [
+        { ...anthropics, id: 'builtin:acme/broken@main', owner: 'acme', name: 'broken' },
+        anthropics
+    ])
+    const scanRevision = discovery.scanRevision.bind(discovery)
+    t.mock.method(discovery, 'scanRevision', async (repo: { id: string; owner: string }) => {
+        if (repo.owner === 'acme') throw new GitHubRequestError()
+        return scanRevision(repo)
+    })
+    const db = new FakeDb()
+    db.tableSelectResults.set(skillRepos, [[]])
+    db.tableSelectResults.set(skillRepoScans, [[], [freshnessRow(new Date())]])
+    db.tableSelectResults.set(skills, [[joinedRow({ ...skillRow, updatedAt: new Date() })]])
+    const service = newService(db, new FakeMaterializer(), discovery)
+
+    const result = await service.discoverPage({ userId: 'user-1' })
+
+    assert.equal(result.items[0]?.skillId, discovered.skillId)
+    assert.deepEqual(
+        result.pendingRepos?.map((repo) => repo.id),
+        ['builtin:acme/broken@main']
+    )
 })
 
 test('SkillsService discover without agentId returns catalog with installed=false', async () => {
@@ -1157,6 +1258,8 @@ test('the unified official skill keeps its default identity for new agents and u
 
 class FakeDb {
     scanState: Record<string, unknown> = { generation: 1, snapshot: null, revision: null, publishedAliases: [] }
+    // Another process holds every repo's scan.
+    scanClaimBusy = false
     selectResults: unknown[][] = []
     tableSelectResults = new Map<unknown, unknown[][]>()
     updateResults: unknown[][] = []
@@ -1260,6 +1363,8 @@ class FakeQuery implements PromiseLike<unknown[]> {
 
     returning(): Promise<unknown[]> {
         if (this.table === skillRepoScans) {
+            if (this.kind === 'insert' && this.db.scanClaimBusy)
+                return Promise.resolve([])
             if (this.kind === 'insert') Object.assign(this.db.scanState, this.rowValues)
             return Promise.resolve([{ ...this.db.scanState }])
         }

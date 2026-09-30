@@ -1,7 +1,8 @@
 import {
     AgentCreateStep,
     auditAction,
-    PLATFORM_DEFAULT_SKILL_IDS
+    PLATFORM_DEFAULT_SKILL_IDS,
+    stepsFor
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -19,6 +20,7 @@ import {
     fakeRuntimeContext,
     spritesHostRow
 } from './helpers/runtime-context-fixture'
+import { assertStepsFollow } from './helpers/create-steps'
 
 // The sandbox the provisioner hands back.
 const HOST = spritesHostRow({
@@ -299,6 +301,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         'storing_credentials',
         'finalizing'
     ])
+    assertStepsFollow(steps, stepsFor('claude-code', 'sprites'))
     assert.deepEqual(
         db.auditRows.map((row) => row.action),
         [auditAction.AGENT_CREATE_STARTED, auditAction.AGENT_CREATE_SUCCEEDED]
@@ -473,6 +476,7 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         'storing_credentials',
         'finalizing'
     ])
+    assertStepsFollow(steps, stepsFor('claude-code', 'sprites'))
 })
 
 test('AgentOrchestrator create runs A2A through external provisioning', async () => {
@@ -573,6 +577,7 @@ test('AgentOrchestrator create runs A2A through external provisioning', async ()
     })
     assert.equal(db.runtimeRows[0].primaryAgentId, result.id)
     assert.deepEqual(steps, ['validating', 'inserting_agent'])
+    assertStepsFollow(steps, stepsFor('a2a', 'external'))
 })
 
 const runtimeRow = () => ({

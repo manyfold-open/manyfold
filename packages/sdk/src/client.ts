@@ -1,10 +1,11 @@
 import {
     ACCOUNT_SCOPE_HEADER,
+    AGENT_CREATE_REQUEST_HEADER,
     CHAT_MESSAGE_SOFT_LIMIT,
     apiPaths,
     isObjectId
 } from '@manyfold/shared'
-import { buildApiError } from './errors.js'
+import { apiErrorFromStreamEvent, buildApiError } from './errors.js'
 import type {
     CapabilitiesResponse,
     A2aExposure,
@@ -116,6 +117,7 @@ import type {
     ChatMessage,
     ChatMessagesPage,
     ChatSessionSummary,
+    ChatStreamEvent,
     ChatUploadResponse,
     CreateAgentBody,
     CreateAgentBackupResponse,
@@ -356,6 +358,17 @@ export interface AgentPermissionsClient {
 export interface AgentCreateStreamOptions {
     signal?: AbortSignal
     idempotencyKey?: string
+    // A create this client saw accepted (the request id onAccepted reported):
+    // the API follows that create to whatever end it came to and starts
+    // nothing new.
+    resume?: string
+    // Called once the API accepts the create, with the request id it named;
+    // null from an API that cannot attach a repeat.
+    onAccepted?: (requestId: string | null) => void
+    // Give up on a stream that sends nothing, not even a keepalive, for this
+    // long. Applied only when the API named the request: that API sends a
+    // keepalive every 15 s, where an older one is silent through long steps.
+    idleTimeoutMs?: number
 }
 
 export interface HostStatusStreamHandlers {
@@ -405,8 +418,16 @@ export interface AgentsClient {
     // Measures now; on a sleeping sandbox that wakes it.
     refreshStorageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
     refreshFrameworkVersion: (agentId: string) => Promise<AgentSummary>
-    refreshMcp: (agentId: string) => Promise<RefreshAgentMcpResponse>
-    materializeMcp: (agentId: string) => Promise<MaterializeAgentMcpResponse>
+    refreshMcp: (
+        agentId: string,
+        opts?: AbortableRequestOptions
+    ) => Promise<RefreshAgentMcpResponse>
+    // Waits for a machine another configuration push holds; pass a signal
+    // with room for it (the API waits up to 20 s, a push runs up to 90 s).
+    materializeMcp: (
+        agentId: string,
+        opts?: AbortableRequestOptions
+    ) => Promise<MaterializeAgentMcpResponse>
     upgradeFramework: (
         agentId: string,
         targetVersion: string
@@ -493,6 +514,17 @@ export interface FilesRootScope {
 
 export interface AbortableRequestOptions {
     signal?: AbortSignal
+}
+
+// Where a session's stream starts: after `lastEventId`, else at the start of
+// the turn `replayMessageId` names (all of it, even when it has finished),
+// else at the turn in flight.
+export interface ChatStreamOptions extends AbortableRequestOptions {
+    replayMessageId?: string
+    lastEventId?: string
+    // Rejects when nothing arrives for this long; the API sends a keepalive
+    // every 15 s.
+    idleTimeoutMs?: number
 }
 
 export interface ListMessagePageOptions extends AbortableRequestOptions {
@@ -667,7 +699,11 @@ export interface SandboxesClient {
         opts?: DetectSandboxFrameworksBody
     ) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
-    upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
+    upgradeCli: (
+        id: string,
+        targetVersion?: string,
+        opts?: AbortableRequestOptions
+    ) => Promise<SandboxSummary>
     // Install or upgrade herdr inside the sandbox (ADR-0031).
     upgradeHerdr: (id: string) => Promise<SandboxSummary>
     installFramework: (
@@ -1478,6 +1514,12 @@ export interface NcaClient {
             sessionId: string,
             assistantMessageId?: string
         ) => Promise<void>
+        // Every turn of the session comes through: filter by messageId.
+        streamSession: (
+            agentId: string,
+            sessionId: string,
+            opts?: ChatStreamOptions
+        ) => AsyncIterable<ChatStreamEvent>
         shareSession: (
             agentId: string,
             sessionId: string
@@ -1779,6 +1821,114 @@ const runHostStatusStream = async (
     handlers.onClose?.()
 }
 
+interface ChatStreamDeps {
+    fetchImpl: typeof fetch
+    baseUrl: string
+    tokenOption?: string | (() => string | Promise<string>)
+}
+
+const streamChatSession = async function* (
+    deps: ChatStreamDeps,
+    agentId: string,
+    sessionId: string,
+    opts: ChatStreamOptions = {}
+): AsyncGenerator<ChatStreamEvent> {
+    // Aborted on the way out too, so a caller that stops iterating closes
+    // the connection instead of leaving it to hold the process open.
+    const controller = new AbortController()
+    const abort = (): void => controller.abort()
+    opts.signal?.addEventListener('abort', abort, { once: true })
+    try {
+        const token = await resolveToken(deps.tokenOption)
+        const headers: Record<string, string> = {
+            Accept: 'text/event-stream'
+        }
+        if (token) headers.Authorization = `Bearer ${token}`
+        const query = new URLSearchParams()
+        if (opts.lastEventId) {
+            query.set('lastEventId', opts.lastEventId)
+            headers['Last-Event-ID'] = opts.lastEventId
+        } else if (opts.replayMessageId)
+            query.set('replayMessageId', opts.replayMessageId)
+        const qs = query.toString()
+        const res = await deps.fetchImpl(
+            `${deps.baseUrl}${apiPaths.AGENT_SESSION_STREAM(agentId, sessionId)}${qs ? `?${qs}` : ''}`,
+            { method: 'GET', headers, signal: controller.signal }
+        )
+        if (!res.ok || !res.body)
+            throw await buildApiError(res, { prefix: 'SSE' })
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        try {
+            while (true) {
+                const { value, done } = await readWithin(
+                    reader,
+                    opts.idleTimeoutMs,
+                    'the chat stream'
+                )
+                if (done) return
+                buffer = (
+                    buffer + decoder.decode(value, { stream: true })
+                ).replace(/\r\n/g, '\n')
+                let boundary = buffer.indexOf('\n\n')
+                while (boundary !== -1) {
+                    const event = chatStreamFrame(buffer.slice(0, boundary))
+                    buffer = buffer.slice(boundary + 2)
+                    if (event) yield event
+                    boundary = buffer.indexOf('\n\n')
+                }
+            }
+        } finally {
+            void reader.cancel().catch(() => undefined)
+        }
+    } finally {
+        opts.signal?.removeEventListener('abort', abort)
+        controller.abort()
+    }
+}
+
+// A frame's event, or null for a comment-only frame (the keepalives) and
+// one whose data does not parse.
+const chatStreamFrame = (frame: string): ChatStreamEvent | null => {
+    const data: string[] = []
+    for (const line of frame.split('\n'))
+        if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
+    if (data.length === 0) return null
+    try {
+        return JSON.parse(data.join('\n')) as ChatStreamEvent
+    } catch {
+        return null
+    }
+}
+
+// The next read, or a rejection once nothing has arrived for `idleMs`.
+const readWithin = async (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    idleMs: number | undefined,
+    what: string
+): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    if (!idleMs) return reader.read()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const quiet = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            // Settled before the cancel, which ends the pending read as done
+            // and would otherwise win the race.
+            reject(
+                new Error(
+                    `${what} sent nothing for ${Math.round(idleMs / 1000)} s`
+                )
+            )
+            void reader.cancel().catch(() => undefined)
+        }, idleMs)
+    })
+    try {
+        return await Promise.race([reader.read(), quiet])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
 const dispatchHostStatusFrame = (
     frame: string,
     handlers: HostStatusStreamHandlers,
@@ -1838,6 +1988,8 @@ const buildAgentsClient = (
             if (token) headers.set('Authorization', `Bearer ${token}`)
             if (options?.idempotencyKey)
                 headers.set('Idempotency-Key', options.idempotencyKey)
+            if (options?.resume)
+                headers.set(AGENT_CREATE_REQUEST_HEADER, options.resume)
             const res = await fetchImpl(`${baseUrl}${paths.base}`, {
                 method: 'POST',
                 headers,
@@ -1847,21 +1999,47 @@ const buildAgentsClient = (
             if (!res.ok || !res.body) {
                 throw await buildApiError(res)
             }
+            const requestId = res.headers.get(AGENT_CREATE_REQUEST_HEADER)
+            options?.onAccepted?.(requestId)
             const reader = res.body.getReader()
+            const idleMs = requestId ? options?.idleTimeoutMs : undefined
+            const read = async (): Promise<
+                ReadableStreamReadResult<Uint8Array>
+            > => {
+                if (!idleMs) return reader.read()
+                let timer: ReturnType<typeof setTimeout> | undefined
+                const quiet = new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => {
+                        // Settled before the cancel, which ends the pending
+                        // read as done and would otherwise win the race.
+                        reject(
+                            new Error(
+                                `the agent create stream sent nothing for ${Math.round(idleMs / 1000)} s`
+                            )
+                        )
+                        void reader.cancel().catch(() => undefined)
+                    }, idleMs)
+                })
+                try {
+                    return await Promise.race([reader.read(), quiet])
+                } finally {
+                    clearTimeout(timer)
+                }
+            }
             const decoder = new TextDecoder()
             let buffer = ''
             let completed: AgentSummary | null = null
-            let errored: { step: string | null; message: string } | null = null
+            let errored: Extract<AgentCreateEvent, { type: 'error' }> | null =
+                null
             const dispatch = (line: string): void => {
                 if (!line) return
                 const event = JSON.parse(line) as AgentCreateEvent
                 onEvent(event)
                 if (event.type === 'complete') completed = event.agent
-                if (event.type === 'error')
-                    errored = { step: event.step, message: event.message }
+                if (event.type === 'error') errored = event
             }
             while (true) {
-                const { value, done } = await reader.read()
+                const { value, done } = await read()
                 if (done) break
                 buffer += decoder.decode(value, { stream: true })
                 let nl = buffer.indexOf('\n')
@@ -1872,13 +2050,7 @@ const buildAgentsClient = (
                 }
             }
             if (buffer.trim()) dispatch(buffer.trim())
-            if (errored) {
-                const err = new Error(
-                    (errored as { message: string }).message
-                ) as Error & { step: string | null }
-                err.step = (errored as { step: string | null }).step
-                throw err
-            }
+            if (errored) throw apiErrorFromStreamEvent(errored)
             if (!completed)
                 throw new Error('stream ended without complete event')
             return completed
@@ -1946,14 +2118,15 @@ const buildAgentsClient = (
             request<AgentSummary>(paths.frameworkVersionRefresh(agentId), {
                 method: 'POST'
             }),
-        refreshMcp: (agentId) =>
+        refreshMcp: (agentId, opts) =>
             request<RefreshAgentMcpResponse>(paths.mcpRefresh(agentId), {
-                method: 'POST'
+                method: 'POST',
+                signal: opts?.signal
             }),
-        materializeMcp: (agentId) =>
+        materializeMcp: (agentId, opts) =>
             request<MaterializeAgentMcpResponse>(
                 paths.mcpMaterialize(agentId),
-                { method: 'POST' }
+                { method: 'POST', signal: opts?.signal }
             ),
         upgradeFramework: (agentId, targetVersion) =>
             request<AgentSummary>(paths.frameworkVersionUpgrade(agentId), {
@@ -2672,10 +2845,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     apiPaths.SANDBOX_FRAMEWORK_RUNTIME(id, framework),
                     { method: 'POST' }
                 ),
-            upgradeCli: (id, targetVersion) =>
+            upgradeCli: (id, targetVersion, opts) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_CLI_UPGRADE(id), {
                     method: 'POST',
-                    body: JSON.stringify({ targetVersion })
+                    body: JSON.stringify({ targetVersion }),
+                    signal: opts?.signal
                 }),
             upgradeHerdr: (id) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_HERDR_UPGRADE(id), {
@@ -3606,6 +3780,13 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     throw await buildApiError(res)
                 }
             },
+            streamSession: (agentId, sessionId, opts) =>
+                streamChatSession(
+                    { fetchImpl, baseUrl, tokenOption: options.token },
+                    agentId,
+                    sessionId,
+                    opts
+                ),
             shareSession: (agentId, sessionId) =>
                 request<ShareChatSessionResult>(
                     apiPaths.AGENT_SESSION_SHARE(agentId, sessionId),

@@ -28,6 +28,12 @@ export const agentCreateStep = {
 export type AgentCreateStep =
     (typeof agentCreateStep)[keyof typeof agentCreateStep]
 
+// Names the create request an agent-create response belongs to. Sent back on
+// a repeat of that request, it asks to follow that create to whatever end it
+// came to instead of starting another; an API that does not name one cannot
+// attach a repeat at all.
+export const AGENT_CREATE_REQUEST_HEADER = 'x-agent-create-request'
+
 export type AgentCreateEvent =
     | {
           type: 'step'
@@ -36,13 +42,29 @@ export type AgentCreateEvent =
           total: number
           startedAt: string
       }
-    | { type: 'complete'; agent: AgentSummary }
+    | {
+          type: 'complete'
+          agent: AgentSummary
+          // This request repeated a create already running, or finished, for
+          // the same name and settings; the agent is the one that create made.
+          resumed?: boolean
+      }
     | {
           type: 'error'
           step: AgentCreateStep | null
           errorClass: string
           message: string
+          // The API error envelope's fields, as a non-stream response would
+          // carry them. Absent from APIs older than these fields.
+          code?: string
+          status?: number
+          details?: unknown
       }
+
+// Each list is what its create path emits, in order; a path may skip steps
+// (an existing sandbox has no `creating_sprite`) but never adds one or goes
+// back. Values no path emits (`applying_network_policy`, part of making the
+// VM, and the k8s object steps) are on no list.
 
 /**
  * Sprite step list for exec-kind coding frameworks (Claude Code / Codex /
@@ -55,13 +77,13 @@ export const spritesSteps: AgentCreateStep[] = [
     'selecting_account',
     'checking_quota',
     'creating_sprite',
-    'applying_network_policy',
+    // The sandbox's runner (its in-VM `mf daemon`) is installed, started and
+    // registered once the VM exists; everything after runs through it.
+    // Measured on the local cloud stack [2026-09-29]: the VM is up in ~2 s,
+    // the runner takes the next ~19 s.
+    'starting_runner',
     'bootstrapping',
     'installing_framework',
-    // The sprite's runner (its in-VM `mf daemon`) is registered and started
-    // while the VM is still awake from the install, so the runtime's account
-    // list answers right after the create instead of "no runner yet".
-    'starting_runner',
     'inserting_agent',
     'storing_credentials',
     'restoring_backup',
@@ -80,7 +102,7 @@ export const spritesServiceSteps: AgentCreateStep[] = [
     'selecting_account',
     'checking_quota',
     'creating_sprite',
-    'applying_network_policy',
+    'starting_runner',
     'bootstrapping',
     'installing_framework',
     'starting_service',
@@ -90,41 +112,21 @@ export const spritesServiceSteps: AgentCreateStep[] = [
     'finalizing'
 ]
 
+// Any framework on a pod host (ADR-0035): a fresh host comes up with its
+// framework in one provisioning step; on a named host the framework is
+// installed first unless it already runs there; a named runtime only takes
+// the agent.
 export const k8sSteps: AgentCreateStep[] = [
     'validating',
     'checking_quota',
-    'preparing_namespace',
-    'creating_secret',
-    'creating_storage',
     'creating_deployment',
-    'creating_service',
-    'creating_ingress',
-    'waiting_for_ready',
-    'storing_credentials',
-    'restoring_backup',
-    'finalizing'
-]
-
-// A coding framework on a pod host (ADR-0035): the pod comes up (unless the
-// agent joins an existing one), then the framework is installed into it.
-export const k8sCliSteps: AgentCreateStep[] = [
-    'validating',
-    'checking_quota',
-    'preparing_namespace',
-    'creating_secret',
-    'creating_storage',
-    'creating_deployment',
-    'waiting_for_ready',
     'installing_framework',
-    'storing_credentials',
-    'restoring_backup',
-    'finalizing'
+    'inserting_agent'
 ]
 
 export const externalSteps: AgentCreateStep[] = [
     'validating',
-    'inserting_agent',
-    'finalizing'
+    'inserting_agent'
 ]
 
 // Single selector for create-progress step lists, derived from the framework's
@@ -137,7 +139,8 @@ export const stepsFor = (
     runtime: RuntimePlacement
 ): AgentCreateStep[] => {
     if (runtime === 'external') return externalSteps
-    const { kind } = frameworkCapability(framework)
-    if (runtime === 'k8s') return kind === 'coding' ? k8sCliSteps : k8sSteps
-    return kind === 'service' ? spritesServiceSteps : spritesSteps
+    if (runtime === 'k8s') return k8sSteps
+    return frameworkCapability(framework).kind === 'service'
+        ? spritesServiceSteps
+        : spritesSteps
 }

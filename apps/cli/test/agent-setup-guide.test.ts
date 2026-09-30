@@ -36,8 +36,26 @@ const deployments: AgentSetupGuideInput[] = [
         apiUrl: 'https://mf.example.org/api',
         cliChannel: 'stable',
         cliInstallUrl: CLI_INSTALL_URL
+    },
+    {
+        apiUrl: 'http://localhost:7110/api',
+        webUrl: 'http://localhost:7111',
+        cliChannel: 'stable',
+        cliInstallUrl: CLI_INSTALL_URL
     }
 ]
+
+// The checks in step 1 call mf through "$bin" (the binary found or just
+// installed), which markdownInvocations cannot see: a call starts a line or a
+// $( ) substitution, and ends at the first separator.
+const binInvocations = (markdown: string): string[][] =>
+    [...markdown.matchAll(/(?:^\s*|\$\()"\$bin"\s+([^\n]+)/gm)].map((match) =>
+        match[1]!
+            .split(/\s*(?:;|&&|\|\||\||\))\s*/)[0]!
+            .replace(/\s+\d*>{1,2}\s*\S+/g, '')
+            .trim()
+            .split(/\s+/)
+    )
 
 test('every mf command in the agent setup guide exists as written', () => {
     const program = buildProgram()
@@ -66,4 +84,25 @@ test('the guide signs in with the two-step flag this CLI offers', () => {
         invocation.argv.includes('--print-auth-url')
     )
     assert.equal(signIn.length, 1)
+})
+
+test('the checks the guide runs through "$bin" exist as written', () => {
+    const program = buildProgram()
+    for (const deployment of deployments) {
+        const calls = binInvocations(renderAgentSetupGuide(deployment))
+        for (const expected of [
+            '--version',
+            'profile list --json',
+            'login --help'
+        ])
+            assert.ok(
+                calls.some((argv) => argv.join(' ') === expected),
+                `${deployment.apiUrl}: no "$bin" ${expected}`
+            )
+        for (const argv of calls)
+            assert.doesNotThrow(
+                () => validateCommandPath(program, argv),
+                `${deployment.apiUrl}: stale CLI syntax: "$bin" ${argv.join(' ')}`
+            )
+    }
 })

@@ -866,6 +866,9 @@ export interface UserModelProviderSummary {
     // an admin has switched off. The key still works — pickers hide it so users
     // stop binding new agents to a dead upstream.
     channelDisabled?: boolean
+    // Derived at read time: this managed row's place when several channels can
+    // serve one agent, lowest first. Absent where the edition ranks none.
+    managedRank?: number
     createdAt: string
     updatedAt: string
 }
@@ -1109,8 +1112,9 @@ export interface UpdateAgentBody {
     composioConnectionId?: string | null
     // Per-scope MCP server config, keyed by the framework's scope id
     // (user/project/global). Each value is the raw MCP-servers text in the
-    // framework's native syntax; an empty string clears that scope. Only the
-    // agent framework's supported scope ids are accepted.
+    // framework's native syntax; an empty string clears that scope, and a
+    // scope left out keeps its config. Only the agent framework's supported
+    // scope ids are accepted.
     mcp?: Record<string, string>
 }
 
@@ -1423,6 +1427,16 @@ export interface DiscoverableSkillSummary {
 export interface DiscoverableSkillsPage {
     items: DiscoverableSkillSummary[]
     nextCursor: string | null
+    // Repos being read for the first time when the page was answered: their
+    // skills are not in it yet. Only on a first page, and only when any.
+    pendingRepos?: DiscoverablePendingRepo[]
+}
+
+export interface DiscoverablePendingRepo {
+    id: string
+    owner: string
+    name: string
+    branch: string
 }
 
 export interface SkillSecretRequirement {

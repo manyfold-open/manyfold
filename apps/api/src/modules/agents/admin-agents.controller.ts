@@ -1,13 +1,11 @@
 import {
-    AgentCreateEvent,
-    AgentCreateStep,
+    AGENT_CREATE_REQUEST_HEADER,
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
     FrameworkUpgradeEvent,
     FrameworkUpgradeStep,
-    RefreshAgentModelConfigModelsResponse,
-    stepsFor
+    RefreshAgentModelConfigModelsResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -34,13 +32,15 @@ import { UsersService } from '@/modules/users/users.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import {
     AgentOrchestratorService,
-    resolveRuntime,
     type AgentProgressEmitter
 } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import {
-    classifyError,
-    sanitizeMessage
-} from '@/modules/agents/agents.controller'
+    headerValue,
+    resolveCreateStreamPlan,
+    streamAgentCreate
+} from '@/modules/agents/create-stream'
+import { sanitizeMessage } from '@/modules/agents/failure-report'
+import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
@@ -68,7 +68,8 @@ export class AdminAgentsController {
         private readonly users: UsersService,
         private readonly frameworkVersionProbe: FrameworkVersionProbeService,
         private readonly frameworkUpgrade: FrameworkUpgradeService,
-        private readonly serviceRestart: AgentServiceRestartService
+        private readonly serviceRestart: AgentServiceRestartService,
+        private readonly createRequests: AgentCreateRequestsService
     ) {}
 
     @Get()
@@ -89,87 +90,58 @@ export class AdminAgentsController {
             user.userId,
             dto.targetUserId
         )
-        const accept = (req.headers['accept'] ?? '') as string
-        if (!accept.includes('application/x-ndjson')) {
-            const agent = await this.orchestrator.create({
-                userId: ownerUserId,
-                actorUserId: user.userId,
-                dto,
-                isAdmin: true
-            })
-            await res.code(201).send(agent)
+        const stream = ((req.headers['accept'] ?? '') as string).includes(
+            'application/x-ndjson'
+        )
+        // Placement first: a create that cannot be placed must not hold the
+        // name it would have reserved.
+        const plan = stream
+            ? await resolveCreateStreamPlan(
+                  { adminSettings: this.adminSettings, users: this.users },
+                  ownerUserId,
+                  dto
+              )
+            : null
+        const claim = await this.createRequests.claim({
+            userId: ownerUserId,
+            actorUserId: user.userId,
+            name: dto.name,
+            fingerprint: this.createRequests.fingerprint('create', dto),
+            resume: headerValue(req.headers[AGENT_CREATE_REQUEST_HEADER])
+        })
+        const execute = (emitter?: AgentProgressEmitter) =>
+            this.createRequests.execute(
+                claim,
+                emitter,
+                (tracked) =>
+                    this.orchestrator.create(
+                        {
+                            userId: ownerUserId,
+                            actorUserId: user.userId,
+                            dto,
+                            isAdmin: true
+                        },
+                        tracked
+                    ),
+                (agentId) => this.agents.summaryFor(agentId)
+            )
+        if (!plan) {
+            const agent = await execute()
+            await res
+                .header(AGENT_CREATE_REQUEST_HEADER, claim.request.id)
+                .code(201)
+                .send(agent)
             return
         }
-
-        res.hijack()
-        const [defaults, userOverrides] = await Promise.all([
-            this.adminSettings.getCachedFrameworkRuntimeDefaults(),
-            this.users.getFrameworkRuntimeOverrides(ownerUserId)
-        ])
-        const runtime = resolveRuntime(
-            dto.framework,
-            dto.runtime,
-            defaults,
-            userOverrides
-        )
-        const steps = stepsFor(dto.framework, runtime)
-        let lastIndex = -1
-        const indexOf = (s: AgentCreateStep): number => {
-            const idx = steps.indexOf(s)
-            if (idx === -1) {
-                this.log.warn(
-                    `progress step "${s}" not in stepsFor(${dto.framework}, ${runtime}); UI progress would reset — using fallback index ${lastIndex}`
-                )
-                return Math.max(lastIndex, 0)
-            }
-            lastIndex = idx
-            return idx
-        }
-        res.raw.writeHead(201, {
-            ...corsHeadersForOrigin(res.request.headers),
-            'content-type': 'application/x-ndjson',
-            'cache-control': 'no-cache',
-            'x-accel-buffering': 'no'
+        await streamAgentCreate({
+            res,
+            framework: dto.framework,
+            plan,
+            log: this.log,
+            requestId: claim.request.id,
+            resumed: claim.kind === 'attach',
+            run: execute
         })
-        const write = (ev: AgentCreateEvent): void => {
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-
-        let lastStep: AgentCreateStep | null = null
-        const emitter: AgentProgressEmitter = {
-            step: (s): void => {
-                lastStep = s
-                write({
-                    type: 'step',
-                    step: s,
-                    index: indexOf(s),
-                    total: steps.length,
-                    startedAt: new Date().toISOString()
-                })
-            }
-        }
-
-        try {
-            const agent = await this.orchestrator.create(
-                {
-                    userId: ownerUserId,
-                    actorUserId: user.userId,
-                    dto,
-                    isAdmin: true
-                },
-                emitter
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            write({
-                type: 'error',
-                step: lastStep,
-                errorClass: classifyError(err),
-                message: sanitizeMessage(err)
-            })
-        } finally {
-            res.raw.end()
-        }
     }
 
     @Delete(':id')

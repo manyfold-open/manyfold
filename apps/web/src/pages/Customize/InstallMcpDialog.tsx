@@ -94,11 +94,11 @@ const InstallMcpDialog: FC<Props> = ({ entry, onClose }): ReactNode => {
         setSaving(true)
         setError(null)
         try {
-            // extras.mcp updates replace the whole per-scope map, so merge into
-            // a freshly fetched copy to avoid clobbering concurrent edits.
+            // The scope's current text, fresh, to merge the server into; the
+            // update touches that scope only.
             const fresh = await client.agents.get(selectedAgent.id)
-            const map = mcpConfigFromExtras(fresh.extras)
-            const current = map[activeScopeId] ?? ''
+            const current =
+                mcpConfigFromExtras(fresh.extras)[activeScopeId] ?? ''
             if (mcpServerNames(support.format, current).includes(entry.id)) {
                 setError(t('web.customize.alreadyConfigured'))
                 return
@@ -116,7 +116,7 @@ const InstallMcpDialog: FC<Props> = ({ entry, onClose }): ReactNode => {
                 return
             }
             await client.agents.update(selectedAgent.id, {
-                mcp: { ...map, [activeScopeId]: merged }
+                mcp: { [activeScopeId]: merged }
             })
             setInstalledTo(selectedAgent)
         } catch (err) {

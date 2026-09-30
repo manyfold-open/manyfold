@@ -79,6 +79,124 @@ test('ApiError normalization preserves safe fields and stable exit codes', () =>
     }
 })
 
+// A failure a script can act on: its hint says what to do, and its details
+// (the quota, the agent in the way) reach --json output. Other codes keep
+// their details to themselves.
+test('codes a script can act on get their own hint and keep their details', () => {
+    const quota = {
+        kind: 'sprites',
+        current: 3,
+        limit: 3,
+        planName: 'Free'
+    }
+    const limit = normalizeCliError(
+        apiError(403, {
+            code: 'RUNTIME_LIMIT_REACHED',
+            serverMessage: 'Stateful sandbox limit reached (3 for Free plan)',
+            details: quota
+        })
+    )
+    assert.match(
+        limit.error.hint ?? '',
+        /--sandbox <id\|name>.*mf sandbox delete/
+    )
+    assert.deepEqual(limit.error.details, quota)
+    const taken = normalizeCliError(
+        apiError(409, {
+            code: 'AGENT_NAME_TAKEN',
+            serverMessage: 'agent "x" already exists for this user',
+            details: { agentId: 'agt_1' }
+        })
+    )
+    assert.match(taken.error.hint ?? '', /mf agent get agt_1/)
+    assert.deepEqual(taken.error.details, { agentId: 'agt_1' })
+    const inSettings = normalizeCliError(
+        apiError(400, {
+            code: 'AGENT_MODEL_IN_MODEL_CONFIG',
+            serverMessage:
+                'Use /agents/agt_1/model-config to update claude-code models',
+            details: { agentId: 'agt_1', framework: 'claude-code' }
+        })
+    )
+    const tooOld = normalizeCliError(
+        apiError(409, {
+            code: 'SANDBOX_CLI_TOO_OLD',
+            serverMessage:
+                'sandbox-002 already runs the latest Manyfold CLI (4.8.0), which does not support this yet',
+            details: {
+                hostId: 'sbx_2',
+                hostName: 'sandbox-002',
+                cliVersion: '4.8.0',
+                latestCliVersion: '4.8.0'
+            }
+        })
+    )
+    // Not the generic "contact support" of a 5xx.
+    assert.match(
+        tooOld.error.hint ?? '',
+        /^Update it: mf sandbox update sandbox-002 \(--to <version> for a build newer than its channel's latest\), or from the Update Center/
+    )
+    assert.equal(
+        (tooOld.error.details as { cliVersion?: string }).cliVersion,
+        '4.8.0'
+    )
+    assert.equal(
+        inSettings.error.hint,
+        "claude-code keeps its model in the agent's model settings: mf model-config update agt_1 --model <model>."
+    )
+    const other = normalizeCliError(
+        apiError(409, { code: 'SOMETHING_ELSE', serverMessage: 'no' })
+    )
+    assert.ok(!('details' in other.error))
+    assert.match(other.error.hint ?? '', /Refresh/)
+})
+
+// The runner these codes are about lives inside the sandbox. Pointing at
+// `mf daemon` (the daemon on this computer) sent a tester the wrong way.
+test('sandbox runner failures say where the runner is and what to fix', () => {
+    const unreachable = normalizeCliError(
+        apiError(503, {
+            code: 'SANDBOX_API_UNREACHABLE',
+            serverMessage:
+                'a sandbox cannot reach this API at http://localhost:7110/api',
+            details: { apiUrl: 'http://localhost:7110/api' }
+        })
+    )
+    assert.match(
+        unreachable.error.hint ?? '',
+        /at http:\/\/localhost:7110\/api\. Set PUBLIC_API_BASE_URL .*Nothing was created\./
+    )
+    assert.deepEqual(unreachable.error.details, {
+        apiUrl: 'http://localhost:7110/api'
+    })
+    const notConnected = normalizeCliError(
+        apiError(503, {
+            code: 'SANDBOX_RUNNER_NOT_CONNECTED',
+            serverMessage: "the new sandbox's runner did not connect",
+            details: {
+                hostId: 'sbx_1',
+                apiUrl: 'https://tunnel.example.com/api',
+                reason: 'runner_unavailable'
+            }
+        })
+    )
+    assert.match(
+        notConnected.error.hint ?? '',
+        /inside the new sandbox .*https:\/\/tunnel\.example\.com\/api/
+    )
+    for (const failure of [
+        unreachable,
+        notConnected,
+        normalizeCliError(
+            apiError(503, {
+                code: 'SANDBOX_DAEMON_OFFLINE',
+                serverMessage: 'sandbox sbx_1 has no reachable daemon'
+            })
+        )
+    ])
+        assert.doesNotMatch(failure.error.hint ?? '', /mf daemon/)
+})
+
 test('ApiError uses a server message but never an unparsed response body', () => {
     const withMessage = normalizeCliError(
         apiError(422, { serverMessage: 'title is required' })

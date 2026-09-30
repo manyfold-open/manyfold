@@ -383,3 +383,26 @@ test('a quota refusal leaves nothing behind', async () => {
     assert.deepEqual(harness.created, [])
     assert.deepEqual(harness.daemonAsked, [])
 })
+
+// Only a new machine needs to call the API back to register; a sandbox that
+// already runs is joined through its connected runner, so the API's own
+// address does not decide it.
+test('an attach is not refused for an API address sandboxes cannot reach', async (t) => {
+    const prior = process.env.PUBLIC_API_BASE_URL
+    process.env.PUBLIC_API_BASE_URL = 'http://localhost:7150'
+    t.after(() => {
+        if (prior === undefined) delete process.env.PUBLIC_API_BASE_URL
+        else process.env.PUBLIC_API_BASE_URL = prior
+    })
+    const harness = buildHarness({
+        candidates: [{ id: 'sbx_reused', spriteName: 'sbx-reused' }]
+    })
+
+    await provision(harness, 'sbx_reused')
+
+    assert.deepEqual(
+        harness.reserveCalls.map((c) => c.hostId),
+        ['sbx_reused']
+    )
+    assert.deepEqual(harness.created, [])
+})

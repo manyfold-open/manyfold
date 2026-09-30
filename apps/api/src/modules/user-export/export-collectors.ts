@@ -23,7 +23,7 @@ import {
 } from '@manyfold/db'
 import type { UserLifecyclePort } from '@/common/ports/user-lifecycle.ports'
 import { ExportBundleWriter } from './export-bundle'
-import { redactExportValue } from './export-redact'
+import { redactAgentExtras, redactExportValue } from './export-redact'
 
 const MESSAGE_BATCH = 200
 
@@ -172,7 +172,7 @@ async function collectAgents(
         await agentEntry.write({
             ...row,
             runtime: placementByRuntime.get(row.runtimeId) ?? 'external',
-            extras: redactExportValue(row.extras)
+            extras: redactAgentExtras(row.framework, row.extras)
         })
     }
     await agentEntry.end()

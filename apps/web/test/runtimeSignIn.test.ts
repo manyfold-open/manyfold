@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { AgentModelConfigView } from '@manyfold/shared'
-import {
-    runtimeSignInCommandFor,
-    shouldShowRuntimeSignIn
-} from '../src/lib/runtimeSignIn'
+import { shouldShowRuntimeSignIn } from '../src/lib/runtimeSignIn'
 import { initialPickerForFramework } from '../src/pages/AgentNew/components/ProviderPicker'
 import { PROVIDER_PICKER_DEFAULT_MODE } from '../src/lib/agentCreate/providerDefaultMode'
 
@@ -93,27 +90,6 @@ test('sign-in card hides for platform source and non-coding frameworks', () => {
         false
     )
     assert.equal(shouldShowRuntimeSignIn(null), false)
-})
-
-// The claude literal is pinned whole on purpose: dropping the `cat |` puts
-// claude back in charge of the tty, and it reads the pasted code without
-// echoing a single byte of it (see the note in lib/runtimeSignIn.ts), which
-// is invisible to any rendering test.
-test('per-framework sign-in commands cover exactly the coding CLIs', () => {
-    assert.equal(
-        runtimeSignInCommandFor('claude-code'),
-        'cat | claude auth login --claudeai'
-    )
-    assert.equal(runtimeSignInCommandFor('codex'), 'codex login --device-auth')
-    assert.equal(
-        runtimeSignInCommandFor('gemini-cli'),
-        'NO_BROWSER=true gemini'
-    )
-    // pi has no login subcommand: its TUI's /login runs the provider's flow.
-    assert.equal(runtimeSignInCommandFor('pi'), 'pi')
-    // agy signs in the first time its TUI starts without a sign-in.
-    assert.equal(runtimeSignInCommandFor('antigravity-cli'), 'agy')
-    assert.equal(runtimeSignInCommandFor('hermes'), null)
 })
 
 // The OSS half of the editions slot: the cloud overlay pins 'saved' on its

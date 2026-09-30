@@ -940,9 +940,9 @@ const en = {
             hint: 'Works with Claude Code, Codex and any agent that can run shell commands.',
             prompt: 'Connect this agent to Manyfold: fetch {{url}} with `curl` and follow it to the end.',
             promptLocal:
-                'This is my local Manyfold dev stack at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.',
+                'This is my local Manyfold dev stack at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.',
             promptOther:
-                'This is the Manyfold deployment at {{host}}: use a separate `mf` profile for it and leave my other `mf` logins and my installed `mf` untouched.'
+                'This is the Manyfold deployment at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.'
         },
         agentSettings: {
             timing: {
@@ -1119,7 +1119,7 @@ const en = {
         // already has a label reuse that key instead of repeating the wording.
         pageTitle: {
             signIn: 'Sign in',
-            cliLogin: 'Terminal sign-in',
+            cliLogin: 'CLI sign-in',
             connectAgent: 'Connect agent',
             grantPermission: 'Grant permission',
             invite: 'Invitation',
@@ -2198,6 +2198,8 @@ const en = {
             noResultsTitle: 'No skills found',
             noResultsBody:
                 'Try another search or add a repository that contains SKILL.md files.',
+            stillReading:
+                'Still reading skills from {{repos}}; reload in a minute to see them.',
             ownerPlaceholder: 'owner',
             repoPlaceholder: 'repository',
             branchPlaceholder: 'branch',
@@ -4160,26 +4162,26 @@ const en = {
             addAnother: 'Add provider'
         },
         cliLogin: {
-            titleLogin: 'Approve sign-in from your terminal',
+            titleLogin: 'Approve sign-in from your terminal or agent',
             subtitleLogin:
-                'A command you ran in a terminal (mf login or mf setup) wants to use your Manyfold account.',
+                'The mf CLI (mf login or mf setup), run in your terminal or by your AI agent, wants to use your Manyfold account.',
             codeCheckHint:
-                'Make sure this code matches the one shown in your terminal:',
+                'Make sure this code matches the one your terminal or agent shows:',
             signedInAs: 'Signed in as',
             authorize: 'Authorize sign-in',
             authorizing: 'Authorizing…',
-            redirecting: 'Returning to your terminal…',
+            redirecting: 'Finishing sign-in…',
             consequence:
-                'This signs the terminal in as you, with access to your account.',
-            safety: "Didn't run a command just now? Close this page. Nothing happens until you authorize.",
+                'This signs that mf CLI in as you, with access to your account.',
+            safety: "Didn't just start a sign-in, yourself or through an agent? Close this page. Nothing happens until you authorize.",
             authCodeTitle: 'One last step',
             authCodeHint:
-                'Paste this code into your terminal to finish signing in:',
+                'Paste this code into your terminal, or send it to your agent, to finish signing in:',
             expired:
-                'This request has expired. Run the command in your terminal again to get a fresh link.',
+                'This request has expired. Start the sign-in again from your terminal or agent to get a fresh link.',
             alreadyDone: 'This request was already completed in another tab.',
             missingRequest:
-                'This link is missing its login request. Copy the full URL from your terminal.',
+                'This link is missing its login request. Copy the full URL from your terminal or agent.',
             loading: 'Loading request…',
             highRiskTitle: 'Grant high-risk scopes',
         },

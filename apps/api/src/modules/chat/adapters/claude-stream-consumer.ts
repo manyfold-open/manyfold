@@ -4,6 +4,9 @@ import type { TurnSeenState } from '@/modules/chat/recovery/turn-jsonl-recovery'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import {
     extractClaudeCodeUsage,
+    newClaudeRunFacts,
+    observeClaudeRun,
+    type ClaudeTurnUsage,
     type StreamJsonLine
 } from './claude-code-usage'
 
@@ -77,7 +80,10 @@ export const createClaudeStreamConsumer = (opts: {
     model: string | null
     initialSessionRef: string | null
     tStart: number
+    // What the usage of a resumed run is read against.
+    usage?: Omit<ClaudeTurnUsage, 'facts'>
 }): ClaudeStreamConsumer => {
+    const facts = newClaudeRunFacts()
     let frameworkSessionRef: string | null = opts.initialSessionRef
     let tFirstToken: number | null = null
     let pendingUsage: ChatUsage | null = null
@@ -170,6 +176,7 @@ export const createClaudeStreamConsumer = (opts: {
             return
         }
         yield* flushPendingDelta()
+        observeClaudeRun(facts, parsed)
         const lineUuid = stringValue((parsed as Record<string, unknown>).uuid)
         if (lineUuid) seen.uuids.add(lineUuid)
         yield {
@@ -260,7 +267,8 @@ export const createClaudeStreamConsumer = (opts: {
                 parsed,
                 opts.model,
                 opts.tStart,
-                tFirstToken
+                tFirstToken,
+                opts.usage ? { ...opts.usage, facts } : undefined
             )
             if (parsed.is_error) {
                 errorLast = parsed

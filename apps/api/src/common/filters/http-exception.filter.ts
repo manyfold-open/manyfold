@@ -44,21 +44,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
                         : undefined
                 )
             setHttpResponseStatus(trace.getActiveSpan(), status)
-            const message =
-                typeof body === 'string'
-                    ? body
-                    : ((body as any)?.message ?? exception.message)
-            const code =
-                typeof body === 'object' &&
-                body !== null &&
-                typeof (body as any).code === 'string' &&
-                (body as any).code.length > 0
-                    ? (body as any).code
-                    : this.codeFromStatus(status)
-            const details =
-                typeof body === 'object' && body !== null
-                    ? (body as any).details
-                    : undefined
+            const { code, message, details } = describeHttpException(exception)
             if (
                 typeof body === 'object' &&
                 body !== null &&
@@ -69,7 +55,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
                     String((body as any).retryAfterSec)
                 )
             }
-            res.status(status).send(apiError(code, String(message), details))
+            res.status(status).send(apiError(code, message, details))
             return
         }
 
@@ -117,13 +103,38 @@ export class HttpExceptionFilter implements ExceptionFilter {
             })
         )
     }
+}
 
-    private codeFromStatus(status: number): string {
-        if (status === 401) return 'unauthorized'
-        if (status === 403) return 'forbidden'
-        if (status === 404) return 'not_found'
-        if (status === 422) return 'unprocessable'
-        if (status >= 500) return 'internal_error'
-        return 'bad_request'
-    }
+const codeFromStatus = (status: number): string => {
+    if (status === 401) return 'unauthorized'
+    if (status === 403) return 'forbidden'
+    if (status === 404) return 'not_found'
+    if (status === 422) return 'unprocessable'
+    if (status >= 500) return 'internal_error'
+    return 'bad_request'
+}
+
+// What a client sees for an HttpException: shared with the agent-create
+// NDJSON stream, whose failures travel as events after the 201 is written.
+export const describeHttpException = (
+    exception: HttpException
+): { status: number; code: string; message: string; details: unknown } => {
+    const status = exception.getStatus()
+    const body = exception.getResponse()
+    const message =
+        typeof body === 'string'
+            ? body
+            : ((body as any)?.message ?? exception.message)
+    const code =
+        typeof body === 'object' &&
+        body !== null &&
+        typeof (body as any).code === 'string' &&
+        (body as any).code.length > 0
+            ? (body as any).code
+            : codeFromStatus(status)
+    const details =
+        typeof body === 'object' && body !== null
+            ? (body as any).details
+            : undefined
+    return { status, code, message: String(message), details }
 }

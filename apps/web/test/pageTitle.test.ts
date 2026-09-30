@@ -39,7 +39,7 @@ test('the more specific route wins over the section it sits in', () => {
 // title for them — the mapping still has to be right for the signed-in case.
 test('the sign-in variants are distinguishable from each other', () => {
     assert.equal(pageTitleFor('/login/callback'), 'Sign in · Manyfold')
-    assert.equal(pageTitleFor('/cli-login'), 'Terminal sign-in · Manyfold')
+    assert.equal(pageTitleFor('/cli-login'), 'CLI sign-in · Manyfold')
     assert.equal(
         pageTitleFor('/grant-permission'),
         'Grant permission · Manyfold'

@@ -9,6 +9,7 @@ import type {
 import {
     K8S_HOME_BASE,
     OFFICIAL_PROVIDER_BASE_URL,
+    preferredPrimaryModelDefault,
     SPRITE_HOME_BASE,
     brandFor,
     credentialsManagedByRuntime,
@@ -79,10 +80,7 @@ import {
     type CreateableFramework,
     type PersistentModelProvider
 } from '@/lib/agentCreateDraft'
-import {
-    preferredPrimaryModelDefault,
-    providerModelIdsForSummary
-} from '@/lib/agentModelConfig'
+import { providerModelIdsForSummary } from '@/lib/agentModelConfig'
 import { fmtCost } from '@/lib/usageFormat'
 import { inferenceProtocolLabel } from '@/pages/Settings/ModelProviderFields'
 import {

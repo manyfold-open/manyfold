@@ -4,6 +4,7 @@ import type {
     RuntimeAuthListView,
     UserModelProviderSummary
 } from '@manyfold/shared'
+import { providerRowVerdict } from '@manyfold/shared'
 import {
     AccountIcon,
     BillingIcon,
@@ -21,8 +22,7 @@ import { frameworkLabel } from '@/lib/frameworkMeta'
 import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     bindsModelAfterJoin,
-    managedChannelFor,
-    providerRowVerdict
+    managedChannelFor
 } from '@/pages/AgentNew/v4/providerBinding'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'

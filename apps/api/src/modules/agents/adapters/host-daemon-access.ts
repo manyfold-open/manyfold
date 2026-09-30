@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { Injectable, Optional } from '@nestjs/common'
+import { ConflictException, Injectable, Optional } from '@nestjs/common'
 import type {
     RuntimePlacement,
     DaemonRpcMethod,
@@ -23,6 +23,10 @@ import {
     HostBringUpService,
     type BringUpFallbackReason
 } from '@/modules/hosts/bring-up/host-bring-up.service'
+import {
+    podHost,
+    type HostCliRefusal
+} from '@/modules/hosts/bring-up/host-cli.service'
 import type { ExecEndpointFailure } from '@/modules/hosts/providers/sandbox-provider'
 
 export interface EnsureHostDaemonArgs {
@@ -45,6 +49,7 @@ export interface EnsureHostDaemonResult {
     online: boolean
     fallbackReason?: BringUpFallbackReason
     execFailure?: ExecEndpointFailure
+    cliRefusal?: HostCliRefusal
 }
 
 export interface HostRpcArgs {
@@ -159,7 +164,8 @@ export class HostDaemonAccess {
                 fallbackReason: online
                     ? undefined
                     : (resolution.fallbackReason ?? 'runner_unavailable'),
-                execFailure: resolution.execFailure
+                execFailure: resolution.execFailure,
+                cliRefusal: online ? undefined : resolution.cliRefusal
             }
         }
         const daemon =
@@ -193,7 +199,12 @@ export class HostDaemonAccess {
         if (!result.online)
             throw new HostDaemonOfflineError(
                 args.host,
-                result.fallbackReason ?? 'runner_unavailable'
+                result.fallbackReason ?? 'runner_unavailable',
+                undefined,
+                {
+                    cliVersion: result.daemon?.cliVersion ?? null,
+                    refusal: result.cliRefusal
+                }
             )
         return args.host.id
     }
@@ -215,7 +226,11 @@ export class HostDaemonAccess {
                 throw new HostDaemonOfflineError(
                     args.host,
                     ensured.fallbackReason ?? 'runner_unavailable',
-                    ensured.execFailure
+                    ensured.execFailure,
+                    {
+                        cliVersion: ensured.daemon?.cliVersion ?? null,
+                        refusal: ensured.cliRefusal
+                    }
                 )
             return await work({
                 host: args.host,
@@ -350,24 +365,55 @@ export const isTransportLoss = (err: unknown, includeTimeout: boolean): boolean 
 }
 
 export class HostDaemonOfflineError extends Error {
+    readonly cliVersion: string | null
+    readonly latestCliVersion: string | null
     constructor(
         readonly host: RuntimeHostRow,
         readonly reason: BringUpFallbackReason,
         // What the bring-up's first exec proved about the provider's exec
         // endpoint, when that is why there is no daemon.
-        readonly execFailure?: ExecEndpointFailure
+        readonly execFailure?: ExecEndpointFailure,
+        // With runner_cli_too_old: the daemon's CLI, and why an update did
+        // not give it what was needed when one was tried.
+        cli: { cliVersion?: string | null; refusal?: HostCliRefusal } = {}
     ) {
+        const cliVersion = cli.refusal?.cliVersion ?? cli.cliVersion ?? null
         super(
             reason === 'runner_updating'
                 ? `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
                 : reason === 'runner_cli_too_old'
                 ? host.kind === 'local'
                     ? `the Manyfold CLI on ${host.name} is too old for this; update it and retry`
-                    : `the Manyfold CLI on ${host.name} is too old for this, and no update carrying what it needs is published yet`
+                    : (cli.refusal?.message ??
+                      `the Manyfold CLI on ${host.name}${cliVersion ? ` (${cliVersion})` : ''} is too old for this`)
                 : host.kind === 'local'
                   ? `${host.name} is offline; start its daemon (mf daemon start) and retry`
                   : `${host.name} has no running daemon (${reason}); retry once the machine is up`
         )
         this.name = 'HostDaemonOfflineError'
+        this.cliVersion = cliVersion
+        this.latestCliVersion = cli.refusal?.latestCliVersion ?? null
     }
 }
+
+// A sandbox whose CLI is too old for the work, as a code a client can act
+// on: the sandbox's CLI can be updated (mf sandbox update, the Update
+// Center). Pod hosts and the user's own computers are not updated that way
+// and keep runtime_unavailable.
+export const sandboxCliTooOld = (
+    err: HostDaemonOfflineError
+): ConflictException | null =>
+    err.reason === 'runner_cli_too_old' &&
+    err.host.kind === 'hosted' &&
+    !podHost(err.host)
+        ? new ConflictException({
+              code: 'SANDBOX_CLI_TOO_OLD',
+              message: err.message,
+              details: {
+                  hostId: err.host.id,
+                  hostName: err.host.name,
+                  cliVersion: err.cliVersion,
+                  latestCliVersion: err.latestCliVersion
+              }
+          })
+        : null

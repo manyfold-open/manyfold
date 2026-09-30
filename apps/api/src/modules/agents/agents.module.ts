@@ -16,6 +16,7 @@ import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-o
 import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { PodRunnerProvisioner } from '@/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
+import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { DaemonAgentAttacher } from '@/modules/agents/adapters/daemon-agent-attacher'
 import { HostDaemonAccessModule } from '@/modules/agents/adapters/host-daemon-access.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
@@ -105,6 +106,7 @@ import {
         K8sContainerProvisioner,
         PodRunnerProvisioner,
         RuntimeAgentAttachService,
+        AgentCreateRequestsService,
         DaemonAgentAttacher,
         ClaudeCodeAgentAdapter,
         CodexAgentAdapter,

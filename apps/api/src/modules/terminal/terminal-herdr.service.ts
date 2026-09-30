@@ -179,6 +179,7 @@ export class TerminalHerdrService {
             effectiveModelConfigSource(agent, placement) === 'runtime-local'
         const resolution = await this.resume.resolve({
             agentId: agent.id,
+            userId: agent.userId,
             runtimeId: agent.runtimeId,
             framework: agent.framework,
             chatSessionId: sessionId,

@@ -12,7 +12,7 @@ import { type Agent, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { runDaemonBash, daemonConfigRead, daemonConfigWrite } from '@/modules/daemon/daemon-fs'
-import { DaemonConfigDeliveryService, DaemonConfigDeliveryError, readDaemonConfigSnapshot, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
+import { DAEMON_CONFIG_ON_CHANGE_WAIT_MS, DaemonConfigDeliveryService, DaemonConfigDeliveryError, readDaemonConfigSnapshot, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
 import { toAgentConnectionInfo } from '@/modules/connections/connections.service'
 import { posix } from 'node:path'
 import {
@@ -155,7 +155,9 @@ export class AgentContextDocManageService {
             const current = ctx as AgentContext
             if (!this.isSupported(current) || !isRuntimeUsable(ctx.availability))
                 return
-            await this.refreshDaemon(agent)
+            await this.refreshDaemon(agent, {
+                leaseWaitMs: DAEMON_CONFIG_ON_CHANGE_WAIT_MS
+            })
         } catch (err) {
             if (err instanceof DaemonConfigDeliveryError) {
                 this.log.warn('daemon configuration context refresh deferred')

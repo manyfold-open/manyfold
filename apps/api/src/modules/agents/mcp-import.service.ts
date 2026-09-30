@@ -11,7 +11,12 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agents, jsonbMerge, type Agent, type Database } from '@manyfold/db'
+import {
+    agents,
+    jsonbMergeNested,
+    type Agent,
+    type Database
+} from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { AgentsService } from '@/modules/agents/agents.service'
 import {
@@ -86,11 +91,23 @@ export class McpImportService {
             mcpConfigFromExtras(agent.extras),
             managedExclusionFor(agent)
         )
-        if (result.changed)
+        // Only the scopes read in, merged into the live row: a scope edited
+        // since this read keeps that edit.
+        const imported = Object.fromEntries(
+            result.scopes
+                .filter((scope) => scope.status === 'imported')
+                .map((scope) => [scope.scopeId, result.mcp[scope.scopeId]])
+        )
+        if (Object.keys(imported).length > 0)
             await this.db
                 .update(agents)
                 .set({
-                    extras: jsonbMerge(agents.extras, { mcp: result.mcp }),
+                    extras: jsonbMergeNested(
+                        agents.extras,
+                        {},
+                        'mcp',
+                        imported
+                    ),
                     updatedAt: new Date()
                 })
                 .where(eq(agents.id, agent.id))

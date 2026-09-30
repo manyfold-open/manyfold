@@ -113,6 +113,7 @@ test('the first openclaw agent on a cloud computer is its gateway\'s main profil
     const rig = attachRig(podRuntime())
     const summary = await rig.attach.attach({
         runtime: podRuntime() as never,
+        expectedOwnerUserId: 'user-1',
         name: 'first'
     })
     assert.deepEqual(rig.added, [], 'nothing is pushed into the gateway')
@@ -127,6 +128,7 @@ test('an agent added after the first gets a profile of its own', async () => {
     const rig = attachRig(runtime)
     const summary = await rig.attach.attach({
         runtime: runtime as never,
+        expectedOwnerUserId: 'user-1',
         name: 'second'
     })
     assert.equal(rig.added.length, 1)
@@ -138,6 +140,7 @@ test('a workspace for the first agent is refused, not dropped', async () => {
     await assert.rejects(
         rig.attach.attach({
             runtime: podRuntime() as never,
+            expectedOwnerUserId: 'user-1',
             name: 'first',
             workspace: '/home/node/project'
         }),

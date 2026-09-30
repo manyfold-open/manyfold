@@ -1,5 +1,6 @@
 import {
     K8S_HOME_BASE,
+    preferredPrimaryModelDefault,
     SANDBOX_PREINSTALLED_FRAMEWORKS,
     SPRITE_HOME_BASE,
     externalSteps,
@@ -121,7 +122,6 @@ import {
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { sandboxTargetStatus } from '@/lib/agentCreate/runtimeTargetStatus'
 import { hostKey } from '@/lib/hostStatus'
-import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
 import {
     computeSpriteTargets,
     type SpriteAttachTarget

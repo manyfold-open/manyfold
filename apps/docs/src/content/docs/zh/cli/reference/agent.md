@@ -19,8 +19,10 @@ order: 5
 | --- | --- |
 | [`mf agent list`](#mf-agent-list) | List visible agents: runtime identity defaults to self; --account requires consent |
 | [`mf agent get`](#mf-agent-get) | Show a single agent |
-| [`mf agent create`](#mf-agent-create) | Create a new agent on sprites.dev |
+| [`mf agent create`](#mf-agent-create) | Create a coding agent on a new sandbox, or add one to a sandbox you have |
 | [`mf agent update`](#mf-agent-update) | Update agent name or model |
+| [`mf agent send`](#mf-agent-send) | Send a message to an agent and print its reply ("-" or a pipe: the message from stdin) |
+| [`mf agent chat`](#mf-agent-chat) | Talk to an agent in this terminal, one message per line (/new, /exit) |
 | [`mf agent delete`](#mf-agent-delete) | Delete an agent (irreversible) |
 | [`mf agent storage-usage`](#mf-agent-storage-usage) | Report agent-owned path usage, separate from sandbox and account storage |
 | [`mf agent model-config`](#mf-agent-model-config) | Manage agent model config |
@@ -62,7 +64,7 @@ Show a single agent
 
 ## `mf agent create`
 
-Create a new agent on sprites.dev
+Create a coding agent on a new sandbox, or add one to a sandbox you have
 
 **用法:** `mf agent create [options] <name>`
 
@@ -76,20 +78,20 @@ Create a new agent on sprites.dev
 
 | Option | 用途 |
 | --- | --- |
-| `--framework <framework>` | claude-code \| codex \| gemini-cli \| pi \| antigravity-cli 默认值: `claude-code`. |
-| `--anthropic-auth-token <token>` | Anthropic auth token (claude-code only; or env ANTHROPIC_AUTH_TOKEN) |
-| `--anthropic-base-url <url>` | Anthropic base URL override (claude-code only) |
-| `--openai-api-key <key>` | OpenAI API key (codex only; or env OPENAI_API_KEY) |
-| `--openai-base-url <url>` | OpenAI base URL override (codex only) |
-| `--google-api-key <key>` | Gemini API key (gemini-cli and antigravity-cli; or env GEMINI_API_KEY / GOOGLE_API_KEY) |
-| `--google-gemini-base-url <url>` | Gemini base URL override (gemini-cli and antigravity-cli; or env GOOGLE_GEMINI_BASE_URL) |
-| `--gemini-model <model>` | Gemini model override (gemini-cli only) |
-| `--pi-api-key <key>` | Vendor API key for pi (pi only; pair with --pi-provider) |
-| `--pi-provider <provider>` | Which vendor the pi key belongs to: anthropic \| openai \| google (pi only) |
-| `--pi-base-url <url>` | Vendor base URL override for pi (pi only; sandbox runtimes only) |
-| `--pi-model <model>` | pi default model as the provider names it, e.g. claude-sonnet-4-6 (pi only) |
-| `--agy-model <model>` | Antigravity CLI model as `agy models` names it, e.g. gemini-3.1-pro-low (antigravity-cli only) |
-| `--provider-id <id>` | Admin only: place the new sandbox on a specific runtime provider |
+| `--framework <framework>` | coding framework 可选值: `claude-code`, `codex`, `gemini-cli`, `pi`, `antigravity-cli`. 默认值: `claude-code`. |
+| `--model-provider <source>` | who serves the model: managed \| subscription \| a saved provider id or name (mf model-providers list) |
+| `--model <model>` | model to run, from the provider's tested models; with a pasted key only for gemini-cli, pi and antigravity-cli |
+| `--sandbox <sandbox>` | add the agent to this sandbox (id or name, mf sandbox list) instead of creating one |
+| `--anthropic-auth-token <token>` | Anthropic key for claude-code; "-" reads it from stdin |
+| `--anthropic-base-url <url>` | Anthropic base URL override (claude-code) |
+| `--openai-api-key <key>` | OpenAI key for codex; "-" reads it from stdin |
+| `--openai-base-url <url>` | OpenAI base URL override (codex) |
+| `--google-api-key <key>` | Gemini key for gemini-cli and antigravity-cli; "-" reads it from stdin |
+| `--google-gemini-base-url <url>` | Gemini base URL override (gemini-cli, antigravity-cli) |
+| `--pi-api-key <key>` | vendor key for pi, with --pi-provider; "-" reads it from stdin |
+| `--pi-provider <provider>` | the vendor the pi key belongs to: anthropic \| openai \| google |
+| `--pi-base-url <url>` | vendor base URL override for pi |
+| `--runtime-provider <id>` | admin only: the runtime provider a new sandbox is placed on |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
@@ -110,9 +112,55 @@ Update agent name or model
 | Option | 用途 |
 | --- | --- |
 | `--name <name>` | rename the agent |
-| `--model <model>` | set model id |
+| `--model <model>` | the model to run: an alias such as sonnet, an id, or a name such as "Sonnet 5" |
 | `--clear-model` | clear the model override |
 | `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
+## `mf agent send`
+
+Send a message to an agent and print its reply ("-" or a pipe: the message from stdin)
+
+**用法:** `mf agent send [options] <agentId> [message...]`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<agentId>` |  |
+| `[message...]` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--session <id>` | continue this session (default: a new one) |
+| `-c, --continue` | continue the agent's most recent session |
+| `--file <path>` | attach a local file or image (PNG, JPG, …), uploaded to the agent's workspace (repeatable) 默认值: ``. |
+| `--show-thinking` | print the agent's thinking, dim on stderr, as it streams (with --json: a thinking field) |
+| `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
+
+## `mf agent chat`
+
+Talk to an agent in this terminal, one message per line (/new, /exit)
+
+**用法:** `mf agent chat [options] <agentId>`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<agentId>` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--session <id>` | continue this session (default: a new one) |
+| `-c, --continue` | continue the agent's most recent session |
+| `--file <path>` | attach a local file or image (PNG, JPG, …) to your first message, uploaded to the agent's workspace (repeatable) 默认值: ``. |
+| `--show-thinking` | print the agent's thinking, dim, as it streams |
 | `-h, --help` | display help for command |
 
 ## `mf agent delete`
@@ -212,7 +260,7 @@ Update agent model config
 | Option | 用途 |
 | --- | --- |
 | `--source <source>` | modelConfigSource value (platform\|runtime-local) |
-| `--model <model>` | set model id |
+| `--model <model>` | the model to run: an alias such as sonnet, an id, or a name such as "Sonnet 5" |
 | `--clear-model` | clear model |
 | `--config <json>` | modelConfig JSON object (or @file) |
 | `--clear-config` | clear modelConfig override |

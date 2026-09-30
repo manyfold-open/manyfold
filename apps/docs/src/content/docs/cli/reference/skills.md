@@ -1,7 +1,7 @@
 ---
 title: "mf skills"
 description: "Manage installed agent skills"
-order: 14
+order: 15
 ---
 **Usage:** `mf skills [command]`
 
@@ -17,7 +17,7 @@ order: 14
 | --- | --- |
 | [`mf skills installed`](#mf-skills-installed) | List installed skills (optionally filter by agent) |
 | [`mf skills discover`](#mf-skills-discover) | Discover skills available to install |
-| [`mf skills install`](#mf-skills-install) | Install a skill on one agent (or many via --agent-ids) |
+| [`mf skills install`](#mf-skills-install) | Install a skill on one agent (or many via --agent-ids): its id, or its name |
 | [`mf skills update`](#mf-skills-update) | Enable or disable an installed skill |
 | [`mf skills delete`](#mf-skills-delete) | Uninstall a skill |
 | [`mf skills library`](#mf-skills-library) | Manage your personal skill library |
@@ -28,6 +28,8 @@ order: 14
 List installed skills (optionally filter by agent)
 
 **Usage:** `mf skills installed [options]`
+
+**Aliases:** `list`, `ls`
 
 **Options**
 
@@ -59,15 +61,21 @@ Discover skills available to install
 
 ## `mf skills install`
 
-Install a skill on one agent (or many via --agent-ids)
+Install a skill on one agent (or many via --agent-ids): its id, or its name
 
-**Usage:** `mf skills install [options]`
+**Usage:** `mf skills install [options] [skill]`
+
+**Arguments**
+
+| Argument | Purpose |
+| --- | --- |
+| `[skill]` |  |
 
 **Options**
 
 | Options | Purpose |
 | --- | --- |
-| `--skill-id <id>` | skill id from discover or library Required. |
+| `--skill-id <id>` | skill id from discover or library (the same as [skill]) |
 | `--agent-id <id>` | agent id (defaults to the global --agent-id / $MF_AGENT_ID) |
 | `--agent-ids <ids>` | comma-separated agent ids for a batch install |
 | `--json` | emit raw JSON |
@@ -136,7 +144,8 @@ Manage your personal skill library
 | [`mf skills library get`](#mf-skills-library-get) | Show a library skill (metadata + SKILL.md) |
 | [`mf skills library create`](#mf-skills-library-create) | Create a library skill |
 | [`mf skills library update`](#mf-skills-library-update) | Update a library skill (name / description / SKILL.md) |
-| [`mf skills library import`](#mf-skills-library-import) | Import a skill from a GitHub URL, catalog entry, share link, or .skill/.zip archive |
+| [`mf skills library import`](#mf-skills-library-import) | Import a skill from a GitHub URL, catalog entry, share link, local folder, or .skill/.zip archive |
+| [`mf skills library publish`](#mf-skills-library-publish) | Create or update the library skill of a local folder (by its name), then push it to the agents that have it |
 | [`mf skills library share`](#mf-skills-library-share) | Create or show the share link for a library skill (id or name) |
 | [`mf skills library export`](#mf-skills-library-export) | Download a library skill as a .skill archive |
 | [`mf skills library delete`](#mf-skills-library-delete) | Delete a library skill |
@@ -187,7 +196,7 @@ Create a library skill
 
 | Options | Purpose |
 | --- | --- |
-| `--name <name>` | skill name Required. |
+| `--name <name>` | skill name (default: the name in the content's frontmatter) |
 | `--description <text>` | skill description |
 | `--content <markdown>` | SKILL.md content inline |
 | `--content-file <path>` | read SKILL.md content from a file |
@@ -219,7 +228,7 @@ Update a library skill (name / description / SKILL.md)
 
 ### `mf skills library import`
 
-Import a skill from a GitHub URL, catalog entry, share link, or .skill/.zip archive
+Import a skill from a GitHub URL, catalog entry, share link, local folder, or .skill/.zip archive
 
 **Usage:** `mf skills library import [options]`
 
@@ -228,10 +237,29 @@ Import a skill from a GitHub URL, catalog entry, share link, or .skill/.zip arch
 | Options | Purpose |
 | --- | --- |
 | `--url <url>` | github.com repo / tree / SKILL.md blob URL |
-| `--file <path>` | local .skill or .zip archive |
+| `--file <path>` | local skill folder (SKILL.md at its top) or .skill/.zip archive |
 | `--catalog-skill-id <id>` | copy a catalog skill to the library |
 | `--share <url-or-id>` | copy a shared skill via its link or lss_… id |
 | `--on-conflict <mode>` | fail \| overwrite \| rename |
+| `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
+### `mf skills library publish`
+
+Create or update the library skill of a local folder (by its name), then push it to the agents that have it
+
+**Usage:** `mf skills library publish [options] <dir>`
+
+**Arguments**
+
+| Argument | Purpose |
+| --- | --- |
+| `<dir>` |  |
+
+**Options**
+
+| Options | Purpose |
+| --- | --- |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 

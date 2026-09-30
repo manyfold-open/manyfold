@@ -21,3 +21,34 @@ export const readJsonbMergePatch = (
         ? (patch as Record<string, unknown>)
         : undefined
 }
+
+// The outer patch, the key and the patch merged under it, of a
+// jsonbMergeNested write.
+export const readJsonbMergeNestedPatch = (
+    value: unknown
+):
+    | {
+          patch: Record<string, unknown>
+          key: string
+          nested: Record<string, unknown>
+      }
+    | undefined => {
+    if (!is(value, SQL)) return undefined
+    const query = dialect.sqlToQuery(value)
+    const [patch, key, , , nested] = query.params
+    if (
+        !/^coalesce\(.+, '\{\}'::jsonb\) \|\| \$1::jsonb \|\| jsonb_build_object\(\$2::text, /.test(
+            query.sql
+        ) ||
+        query.params.length !== 5 ||
+        typeof patch !== 'string' ||
+        typeof key !== 'string' ||
+        typeof nested !== 'string'
+    )
+        return undefined
+    return {
+        patch: JSON.parse(patch) as Record<string, unknown>,
+        key,
+        nested: JSON.parse(nested) as Record<string, unknown>
+    }
+}

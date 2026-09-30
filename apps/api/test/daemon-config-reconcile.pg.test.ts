@@ -348,7 +348,7 @@ test(
 
 test(
     'manual, on-change and automatic delivery share ownership; an updated desired revision cannot inherit old success',
-    { skip: !RUN, timeout: 20_000 },
+    { skip: !RUN, timeout: 30_000 },
     async (t) => {
         const h = await configFixture(t)
         const api = await h.api(false)
@@ -360,6 +360,7 @@ test(
         const pending = api.mcp
             .materializeForAgent(await h.readAgent())
             .catch((error: unknown) => error)
+        let onChange: Promise<void> | undefined
         try {
             await until(() =>
                 h.peerEvents.some((event) => event.type === 'write-held')
@@ -381,11 +382,11 @@ test(
                 })
                 .where(eq(agents.id, h.agentId))
             const latest = await h.readAgent()
+            // A push that does not wait meets the held machine as busy.
             await assert.rejects(
                 api.mcp.materializeForAgent(latest),
                 /configuration busy/
             )
-            await api.mcp.refreshOnChange(latest)
             await assert.rejects(
                 api.mcp.materializeForAgent(latest, {
                     automatic: true,
@@ -393,6 +394,9 @@ test(
                 }),
                 /configuration busy/
             )
+            // The save's own push waits for the machine instead.
+            onChange = api.mcp.refreshOnChange(latest)
+            await new Promise((resolve) => schedule(resolve, 1_500))
             assert.equal(
                 h.peerEvents.filter((event) => event.type === 'rpc').length,
                 before
@@ -400,8 +404,16 @@ test(
         } finally {
             h.peer.send({ type: 'release-write' })
         }
+        // The held push delivered an older revision: it cannot count.
         assert((await pending) instanceof Error)
-        assert.notEqual(
+        // The waiting one delivers the update once the machine is free,
+        // with no hello to prompt it.
+        await onChange
+        assert.equal(
+            JSON.parse(await h.readProject()).mcpServers.fixture.command,
+            'updated-during-push'
+        )
+        assert.equal(
             (await h.readAgent()).extras.mcpDelivery?.project?.status,
             'delivered'
         )
@@ -412,9 +424,98 @@ test(
                 (await h.readAgent()).extras.contextDocDelivery?.status ===
                 'delivered'
         )
+    }
+)
+
+test(
+    'a push asked to wait takes the machine once the push holding it is done',
+    { skip: !RUN, timeout: 30_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const api = await h.api(false)
+        await h.connect(api.url)
+        h.peer.send({ type: 'hold-write' })
+        await until(() =>
+            h.peerEvents.some((event) => event.type === 'holding-enabled')
+        )
+        const held = api.mcp
+            .materializeForAgent(await h.readAgent())
+            .catch((error: unknown) => error)
+        await until(() =>
+            h.peerEvents.some((event) => event.type === 'write-held')
+        )
+        const waiting = api.mcp.materializeForAgent(await h.readAgent(), {
+            leaseWaitMs: 20_000
+        })
+        await new Promise((resolve) => schedule(resolve, 1_000))
+        h.peer.send({ type: 'release-write' })
+        await held
+        const scopes = await waiting
+        assert.ok(
+            scopes.every((scope) =>
+                ['delivered', 'unchanged'].includes(scope.status)
+            ),
+            JSON.stringify(scopes)
+        )
+        // Past its wait, it is busy after all. (A change, so that the held
+        // push has a file to write.)
+        const row = await h.readAgent()
+        await h.db
+            .update(agents)
+            .set({
+                extras: {
+                    ...row.extras,
+                    mcp: { project: '{"fixture":{"command":"second-change"}}' }
+                }
+            })
+            .where(eq(agents.id, h.agentId))
+        h.peer.send({ type: 'hold-write' })
+        await until(
+            () =>
+                h.peerEvents.filter((event) => event.type === 'holding-enabled')
+                    .length >= 2
+        )
+        const again = api.mcp
+            .materializeForAgent(await h.readAgent())
+            .catch((error: unknown) => error)
+        await until(
+            () =>
+                h.peerEvents.filter((event) => event.type === 'write-held')
+                    .length >= 2
+        )
+        try {
+            await assert.rejects(
+                api.mcp.materializeForAgent(await h.readAgent(), {
+                    leaseWaitMs: 1_200
+                }),
+                /configuration busy/
+            )
+        } finally {
+            h.peer.send({ type: 'release-write' })
+        }
+        await again
+    }
+)
+
+test(
+    "a save's MCP and context pushes both land though they start together",
+    { skip: !RUN, timeout: 30_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const api = await h.api(false)
+        await h.connect(api.url)
+        const agent = await h.readAgent()
+        // As a Composio link change starts them, side by side.
+        await Promise.all([
+            api.mcp.refreshOnChange(agent),
+            api.context.refreshOnChange(agent)
+        ])
+        const after = await h.readAgent()
+        assert.equal(after.extras.contextDocDelivery?.status, 'delivered')
+        assert.equal(after.extras.mcpDelivery?.project?.status, 'delivered')
         assert.equal(
             JSON.parse(await h.readProject()).mcpServers.fixture.command,
-            'updated-during-push'
+            'offline-desired'
         )
     }
 )

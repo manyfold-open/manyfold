@@ -38,6 +38,7 @@ import {
     UserModelProvider,
     agentModelConfigSources,
     buildClaudeCodeDefaultModelConfig,
+    buildCodexDefaultModelConfig,
     claudeCodeModelAliasMapKey,
     claudeCodeModelMapAliases,
     claudeCodeModelSelectionMapKey,
@@ -426,9 +427,11 @@ export class AgentModelConfigService {
             )
         return {
             framework: 'pi',
-            model: normalizeNullable(
-                raw?.model ?? body.model ?? normalizeNullable(agent.model)
-            )
+            model: clearsModel(raw, body)
+                ? null
+                : normalizeNullable(
+                      raw?.model ?? body.model ?? normalizeNullable(agent.model)
+                  )
         }
     }
 
@@ -513,13 +516,14 @@ export class AgentModelConfigService {
             )
         const providerModels =
             await this.providerModelsForPlatformValidation(agent)
+        const base =
+            clearsModel(raw, body) && existing
+                ? { ...existing, model: null }
+                : existing
         const defaulted =
             providerModels.status === 'ready'
-                ? buildClaudeCodeDefaultModelConfig(
-                      providerModels.models,
-                      existing
-                  )
-                : existing
+                ? buildClaudeCodeDefaultModelConfig(providerModels.models, base)
+                : base
         const modelRaw = raw?.model ?? body.model ?? defaulted?.model ?? null
         const effortRaw = raw?.effort ?? defaulted?.effort ?? null
         const model = normalizeNullable(modelRaw)
@@ -554,9 +558,9 @@ export class AgentModelConfigService {
             throw new BadRequestException(
                 `modelConfig.framework must be codex for agent ${agent.id}`
             )
-        const model = normalizeNullable(
-            raw?.model ?? body.model ?? existing?.model
-        )
+        const model = clearsModel(raw, body)
+            ? await this.defaultCodexModel(agent)
+            : normalizeNullable(raw?.model ?? body.model ?? existing?.model)
         const defaultSpeed =
             (await this.catalog.getDefaultEnumValue('codex', 'speed'))?.value ??
             'standard'
@@ -577,6 +581,19 @@ export class AgentModelConfigService {
         }
     }
 
+    // What a Codex agent runs when no model is named: the one a new agent on
+    // its provider gets.
+    private async defaultCodexModel(
+        agent: PlacedAgent
+    ): Promise<string | null> {
+        const providerModels =
+            await this.providerModelsForPlatformValidation(agent)
+        return providerModels.status === 'ready'
+            ? (buildCodexDefaultModelConfig(providerModels.models).model ??
+                  null)
+            : null
+    }
+
     private async mergeGeminiConfig(
         agent: PlacedAgent,
         body: UpdateAgentModelConfigBody
@@ -590,8 +607,11 @@ export class AgentModelConfigService {
                 `modelConfig.framework must be gemini-cli for agent ${agent.id}`
             )
         const requested =
-            normalizeNullable(raw?.model ?? body.model ?? existing?.model) ??
-            geminiAutoModelKey
+            (clearsModel(raw, body)
+                ? null
+                : normalizeNullable(
+                      raw?.model ?? body.model ?? existing?.model
+                  )) ?? geminiAutoModelKey
         const providerModels =
             await this.providerModelsForPlatformValidation(agent)
         if (isGeminiAutoModel(requested)) {
@@ -2144,6 +2164,14 @@ const normalizeNullable = (value: unknown): string | null => {
 // stored it keep working by degrading to the lowest supported level.
 const normalizeCodexIntelligence = (value: string | null): string | null =>
     value === 'none' ? 'low' : value
+
+// A request that names a null model (`model`, or `modelConfig.model` over
+// it) clears the saved one: the agent goes back to what the framework runs
+// by default on its provider, as a sign-in's null does on the machine.
+const clearsModel = (
+    raw: Record<string, unknown> | null,
+    body: UpdateAgentModelConfigBody
+): boolean => (raw?.model !== undefined ? raw.model : body.model) === null
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
     value && typeof value === 'object'

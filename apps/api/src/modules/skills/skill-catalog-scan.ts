@@ -82,11 +82,19 @@ const repoCond = (repo: DiscoveryRepo): SQL =>
         eq(skills.repoBranch, repo.branch)
     ) as SQL
 
-export const staleSkillRepos = async (
+export interface SkillRepoScanStates {
+    // Nothing published under this spelling of the repo yet: never scanned,
+    // or a first scan still running or failed.
+    unread: DiscoveryRepo[]
+    // Read, but longer ago than FRESH_MS.
+    stale: DiscoveryRepo[]
+}
+
+export const skillRepoScanStates = async (
     db: Database,
     repos: DiscoveryRepo[]
-): Promise<DiscoveryRepo[]> => {
-    if (!repos.length) return []
+): Promise<SkillRepoScanStates> => {
+    if (!repos.length) return { unread: [], stale: [] }
     const states = await db
         .select({
             key: skillRepoScans.key,
@@ -100,14 +108,24 @@ export const staleSkillRepos = async (
             ])
         )
     const byKey = new Map(states.map((state) => [state.key, state]))
-    return repos.filter((repo) => {
+    const unread: DiscoveryRepo[] = []
+    const stale: DiscoveryRepo[] = []
+    for (const repo of repos) {
         const state = byKey.get(canonicalSkillRepoKey(repo))
-        return (
-            !state?.scannedAt ||
-            Date.now() - state.scannedAt.getTime() > FRESH_MS ||
-            !published(state.publishedAliases, repo)
-        )
-    })
+        if (!state?.scannedAt || !published(state.publishedAliases, repo))
+            unread.push(repo)
+        else if (Date.now() - state.scannedAt.getTime() > FRESH_MS)
+            stale.push(repo)
+    }
+    return { unread, stale }
+}
+
+export const staleSkillRepos = async (
+    db: Database,
+    repos: DiscoveryRepo[]
+): Promise<DiscoveryRepo[]> => {
+    const { unread, stale } = await skillRepoScanStates(db, repos)
+    return repos.filter((repo) => unread.includes(repo) || stale.includes(repo))
 }
 
 // Two repo pipelines per process share the eight-request transport budget.

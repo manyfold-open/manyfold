@@ -43,6 +43,8 @@ const build = (opts: {
     daemon?: HostDaemonRow | null
     rpc?: (call: { method: string }) => Promise<Record<string, unknown>>
     reconnect?: boolean
+    // What the bring-up answers, in place of its lease-based default.
+    resolution?: Record<string, unknown>
 } = {}) => {
     const events: string[] = []
     let row = opts.daemon === undefined ? daemon() : opts.daemon
@@ -67,6 +69,7 @@ const build = (opts: {
     const runnerManager = {
         ensureHostDaemon: async () => {
             events.push('ensure')
+            if (opts.resolution) return opts.resolution
             return row && row.rpcInstanceId ? { handle: { daemonId: 'sbx_1', started: false, generation: 'g' } } : { handle: null, fallbackReason: 'runner_unavailable' }
         },
         awaitReconnect: async () => {
@@ -116,6 +119,40 @@ test('a hosted machine the API holds no socket to is brought up; a self-owned on
     assert.equal(result.online, false, 'a fresh heartbeat without a socket is not reachable')
     assert.equal(result.fallbackReason, 'runner_unavailable')
     assert.deepEqual(local.events, [], 'nothing is brought up on a user\'s own computer')
+})
+
+test('a sandbox whose CLI an update could not bring up to the work says why, and on which version', async () => {
+    const { access } = build({
+        daemon: daemon({ cliVersion: '4.8.0' }),
+        resolution: {
+            handle: null,
+            fallbackReason: 'runner_cli_too_old',
+            cliRefusal: {
+                message: 'sandbox-001 already runs the latest Manyfold CLI (4.8.0), which does not support this yet',
+                cliVersion: '4.8.0',
+                latestCliVersion: '4.8.0'
+            }
+        }
+    })
+    await assert.rejects(
+        access.withHost({ host: host(), daemon: null, placement: 'sprites', reason: 'files', requiredFeatures: ['fs.roots.v1'] }, async () => 1),
+        (err: unknown) => {
+            assert.ok(err instanceof HostDaemonOfflineError)
+            // Not "no update carrying what it needs is published yet".
+            assert.equal(err.message, 'sandbox-001 already runs the latest Manyfold CLI (4.8.0), which does not support this yet')
+            assert.equal(err.cliVersion, '4.8.0')
+            assert.equal(err.latestCliVersion, '4.8.0')
+            return true
+        }
+    )
+    const unexplained = build({
+        daemon: daemon({ cliVersion: '4.8.0' }),
+        resolution: { handle: null, fallbackReason: 'runner_cli_too_old' }
+    })
+    await assert.rejects(
+        unexplained.access.withHost({ host: host(), daemon: null, placement: 'sprites', reason: 'files' }, async () => 1),
+        /the Manyfold CLI on sandbox-001 \(4\.8\.0\) is too old for this/
+    )
 })
 
 test('a read path that must not wake the machine reads the lease and holds nothing', async () => {

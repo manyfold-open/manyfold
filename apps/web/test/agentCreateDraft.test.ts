@@ -297,19 +297,14 @@ test('selects progress steps from runtime target and framework family', () => {
         'checking_quota',
         'creating_sprite'
     ])
-    // A coding framework is installed into the cloud computer (ADR-0035).
-    assert.equal(
-        progressStepsForCreate('codex', 'persistent').includes(
-            'installing_framework'
-        ),
-        true
-    )
-    assert.equal(
-        progressStepsForCreate('openclaw', 'persistent').includes(
-            'waiting_for_ready'
-        ),
-        true
-    )
+    // Any framework is installed into the cloud computer (ADR-0035).
+    for (const framework of ['codex', 'openclaw'] as const)
+        assert.equal(
+            progressStepsForCreate(framework, 'persistent').includes(
+                'installing_framework'
+            ),
+            true
+        )
 })
 
 const runtimePicker = (): ProviderPickerValue => ({

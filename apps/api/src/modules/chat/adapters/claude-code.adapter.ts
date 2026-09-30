@@ -33,6 +33,8 @@ import { ChatRepository } from '@/modules/chat/chat.repository'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import {
     extractClaudeCodeUsage,
+    newClaudeRunFacts,
+    observeClaudeRun,
     type StreamJsonLine
 } from './claude-code-usage'
 import {
@@ -49,6 +51,7 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
+import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 
 const CLAUDE_XHIGH_MIN_CLI_VERSION = '2.1.111'
 const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 5_000
@@ -62,7 +65,10 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         private readonly drivers: ExecDriverFactory,
         private readonly chatRepo: ChatRepository,
         @Optional() private readonly adminSettings?: AdminSettingsService,
-        @Optional() private readonly telemetry?: TelemetryService
+        @Optional() private readonly telemetry?: TelemetryService,
+        // Prices a resumed run from its own tokens (see
+        // CLAUDE_RESUMED_COST_LEDGER_VERSION).
+        @Optional() private readonly pricing?: UsagePricingService
     ) {}
 
     getCapabilities(): ChatCapabilities {
@@ -203,7 +209,19 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         const consumer = createClaudeStreamConsumer({
             model: ctx.model,
             initialSessionRef: ctx.frameworkSessionRef,
-            tStart
+            tStart,
+            usage: {
+                // --resume goes on the command exactly when there is a ref.
+                resumed: !!ctx.frameworkSessionRef,
+                requestedModel: cliModel,
+                modelMap: modelConfig?.modelMap,
+                pricing: this.pricing ?? null,
+                scope: {
+                    modelProviderId: ctx.modelProviderId,
+                    modelProviderBuiltInId: ctx.modelProviderBuiltInId,
+                    modelProviderManagedBrand: ctx.modelProviderManagedBrand
+                }
+            }
         })
 
         let transportError: Error | null = null
@@ -388,6 +406,8 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         let tFirstToken: number | null = null
         let pendingUsage: ChatUsage | null = null
         let sourceSeq = 0
+        const facts = newClaudeRunFacts()
+        const pricing = this.pricing ?? null
 
         const consumeLine = function* (
             line: string,
@@ -396,6 +416,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         ): Generator<EmittedChatEvent | { __terminalError: true }> {
             const parsed = parseLine(line)
             if (!parsed) return
+            observeClaudeRun(facts, parsed)
             yield {
                 type: 'raw_source',
                 source: {
@@ -455,11 +476,25 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                 }
             }
             if (parsed.type === 'result') {
+                // A re-attach may not replay the init line, and cannot tell
+                // whether the run resumed a session.
                 pendingUsage = extractClaudeCodeUsage(
                     parsed,
                     ctx.model,
                     tStart,
-                    tFirstToken
+                    tFirstToken,
+                    {
+                        facts,
+                        resumed: null,
+                        requestedModel: ctx.model,
+                        pricing,
+                        scope: {
+                            modelProviderId: ctx.modelProviderId,
+                            modelProviderBuiltInId: ctx.modelProviderBuiltInId,
+                            modelProviderManagedBrand:
+                                ctx.modelProviderManagedBrand
+                        }
+                    }
                 )
                 if (parsed.is_error) {
                     errorState.last = parsed

@@ -73,7 +73,12 @@ import { DRIZZLE } from '@/db/tokens'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { GitHubRequestError } from '@/common/github-request-error'
 import { mapSkillRequests } from './github-skill-source'
-import { refreshSkillRepo, staleSkillRepos, type PublishedSkillRow } from './skill-catalog-scan'
+import {
+    refreshSkillRepo,
+    skillRepoScanStates,
+    SkillScanBusyError,
+    type PublishedSkillRow
+} from './skill-catalog-scan'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     DiscoveryRepo,
@@ -137,6 +142,26 @@ interface ReadmeCacheEntry {
 
 const DISCOVER_DEFAULT_LIMIT = 24
 const DISCOVER_MAX_LIMIT = 100
+// How long a discover waits for repos read for the first time, and how
+// often it looks at one another process is reading.
+const FIRST_READ_WAIT_MS = 15_000
+const FIRST_READ_POLL_MS = 500
+
+// Resolves when every promise has settled or `ms` has passed, whichever is
+// first, without leaving the timer behind.
+const settledWithin = async (
+    promises: Array<Promise<unknown>>,
+    ms: number
+): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+        Promise.allSettled(promises),
+        new Promise((resolve) => {
+            timer = setTimeout(resolve, ms)
+        })
+    ])
+    clearTimeout(timer)
+}
 const ADMIN_CATALOG_DEFAULT_LIMIT = 50
 const ADMIN_CATALOG_MAX_LIMIT = 200
 
@@ -166,6 +191,9 @@ export class SkillsService {
     // keeps reconciling in the background (the row's terminal status is written
     // by the materializer regardless of who is awaiting).
     private readonly installMaterializeCapMs = 15_000
+    // How long a discover waits for repos read for the first time (tests
+    // shorten it).
+    firstReadWaitMs = FIRST_READ_WAIT_MS
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
@@ -391,11 +419,7 @@ export class SkillsService {
         const installed = target
             ? await this.installedMap(target.agent.id)
             : new Map<string, InstalledSkillState>()
-        void inBackgroundContext(() => this.refreshStaleDiscoverRepos(repos))().catch((err: unknown) => {
-            this.log.warn(
-                `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
-            )
-        })
+        await this.readForDiscover(repos, true)
         const rows = await this.discoverRows({ repos, q: input.q })
         const counts = await this.installCounts(
             rows.map((row) => row.skill.id)
@@ -425,11 +449,8 @@ export class SkillsService {
         const installed = target
             ? await this.installedMap(target.agent.id)
             : new Map<string, InstalledSkillState>()
-        void inBackgroundContext(() => this.refreshStaleDiscoverRepos(repos))().catch((err: unknown) => {
-            this.log.warn(
-                `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
-            )
-        })
+        // The first page waits for repos not read yet; later ones follow it.
+        const pending = await this.readForDiscover(repos, !input.cursor)
         const limit = clampPageLimit(
             input.limit,
             DISCOVER_DEFAULT_LIMIT,
@@ -451,7 +472,17 @@ export class SkillsService {
         )
         return {
             items: this.mapDiscoverRows(sliced, repos, installed, counts),
-            nextCursor: hasMore ? String(offset + limit) : null
+            nextCursor: hasMore ? String(offset + limit) : null,
+            ...(pending.length
+                ? {
+                      pendingRepos: pending.map((repo) => ({
+                          id: repo.id,
+                          owner: repo.owner,
+                          name: repo.name,
+                          branch: repo.branch
+                      }))
+                  }
+                : {})
         }
     }
 
@@ -1227,13 +1258,56 @@ export class SkillsService {
         return row
     }
 
-    private async refreshStaleDiscoverRepos(
-        repos: DiscoveryRepo[]
-    ): Promise<void> {
-        if (repos.length === 0) return
-        const staleRepos = await staleSkillRepos(this.db, repos)
-        if (staleRepos.length === 0) return
-        await this.refreshDiscoverRepos(staleRepos)
+    // A repo not read yet has no skills to show. With `wait`, those are read
+    // before the answer (or, while another process reads one, waited for),
+    // for up to FIRST_READ_WAIT_MS; the ones still unread then are returned.
+    // Repos read before refresh in the background, started after the first
+    // reads so they cannot take the scan slots from them.
+    private async readForDiscover(
+        repos: DiscoveryRepo[],
+        wait: boolean
+    ): Promise<DiscoveryRepo[]> {
+        const { unread, stale } = await skillRepoScanStates(this.db, repos)
+        const until = Date.now() + this.firstReadWaitMs
+        const reads = wait
+            ? unread.map((repo) => this.readFirst(repo, until))
+            : []
+        const background = wait ? stale : [...unread, ...stale]
+        if (background.length > 0)
+            void inBackgroundContext(() =>
+                this.refreshDiscoverRepos(background)
+            )().catch((err: unknown) => {
+                this.log.warn(
+                    `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
+                )
+            })
+        if (reads.length === 0) return []
+        await settledWithin(reads, this.firstReadWaitMs)
+        return (await skillRepoScanStates(this.db, unread)).unread
+    }
+
+    private async readFirst(repo: DiscoveryRepo, until: number): Promise<void> {
+        try {
+            await this.refreshDiscoverRepo(repo)
+            return
+        } catch (err) {
+            if (!(err instanceof SkillScanBusyError)) {
+                this.log.warn(
+                    `first skill discovery read failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
+                )
+                return
+            }
+        }
+        // Another process holds the scan: its result is as good.
+        while (Date.now() + FIRST_READ_POLL_MS < until) {
+            await new Promise((resolve) =>
+                setTimeout(resolve, FIRST_READ_POLL_MS)
+            )
+            if (
+                (await skillRepoScanStates(this.db, [repo])).unread.length === 0
+            )
+                return
+        }
     }
 
     private async refreshDiscoverRepos(

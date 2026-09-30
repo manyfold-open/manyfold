@@ -268,6 +268,7 @@ export class SandboxesService {
             providerId: body.providerId ?? null,
             callerIsAdmin: isAdmin
         })
+        this.spritesProvisioner.assertSandboxCanReachApi()
         const host = await this.runtimeAccess.reserveStandaloneSandbox({
             userId,
             name: body.name,
@@ -742,7 +743,11 @@ export class SandboxesService {
         const { host } = r
         if (host.status !== 'ready' || !host.providerRef)
             throw new BadRequestException('sandbox is not provisioned')
-        const existing = await this.runtimes.findRuntimeOnHost(hostId, framework)
+        const existing = await this.runtimes.findRuntimeOnHost(
+            hostId,
+            framework,
+            host.userId
+        )
         if (existing && existing.status !== 'failed')
             return this.runtimes.toSummary(existing)
         const coding = SANDBOX_PREINSTALLED_FRAMEWORKS.includes(

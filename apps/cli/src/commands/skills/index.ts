@@ -1,13 +1,20 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { Command } from 'commander'
 import kleur from 'kleur'
-import { isObjectId } from '@manyfold/shared'
+import { isObjectId, MAX_LIBRARY_SKILL_FILE_BYTES } from '@manyfold/shared'
 import type { LibrarySkillImportConflict } from '@manyfold/shared'
-import type { NcaClient } from '@manyfold/sdk'
+import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
-import { emit } from '@/output'
+import { emit, fail, printJson } from '@/output'
+import { UsageError } from '@/usage-error'
+import { plural } from '@/commands/doctor/describe'
+import {
+    frontmatterName,
+    packSkillDir,
+    type PackedSkill
+} from '@/commands/skills/pack'
 
 interface RootOpts {
     apiUrl?: string
@@ -32,7 +39,7 @@ interface DiscoverOpts {
 }
 
 interface InstallOpts {
-    skillId: string
+    skillId?: string
     agentId?: string
     agentIds?: string
     json?: boolean
@@ -61,7 +68,7 @@ interface CreateRepoOpts {
 }
 
 interface LibraryCreateOpts {
-    name: string
+    name?: string
     description?: string
     content?: string
     contentFile?: string
@@ -121,6 +128,50 @@ const resolveConflictOpt = (
     return value as LibrarySkillImportConflict
 }
 
+// What `--file` names, as the archive to import: a skill folder is packed
+// first, a .skill/.zip archive goes as it is.
+const localArchive = async (
+    path: string
+): Promise<{ blob: Blob; filename: string; packed?: PackedSkill }> => {
+    const info = await stat(path).catch(() => null)
+    if (!info) throw new Error(`${path} does not exist`)
+    if (info.isDirectory()) {
+        const packed = await packSkillDir(path)
+        return {
+            blob: new Blob([packed.archive]),
+            filename: packed.filename,
+            packed
+        }
+    }
+    if (!/\.(skill|zip)$/i.test(path))
+        throw new UsageError(
+            `--file takes a skill folder or a .skill/.zip archive; for one SKILL.md, mf skills library create --content-file ${path}`
+        )
+    return {
+        blob: new Blob([new Uint8Array(await readFile(path))]),
+        filename: basename(path)
+    }
+}
+
+const LARGE_FILE_MIB = MAX_LIBRARY_SKILL_FILE_BYTES / (1024 * 1024)
+
+// Files a packed folder left out, and an archive the API found too large.
+const reportPacked = (packed: PackedSkill | undefined): void => {
+    for (const path of packed?.tooLarge ?? [])
+        console.error(
+            kleur.dim(
+                `left out ${path}: a skill's files are ${LARGE_FILE_MIB} MiB at most`
+            )
+        )
+}
+
+const packedTooLarge = (err: unknown, packed: PackedSkill | undefined) =>
+    packed && err instanceof ApiError && err.status === 413
+        ? {
+              hint: 'Is there a node_modules or build output in the folder? A skill holds its instructions and the files they use.'
+          }
+        : undefined
+
 export const parseShareRef = (value: string): string => {
     const trimmed = value.trim()
     if (isObjectId(trimmed, 'librarySkillShare')) return trimmed
@@ -146,6 +197,81 @@ const resolveLibrarySkillId = async (
     const match = list.find((skill) => skill.name === ref)
     if (!match) throw new Error(`no library skill named "${ref}"`)
     return match.id
+}
+
+// How far a name is looked for in the catalog: `q` matches names,
+// descriptions and repos alike, so a common word can fill several pages.
+const NAME_LOOKUP_PAGES = 10
+
+export interface SkillRef {
+    skillId: string
+    // Where a skill named on the command line was found; null for an id.
+    source: string | null
+}
+
+interface SkillMatch {
+    skillId: string
+    source: string
+    // How to name it alone: <owner>/<name>, or the id for a library skill.
+    handle: string
+}
+
+// A skill as the command line names it: an id passes through (a catalog id
+// holds a colon, a library one is skl_…); a name is looked for, exactly
+// and case-blind, in the library and in the catalog (by its name or its
+// folder's), and `<owner>/<name>` narrows it to one repo owner's.
+export const resolveSkillRef = async (
+    client: NcaClient,
+    ref: string
+): Promise<SkillRef> => {
+    const given = ref.trim()
+    if (given.includes(':') || isObjectId(given, 'librarySkill'))
+        return { skillId: given, source: null }
+    const slash = given.indexOf('/')
+    const owner = slash > 0 ? given.slice(0, slash).toLowerCase() : null
+    const name = slash > 0 ? given.slice(slash + 1) : given
+    const wanted = name.toLowerCase()
+    const found = new Map<string, SkillMatch>()
+    if (owner === null)
+        for (const skill of await client.skills.library.list())
+            if (skill.name.toLowerCase() === wanted)
+                found.set(skill.id, {
+                    skillId: skill.id,
+                    source: 'your library',
+                    handle: skill.id
+                })
+    let cursor: string | undefined
+    for (let page = 0; page < NAME_LOOKUP_PAGES; page++) {
+        const result = await client.skills.discoverPage({
+            q: name,
+            limit: 100,
+            ...(cursor ? { cursor } : {})
+        })
+        for (const skill of result.items) {
+            const folder = skill.sourcePath?.split('/').pop()?.toLowerCase()
+            if (
+                (skill.name.toLowerCase() === wanted || folder === wanted) &&
+                (owner === null || skill.repoOwner.toLowerCase() === owner)
+            )
+                found.set(skill.skillId, {
+                    skillId: skill.skillId,
+                    source: `${skill.repoOwner}/${skill.repoName}`,
+                    handle: `${skill.repoOwner}/${name}`
+                })
+        }
+        if (!result.nextCursor) break
+        cursor = result.nextCursor
+    }
+    const matches = [...found.values()]
+    if (matches.length === 1)
+        return { skillId: matches[0].skillId, source: matches[0].source }
+    if (matches.length === 0)
+        throw new Error(
+            `no skill named "${given}" in ${owner === null ? 'your library or ' : ''}the catalog (mf skills discover --q ${name} searches the catalog)`
+        )
+    throw new UsageError(
+        `${matches.length} skills are named "${given}"; name the one to install as below:\n${matches.map((match) => `  ${match.handle}  ${kleur.dim(match.handle === match.skillId ? match.source : match.skillId)}`).join('\n')}`
+    )
 }
 
 interface UpdateRepoOpts {
@@ -189,6 +315,7 @@ export const registerSkills = (program: Command): void => {
         .description('Manage installed agent skills')
 
     cmd.command('installed')
+        .aliases(['list', 'ls'])
         .description('List installed skills (optionally filter by agent)')
         .option('--agent-id <id>', 'filter to this agent')
         .option('--include-runtime', 'include runtime-level skills', false)
@@ -265,11 +392,19 @@ export const registerSkills = (program: Command): void => {
                 console.log(JSON.stringify(page, null, 2))
                 return
             }
+            if (page.items.length === 0)
+                console.log(kleur.dim('(no skills found)'))
             for (const s of page.items) {
                 console.log(
                     `${s.skillId}  ${kleur.cyan(s.name)}  ${kleur.dim(s.description ?? '')}`
                 )
             }
+            if (page.pendingRepos?.length)
+                console.error(
+                    kleur.dim(
+                        `still reading ${page.pendingRepos.map((repo) => `${repo.owner}/${repo.name}`).join(', ')}: their skills are not listed yet; run this again in a minute`
+                    )
+                )
             if (page.nextCursor)
                 console.error(
                     kleur.dim(
@@ -278,9 +413,15 @@ export const registerSkills = (program: Command): void => {
                 )
         })
 
-    cmd.command('install')
-        .description('Install a skill on one agent (or many via --agent-ids)')
-        .requiredOption('--skill-id <id>', 'skill id from discover or library')
+    const install = cmd
+        .command('install [skill]')
+        .description(
+            'Install a skill on one agent (or many via --agent-ids): its id, or its name'
+        )
+        .option(
+            '--skill-id <id>',
+            'skill id from discover or library (the same as [skill])'
+        )
         .option(
             '--agent-id <id>',
             'agent id (defaults to the global --agent-id / $MF_AGENT_ID)'
@@ -290,14 +431,35 @@ export const registerSkills = (program: Command): void => {
             'comma-separated agent ids for a batch install'
         )
         .option('--json', 'emit raw JSON', false)
-        .action(async (opts: InstallOpts) => {
-            const global = program.opts<RootOpts>()
-            const target = resolveInstallTarget({
-                skillId: opts.skillId,
-                agentId: resolveOptionalAgentId(opts.agentId, program),
+    install.action(async (skill: string | undefined, opts: InstallOpts) => {
+        try {
+            if (skill !== undefined && opts.skillId !== undefined)
+                throw new UsageError(
+                    'name the skill once: as [skill] or as --skill-id'
+                )
+            const ref = skill ?? opts.skillId
+            if (ref === undefined)
+                throw new UsageError(
+                    'which skill: pass its name or its id (mf skills discover lists them)'
+                )
+            const agentId = resolveOptionalAgentId(opts.agentId, program)
+            // The agent first: its check needs no request.
+            resolveInstallTarget({
+                skillId: ref,
+                agentId,
                 agentIds: opts.agentIds
             })
+            const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
+            const resolved = await resolveSkillRef(client, ref)
+            const target = resolveInstallTarget({
+                skillId: resolved.skillId,
+                agentId,
+                agentIds: opts.agentIds
+            })
+            const from = resolved.source
+                ? kleur.dim(`  from ${resolved.source}`)
+                : ''
             if (target.mode === 'batch') {
                 const res = await client.skills.installBatch({
                     skillId: target.skillId,
@@ -310,7 +472,7 @@ export const registerSkills = (program: Command): void => {
                 for (const item of res.results) {
                     console.log(
                         item.status === 'installed'
-                            ? `${item.agentId}  ${kleur.green('installed')}  ${item.skill?.id ?? ''}`
+                            ? `${item.agentId}  ${kleur.green('installed')}  ${item.skill?.id ?? ''}${from}`
                             : `${item.agentId}  ${kleur.red('failed')}  ${kleur.dim(item.error ?? '')}`
                     )
                 }
@@ -333,9 +495,14 @@ export const registerSkills = (program: Command): void => {
                       ? kleur.yellow('installing')
                       : kleur.green('installed')
             console.log(
-                `${res.id}  ${kleur.cyan(res.name)}  ${res.enabled ? 'enabled' : 'disabled'}  ${status}`
+                `${res.id}  ${kleur.cyan(res.name)}  ${res.enabled ? 'enabled' : 'disabled'}  ${status}${from}`
             )
-        })
+        } catch (err) {
+            if (err instanceof UsageError)
+                install.error(`error: ${err.message}`)
+            throw err
+        }
+    })
 
     cmd.command('update <userSkillId>')
         .description('Enable or disable an installed skill')
@@ -401,7 +568,7 @@ export const registerSkills = (program: Command): void => {
             for (const s of list) {
                 console.log(
                     `${s.id}  ${kleur.cyan(s.name)}  ${kleur.dim(
-                        `${s.fileCount} files, on ${s.installedAgentCount} agent(s)`
+                        `${plural(s.fileCount, 'file')}, on ${plural(s.installedAgentCount, 'agent')}`
                     )}`
                 )
             }
@@ -426,26 +593,43 @@ export const registerSkills = (program: Command): void => {
             console.log(res.content)
         })
 
-    library
+    const libraryCreate = library
         .command('create')
         .description('Create a library skill')
-        .requiredOption('--name <name>', 'skill name')
+        .option(
+            '--name <name>',
+            "skill name (default: the name in the content's frontmatter)"
+        )
         .option('--description <text>', 'skill description')
         .option('--content <markdown>', 'SKILL.md content inline')
         .option('--content-file <path>', 'read SKILL.md content from a file')
         .option('--json', 'emit raw JSON', false)
-        .action(async (opts: LibraryCreateOpts) => {
+    libraryCreate.action(async (opts: LibraryCreateOpts) => {
+        try {
+            const content = await resolveContentOpt(opts)
+            const name =
+                opts.name ??
+                (content === undefined ? undefined : frontmatterName(content))
+            if (!name)
+                throw new UsageError(
+                    'name the skill: --name, or a name: line in its SKILL.md frontmatter'
+                )
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.library.create({
-                name: opts.name,
+                name,
                 description: opts.description,
-                content: await resolveContentOpt(opts)
+                content
             })
             emit(opts, res, () =>
                 console.log(`${res.id}  ${kleur.cyan(res.name)}`)
             )
-        })
+        } catch (err) {
+            if (err instanceof UsageError)
+                libraryCreate.error(`error: ${err.message}`)
+            throw err
+        }
+    })
 
     library
         .command('update <skillId>')
@@ -475,13 +659,16 @@ export const registerSkills = (program: Command): void => {
             )
         })
 
-    library
+    const libraryImport = library
         .command('import')
         .description(
-            'Import a skill from a GitHub URL, catalog entry, share link, or .skill/.zip archive'
+            'Import a skill from a GitHub URL, catalog entry, share link, local folder, or .skill/.zip archive'
         )
         .option('--url <url>', 'github.com repo / tree / SKILL.md blob URL')
-        .option('--file <path>', 'local .skill or .zip archive')
+        .option(
+            '--file <path>',
+            'local skill folder (SKILL.md at its top) or .skill/.zip archive'
+        )
         .option(
             '--catalog-skill-id <id>',
             'copy a catalog skill to the library'
@@ -492,7 +679,9 @@ export const registerSkills = (program: Command): void => {
         )
         .option('--on-conflict <mode>', 'fail | overwrite | rename')
         .option('--json', 'emit raw JSON', false)
-        .action(async (opts: LibraryImportOpts) => {
+    libraryImport.action(async (opts: LibraryImportOpts) => {
+        let packed: PackedSkill | undefined
+        try {
             const provided = [
                 opts.url,
                 opts.file,
@@ -504,12 +693,14 @@ export const registerSkills = (program: Command): void => {
                     'pass exactly one of --url / --file / --catalog-skill-id / --share'
                 )
             const onConflict = resolveConflictOpt(opts.onConflict)
+            const local = opts.file ? await localArchive(opts.file) : null
+            packed = local?.packed
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
-            const res = opts.file
+            const res = local
                 ? await client.skills.library.importArchive(
-                      new Blob([new Uint8Array(await readFile(opts.file))]),
-                      basename(opts.file),
+                      local.blob,
+                      local.filename,
                       { onConflict }
                   )
                 : await client.skills.library.import({
@@ -520,12 +711,78 @@ export const registerSkills = (program: Command): void => {
                           : undefined,
                       onConflict
                   })
-            emit(opts, res, () =>
+            emit(opts, res, () => {
+                reportPacked(packed)
                 console.log(
                     `${res.status}  ${res.skill.id}  ${kleur.cyan(res.skill.name)}`
                 )
+            })
+        } catch (err) {
+            if (err instanceof UsageError)
+                libraryImport.error(`error: ${err.message}`)
+            const extra = packedTooLarge(err, packed)
+            if (extra) {
+                fail(opts, err, extra)
+                return
+            }
+            throw err
+        }
+    })
+
+    const publish = library
+        .command('publish <dir>')
+        .description(
+            'Create or update the library skill of a local folder (by its name), then push it to the agents that have it'
+        )
+        .option('--json', 'emit raw JSON', false)
+    publish.action(async (dir: string, opts: JsonOpt) => {
+        let packed: PackedSkill | undefined
+        try {
+            packed = await packSkillDir(dir)
+            const global = program.opts<RootOpts>()
+            const { client } = await buildClient(global)
+            const res = await client.skills.library.importArchive(
+                new Blob([packed.archive]),
+                packed.filename,
+                { onConflict: 'overwrite' }
             )
-        })
+            // A new skill is on no agent yet; an update reaches the agents
+            // that have it.
+            const push =
+                res.status === 'updated'
+                    ? await client.skills.library.push(res.skill.id)
+                    : null
+            if (opts.json) {
+                printJson({ ...res, push })
+                return
+            }
+            reportPacked(packed)
+            console.log(
+                `${res.status}  ${res.skill.id}  ${kleur.cyan(res.skill.name)}  ${kleur.dim(plural(packed.files, 'file'))}`
+            )
+            for (const item of push?.results ?? [])
+                console.log(
+                    item.status === 'pushed'
+                        ? `  ${item.agentId}  ${kleur.green('pushed')}`
+                        : `  ${item.agentId}  ${kleur.red('failed')}  ${kleur.dim(item.error ?? '')}`
+                )
+            if (!push || push.results.length === 0)
+                console.error(
+                    kleur.dim(
+                        `on no agent yet; install it with mf skills install ${res.skill.name} --agent-id <agent>`
+                    )
+                )
+        } catch (err) {
+            if (err instanceof UsageError)
+                publish.error(`error: ${err.message}`)
+            const extra = packedTooLarge(err, packed)
+            if (extra) {
+                fail(opts, err, extra)
+                return
+            }
+            throw err
+        }
+    })
 
     library
         .command('share <skill>')
@@ -554,7 +811,7 @@ export const registerSkills = (program: Command): void => {
                     console.log(`${res.id}  ${kleur.cyan(res.url)}`)
                     console.log(
                         kleur.dim(
-                            `imported ${res.importCount} time(s); anyone with the link can view and copy this skill`
+                            `imported ${plural(res.importCount, 'time')}; anyone with the link can view and copy this skill`
                         )
                     )
                 })
@@ -596,9 +853,37 @@ export const registerSkills = (program: Command): void => {
                     throw new Error(
                         `refusing to delete ${skillId} without --yes (or -y)`
                     )
-                await client.skills.library.delete(skillId, {
-                    force: opts.force
-                })
+                try {
+                    await client.skills.library.delete(skillId, {
+                        force: opts.force
+                    })
+                } catch (err) {
+                    if (
+                        !(err instanceof ApiError) ||
+                        err.code !== 'skill_installed'
+                    )
+                        throw err
+                    const ids =
+                        (
+                            err.details as
+                                | { installedAgentIds?: string[] }
+                                | undefined
+                        )?.installedAgentIds ?? []
+                    const hint =
+                        'Pass --force to uninstall it from those agents and delete it, or uninstall it there first.'
+                    if (opts.json || ids.length === 0) {
+                        fail(opts, err, { hint })
+                        return
+                    }
+                    console.error(
+                        kleur.red(
+                            `${skillId} is installed on ${plural(ids.length, 'agent')}: ${ids.join(', ')}`
+                        )
+                    )
+                    console.error(kleur.dim(hint))
+                    process.exitCode = 1
+                    return
+                }
                 emit(opts, { ok: true, id: skillId }, () =>
                     console.log(kleur.dim(`✓ deleted ${skillId}`))
                 )

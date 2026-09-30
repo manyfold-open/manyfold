@@ -799,7 +799,10 @@ test('an update that cannot bring the feature answers runner_cli_too_old', async
         daemon: daemonRow({ clientFeatures: [] }),
         hostCli: {
             ensure: async (host) => {
-                throw new HostCliTooOldError(host, 'already on the latest')
+                throw new HostCliTooOldError(host, 'already on the latest', {
+                    cliVersion: '4.8.0',
+                    latestCliVersion: '4.8.0'
+                })
             }
         }
     })
@@ -809,6 +812,12 @@ test('an update that cannot bring the feature answers runner_cli_too_old', async
     })
     assert.equal(res.handle, null)
     assert.equal(res.fallbackReason, 'runner_cli_too_old')
+    // Why the update did not help, which used to reach only the log.
+    assert.deepEqual(res.cliRefusal, {
+        message: 'already on the latest',
+        cliVersion: '4.8.0',
+        latestCliVersion: '4.8.0'
+    })
 })
 
 // A daemon finishing its current work before it updates is a retry-soon, not

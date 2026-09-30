@@ -59,7 +59,7 @@ export const updatesItself = (daemon: HostDaemonRow): boolean =>
     daemon.startupMethod === 'container' ||
     daemon.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
 
-const podHost = (host: RuntimeHostRow): boolean =>
+export const podHost = (host: RuntimeHostRow): boolean =>
     host.providerRef?.kind === 'k8s'
 
 // The machine's daemon is finishing the work it has before it updates: the
@@ -76,12 +76,33 @@ export class HostCliUpdatingError extends ServiceUnavailableException {
 // The CLI a need asks for is not there after everything the platform can do
 // to get it: callers report it as "update the CLI", not as an outage.
 export class HostCliTooOldError extends ServiceUnavailableException {
-    constructor(host: RuntimeHostRow, message: string) {
+    // What went wrong and on which versions, for a caller that reports it
+    // under its own code (a sandbox's file operations).
+    readonly refusal: HostCliRefusal
+    constructor(
+        host: RuntimeHostRow,
+        message: string,
+        versions: {
+            cliVersion?: string | null
+            latestCliVersion?: string | null
+        } = {}
+    ) {
         super({
             code: podHost(host) ? 'POD_HOST_DAEMON_TOO_OLD' : 'SANDBOX_DAEMON_TOO_OLD',
             message
         })
+        this.refusal = {
+            message,
+            cliVersion: versions.cliVersion ?? null,
+            latestCliVersion: versions.latestCliVersion ?? null
+        }
     }
+}
+
+export interface HostCliRefusal {
+    message: string
+    cliVersion: string | null
+    latestCliVersion: string | null
 }
 
 // The mf CLI of a hosted machine's daemon (ADR-0035 §5, ADR-0038): updated on
@@ -129,7 +150,8 @@ export class HostCliService {
         else
             throw new HostCliTooOldError(
                 args.host,
-                `the Manyfold CLI on ${args.host.name} cannot update itself; update it from the sandbox's page`
+                `the Manyfold CLI on ${args.host.name} cannot update itself; update it from the sandbox's page`,
+                { cliVersion: daemon?.cliVersion }
             )
     }
 
@@ -154,7 +176,8 @@ export class HostCliService {
         if (!meets(fresh, need))
             throw new HostCliTooOldError(
                 host,
-                `${host.name} now runs Manyfold CLI ${fresh.cliVersion ?? 'of an unknown version'}, which does not support this yet`
+                `${host.name} now runs Manyfold CLI ${fresh.cliVersion ?? 'of an unknown version'}, which does not support this yet`,
+                { cliVersion: fresh.cliVersion }
             )
         return fresh
     }
@@ -199,7 +222,8 @@ export class HostCliService {
         )
             throw new HostCliTooOldError(
                 host,
-                `${host.name} already runs the latest Manyfold CLI (${before}), which does not support this yet`
+                `${host.name} already runs the latest Manyfold CLI (${before}), which does not support this yet`,
+                { cliVersion: before, latestCliVersion: latest.version }
             )
         const drainingSince = this.draining.get(host.id)
         if (drainingSince && Date.now() - drainingSince < DRAIN_WINDOW_MS)
@@ -216,7 +240,8 @@ export class HostCliService {
         if (back) return back
         throw new HostCliTooOldError(
             host,
-            `the Manyfold CLI on ${host.name} was updated but its daemon did not come back; update it from its page`
+            `the Manyfold CLI on ${host.name} was updated but its daemon did not come back; update it from its page`,
+            { cliVersion: before, latestCliVersion: latest.version }
         )
     }
 

@@ -108,7 +108,7 @@ export const AgentMcpTools: FC<Props> = ({ agent, onAgentUpdated }) => {
 
     const saveScope = async (scopeId: string, text: string): Promise<void> => {
         const next = await client.agents.update(agent.id, {
-            mcp: { ...stored, [scopeId]: text }
+            mcp: { [scopeId]: text }
         })
         setSyncScopes(null)
         setSyncError(null)

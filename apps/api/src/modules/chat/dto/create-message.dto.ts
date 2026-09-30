@@ -3,6 +3,7 @@ import {
     AgentModelConfigSource,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
+    CHAT_MESSAGE_MAX_TEXT,
     CHAT_UPLOAD_MAX_COUNT,
     CHAT_UPLOAD_MAX_FILE_BYTES,
     ClaudeCodePermissionMode,
@@ -186,7 +187,7 @@ export class CreateMessageDto {
     @Transform(({ value }) => (value === undefined ? undefined : value))
     @IsOptional()
     @IsString()
-    @MaxLength(32000)
+    @MaxLength(CHAT_MESSAGE_MAX_TEXT)
     text?: string
 
     @Transform(({ value }) => {
@@ -252,7 +253,7 @@ export class RegenerateMessageDto {
     @Transform(({ value }) => (value === undefined ? undefined : value))
     @IsOptional()
     @IsString()
-    @MaxLength(32000)
+    @MaxLength(CHAT_MESSAGE_MAX_TEXT)
     text?: string
 
     @Transform(({ value }) => {

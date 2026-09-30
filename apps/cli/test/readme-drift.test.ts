@@ -49,13 +49,9 @@ test('README drift validation checks required command options', () => {
                 'create',
                 '--title',
                 'test',
-                '--prompt',
-                'test',
                 '--schedule-preset',
-                'daily',
-                '--timezone',
-                'UTC'
+                'daily'
             ]),
-        /missing required option '--rrule <rrule>'/
+        /missing required option '--prompt <prompt>'/
     )
 })

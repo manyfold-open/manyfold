@@ -24,9 +24,11 @@ order: 12
 | [`mf files`](/zh/docs/cli/reference/files/) | Read/write files on an agent runtime |
 | [`mf connections`](/zh/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/zh/docs/cli/reference/model-config/) | Read/update agent model configuration |
+| [`mf model-providers`](/zh/docs/cli/reference/model-providers/) | List and test the model providers agents can be created with |
 | [`mf runtime`](/zh/docs/cli/reference/runtime/) | Manage agent runtimes (a framework on one of your computers) |
-| [`mf sandbox`](/zh/docs/cli/reference/sandbox/) | Inspect sandbox storage |
+| [`mf sandbox`](/zh/docs/cli/reference/sandbox/) | List, delete and inspect your sandboxes |
 | [`mf skills`](/zh/docs/cli/reference/skills/) | Manage installed agent skills |
+| [`mf mcp`](/zh/docs/cli/reference/mcp/) | Manage an agent's MCP servers |
 | [`mf usage`](/zh/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/zh/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
 | [`mf daemon`](/zh/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli) |

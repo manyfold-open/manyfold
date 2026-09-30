@@ -37,7 +37,7 @@ test('a local dev stack is named as one', () => {
         )
         assert.match(
             prompt,
-            /This is my local Manyfold dev stack at (localhost|127\.0\.0\.1):7180: use a separate `mf` profile/
+            /This is my local Manyfold dev stack at (localhost|127\.0\.0\.1):7180: sign in with an `mf` profile that is only for it/
         )
     }
 })
@@ -53,7 +53,7 @@ test('any other deployment is named by its API host', () => {
     )
     assert.match(
         prompt,
-        /This is the Manyfold deployment at api\.example\.com: use a separate `mf` profile/
+        /This is the Manyfold deployment at api\.example\.com: sign in with an `mf` profile that is only for it/
     )
     assert.doesNotMatch(prompt, /local Manyfold dev stack/)
 })

@@ -86,6 +86,7 @@ export {
     MAX_LIBRARY_SKILL_FILE_BYTES,
     MAX_LIBRARY_SKILL_FILE_COUNT,
     MAX_LIBRARY_SKILL_TOTAL_BYTES,
+    shouldIgnoreLibrarySkillPath,
     validateLibraryFilePath,
     type LibraryFilePathValidationCode,
     type LibraryFilePathValidationResult
@@ -350,6 +351,7 @@ export type {
     SkillRepoSummary,
     DiscoverableSkillSummary,
     DiscoverableSkillsPage,
+    DiscoverablePendingRepo,
     SkillSecretRequirement,
     SkillReadmeMeta,
     SkillReadmeSource,
@@ -515,11 +517,11 @@ export {
     describeChannelScope
 } from './channels'
 export {
+    AGENT_CREATE_REQUEST_HEADER,
     agentCreateStep,
     spritesSteps,
     spritesServiceSteps,
     k8sSteps,
-    k8sCliSteps,
     externalSteps,
     stepsFor
 } from './agent-progress'
@@ -612,6 +614,14 @@ export {
     mcpDeliveryFromExtras,
     validateMcpJson
 } from './mcp'
+export {
+    mcpServerJsonConfig,
+    mcpServerJsonSnippet,
+    mcpServerNames,
+    mcpServerTomlSnippet,
+    mergeMcpServerIntoText,
+    type McpInstallableEntry
+} from './mcp-servers'
 export { chatCapabilitiesFor, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
 export {
     agentModelConfigSources,
@@ -876,6 +886,7 @@ export type {
     SharedChatMessagesPage
 } from './chat'
 export {
+    CHAT_MESSAGE_MAX_TEXT,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
@@ -1046,6 +1057,15 @@ export {
 } from './agent-ingress'
 export type { AgentIngressScheme } from './agent-ingress'
 export {
+    AUTOMATION_DEFAULT_TIME,
+    AUTOMATION_SCHEDULE_PRESETS,
+    AUTOMATION_WEEKDAYS,
+    automationPresetRrule,
+    automationRruleTime,
+    automationRruleWeekday
+} from './automation-schedule'
+export type { AutomationWeekday } from './automation-schedule'
+export {
     DEFAULT_AUTOMATION_RETENTION,
     DEFAULT_AUTOMATION_RETENTION_DAYS,
     MAX_AUTOMATION_RETENTION_DAYS
@@ -1210,6 +1230,16 @@ export {
 export type { ProfilePaths } from './profile-paths'
 export { renderAgentSetupGuide } from './agentSetupGuide'
 export type { AgentSetupGuideInput } from './agentSetupGuide'
+export {
+    bindingProtocolFor,
+    managedChannelFor,
+    preferredPrimaryModelDefault,
+    providerBindingFor,
+    providerRowVerdict,
+    testedModelsFor
+} from './provider-binding'
+export type { ProviderBinding, ProviderRowVerdict } from './provider-binding'
+export { runtimeSignInCommandFor } from './runtime-sign-in'
 export {
     RUNTIME_AUTH_METHODS,
     RUNTIME_AUTH_LIFECYCLES,

@@ -7,6 +7,23 @@ export const MAX_LIBRARY_SKILL_FILE_COUNT = 128
 
 export const LIBRARY_SKILL_FILE_PATH_RE = /^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,511}$/
 
+const IGNORED_BASENAMES = /^(license|licence|notice)(\.[a-z]+)?$/i
+
+// What an imported skill leaves out, from an archive or a local folder:
+// hidden files and folders, macOS archive debris, license files, and a
+// nested SKILL.md (another skill's content, not a file of this one).
+export const shouldIgnoreLibrarySkillPath = (path: string): boolean => {
+    const segments = path.split('/')
+    if (segments.some((segment) => segment.startsWith('.'))) return true
+    if (segments.some((segment) => segment === '__MACOSX')) return true
+    const basename = segments[segments.length - 1]
+    if (IGNORED_BASENAMES.test(basename)) return true
+    return (
+        path !== LIBRARY_SKILL_CONTENT_FILENAME &&
+        basename.toLowerCase() === LIBRARY_SKILL_CONTENT_FILENAME.toLowerCase()
+    )
+}
+
 export type LibraryFilePathValidationCode = 'invalid' | 'reserved'
 
 export type LibraryFilePathValidationResult =

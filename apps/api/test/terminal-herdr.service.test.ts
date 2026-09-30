@@ -425,6 +425,8 @@ test('a sprites agent hands off through its sandbox runner, with the row address
     // sandbox TUI gets them injected as the browser terminal does.
     assert.equal(h.resolves[0].modelCredentialsAllowed, true)
     assert.equal(h.resolves[0].injectModelCredentials, true)
+    // Whose model settings the TUI resumes on.
+    assert.equal(h.resolves[0].userId, 'u1')
     // Without that opt-in a TUI has nothing to answer with — no CLI is
     // logged in on the machine — and the refusal names the setting instead
     // of "nothing to resume".

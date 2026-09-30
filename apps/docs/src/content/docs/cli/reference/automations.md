@@ -20,6 +20,7 @@ order: 6
 | [`mf automations create`](#mf-automations-create) | Create a new automation |
 | [`mf automations update`](#mf-automations-update) | Update an existing automation |
 | [`mf automations run`](#mf-automations-run) | Trigger an automation run now |
+| [`mf automations result`](#mf-automations-result) | Print a run's reply, or why it failed: the latest run's, or --run's (a run still going is followed to its end) |
 | [`mf automations delete`](#mf-automations-delete) | Delete an automation |
 
 ## `mf automations list`
@@ -70,9 +71,11 @@ Create a new automation
 | `--agent-id <id>` | agent id to run as (defaults to $MF_AGENT_ID) |
 | `--title <title>` | short title Required. |
 | `--prompt <prompt>` | prompt body Required. |
-| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly \| custom Required. |
-| `--rrule <rrule>` | RRULE string (iCalendar) Required. |
-| `--timezone <tz>` | IANA timezone (e.g. UTC) Required. |
+| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly (timed with --at, and --day for weekly); custom goes with --rrule |
+| `--at <time>` | time of day for a preset, HH:MM (default 09:00) |
+| `--day <weekday>` | weekday for the weekly preset, mon … sun (default mon) |
+| `--rrule <rrule>` | iCalendar RRULE for a custom schedule (the preset is then custom) |
+| `--timezone <tz>` | IANA timezone the schedule keeps (default: this machine's) |
 | `--dtstart <iso>` | first run start (ISO8601) |
 | `--model <model>` | model override |
 | `--json` | emit raw JSON |
@@ -97,8 +100,10 @@ Update an existing automation
 | `--title <title>` | new title |
 | `--prompt <prompt>` | new prompt |
 | `--status <status>` | active \| paused |
-| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly \| custom |
-| `--rrule <rrule>` | new RRULE |
+| `--schedule-preset <preset>` | hourly \| daily \| weekdays \| weekly (timed with --at, and --day for weekly); custom goes with --rrule |
+| `--at <time>` | new time of day, HH:MM; alone it re-times the current preset |
+| `--day <weekday>` | new weekday for the weekly preset |
+| `--rrule <rrule>` | new RRULE (the preset is then custom) |
 | `--timezone <tz>` | new IANA timezone |
 | `--dtstart <iso>` | new dtstart |
 | `--model <model>` | new model override |
@@ -122,6 +127,29 @@ Trigger an automation run now
 
 | Options | Purpose |
 | --- | --- |
+| `--wait` | follow the run's reply as it streams, then say how the run ended (Ctrl-C stops following; the run goes on) |
+| `--show-thinking` | with --wait, print the agent's thinking, dim on stderr (with --json: a thinking field) |
+| `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
+## `mf automations result`
+
+Print a run's reply, or why it failed: the latest run's, or --run's (a run still going is followed to its end)
+
+**Usage:** `mf automations result [options] <id>`
+
+**Arguments**
+
+| Argument | Purpose |
+| --- | --- |
+| `<id>` |  |
+
+**Options**
+
+| Options | Purpose |
+| --- | --- |
+| `--run <runId>` | this run instead of the latest; one of the 20 latest, which mf automations get lists |
+| `--show-thinking` | print the agent's thinking, dim on stderr (with --json: a thinking field) |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 

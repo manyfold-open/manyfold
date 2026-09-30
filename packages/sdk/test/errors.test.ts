@@ -106,3 +106,82 @@ test('the SDK request path uses the same canonical-only error contract', async (
         })
     }
 })
+
+const ndjsonClient = (lines: object[]) =>
+    createClient({
+        baseUrl: 'http://api.test/api',
+        token: 'tok',
+        fetch: async () =>
+            new Response(
+                lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
+                {
+                    status: 201,
+                    headers: { 'content-type': 'application/x-ndjson' }
+                }
+            )
+    })
+
+// The create stream answers 201 before it knows the outcome, so a failure
+// arrives as an event; callers need the same ApiError a plain response gives.
+test('a create stream failure is an ApiError with the envelope fields', async () => {
+    const client = ndjsonClient([
+        {
+            type: 'step',
+            step: 'checking_quota',
+            index: 2,
+            total: 9,
+            startedAt: ''
+        },
+        {
+            type: 'error',
+            step: 'checking_quota',
+            errorClass: 'ForbiddenException',
+            message: 'Stateful sandbox limit reached (3 for Free plan)',
+            code: 'RUNTIME_LIMIT_REACHED',
+            status: 403,
+            details: { limit: 3 }
+        }
+    ])
+    await assert.rejects(
+        () =>
+            client.agents.createStream(
+                { name: 'x', framework: 'codex' },
+                () => {}
+            ),
+        (err) => {
+            assert.ok(err instanceof ApiError)
+            assert.equal(err.code, 'RUNTIME_LIMIT_REACHED')
+            assert.equal(err.status, 403)
+            assert.deepEqual(err.details, { limit: 3 })
+            assert.equal(
+                (err as ApiError & { step: string }).step,
+                'checking_quota'
+            )
+            return true
+        }
+    )
+})
+
+test('a create stream failure from an older API still gets a status', async () => {
+    const client = ndjsonClient([
+        {
+            type: 'error',
+            step: 'validating',
+            errorClass: 'ConflictException',
+            message: 'agent "x" already exists for this user'
+        }
+    ])
+    await assert.rejects(
+        () =>
+            client.agents.createStream(
+                { name: 'x', framework: 'codex' },
+                () => {}
+            ),
+        (err) => {
+            assert.ok(err instanceof ApiError)
+            assert.equal(err.status, 409)
+            assert.equal(err.code, 'conflict')
+            return true
+        }
+    )
+})
