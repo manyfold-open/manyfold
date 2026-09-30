@@ -614,6 +614,14 @@ export {
     mcpDeliveryFromExtras,
     validateMcpJson
 } from './mcp'
+export {
+    mcpServerJsonConfig,
+    mcpServerJsonSnippet,
+    mcpServerNames,
+    mcpServerTomlSnippet,
+    mergeMcpServerIntoText,
+    type McpInstallableEntry
+} from './mcp-servers'
 export { chatCapabilitiesFor, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
 export {
     agentModelConfigSources,
