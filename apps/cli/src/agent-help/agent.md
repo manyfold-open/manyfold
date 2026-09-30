@@ -138,7 +138,8 @@ use `send`.
 
 ## Output
 
-- `list` / `get` / `update` print one line per agent:
+- `list` prints a `Scope:` line, then a table (`ID NAME FRAMEWORK RUNTIME
+  STATUS`); `get` / `update` print one line per agent:
   `id  name  framework/runtime  status`; `update` adds `model  <model>`
   when it changed the model. All accept `--json` (the
   scoped `{ scope, agents }` result for `list`, the full record otherwise);
@@ -169,6 +170,16 @@ use `send`.
   sources it lists
 - `RUNTIME_LIMIT_REACHED` → every sandbox the plan includes is in use: add
   the agent to one with `--sandbox`, or free one with `mf sandbox delete`
+- `ALWAYS_ONLINE_AGENT_LIMIT_REACHED` / `ALWAYS_ONLINE_LIMIT_REACHED` → the
+  plan's always-online agents or computers are all in use: remove one, or
+  upgrade the plan
+- `CONCURRENT_ACTIVE_LIMIT_REACHED` → as many sandboxes as the plan runs at
+  once are running: try again once one sleeps, or upgrade the plan
+- `ACTIVE_HOURS_QUOTA_REACHED` / `STORAGE_LIMIT_REACHED` → the plan's
+  sandbox hours are used up, or its storage is full (`mf sandbox
+  storage-usage` shows where it goes): free space, or upgrade the plan
+- Every plan limit or quota is a 403 (exit 3) whose `details` carry
+  `current`, `limit` and `planName`; no token or scope change fixes it
 - `AGENT_NAME_TAKEN` (`details.agentId`) → pick another name
 - `AGENT_CREATE_IN_PROGRESS` → a create of that name with other settings is
   under way; wait, or pick another name

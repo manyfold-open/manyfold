@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import { buildClient } from '@/client'
 import { emit, jsonOption } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { assertAgentStorageContract } from '@/storage-contract'
 
 export const registerAgentList = (cmd: Command, program: Command): void => {
@@ -23,11 +24,18 @@ export const registerAgentList = (cmd: Command, program: Command): void => {
                 console.log(kleur.dim('No agents yet.'))
                 return
             }
-            for (const a of agents) {
-                console.log(
-                    `${a.id}  ${kleur.cyan(a.name)}  ${kleur.yellow(a.framework)}/${a.runtime}  ${a.status}`
-                )
-            }
+            const rows = agents.map((a): TableCell[] => [
+                a.id,
+                [a.name, kleur.cyan],
+                [a.framework, kleur.yellow],
+                a.runtime,
+                a.status
+            ])
+            for (const line of formatTable(
+                ['ID', 'NAME', 'FRAMEWORK', 'RUNTIME', 'STATUS'],
+                rows
+            ))
+                console.log(line)
         })
     })
 }

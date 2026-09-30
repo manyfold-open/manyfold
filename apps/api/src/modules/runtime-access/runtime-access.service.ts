@@ -99,6 +99,16 @@ export const isConcurrentActiveLimitError = (err: unknown): boolean =>
     (err.getResponse() as { code?: unknown }).code ===
         CONCURRENT_ACTIVE_LIMIT_CODE
 
+// The error envelope carries only code, message and details, so the numbers
+// a client can act on go in details; the top-level copies are for callers in
+// the API.
+const planLimitReached = (
+    code: string,
+    message: string,
+    fields: Record<string, unknown>
+): ForbiddenException =>
+    new ForbiddenException({ message, code, ...fields, details: fields })
+
 // Advisory-lock namespaces on hashtextextended(userId, N):
 //   0 — reserveRuntime    (per-user runtime agent-slot quota: daemon/k8s agents)
 //   2 — reserveActiveSlot + enableKeepAlive (per-user concurrent active
@@ -121,6 +131,14 @@ const serviceFrameworks = (): string[] =>
     listFrameworks().filter(
         (framework) => frameworkCapability(framework).kind === 'service'
     )
+
+const sandboxNotFailed = (status: string | null): ConflictException =>
+    new ConflictException({
+        message: status
+            ? `only a failed sandbox can be retried; this one is ${status}`
+            : 'only a failed sandbox can be retried',
+        code: 'SANDBOX_NOT_FAILED'
+    })
 
 @Injectable()
 export class RuntimeAccessService {
@@ -360,7 +378,7 @@ export class RuntimeAccessService {
         const [row] = await db
             .select({ value: count() })
             .from(channels)
-            .where(eq(channels.userId, userId))
+            .where(and(eq(channels.userId, userId), isNull(channels.origin)))
         return Number(row?.value ?? 0)
     }
 
@@ -483,13 +501,15 @@ export class RuntimeAccessService {
     }): Promise<void> {
         const status = await this.activeHoursStatus(input)
         if (!status?.exhausted) return
-        throw new ForbiddenException({
-            message: `active hours quota reached (${status.limitHours}h included for ${input.planName} plan this billing period)`,
-            code: 'ACTIVE_HOURS_QUOTA_REACHED',
-            current: status.usedHours,
-            limit: status.limitHours,
-            planName: input.planName
-        })
+        throw planLimitReached(
+            'ACTIVE_HOURS_QUOTA_REACHED',
+            `active hours quota reached (${status.limitHours}h included for ${input.planName} plan this billing period)`,
+            {
+                current: status.usedHours,
+                limit: status.limitHours,
+                planName: input.planName
+            }
+        )
     }
 
     // The one quota the reserveActiveSlot fast path cannot skip. Concurrency
@@ -585,13 +605,11 @@ export class RuntimeAccessService {
         const current = Number(row?.value ?? 0)
         const limit = input.maxStorageGb * 1_000_000_000
         if (current >= limit)
-            throw new ForbiddenException({
-                message: `sandbox storage limit reached (${input.maxStorageGb} GB for ${input.planName} plan)`,
-                code: 'STORAGE_LIMIT_REACHED',
-                current,
-                limit,
-                planName: input.planName
-            })
+            throw planLimitReached(
+                'STORAGE_LIMIT_REACHED',
+                `sandbox storage limit reached (${input.maxStorageGb} GB for ${input.planName} plan)`,
+                { current, limit, planName: input.planName }
+            )
     }
 
     async evaluateQuotaThresholds(userId: string): Promise<
@@ -914,27 +932,31 @@ export class RuntimeAccessService {
                 const agentsLimit =
                     row.maxAlwaysOnlineAgents + row.alwaysOnlineRuntimeBonus
                 if (usage.agentsUsed >= agentsLimit)
-                    throw new ForbiddenException({
-                        message: `always-online agent limit reached (${agentsLimit} for ${row.planName} plan)`,
-                        code: 'ALWAYS_ONLINE_AGENT_LIMIT_REACHED',
-                        kind: placement,
-                        current: usage.agentsUsed,
-                        limit: agentsLimit,
-                        planName: row.planName
-                    })
+                    throw planLimitReached(
+                        'ALWAYS_ONLINE_AGENT_LIMIT_REACHED',
+                        `always-online agent limit reached (${agentsLimit} for ${row.planName} plan)`,
+                        {
+                            kind: placement,
+                            current: usage.agentsUsed,
+                            limit: agentsLimit,
+                            planName: row.planName
+                        }
+                    )
                 if (placement === 'k8s') {
                     const runtimesLimit =
                         row.maxAlwaysOnlineRuntimes +
                         row.alwaysOnlineRuntimeBonus
                     if (usage.runtimesUsed >= runtimesLimit)
-                        throw new ForbiddenException({
-                            message: `always-online runtime limit reached (${runtimesLimit} for ${row.planName} plan)`,
-                            code: 'ALWAYS_ONLINE_LIMIT_REACHED',
-                            kind: 'k8s',
-                            current: usage.runtimesUsed,
-                            limit: runtimesLimit,
-                            planName: row.planName
-                        })
+                        throw planLimitReached(
+                            'ALWAYS_ONLINE_LIMIT_REACHED',
+                            `always-online runtime limit reached (${runtimesLimit} for ${row.planName} plan)`,
+                            {
+                                kind: 'k8s',
+                                current: usage.runtimesUsed,
+                                limit: runtimesLimit,
+                                planName: row.planName
+                            }
+                        )
                 }
             }
 
@@ -991,22 +1013,11 @@ export class RuntimeAccessService {
             input.maxAgentsProvisioned
         )
         if (current >= limit)
-            throw new ForbiddenException({
-                message: `${runtimePlacementLabel(input.kind)} limit reached (${limit} for ${input.planName} plan)`,
-                code: 'RUNTIME_LIMIT_REACHED',
-                kind: input.kind,
-                current,
-                limit,
-                planName: input.planName,
-                // What the error envelope carries to clients; the fields above
-                // are for callers in the API.
-                details: {
-                    kind: input.kind,
-                    current,
-                    limit,
-                    planName: input.planName
-                }
-            })
+            throw planLimitReached(
+                'RUNTIME_LIMIT_REACHED',
+                `${runtimePlacementLabel(input.kind)} limit reached (${limit} for ${input.planName} plan)`,
+                { kind: input.kind, current, limit, planName: input.planName }
+            )
     }
 
     // Next per-user sandbox label (sandbox-001, sandbox-002, …). MAX-suffix+1
@@ -1076,6 +1087,39 @@ export class RuntimeAccessService {
         return inserted
     }
 
+    // Whether one more sandbox fits the user's plan: storage and the
+    // provisioned count. Callers hold the namespace-0 per-user lock.
+    private async assertSandboxSlotAvailable(
+        tx: Tx,
+        userId: string
+    ): Promise<void> {
+        const [row] = await tx
+            .select({
+                statefulSandboxLimit: users.statefulSandboxLimit,
+                planName: plans.name,
+                maxAgentsProvisioned: plans.maxAgentsProvisioned,
+                maxStorageGb: plans.maxStorageGb
+            })
+            .from(users)
+            .innerJoin(plans, eq(plans.id, users.planId))
+            .where(eq(users.id, userId))
+            .limit(1)
+        if (!row) throw new NotFoundException('user not found')
+
+        await this.assertStorageQuotaAvailable(tx, {
+            userId,
+            maxStorageGb: row.maxStorageGb,
+            planName: row.planName
+        })
+        await this.assertProvisionedQuotaAvailable(tx, {
+            userId,
+            statefulSandboxLimit: row.statefulSandboxLimit,
+            maxAgentsProvisioned: row.maxAgentsProvisioned,
+            planName: row.planName,
+            kind: 'sprites'
+        })
+    }
+
     async reserveStandaloneSandbox(input: {
         userId: string
         name?: string
@@ -1085,37 +1129,59 @@ export class RuntimeAccessService {
             await tx.execute(
                 sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`
             )
-            const [row] = await tx
-                .select({
-                    statefulSandboxLimit: users.statefulSandboxLimit,
-                    planName: plans.name,
-                    maxAgentsProvisioned: plans.maxAgentsProvisioned,
-                    maxStorageGb: plans.maxStorageGb
-                })
-                .from(users)
-                .innerJoin(plans, eq(plans.id, users.planId))
-                .where(eq(users.id, input.userId))
-                .limit(1)
-            if (!row) throw new NotFoundException('user not found')
-
-            await this.assertStorageQuotaAvailable(tx, {
-                userId: input.userId,
-                maxStorageGb: row.maxStorageGb,
-                planName: row.planName
-            })
-            await this.assertProvisionedQuotaAvailable(tx, {
-                userId: input.userId,
-                statefulSandboxLimit: row.statefulSandboxLimit,
-                maxAgentsProvisioned: row.maxAgentsProvisioned,
-                planName: row.planName,
-                kind: 'sprites'
-            })
+            await this.assertSandboxSlotAvailable(tx, input.userId)
             return this.insertSandboxHost(tx, {
                 userId: input.userId,
                 name: input.name ?? (await this.nextSandboxName(tx, input.userId)),
                 providerId: input.providerId,
                 emptiedAt: new Date()
             })
+        })
+    }
+
+    // A failed sandbox built again in its own row. While failed it held no
+    // slot (HOSTED_LIVE_STATUSES), so it is admitted like a new sandbox, and
+    // it leaves `failed` only once: a delete or another retry that got there
+    // first wins. The reaper's empty clock restarts as it does for a new one.
+    async reserveSandboxRetry(input: {
+        userId: string
+        hostId: string
+    }): Promise<RuntimeHostRow> {
+        return this.db.transaction(async (tx) => {
+            await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`
+            )
+            const [host] = await tx
+                .select()
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        eq(runtimeHosts.id, input.hostId),
+                        eq(runtimeHosts.userId, input.userId)
+                    )
+                )
+                .limit(1)
+            if (!host || host.kind !== 'hosted')
+                throw new NotFoundException(`sandbox ${input.hostId} not found`)
+            if (host.status !== 'failed') throw sandboxNotFailed(host.status)
+            await this.assertSandboxSlotAvailable(tx, input.userId)
+            const [retried] = await tx
+                .update(runtimeHosts)
+                .set({
+                    status: 'provisioning',
+                    failureReason: null,
+                    emptiedAt: new Date(),
+                    updatedAt: new Date()
+                })
+                .where(
+                    and(
+                        eq(runtimeHosts.id, host.id),
+                        eq(runtimeHosts.status, 'failed')
+                    )
+                )
+                .returning()
+            if (!retried) throw sandboxNotFailed(null)
+            return retried
         })
     }
 
@@ -1340,19 +1406,21 @@ export class RuntimeAccessService {
                 .where(eq(users.id, userId))
                 .limit(1)
             if (!row) throw new NotFoundException('user not found')
+            // A managed mirror is bounded by its source framework's own
+            // bindings, so it takes no slot here either.
             const [usage] = await tx
                 .select({ value: count() })
                 .from(channels)
-                .where(eq(channels.userId, userId))
+                .where(
+                    and(eq(channels.userId, userId), isNull(channels.origin))
+                )
             const current = Number(usage?.value ?? 0)
             if (current >= row.maxChannels)
-                throw new ForbiddenException({
-                    message: `channel limit reached (${row.maxChannels} for ${row.planName} plan)`,
-                    code: 'CHANNEL_LIMIT_REACHED',
-                    current,
-                    limit: row.maxChannels,
-                    planName: row.planName
-                })
+                throw planLimitReached(
+                    'CHANNEL_LIMIT_REACHED',
+                    `channel limit reached (${row.maxChannels} for ${row.planName} plan)`,
+                    { current, limit: row.maxChannels, planName: row.planName }
+                )
         })
     }
 
@@ -1382,13 +1450,15 @@ export class RuntimeAccessService {
                 )
             const current = Number(usage?.value ?? 0)
             if (current >= row.maxAutomations)
-                throw new ForbiddenException({
-                    message: `automation limit reached (${row.maxAutomations} for ${row.planName} plan)`,
-                    code: 'AUTOMATION_LIMIT_REACHED',
-                    current,
-                    limit: row.maxAutomations,
-                    planName: row.planName
-                })
+                throw planLimitReached(
+                    'AUTOMATION_LIMIT_REACHED',
+                    `automation limit reached (${row.maxAutomations} for ${row.planName} plan)`,
+                    {
+                        current,
+                        limit: row.maxAutomations,
+                        planName: row.planName
+                    }
+                )
         })
     }
 
@@ -1424,14 +1494,16 @@ export class RuntimeAccessService {
                 )
             const current = Number(usage?.value ?? 0)
             if (current >= row.maxAutomationRunsMonthly)
-                throw new ForbiddenException({
-                    message: `automation run quota reached (${row.maxAutomationRunsMonthly} for ${row.planName} plan this billing period)`,
-                    code: 'AUTOMATION_RUN_QUOTA_REACHED',
-                    current,
-                    limit: row.maxAutomationRunsMonthly,
-                    planName: row.planName,
-                    resetAt: period.end.toISOString()
-                })
+                throw planLimitReached(
+                    'AUTOMATION_RUN_QUOTA_REACHED',
+                    `automation run quota reached (${row.maxAutomationRunsMonthly} for ${row.planName} plan this billing period)`,
+                    {
+                        current,
+                        limit: row.maxAutomationRunsMonthly,
+                        planName: row.planName,
+                        resetAt: period.end.toISOString()
+                    }
+                )
         })
     }
 
@@ -1463,14 +1535,16 @@ export class RuntimeAccessService {
         const runtimesLimit =
             row.maxAlwaysOnlineRuntimes + row.alwaysOnlineRuntimeBonus
         if (usage.runtimesUsed >= runtimesLimit)
-            throw new ForbiddenException({
-                message: `always-online runtime limit reached (${runtimesLimit} for ${row.planName} plan)`,
-                code: 'ALWAYS_ONLINE_LIMIT_REACHED',
-                kind: 'daemon',
-                current: usage.runtimesUsed,
-                limit: runtimesLimit,
-                planName: row.planName
-            })
+            throw planLimitReached(
+                'ALWAYS_ONLINE_LIMIT_REACHED',
+                `always-online runtime limit reached (${runtimesLimit} for ${row.planName} plan)`,
+                {
+                    kind: 'daemon',
+                    current: usage.runtimesUsed,
+                    limit: runtimesLimit,
+                    planName: row.planName
+                }
+            )
     }
 
     async reserveDaemonHostSlot(userId: string): Promise<void> {
@@ -1572,13 +1646,15 @@ export class RuntimeAccessService {
             const activeCount = Number(usage?.value ?? 0)
 
             if (activeCount >= plan.maxConcurrentActive)
-                throw new ForbiddenException({
-                    message: `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
-                    code: CONCURRENT_ACTIVE_LIMIT_CODE,
-                    current: activeCount,
-                    limit: plan.maxConcurrentActive,
-                    planName: plan.name
-                })
+                throw planLimitReached(
+                    CONCURRENT_ACTIVE_LIMIT_CODE,
+                    `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
+                    {
+                        current: activeCount,
+                        limit: plan.maxConcurrentActive,
+                        planName: plan.name
+                    }
+                )
 
             const [orgRow] = await tx
                 .select({ value: count() })
@@ -1724,13 +1800,15 @@ export class RuntimeAccessService {
             const current = Number(usageRows[0]?.value ?? 0)
 
             if (current >= plan.maxConcurrentActive)
-                throw new ForbiddenException({
-                    message: `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
-                    code: CONCURRENT_ACTIVE_LIMIT_CODE,
-                    current,
-                    limit: plan.maxConcurrentActive,
-                    planName: plan.name
-                })
+                throw planLimitReached(
+                    CONCURRENT_ACTIVE_LIMIT_CODE,
+                    `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
+                    {
+                        current,
+                        limit: plan.maxConcurrentActive,
+                        planName: plan.name
+                    }
+                )
 
             const [orgRow] = await tx
                 .select({ value: count() })

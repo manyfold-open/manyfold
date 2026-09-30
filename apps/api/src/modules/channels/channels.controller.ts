@@ -14,6 +14,7 @@ import type {
     WhatsappRegistrationSummary
 } from '@manyfold/shared'
 import {
+    BadRequestException,
     Body,
     Controller,
     Delete,
@@ -513,7 +514,7 @@ export class ChannelsController {
     ): Promise<ChannelSessionSummary> {
         this.assertEnabled()
         if (!body || typeof body.scopeKey !== 'string')
-            throw new NotFoundException('scopeKey is required')
+            throw new BadRequestException('scopeKey is required')
         return this.channels.createChannelSession(
             user.userId,
             id,

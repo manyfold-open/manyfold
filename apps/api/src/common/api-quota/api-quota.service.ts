@@ -104,7 +104,12 @@ export class ApiQuotaService {
                         code: 'API_REQUEST_QUOTA_REACHED',
                         current,
                         limit: limit.limit,
-                        planName: limit.planName
+                        planName: limit.planName,
+                        details: {
+                            current,
+                            limit: limit.limit,
+                            planName: limit.planName
+                        }
                     },
                     HttpStatus.TOO_MANY_REQUESTS
                 )

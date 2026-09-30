@@ -316,3 +316,24 @@ export const buildNewMachineOptions = (args: {
     })
     return options
 }
+
+// The sandbox a failed build in step ② left behind: the row that was not in
+// the list before the build and now reads failed.
+export const sandboxLeftFailed = (
+    before: ReadonlySet<string>,
+    after: readonly SandboxSummary[]
+): SandboxSummary | null =>
+    after.find((row) => !before.has(row.id) && row.status === 'failed') ??
+    null
+
+// That sandbox is built again in place only while the list still shows it
+// failed: deleted or retried elsewhere, the next press builds a new one.
+export const sandboxToRetry = (
+    sandboxes: readonly SandboxSummary[],
+    failedBuildId: string | null
+): SandboxSummary | null =>
+    failedBuildId === null
+        ? null
+        : (sandboxes.find(
+              (row) => row.id === failedBuildId && row.status === 'failed'
+          ) ?? null)

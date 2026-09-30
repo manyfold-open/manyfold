@@ -54,13 +54,14 @@ test('sandbox list shows what runs on each sandbox and how many the plan include
     const human = await runMf(['sandbox', 'list'], listRoutes)
     assert.equal(human.error, undefined, String(human.error))
     const text = human.out.join('\n')
+    assert.match(text, /^ID +NAME +STATE +AGENTS +FRAMEWORKS +CREATED$/m)
     assert.match(
         text,
-        /sbx_busy {2}\S*busy\S* {2}ready, suspended {2}2 agents {2}claude-code, codex/
+        /sbx_busy +\S*busy\S* +ready, suspended +2 +claude-code, codex/
     )
     assert.match(
         text,
-        /sbx_idle {2}\S*idle\S* {2}ready, suspended {2}0 agents {2}nothing installed/
+        /sbx_idle +\S*idle\S* +ready, suspended +0 +nothing installed/
     )
     assert.match(text, /2 of 3 sandboxes in use \(Free plan\)/)
     assert.match(

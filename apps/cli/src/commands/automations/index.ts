@@ -11,6 +11,7 @@ import { ApiError } from '@manyfold/sdk'
 import { resolveAgentId, resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit, fail } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
 import {
     clockIn,
@@ -117,11 +118,18 @@ export const registerAutomations = (program: Command): void => {
                 console.log(kleur.dim('(no automations)'))
                 return
             }
-            for (const a of list) {
-                console.log(
-                    `${a.id}  ${kleur.cyan(a.title)}  ${a.status}  ${kleur.yellow(a.schedulePreset)}  ${kleur.dim(a.agentId)}`
-                )
-            }
+            const rows = list.map((a): TableCell[] => [
+                a.id,
+                [a.title, kleur.cyan],
+                a.status,
+                [a.schedulePreset, kleur.yellow],
+                [a.agentId, kleur.dim]
+            ])
+            for (const line of formatTable(
+                ['ID', 'TITLE', 'STATUS', 'SCHEDULE', 'AGENT'],
+                rows
+            ))
+                console.log(line)
         })
 
     cmd.command('get <id>')
@@ -239,7 +247,7 @@ export const registerAutomations = (program: Command): void => {
             if (opts.clearModel) body.model = null
             else if (opts.model !== undefined) body.model = opts.model
             if (Object.keys(body).length === 0)
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const detail = await client.automations.update(id, body)
             if (opts.json) {
                 console.log(JSON.stringify(detail, null, 2))

@@ -1,8 +1,9 @@
 import { CommanderError, type Command } from 'commander'
 import kleur from 'kleur'
 import { ApiError } from '@manyfold/sdk'
-import { A2aTransportError } from '@manyfold/a2a'
+import { A2aError, A2aTransportError } from '@manyfold/a2a'
 import { resolveConfigPath, resolveProfile } from '@/config'
+import { UsageError } from '@/usage-error'
 
 // Single source of truth for `--json`. Register the flag with jsonOption(cmd),
 // then read it through emit(opts, payload, renderHuman). Every command prints
@@ -80,7 +81,10 @@ const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
     )
         return 'network_tls'
     if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'network_dns'
-    if (code === 'ECONNREFUSED') return 'network_refused'
+    // The standalone mf runs on Bun, whose fetch reports a name that does not
+    // resolve and a closed port alike as ConnectionRefused.
+    if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
+        return 'network_refused'
     if (
         code === 'ABORT_ERR' ||
         code === 'ETIMEDOUT' ||
@@ -92,7 +96,9 @@ const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
         code === 'ECONNRESET' ||
         code === 'EHOSTUNREACH' ||
         code === 'ENETUNREACH' ||
-        code === 'UND_ERR_SOCKET'
+        code === 'UND_ERR_SOCKET' ||
+        code === 'FailedToOpenSocket' ||
+        code === 'ConnectionClosed'
     )
         return 'network_offline'
     if (error instanceof TypeError && error.message === 'fetch failed')
@@ -135,8 +141,20 @@ const profileHint = (): string => {
 }
 
 // What to do next for a failure a script can act on, by its code; these
-// codes also pass their `details` through to `--json` output.
+// codes, and every plan limit or quota, also pass their `details` through to
+// `--json` output.
 type CodeHint = (details: Record<string, unknown>) => string
+
+// " (2 of 2 on the Free plan)", when the API sent the numbers.
+const planUse = (
+    details: Record<string, unknown>,
+    unit: (value: number) => string = String
+): string =>
+    typeof details.current === 'number' &&
+    typeof details.limit === 'number' &&
+    typeof details.planName === 'string'
+        ? ` (${unit(details.current)} of ${unit(details.limit)} on the ${details.planName} plan)`
+        : ''
 
 const CODE_HINTS: Record<string, CodeHint> = {
     RUNTIME_LIMIT_REACHED: () =>
@@ -167,8 +185,41 @@ const CODE_HINTS: Record<string, CodeHint> = {
     SANDBOX_CLI_TOO_OLD: (details) =>
         `Update it: mf sandbox update ${typeof details.hostName === 'string' ? details.hostName : typeof details.hostId === 'string' ? details.hostId : '<sandbox>'} (--to <version> for a build newer than its channel's latest), or from the Update Center in the web app.`,
     SANDBOX_DAEMON_OFFLINE: () =>
-        'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.'
+        'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.',
+    CHANNEL_LIMIT_REACHED: (details) =>
+        `Every channel your plan includes is in use${planUse(details)}: delete one with mf channels delete <id> (mf channels list shows them), or upgrade your plan.`,
+    AUTOMATION_LIMIT_REACHED: (details) =>
+        `Every automation your plan includes is in use${planUse(details)}: delete one with mf automations delete <id> (mf automations list shows them), or upgrade your plan.`,
+    AUTOMATION_RUN_QUOTA_REACHED: (details) =>
+        `The automation runs included this billing period are used up${planUse(details)}${typeof details.resetAt === 'string' ? `; they renew at ${details.resetAt}` : ''}. Upgrade your plan to keep them running.`,
+    ACTIVE_HOURS_QUOTA_REACHED: (details) =>
+        `The sandbox active hours included this billing period are used up${planUse(details, (hours) => `${Math.round(hours * 10) / 10}h`)}. Upgrade your plan to keep going.`,
+    STORAGE_LIMIT_REACHED: (details) =>
+        `Sandbox storage is full${planUse(details, (bytes) => `${(bytes / 1e9).toFixed(1)} GB`)}: free up space (mf sandbox storage-usage shows where it goes), or upgrade your plan.`,
+    CONCURRENT_ACTIVE_LIMIT_REACHED: (details) =>
+        `As many sandboxes as your plan runs at once are running${planUse(details)}: try again once one goes to sleep, or upgrade your plan.`,
+    ALWAYS_ONLINE_AGENT_LIMIT_REACHED: (details) =>
+        `Every always-online agent your plan includes is in use${planUse(details)}: remove one with mf agent delete <id>, or upgrade your plan.`,
+    ALWAYS_ONLINE_LIMIT_REACHED: (details) =>
+        `Every always-online computer your plan includes is in use${planUse(details)}: remove one, or upgrade your plan.`,
+    a2a_peer_not_found: () =>
+        'mf a2a status lists the peers this agent may call; a peer shows up once it enables exposure and grants this agent (mf a2a callers add --caller-agent-id <id>, run by the peer).',
+    a2a_grant_exists: () =>
+        'Pass --replace-existing to replace the active grant, or revoke it first: mf a2a callers list shows it, mf a2a callers revoke <id> removes it.',
+    delegation_limit: () =>
+        'Wait for one of your A2A calls to finish (mf a2a tasks list --state working shows them), then retry.',
+    channel_session_archived: (details) =>
+        `A deleted session stays archived: start a new one with mf channels sessions new ${typeof details.channelId === 'string' ? details.channelId : '<channelId>'} --scope-key '${typeof details.scopeKey === 'string' ? details.scopeKey : '<key>'}'.`
 }
+
+// A plan limit is a 403 like a missing scope, but no token fixes it.
+const PLAN_LIMIT_CODE = /_(?:LIMIT|QUOTA)_REACHED$/
+
+const planLimitHint: CodeHint = (details) =>
+    `This is a limit of your plan, not of the token${planUse(details)}: free up what it counts, or upgrade your plan.`
+
+const codeHint = (code: string): CodeHint | undefined =>
+    CODE_HINTS[code] ?? (PLAN_LIMIT_CODE.test(code) ? planLimitHint : undefined)
 
 const recordOf = (value: unknown): Record<string, unknown> =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -176,7 +227,7 @@ const recordOf = (value: unknown): Record<string, unknown> =>
         : {}
 
 const apiErrorHint = (error: ApiError): string | undefined => {
-    const byCode = CODE_HINTS[error.code]
+    const byCode = codeHint(error.code)
     if (byCode) return byCode(recordOf(error.details))
     const status = error.status
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
@@ -222,7 +273,7 @@ export const normalizeCliError = (
     error: unknown,
     extra: CliErrorExtra = {}
 ): CliFailure => {
-    if (error instanceof CommanderError) {
+    if (error instanceof CommanderError || error instanceof UsageError) {
         return {
             error: {
                 code: 'invalid_usage',
@@ -242,11 +293,36 @@ export const normalizeCliError = (
                 status: error.status,
                 message: apiErrorMessage(error),
                 ...errorExtra({ hint: apiErrorHint(error), ...extra }),
-                ...(CODE_HINTS[error.code] && error.details !== undefined
+                ...(codeHint(error.code) && error.details !== undefined
                     ? { details: error.details }
                     : {})
             },
             exitCode: exitCodeForStatus(error.status)
+        }
+    }
+    // A Manyfold A2A server puts the code of a refusal it hit (a sandbox CLI
+    // too old for files, the delegation cap) in the JSON-RPC error's data.
+    if (error instanceof A2aError) {
+        const data = recordOf(error.data)
+        if (typeof data.code === 'string') {
+            const status =
+                typeof data.status === 'number' ? data.status : undefined
+            const hint = codeHint(data.code)
+            return {
+                error: {
+                    code: data.code,
+                    ...(status !== undefined ? { status } : {}),
+                    message: error.message,
+                    ...errorExtra({
+                        hint: hint?.(recordOf(data.details)),
+                        ...extra
+                    }),
+                    ...(hint && data.details !== undefined
+                        ? { details: data.details }
+                        : {})
+                },
+                exitCode: exitCodeForStatus(status)
+            }
         }
     }
     if (error instanceof A2aTransportError) {
@@ -262,12 +338,24 @@ export const normalizeCliError = (
     }
     const networkCode = networkErrorCode(error)
     if (networkCode) {
+        // A failure its thrower put into words (an A2A endpoint that does not
+        // resolve) keeps them; a bare transport failure is the Manyfold API's.
+        const described =
+            error instanceof Error &&
+            error.cause !== undefined &&
+            !(error instanceof TypeError)
         return {
             error: {
                 code: networkCode,
-                message:
-                    'Could not reach the Manyfold API. Check your network connection and API URL.',
-                ...errorExtra({ hint: networkErrorHint(networkCode), ...extra })
+                message: described
+                    ? error.message
+                    : 'Could not reach the Manyfold API. Check your network connection and API URL.',
+                ...errorExtra({
+                    hint: described
+                        ? "Check the address and this machine's network connection."
+                        : networkErrorHint(networkCode),
+                    ...extra
+                })
             },
             exitCode: 2
         }

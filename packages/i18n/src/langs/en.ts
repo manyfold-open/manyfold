@@ -62,7 +62,11 @@ const en = {
             AUTOMATION_RUN_QUOTA_REACHED:
                 "You've used all the automation runs included in your plan for this billing period. Upgrade your plan to keep them running.",
             API_REQUEST_QUOTA_REACHED:
-                "You've used all the API requests included in your plan for this billing period. Upgrade your plan to keep going."
+                "You've used all the API requests included in your plan for this billing period. Upgrade your plan to keep going.",
+            SANDBOX_API_UNREACHABLE:
+                "Sandboxes can't connect back to Manyfold at {{apiUrl}}, so none was built. Set PUBLIC_API_BASE_URL to an address the sandbox provider can reach (locally, a tunnel URL) and restart the API.",
+            SANDBOX_RUNNER_NOT_CONNECTED:
+                "The new sandbox couldn't connect back to Manyfold at {{apiUrl}}. Retry it; if it fails again, the sandbox provider can't reach that address."
         },
         agentName: {
             empty: 'Agent name is required.',
@@ -3715,7 +3719,7 @@ const en = {
                 slotTaken: 'Already serving {{other}}, and a sandbox has only one public port',
                 podHostStarting: 'Still starting — it can take an agent once it is ready',
                 podHostFailed: 'Failed to start; delete it under Settings › Cloud computers',
-                sandboxFailed: 'Failed to start; delete it under Settings › Runtimes',
+                sandboxFailed: 'Failed to start; retry or delete it under Settings › Runtimes',
                 podHostNoService: '{{cli}} cannot run on a cloud computer yet'
             },
             newMachine: {
@@ -3796,10 +3800,12 @@ const en = {
                 goToSettings: 'Go to settings',
                 leavesFlow: 'leaves this flow',
                 buildAndInstall: 'Build one and install {{cli}}',
+                retryBuildAndInstall: 'Retry {{machine}} and install {{cli}}',
                 buildFine: 'about 2 minutes · sign in once afterwards · {{used}} of {{limit}} used',
                 installOn: 'Install {{cli}} on {{machine}}',
                 installFine: 'about 1–2 minutes · sign in once afterwards',
                 build: 'Build one',
+                retryBuild: 'Retry {{machine}}',
                 buildFineService: 'about a minute · {{cli}} installs when you create · {{used}} of {{limit}} used',
                 installsAtCreate: '{{cli}} installs when you create · about 1–2 minutes then',
                 createFineInstall: 'about 1–2 minutes · installs {{cli}} first',
@@ -4739,6 +4745,7 @@ const en = {
             deleteSandbox: 'Delete sandbox',
             rename: 'Rename',
             stopping: 'Stopping…',
+            retrying: 'Retrying…',
             stoppingSandbox: 'Stopping sandbox…',
             deletingSandbox: 'Deleting sandbox…',
             machineOffline: 'Machine offline',

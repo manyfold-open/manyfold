@@ -2,6 +2,7 @@ import type {
     AgentFramework,
     DaemonHostSummary,
     ExternalAgentProviderKind,
+    SandboxSummary,
     UserExternalAgentProviderSummary
 } from '@manyfold/shared'
 import { stepsFor } from '@manyfold/shared'
@@ -67,7 +68,9 @@ import type { PreparePhase } from '@/pages/AgentNew/v4/summaryLabels'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import {
     buildMachineOptions,
-    buildNewMachineOptions
+    buildNewMachineOptions,
+    sandboxLeftFailed,
+    sandboxToRetry
 } from '@/pages/AgentNew/v4/machineOptions'
 import type {
     MachineOption,
@@ -154,6 +157,10 @@ const AgentNewV4: FC = (): ReactNode => {
         phase: PreparePhase
     } | null>(null)
     const [stepError, setStepError] = useState<string | null>(null)
+    // The sandbox a build in step ② left failed. Pressing on builds that one
+    // again in place: a second "Build one" used to make another and leave
+    // this one failed in the list.
+    const [failedBuildId, setFailedBuildId] = useState<string | null>(null)
     const [serviceProviderId, setServiceProviderId] = useState<string | null>(
         null
     )
@@ -226,6 +233,10 @@ const AgentNewV4: FC = (): ReactNode => {
                   }),
         [framework, onMachine, create.runtimeAccess]
     )
+    const retryTarget = useMemo(
+        () => sandboxToRetry(create.sandboxes, failedBuildId),
+        [create.sandboxes, failedBuildId]
+    )
 
     // A sleeping sandbox wakes before it can take the agent, which is the
     // difference between "a few seconds" and "about a minute" — the button
@@ -293,6 +304,33 @@ const AgentNewV4: FC = (): ReactNode => {
         setFlow((prev) => ({ ...prev, step }))
         setReached((prev) => new Set(prev).add(step))
     }, [])
+
+    // A build that fails leaves its sandbox behind as `failed`, and the next
+    // press builds that one again rather than another.
+    const buildSandbox = useCallback(async (): Promise<SandboxSummary> => {
+        if (retryTarget !== null) {
+            setPreparing({ machine: retryTarget.name, phase: 'build' })
+            try {
+                return await client.sandboxes.retry(retryTarget.id)
+            } catch (err) {
+                await create.refetchSandboxes()
+                throw err
+            }
+        }
+        setPreparing({
+            machine: t('web.agentNewV4.preparing.newMachine'),
+            phase: 'build'
+        })
+        const before = new Set(create.sandboxes.map((row) => row.id))
+        try {
+            return await client.sandboxes.create({})
+        } catch (err) {
+            const listed = await create.refetchSandboxes()
+            const left = listed ? sandboxLeftFailed(before, listed) : null
+            if (left !== null) setFailedBuildId(left.id)
+            throw err
+        }
+    }, [client, create, retryTarget, t])
 
     // Step ② commits the machine. Everything that has to happen for the chosen
     // row to become a real runtime happens HERE, with its progress on screen,
@@ -371,11 +409,8 @@ const AgentNewV4: FC = (): ReactNode => {
                 }
             }
             if (machinePick === 'new:sandbox') {
-                setPreparing({
-                    machine: t('web.agentNewV4.preparing.newMachine'),
-                    phase: 'build'
-                })
-                const sandbox = await client.sandboxes.create({})
+                const sandbox = await buildSandbox()
+                setFailedBuildId(null)
                 if (deferred) {
                     await create.refetchSandboxes()
                     return {
@@ -414,7 +449,7 @@ const AgentNewV4: FC = (): ReactNode => {
         // caller. See `advance`.
         setStepError(t('web.agentNewV4.error.machineNotReady'))
         return null
-    }, [client, create, framework, machinePick, machines, t])
+    }, [buildSandbox, client, create, framework, machinePick, machines, t])
 
     const commitService = useCallback((): RuntimeChoice | null => {
         const provider = create.externalProviders.find(
@@ -846,7 +881,12 @@ const AgentNewV4: FC = (): ReactNode => {
                 const limit = String(quota?.limit ?? 0)
                 return deferred
                     ? {
-                          label: t('web.agentNewV4.primary.build'),
+                          label:
+                              retryTarget !== null
+                                  ? t('web.agentNewV4.primary.retryBuild', {
+                                        machine: retryTarget.name
+                                    })
+                                  : t('web.agentNewV4.primary.build'),
                           fine: t('web.agentNewV4.primary.buildFineService', {
                               cli,
                               used,
@@ -854,9 +894,15 @@ const AgentNewV4: FC = (): ReactNode => {
                           })
                       }
                     : {
-                          label: t('web.agentNewV4.primary.buildAndInstall', {
-                              cli
-                          }),
+                          label:
+                              retryTarget !== null
+                                  ? t(
+                                        'web.agentNewV4.primary.retryBuildAndInstall',
+                                        { cli, machine: retryTarget.name }
+                                    )
+                                  : t('web.agentNewV4.primary.buildAndInstall', {
+                                        cli
+                                    }),
                           fine: t('web.agentNewV4.primary.buildFine', {
                               used,
                               limit
@@ -981,6 +1027,7 @@ const AgentNewV4: FC = (): ReactNode => {
         machinePick,
         machines,
         newMachines,
+        retryTarget,
         costPick,
         serviceProviderId,
         remoteRef,

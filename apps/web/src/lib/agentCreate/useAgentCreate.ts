@@ -52,7 +52,8 @@ export interface UseAgentCreateResult extends AgentCreateLoadState {
     setRuntimes: React.Dispatch<React.SetStateAction<AgentRuntimeSummary[]>>
     refetchProviders: () => Promise<void>
     refetchRuntimes: () => Promise<void>
-    refetchSandboxes: () => Promise<void>
+    // Resolves with the list it loaded, or null when that load failed.
+    refetchSandboxes: () => Promise<SandboxSummary[] | null>
     loadExternalProviders: (kind: 'dify' | 'langflow' | 'a2a') => Promise<void>
     fetchRuntimeAgents: (runtimeId: string) => Promise<void>
     busy: boolean
@@ -144,13 +145,18 @@ export const useAgentCreate = (): UseAgentCreateResult => {
 
     // A sandbox created from inside the picker has no runtime row yet, so the
     // attach list only learns about it from this list.
-    const refetchSandboxes = useCallback(async (): Promise<void> => {
+    const refetchSandboxes = useCallback(async (): Promise<
+        SandboxSummary[] | null
+    > => {
         try {
-            setSandboxes(await client.sandboxes.list())
+            const rows = await client.sandboxes.list()
+            setSandboxes(rows)
+            return rows
         } catch {
             // A failed refresh leaves the previous list in place: the picker
             // stays usable, and the row the caller just created shows up on the
             // next successful load.
+            return null
         }
     }, [client])
 

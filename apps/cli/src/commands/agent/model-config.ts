@@ -95,7 +95,7 @@ export const addModelConfigCommands = (
                 )) as unknown as AgentModelConfig
             }
             if (Object.keys(body).length === 0)
-                throw new Error(
+                throw new UsageError(
                     'nothing to update: pass --source / --model / --clear-model / --config / --clear-config'
                 )
             const view = await client.agents.updateModelConfig(agentId, body)

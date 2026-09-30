@@ -39,7 +39,7 @@ test('piRefFromPath reads the session id out of the filename', () => {
     assert.equal(piRefFromPath('/x/sessions/--a--/notes.txt'), null)
 })
 
-test('parsePiJsonl reads the real session file as three turns with the tool result folded into its assistant', () => {
+test('parsePiJsonl reads the real session file as one reply per prompt', () => {
     const { messages, warnings, lineCount } = parsePiJsonl(
         sessionFixture,
         FILE,
@@ -49,43 +49,46 @@ test('parsePiJsonl reads the real session file as three turns with the tool resu
     assert.equal(lineCount, 10)
     assert.deepEqual(
         messages.map((m) => m.role),
-        ['user', 'assistant', 'assistant', 'user', 'assistant']
+        ['user', 'assistant', 'user', 'assistant']
     )
-    const [ask, callTurn, answer, ask2, answer2] = messages
+    const [ask, reply, ask2, answer2] = messages
     assert.deepEqual(ask.contentBlocks, [
         { type: 'text', text: 'list the files in this directory' }
     ])
     assert.equal(ask.timestamp, '2026-09-23T20:32:34.332Z', 'ms → ISO')
-    assert.equal(callTurn.parentExternalId, ask.externalId)
+    assert.equal(reply.parentExternalId, ask.externalId)
     assert.deepEqual(
-        callTurn.contentBlocks.map((b) => b.type),
-        ['text', 'tool_call', 'tool_result']
+        reply.contentBlocks.map((b) => b.type),
+        ['text', 'tool_call', 'tool_result', 'text']
     )
-    const call = callTurn.contentBlocks[1]
+    const call = reply.contentBlocks[1]
     assert.ok(call.type === 'tool_call')
     assert.equal(call.toolCallId, 'toolu_stub_toolcall_1')
     assert.equal(call.toolName, 'bash')
     assert.deepEqual(call.args, { command: 'ls' })
-    const result = callTurn.contentBlocks[2]
+    const result = reply.contentBlocks[2]
     assert.ok(result.type === 'tool_result')
     assert.equal(result.toolCallId, 'toolu_stub_toolcall_1')
-    assert.equal(callTurn.model, 'anthropic/claude-sonnet-4-6')
-    assert.equal(
-        callTurn.sources.length,
-        2,
-        'the assistant line and its toolResult line both back the message'
+    assert.deepEqual(reply.contentBlocks[3], {
+        type: 'text',
+        text: 'Done: there are two files here.'
+    })
+    assert.equal(reply.model, 'anthropic/claude-sonnet-4-6')
+    // Every line of the reply backs it, and a result's line still names the
+    // entry that made the call: the raw-source keys stay what they were.
+    assert.deepEqual(
+        reply.sources.map((s) => [s.sourceSeq, s.externalId]),
+        [
+            [6, reply.externalId],
+            [7, reply.externalId],
+            [8, 'a755a382']
+        ]
     )
     assert.ok(
-        callTurn.sources.every(
-            (s) =>
-                s.parserName === 'pi-session-jsonl' &&
-                s.externalId === callTurn.externalId &&
-                s.sourceFile === FILE
+        reply.sources.every(
+            (s) => s.parserName === 'pi-session-jsonl' && s.sourceFile === FILE
         )
     )
-    assert.deepEqual(answer.contentBlocks, [
-        { type: 'text', text: 'Done: there are two files here.' }
-    ])
     assert.equal(ask2.contentBlocks[0].type, 'text')
     assert.equal(answer2.parentExternalId, ask2.externalId)
     // sourceSeq is the 1-based line number, the unit the runtime-sync cursor
@@ -105,11 +108,160 @@ test('parsePiJsonl leaves out the attempt pi retried', () => {
         messages.map((m) => [m.role, m.contentBlocks.map((b) => b.type)]),
         [
             ['user', ['text']],
-            ['assistant', ['text', 'tool_call', 'tool_result']],
-            ['assistant', ['text']]
+            ['assistant', ['text', 'tool_call', 'tool_result', 'text']]
         ]
     )
     assert.ok(!JSON.stringify(messages).includes('529'))
+})
+
+const call = (
+    id: string,
+    parentId: string,
+    content: unknown[],
+    extra: Record<string, unknown> = {}
+): string =>
+    LINE({
+        type: 'message',
+        id,
+        parentId,
+        timestamp: '2026-09-10T00:00:02.000Z',
+        message: {
+            role: 'assistant',
+            content,
+            provider: 'openai',
+            model: 'm1',
+            stopReason: 'toolUse',
+            ...extra
+        }
+    })
+
+const result = (id: string, parentId: string, toolCallId: string): string =>
+    LINE({
+        type: 'message',
+        id,
+        parentId,
+        timestamp: '2026-09-10T00:00:03.000Z',
+        message: {
+            role: 'toolResult',
+            toolCallId,
+            content: [{ type: 'text', text: 'ok' }]
+        }
+    })
+
+// header, prompt, then a reply that took three model calls: two that ran a
+// tool each, and the answer.
+const threeCalls =
+    LINE({ type: 'session', version: 3, id: 's1', cwd: '/w' }) +
+    LINE({
+        type: 'message',
+        id: 'u1',
+        parentId: null,
+        timestamp: '2026-09-10T00:00:01.000Z',
+        message: { role: 'user', content: 'tidy the repo' }
+    }) +
+    call('a1', 'u1', [
+        { type: 'thinking', thinking: 'look first' },
+        { type: 'text', text: 'Looking.' },
+        {
+            type: 'toolCall',
+            id: 't1',
+            name: 'bash',
+            arguments: { command: 'ls' }
+        }
+    ]) +
+    result('r1', 'a1', 't1') +
+    call('a2', 'r1', [
+        {
+            type: 'toolCall',
+            id: 't2',
+            name: 'bash',
+            arguments: { command: 'git status' }
+        }
+    ]) +
+    result('r2', 'a2', 't2') +
+    call('a3', 'r2', [{ type: 'text', text: 'Clean.' }], {
+        model: 'm2',
+        stopReason: 'stop'
+    })
+
+test('parsePiJsonl reads a prompt whose tools led to three model calls as one reply', () => {
+    const { messages, warnings } = parsePiJsonl(threeCalls, '/f', 's1')
+    assert.deepEqual(warnings, [])
+    assert.deepEqual(
+        messages.map((m) => m.role),
+        ['user', 'assistant']
+    )
+    const reply = messages[1]
+    assert.deepEqual(
+        reply.contentBlocks.map((b) => b.type),
+        [
+            'thinking',
+            'text',
+            'tool_call',
+            'tool_result',
+            'tool_call',
+            'tool_result',
+            'text'
+        ]
+    )
+    assert.equal(reply.externalId, 'a1')
+    assert.equal(reply.parentExternalId, 'u1')
+    assert.equal(reply.timestamp, '2026-09-10T00:00:02.000Z')
+    // The model that gave the answer, not the one that started the reply.
+    assert.equal(reply.model, 'openai/m2')
+    assert.deepEqual(
+        reply.sources.map((s) => [s.sourceSeq, s.externalId]),
+        [
+            [3, 'a1'],
+            [4, 'a1'],
+            [5, 'a2'],
+            [6, 'a2'],
+            [7, 'a3']
+        ]
+    )
+})
+
+test('parsePiJsonl keeps the text of two calls with nothing between them as two paragraphs', () => {
+    const text =
+        LINE({ type: 'session', version: 3, id: 's1', cwd: '/w' }) +
+        LINE({
+            type: 'message',
+            id: 'u1',
+            parentId: null,
+            timestamp: '2026-09-10T00:00:01.000Z',
+            message: { role: 'user', content: 'go on' }
+        }) +
+        call('a1', 'u1', [{ type: 'text', text: 'First part.' }], {
+            stopReason: 'length'
+        }) +
+        call('a2', 'a1', [{ type: 'text', text: 'Second part.' }], {
+            stopReason: 'stop'
+        })
+    const reply = parsePiJsonl(text, '/f', 's1').messages[1]
+    assert.equal(
+        reply.contentBlocks
+            .map((b) => (b.type === 'text' ? b.text : ''))
+            .join(''),
+        'First part.\n\nSecond part.'
+    )
+})
+
+// WHY: the sync takes only messages that start past its cursor. A reply that
+// straddled it would start before and be skipped whole, the part past the
+// cursor with it.
+test('parsePiJsonl starts a new message at the sync cursor when a reply straddles it', () => {
+    const { messages } = parsePiJsonl(threeCalls, '/f', 's1', 4)
+    assert.deepEqual(
+        messages.map((m) => [m.role, m.sources.map((s) => s.sourceSeq)]),
+        [
+            ['user', [2]],
+            ['assistant', [3, 4]],
+            ['assistant', [5, 6, 7]]
+        ]
+    )
+    assert.equal(messages[2].externalId, 'a2')
+    // At or past the reply's end, the cursor splits nothing.
+    assert.equal(parsePiJsonl(threeCalls, '/f', 's1', 7).messages.length, 2)
 })
 
 test('parsePiJsonl follows the leaf path and leaves an abandoned branch out', () => {
@@ -243,7 +395,8 @@ test('listCandidates walks every cwd dir, summarizes from the header and names t
     assert.equal(row.timestamp, '2026-09-23T20:32:34.309Z')
     // The message's own clock (Unix ms), not the entry's write time.
     assert.equal(row.lastActiveAt, '2026-09-23T20:32:34.588Z')
-    assert.equal(row.messageCount, 5)
+    // A reply counts once, however many of its model calls wrote text.
+    assert.equal(row.messageCount, 4)
     assert.equal(row.model, 'anthropic/claude-sonnet-4-6')
     assert.ok(listing.filesByRef.has('11111111-2222-4333-8444-555555555555'))
 })
@@ -269,7 +422,7 @@ test('readMessages locates the file by the id in its name and reports a missing 
         frameworkSessionRef: 's-present'
     })
     assert.equal(found.sourceFile, '/f/x_s-present.jsonl')
-    assert.equal(found.messages.length, 5)
+    assert.equal(found.messages.length, 4)
     assert.match(
         located[0],
         /-name '\*_s-present\.jsonl' 2>\/dev\/null \| head -1/

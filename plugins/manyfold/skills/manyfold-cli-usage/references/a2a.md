@@ -62,7 +62,8 @@ mf a2a callers add --external --name build-system
 
 `exposure get|enable|disable` reports the public Agent Card and JSON-RPC
 URLs. `callers list` shows every non-revoked peer and External client
-grant, including expired grants. Read operations need `a2a:read`; changing
+grant, including expired grants, as a table (`TOKEN ID KIND CALLER
+EXPIRES`); the token id is what `callers revoke` takes. Read operations need `a2a:read`; changing
 exposure or callers needs `a2a:edit`. If a runtime token lacks a scope,
 request it with `mf auth ensure --scopes a2a:read` or
 `mf auth ensure --scopes a2a:edit`.
@@ -124,19 +125,31 @@ session with no memory of earlier calls.
   covers the default 600s blocking cap — raise it if the operator raised
   the blocking cap.
 - `send` also accepts `--context-id <id>`, `--task-id <id>`, `--skill <id>`,
-  and `--input-file <path>` (attached as an A2A file part).
+  and `--input-file <path>`: the file goes as an A2A file part, and a
+  Manyfold peer gets it in its workspace like a chat upload. The peer takes
+  what the chat composer takes (text, code, images, PDF, Office documents;
+  name the file with its extension), up to 25 MB.
 
 ## Output
 
 Human mode writes artifact text to stdout and status/task summaries to
 stderr, so stdout stays a clean, pipeable artifact (with `--async`, stdout
-is just the task id). `--json` writes raw protocol JSON. Errors print to
-stderr as `cli Error: …` and exit 1; tokens are never included.
+is just the task id). `--json` writes raw protocol JSON. `tasks list`
+prints a table (`ID PEER STATE CREATED`), and `status` prints its peers
+(`NAME AGENT ID`) and in-flight calls the same way. Errors print to
+stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
+3 auth, 4 not found, 5 usage, 1 otherwise); tokens are never included.
 
 ## Failure recovery
 
-- `no granted peer matching "…"` → run `mf a2a status` to see exact names;
-  ask the user to grant the peer if missing.
+- `no granted peer matching "…"` (`a2a_peer_not_found`, exit 4) → run
+  `mf a2a status` to see exact names; ask the user to grant the peer if
+  missing.
+- `already has an active A2A grant` (`a2a_grant_exists`, 409) on
+  `callers add --caller-agent-id` → pass `--replace-existing`, or revoke the
+  grant first (`mf a2a callers list` shows it).
+- `A2A endpoint … could not be resolved` / `could not be reached` (exit 2) →
+  check the URL and this machine's network; the error names the endpoint.
 - `no usable A2A token` / `a2a:read` missing from a managed identity → run
   `mf auth ensure --scopes a2a:read`, post the consent URL to the user
   (existing permissions are kept), retry after they approve.
@@ -145,10 +158,18 @@ stderr as `cli Error: …` and exit 1; tokens are never included.
 - Authentication, scope, or ownership errors (`401`/`403`): check `mf whoami --json` and the structured error, then follow `mf help auth --agent`. Status alone does not determine whether login, an agent grant, or a different target is needed.
 - `needs an agent context` (user token) → add `--agent-id <id>` for an agent
   you own, e.g. `mf --agent-id <id> a2a status`.
-- `too many concurrent A2A delegations` → you have hit the in-flight cap;
-  wait for one to finish (`mf a2a tasks list --state working`) and retry.
+- `too many concurrent A2A delegations` (`delegation_limit`) → you have hit
+  the in-flight cap; wait for one to finish
+  (`mf a2a tasks list --state working`) and retry.
 - `-32001 Task not found` on `tasks get|cancel|subscribe` → the task id is
   unknown to that target or not visible to your credential.
+- `takes no files` / `is not a type this agent accepts` on `--input-file`
+  → that peer cannot read this file: put its content in the prompt, or
+  send a type the chat composer takes. `has no type` → give the file its
+  extension (`notes` → `notes.txt`).
+- `SANDBOX_CLI_TOO_OLD` on `--input-file` → the peer's sandbox runs a CLI
+  too old to take files: update it as the hint says
+  (`mf sandbox update <sandbox>`), or send without the file.
 - `unsupported A2A protocolVersion` / `exposes no JSONRPC interface` → a raw
   server speaks something this client does not (only v0.x JSON-RPC).
 - `… host … is not allowed` / `private or reserved address` → the url is

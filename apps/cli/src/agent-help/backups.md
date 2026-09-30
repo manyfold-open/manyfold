@@ -37,8 +37,8 @@ mf backups delete <backup-id> --yes
 
 ## Output
 
-- `list`: one line per backup — `id  sourceAgentName  status  bytes`;
-  prints `(no backups)` when empty. `--json` emits the raw array.
+- `list`: a table, `ID AGENT STATUS SIZE` (size in bytes); prints
+  `(no backups)` when empty. `--json` emits the raw array.
 - `create` and `get-restore`: always print raw JSON.
 - `restore`: prints `id  status  backup=<id>`; `--json` for the full
   record. Watch `status` via `get-restore <restore-id>` until it

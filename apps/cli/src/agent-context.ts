@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import { UsageError } from '@/usage-error'
 
 // Commander parses non-positionally: the root program consumes its global
 // `--agent-id` from anywhere on the command line, including after a
@@ -25,7 +26,7 @@ export const resolveAgentId = (
 ): string => {
     const id = resolveOptionalAgentId(localAgentId, program)
     if (!id)
-        throw new Error(
+        throw new UsageError(
             'agent id is required: pass --agent-id, set $MF_AGENT_ID, or use the global --agent-id option'
         )
     return id

@@ -8,6 +8,7 @@ import {
     type CliErrorExtra
 } from '@/output'
 import { cleanupStaleUpdateArtifact } from '@/self-update'
+import { UsageError } from '@/usage-error'
 
 const denialExtra = (
     denial: Awaited<ReturnType<typeof resolveAccountScopeDenial>>
@@ -74,6 +75,13 @@ export const runCli = async (argv: string[] = process.argv): Promise<void> => {
         if (!json && error instanceof CommanderError) {
             // Commander already wrote its usage error to stderr; only the
             // exit code needs the stable classification (usage = 5).
+            process.exitCode = normalizeCliError(error).exitCode
+            return
+        }
+        if (!json && error instanceof UsageError) {
+            // The same prose as the commands that route one through
+            // Commander's error().
+            console.error(`error: ${error.message}`)
             process.exitCode = normalizeCliError(error).exitCode
             return
         }

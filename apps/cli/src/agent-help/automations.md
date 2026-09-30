@@ -56,8 +56,8 @@ mf automations delete <automation-id> --yes
 
 ## Output
 
-- `list`: one line per automation — `id title status preset agentId`;
-  `--json` for raw data.
+- `list`: a table — `ID TITLE STATUS SCHEDULE AGENT`; `--json` for raw
+  data.
 - `get`: always raw JSON — automation detail plus a `runs` array.
 - `create` / `update`: `id title status schedule (timezone) · next <time>`,
   the next run on the automation's clock; `--json` for full detail.
@@ -81,6 +81,10 @@ mf automations delete <automation-id> --yes
 - `400` "schedule has no future occurrence" → rrule + dtstart never fire
   again; adjust the schedule
 - "nothing to update" → pass at least one update flag
+- `AUTOMATION_LIMIT_REACHED` → every automation the plan includes is in
+  use: delete one with `mf automations delete <id>`, or upgrade the plan
+- `AUTOMATION_RUN_QUOTA_REACHED` → this billing period's runs are used up;
+  `details.resetAt` says when they renew
 - "refusing to delete … without --yes" → re-run with `--yes` (or `-y`)
 - run `failed` → `mf automations result <id> --run <run-id>` says why
 - `409` "automation already has a running run" → follow it:

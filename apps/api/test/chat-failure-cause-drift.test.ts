@@ -32,7 +32,7 @@ const isBroad = (code: string): boolean =>
 const CANCEL =
     'abort/cancel outcome — a user decision, not an incident to classify'
 const HTTP_SURFACE =
-    'HttpException body code on the share/history surface, not a chat terminal'
+    'HttpException body code on the share/history/delete surface, not a chat terminal'
 const RECOVERY =
     'session-recovery surface code; rides its own RPC flow, not chat.stream.error'
 const PINNED_NULL =
@@ -49,6 +49,7 @@ const EXCLUDED_CODES = new Map<string, string>([
     ['chat_share_not_found', HTTP_SURFACE],
     ['conversation_not_found', HTTP_SURFACE],
     ['invalid_after', HTTP_SURFACE],
+    ['session_bound_to_channel', HTTP_SURFACE],
     ['recovery_no_session_ref', RECOVERY],
     ['recovery_empty', RECOVERY],
     ['recovery_unsupported_framework', RECOVERY],

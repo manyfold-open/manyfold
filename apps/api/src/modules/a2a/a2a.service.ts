@@ -7,11 +7,20 @@ import {
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
     CHAT_SESSION_IMPORT_PENDING_CODE,
     auditAction,
-    createObjectId
+    createObjectId,
+    CHAT_ATTACHMENT_ALLOWED_MIME_PREFIXES,
+    CHAT_ATTACHMENT_ALLOWED_MIME_TYPES,
+    CHAT_ATTACHMENT_MAX_COUNT,
+    CHAT_ATTACHMENT_MAX_FILE_BYTES,
+    chatCapabilitiesFor,
+    isAllowedChatAttachment,
+    type CreateMessageAttachmentInput,
+    type CreateMessageUploadInput
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
+    HttpException,
     Inject,
     Injectable,
     Logger,
@@ -29,6 +38,7 @@ import {
     type AgentCard,
     type Artifact,
     type A2aStreamEvent,
+    type FilePart,
     type Message,
     type MessageSendParams,
     type Part,
@@ -48,6 +58,11 @@ import {
 } from '@/modules/chat/chat.service'
 import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
 import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
+import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.service'
+import {
+    FileSourceError,
+    resolveFileInput
+} from '@/modules/openai-compat/openai-file-source'
 
 // Stable codes for a task that failed before its turn started; the session
 // ownership ones mirror the HTTP 409 body codes (ADR-0029).
@@ -106,6 +121,70 @@ export interface A2aAuthContext {
 
 export type A2aStreamEmit = (event: A2aStreamEvent) => void
 
+// File parts ride base64 in the JSON-RPC body, so one message carries at most
+// one chat attachment's worth of bytes and the RPC route's body limit fits it.
+export const A2A_FILE_PARTS_MAX_BYTES = CHAT_ATTACHMENT_MAX_FILE_BYTES
+export const A2A_RPC_BODY_LIMIT =
+    Math.ceil((A2A_FILE_PARTS_MAX_BYTES * 4) / 3) + 1024 * 1024
+
+// The file types the web composer and channels accept, as A2A input modes.
+const FILE_INPUT_MODES = [
+    'text/plain',
+    ...CHAT_ATTACHMENT_ALLOWED_MIME_PREFIXES.map((prefix) => `${prefix}*`),
+    ...CHAT_ATTACHMENT_ALLOWED_MIME_TYPES
+]
+
+interface A2aTurnFiles {
+    attachments: CreateMessageAttachmentInput[]
+    uploads: CreateMessageUploadInput[]
+}
+
+const NO_FILES: A2aTurnFiles = { attachments: [], uploads: [] }
+
+const isFilePart = (part: Part): part is FilePart => part.kind === 'file'
+
+// A URI part may name neither its type nor its file; its path usually ends
+// in the file name.
+const declaredName = (file: FilePart['file']): string | undefined => {
+    if (file.name || !('uri' in file)) return file.name
+    try {
+        return new URL(file.uri).pathname.split('/').pop() || undefined
+    } catch {
+        return undefined
+    }
+}
+
+const isWellFormedFile = (part: FilePart): boolean => {
+    const file = part.file as { bytes?: unknown; uri?: unknown } | undefined
+    return (
+        !!file && (typeof file.bytes === 'string' || typeof file.uri === 'string')
+    )
+}
+
+// A file that could not become an attachment, as a JSON-RPC error. A bad part
+// is the caller's to fix; any other refusal keeps its HTTP code in `data`
+// (a sandbox whose CLI is too old for files says so) for a client to act on.
+const fileIngestError = (err: unknown): A2aError => {
+    if (err instanceof A2aError) return err
+    if (err instanceof FileSourceError)
+        return new A2aError(A2aErrorCode.invalidParams, err.message)
+    if (err instanceof HttpException) {
+        const body = err.getResponse() as { code?: unknown; details?: unknown }
+        return new A2aError(
+            err.getStatus() === 400
+                ? A2aErrorCode.invalidParams
+                : A2aErrorCode.internalError,
+            err.message,
+            {
+                status: err.getStatus(),
+                ...(typeof body?.code === 'string' ? { code: body.code } : {}),
+                ...(body?.details !== undefined ? { details: body.details } : {})
+            }
+        )
+    }
+    return new A2aError(A2aErrorCode.internalError, (err as Error).message)
+}
+
 const messageText = (message: Message): string =>
     message.parts
         .filter((part): part is TextPart => part.kind === 'text')
@@ -133,7 +212,8 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         @Optional() private readonly config?: ConfigService,
         @Optional() private readonly adminSettings?: AdminSettingsService,
         @Optional() private readonly telemetry?: TelemetryService,
-        @Optional() private readonly broadcaster?: ChatSseBroadcaster
+        @Optional() private readonly broadcaster?: ChatSseBroadcaster,
+        @Optional() private readonly apiFiles?: ChatApiFileService
     ) {}
 
     onModuleInit(): void {
@@ -294,12 +374,14 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             .select({
                 id: agents.id,
                 name: agents.name,
+                framework: agents.framework,
                 extras: agents.extras
             })
             .from(agents)
             .where(eq(agents.id, agentId))
             .limit(1)
         if (!agent) return null
+        const takesFiles = chatCapabilitiesFor(agent.framework).attachments
         const exposure = (agent.extras as { a2aExposure?: A2aExposure })
             ?.a2aExposure
         if (!exposure?.enabled) return null
@@ -321,14 +403,15 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             additionalInterfaces: [{ url: rpcUrl, transport: 'JSONRPC' }],
             version: '1.0.0',
             capabilities: { streaming: true },
-            defaultInputModes: ['text/plain'],
+            defaultInputModes: takesFiles ? FILE_INPUT_MODES : ['text/plain'],
             defaultOutputModes: exposure.acceptedOutputModes ?? ['text/plain'],
             skills: [
                 {
                     id: exposure.skillId ?? DEFAULT_SKILL_ID,
                     name: 'General Chat',
-                    description:
-                        'Send a text prompt and receive this agent’s reply.',
+                    description: takesFiles
+                        ? 'Send a text prompt, with files if you like, and receive this agent’s reply.'
+                        : 'Send a text prompt and receive this agent’s reply.',
                     tags: ['chat', 'text']
                 }
             ],
@@ -397,7 +480,8 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             incoming.parts.some(
                 (part) =>
                     !part ||
-                    (part.kind === 'text' && typeof part.text !== 'string')
+                    (part.kind === 'text' && typeof part.text !== 'string') ||
+                    (part.kind === 'file' && !isWellFormedFile(part))
             )
         )
             throw new A2aError(
@@ -405,11 +489,14 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 'user message with valid parts required'
             )
         const prompt = messageText(incoming)
-        if (!prompt)
+        const fileParts = incoming.parts.filter(isFilePart)
+        if (!prompt && fileParts.length === 0)
             throw new A2aError(
                 A2aErrorCode.contentTypeNotSupported,
-                'only non-empty text/plain input is supported'
+                'send a non-empty text part, a file part, or both'
             )
+        if (fileParts.length > 0)
+            await this.assertFilesAccepted(ctx.targetAgentId, fileParts)
 
         const { task, created, newSession } = await this.tasks.withUserLock(
             ctx.userId,
@@ -504,26 +591,154 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             }
         )
 
+        let files = NO_FILES
+        if (fileParts.length > 0) {
+            try {
+                files = await this.ingestFileParts(task, fileParts)
+            } catch (err) {
+                const refused = fileIngestError(err)
+                const code = (refused.data as { code?: unknown } | undefined)
+                    ?.code
+                await this.tasks
+                    .updateIfActive(task.id, {
+                        state: 'failed',
+                        errorJson: {
+                            message: refused.message,
+                            code:
+                                typeof code === 'string'
+                                    ? code
+                                    : 'file_ingest_failed'
+                        },
+                        completedAt: new Date()
+                    })
+                    .catch(() => {})
+                onEvent?.({
+                    kind: 'status-update',
+                    taskId: task.id,
+                    contextId: task.contextId,
+                    status: { state: 'failed' },
+                    final: true
+                })
+                throw refused
+            }
+        }
+
         // Non-blocking (A2A blocking:false): return the working task at once and
         // drive the turn detached, so a caller doesn't hold a long request (and
         // its sprite doesn't hibernate) waiting on the peer. The result stays
         // durable in a2a_tasks for later tasks/get polling. SSE (onEvent) always
         // runs inline — the live turn IS the stream.
         if (params.configuration?.blocking === false && !onEvent) {
-            void this.runTurnDetached(task, prompt)
+            void this.runTurnDetached(task, prompt, files)
             return this.toWireTask({ ...task, state: 'working' })
         }
 
-        return this.runTurn(task, prompt, 'blocking', onEvent)
+        return this.runTurn(task, prompt, 'blocking', onEvent, files)
+    }
+
+    // Checked before a task exists, so a refused file leaves none behind.
+    private async assertFilesAccepted(
+        agentId: string,
+        parts: FilePart[]
+    ): Promise<void> {
+        const [agent] = await this.db
+            .select({ framework: agents.framework })
+            .from(agents)
+            .where(eq(agents.id, agentId))
+            .limit(1)
+        if (
+            !this.apiFiles ||
+            !agent ||
+            !chatCapabilitiesFor(agent.framework).attachments
+        )
+            throw new A2aError(
+                A2aErrorCode.contentTypeNotSupported,
+                `this agent (${agent?.framework ?? 'unknown framework'}) takes no files; send text only`
+            )
+        if (parts.length > CHAT_ATTACHMENT_MAX_COUNT)
+            throw new A2aError(
+                A2aErrorCode.invalidParams,
+                `at most ${CHAT_ATTACHMENT_MAX_COUNT} file parts per message`
+            )
+        let inlineBytes = 0
+        for (const { file } of parts) {
+            const name = declaredName(file)
+            if (!isAllowedChatAttachment({ type: file.mimeType, name }))
+                throw new A2aError(
+                    A2aErrorCode.contentTypeNotSupported,
+                    file.mimeType || /\.[^./]+$/.test(name ?? '')
+                        ? `file ${name ?? '(unnamed)'} is not a type this agent accepts: it takes text, code, images, PDF and Office documents`
+                        : `file ${name ?? '(unnamed)'} has no type: name it with its extension or set its mimeType`
+                )
+            if ('bytes' in file)
+                inlineBytes += Math.floor((file.bytes.length * 3) / 4)
+        }
+        if (inlineBytes > A2A_FILE_PARTS_MAX_BYTES)
+            throw new A2aError(
+                A2aErrorCode.invalidParams,
+                `file parts carry more than ${A2A_FILE_PARTS_MAX_BYTES} bytes in one message`
+            )
+    }
+
+    // Writes each file into the target agent's workspace the way a chat upload
+    // does; the turn gets them as attachments.
+    private async ingestFileParts(
+        task: A2aTask,
+        parts: FilePart[]
+    ): Promise<A2aTurnFiles> {
+        if (!this.apiFiles)
+            throw new A2aError(A2aErrorCode.contentTypeNotSupported)
+        const files = await Promise.all(
+            parts.map(({ file }) =>
+                resolveFileInput(
+                    'bytes' in file
+                        ? {
+                              kind: 'data',
+                              value: `data:${file.mimeType || 'application/octet-stream'};base64,${file.bytes}`,
+                              filename: file.name
+                          }
+                        : {
+                              kind: 'url',
+                              value: file.uri,
+                              contentType: file.mimeType,
+                              filename: file.name
+                          },
+                    CHAT_ATTACHMENT_MAX_FILE_BYTES
+                )
+            )
+        )
+        // A fetched file's type is the server's word, not the part's.
+        const refused = files.find(
+            (file) =>
+                !isAllowedChatAttachment({
+                    type: file.contentType,
+                    name: file.name
+                })
+        )
+        if (refused)
+            throw new A2aError(
+                A2aErrorCode.contentTypeNotSupported,
+                `file ${refused.name} (${refused.contentType}) is not a type this agent accepts`
+            )
+        return this.apiFiles.ingest({
+            userId: task.userId,
+            agentId: task.targetAgentId,
+            sessionId: task.chatSessionId,
+            files
+        })
     }
 
     // Detached variant for non-blocking sends: runTurn writes its own terminal
     // on normal completion and on observed errors, but if it throws before that
     // (e.g. ChatService.sendMessage rejects) nothing else will finish the task —
     // so force a terminal failure here, unless the turn already settled.
-    private async runTurnDetached(task: A2aTask, prompt: string): Promise<void> {
+    private async runTurnDetached(
+        task: A2aTask,
+        prompt: string,
+        files: A2aTurnFiles
+    ): Promise<void> {
         try {
-            await this.runTurn(task, prompt, 'detached')
+            await this.runTurn(task, prompt, 'detached', undefined, files)
         } catch (err) {
             this.log.error(
                 `detached a2a task ${task.id} threw: ${(err as Error).message}`
@@ -553,7 +768,8 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         task: A2aTask,
         prompt: string,
         mode: A2aTurnMode,
-        onEvent?: A2aStreamEmit
+        onEvent?: A2aStreamEmit,
+        files: A2aTurnFiles = NO_FILES
     ): Promise<Task> {
         const startedAt = Date.now()
         const span = trace.getActiveSpan()
@@ -649,17 +865,19 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 task.userId,
                 task.targetAgentId,
                 task.chatSessionId,
-                prompt,
+                prompt || undefined,
+                files.attachments,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                observer,
                 [],
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                observer
+                files.uploads
             )
         } catch (err) {
             // sendMessage rejected before any observer event (e.g. a concurrent

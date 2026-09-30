@@ -69,6 +69,8 @@ const buildHarness = (opts: {
     // The bring-up gave up on the new machine's daemon, as it does when the
     // runner cannot register with the API.
     daemonOffline?: boolean
+    // What the machine's `mf daemon register` said when it failed.
+    registerFailure?: string
 } = {}) => {
     const state = {
         host: hostRow(),
@@ -168,7 +170,10 @@ const buildHarness = (opts: {
                 if (opts.daemonOffline)
                     throw new HostDaemonOfflineError(
                         args.host,
-                        'runner_unavailable'
+                        'runner_unavailable',
+                        undefined,
+                        {},
+                        opts.registerFailure
                     )
                 // The daemon registering is what flips a new sandbox ready.
                 state.host = { ...state.host, status: 'ready' }
@@ -370,6 +375,31 @@ test('a new machine whose runner never connected says which address it had to re
     )
     assert.ok(h.hostPatches.some((p) => p.status === 'failed'))
     assert.ok(h.calls.some((c) => c.startsWith('destroy')))
+})
+
+// Seen on the local cloud stack [2026-09-30]: the address alone did not say
+// what went wrong; the runner's register had printed it, into the log only.
+test('a new machine whose register failed says what the runner said', async (t) => {
+    withPublicApiUrl(t, 'https://stopped-tunnel.example.com')
+    const said = 'cli Error: Unable to connect. Is the computer able to access the url?'
+    const h = buildHarness({ daemonOffline: true, registerFailure: said })
+    await assert.rejects(
+        () => provision(h),
+        (err: unknown) => {
+            assert.equal(responseOf(err).code, 'SANDBOX_RUNNER_NOT_CONNECTED')
+            assert.equal(
+                (err as Error).message,
+                `the new sandbox's runner could not register with this API at https://stopped-tunnel.example.com/api: ${said}`
+            )
+            assert.deepEqual(responseOf(err).details, {
+                hostId: 'sbx_testhost',
+                apiUrl: 'https://stopped-tunnel.example.com/api',
+                reason: 'runner_unavailable',
+                registerFailure: said
+            })
+            return true
+        }
+    )
 })
 
 const wakeProvisioner = (

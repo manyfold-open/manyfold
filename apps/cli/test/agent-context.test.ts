@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Command } from 'commander'
 import { resolveAgentId, resolveOptionalAgentId } from '../src/agent-context'
+import { UsageError } from '../src/usage-error'
 
 const restoreEnv = (key: string, previous: string | undefined): void => {
     if (previous === undefined) delete process.env[key]
@@ -70,6 +71,7 @@ test('resolveAgentId: errors with guidance when nothing is set', () => {
             () => resolveAgentId(undefined, program),
             /agent id is required: pass --agent-id, set \$MF_AGENT_ID/
         )
+        assert.throws(() => resolveAgentId(undefined, program), UsageError)
     })
 })
 

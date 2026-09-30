@@ -156,7 +156,7 @@ Use /switch <number|name>, /current, /new, /help.
 
 ## 闲置自动重置
 
-长时间运行的聊天容易堆积偏离主题的上下文。可以为渠道配置在 scope 静默一段时间后自动开新会话：设置渠道的 `resetOnIdleMins`（分钟）。当无消息时间超过阈值后，下一条消息会进入一个全新的会话，旧的在后台归档。最长一周（10080 分钟）。留空或填 0 表示关闭。
+长时间运行的聊天容易堆积偏离主题的上下文。可以为渠道配置在 scope 静默一段时间后自动开新会话：设置渠道的 `resetOnIdleMins`（分钟）。当无消息时间超过阈值后，下一条消息会进入一个全新的会话，旧会话变为非活跃。最长一周（10080 分钟）。留空或填 0 表示关闭。
 
 重置是静默进行的——不会发"已重置"之类的提示——给人的体验是一个干净的对话。旧会话仍保留在 `/list` 中。
 
@@ -164,7 +164,7 @@ Use /switch <number|name>, /current, /new, /help.
 
 也可以在聊天之外管理会话：
 
-- **CLI：** `mf channels sessions list|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
+- **CLI：** `mf channels sessions list|get|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
 - **REST：** `GET /channels/:id/scopes`、`GET /channels/:id/sessions`、`POST /channels/:id/sessions`、`PATCH /channels/:id/sessions/:sessionId`、`DELETE /channels/:id/sessions/:sessionId`。
 
 ## 另请参阅

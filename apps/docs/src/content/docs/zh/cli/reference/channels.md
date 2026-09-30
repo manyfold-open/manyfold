@@ -54,7 +54,7 @@ Create a channel
 | `--agent-id <id>` | agent id (defaults to $MF_AGENT_ID or --agent-id global) |
 | `--provider <name>` | channel provider (fake\|lark\|telegram\|slack\|discord\|matrix\|weixin\|whatsapp\|linear\|github\|line\|googlechat\|msteams\|imessage) 必填。 |
 | `--label <label>` | channel label (1-200 chars) 必填。 |
-| `--config <json>` | channel config (@path for file, or inline JSON object) 必填。 |
+| `--config <json>` | channel config (@path for file, or inline JSON object) 默认值: `{}`. |
 | `--credentials <json>` | channel credentials (@path for file, or inline JSON object) |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
@@ -202,10 +202,11 @@ Manage channel sessions (per scope, switch active)
 | --- | --- |
 | [`mf channels sessions scopes`](#mf-channels-sessions-scopes) | List scopes in a channel with their active session |
 | [`mf channels sessions list`](#mf-channels-sessions-list) | List channel sessions (optionally filtered by scope) |
-| [`mf channels sessions new`](#mf-channels-sessions-new) | Create a new active session in a scope (archives the current active) |
+| [`mf channels sessions get`](#mf-channels-sessions-get) | Show one channel session, archived ones included |
+| [`mf channels sessions new`](#mf-channels-sessions-new) | Create a new active session in a scope (the previous one stays listed, inactive) |
 | [`mf channels sessions switch`](#mf-channels-sessions-switch) | Make a session active (its scope swaps active to this session) |
 | [`mf channels sessions rename`](#mf-channels-sessions-rename) | Rename a session (sets display_name) |
-| [`mf channels sessions delete`](#mf-channels-sessions-delete) | Archive a session; with --activate-fallback, auto-activate newest remaining |
+| [`mf channels sessions delete`](#mf-channels-sessions-delete) | Archive a session; with --activate-fallback, deleting the active one activates the newest remaining |
 
 ### `mf channels sessions scopes`
 
@@ -247,9 +248,29 @@ List channel sessions (optionally filtered by scope)
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 
+### `mf channels sessions get`
+
+Show one channel session, archived ones included
+
+**用法:** `mf channels sessions get [options] <channelId> <sessionId>`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<channelId>` |  |
+| `<sessionId>` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
 ### `mf channels sessions new`
 
-Create a new active session in a scope (archives the current active)
+Create a new active session in a scope (the previous one stays listed, inactive)
 
 **用法:** `mf channels sessions new [options] <channelId>`
 
@@ -311,7 +332,7 @@ Rename a session (sets display_name)
 
 ### `mf channels sessions delete`
 
-Archive a session; with --activate-fallback, auto-activate newest remaining
+Archive a session; with --activate-fallback, deleting the active one activates the newest remaining
 
 **用法:** `mf channels sessions delete [options] <channelId> <sessionId>`
 

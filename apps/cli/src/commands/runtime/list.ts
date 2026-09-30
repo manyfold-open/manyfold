@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import { buildClient } from '@/client'
 import { emit, jsonOption } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 
 export const registerRuntimeList = (cmd: Command, program: Command): void => {
     jsonOption(
@@ -18,11 +19,19 @@ export const registerRuntimeList = (cmd: Command, program: Command): void => {
                 console.log(kleur.dim('(no agent runtimes)'))
                 return
             }
-            for (const rt of runtimes) {
-                console.log(
-                    `${rt.id}  ${kleur.cyan(rt.name)}  ${kleur.yellow(rt.framework)}/${rt.kind}  ${rt.status}  ${kleur.dim(`agents=${rt.agentsCount}`)}`
-                )
-            }
+            const rows = runtimes.map((rt): TableCell[] => [
+                rt.id,
+                [rt.name, kleur.cyan],
+                [rt.framework, kleur.yellow],
+                rt.kind,
+                rt.status,
+                String(rt.agentsCount)
+            ])
+            for (const line of formatTable(
+                ['ID', 'NAME', 'FRAMEWORK', 'KIND', 'STATUS', 'AGENTS'],
+                rows
+            ))
+                console.log(line)
         })
     })
 }

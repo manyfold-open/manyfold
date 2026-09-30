@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Command, CommanderError } from 'commander'
 import { ApiError } from '@manyfold/sdk'
-import { A2aTransportError } from '@manyfold/a2a'
+import { A2aError, A2aErrorCode, A2aTransportError } from '@manyfold/a2a'
 import {
     fail,
     normalizeCliError,
@@ -12,6 +12,7 @@ import {
     type CliFailure
 } from '../src/output'
 import { handleTopLevelError, runCli } from '../src/run'
+import { UsageError } from '../src/usage-error'
 
 const apiError = (
     status: number,
@@ -149,6 +150,205 @@ test('codes a script can act on get their own hint and keep their details', () =
     )
     assert.ok(!('details' in other.error))
     assert.match(other.error.hint ?? '', /Refresh/)
+})
+
+// A plan limit is a 403, so it exits like one; its hint must never send the
+// user to check token scopes, which is what a bare 403 gets.
+test('plan limits and quotas say what to free up, with the numbers', () => {
+    const cases: Array<[code: string, details: object, hint: RegExp]> = [
+        [
+            'CHANNEL_LIMIT_REACHED',
+            { current: 2, limit: 2, planName: 'Free' },
+            /\(2 of 2 on the Free plan\): delete one with mf channels delete <id>/
+        ],
+        [
+            'AUTOMATION_LIMIT_REACHED',
+            { current: 5, limit: 5, planName: 'Free' },
+            /\(5 of 5 on the Free plan\): delete one with mf automations delete <id>/
+        ],
+        [
+            'AUTOMATION_RUN_QUOTA_REACHED',
+            {
+                current: 100,
+                limit: 100,
+                planName: 'Free',
+                resetAt: '2026-10-01T00:00:00.000Z'
+            },
+            /\(100 of 100 on the Free plan\); they renew at 2026-10-01T00:00:00\.000Z\. Upgrade/
+        ],
+        [
+            'ACTIVE_HOURS_QUOTA_REACHED',
+            { current: 10.04, limit: 10, planName: 'Free' },
+            /\(10h of 10h on the Free plan\)\. Upgrade/
+        ],
+        [
+            'STORAGE_LIMIT_REACHED',
+            { current: 5_300_000_000, limit: 5_000_000_000, planName: 'Free' },
+            /\(5\.3 GB of 5\.0 GB on the Free plan\): free up space \(mf sandbox storage-usage/
+        ],
+        [
+            'CONCURRENT_ACTIVE_LIMIT_REACHED',
+            { current: 1, limit: 1, planName: 'Free' },
+            /\(1 of 1 on the Free plan\): try again once one goes to sleep/
+        ],
+        [
+            'ALWAYS_ONLINE_AGENT_LIMIT_REACHED',
+            { kind: 'sprites', current: 0, limit: 0, planName: 'Free' },
+            /\(0 of 0 on the Free plan\): remove one with mf agent delete <id>/
+        ],
+        [
+            'ALWAYS_ONLINE_LIMIT_REACHED',
+            { kind: 'daemon', current: 1, limit: 1, planName: 'Free' },
+            /\(1 of 1 on the Free plan\): remove one, or upgrade/
+        ],
+        [
+            'FUTURE_THING_LIMIT_REACHED',
+            { current: 3, limit: 3, planName: 'Plus' },
+            /^This is a limit of your plan, not of the token \(3 of 3 on the Plus plan\)/
+        ]
+    ]
+    for (const [code, details, hint] of cases) {
+        const failure = normalizeCliError(
+            apiError(403, { code, serverMessage: 'limit reached', details })
+        )
+        assert.equal(failure.exitCode, 3, code)
+        assert.match(failure.error.hint ?? '', hint, code)
+        assert.doesNotMatch(failure.error.hint ?? '', /scope/, code)
+        assert.deepEqual(failure.error.details, details, code)
+    }
+
+    const withoutNumbers = normalizeCliError(
+        apiError(403, {
+            code: 'CHANNEL_LIMIT_REACHED',
+            serverMessage: 'limit reached',
+            details: undefined
+        })
+    )
+    assert.match(
+        withoutNumbers.error.hint ?? '',
+        /^Every channel your plan includes is in use: delete/
+    )
+})
+
+test('the standalone mf (Bun) network failures exit 2, and a described one keeps its words', () => {
+    const bun = normalizeCliError(
+        Object.assign(
+            new Error('Unable to connect. Is the computer able to access the url?'),
+            { code: 'ConnectionRefused' }
+        )
+    )
+    assert.equal(bun.exitCode, 2)
+    assert.equal(bun.error.code, 'network_refused')
+    assert.match(bun.error.message, /^Could not reach the Manyfold API/)
+
+    const dns = normalizeCliError(
+        new Error('A2A endpoint host gone.example could not be resolved', {
+            cause: Object.assign(new Error('getaddrinfo ENOTFOUND gone.example'), {
+                code: 'ENOTFOUND'
+            })
+        })
+    )
+    assert.equal(dns.exitCode, 2)
+    assert.equal(dns.error.code, 'network_dns')
+    assert.equal(
+        dns.error.message,
+        'A2A endpoint host gone.example could not be resolved'
+    )
+    assert.doesNotMatch(dns.error.hint ?? '', /api-url|MF_API_URL/)
+})
+
+test('A2A peer and grant codes say what to do next', () => {
+    const peer = normalizeCliError(
+        apiError(404, {
+            code: 'a2a_peer_not_found',
+            serverMessage: 'no granted peer matching "x"'
+        })
+    )
+    assert.equal(peer.exitCode, 4)
+    assert.match(peer.error.hint ?? '', /^mf a2a status lists the peers/)
+
+    const grant = normalizeCliError(
+        apiError(409, {
+            code: 'a2a_grant_exists',
+            serverMessage: 'caller agt_a already has an active A2A grant for agent agt_b'
+        })
+    )
+    assert.equal(grant.exitCode, 1)
+    assert.match(grant.error.hint ?? '', /^Pass --replace-existing/)
+})
+
+test('a JSON-RPC refusal with a code keeps it, with its hint and exit', () => {
+    const tooOld = normalizeCliError(
+        new A2aError(
+            A2aErrorCode.internalError,
+            'the Manyfold CLI on sandbox-001 (4.8.0) is too old for this',
+            {
+                status: 409,
+                code: 'SANDBOX_CLI_TOO_OLD',
+                details: { hostName: 'sandbox-001', cliVersion: '4.8.0' }
+            }
+        )
+    )
+    assert.equal(tooOld.exitCode, 1)
+    assert.equal(tooOld.error.code, 'SANDBOX_CLI_TOO_OLD')
+    assert.equal(tooOld.error.status, 409)
+    assert.equal(
+        tooOld.error.message,
+        'the Manyfold CLI on sandbox-001 (4.8.0) is too old for this'
+    )
+    assert.match(tooOld.error.hint ?? '', /^Update it: mf sandbox update sandbox-001 /)
+    assert.deepEqual(tooOld.error.details, {
+        hostName: 'sandbox-001',
+        cliVersion: '4.8.0'
+    })
+
+    const badFile = normalizeCliError(
+        new A2aError(A2aErrorCode.invalidParams, 'file URL returned 404', {
+            status: 400,
+            code: 'bad_file'
+        })
+    )
+    assert.equal(badFile.exitCode, 5)
+    assert.equal(badFile.error.hint, undefined)
+
+    const busy = normalizeCliError(
+        new A2aError(
+            A2aErrorCode.internalError,
+            'too many concurrent A2A delegations (3/3); retry when one finishes',
+            { code: 'delegation_limit', inflight: 3, limit: 3 }
+        )
+    )
+    assert.equal(busy.exitCode, 1)
+    assert.equal(busy.error.code, 'delegation_limit')
+    assert.match(busy.error.hint ?? '', /mf a2a tasks list --state working/)
+
+    const bare = normalizeCliError(
+        new A2aError(A2aErrorCode.taskNotFound, 'task not found')
+    )
+    assert.equal(bare.error.code, 'cli_error')
+    assert.equal(bare.exitCode, 1)
+})
+
+test('an archived channel session says how to start a new one', () => {
+    const details = {
+        channelId: 'chn_1',
+        channelSessionId: 'chs_1',
+        scopeKey: 'telegram:42'
+    }
+    const failure = normalizeCliError(
+        apiError(409, {
+            code: 'channel_session_archived',
+            serverMessage:
+                'an archived channel session cannot be made active; start a new one in its scope',
+            details
+        })
+    )
+    assert.equal(failure.exitCode, 1)
+    assert.equal(
+        failure.error.hint,
+        "A deleted session stays archived: start a new one with mf channels sessions new chn_1 --scope-key 'telegram:42'."
+    )
+    assert.deepEqual(failure.error.details, details)
 })
 
 // The runner these codes are about lives inside the sandbox. Pointing at
@@ -299,6 +499,17 @@ test('Commander and unknown local errors have distinct stable fallbacks', () => 
     })
 })
 
+test('a UsageError is a usage failure however far it travels', () => {
+    assert.deepEqual(normalizeCliError(new UsageError('pass --name')), {
+        error: {
+            code: 'invalid_usage',
+            message: 'pass --name',
+            hint: 'Run the command with --help to see the expected usage.'
+        },
+        exitCode: 5
+    })
+})
+
 const captureConsoleErrors = async (
     fn: () => Promise<void> | void
 ): Promise<string[]> => {
@@ -428,6 +639,37 @@ test('human-mode Commander usage failures keep commander prose and exit 5', asyn
     assert.equal(result.exitCode, 5)
     assert.match(result.stderr, /unknown option '--bogus'/)
     assert.doesNotMatch(result.stderr, /cli Error:/)
+})
+
+test('a usage mistake an action finds itself exits 5 in both output modes', async () => {
+    const human = await captureRun([
+        'node',
+        'mf',
+        'channels',
+        'update',
+        'chn_1'
+    ])
+    assert.equal(human.stdout, '')
+    assert.equal(human.exitCode, 5)
+    assert.equal(
+        human.stderr,
+        'error: pass at least one of --label, --status, --config, --credentials\n'
+    )
+
+    const json = await captureRun([
+        'node',
+        'mf',
+        'channels',
+        'update',
+        'chn_1',
+        '--json'
+    ])
+    assert.equal(json.stdout, '')
+    assert.equal(json.exitCode, 5)
+    const parsed = JSON.parse(json.stderr) as CliFailure
+    assert.equal(parsed.error.code, 'invalid_usage')
+    assert.match(parsed.error.message, /^pass at least one of --label/)
+    assert.equal(json.stderr.trim().split('\n').length, 1)
 })
 
 test('JSON-mode help remains a successful human help flow', async () => {

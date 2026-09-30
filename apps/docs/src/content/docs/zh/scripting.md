@@ -31,6 +31,9 @@ mf automations get aut_xxx --json > automation.json
 stderr。Channel 和 credential 输出仍会 redact，`mf login --json` 永远不会打印
 bearer token。
 
+不加 `--json` 时，list 命令输出带表头的表格。表格是给人看的，列可能会变；脚本
+请使用 `--json`。
+
 失败时，stderr 使用下面的结构：
 
 ```json
@@ -46,6 +49,10 @@ bearer token。
 
 `status` 和 `hint` 只在可用时出现。CLI 不会把未解析的 response body 放进 error
 envelope。
+
+Plan limit 或 quota（`CHANNEL_LIMIT_REACHED`、`ACTIVE_HOURS_QUOTA_REACHED` 以及其它
+`*_LIMIT_REACHED` / `*_QUOTA_REACHED` code）还会带上 `details`，包含 `current`、
+`limit` 和 `planName`。它和其它 `403` 一样退出码为 `3`，`hint` 会说明该释放什么。
 
 ## Exit code
 
@@ -70,8 +77,9 @@ else
 fi
 ```
 
-`mf doctor` 是唯一的例外：有任何检查失败时退出码为 `1`，但报告仍输出到 stdout，
-stderr 为空。脚本请读取 `mf doctor --json` 中的 `ok` 或每项检查的 `status`。
+执行检查的命令是例外：`mf doctor`、`mf model-providers test`、`mf channels test`
+和 `mf channels register` 在检查失败时退出码为 `1`，但报告仍输出到 stdout，stderr
+为空。脚本请读取报告里的 `ok`（`mf doctor --json` 还可以读每项检查的 `status`）。
 
 ## 不提供 JSON mode 的命令
 

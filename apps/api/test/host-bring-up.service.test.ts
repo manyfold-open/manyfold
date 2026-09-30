@@ -647,6 +647,28 @@ test('a failed register revokes the token it minted; a register whose exec throw
     assert.deepEqual(thrown.revoked, ['ldt_new'])
 })
 
+// WHY: the register's output is the only account of why a new runner never
+// connected (an API the machine cannot reach, a rejected token), and the
+// caller turns it into the error the user sees.
+test('a failed register says what the CLI printed, on one line', async () => {
+    const h = buildHarness({
+        registered: false,
+        registerExit: 1,
+        registerOutput: 'cli Error: Unable to connect.\n  Is the computer able to access the url?'
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'runner_unavailable')
+    assert.equal(
+        res.registerFailure,
+        'cli Error: Unable to connect. Is the computer able to access the url?'
+    )
+
+    const quiet = buildHarness({ registered: false, registerExit: 1, registerOutput: '' })
+    const silent = await quiet.service.ensureHostDaemon({ host: quiet.state.host, waitOnlineMs: 20 })
+    assert.equal(silent.registerFailure, undefined)
+})
+
 test('a sandbox without herdr gets it installed after the CLI; one with it does not', async () => {
     const without = buildHarness({ registered: true, herdr: false })
     await without.service.ensureHostDaemon({ host: without.state.host, waitOnlineMs: 50 })
