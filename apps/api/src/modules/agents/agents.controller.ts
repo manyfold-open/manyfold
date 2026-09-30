@@ -1,24 +1,21 @@
 import {
+    AGENT_CREATE_REQUEST_HEADER,
     AgentContextDocStatus,
-    AgentCreateEvent,
-    AgentCreateStep,
     AgentCredentialsView,
     AgentModelConfigView,
     AgentStorageUsageResponse,
     AgentSummary,
-    FrameworkUpgradeEvent,
-    FrameworkUpgradeStep,
     MaterializeAgentMcpResponse,
     RefreshAgentMcpResponse,
     RefreshAgentModelConfigModelsResponse,
     RevealAgentCredentialsResponse,
     RotateRuntimeTokenResponse,
-    UpdateAgentCredentialsBody,
-    stepsFor
+    UpdateAgentCredentialsBody
 } from '@manyfold/shared'
 import {
     BadRequestException,
     Body,
+    ConflictException,
     Controller,
     Delete,
     Get,
@@ -33,10 +30,8 @@ import {
     UseGuards
 } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { resolveRuntime } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { UsersService } from '@/modules/users/users.service'
-import { corsHeadersForOrigin } from '@/common/cors-headers'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
@@ -52,6 +47,12 @@ import {
 } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import { AgentCredentialsService } from '@/modules/agents/credentials/agent-credentials.service'
 import { AgentDiagnosticsService } from '@/modules/agents/agent-diagnostics.service'
+import {
+    headerValue,
+    resolveCreateStreamPlan,
+    streamAgentCreate
+} from '@/modules/agents/create-stream'
+import { AgentCreateRequestsService } from '@/modules/agents/create-requests/agent-create-requests.service'
 import { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '@/modules/agents/dto/update-agent.dto'
 import { UpdateAgentCredentialsDto } from '@/modules/agents/dto/update-agent-credentials.dto'
@@ -62,12 +63,13 @@ import {
 import { UpdateAgentRuntimeAuthDto } from '@/modules/agents/dto/update-agent-runtime-auth.dto'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
-import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import { McpImportService } from '@/modules/agents/mcp-import.service'
 import { McpConfigMaterializer } from '@/modules/agent-runtimes/mcp/mcp-config-materializer.service'
-import { FrameworkUpgradeService } from '@/modules/agents/framework-versions/framework-upgrade.service'
+import {
+    DAEMON_CONFIG_REQUEST_WAIT_MS,
+    DaemonConfigDeliveryError
+} from '@/modules/daemon/daemon-config-delivery.service'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
-import { UpgradeFrameworkVersionDto } from '@/modules/agents/dto/upgrade-framework-version.dto'
 
 @Controller('agents')
 @UseGuards(AuthGuard)
@@ -82,12 +84,11 @@ export class AgentsController {
         private readonly modelConfig: AgentModelConfigService,
         private readonly adminSettings: AdminSettingsService,
         private readonly users: UsersService,
-        private readonly frameworkVersionProbe: FrameworkVersionProbeService,
         private readonly mcpImport: McpImportService,
         private readonly mcpMaterializer: McpConfigMaterializer,
-        private readonly frameworkUpgrade: FrameworkUpgradeService,
         private readonly serviceRestart: AgentServiceRestartService,
-        private readonly contextDoc: AgentContextDocManageService
+        private readonly contextDoc: AgentContextDocManageService,
+        private readonly createRequests: AgentCreateRequestsService
     ) {}
 
     @Get()
@@ -115,92 +116,58 @@ export class AgentsController {
             throw new BadRequestException(
                 'targetUserId not allowed on /agents; use /admin/agents'
             )
-        const accept = (req.headers['accept'] ?? '') as string
-        if (!accept.includes('application/x-ndjson')) {
-            const agent = await this.orchestrator.create({
-                userId: user.userId,
-                actorUserId: user.userId,
-                dto,
-                isAdmin: false
-            })
-            await res.code(201).send(agent)
+        const stream = ((req.headers['accept'] ?? '') as string).includes(
+            'application/x-ndjson'
+        )
+        // Placement first: a create that cannot be placed must not hold the
+        // name it would have reserved.
+        const plan = stream
+            ? await resolveCreateStreamPlan(
+                  { adminSettings: this.adminSettings, users: this.users },
+                  user.userId,
+                  dto
+              )
+            : null
+        const claim = await this.createRequests.claim({
+            userId: user.userId,
+            actorUserId: user.userId,
+            name: dto.name,
+            fingerprint: this.createRequests.fingerprint('create', dto),
+            resume: headerValue(req.headers[AGENT_CREATE_REQUEST_HEADER])
+        })
+        const execute = (emitter?: AgentProgressEmitter) =>
+            this.createRequests.execute(
+                claim,
+                emitter,
+                (tracked) =>
+                    this.orchestrator.create(
+                        {
+                            userId: user.userId,
+                            actorUserId: user.userId,
+                            dto,
+                            isAdmin: false
+                        },
+                        tracked
+                    ),
+                (agentId) => this.agents.summaryFor(agentId)
+            )
+        if (!plan) {
+            const agent = await execute()
+            await res
+                .header(AGENT_CREATE_REQUEST_HEADER, claim.request.id)
+                .code(201)
+                .send(agent)
             return
         }
-
-        res.hijack()
-        const [defaults, userOverrides] = await Promise.all([
-            this.adminSettings.getCachedFrameworkRuntimeDefaults(),
-            this.users.getFrameworkRuntimeOverrides(user.userId)
-        ])
-        const runtime = resolveRuntime(
-            dto.framework,
-            dto.runtime,
-            defaults,
-            userOverrides
-        )
-        const steps = stepsFor(dto.framework, runtime)
-        // Fail loud: if the orchestrator emits a step that stepsFor() doesn't
-        // cover (e.g. a new framework added without updating spritesServiceSteps),
-        // raw indexOf returns -1 and the UI treats it as "before any step" — wipes
-        // the progress bar. Log it and fall back to `lastIndex` so the UI keeps
-        // its last position instead of resetting.
-        let lastIndex = -1
-        const indexOf = (s: AgentCreateStep): number => {
-            const idx = steps.indexOf(s)
-            if (idx === -1) {
-                this.log.warn(
-                    `progress step "${s}" not in stepsFor(${dto.framework}, ${runtime}); UI progress would reset — using fallback index ${lastIndex}`
-                )
-                return Math.max(lastIndex, 0)
-            }
-            lastIndex = idx
-            return idx
-        }
-        res.raw.writeHead(201, {
-            ...corsHeadersForOrigin(res.request.headers),
-            'content-type': 'application/x-ndjson',
-            'cache-control': 'no-cache',
-            'x-accel-buffering': 'no'
+        await streamAgentCreate({
+            res,
+            framework: dto.framework,
+            plan,
+            log: this.log,
+            requestId: claim.request.id,
+            resumed: claim.kind === 'attach',
+            run: execute
         })
-        const write = (ev: AgentCreateEvent): void => {
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-
-        let lastStep: AgentCreateStep | null = null
-        const emitter: AgentProgressEmitter = {
-            step: (s): void => {
-                lastStep = s
-                write({
-                    type: 'step',
-                    step: s,
-                    index: indexOf(s),
-                    total: steps.length,
-                    startedAt: new Date().toISOString()
-                })
-            }
-        }
-
-        try {
-            const agent = await this.orchestrator.create(
-                {
-                    userId: user.userId,
-                    actorUserId: user.userId,
-                    dto,
-                    isAdmin: false
-                },
-                emitter
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            write({
-                type: 'error',
-                step: lastStep,
-                errorClass: classifyError(err),
-                message: sanitizeMessage(err)
-            })
-        } finally {
-            res.raw.end()
-        }
     }
 
     @Delete(':id')
@@ -236,17 +203,6 @@ export class AgentsController {
         return this.orchestrator.rotateRuntimeToken(id, user.userId, false)
     }
 
-    @Post(':id/framework-version/refresh')
-    @HttpCode(200)
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async refreshFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<AgentSummary> {
-        return this.frameworkVersionProbe.refresh(id, user.userId, false)
-    }
-
     @Post(':id/mcp/refresh')
     @HttpCode(200)
     @RequireApiTokenScope('agents:edit')
@@ -273,76 +229,24 @@ export class AgentsController {
         if (!agent) throw new NotFoundException(`agent ${id} not found`)
         let scopes
         try {
-            scopes = await this.mcpMaterializer.materializeForAgent(agent)
+            scopes = await this.mcpMaterializer.materializeForAgent(agent, {
+                leaseWaitMs: DAEMON_CONFIG_REQUEST_WAIT_MS
+            })
         } catch (err) {
+            if (
+                err instanceof DaemonConfigDeliveryError &&
+                err.reason === 'busy'
+            )
+                throw new ConflictException({
+                    code: 'DAEMON_CONFIG_BUSY',
+                    message:
+                        'another configuration push is still using this machine; retry in a moment'
+                })
             throw new BadRequestException((err as Error).message)
         }
         return {
             agent: await this.agents.get(id, user.userId, false),
             scopes
-        }
-    }
-
-    @Post(':id/framework-version/upgrade')
-    @HttpCode(200)
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async upgradeFrameworkVersion(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto
-    ): Promise<AgentSummary> {
-        return this.frameworkUpgrade.upgrade(
-            id,
-            user.userId,
-            dto.targetVersion,
-            false
-        )
-    }
-
-    @Post(':id/framework-version/upgrade-stream')
-    @RequireApiTokenScope('agents:edit')
-    @SubjectAgentFromPath('id')
-    async upgradeFrameworkStream(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string,
-        @Body() dto: UpgradeFrameworkVersionDto,
-        @Res() res: FastifyReply
-    ): Promise<void> {
-        let started = false
-        const write = (ev: FrameworkUpgradeEvent): void => {
-            if (!started) {
-                res.hijack()
-                res.raw.writeHead(200, {
-                    ...corsHeadersForOrigin(res.request.headers),
-                    'content-type': 'application/x-ndjson',
-                    'cache-control': 'no-cache',
-                    'x-accel-buffering': 'no'
-                })
-                started = true
-            }
-            res.raw.write(JSON.stringify(ev) + '\n')
-        }
-        let lastStep: FrameworkUpgradeStep | null = null
-        try {
-            const agent = await this.frameworkUpgrade.upgradeStreaming(
-                id,
-                user.userId,
-                dto.targetVersion,
-                false,
-                {
-                    step: (s): void => {
-                        lastStep = s
-                        write({ type: 'step', step: s })
-                    }
-                }
-            )
-            write({ type: 'complete', agent })
-        } catch (err) {
-            if (!started) throw err
-            write({ type: 'error', step: lastStep, message: sanitizeMessage(err) })
-        } finally {
-            if (started) res.raw.end()
         }
     }
 
@@ -506,28 +410,4 @@ export const boundAgentIdFromUser = (user: AuthPrincipal): string | undefined =>
         return user.accountScope ? undefined : user.agentId
     if (user.kind === 'legacy-runtime') return user.agentId
     return undefined
-}
-
-export const classifyError = (err: unknown): string => {
-    const resp = (err as { response?: unknown })?.response
-    if (resp && typeof resp === 'object' && 'errorClass' in resp)
-        return String((resp as { errorClass: unknown }).errorClass)
-    const name = (err as { name?: string })?.name
-    const code = (err as { code?: string })?.code
-    if (code) return String(code)
-    if (name) return String(name)
-    return 'unknown'
-}
-
-export const sanitizeMessage = (err: unknown): string => {
-    const raw = (err as Error)?.message ?? 'unknown error'
-    const resp = (err as { response?: unknown })?.response
-    const msg =
-        resp && typeof resp === 'object' && 'message' in resp
-            ? String((resp as { message: unknown }).message)
-            : raw
-    return msg
-        .slice(0, 512)
-        .replace(/Bearer\s+\S+/g, 'Bearer [REDACTED]')
-        .replace(/eyJ[A-Za-z0-9._-]+/g, '[REDACTED_JWT]')
 }

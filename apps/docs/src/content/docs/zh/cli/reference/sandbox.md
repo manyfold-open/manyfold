@@ -1,7 +1,7 @@
 ---
 title: "mf sandbox"
-description: "Inspect sandbox storage"
-order: 13
+description: "List, delete and inspect your sandboxes"
+order: 14
 ---
 **用法:** `mf sandbox [command]`
 
@@ -15,7 +15,67 @@ order: 13
 
 | 命令 | 用途 |
 | --- | --- |
+| [`mf sandbox list`](#mf-sandbox-list) | List your sandboxes, the frameworks on each, and how many your plan includes |
+| [`mf sandbox delete`](#mf-sandbox-delete) | Delete a sandbox (id or name) and its files (irreversible); refused while agents are on it |
+| [`mf sandbox update`](#mf-sandbox-update) | Update the Manyfold CLI on a sandbox (id or name) to its channel's latest, or --to a version |
 | [`mf sandbox storage-usage`](#mf-sandbox-storage-usage) | Report cached current-sandbox storage; --account reports the whole account |
+
+## `mf sandbox list`
+
+List your sandboxes, the frameworks on each, and how many your plan includes
+
+**用法:** `mf sandbox list [options]`
+
+**Alias:** `ls`
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
+
+## `mf sandbox delete`
+
+Delete a sandbox (id or name) and its files (irreversible); refused while agents are on it
+
+**用法:** `mf sandbox delete [options] <sandbox>`
+
+**Alias:** `rm`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<sandbox>` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `-y, --yes` | confirm irreversible deletion |
+| `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
+
+## `mf sandbox update`
+
+Update the Manyfold CLI on a sandbox (id or name) to its channel's latest, or --to a version
+
+**用法:** `mf sandbox update [options] <sandbox>`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `<sandbox>` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--to <version>` | install this version, a dev build included (the Update Center lists them) |
+| `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
 
 ## `mf sandbox storage-usage`
 

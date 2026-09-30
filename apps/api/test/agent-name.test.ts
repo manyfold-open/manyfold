@@ -9,7 +9,7 @@ import test from 'node:test'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import type { AgentRuntimeRow, Database, NewAgent } from '@manyfold/db'
-import { agentRuntimes } from '@manyfold/db'
+import { agentRuntimes, agents } from '@manyfold/db'
 import { CreateAgentDto } from '../src/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '../src/modules/agents/dto/update-agent.dto'
 import { AddRuntimeAgentDto } from '../src/modules/agents/dto/add-runtime-agent.dto'
@@ -21,6 +21,10 @@ import {
     k8sHostRow,
     runtimeRow as fixtureRuntime
 } from './helpers/runtime-context-fixture'
+import {
+    headerOnlyReply,
+    passThroughCreateRequests
+} from './helpers/create-requests-fake'
 
 test('agent name helper accepts Unicode display names', () => {
     for (const name of ['中文助手', '研发助手 🚀', 'Agent 1', 'my-agent.v2']) {
@@ -198,7 +202,12 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
             from: (table: unknown) => ({
                 where: () => ({
                     limit: async () =>
-                        table === agentRuntimes ? [runtime] : []
+                        table === agentRuntimes ? [runtime] : [],
+                    // An agent is already there, so this one joins beside it.
+                    orderBy: () => ({
+                        limit: async () =>
+                            table === agents ? [{ modelProviderId: null }] : []
+                    })
                 })
             })
         }),
@@ -252,7 +261,10 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
         adapterRegistry as never,
         attach,
         {} as never,
-        { recordFirstAgentCreated: async () => {} } as never
+        { recordFirstAgentCreated: async () => {} } as never,
+        passThroughCreateRequests(),
+        {} as never,
+        {} as never
     )
     const dto = plainToInstance(AddRuntimeAgentDto, {
         name: '  研究助手 🚀  '
@@ -262,7 +274,8 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
     const result = await controller.addAgent(
         { userId: 'user-1' } as never,
         runtime.id,
-        dto
+        dto,
+        headerOnlyReply()
     )
 
     const capturedAdapterInput = adapterInput as {
@@ -290,7 +303,6 @@ const runtimeRow = (): AgentRuntimeRow =>
         framework: 'openclaw',
         hostId: 'pdh_test',
         mountPath: '/workspace',
-        primaryAgentId: 'agt_primary',
         createdAt: new Date('2026-05-06T00:00:00.000Z'),
         updatedAt: new Date('2026-05-06T00:00:00.000Z')
     })

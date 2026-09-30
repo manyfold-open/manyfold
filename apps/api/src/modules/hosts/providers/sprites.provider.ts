@@ -113,6 +113,14 @@ export const spriteNameForHost = (hostId: string): string =>
 export const isSpritesNotFound = (err: unknown): boolean =>
     err instanceof SpritesError && err.code === 'not_found'
 
+// sprites.dev can finish making a sprite after the request for it timed out
+// or lost its connection. Seen on a local stack [2026-09-30]: the create
+// timed out at 15 s, the rollback's delete found nothing, and the sprite
+// came up afterwards, billing with nothing pointing at it. The name is the
+// host's, so a sprite that shows up under it is the one asked for.
+const LATE_CREATE_POLLS = 6
+const LATE_CREATE_POLL_MS = 5_000
+
 // Which exec failures are the EXEC ENDPOINT's fault. Getting this wrong in the
 // generous direction is expensive: the caller quarantines on it, so a class
 // handed out for a sprite that answered takes a healthy VM out of the turn path.
@@ -369,7 +377,7 @@ export class SpritesProvider implements SandboxProvider {
         } catch (err) {
             if (!isSpritesNotFound(err)) throw err
         }
-        if (!sprite) sprite = await client.createSprite({ name: spriteName })
+        if (!sprite) sprite = await this.createSprite(client, spriteName)
         await client.setNetworkPolicy(spriteName, defaultNetworkPolicy())
         const ref: SpritesProviderRef = {
             kind: 'sprites',
@@ -379,6 +387,29 @@ export class SpritesProvider implements SandboxProvider {
         }
         await this.hosts.setProviderRef(args.host.id, ref)
         return ref
+    }
+
+    private async createSprite(
+        client: SpritesClient,
+        name: string
+    ): Promise<Sprite> {
+        try {
+            return await client.createSprite({ name })
+        } catch (err) {
+            if (!(err instanceof SpritesError) || err.code !== 'transient')
+                throw err
+            for (let poll = 0; poll < LATE_CREATE_POLLS; poll++) {
+                await this.delay(LATE_CREATE_POLL_MS)
+                const late = await client.getSprite(name).catch(() => null)
+                if (late) return late
+            }
+            throw err
+        }
+    }
+
+    // Overridable in tests.
+    protected delay(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms))
     }
 
     // A create that failed before it recorded the sprite may still have made

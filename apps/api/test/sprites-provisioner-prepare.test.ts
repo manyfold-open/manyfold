@@ -37,7 +37,6 @@ const row = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
         failureReason: null,
         hostId: 'sbx_1',
         mountPath: '/home/sprite/.manyfold/workspaces',
-        primaryAgentId: null,
         frameworkVersion: null,
         createdAt: new Date('2026-09-11T00:00:00Z'),
         updatedAt: new Date('2026-09-11T00:00:00Z'),
@@ -173,7 +172,6 @@ test('a coding CLI is set up through the host daemon to the resolved version and
         '2.1.300'
     )
     assert.ok(h.calls.statusPatches.some((p) => (p as { status?: string }).status === 'ready'))
-    assert.equal(out.runtime.primaryAgentId, null)
     assert.equal(out.generatedCredentials, undefined)
 })
 

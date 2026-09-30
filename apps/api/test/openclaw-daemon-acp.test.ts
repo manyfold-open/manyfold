@@ -217,7 +217,8 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         assert.equal(rig.calls[0].refIdOverride, 'msg_1')
         const payload = rig.calls[0].payload
         assert.equal(payload.transport, 'acp')
-        assert.equal(payload.sessionKey, 'agent:main:mf-cts_1')
+        // keyed by the agent's own OpenClaw id, so the turn runs as that agent
+        assert.equal(payload.sessionKey, 'agent:oc1:mf-cts_1')
         assert.equal('patch' in payload, false) // dontAsk, no model → no patch
         assert.equal(payload.env, undefined) // never an env channel
         assert.equal(payload.dir, undefined) // gateway owns the workspace
@@ -237,7 +238,7 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
 
         // The gateway key is persisted as the framework session ref.
         assert.deepEqual(rig.sessionRefs, [
-            { sessionId: 'cts_1', ref: 'agent:main:mf-cts_1' }
+            { sessionId: 'cts_1', ref: 'agent:oc1:mf-cts_1' }
         ])
 })
 
@@ -320,7 +321,7 @@ test('resume replays the buffered ACP frames via exec.resume', async () => {
             result: { ok: finalWithUsage('end_turn') }
         })
         const resumeCtx = {
-            ...ctx({ frameworkSessionRef: 'agent:main:mf-cts_1' }),
+            ...ctx({ frameworkSessionRef: 'agent:oc1:mf-cts_1' }),
             daemonId: 'dh_byod',
             daemonExecRef: 'msg_1',
             fromSeq: 0
@@ -595,7 +596,7 @@ test('a sprite or k8s openclaw turn resumes through its carrying runner', async 
         })
         const events = await drain(
             rig.adapter.resumeMessage({
-                ...ctx({ frameworkSessionRef: 'agent:main:mf-cts_1' }),
+                ...ctx({ frameworkSessionRef: 'agent:oc1:mf-cts_1' }),
                 runtimeKind,
                 daemonId: 'dh_runner',
                 daemonExecRef: 'msg_1',

@@ -146,7 +146,6 @@ const makeRuntime = (
         dashboardState: null,
         currentPhase: null,
         failureReason: null,
-        primaryAgentId: `agt_${seq}`,
         lastBootstrappedAt: null,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
@@ -156,6 +155,17 @@ const makeRuntime = (
         ...over
     }
 }
+
+// A pi runtime on the user's own machine: its CLI is the owner's to upgrade.
+const localRuntime = (): AgentRuntimeSummary =>
+    makeRuntime({
+        framework: 'pi',
+        kind: 'daemon',
+        hostKind: 'local',
+        providerId: null,
+        providerKind: null,
+        providerName: null
+    })
 
 const catalogEntry = (
     over: Partial<FrameworkVersionCatalogEntry> = {}
@@ -304,8 +314,8 @@ test('agents sharing a runtime yield one framework row, not one per agent', () =
     assert.equal(rows.length, 1)
     assert.equal(rows[0].id, `framework:${runtime.id}`)
     assert.deepEqual(rows[0].exec, {
-        type: 'agentFramework',
-        agentId: runtime.primaryAgentId,
+        type: 'runtimeFramework',
+        runtimeId: runtime.id,
         framework: 'claude-code',
         mode: 'npm',
         targetVersion: '2.1.0'
@@ -323,7 +333,7 @@ test('a rebuild-mode framework is marked as such so the batch can order it last'
     })
     assert.equal(rows.length, 1)
     assert.equal(
-        rows[0].exec.type === 'agentFramework' ? rows[0].exec.mode : null,
+        rows[0].exec.type === 'runtimeFramework' ? rows[0].exec.mode : null,
         'rebuild'
     )
 })
@@ -366,24 +376,25 @@ test('an unversioned framework is never offered an update', () => {
     assert.deepEqual(rows, [])
 })
 
-test('a sprite runtime with no primary agent has no endpoint to address', () => {
-    // pi is not one of the CLIs the sprite image ships, which the sandbox
-    // can move in place without an agent (below).
-    const runtime = makeRuntime({ framework: 'pi', primaryAgentId: null })
+// The install is the runtime's: an agent on it is not needed to move it.
+test('a sprite runtime with no agent on it is upgraded through the runtime', () => {
+    const runtime = makeRuntime({ framework: 'pi', agentsCount: 0 })
     const rows = build({
         runtimes: [runtime],
         frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
-    assert.equal(rows[0].blocker, 'noAgent')
+    assert.equal(rows[0].blocker, null)
     assert.deepEqual(rows[0].exec, {
-        type: 'none',
-        guideFramework: null,
-        href: `/settings/runtimes/${runtime.id}`
+        type: 'runtimeFramework',
+        runtimeId: runtime.id,
+        framework: 'pi',
+        mode: 'npm',
+        targetVersion: '2.1.0'
     })
 })
 
-test('a sandbox moves a pre-installed CLI in place when no agent can', () => {
-    const runtime = makeRuntime({ hostId: 'sbx_1', primaryAgentId: null })
+test('a sandbox moves a pre-installed CLI through its runtime, agent or not', () => {
+    const runtime = makeRuntime({ hostId: 'sbx_1', agentsCount: 0 })
     const rows = build({
         runtimes: [runtime],
         frameworkCatalog: [catalogEntry()]
@@ -392,9 +403,10 @@ test('a sandbox moves a pre-installed CLI in place when no agent can', () => {
     assert.equal(rows[0].blocker, null)
     assert.deepEqual(rows[0].targetChoices, ['2.1.0'])
     assert.deepEqual(rows[0].exec, {
-        type: 'sandboxFramework',
-        hostId: 'sbx_1',
+        type: 'runtimeFramework',
+        runtimeId: runtime.id,
         framework: 'claude-code',
+        mode: 'npm',
         targetVersion: '2.1.0'
     })
 })
@@ -518,13 +530,12 @@ test("a framework on the user's own machine offers the command, not a mutation",
     })
 })
 
-test('a cloud computer upgrades its framework in place, addressed by its agent', () => {
+test('a cloud computer upgrades its framework in place, addressed by its runtime', () => {
     const runtime = makeRuntime({
         kind: 'k8s',
         hostId: 'pdh_1',
         hostName: 'computer-001',
-        providerKind: 'k8s',
-        primaryAgentId: 'agt_1'
+        providerKind: 'k8s'
     })
     const rows = build({
         runtimes: [runtime],
@@ -534,22 +545,27 @@ test('a cloud computer upgrades its framework in place, addressed by its agent',
     assert.equal(rows[0].targetKey, 'host:pdh_1')
     assert.equal(rows[0].targetLabel, 'computer-001')
     assert.deepEqual(rows[0].exec, {
-        type: 'agentFramework',
-        agentId: 'agt_1',
+        type: 'runtimeFramework',
+        runtimeId: runtime.id,
         framework: 'claude-code',
         mode: 'npm',
         targetVersion: '2.1.0'
     })
 })
 
-test('a cloud computer runtime with no agent has no endpoint to address', () => {
+test("a cloud computer's rebuilt framework is not driven from here", () => {
     const rows = build({
         runtimes: [
-            makeRuntime({ kind: 'k8s', hostId: 'pdh_1', primaryAgentId: null })
+            makeRuntime({
+                kind: 'k8s',
+                hostId: 'pdh_1',
+                framework: 'hermes',
+                frameworkVersion: '1.0.0'
+            })
         ],
-        frameworkCatalog: [catalogEntry()]
+        frameworkCatalog: [catalogEntry({ framework: 'hermes', latest: '1.1.0' })]
     })
-    assert.equal(rows[0].blocker, 'noAgent')
+    assert.equal(rows[0].blocker, 'manual')
 })
 
 test("a cloud computer's stale CLI is updated through its daemon", () => {
@@ -1049,7 +1065,7 @@ test('rows the platform cannot drive are dropped from the plan, not failed', () 
             makeHost({ canRemoteUpgrade: false }),
             makeHost({ online: false })
         ],
-        runtimes: [makeRuntime({ framework: 'pi', primaryAgentId: null })],
+        runtimes: [localRuntime()],
         frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
     assert.equal(rows.length, 3)
@@ -1139,10 +1155,10 @@ test('the default target is always one of the offered versions', () => {
 
 test('a framework nobody can drive remotely offers no target', () => {
     const rows = build({
-        runtimes: [makeRuntime({ framework: 'pi', primaryAgentId: null })],
+        runtimes: [localRuntime()],
         frameworkCatalog: [catalogEntry({ framework: 'pi' })]
     })
-    assert.equal(rows[0].blocker, 'noAgent')
+    assert.equal(rows[0].blocker, 'manual')
     assert.deepEqual(rows[0].targetChoices, [])
 })
 

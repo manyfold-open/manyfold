@@ -30,6 +30,7 @@ import {
     type RuntimeProvider
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { reachableFromOutside, runnerApiUrl } from '@/common/public-api-url'
 import {
     isCodingHostFramework,
     sessionScriptRunner,
@@ -198,6 +199,15 @@ export class SpritesProvisioner {
         })
     }
 
+    // For callers that join an instance already on the sandbox: the same
+    // owner, kind and readiness rules an install onto it gets.
+    async assertSandboxAttachable(
+        userId: string,
+        hostId: string
+    ): Promise<void> {
+        await this.resolveAttachHost(userId, hostId)
+    }
+
     // Attach uses the sandbox's own provider (the VM already lives there), not
     // a freshly-selected one. Validates ownership, kind and a ready host.
     private async resolveAttachHost(
@@ -234,7 +244,12 @@ export class SpritesProvisioner {
     // then the daemon — whose register with a token bound to the host is what
     // makes the host `ready`. A failure leaves the host `failed` with the
     // reason, its machine torn down best-effort so nothing bills.
-    async provisionSandbox(args: { host: RuntimeHostRow }): Promise<RuntimeHostRow> {
+    // `onMachineUp` marks the hand-over from the VM to its daemon, which is
+    // most of the wait.
+    async provisionSandbox(args: {
+        host: RuntimeHostRow
+        onMachineUp?: () => void
+    }): Promise<RuntimeHostRow> {
         const provider = await this.clients.providerForHost(args.host)
         const adapter = this.providers.for(provider.kind)
         try {
@@ -252,8 +267,15 @@ export class SpritesProvisioner {
                 }
             })
             await recordPower(this.hosts, args.host.id, 'running')
+            args.onMachineUp?.()
             const created = await this.requireHost(args.host.id)
-            await this.onHostDaemon(created, '-', 'provision-sandbox', async () => undefined)
+            await this.onHostDaemon(
+                created,
+                '-',
+                'provision-sandbox',
+                async () => undefined,
+                { freshMachine: true }
+            )
             const ready = await this.requireHost(created.id)
             if (ready.status === 'provisioning')
                 return (await this.hosts.setStatus(ready.id, 'ready')) ?? ready
@@ -302,18 +324,34 @@ export class SpritesProvisioner {
         )
     }
 
+    // A new sandbox's runner calls this API back to register. When the address
+    // it would be given cannot be reached from outside this network (a local
+    // stack's localhost, a LAN address), no VM is made: it could only fail
+    // after a quota slot, a name and a machine were spent on it.
+    assertSandboxCanReachApi(): void {
+        const apiUrl = runnerApiUrl()
+        if (reachableFromOutside(apiUrl)) return
+        throw new ServiceUnavailableException({
+            message: `a sandbox cannot reach this API at ${apiUrl}: set PUBLIC_API_BASE_URL to an address the sandbox provider can reach (for a local stack, a tunnel URL) and restart the API`,
+            code: 'SANDBOX_API_UNREACHABLE',
+            details: { apiUrl }
+        })
+    }
+
     // Work on the host's daemon, for a runtime about to be installed or
     // bootstrapped on it, under the machine's awake hold for the whole of it
     // (ADR-0038). On an attach the VM may have no liveness signal at all — a
     // sprite whose exec endpoint is chronically 502ing would otherwise fail
     // deep inside bootstrap — so an exec-endpoint verdict from the bring-up
     // quarantines the host and answers a clean 503. There is no failover: the
-    // caller named one sandbox.
+    // caller named one sandbox. On a machine made moments ago the runner has
+    // never connected, so the failure names the address it had to reach.
     private async onHostDaemon<T>(
         host: RuntimeHostRow,
         agentId: string,
         reason: string,
-        work: (session: HostSession) => Promise<T>
+        work: (session: HostSession) => Promise<T>,
+        options: { freshMachine?: boolean } = {}
     ): Promise<T> {
         try {
             return await this.hostAccess.withHost(
@@ -332,6 +370,14 @@ export class SpritesProvisioner {
                 throw new ServiceUnavailableException({
                     message: `sandbox is not accepting commands (${detail})`,
                     code: 'SANDBOX_EXEC_UNAVAILABLE'
+                })
+            }
+            if (options.freshMachine) {
+                const apiUrl = runnerApiUrl()
+                throw new ServiceUnavailableException({
+                    message: `the new sandbox's runner did not connect to this API at ${apiUrl} (${err.reason})`,
+                    code: 'SANDBOX_RUNNER_NOT_CONNECTED',
+                    details: { hostId: host.id, apiUrl, reason: err.reason }
                 })
             }
             throw new ServiceUnavailableException({
@@ -388,6 +434,7 @@ export class SpritesProvisioner {
                 providerId: input.providerId ?? null,
                 callerIsAdmin: isAdmin
             }))
+        if (!attached) this.assertSandboxCanReachApi()
 
         const workspacePath =
             input.workspacePath ?? codingAgentWorkspacePath('sprites', agentId)
@@ -412,12 +459,16 @@ export class SpritesProvisioner {
             throw new Error(
                 `reserveSpriteRuntime assigned no host for ${runtimeId}`
             )
+        emitter.placed?.({ hostId: reserved.hostId, runtimeId, hostCreated })
         let host = await this.requireHost(reserved.hostId)
 
         try {
             if (hostCreated) {
                 emitter.step('creating_sprite')
-                host = await this.provisionSandbox({ host })
+                host = await this.provisionSandbox({
+                    host,
+                    onMachineUp: () => emitter.step('starting_runner')
+                })
             }
             const coding = isCodingHostFramework(framework) ? framework : null
             await this.runtimes.setPhase(runtimeId, 'bootstrapping')

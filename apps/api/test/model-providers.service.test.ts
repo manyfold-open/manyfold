@@ -424,6 +424,54 @@ test('list flags managed rows on a disabled channel instead of dropping them', a
     )
 })
 
+test('list ranks managed rows the way the edition does, and none without one', async () => {
+    const rows: UserModelProviderRow[] = [
+        modelProviderRow(),
+        {
+            ...modelProviderRow(),
+            id: 'ump_antigravity',
+            providerName: 'Managed Antigravity',
+            managedBrand: 'antigravity',
+            managedKeyId: 'key_antigravity'
+        } as UserModelProviderRow,
+        {
+            ...modelProviderRow(),
+            id: 'ump_byo_gemini',
+            providerName: 'My Gemini',
+            source: 'byo',
+            managedService: null,
+            managedBrand: null,
+            managedKeyId: null
+        } as UserModelProviderRow
+    ]
+    const serviceWith = (port: object) =>
+        new ModelProvidersService(
+            {
+                select: () => ({ from: () => ({ where: async () => rows }) })
+            } as never,
+            cryptoFake as never,
+            {} as never,
+            port as never
+        )
+    const ranks = ['antigravity', 'google']
+
+    const ranked = await serviceWith({
+        ...emptyCatalog(),
+        managedChannelRank: (brand: string) => ranks.indexOf(brand)
+    }).list('user_1')
+    assert.deepEqual(
+        ranked.map((r) => [r.id, r.managedRank]),
+        [
+            ['ump_google', 1],
+            ['ump_antigravity', 0],
+            ['ump_byo_gemini', undefined]
+        ]
+    )
+
+    const unranked = await serviceWith(emptyCatalog()).list('user_1')
+    assert.ok(unranked.every((r) => !('managedRank' in r)))
+})
+
 test('netmindTokenExpiry decodes exp; null for non-JWT / missing exp', () => {
     assert.deepEqual(
         netmindTokenExpiry(jwtWith({ exp: 1785661095 })),

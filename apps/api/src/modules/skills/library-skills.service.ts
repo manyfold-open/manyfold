@@ -8,7 +8,8 @@ import {
     PushLibrarySkillResult,
     UpdateLibrarySkillBody,
     UpsertLibrarySkillFileBody,
-    createObjectId
+    createObjectId,
+    shouldIgnoreLibrarySkillPath
 } from '@manyfold/shared'
 import { createHash } from 'node:crypto'
 import { ResourceChangesService } from '@/modules/resource-events/resource-changes.service'
@@ -523,7 +524,7 @@ export class LibrarySkillsService {
             .filter(
                 (entry) =>
                     entry.path === SKILL_CONTENT_FILENAME ||
-                    !shouldIgnoreImportPath(entry.path)
+                    !shouldIgnoreLibrarySkillPath(entry.path)
             )
         if (selected.length > MAX_LIBRARY_SKILL_FILE_COUNT)
             throw new BadRequestException(
@@ -1083,24 +1084,6 @@ export const shallowestSkillMdRoot = (paths: string[]): string | null => {
     return candidates.length > 0 ? candidates[0] : null
 }
 
-const IGNORED_BASENAMES = /^(license|licence|notice)(\.[a-z]+)?$/i
-
-export const shouldIgnoreImportPath = (path: string): boolean => {
-    const segments = path.split('/')
-    if (segments.some((segment) => segment.startsWith('.'))) return true
-    if (segments.some((segment) => segment === '__MACOSX')) return true
-    const basename = segments[segments.length - 1]
-    if (IGNORED_BASENAMES.test(basename)) return true
-    // A nested SKILL.md is another skill's primary content, not a supporting
-    // file of this one — importing it would double-materialize.
-    if (
-        path !== SKILL_CONTENT_FILENAME &&
-        basename.toLowerCase() === SKILL_CONTENT_FILENAME.toLowerCase()
-    )
-        return true
-    return false
-}
-
 export const parseSkillArchive = (
     data: Buffer,
     filename: string
@@ -1151,7 +1134,7 @@ export const parseSkillArchive = (
             content = sanitizePgText(buf.toString('utf8'))
             continue
         }
-        if (shouldIgnoreImportPath(path)) continue
+        if (shouldIgnoreLibrarySkillPath(path)) continue
         if (looksBinary(buf)) continue
         total += buf.length
         if (total > MAX_LIBRARY_SKILL_TOTAL_BYTES)

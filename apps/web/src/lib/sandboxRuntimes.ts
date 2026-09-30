@@ -131,19 +131,19 @@ export const sandboxInstallOptions = (
 }
 
 // How an item moves to another version, the same way the Update Center moves
-// it: through the runtime's agent when it has one, otherwise in place on the
+// it: through its runtime when there is one, otherwise in place on the
 // sandbox for a CLI its image ships. null = not from here.
 export type SandboxVersionChange =
-    | { via: 'agent'; agentId: string; mode: FrameworkUpgradeMode }
+    | { via: 'runtime'; runtimeId: string; mode: FrameworkUpgradeMode }
     | { via: 'sandbox' }
 
 export const sandboxVersionChange = (
     item: SandboxRuntimeItem
 ): SandboxVersionChange | null => {
     if (item.runtime && item.runtime.status !== 'ready') return null
-    const agentId = item.runtime?.primaryAgentId ?? null
     const mode = frameworkUpgradeMode(item.framework)
-    if (agentId && mode) return { via: 'agent', agentId, mode }
+    if (item.runtime && mode)
+        return { via: 'runtime', runtimeId: item.runtime.id, mode }
     return preinstalled(item.framework) ? { via: 'sandbox' } : null
 }
 

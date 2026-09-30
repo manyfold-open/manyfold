@@ -46,6 +46,15 @@ export const assertPublicHttpUrl = async (
     return url
 }
 
+// Whether a machine elsewhere on the internet could reach this host, judged
+// from the name alone: no localhost or .local name, no private or reserved IP
+// literal. Nothing is resolved, so a name that only exists on a LAN passes.
+export const isPublicHostname = (hostname: string): boolean => {
+    const host = normalizeHost(hostname)
+    if (isBlockedHostname(host)) return false
+    return isIP(host) ? !isPrivateAddress(host) : true
+}
+
 export const normalizeProviderEndpoint = async (
     raw: string
 ): Promise<string> => {

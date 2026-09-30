@@ -22,6 +22,7 @@ import {
     buildAgentModelSupportMatrix,
     claudeEffortOptionsForDraft,
     codexIntelligenceOptionsForModel,
+    draftFollowsView,
     draftFromModelConfigView,
     formatClaudeEffortLabel,
     frameworkUsesModelConfig,
@@ -30,7 +31,6 @@ import {
     modelConfigDisplayLabel,
     patchRuntimeLocalDraft,
     runtimeLocalModelOptions,
-    preferredPrimaryModelDefault,
     providerModelIdsForSummary,
     readCachedModelConfigView,
     reconcileModelConfigDraftForProviderModels,
@@ -261,6 +261,20 @@ test('draftFromModelConfigView preserves Codex config', () => {
     assert.deepEqual(draftFromModelConfigView(codexView), codexView.config)
 })
 
+test('a draft follows its view until a model or source is chosen in the tab', () => {
+    const draft = draftFromModelConfigView(codexView)
+    assert.equal(draftFollowsView(codexView, draft, codexView.source), true)
+    assert.equal(
+        draftFollowsView(
+            codexView,
+            draft?.framework === 'codex' ? { ...draft, model: 'gpt-4o' } : null,
+            codexView.source
+        ),
+        false
+    )
+    assert.equal(draftFollowsView(codexView, draft, 'runtime-local'), false)
+})
+
 test('provider compatibility includes custom protocol providers', () => {
     const anthropic = providerSummary({
         inferenceProtocol: 'anthropic_messages',
@@ -338,55 +352,6 @@ test('providerModelIdsForSummary reads the anthropic bucket of a managed antigra
         ['claude-opus-4-6', 'claude-sonnet-4-6']
     )
     assert.equal(providerModelIdsForSummary(antigravityClaude, 'google'), null)
-})
-
-test('preferredPrimaryModelDefault prefers the economical tier per family', () => {
-    assert.equal(
-        preferredPrimaryModelDefault(
-            ['gpt-5.5', 'gpt-5.4-mini', 'gpt-5.4'],
-            'openai'
-        ),
-        'gpt-5.4-mini'
-    )
-    assert.equal(
-        preferredPrimaryModelDefault(
-            ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
-            'anthropic'
-        ),
-        'claude-haiku-4-5'
-    )
-})
-
-test('preferredPrimaryModelDefault matches vendor-prefixed economical ids', () => {
-    assert.equal(
-        preferredPrimaryModelDefault(
-            ['netmind/gpt-5.5', 'netmind/gpt-5.4-mini'],
-            'openai'
-        ),
-        'netmind/gpt-5.4-mini'
-    )
-    assert.equal(
-        preferredPrimaryModelDefault(
-            ['vendor/claude-sonnet-5', 'vendor/claude-haiku-4-5'],
-            'anthropic'
-        ),
-        'vendor/claude-haiku-4-5'
-    )
-})
-
-test('preferredPrimaryModelDefault falls back to the first option', () => {
-    assert.equal(
-        preferredPrimaryModelDefault(
-            ['codex-auto-review', 'gpt-5.5'],
-            'openai'
-        ),
-        'codex-auto-review'
-    )
-    assert.equal(preferredPrimaryModelDefault([], 'openai'), undefined)
-    assert.equal(
-        preferredPrimaryModelDefault(['some-model'], 'google'),
-        'some-model'
-    )
 })
 
 test('frameworkUsesModelConfig includes local daemon coding agents', () => {

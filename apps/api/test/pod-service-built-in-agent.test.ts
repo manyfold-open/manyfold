@@ -13,10 +13,8 @@ import {
 
 // A service framework's first agent on a cloud computer is its gateway's
 // built-in profile (openclaw's `main`), as on a sandbox: the host's service is
-// configured for that profile and every chat session binds to it. Pushing a
-// profile beside it left the primary on a workspace chat never used, and once
-// a config rewrite dropped the pushed profile, reconcile stopped the primary
-// and adopted `main` as a second agent.
+// configured for that profile. It is stored under that name (ADR-0040), so the
+// reconcile knows it by its id like any other agent.
 
 const OPENCLAW_WS = '/home/node/.openclaw/workspace'
 
@@ -39,7 +37,6 @@ const podRuntime = (overrides: Record<string, unknown> = {}) =>
         framework: 'openclaw',
         hostId: 'pdh_1',
         mountPath: '/home/node/.openclaw',
-        primaryAgentId: null,
         ...(overrides as Partial<AgentRuntimeRow>)
     })
 
@@ -50,7 +47,10 @@ const tableName = (table: unknown): string =>
         ] ?? ''
     )
 
-const attachRig = (runtimeRow: ReturnType<typeof podRuntime>) => {
+const attachRig = (
+    runtimeRow: ReturnType<typeof podRuntime>,
+    opts: { joined?: boolean } = {}
+) => {
     const inserted: NewAgent[] = []
     const added: Array<{ internalId: string }> = []
     const db = {
@@ -60,7 +60,12 @@ const attachRig = (runtimeRow: ReturnType<typeof podRuntime>) => {
                     limit: async () =>
                         tableName(table) === 'agent_runtimes'
                             ? [runtimeRow]
-                            : [{ id: null }]
+                            : [{ id: null }],
+                    // The runtime's first agent, when one is already there.
+                    orderBy: () => ({
+                        limit: async () =>
+                            opts.joined ? [{ modelProviderId: null }] : []
+                    })
                 })
             })
         }),
@@ -113,20 +118,23 @@ test('the first openclaw agent on a cloud computer is its gateway\'s main profil
     const rig = attachRig(podRuntime())
     const summary = await rig.attach.attach({
         runtime: podRuntime() as never,
+        expectedOwnerUserId: 'user-1',
         name: 'first'
     })
     assert.deepEqual(rig.added, [], 'nothing is pushed into the gateway')
     const [row] = rig.inserted
-    assert.equal(row.internalId, summary.id, 'the row keeps the Manyfold id')
+    assert.equal(row.id, summary.id)
+    assert.equal(row.internalId, 'main', "stored under the framework's name")
     assert.equal(row.workspacePath, OPENCLAW_WS)
     assert.equal(row.model, 'primary/model-x')
 })
 
 test('an agent added after the first gets a profile of its own', async () => {
-    const runtime = podRuntime({ primaryAgentId: 'agt_first' })
-    const rig = attachRig(runtime)
+    const runtime = podRuntime()
+    const rig = attachRig(runtime, { joined: true })
     const summary = await rig.attach.attach({
         runtime: runtime as never,
+        expectedOwnerUserId: 'user-1',
         name: 'second'
     })
     assert.equal(rig.added.length, 1)
@@ -138,6 +146,7 @@ test('a workspace for the first agent is refused, not dropped', async () => {
     await assert.rejects(
         rig.attach.attach({
             runtime: podRuntime() as never,
+            expectedOwnerUserId: 'user-1',
             name: 'first',
             workspace: '/home/node/project'
         }),
@@ -146,14 +155,14 @@ test('a workspace for the first agent is refused, not dropped', async () => {
     assert.deepEqual(rig.inserted, [])
 })
 
-test('reconcile knows a cloud computer\'s main profile as its primary agent', async () => {
-    const primary = {
+test('reconcile knows a cloud computer\'s main profile by its id', async () => {
+    const builtIn = {
         id: 'agt_first',
         userId: 'user-1',
         runtimeId: 'art_1',
         framework: 'openclaw',
         name: 'Research',
-        internalId: 'agt_first',
+        internalId: 'main',
         status: 'ready',
         failureReason: null,
         workspacePath: OPENCLAW_WS,
@@ -164,7 +173,7 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
     }
     const inserts: unknown[] = []
     const updates: Array<Record<string, unknown>> = []
-    const runtime = podRuntime({ primaryAgentId: 'agt_first' })
+    const runtime = podRuntime()
     // The runtime is re-read with a limit; the agents are listed without.
     const db = {
         select: () => ({
@@ -172,7 +181,7 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
                 where: () =>
                     tableName(table) === 'agent_runtimes'
                         ? { limit: async () => [runtime] }
-                        : Promise.resolve([primary])
+                        : Promise.resolve([builtIn])
             })
         }),
         update: () => ({
@@ -206,14 +215,14 @@ test('reconcile knows a cloud computer\'s main profile as its primary agent', as
     assert.equal(inserts.length, 0, 'main is not adopted as a second agent')
     assert.equal(updates.length, 1)
     assert.equal('status' in updates[0], false, 'presence is never mirrored')
-    assert.equal('name' in updates[0], false, 'the primary keeps its name')
+    assert.equal('name' in updates[0], false, 'the agent keeps its own name')
 })
 
 // A runtime prepared with no agent keeps its built-in profile for the first
 // agent that joins; an agent made in the framework's own UI is still adopted.
 test('reconcile leaves a prepared runtime\'s main profile for its first agent', async () => {
     const inserts: Array<Record<string, unknown>> = []
-    const runtime = podRuntime({ primaryAgentId: null })
+    const runtime = podRuntime()
     const db = {
         select: () => ({
             from: (table: unknown) => ({

@@ -60,11 +60,13 @@ import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-rec
 import { ChatService } from '../src/modules/chat/chat.service'
 import { ChatRepository } from '../src/modules/chat/chat.repository'
 import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
+import { AgentCreateRequestsService } from '../src/modules/agents/create-requests/agent-create-requests.service'
 import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { openCloudComputerPort } from '../src/common/ports/cloud-computer.ports'
 import { K8sLifecycleFixture } from './helpers/k8s-lifecycle-fixture'
+import { headerOnlyReply } from './helpers/create-requests-fake'
 import { CLI_AT_FLOOR } from './helpers/cli-floor'
 
 // A self-serve k8s create (ADR-0035, ADR-0037): a hosted host on a k8s runtime
@@ -529,12 +531,12 @@ test(
             []
         )
         assert.equal(row.currentPhase, null)
-        assert.equal(row.primaryAgentId, summary.id)
         const [agent] = await h.db
             .select()
             .from(agents)
             .where(eq(agents.id, summary.id))
         assert.equal(agent.status, 'ready')
+        assert.equal(agent.runtimeId, row.id)
         assert(h.api.runtimeResources().length > 0)
     }
 )
@@ -997,7 +999,13 @@ test(
         await bounded(gate.entered)
         const stale = { ...pendingRuntime, status: 'ready' as const }
         await assert.rejects(
-            bounded(h.attach.attach({ runtime: stale, name: 'foreign' })),
+            bounded(
+                h.attach.attach({
+                    runtime: stale,
+                    expectedOwnerUserId: stale.userId,
+                    name: 'foreign'
+                })
+            ),
             /container is not ready/
         )
         let listed = false
@@ -1229,11 +1237,17 @@ test(
             {} as never,
             h.attach,
             h.runtimeContext,
-            { recordFirstAgentCreated: async () => {} } as never
+            { recordFirstAgentCreated: async () => {} } as never,
+            new AgentCreateRequestsService(h.db, h.config),
+            {} as never,
+            {} as never
         )
-        await controller.addAgent({ userId: h.userId } as never, parent.id, {
-            name: 'second parent agent'
-        } as never)
+        await controller.addAgent(
+            { userId: h.userId } as never,
+            parent.id,
+            { name: 'second parent agent' } as never,
+            headerOnlyReply()
+        )
         assert.equal(
             (
                 await h.db
@@ -1260,9 +1274,12 @@ test(
             status: 'ready',
             hostId
         })
-        await controller.addAgent({ userId: h.userId } as never, runtimeId, {
-            name: 'standalone agent'
-        } as never)
+        await controller.addAgent(
+            { userId: h.userId } as never,
+            runtimeId,
+            { name: 'standalone agent' } as never,
+            headerOnlyReply()
+        )
         assert.equal(
             (
                 await h.db
@@ -1606,6 +1623,7 @@ for (const provisionStage of ['secrets', 'deployments'] as const)
                         currentPhase: null,
                         status: 'ready'
                     },
+                    expectedOwnerUserId: runtime.userId,
                     name: 'foreign'
                 }),
                 /container is not ready/

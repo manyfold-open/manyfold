@@ -6,7 +6,10 @@ import type {
     RuntimeHostRow,
     RuntimeProvider
 } from '@manyfold/db'
+import { stepsFor } from '@manyfold/shared'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { HostDaemonOfflineError } from '../src/modules/agents/adapters/host-daemon-access'
+import { assertStepsFollow } from './helpers/create-steps'
 
 // A sprites host (ADR-0037): the adapter makes the machine under a fresh
 // generation, the runner manager brings its daemon up, and a coding framework
@@ -31,7 +34,6 @@ const runtimeRow = (
         hostId: 'sbx_testhost',
         capabilitiesJson: {},
         mountPath: '/home/sprite/.manyfold/workspaces/agt_test',
-        primaryAgentId: null,
         controlUiEnabled: true,
         dashboardEnabled: false,
         lastBootstrappedAt: null,
@@ -64,6 +66,9 @@ const buildHarness = (opts: {
     setupFails?: boolean
     destroyFails?: boolean
     daemonComesUp?: boolean
+    // The bring-up gave up on the new machine's daemon, as it does when the
+    // runner cannot register with the API.
+    daemonOffline?: boolean
 } = {}) => {
     const state = {
         host: hostRow(),
@@ -160,6 +165,11 @@ const buildHarness = (opts: {
                 calls.push('daemon')
                 sessions.push(args.reason)
                 if (opts.daemonComesUp === false) throw new Error('daemon never came up')
+                if (opts.daemonOffline)
+                    throw new HostDaemonOfflineError(
+                        args.host,
+                        'runner_unavailable'
+                    )
                 // The daemon registering is what flips a new sandbox ready.
                 state.host = { ...state.host, status: 'ready' }
                 return work(session)
@@ -236,6 +246,38 @@ test('a fresh host is made by the adapter under a new generation, its daemon bro
     assert.equal(result.runtime.frameworkVersion, '0.130.0')
 })
 
+// The runner is most of a fresh sandbox's wait, so it is a step of its own,
+// reported once the VM exists and before anything runs through the runner.
+test('a fresh sandbox reports the VM, then its runner, then the framework, in list order', async () => {
+    const h = buildHarness()
+    await h.provisioner.provisionRuntime({
+        userId: 'user-1',
+        framework: 'codex',
+        providerId: null,
+        isAdmin: false,
+        credentials: {},
+        emitter: { step: (step) => h.calls.push(`step:${step}`) },
+        agentId: 'agt_test'
+    })
+    assert.deepEqual(h.calls, [
+        'step:selecting_account',
+        'step:checking_quota',
+        'step:creating_sprite',
+        'create@2',
+        'step:starting_runner',
+        'daemon',
+        'step:bootstrapping',
+        'daemon',
+        'step:installing_framework'
+    ])
+    assertStepsFollow(
+        h.calls
+            .filter((call) => call.startsWith('step:'))
+            .map((call) => call.slice('step:'.length)),
+        stepsFor('codex', 'sprites')
+    )
+})
+
 // Agent create behaves like a pod's: no key-based login and no paid verify
 // turn run on the machine, and no platform key is written to it.
 test('a coding create logs nothing in, verifies nothing with money and keeps no key on the machine', async () => {
@@ -272,6 +314,62 @@ test('a machine whose daemon never comes up is a failed host', async () => {
     await assert.rejects(() => provision(h), /daemon never came up/)
     assert.ok(h.hostPatches.some((p) => p.status === 'failed'))
     assert.ok(h.calls.filter((c) => c.startsWith('destroy')).length >= 1)
+})
+
+const withPublicApiUrl = (
+    t: { after: (fn: () => void) => void },
+    value: string
+): void => {
+    const prior = process.env.PUBLIC_API_BASE_URL
+    process.env.PUBLIC_API_BASE_URL = value
+    t.after(() => {
+        if (prior === undefined) delete process.env.PUBLIC_API_BASE_URL
+        else process.env.PUBLIC_API_BASE_URL = prior
+    })
+}
+
+const responseOf = (err: unknown): { code?: string; details?: unknown } =>
+    (
+        err as { getResponse?: () => { code?: string; details?: unknown } }
+    ).getResponse?.() ?? {}
+
+// A new sandbox's runner has to call the API back. A local stack's
+// localhost address can never be reached from the provider's VM, so nothing
+// is reserved and no machine is made for a create that could only fail.
+test('a new sandbox is refused before any quota or VM when its runner could not reach the API', async (t) => {
+    withPublicApiUrl(t, 'http://localhost:7150')
+    const h = buildHarness()
+    await assert.rejects(
+        () => provision(h),
+        (err: unknown) => {
+            assert.equal(responseOf(err).code, 'SANDBOX_API_UNREACHABLE')
+            assert.deepEqual(responseOf(err).details, {
+                apiUrl: 'http://localhost:7150/api'
+            })
+            return true
+        }
+    )
+    assert.equal(h.state.reserved, null)
+    assert.deepEqual(h.calls, [])
+})
+
+test('a new machine whose runner never connected says which address it had to reach', async (t) => {
+    withPublicApiUrl(t, 'https://stopped-tunnel.example.com')
+    const h = buildHarness({ daemonOffline: true })
+    await assert.rejects(
+        () => provision(h),
+        (err: unknown) => {
+            assert.equal(responseOf(err).code, 'SANDBOX_RUNNER_NOT_CONNECTED')
+            assert.deepEqual(responseOf(err).details, {
+                hostId: 'sbx_testhost',
+                apiUrl: 'https://stopped-tunnel.example.com/api',
+                reason: 'runner_unavailable'
+            })
+            return true
+        }
+    )
+    assert.ok(h.hostPatches.some((p) => p.status === 'failed'))
+    assert.ok(h.calls.some((c) => c.startsWith('destroy')))
 })
 
 const wakeProvisioner = (

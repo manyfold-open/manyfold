@@ -28,7 +28,6 @@ const setup = (inventory: DetectedFramework[]) => {
     }
     const service = new FrameworkVersionProbeService(
         db as never,
-        {} as never,
         {
             forRuntime: async () => ({
                 runtime: { id: 'art_1', hostId: 'sbx_1' },
@@ -48,7 +47,7 @@ const setup = (inventory: DetectedFramework[]) => {
     return { service, writes }
 }
 
-const agent = { id: 'agt_1', framework: 'claude-code', runtimeId: 'art_1' }
+const runtime = { id: 'art_1', framework: 'claude-code' }
 
 test('a probed version lands on the runtime and, stamped, in the inventory', async () => {
     const pi = { framework: 'pi', version: '0.87.1', path: '~/.local/bin/pi' }
@@ -61,7 +60,7 @@ test('a probed version lands on the runtime and, stamped, in the inventory', asy
         }
     ] as DetectedFramework[])
 
-    assert.equal(await service.probeAndPersist(agent as never), '2.1.283')
+    assert.equal(await service.probeAndPersist(runtime), '2.1.283')
 
     assert.equal(writes[0].table, agentRuntimes)
     assert.equal(writes[0].set.frameworkVersion, '2.1.283')
@@ -79,7 +78,7 @@ test('a CLI the daemon has not reported is left to its next detection', async ()
         { framework: 'pi', version: '0.87.1', path: '~/.local/bin/pi' }
     ] as DetectedFramework[])
 
-    await service.probeAndPersist(agent as never)
+    await service.probeAndPersist(runtime)
 
     assert.deepEqual(
         writes.map((write) => write.table),

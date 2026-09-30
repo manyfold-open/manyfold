@@ -368,14 +368,6 @@ const upgrade = async (_t: TestContext, entry = catalogFor(FORK)) => {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: true }] })
         } as never,
-        {
-            findForCaller: async () => ({
-                id: 'agt_fixture',
-                framework: FIXTURE,
-                runtimeId: runtime.id
-            }),
-            get: async () => ({ id: 'agt_fixture' })
-        } as never,
         f.versions,
         { probeAndPersist: async () => SHARED } as never,
         f.admin as never,
@@ -396,13 +388,9 @@ const upgrade = async (_t: TestContext, entry = catalogFor(FORK)) => {
         service,
         repoReads: () => repoReads,
         run: (version = SHARED) =>
-            service.upgradeStreaming(
-                'agt_fixture',
-                'usr_fixture',
-                version,
-                false,
-                { step: () => {} }
-            )
+            service.upgradeStreaming(runtime, version, false, {
+                step: () => {}
+            })
     }
 }
 

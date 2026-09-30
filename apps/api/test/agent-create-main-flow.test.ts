@@ -1,7 +1,8 @@
 import {
     AgentCreateStep,
     auditAction,
-    PLATFORM_DEFAULT_SKILL_IDS
+    PLATFORM_DEFAULT_SKILL_IDS,
+    stepsFor
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -19,6 +20,7 @@ import {
     fakeRuntimeContext,
     spritesHostRow
 } from './helpers/runtime-context-fixture'
+import { assertStepsFollow } from './helpers/create-steps'
 
 // The sandbox the provisioner hands back.
 const HOST = spritesHostRow({
@@ -265,7 +267,6 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     assert.equal(db.credentialRows[0].keyVersion, 7)
     assert.match(String(db.credentialRows[0].payloadCiphertext), /sk-ant-test/)
 
-    assert.equal(provisionedRuntime.primaryAgentId, result.id)
     assert.equal(finalizedRuntimeId, provisionedRuntime.id)
     assert.equal(persistedInline, true)
     assert.deepEqual(defaultInstalls, [
@@ -299,6 +300,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         'storing_credentials',
         'finalizing'
     ])
+    assertStepsFollow(steps, stepsFor('claude-code', 'sprites'))
     assert.deepEqual(
         db.auditRows.map((row) => row.action),
         [auditAction.AGENT_CREATE_STARTED, auditAction.AGENT_CREATE_SUCCEEDED]
@@ -473,6 +475,7 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         'storing_credentials',
         'finalizing'
     ])
+    assertStepsFollow(steps, stepsFor('claude-code', 'sprites'))
 })
 
 test('AgentOrchestrator create runs A2A through external provisioning', async () => {
@@ -571,8 +574,9 @@ test('AgentOrchestrator create runs A2A through external provisioning', async ()
             remoteRef: { selectedSkillId: 'skill-1' }
         }
     })
-    assert.equal(db.runtimeRows[0].primaryAgentId, result.id)
+    assert.equal(db.agentRows[0].runtimeId, db.runtimeRows[0].id)
     assert.deepEqual(steps, ['validating', 'inserting_agent'])
+    assertStepsFollow(steps, stepsFor('a2a', 'external'))
 })
 
 const runtimeRow = () => ({
@@ -585,7 +589,6 @@ const runtimeRow = () => ({
     accountId: 'spa_1',
     spriteName: 'agt-core-agent',
     spriteId: 'sprite-1',
-    primaryAgentId: null as string | null,
     mountPath: '/repo/project',
     namespace: null,
     ingressHost: null,

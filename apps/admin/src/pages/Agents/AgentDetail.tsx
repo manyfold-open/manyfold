@@ -1,14 +1,12 @@
 import type {
     AgentCreateStep,
-    AgentRuntimeSummary,
     AgentStatus,
     SdkUserSummary} from '@manyfold/shared';
 import {
     frameworkUpgradeMode,
     isUpgradeableFramework,
     isVersionedFramework,
-    k8sSteps,
-    spritesSteps
+    stepsFor
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -36,9 +34,6 @@ import UsageTab from './components/UsageTab'
 import { AgentModelConfigPanel } from './components/AgentModelConfigPanel'
 
 type DetailTab = 'overview' | 'files' | 'usage' | 'model'
-
-const stepsFor = (agent: SdkAgent): AgentCreateStep[] =>
-    agent.runtime === 'sprites' ? spritesSteps : k8sSteps
 
 const isKnownStep = (
     phase: string | null,
@@ -83,7 +78,6 @@ const AgentDetail: FC = (): ReactNode => {
         ? client.admin.agentRuntimes
         : client.agentRuntimes
     const [agent, setAgent] = useState<SdkAgent | null>(null)
-    const [runtime, setRuntime] = useState<AgentRuntimeSummary | null>(null)
     const [owner, setOwner] = useState<SdkUserSummary | null>(null)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -100,11 +94,12 @@ const AgentDetail: FC = (): ReactNode => {
     const [fwStep, setFwStep] = useState<string | null>(null)
 
     const handleRefreshFrameworkVersion = async (): Promise<void> => {
-        if (!agent || fwRefreshing) return
+        if (!agent?.runtimeId || fwRefreshing) return
         setFwRefreshing(true)
         setFwError(null)
         try {
-            setAgent(await agentsApi.refreshFrameworkVersion(agent.id))
+            await runtimesApi.refreshFrameworkVersion(agent.runtimeId)
+            setAgent(await agentsApi.get(agent.id))
         } catch (err) {
             setFwError((err as Error).message)
         } finally {
@@ -131,24 +126,23 @@ const AgentDetail: FC = (): ReactNode => {
     }
 
     const handleUpgradeFramework = async (): Promise<void> => {
-        if (!agent || !fwTarget || fwUpgrading) return
+        const runtimeId = agent?.runtimeId
+        if (!agent || !runtimeId || !fwTarget || fwUpgrading) return
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
         try {
-            if (frameworkUpgradeMode(agent.framework) === 'rebuild') {
-                setAgent(
-                    await agentsApi.upgradeFrameworkStream(
-                        agent.id,
-                        fwTarget,
-                        (ev) => {
-                            if (ev.type === 'step') setFwStep(ev.step)
-                        }
-                    )
+            // The framework install is the agent's runtime's.
+            if (frameworkUpgradeMode(agent.framework) === 'rebuild')
+                await runtimesApi.upgradeFrameworkStream(
+                    runtimeId,
+                    fwTarget,
+                    (ev) => {
+                        if (ev.type === 'step') setFwStep(ev.step)
+                    }
                 )
-            } else {
-                setAgent(await agentsApi.upgradeFramework(agent.id, fwTarget))
-            }
+            else await runtimesApi.upgradeFramework(runtimeId, fwTarget)
+            setAgent(await agentsApi.get(agent.id))
             setFwPickerOpen(false)
         } catch (err) {
             setFwError((err as Error).message)
@@ -202,19 +196,6 @@ const AgentDetail: FC = (): ReactNode => {
             })
     }, [client, agent, isAdmin])
 
-    useEffect(() => {
-        if (!agent?.runtimeId) return
-        runtimesApi
-            .get(agent.runtimeId)
-            .then(setRuntime)
-            .catch(() => {
-                // best-effort — primary-agent detection just becomes false
-            })
-    }, [runtimesApi, agent])
-
-    const isPrimary =
-        !!agent && !!runtime && runtime.primaryAgentId === agent.id
-
     return (
         <DetailPage>
             <Breadcrumbs
@@ -257,11 +238,6 @@ const AgentDetail: FC = (): ReactNode => {
                         <div className='min-w-0 flex-1'>
                             <div className='mb-1 flex items-center gap-2'>
                                 <Heading level={2}>{agent.name}</Heading>
-                                {isPrimary && (
-                                    <Badge tone='brand'>
-                                        {t('admin.agents.detail.primaryPill')}
-                                    </Badge>
-                                )}
                             </div>
                             <p className='text-caption-sm text-body break-all font-mono'>
                                 {agent.id}
@@ -275,32 +251,19 @@ const AgentDetail: FC = (): ReactNode => {
                                 </Link>
                             )}
                         </div>
-                        {isPrimary ? (
-                            <Link
-                                to={
-                                    agent.runtimeId
-                                        ? adminRoutes.runtime(agent.runtimeId)
-                                        : adminRoutes.runtimes
-                                }
-                                className='text-caption border-border hover:bg-surface-muted inline-flex h-8 items-center rounded-md border px-3 font-normal'
-                            >
-                                {t('admin.agents.detail.primaryDeleteButton')}
-                            </Link>
-                        ) : (
-                            <Button
-                                variant='neutral'
-                                size='sm'
-                                onClick={(): void => {
-                                    void handleDelete()
-                                }}
-                                disabled={deleting}
-                                className='!text-accent-ruby !border-accent-ruby/30 hover:!bg-accent-ruby/5'
-                            >
-                                {deleting
-                                    ? t('admin.agents.detail.delete.deleting')
-                                    : t('admin.agents.detail.delete.button')}
-                            </Button>
-                        )}
+                        <Button
+                            variant='neutral'
+                            size='sm'
+                            onClick={(): void => {
+                                void handleDelete()
+                            }}
+                            disabled={deleting}
+                            className='!text-accent-ruby !border-accent-ruby/30 hover:!bg-accent-ruby/5'
+                        >
+                            {deleting
+                                ? t('admin.agents.detail.delete.deleting')
+                                : t('admin.agents.detail.delete.button')}
+                        </Button>
                     </div>
 
                     {deleteError && (
@@ -371,7 +334,10 @@ const AgentDetail: FC = (): ReactNode => {
                     {tab === 'overview' &&
                         agent.status === 'pending' &&
                         (() => {
-                            const steps = stepsFor(agent)
+                            const steps = stepsFor(
+                                agent.framework,
+                                agent.runtime
+                            )
                             const phase = agent.currentPhase
                             const currentIndex = isKnownStep(phase, steps)
                                 ? steps.indexOf(phase)

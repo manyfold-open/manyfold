@@ -5,7 +5,7 @@ import {
     Injectable,
     Logger
 } from '@nestjs/common'
-import { and, count, eq } from 'drizzle-orm'
+import { and, count, eq, ne } from 'drizzle-orm'
 import {
     agents,
     agentRuntimes,
@@ -59,7 +59,10 @@ export class K8sProvisioner {
         return host
     }
 
-    async teardownRuntime(runtime: AgentRuntimeRow): Promise<void> {
+    async teardownRuntime(
+        runtime: AgentRuntimeRow,
+        opts?: { leavingAgentId?: string }
+    ): Promise<void> {
         const host = await this.podHostOf(runtime)
         if (
             runtime.currentPhase === K8S_CREATE_CLEANUP_PENDING ||
@@ -72,7 +75,13 @@ export class K8sProvisioner {
             .select({ value: count() })
             .from(agents)
             .where(
-                and(eq(agents.runtimeId, runtime.id), eq(agents.status, 'ready'))
+                and(
+                    eq(agents.runtimeId, runtime.id),
+                    eq(agents.status, 'ready'),
+                    opts?.leavingAgentId
+                        ? ne(agents.id, opts.leavingAgentId)
+                        : undefined
+                )
             )
         if (Number(ready?.value ?? 0) > 0)
             throw new ConflictException({

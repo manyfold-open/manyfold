@@ -161,7 +161,11 @@ export class PodHostsService {
                 message: denial.message,
                 code: denial.code
             })
-        const existing = await this.runtimes.findRuntimeOnHost(host.id, framework)
+        const existing = await this.runtimes.findRuntimeOnHost(
+            host.id,
+            framework,
+            host.userId
+        )
         if (existing && existing.status !== 'failed')
             return this.runtimes.toSummary(existing)
         // A service framework's gateway is configured with its provider, so it

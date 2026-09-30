@@ -813,14 +813,16 @@ const AgentSettingsContent: FC = (): ReactNode => {
         return (): void => window.clearInterval(timer)
     }, [agentDashboardState, refreshAgentSummary])
 
+    // The framework install is the agent's runtime's.
     const handleRefreshFrameworkVersion = async (): Promise<void> => {
-        if (!id || fwRefreshing) return
+        const runtimeId = agent?.runtimeId
+        if (!runtimeId || fwRefreshing) return
         setFwRefreshing(true)
         setFwError(null)
         try {
-            const next = await client.agents.refreshFrameworkVersion(id)
-            setAgent(next)
-                    } catch (err) {
+            await client.agentRuntimes.refreshFrameworkVersion(runtimeId)
+            await refreshAgentSummary()
+        } catch (err) {
             setFwError(apiErrorMessage(err))
         } finally {
             setFwRefreshing(false)
@@ -880,24 +882,24 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }
 
     const handleUpgradeFramework = async (version: string): Promise<void> => {
-        if (!id || !agent || fwUpgrading) return
+        const runtimeId = agent?.runtimeId
+        if (!agent || !runtimeId || fwUpgrading) return
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
         try {
-            if (frameworkUpgradeMode(agent.framework) === 'rebuild') {
+            if (frameworkUpgradeMode(agent.framework) === 'rebuild')
                 // heavy rebuild — stream phase events for liveness
-                const next = await client.agents.upgradeFrameworkStream(
-                    id,
+                await client.agentRuntimes.upgradeFrameworkStream(
+                    runtimeId,
                     version,
                     (ev) => {
                         if (ev.type === 'step') setFwStep(ev.step)
                     }
                 )
-                setAgent(next)
-            } else {
-                setAgent(await client.agents.upgradeFramework(id, version))
-            }
+            else
+                await client.agentRuntimes.upgradeFramework(runtimeId, version)
+            await refreshAgentSummary()
         } catch (err) {
             setFwError(apiErrorMessage(err))
         } finally {

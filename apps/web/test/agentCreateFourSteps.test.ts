@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { listFrameworks } from '@manyfold/shared'
+import {
+    listFrameworks,
+    providerBindingFor,
+    providerRowVerdict
+} from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
     DaemonHostSummary,
@@ -36,8 +40,6 @@ import {
 import {
     joinBindingFor,
     managedChannelFor,
-    providerBindingFor,
-    providerRowVerdict,
     serviceCreateBody,
     withBinding
 } from '../src/pages/AgentNew/v4/providerBinding'
@@ -76,7 +78,6 @@ const runtime = (
         dashboardState: null,
         currentPhase: null,
         failureReason: null,
-        primaryAgentId: null,
         lastBootstrappedAt: null,
         createdAt: '',
         updatedAt: '',

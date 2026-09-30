@@ -17,6 +17,7 @@ import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import {
     HostDaemonAccess,
     HostDaemonOfflineError,
+    sandboxCliTooOld,
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
 import { HostsService } from '@/modules/hosts/hosts.service'
@@ -103,8 +104,11 @@ export class HostServices {
 
     private offline(host: RuntimeHostRow, err: unknown): never {
         if (!(err instanceof HostDaemonOfflineError)) throw err
-        throw new ServiceUnavailableException(
-            `${this.label(host)} has no connected daemon (${err.reason})`
+        throw (
+            sandboxCliTooOld(err) ??
+            new ServiceUnavailableException(
+                `${this.label(host)} has no connected daemon (${err.reason})`
+            )
         )
     }
 

@@ -8,12 +8,9 @@ import type {
     SdkUserSummary,
     UserExternalAgentProviderSummary} from '@manyfold/shared';
 import {
-    externalSteps,
     isExternal,
-    k8sCliSteps,
-    k8sSteps,
     normalizeAgentName,
-    spritesSteps,
+    stepsFor,
     validateAgentName
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
@@ -99,24 +96,14 @@ interface ProgressState {
 const isExternalFramework = (framework: Framework): boolean =>
     isExternal(framework)
 
-// The coding CLIs share one exec-style path: sandbox first, k8s bootstrap
-// via the CLI steps, and attach to an existing sandbox.
+// The coding CLIs share one exec-style path: sandbox first, a pod host as
+// the alternative, and attach to an existing sandbox.
 const isCodingFramework = (framework: Framework): boolean =>
     framework === 'claude-code' ||
     framework === 'codex' ||
     framework === 'gemini-cli' ||
     framework === 'pi' ||
     framework === 'antigravity-cli'
-
-const resolveSteps = (
-    framework: Framework,
-    runtime: RuntimePlacement
-): AgentCreateStep[] => {
-    if (runtime === 'external') return externalSteps
-    if (runtime === 'sprites') return spritesSteps
-    if (isCodingFramework(framework)) return k8sCliSteps
-    return k8sSteps
-}
 
 const supportsRuntimeChoice = (framework: Framework): boolean =>
     isCodingFramework(framework)
@@ -408,7 +395,7 @@ const AgentNew: FC = (): ReactNode => {
     const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
         e.preventDefault()
         setError(null)
-        const steps = resolveSteps(framework, runtime)
+        const steps = stepsFor(framework, runtime)
         setProgress({
             steps,
             currentIndex: -1,

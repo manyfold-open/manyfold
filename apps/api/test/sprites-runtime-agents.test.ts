@@ -27,8 +27,7 @@ const targetOn = (host: RuntimeHostRow = spritesHostRow()): RuntimeTarget =>
             name: 'main',
             framework: 'claude-code',
             hostId: host.id,
-            mountPath: '/home/sprite/.nca/workspaces/agent-1',
-            primaryAgentId: 'agent-1'
+            mountPath: '/home/sprite/.nca/workspaces/agent-1'
         }),
         host
     })
@@ -66,7 +65,6 @@ test('ClaudeCodeAgentAdapter.addAgent on a sandbox attaches the workspace throug
 
     const result = await adapter.addAgent({
         ...targetOn(),
-        primaryAgentId: 'agent-1',
         agentId: 'agent-2',
         internalId: 'agent-2',
         name: 'second',
@@ -97,7 +95,6 @@ test('ClaudeCodeAgentAdapter.addAgent on a cloud computer goes through the same 
 
     const result = await adapter.addAgent({
         ...targetOn(k8sHostRow({ id: 'pdh_1' })),
-        primaryAgentId: 'agent-1',
         agentId: 'agent-2',
         internalId: 'agent-2',
         name: 'second'
@@ -115,7 +112,6 @@ test('ClaudeCodeAgentAdapter.addAgent refuses a runtime without a machine', asyn
     await assert.rejects(
         adapter.addAgent({
             ...contextOf({ runtime: runtimeRow({ hostId: null }), host: null }),
-            primaryAgentId: null,
             agentId: 'agent-2',
             internalId: 'agent-2',
             name: 'second'
@@ -148,10 +144,7 @@ test('ClaudeCodeAgentAdapter.listAgents returns all rows for the runtime', async
     }
     const adapter = new ClaudeCodeAgentAdapter(fakeDb as never, noopAttacher)
 
-    const live = await adapter.listAgents({
-        ...targetOn(),
-        primaryAgentId: 'agent-1'
-    })
+    const live = await adapter.listAgents(targetOn())
 
     assert.equal(live.length, 2)
     assert.equal(live[0].id, 'agent-1')
@@ -176,8 +169,7 @@ test('ClaudeCodeAgentAdapter.removeAgent delegates to the attacher with the targ
 
     await adapter.removeAgent({
         ...targetOn(),
-        agent,
-        primaryAgentId: 'agent-1'
+        agent
     })
 
     const captured = detached as { target: RuntimeTarget; agent: Agent } | null

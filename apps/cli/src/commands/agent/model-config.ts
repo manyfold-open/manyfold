@@ -5,8 +5,11 @@ import type {
     AgentModelConfigSource,
     UpdateAgentModelConfigBody
 } from '@manyfold/shared'
+import type { NcaClient } from '@manyfold/sdk'
 import { buildClient } from '@/client'
 import { parseJsonArg } from '@/commands/channels/helpers'
+import { resolveAgentModel } from '@/model-options'
+import { UsageError } from '@/usage-error'
 
 interface UpdateOptions {
     source?: string
@@ -50,13 +53,17 @@ export const addModelConfigCommands = (
             console.log(JSON.stringify(view, null, 2))
         })
 
-    mc.command('update <agentId>')
+    const update: Command = mc
+        .command('update <agentId>')
         .description('Update agent model config')
         .option(
             '--source <source>',
             'modelConfigSource value (platform|runtime-local)'
         )
-        .option('--model <model>', 'set model id')
+        .option(
+            '--model <model>',
+            'the model to run: an alias such as sonnet, an id, or a name such as "Sonnet 5"'
+        )
         .option('--clear-model', 'clear model', false)
         .option(
             '--config <json>',
@@ -72,7 +79,14 @@ export const addModelConfigCommands = (
             if (opts.source)
                 body.modelConfigSource = opts.source as AgentModelConfigSource
             if (opts.clearModel) body.model = null
-            else if (opts.model !== undefined) body.model = opts.model
+            else if (opts.model !== undefined)
+                body.model = await settingsModel(
+                    update,
+                    client,
+                    agentId,
+                    opts.model,
+                    opts.source
+                )
             if (opts.clearConfig) body.modelConfig = null
             else if (opts.config !== undefined) {
                 body.modelConfig = (await parseJsonArg(
@@ -120,4 +134,23 @@ export const addModelConfigCommands = (
             )
             if (res.message) console.log(kleur.dim(`  ${res.message}`))
         })
+}
+
+// `--model` as people write it, read against the settings it lands in. A
+// switch to another source is left to the API, which reads that source's.
+const settingsModel = async (
+    command: Command,
+    client: NcaClient,
+    agentId: string,
+    model: string,
+    source: string | undefined
+): Promise<string> => {
+    const view = await client.agents.getModelConfig(agentId)
+    if (source && source !== view.source) return model
+    try {
+        return resolveAgentModel(view, model)
+    } catch (err) {
+        if (err instanceof UsageError) command.error(`error: ${err.message}`)
+        throw err
+    }
 }

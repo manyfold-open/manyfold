@@ -1,15 +1,13 @@
 import { useRef, useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import type { AgentFramework } from '@manyfold/shared'
+import { runtimeSignInCommandFor } from '@manyfold/shared'
 import { CopyButton } from '@/components/RuntimeDetailPanel'
 import TerminalSession from '@/components/TerminalSession'
 import type { TerminalConnectionStatus } from '@/components/TerminalSession'
 import { useAppAuth } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
-import {
-    runtimeSignInCommandFor,
-    runtimeSignInHintKey
-} from '@/lib/runtimeSignIn'
+import { runtimeSignInHintKey } from '@/lib/runtimeSignIn'
 
 // The runtime page's sign-in shell: a bare host terminal (no agent behind
 // it) that starts on the CLI's own sign-in command, so the user only has to

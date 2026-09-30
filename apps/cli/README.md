@@ -42,6 +42,7 @@ mf login --print-auth-url     # print URL and exit; then mf login --auth-code <c
 mf whoami
 mf agent list
 mf agent get <agent-id>
+mf agent send <agent-id> "hello"  # talk to an agent; its reply on stdout
 mf runtime list
 mf daemon status              # local rpc daemon
 mf daemon hooks status        # claude / codex session hooks (act only inside Manyfold terminals)

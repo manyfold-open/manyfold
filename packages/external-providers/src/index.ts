@@ -21,6 +21,7 @@ export type {
 } from './provider'
 export {
     assertPublicHttpUrl,
+    isPublicHostname,
     normalizeProviderEndpoint
 } from './endpoint-safety'
 

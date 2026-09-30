@@ -2237,6 +2237,69 @@ test('AgentModelConfigService saves a pi platform model and resolves it for the 
     )
 })
 
+// `mf model-config update --clear-model` sends model: null. On a provider the
+// merges read null like "not given" and kept the saved model, so the clear
+// changed nothing; it puts the agent back on the framework's default there.
+test('AgentModelConfigService clears a platform model back to the default', async () => {
+    const claude = new FakeDb({
+        ...baseAgent,
+        framework: 'claude-code',
+        model: 'opus',
+        extras: {}
+    })
+    claude.credentialPayload = {
+        anthropicAuthToken: 'sk-ant-test',
+        anthropicBaseUrl: 'https://anthropic.example.test'
+    }
+    const claudeView = await makeService(claude, [
+        'anthropic/claude-opus-4-7',
+        'anthropic/claude-sonnet-4-6'
+    ]).updateForAgent('user-1', 'agent-1', { model: null }, false)
+    assert.equal(claudeView.config?.model, 'sonnet')
+    assert.equal(claudeView.validation.valid, true)
+    assert.equal(claude.agent.model, 'sonnet')
+
+    const codex = new FakeDb({ ...baseAgent, model: 'provider/gpt-5.4' })
+    codex.credentialPayload = { openaiApiKey: 'sk-test' }
+    const codexView = await makeService(codex, [
+        'provider/gpt-5.4',
+        'provider/gpt-5.5'
+    ]).updateForAgent(
+        'user-1',
+        'agent-1',
+        { modelConfig: { framework: 'codex', model: null } },
+        false
+    )
+    assert.equal(codexView.config?.model, 'provider/gpt-5.5')
+
+    const gemini = new FakeDb({
+        ...baseAgent,
+        framework: 'gemini-cli',
+        model: 'gemini-2.5-flash'
+    })
+    gemini.credentialPayload = { googleApiKey: 'sk-google-test' }
+    const geminiView = await makeService(gemini, [
+        'gemini-3.5-flash',
+        'gemini-2.5-flash'
+    ]).updateForAgent('user-1', 'agent-1', { model: null }, false)
+    assert.equal(geminiView.config?.model, 'auto')
+
+    const pi = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'pi',
+        model: 'claude-sonnet-4-6'
+    })
+    const piView = await makeService(pi, null).updateForAgent(
+        'user-1',
+        'agent-1',
+        { modelConfigSource: 'platform', model: null },
+        false
+    )
+    assert.deepEqual(piView.config, { framework: 'pi', model: null })
+    assert.equal(pi.agent.model, null)
+})
+
 // agy's API-key mode runs only the slugs it lists and fails the turn on any
 // other, so an unknown platform model is refused when it is saved.
 test('AgentModelConfigService validates Antigravity platform selection against the provider', async () => {

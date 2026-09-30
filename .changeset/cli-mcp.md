@@ -1,0 +1,5 @@
+---
+'@manyfold/cli': minor
+---
+
+`mf mcp` manages an agent's MCP servers from the terminal, as the web app's MCP settings do. `mf mcp add <name> <url>` adds a server reached over HTTP (`--header` for its headers), and `mf mcp add <name> -- <command> [args…]` one run as a command (`--env` for its environment), as `claude mcp add` takes them; `--scope` picks the config it goes in (Claude Code's `user` or `project`, Codex's `global`, Gemini CLI's `user`). `mf mcp install <key>` copies a server from your MCP library or the platform's catalog, with `--env` / `--header` to fill in its values. `mf mcp list` shows each scope's servers (the names of their headers and env, never the values) and whether they reached the machine; `mf mcp remove` takes one out. Every change is written to the machine at once, and says so, or why not yet. `mf mcp pull` reads servers added on the machine itself into Manyfold before a push replaces them; `mf mcp push` writes them again. `mf mcp catalog list|get` browses the catalog, and `mf mcp library list|create|update|delete` manages your library. Arguments after `--` no longer switch mf's error output to JSON when one of them is `--json`.

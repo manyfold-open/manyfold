@@ -4,9 +4,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Writable } from 'node:stream'
 import { strFromU8, unzipSync } from 'fflate'
+import { parse as parseToml } from 'smol-toml'
 import { ExportBundleWriter } from '../src/modules/user-export/export-bundle'
 import {
     REDACTED,
+    redactAgentExtras,
     redactExportValue
 } from '../src/modules/user-export/export-redact'
 import { ExportTokenService } from '../src/modules/user-export/export-token.service'
@@ -38,11 +40,19 @@ test('redaction withholds credential-shaped keys at every depth', () => {
             encryptKey: 'e',
             subscriptionMode: 'websocket'
         },
-        list: [{ botToken: 't', label: 'keep me' }]
+        list: [{ botToken: 't', label: 'keep me' }],
+        // Codex names its header table http_headers.
+        remote: { http_headers: { 'X-Auth': 'codex-header-secret' } }
     }
     const out = redactExportValue(input) as Record<string, never>
     const json = JSON.stringify(out)
-    for (const secret of ['sk-live-x', 'sk-live-y', 'ldt_x', 'Bearer x'])
+    for (const secret of [
+        'sk-live-x',
+        'sk-live-y',
+        'ldt_x',
+        'Bearer x',
+        'codex-header-secret'
+    ])
         assert.ok(!json.includes(secret), `${secret} must not survive`)
     assert.equal(out['envText'], REDACTED)
     assert.equal(out['a2aExposure'], 'public')
@@ -122,4 +132,103 @@ test('bundle writer streams NDJSON and JSON entries into a real zip', async () =
         'empty.ndjson',
         'meta.json'
     ])
+})
+
+// extras.mcp holds each scope's servers as the framework's own config text,
+// where a walk over the blob's keys cannot see the credentials.
+test('agent extras: MCP config text is read and redacted per scope', () => {
+    const claude = redactAgentExtras('claude-code', {
+        a2aExposure: 'public',
+        mcp: {
+            user: JSON.stringify({
+                pg: {
+                    command: 'npx',
+                    args: ['server-postgres', 'postgres://u:pw-secret@db/x'],
+                    env: { PGPASSWORD: 'env-secret' }
+                },
+                search: {
+                    type: 'http',
+                    url: 'https://mcp.example.com/sse?key=url-secret',
+                    headers: { Authorization: 'Bearer header-secret' }
+                },
+                oauth: {
+                    type: 'http',
+                    url: 'https://user:login-secret@mcp.example.com/mcp',
+                    oauth: { clientId: 'app', clientSecret: 'oauth-secret' }
+                }
+            }),
+            project: '{"broken": "text-secret"',
+            empty: ''
+        }
+    }) as { a2aExposure: string; mcp: Record<string, string> }
+    const text = JSON.stringify(claude)
+    for (const secret of [
+        'pw-secret',
+        'env-secret',
+        'url-secret',
+        'header-secret',
+        'login-secret',
+        'oauth-secret',
+        'text-secret'
+    ])
+        assert.ok(!text.includes(secret), `${secret} must not survive`)
+    assert.equal(claude.a2aExposure, 'public')
+    const servers = JSON.parse(claude.mcp.user) as Record<
+        string,
+        Record<string, unknown>
+    >
+    assert.equal(servers.pg.command, 'npx')
+    assert.equal(servers.pg.args, REDACTED)
+    assert.equal(servers.pg.env, REDACTED)
+    assert.equal(servers.search.url, 'https://mcp.example.com/sse?[redacted]')
+    assert.equal(servers.search.headers, REDACTED)
+    assert.equal(servers.oauth.url, 'https://mcp.example.com/mcp')
+    assert.equal(claude.mcp.project, REDACTED)
+    assert.equal(claude.mcp.empty, '')
+
+    const codex = redactAgentExtras('codex', {
+        mcp: {
+            global: [
+                '[mcp_servers.docs]',
+                'command = "npx"',
+                '',
+                '[mcp_servers.docs.env]',
+                'DOCS_TOKEN = "toml-env-secret"',
+                '',
+                '[mcp_servers.remote]',
+                'url = "https://mcp.example.com/mcp"',
+                'bearer_token = "toml-bearer-secret"',
+                '',
+                '[mcp_servers.remote.http_headers]',
+                'X-Auth = "toml-header-secret"'
+            ].join('\n')
+        }
+    }) as { mcp: Record<string, string> }
+    for (const secret of [
+        'toml-env-secret',
+        'toml-bearer-secret',
+        'toml-header-secret'
+    ])
+        assert.ok(
+            !codex.mcp.global.includes(secret),
+            `${secret} must not survive`
+        )
+    const doc = parseToml(codex.mcp.global) as {
+        mcp_servers: Record<string, Record<string, unknown>>
+    }
+    assert.equal(doc.mcp_servers.docs.command, 'npx')
+    assert.equal(doc.mcp_servers.docs.env, REDACTED)
+    assert.equal(doc.mcp_servers.remote.url, 'https://mcp.example.com/mcp')
+    assert.equal(doc.mcp_servers.remote.http_headers, REDACTED)
+
+    // A framework that reads no MCP config, or a value that is not text: no
+    // format to read it by, so none of it is kept.
+    const other = redactAgentExtras('openclaw', {
+        mcp: { user: '{"x": {"env": {"K": "unknown-secret"}}}' }
+    }) as { mcp: Record<string, string> }
+    assert.equal(other.mcp.user, REDACTED)
+    const shapeless = redactAgentExtras('claude-code', {
+        mcp: { user: { x: { env: { K: 'object-secret' } } } }
+    }) as { mcp: Record<string, string> }
+    assert.equal(shapeless.mcp.user, REDACTED)
 })

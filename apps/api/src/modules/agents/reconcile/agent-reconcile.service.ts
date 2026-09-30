@@ -21,6 +21,7 @@ import { AppEventsService } from '@/common/events/app-events.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import type { RuntimeTarget } from '@/modules/agents/adapters/agent-adapter'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
+import { serviceBuiltInProfile } from '@/modules/agents/built-in-agent'
 import {
     isAgentWorkspaceManaged,
     workspaceExtras
@@ -52,33 +53,6 @@ const isCodingFramework = (runtime: AgentRuntimeRow): boolean =>
 
 const isPerAgentCodingRuntime = (target: RuntimeTarget): boolean =>
     target.placement === 'sprites' || isCodingFramework(target.runtime)
-
-// The profile a service framework's gateway runs by default. On a sandbox
-// or a cloud computer the runtime's primary agent is that profile, its row
-// keeping the Manyfold agent id as internalId (ADR-0035).
-export const serviceBuiltInProfile = (
-    target: Pick<RuntimeTarget, 'placement'> & {
-        runtime: Pick<AgentRuntimeRow, 'framework'>
-    }
-): string | null => {
-    if (target.placement !== 'sprites' && target.placement !== 'k8s')
-        return null
-    if (target.runtime.framework === 'hermes') return 'default'
-    if (target.runtime.framework === 'openclaw') return 'main'
-    return null
-}
-
-// An agent row for the built-in profile is a second row for the profile the
-// primary runs as, or keeps for the first agent to join. Removing that agent
-// leaves the profile in the framework, which refuses to delete it anyway.
-// Seen on staging [2026-09-29]: a Hermes `default` row adopted before
-// reconcile mapped the profile to the primary failed every delete with
-// "Cannot delete the default profile", and held its runtime and sandbox
-// undeletable.
-export const isBuiltInProfileAgent = (
-    target: Parameters<typeof serviceBuiltInProfile>[0],
-    agent: Pick<Agent, 'internalId'>
-): boolean => agent.internalId === serviceBuiltInProfile(target)
 
 interface FailureState {
     count: number
@@ -252,37 +226,16 @@ export class AgentReconcileService {
         }
 
         const adapter = this.registry.get(runtime.framework)
-        const live = await adapter.listAgents({
-            ...ctx,
-            primaryAgentId: runtime.primaryAgentId ?? null
-        })
+        const live = await adapter.listAgents(ctx)
         const existingByInternal = new Map(
             existing.map((a) => [a.internalId, a])
         )
         const liveIds = new Set(live.map((l) => l.id))
-        const primary = runtime.primaryAgentId
-            ? existing.find((a) => a.id === runtime.primaryAgentId)
-            : undefined
-        const primaryAlias = serviceBuiltInProfile(ctx)
-        const primaryHasExactLiveProfile =
-            primary !== undefined &&
-            live.some((fa) => fa.id === primary.internalId)
+        const builtIn = serviceBuiltInProfile(ctx)
         const now = new Date()
 
         for (const fa of live) {
-            let match = existingByInternal.get(fa.id)
-            let matchedPrimaryAlias = false
-            if (!match && primary && fa.id === primaryAlias) {
-                // Service provisioning keeps the primary row's internalId equal
-                // to its Manyfold agent id, while Hermes/OpenClaw expose that
-                // same built-in profile as default/main. If a promoted
-                // secondary's exact profile is live, the built-in profile is
-                // the deleted primary's residue and must not become a phantom.
-                if (primaryHasExactLiveProfile) continue
-                match = primary
-                matchedPrimaryAlias = true
-                liveIds.add(primary.internalId)
-            }
+            const match = existingByInternal.get(fa.id)
             if (match) {
                 const workspacePath = fa.workspace ?? match.workspacePath
                 const workspaceManaged = isAgentWorkspaceManaged(match)
@@ -291,10 +244,11 @@ export class AgentReconcileService {
                     safeExtras(fa.extras)
                 )
                 // default/main are framework implementation names, not the
-                // user-facing name chosen for the Manyfold primary.
-                const renamed = matchedPrimaryAlias
-                    ? null
-                    : await this.resolveNameSync(match, fa.name)
+                // user-facing name chosen for the agent.
+                const renamed =
+                    fa.id === builtIn
+                        ? null
+                        : await this.resolveNameSync(match, fa.name)
                 const wasOrphaned =
                     match.status === 'failed' &&
                     match.failureReason === NOT_PRESENT_IN_RUNTIME
@@ -317,12 +271,13 @@ export class AgentReconcileService {
                     })
                     .where(eq(agents.id, match.id))
             } else {
-                // A runtime prepared with no agent (a sandbox's or a cloud
-                // computer's) keeps its built-in profile for the first agent
-                // that joins. Seen on local [2026-09-29]: adopted, OpenClaw's
-                // `main` became an agent that could not be deleted ("the only
-                // configured agent") and held its runtime undeletable.
-                if (!runtime.primaryAgentId && fa.id === primaryAlias) continue
+                // The built-in profile gets its row from the agent it is
+                // created or joined as, never from a listing: a runtime
+                // prepared with no agent keeps it for the first agent to join.
+                // Seen on local [2026-09-29]: adopted, OpenClaw's `main` became
+                // an agent that could not be deleted ("the only configured
+                // agent") and held its runtime undeletable.
+                if (fa.id === builtIn) continue
                 // Only service frameworks reach this listing, and they list
                 // their own state: an agent created outside Manyfold (in the
                 // framework's own UI) is real and must be adopted —

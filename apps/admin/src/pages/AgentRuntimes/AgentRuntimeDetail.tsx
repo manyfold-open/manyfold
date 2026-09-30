@@ -381,23 +381,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                     {tab === 'overview' && (
                         <>
                             <Card elevation='ambient' className='mb-2'>
-                                <Row
-                                    label={t(
-                                        'admin.agentRuntimes.detail.info.primaryAgentId'
-                                    )}
-                                    value={
-                                        runtime.primaryAgentId ? (
-                                            <Link
-                                                to={adminRoutes.agent(
-                                                    runtime.primaryAgentId
-                                                )}
-                                                className='text-brand hover:text-brand-hover font-mono'
-                                            >
-                                                {runtime.primaryAgentId}
-                                            </Link>
-                                        ) : null
-                                    }
-                                />
                                 {runtime.hostId && (
                                     <>
                                         <Row
@@ -768,9 +751,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                             </thead>
                                             <tbody className='divide-border divide-y'>
                                                 {agents.map((a) => {
-                                                    const isPrimary =
-                                                        a.id ===
-                                                        runtime.primaryAgentId
                                                     return (
                                                         <tr
                                                             key={a.id}
@@ -778,16 +758,6 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                                         >
                                                             <td className='text-caption text-heading px-2 py-1.5 font-mono'>
                                                                 {a.internalId}
-                                                                {isPrimary && (
-                                                                    <Badge
-                                                                        tone='brand'
-                                                                        className='ml-2'
-                                                                    >
-                                                                        {t(
-                                                                            'admin.agents.detail.primaryPill'
-                                                                        )}
-                                                                    </Badge>
-                                                                )}
                                                             </td>
                                                             <td className='px-2 py-1.5'>
                                                                 <Link
@@ -845,22 +815,14 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                                                     variant='neutral'
                                                                     size='sm'
                                                                     disabled={
-                                                                        isPrimary ||
                                                                         removingId ===
-                                                                            a.id
+                                                                        a.id
                                                                     }
                                                                     onClick={(): void => {
                                                                         void handleRemoveAgent(
                                                                             a
                                                                         )
                                                                     }}
-                                                                    title={
-                                                                        isPrimary
-                                                                            ? t(
-                                                                                  'admin.agents.primaryTooltip'
-                                                                              )
-                                                                            : undefined
-                                                                    }
                                                                 >
                                                                     {removingId ===
                                                                     a.id

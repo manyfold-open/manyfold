@@ -64,6 +64,7 @@ import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { isRuntimeUsable } from '@manyfold/shared'
+import { nextOccurrence } from '@/modules/automations/next-occurrence'
 
 type AutomationWithAgent = {
     automation: AutomationRow
@@ -1129,44 +1130,6 @@ const quotaScheduleRevision = (row: AutomationRow, revision: string) =>
         eq(automations.rrule, row.rrule),
         eq(automations.timezone, row.timezone)
     )
-
-const nextOccurrence = (input: {
-    after: Date
-    dtstart: Date
-    rrule: string
-    timezone: string
-}): Date | null => {
-    const dtstart = formatDateInTimeZone(input.dtstart, input.timezone)
-    try {
-        const rule = rrulestr(
-            `DTSTART;TZID=${input.timezone}:${dtstart}\n${input.rrule}`
-        ) as { after: (date: Date, inc?: boolean) => Date | null }
-        return rule.after(input.after, false)
-    } catch (err) {
-        if (err instanceof BadRequestException) throw err
-        throw new BadRequestException(
-            `invalid schedule: ${(err as Error).message}`
-        )
-    }
-}
-
-const formatDateInTimeZone = (date: Date, timezone: string): string => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        hourCycle: 'h23',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    }).formatToParts(date)
-    const get = (type: string): string =>
-        parts.find((part) => part.type === type)?.value ?? '00'
-    return `${get('year')}${get('month')}${get('day')}T${get('hour')}${get(
-        'minute'
-    )}${get('second')}`
-}
 
 const normalizeModel = (model?: string | null): string | null => {
     const trimmed = model?.trim() ?? ''

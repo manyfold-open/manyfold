@@ -16,6 +16,9 @@ import {
 // Its commands run through the host's daemon, and its services are the
 // daemon's.
 
+const owned = (framework: string) =>
+    runtimeRow({ id: 'art_1', framework: framework as never, hostId: 'sbx_1' })
+
 const noPolicy = {
     getCachedFrameworkDefaultVersions: async () => ({
         defaults: {},
@@ -60,14 +63,6 @@ const build = (opts: {
         {
             transaction: async (work: (tx: unknown) => Promise<unknown>) =>
                 work({ execute: async () => [{ acquired: true }] })
-        } as never,
-        {
-            findForCaller: async () => ({
-                id: 'agt_1',
-                framework: opts.framework,
-                runtimeId: runtime.id
-            }),
-            get: async () => ({ id: 'agt_1' })
         } as never,
         {
             getForFramework: async () => ({
@@ -120,7 +115,7 @@ test('an in-place upgrade holds the sandbox across the install, the service rest
         catalog: { versions: ['2026.9.6'], sourceRepo: null },
         installed: '2026.9.6'
     })
-    await service.upgrade('agt_1', 'usr_1', '2026.9.6', false)
+    await service.upgrade(owned('openclaw'), '2026.9.6', false)
     assert.deepEqual(events, [
         'hold',
         'exec',
@@ -143,7 +138,7 @@ test('a rebuild holds the sandbox from stopping the service to verifying the new
         catalog: hermes,
         installed: '2026.9.24'
     })
-    await service.upgradeStreaming('agt_1', 'usr_1', 'v2026.9.24', false, {
+    await service.upgradeStreaming(owned('hermes'), 'v2026.9.24', false, {
         step: () => {}
     })
     assert.deepEqual(events, [
@@ -166,7 +161,7 @@ test('a failed rebuild restores and restarts the old checkout before letting the
         exitCodes: [1]
     })
     await assert.rejects(
-        service.upgradeStreaming('agt_1', 'usr_1', 'v2026.9.24', false, {
+        service.upgradeStreaming(owned('hermes'), 'v2026.9.24', false, {
             step: () => {}
         }),
         (err: unknown) =>

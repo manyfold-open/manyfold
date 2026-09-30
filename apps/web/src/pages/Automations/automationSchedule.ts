@@ -1,5 +1,11 @@
 import { getLocale, t } from '@manyfold/i18n'
-import type { AutomationSchedulePreset } from '@manyfold/shared'
+import {
+    AUTOMATION_DEFAULT_TIME,
+    automationPresetRrule,
+    automationRruleTime,
+    automationRruleWeekday,
+    type AutomationSchedulePreset
+} from '@manyfold/shared'
 
 export const schedulePresets: AutomationSchedulePreset[] = [
     'hourly',
@@ -22,22 +28,10 @@ export const weekdayOptions = [
 export const timezone = (): string =>
     Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
-export const defaultTime = '09:00'
+export const defaultTime = AUTOMATION_DEFAULT_TIME
 
-export const buildPresetRrule = (
-    preset: AutomationSchedulePreset,
-    time: string,
-    weekday: string
-): string => {
-    const { hour, minute } = parseTime(time)
-    if (preset === 'hourly')
-        return `RRULE:FREQ=HOURLY;INTERVAL=1;BYMINUTE=${minute};BYSECOND=0`
-    if (preset === 'weekdays')
-        return `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=${hour};BYMINUTE=${minute};BYSECOND=0`
-    if (preset === 'weekly')
-        return `RRULE:FREQ=WEEKLY;BYDAY=${weekday};BYHOUR=${hour};BYMINUTE=${minute};BYSECOND=0`
-    return `RRULE:FREQ=DAILY;BYHOUR=${hour};BYMINUTE=${minute};BYSECOND=0`
-}
+// The CLI builds its preset schedules the same way (@manyfold/shared).
+export const buildPresetRrule = automationPresetRrule
 
 export const ensureRrulePrefix = (value: string): string => {
     const trimmed = value.trim()
@@ -185,27 +179,10 @@ export const presetLabel = (preset: AutomationSchedulePreset): string => {
     return t('web.automations.custom')
 }
 
-export const parseTimeFromRrule = (rrule: string): string => {
-    const hour = Number(rruleValue(rrule, 'BYHOUR') ?? 9)
-    const minute = Number(rruleValue(rrule, 'BYMINUTE') ?? 0)
-    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-}
+export const parseTimeFromRrule = automationRruleTime
 
-export const parseWeekdayFromRrule = (rrule: string): string => {
-    const byday = rruleValue(rrule, 'BYDAY') ?? 'MO'
-    const first = byday.split(',')[0] ?? 'MO'
-    return weekdayOptions.some((option) => option.code === first) ? first : 'MO'
-}
-
-const parseTime = (time: string): { hour: number; minute: number } => {
-    const [hourRaw, minuteRaw] = time.split(':')
-    const hour = clamp(Number(hourRaw), 0, 23)
-    const minute = clamp(Number(minuteRaw), 0, 59)
-    return { hour, minute }
-}
-
-const clamp = (value: number, min: number, max: number): number =>
-    Number.isFinite(value) ? Math.min(Math.max(value, min), max) : min
+export const parseWeekdayFromRrule: (rrule: string) => string =
+    automationRruleWeekday
 
 const rruleValue = (rrule: string, key: string): string | null => {
     const match = rrule.match(new RegExp(`(?:^|;)${key}=([^;]+)`, 'i'))

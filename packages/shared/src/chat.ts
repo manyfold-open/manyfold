@@ -484,6 +484,7 @@ export interface RegenerateMessageResponse {
     deletedMessageIds: string[]
 }
 
+export const CHAT_MESSAGE_MAX_TEXT = 32_000
 export const CHAT_ATTACHMENT_MAX_COUNT = 10
 export const CHAT_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024
 export const CHAT_ATTACHMENT_MAX_TOTAL_BYTES = 100 * 1024 * 1024

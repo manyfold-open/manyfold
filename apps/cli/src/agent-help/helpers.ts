@@ -11,7 +11,9 @@ export const AGENT_HELP_TOPICS = [
     'automations',
     'files',
     'model-config',
+    'model-providers',
     'skills',
+    'mcp',
     'connections',
     'runtime',
     'sandbox',
@@ -30,14 +32,19 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     channels: 'Telegram, Slack, Discord, Lark channel management',
     'channels-create': 'creating a channel step by step',
     'channels-send': 'agent-initiated sends: DM, chat post, native reply',
-    automations: 'scheduled jobs: create, run, update, delete',
+    automations:
+        'scheduled jobs: create, run and follow, read results, update, delete',
     files: 'agent workspace files: list, read, write, mv, rm',
     'model-config': 'read or update the agent model configuration',
+    'model-providers':
+        'which saved or managed providers can serve a new agent, and its models',
     skills: 'install, discover and manage agent skills',
+    mcp: "an agent's MCP servers: list, add, install, remove, pull, push",
     connections: 'external accounts (GitHub, Cloudflare, Composio) linked to the agent',
     runtime: 'runtime lifecycle, control UI, dashboard',
-    sandbox: 'scoped sandbox storage, cached readings and attribution',
-    agent: 'agent CRUD, storage, credentials, logs',
+    sandbox:
+        'list, update and delete sandboxes; storage readings and attribution',
+    agent: 'create (model source, sandbox reuse), list, update, send and chat (talk to an agent), delete, credentials',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',
     a2a: 'call A2A servers or manage this agent’s A2A exposure and callers'
@@ -53,7 +60,8 @@ const TOPIC_ALIASES: Record<string, AgentHelpTopic> = {
     automation: 'automations',
     agents: 'agent',
     'agent-runtimes': 'runtime',
-    backup: 'backups'
+    backup: 'backups',
+    'model-provider': 'model-providers'
 }
 
 const isAgentHelpTopic = (value: string): value is AgentHelpTopic =>

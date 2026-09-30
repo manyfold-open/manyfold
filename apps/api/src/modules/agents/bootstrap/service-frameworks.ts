@@ -16,6 +16,7 @@ import {
 } from '@/modules/agents/bootstrap/framework-version-install'
 import {
     generateOpenclawGatewayToken,
+    OPENCLAW_MANAGED_AGENT_DEFAULTS,
     OPENCLAW_PORT,
     openclawConfigJsonFor,
     openclawDefaultWorkspace,
@@ -50,6 +51,33 @@ import {
 const PLAYWRIGHT_INSTALL_TIMEOUT_MS = 600_000
 const HERMES_INSTALL_TIMEOUT_MS = 900_000
 const PROBE_TIMEOUT_MS = 30_000
+
+// `node -e … <current> <next>`: the agents OpenClaw keeps in the config in
+// place, carried into the one about to replace it. Everything under `agents`
+// is OpenClaw's except the defaults Manyfold sets. Measured on a sandbox
+// [2026-09-30]: `openclaw agents add` on 2026.9.6 records the agent in
+// agents.entries, with agents.ownership and defaults.systemAgent; 2026.7
+// used agents.list.
+const KEEP_OPENCLAW_AGENTS = `const fs = require('fs')
+const [current, next] = process.argv.slice(1)
+const MANAGED_DEFAULTS = ${JSON.stringify(OPENCLAW_MANAGED_AGENT_DEFAULTS)}
+let agents
+try {
+    agents = JSON.parse(fs.readFileSync(current, 'utf8')).agents
+} catch {}
+if (agents && typeof agents === 'object') {
+    const config = JSON.parse(fs.readFileSync(next, 'utf8'))
+    const { defaults = {}, ...own } = agents
+    const kept = Object.fromEntries(
+        Object.entries(defaults).filter(([key]) => !MANAGED_DEFAULTS.includes(key))
+    )
+    config.agents = {
+        ...own,
+        ...config.agents,
+        defaults: { ...kept, ...config.agents.defaults }
+    }
+    fs.writeFileSync(next, JSON.stringify(config, null, 2))
+}`
 
 // The machine a recipe runs on.
 export interface ServiceHost {
@@ -146,9 +174,11 @@ const openclawRecipe: ServiceFrameworkRecipe = {
         const home = openclawRecipe.home(args.host.home)
         const creds = args.credentials as ResolvedOpenclawCredentials
         const gatewayToken = generateOpenclawGatewayToken(creds.gatewayToken)
-        // The config holds the provider key and the gateway token.
+        // The config holds the provider key and the gateway token. The agents
+        // added after `main` live in it too, so the rewrite carries them over.
+        const path = shellQuote(`${home}/openclaw.json`)
         const config = secretFileStep(
-            shellQuote(`${home}/openclaw.json`),
+            `${path}.next`,
             'MF_OPENCLAW_CONFIG_B64',
             openclawConfigJsonFor({
                 creds,
@@ -162,7 +192,9 @@ const openclawRecipe: ServiceFrameworkRecipe = {
             'openclaw-config',
             [
                 `mkdir -p ${shellQuote(openclawDefaultWorkspace(home))}`,
-                config.script
+                config.script,
+                `node -e ${shellQuote(KEEP_OPENCLAW_AGENTS)} ${path} ${path}.next`,
+                `mv -f ${path}.next ${path}`
             ].join('\n'),
             { env: config.env }
         )

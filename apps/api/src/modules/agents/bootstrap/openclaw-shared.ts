@@ -92,6 +92,15 @@ interface OpenclawConfigOptions {
  * to users), so it stays on. Without it `openclaw gateway` serves only the
  * WebSocket Gateway and the SPA Control UI, and that URL 404s.
  */
+// The agents.defaults keys buildOpenclawConfigJson sets; OpenClaw adds others
+// (systemAgent, heartbeat) that a rewrite keeps.
+export const OPENCLAW_MANAGED_AGENT_DEFAULTS = [
+    'sandbox',
+    'model',
+    'workspace',
+    'timeoutSeconds'
+]
+
 export const buildOpenclawConfigJson = (opts: OpenclawConfigOptions): string =>
     JSON.stringify(
         {

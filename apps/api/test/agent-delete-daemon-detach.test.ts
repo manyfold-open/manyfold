@@ -23,7 +23,6 @@ const fakeRuntime = (over: Record<string, unknown> = {}) => ({
     framework: 'openclaw',
     status: 'ready',
     hostId: 'dh-1',
-    primaryAgentId: null,
     accountId: null,
     spriteName: null,
     spriteId: null,
@@ -132,7 +131,7 @@ const makeSvc = (args: {
 const auditActions = (db: ReturnType<typeof makeFakeDb>) =>
     db.audits.map((a) => a.action)
 
-test('daemon offline at rpc lookup: typed retryable 409, row and pointer untouched', async () => {
+test('daemon offline at rpc lookup: typed retryable 409, row untouched', async () => {
     // The exact staging failure from #551 (trace e93771fb…): the delete threw
     // before any frame reached the daemon.
     const db = makeFakeDb([fakeAgent()])
@@ -163,7 +162,7 @@ test('daemon offline at rpc lookup: typed retryable 409, row and pointer untouch
     assert.match(body.message, /retire and permanently delete/)
 
     assert.equal(db.deletes.length, 0, 'agent row must survive')
-    assert.equal(db.updates.length, 0, 'primary pointer must not move')
+    assert.equal(db.updates.length, 0, 'nothing is rewritten')
     assert.deepEqual(auditActions(db), [
         'agent.delete.started',
         'agent.delete.failed'
@@ -252,28 +251,8 @@ test('successful detach deletes the row and emits AGENT_DELETE_SUCCEEDED exactly
         'agent.delete.started',
         'agent.delete.succeeded'
     ])
-    assert.equal(db.updates.length, 0, 'non-primary: pointer untouched')
+    assert.equal(db.updates.length, 0, 'nothing on the runtime is rewritten')
     assert.equal(telemetryEvents.length, 0)
-})
-
-test('successful primary detach promotes the oldest sibling before deleting', async () => {
-    const db = makeFakeDb([
-        fakeAgent(),
-        fakeAgent({ id: 'agent-2', createdAt: new Date('2026-08-01') })
-    ])
-    const { svc } = makeSvc({
-        db,
-        runtime: fakeRuntime({ primaryAgentId: 'agent-1' }),
-        removeAgent: async () => {}
-    })
-
-    await svc.delete('agent-1', 'u-1', false)
-
-    assert.equal(db.deletes.length, 1)
-    assert.ok(
-        db.updates.some((u) => u.primaryAgentId === 'agent-2'),
-        'primary pointer should advance to the surviving sibling'
-    )
 })
 
 // The retryable 409 relies on re-running the detach being safe: both exec
@@ -282,8 +261,7 @@ test('successful primary detach promotes the oldest sibling before deleting', as
 const removeCtx = (internalId: string) =>
     ({
         runtime: fakeRuntime(),
-        agent: fakeAgent({ internalId }),
-        primaryAgentId: null
+        agent: fakeAgent({ internalId })
     }) as never
 
 const execReturning = (res: {
@@ -322,8 +300,34 @@ test('openclaw removeAgent: a real CLI failure still throws', async () => {
 })
 
 test('hermes removeAgent: already-absent remote profile resolves idempotently', async () => {
-    const adapter = new HermesAgentAdapter(
-        execReturning({ exitCode: 1, stderr: 'no such profile: prof-9' })
-    )
-    await adapter.removeAgent(removeCtx('prof-9'))
+    // hermes' own output, current and before NousResearch/hermes-agent 23036e20
+    for (const stderr of [
+        "Error: No profile named 'prof-9'. See your profiles with: hermes profile list\n",
+        "Error: Profile 'prof-9' does not exist.\n"
+    ]) {
+        const adapter = new HermesAgentAdapter(
+            execReturning({ exitCode: 1, stderr })
+        )
+        await adapter.removeAgent(removeCtx('prof-9'))
+    }
+})
+
+test('hermes removeAgent: a refusal or a missing CLI still throws', async () => {
+    for (const res of [
+        {
+            exitCode: 1,
+            stderr: 'Error: Cannot delete the default profile (~/.hermes).\n'
+        },
+        { exitCode: 127, stderr: 'sh: 1: hermes: not found\n' },
+        {
+            exitCode: 1,
+            stderr: "Error: No profile named 'other'. See your profiles with: hermes profile list\n"
+        }
+    ]) {
+        const adapter = new HermesAgentAdapter(execReturning(res))
+        await assert.rejects(
+            adapter.removeAgent(removeCtx('prof-9')),
+            /hermes profile delete failed/
+        )
+    }
 })

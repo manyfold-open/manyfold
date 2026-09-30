@@ -648,7 +648,6 @@ const zh: Translations = {
             copy: '复制',
             copied: '已复制',
             versionPending: '版本待定',
-            primary: '主要',
             synced: '同步于 {{time}}',
             secondsAgo: '{{count}} 秒前',
             minutesAgo: '{{count}} 分钟前',
@@ -686,7 +685,6 @@ const zh: Translations = {
             updating: '更新中…',
             openDashboard: '打开 Dashboard ↗',
             details: '详情',
-            primaryAgent: '主要 Agent',
             machine: '机器',
             endpoint: 'Endpoint',
             mountPath: '挂载路径',
@@ -917,9 +915,9 @@ const zh: Translations = {
             hint: '适用于 Claude Code、Codex，以及任何能运行 shell 命令的 agent。',
             prompt: '把这个 agent 接入 Manyfold：用 `curl` 读取 {{url}} ，按里面的步骤做完。',
             promptLocal:
-                '这是我本地的 Manyfold 开发环境（{{host}}）：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。',
+                '这是我本地的 Manyfold 开发环境（{{host}}）：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
             promptOther:
-                '这是位于 {{host}} 的 Manyfold 部署：请为它使用单独的 `mf` profile，不要动我其他的 `mf` 登录和已安装的 `mf`。'
+                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。'
         },
         agentSettings: {
             timing: {
@@ -1090,7 +1088,7 @@ const zh: Translations = {
         },
         pageTitle: {
             signIn: '登录',
-            cliLogin: '终端登录',
+            cliLogin: 'CLI 登录',
             connectAgent: '连接 Agent',
             grantPermission: '授权',
             invite: '邀请',
@@ -2133,6 +2131,7 @@ const zh: Translations = {
             searchAction: '搜索',
             noResultsTitle: '没有找到 Skill',
             noResultsBody: '换个关键词，或添加包含 SKILL.md 的仓库。',
+            stillReading: '仍在读取 {{repos}} 的 skills，稍后刷新即可看到。',
             ownerPlaceholder: 'owner',
             repoPlaceholder: 'repository',
             branchPlaceholder: 'branch',
@@ -3966,21 +3965,21 @@ const zh: Translations = {
             addAnother: '新增 provider'
         },
         cliLogin: {
-            titleLogin: '批准终端登录',
+            titleLogin: '批准来自终端或 agent 的登录',
             subtitleLogin:
-                '你在终端运行的命令（mf login 或 mf setup）请求使用你的 Manyfold 账号。',
-            codeCheckHint: '确认下方代码与终端里显示的一致：',
+                '你在终端运行、或由你的 AI agent 运行的 mf CLI（mf login 或 mf setup）请求使用你的 Manyfold 账号。',
+            codeCheckHint: '确认下方代码与终端或 agent 显示的一致：',
             signedInAs: '当前身份',
             authorize: '授权登录',
             authorizing: '授权中…',
-            redirecting: '正在返回终端…',
+            redirecting: '正在完成登录…',
             consequence: '授权后，那台机器上的 CLI 将以你的身份访问你的账号。',
-            safety: '刚才没有在终端运行过命令？直接关闭本页即可，未经授权不会发生任何事。',
+            safety: '你和你的 agent 刚才都没有发起登录？直接关闭本页即可，未经授权不会发生任何事。',
             authCodeTitle: '最后一步',
-            authCodeHint: '把这段代码粘贴回终端，完成登录：',
-            expired: '该请求已过期。回到终端重新运行命令，获取新的链接。',
+            authCodeHint: '把这段代码粘贴回终端，或发给你的 agent，完成登录：',
+            expired: '该请求已过期。请在终端或 agent 里重新发起登录，获取新的链接。',
             alreadyDone: '该请求已在其他标签页完成。',
-            missingRequest: '链接缺少登录请求参数，请从终端复制完整 URL。',
+            missingRequest: '链接缺少登录请求参数，请从终端或 agent 复制完整 URL。',
             loading: '正在加载请求…',
             highRiskTitle: '授予高风险权限',
         },
@@ -4704,8 +4703,6 @@ const zh: Translations = {
         agents: {
             title: 'Agents',
             empty: '还没有 agent，创建第一个开始使用。',
-            primaryTooltip:
-                '这是 runtime 的主 agent — 请在 runtime 页面通过「删除 Runtime」移除。',
             filters: {
                 framework: '框架',
                 runtime: 'Runtime',
@@ -4869,8 +4866,6 @@ const zh: Translations = {
                 title: 'Agent 详情',
                 notFound: '未找到该 Agent。',
                 owner: '所属用户',
-                primaryPill: '主 Agent',
-                primaryDeleteButton: '删除 Runtime',
                 lastReconciledAt: '最近同步',
                 internalId: '内部 ID',
                 model: '模型',
@@ -5154,7 +5149,6 @@ const zh: Translations = {
                     delete: '删除 Runtime'
                 },
                 info: {
-                    primaryAgentId: '主 Agent ID',
                     hostName: '机器',
                     hostStatus: '机器状态',
                     provider: '供应商',

@@ -216,6 +216,12 @@ const runtimeDb = (frameworkVersion: string) => ({
     })
 })
 
+const geminiRuntime = runtimeRow({
+    id: 'rt_1',
+    framework: 'gemini-cli',
+    hostId: 'rth_1'
+})
+
 const upgradeWith = (opts: {
     installedVersion: string
     allowDowngrade?: boolean
@@ -223,13 +229,6 @@ const upgradeWith = (opts: {
 }) =>
     new FrameworkUpgradeService(
         runtimeDb(opts.installedVersion) as never,
-        {
-            findForCaller: async () => ({
-                id: 'agt_1',
-                framework: 'gemini-cli',
-                runtimeId: 'rt_1'
-            })
-        } as never,
         {
             getForFramework: async () => opts.catalog ?? blockedCatalog
         } as never,
@@ -269,8 +268,7 @@ test('an upgrade to a blocked version is refused with the reason, not a catalog 
     await assert.rejects(
         () =>
             upgradeWith({ installedVersion: '0.52.0' }).upgrade(
-                'agt_1',
-                'usr_1',
+                geminiRuntime,
                 '0.53.1',
                 false
             ),
@@ -288,8 +286,7 @@ test('not even an admin may upgrade into the blocked window', async () => {
     await assert.rejects(
         () =>
             upgradeWith({ installedVersion: '0.52.0' }).upgrade(
-                'agt_1',
-                'usr_1',
+                geminiRuntime,
                 '0.54.0',
                 true
             ),
@@ -306,7 +303,7 @@ test('a user on a blocked version may downgrade out of it despite the downgrade 
             upgradeWith({
                 installedVersion: '0.53.1',
                 allowDowngrade: false
-            }).upgrade('agt_1', 'usr_1', '0.52.0', false),
+            }).upgrade(geminiRuntime, '0.52.0', false),
         /sprite boundary reached/
     )
 })
@@ -317,7 +314,7 @@ test('the downgrade gate still applies from a healthy version', async () => {
             upgradeWith({
                 installedVersion: '0.52.0',
                 allowDowngrade: false
-            }).upgrade('agt_1', 'usr_1', '0.51.0', false),
+            }).upgrade(geminiRuntime, '0.51.0', false),
         /downgrading gemini-cli below the installed version/
     )
 })

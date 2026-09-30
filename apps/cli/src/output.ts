@@ -34,6 +34,7 @@ export interface CliErrorDetail {
     hint?: string
     scopes?: string[]
     consentUrl?: string
+    details?: unknown
 }
 
 export interface CliFailure {
@@ -133,7 +134,50 @@ const profileHint = (): string => {
     }
 }
 
+// What to do next for a failure a script can act on, by its code; these
+// codes also pass their `details` through to `--json` output.
+type CodeHint = (details: Record<string, unknown>) => string
+
+const CODE_HINTS: Record<string, CodeHint> = {
+    RUNTIME_LIMIT_REACHED: () =>
+        'Every sandbox your plan includes is in use: add the agent to one with --sandbox <id|name>, or free one with mf sandbox list and mf sandbox delete.',
+    AGENT_NAME_TAKEN: (details) =>
+        typeof details.agentId === 'string'
+            ? `Pick another name, or look at that agent with mf agent get ${details.agentId}.`
+            : 'Pick another name.',
+    AGENT_CREATE_IN_PROGRESS: () =>
+        'A create of this name with other settings is under way: wait for it to finish, or pick another name.',
+    AGENT_CREATE_INTERRUPTED: (details) =>
+        typeof details.hostId === 'string'
+            ? `Run the command again to start over; mf sandbox list shows the sandbox it may have left (${details.hostId}).`
+            : 'Run the command again to start over.',
+    AGENT_CREATE_NOT_FOUND: () =>
+        'The create this connection followed is gone; check mf agent list before running the command again.',
+    AGENT_MODEL_IN_MODEL_CONFIG: (details) =>
+        `${typeof details.framework === 'string' ? details.framework : 'This framework'} keeps its model in the agent's model settings: mf model-config update ${typeof details.agentId === 'string' ? details.agentId : '<agent-id>'} --model <model>.`,
+    SANDBOX_NOT_FOUND: () => 'Check the sandbox with mf sandbox list.',
+    session_held_by_terminal: () =>
+        'The session is open in a terminal: close it there or take the session back in the web chat, or leave out --session / --continue to start a new session.',
+    session_import_pending: () =>
+        'The session is still taking in what its terminal wrote; try again in a moment.',
+    SANDBOX_API_UNREACHABLE: (details) =>
+        `A sandbox's runner cannot reach this API${typeof details.apiUrl === 'string' ? ` at ${details.apiUrl}` : ''}. Set PUBLIC_API_BASE_URL on the API to an address reachable from the internet (for a local stack, a tunnel URL) and restart it. Nothing was created.`,
+    SANDBOX_RUNNER_NOT_CONNECTED: (details) =>
+        `The runner inside the new sandbox (not a daemon on this computer) could not connect to ${typeof details.apiUrl === 'string' ? details.apiUrl : 'this API'}. Check that the address is reachable from the internet (a stopped tunnel, a firewall); the sandbox was removed, so try again once it is.`,
+    SANDBOX_CLI_TOO_OLD: (details) =>
+        `Update it: mf sandbox update ${typeof details.hostName === 'string' ? details.hostName : typeof details.hostId === 'string' ? details.hostId : '<sandbox>'} (--to <version> for a build newer than its channel's latest), or from the Update Center in the web app.`,
+    SANDBOX_DAEMON_OFFLINE: () =>
+        'The runner inside the sandbox (not a daemon on this computer) is not answering. Try again in a minute; mf sandbox list shows the sandbox.'
+}
+
+const recordOf = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+
 const apiErrorHint = (error: ApiError): string | undefined => {
+    const byCode = CODE_HINTS[error.code]
+    if (byCode) return byCode(recordOf(error.details))
     const status = error.status
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
     if (status === 403)
@@ -197,7 +241,10 @@ export const normalizeCliError = (
                 code: error.code,
                 status: error.status,
                 message: apiErrorMessage(error),
-                ...errorExtra({ hint: apiErrorHint(error), ...extra })
+                ...errorExtra({ hint: apiErrorHint(error), ...extra }),
+                ...(CODE_HINTS[error.code] && error.details !== undefined
+                    ? { details: error.details }
+                    : {})
             },
             exitCode: exitCodeForStatus(error.status)
         }
@@ -279,6 +326,9 @@ export const fail = (
 }
 
 // The top-level error handler runs outside any parsed command opts, so it reads
-// the intent straight off argv.
-export const argvWantsJson = (argv: string[] = process.argv): boolean =>
-    argv.includes('--json')
+// the intent straight off argv, up to a `--`: what follows it is a command
+// line of its own (an MCP server's).
+export const argvWantsJson = (argv: string[] = process.argv): boolean => {
+    const end = argv.indexOf('--')
+    return (end === -1 ? argv : argv.slice(0, end)).includes('--json')
+}

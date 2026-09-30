@@ -12,16 +12,18 @@ repository catalog，以及 personal skill library。
 
 ```sh
 mf skills discover --q review
-mf skills install --skill-id skl_xxx --agent-id agt_xxx
+mf skills install code-review --agent-id agt_xxx
 mf skills installed --agent-id agt_xxx
 ```
 
-Discovery 是分页的：结果按页返回（每页最多 100 条，默认 featured 排序；`--sort latest` 按最新排序）。还有更多结果时命令会提示下一页的 cursor（传给 `--cursor` 继续），`--json` 输出的是页对象——`items` 加 `nextCursor`（最后一页为 `null`）。
+`install` 接受 skill 的名称或 id（`discover` 打印的 `github:…` id，或 library skill 的 `skl_…`）。名称在你的 library 和 catalog 中精确匹配，不区分大小写；`<owner>/<name>`（例如 `anthropics/mcp-builder`）只取该仓库 owner 的 skill。多个 skill 同名时，命令列出它们而不安装，请按列出的写法安装其中一个。`mf skills list` 与 `installed` 相同。
+
+Discovery 是分页的：结果按页返回（每页最多 100 条，默认 featured 排序；`--sort latest` 按最新排序）。还有更多结果时命令会提示下一页的 cursor（传给 `--cursor` 继续），`--json` 输出的是页对象——`items` 加 `nextCursor`（最后一页为 `null`）。第一次读取的仓库（例如刚添加的）会在回答前先读取；若耗时超过几秒，命令会提示仍在读取，其 skill 会在之后再次运行时出现。
 
 批量安装到多个 Agent：
 
 ```sh
-mf skills install --skill-id skl_xxx --agent-ids agt_one,agt_two
+mf skills install code-review --agent-ids agt_one,agt_two
 ```
 
 Installation state 与 enabled 分开：
@@ -48,14 +50,37 @@ mf skills delete usk_xxx --yes
 ```sh
 mf skills library list
 mf skills library get skl_xxx
-mf skills library create --name my-review --content-file ./SKILL.md
+mf skills library create --content-file ./SKILL.md
 mf skills library update skl_xxx --content-file ./SKILL.md
 ```
 
-可从 GitHub、catalog entry、unlisted share link 或 `.skill`/zip archive 导入：
+一个 skill 就是一个文件夹：顶层有 `SKILL.md`，其指令用到的文件放在旁边：
+
+```markdown
+---
+name: my-review
+description: Review a change for correctness and style.
+---
+# My review
+
+When asked to review a change, …
+```
+
+`create` 从 frontmatter 取 skill 名称，`--name` 可覆盖。
+
+本地开发的 skill 用一条命令发布：`publish` 用该文件夹创建 library skill；已有同名 skill 时则更新它，并 push 到已安装它的 Agent：
+
+```sh
+mf skills library publish ./my-review
+```
+
+与 import 一样，隐藏文件、license 文件和超过 1 MiB 的文件不会包含在内。
+
+可从 GitHub、catalog entry、unlisted share link、本地文件夹或 `.skill`/zip archive 导入：
 
 ```sh
 mf skills library import --url https://github.com/example/skills/tree/main/review
+mf skills library import --file ./review
 mf skills library import --file ./review.skill
 mf skills library import --share https://manyfold.ai/skills/shared/lss_xxx
 ```

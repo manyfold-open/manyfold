@@ -4,7 +4,6 @@ import {
     externalSteps,
     frameworkCapability,
     isExternal,
-    k8sCliSteps,
     k8sSteps,
     listFrameworks,
     spritesServiceSteps,
@@ -17,9 +16,8 @@ import test from 'node:test'
 
 // ADR-0006 behaviour-preserving snapshot. The framework-capability module must
 // reproduce the answer every migrated call site computed before the refactor.
-// The ONE intentional change: stepsFor(external) now returns externalSteps — the
-// former api-only stepsFor lacked an external branch and fell through to k8sSteps,
-// salvaged only by the fail-loud fallback in agents.controller.ts.
+// stepsFor is the exception: its lists follow what each create path emits
+// (see agent-progress.ts), which the create tests check step by step.
 
 interface Expected {
     kind: 'coding' | 'service' | 'external'
@@ -111,7 +109,7 @@ test('isExternal is true only for external-kind frameworks', () => {
     }
 })
 
-test('stepsFor reproduces the create-progress selector (external is the intentional fix)', () => {
+test('stepsFor picks the list by placement, and on a sandbox by framework kind', () => {
     for (const f of frameworks) {
         const kind = GROUND_TRUTH[f].kind
         assert.deepEqual(
@@ -119,11 +117,8 @@ test('stepsFor reproduces the create-progress selector (external is the intentio
             externalSteps,
             `stepsFor(${f}, external)`
         )
-        assert.deepEqual(
-            stepsFor(f, 'k8s'),
-            kind === 'coding' ? k8sCliSteps : k8sSteps,
-            `stepsFor(${f}, k8s)`
-        )
+        // A pod host installs every framework the same way (ADR-0035).
+        assert.deepEqual(stepsFor(f, 'k8s'), k8sSteps, `stepsFor(${f}, k8s)`)
         assert.deepEqual(
             stepsFor(f, 'sprites'),
             kind === 'service' ? spritesServiceSteps : spritesSteps,

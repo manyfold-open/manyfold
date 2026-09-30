@@ -35,6 +35,7 @@ import {
     agents,
     hostDaemons,
     jsonbMerge,
+    jsonbMergeNested,
     runtimeHosts,
     runtimeProviders,
     users,
@@ -389,17 +390,21 @@ export class AgentsService {
                     )
                     .limit(1)
                 if (duplicate)
-                    throw new ConflictException(
-                        `agent "${name}" already exists for this user`
-                    )
+                    throw new ConflictException({
+                        message: `agent "${name}" already exists for this user`,
+                        code: 'AGENT_NAME_TAKEN',
+                        details: { agentId: duplicate.id }
+                    })
             }
             patch.name = name
         }
         if (body.model !== undefined) {
             if (isModelConfigFramework(existing.framework))
-                throw new BadRequestException(
-                    `Use /agents/${agentId}/model-config to update ${existing.framework} models`
-                )
+                throw new BadRequestException({
+                    message: `Use /agents/${agentId}/model-config to update ${existing.framework} models`,
+                    code: 'AGENT_MODEL_IN_MODEL_CONFIG',
+                    details: { agentId, framework: existing.framework }
+                })
             const model =
                 typeof body.model === 'string' ? body.model.trim() : ''
             patch.model = model.length > 0 ? model : null
@@ -489,8 +494,20 @@ export class AgentsService {
             )
             extrasPatch.mcpDeliveryRevision = null
         }
-        if (Object.keys(extrasPatch).length > 0)
-            extrasMerge = jsonbMerge(agents.extras, extrasPatch)
+        if (Object.keys(extrasPatch).length > 0) {
+            // `mcp` merges per scope: a scope the body leaves out keeps its
+            // config, and '' clears one.
+            const { mcp, ...rest } = extrasPatch
+            extrasMerge =
+                mcp === undefined
+                    ? jsonbMerge(agents.extras, rest)
+                    : jsonbMergeNested(
+                          agents.extras,
+                          rest,
+                          'mcp',
+                          mcp as Record<string, string>
+                      )
+        }
         if (Object.keys(patch).length === 0 && !extrasMerge) {
             const row = summaryRowOf(ctx)
             return agentRowToSummary(row, await this.detailOptions(row))

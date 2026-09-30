@@ -253,6 +253,17 @@ export const draftFromModelConfigView = (
     return null
 }
 
+// Whether the composer's model draft is still the one `view` gives it: a
+// newer view may then replace it, as it would not a choice made in this tab
+// and not sent yet.
+export const draftFollowsView = (
+    view: AgentModelConfigView,
+    draft: AgentModelConfig | null,
+    source: AgentModelConfigSource
+): boolean =>
+    source === view.source &&
+    JSON.stringify(draft) === JSON.stringify(draftFromModelConfigView(view))
+
 export const normalizeDraftForView = (
     view: AgentModelConfigView | null,
     draft: AgentModelConfig | null
@@ -443,34 +454,6 @@ export const providerModelIdsForSummary = (
         provider.enabledModels,
         protocol
     )
-}
-
-// Configurable frameworks (hermes/openclaw) auto-fill a primary model from the
-// provider's list. Default to the economical tier per family instead of the
-// first arbitrary id: gpt-5.x-mini for OpenAI, Haiku for Anthropic.
-const economicalPrimaryModelDefaults: Partial<
-    Record<UserModelProvider, { exact: string; keyword: string }>
-> = {
-    anthropic: { exact: 'claude-haiku-4-5', keyword: 'haiku' },
-    openai: { exact: 'gpt-5.4-mini', keyword: 'mini' }
-}
-
-export const preferredPrimaryModelDefault = (
-    options: readonly string[],
-    provider: UserModelProvider
-): string | undefined => {
-    if (options.length === 0) return undefined
-    const preference = economicalPrimaryModelDefaults[provider]
-    if (preference) {
-        const exact = options.find((o) => o === preference.exact)
-        if (exact) return exact
-        const keyword = preference.keyword.toLowerCase()
-        const partial = options.find((o) =>
-            o.toLowerCase().includes(keyword)
-        )
-        if (partial) return partial
-    }
-    return options[0]
 }
 
 // Maps the server's credential verdict onto a localized string. `unknown` gets

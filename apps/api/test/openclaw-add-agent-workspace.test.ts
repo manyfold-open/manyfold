@@ -44,7 +44,6 @@ const makeAdapter = (
 const ctx = (workspace?: string): never =>
     ({
         runtime: { id: 'rt-1', mountPath: MOUNT },
-        primaryAgentId: 'agent-0',
         agentId: 'agent_1abc',
         internalId: 'agent-1abc',
         name: 'Added',

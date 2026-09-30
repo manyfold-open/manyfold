@@ -68,11 +68,14 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 Add `--json` to any `mf help … --agent` call for a machine-readable
 envelope (`topic`, `cliVersion`, `topics`, `content`). Most commands also
 accept `--json`; with it, the result is raw JSON on stdout and a failure is
-emitted as `{ "error": { "code", "status"?, "message", "hint"? } }` on
-stderr (never the raw response body), so both success and failure stay
-parseable. Exit codes are stable in every mode: 2 network failure, 3 auth
-(401/403), 4 not found, 5 invalid usage or arguments (400/422), 1 anything
-else. `mf <command> --help` shows human-readable flags.
+emitted on stderr as
+`{ "error": { "code", "status"?, "message", "hint"?, "details"? } }`
+(never the raw response body), so both success and failure stay parseable.
+`details` comes with the codes a script can act on, such as
+`RUNTIME_LIMIT_REACHED`. Exit codes are stable in every mode: 2 network
+failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
+(400/422), 130 interrupted (Ctrl-C), 1 anything else. `mf <command> --help`
+shows human-readable flags.
 
 ## Execution and recovery
 
@@ -82,6 +85,8 @@ else. `mf <command> --help` shows human-readable flags.
   acceptance from completion and inspect the exact returned run/job ID.
 - After a timeout, inspect whether a create or run request took effect before
   retrying it. A failed run is not permission to submit another one.
+  `mf agent create` is the exception: rerunning the same command attaches
+  to its create if that is still under way, or returns the agent it made.
 - An ownership rejection requires checking identity and target, not
   repeatedly requesting scopes. Unknown flags require current command help.
 - Follow existing user authorization; creating a schedule, running it now,

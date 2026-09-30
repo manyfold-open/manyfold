@@ -160,9 +160,14 @@ export class ModelProvidersService {
             const summary = toModelProviderSummary(row, maskApiKey(plain))
             const brand = brandFor(row)
             if (row.source !== 'managed' || !brand) return summary
-            return disabledChannels.has(brand)
-                ? { ...summary, channelDisabled: true }
-                : summary
+            const managedRank = this.managedModels.managedChannelRank?.(brand)
+            return {
+                ...summary,
+                ...(managedRank === undefined ? {} : { managedRank }),
+                ...(disabledChannels.has(brand)
+                    ? { channelDisabled: true }
+                    : {})
+            }
         })
     }
 

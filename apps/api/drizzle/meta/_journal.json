@@ -211,6 +211,20 @@
       "when": 1790657603522,
       "tag": "0029_turn_execution_host",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790700362002,
+      "tag": "0030_agent_create_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790759737798,
+      "tag": "0031_built_in_agent_identity",
+      "breakpoints": true
     }
   ]
 }

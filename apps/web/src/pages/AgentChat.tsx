@@ -77,6 +77,7 @@ import {
     type ChatScrollPosition
 } from '@/lib/chatScrollMemory'
 import { useChatStream, type StreamStatus } from '@/lib/useChatStream'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { chatStreamStore, type ReplayCheckpoint } from '@/lib/chatStreamStore'
 import {
     publishStreamEvent,
@@ -88,6 +89,7 @@ import {
     supportsModelOverride
 } from '@/lib/frameworkMeta'
 import {
+    draftFollowsView,
     draftFromModelConfigView,
     frameworkUsesModelConfig,
     mergeCachedRuntimeLocalModelConfigView,
@@ -461,6 +463,12 @@ const AgentChat: FC = (): ReactNode => {
     useEffect(() => {
         modelConfigViewRef.current = modelConfigView
     }, [modelConfigView])
+    const modelConfigDraftRef = useRef<AgentModelConfig | null>(null)
+    const modelConfigSourceDraftRef = useRef<AgentModelConfigSource>('platform')
+    useEffect(() => {
+        modelConfigDraftRef.current = modelConfigDraft
+        modelConfigSourceDraftRef.current = modelConfigSourceDraft
+    }, [modelConfigDraft, modelConfigSourceDraft])
     const handleModelConfigViewChange = useCallback(
         (view: AgentModelConfigView): void => {
             setModelConfigView(view)
@@ -650,7 +658,17 @@ const AgentChat: FC = (): ReactNode => {
         return subscribeModelConfigViewUpdates(agentId, (cachedView) => {
             if (cachedView.framework !== currentAgentFramework) return
             const prev = modelConfigViewRef.current
-            if (prev && sameModelConfigViewExceptRuntimeAuth(prev, cachedView))
+            // The drafts stay when only the runtime-auth binding moved, and
+            // when they hold a choice made here and not sent yet.
+            if (
+                prev &&
+                (sameModelConfigViewExceptRuntimeAuth(prev, cachedView) ||
+                    !draftFollowsView(
+                        prev,
+                        modelConfigDraftRef.current,
+                        modelConfigSourceDraftRef.current
+                    ))
+            )
                 setModelConfigView(cachedView)
             else applyModelConfigView(cachedView)
         })
@@ -660,6 +678,30 @@ const AgentChat: FC = (): ReactNode => {
         frameworkModelConfigSupported,
         applyModelConfigView
     ])
+
+    // A model changed elsewhere (the CLI, another client) reaches this tab:
+    // otherwise its next message would run, and save back as the default,
+    // the model the page loaded with. The cache write reaches the
+    // subscription above.
+    const refreshModelConfigFromServer = useCallback(
+        async (signal: AbortSignal): Promise<void> => {
+            if (!agentId) return
+            const view = await client.agents.getModelConfig(agentId)
+            if (signal.aborted || view.framework !== currentAgentFramework)
+                return
+            writeCachedModelConfigView(
+                mergeCachedRuntimeLocalModelConfigView(
+                    view,
+                    readCachedModelConfigView(agentId)
+                )
+            )
+        },
+        [agentId, client, currentAgentFramework]
+    )
+    useResourceRefresh('model-config', agentId, refreshModelConfigFromServer, {
+        enabled: !!agentId && frameworkModelConfigSupported,
+        initial: false
+    })
 
     const handleModelOverrideChange = useCallback(
         (next: string | null): void => {

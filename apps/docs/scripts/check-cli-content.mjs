@@ -60,6 +60,7 @@ const maintainedPages = [
     'cli/automations',
     'cli/backups',
     'cli/skills',
+    'cli/mcp',
     'cli/usage',
     'cli/a2a',
     'cli/reference',
