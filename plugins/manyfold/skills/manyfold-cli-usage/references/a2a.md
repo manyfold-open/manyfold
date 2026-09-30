@@ -62,7 +62,8 @@ mf a2a callers add --external --name build-system
 
 `exposure get|enable|disable` reports the public Agent Card and JSON-RPC
 URLs. `callers list` shows every non-revoked peer and External client
-grant, including expired grants. Read operations need `a2a:read`; changing
+grant, including expired grants, as a table (`TOKEN ID KIND CALLER
+EXPIRES`); the token id is what `callers revoke` takes. Read operations need `a2a:read`; changing
 exposure or callers needs `a2a:edit`. If a runtime token lacks a scope,
 request it with `mf auth ensure --scopes a2a:read` or
 `mf auth ensure --scopes a2a:edit`.
@@ -133,7 +134,9 @@ session with no memory of earlier calls.
 
 Human mode writes artifact text to stdout and status/task summaries to
 stderr, so stdout stays a clean, pipeable artifact (with `--async`, stdout
-is just the task id). `--json` writes raw protocol JSON. Errors print to
+is just the task id). `--json` writes raw protocol JSON. `tasks list`
+prints a table (`ID PEER STATE CREATED`), and `status` prints its peers
+(`NAME AGENT ID`) and in-flight calls the same way. Errors print to
 stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
 3 auth, 4 not found, 5 usage, 1 otherwise); tokens are never included.
 

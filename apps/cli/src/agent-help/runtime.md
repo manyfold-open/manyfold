@@ -41,7 +41,8 @@ mf runtime agents remove <agent-id> --yes          # agent id, NOT runtime id
 ## Output
 
 - Human output: `list` prints a table (`ID NAME FRAMEWORK KIND STATUS
-  AGENTS`); `get` prints `<id>  <name>  <framework>/<kind>  <status>`, then
+  AGENTS`), and `agents list` one of its framework agents (`ID NAME
+  MODEL`); `get` prints `<id>  <name>  <framework>/<kind>  <status>`, then
   agents/availability/host/provider/power/created detail lines when present.
 - `--json` (raw JSON) exists on every subcommand: `list`/`get` emit the
   runtime object(s); `delete` and `agents remove` emit `{ ok, id }`;

@@ -29,6 +29,7 @@ import {
 } from '@/commands/a2a/self'
 import { registerA2aManagement } from '@/commands/a2a/management'
 import { fail } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 
 interface CommonOpts {
     bearer?: string
@@ -156,16 +157,23 @@ const formatAge = (iso: string): string => {
     return `${Math.floor(h / 24)}d ago`
 }
 
-const colorState = (state: string): string => {
-    if (state === 'completed') return kleur.green(state)
-    if (state === 'failed' || state === 'rejected') return kleur.red(state)
-    if (state === 'canceled') return kleur.dim(state)
-    return kleur.yellow(state)
+const stateStyle = (state: string): ((text: string) => string) => {
+    if (state === 'completed') return kleur.green
+    if (state === 'failed' || state === 'rejected') return kleur.red
+    if (state === 'canceled') return kleur.dim
+    return kleur.yellow
 }
 
-const taskLine = (task: A2aTaskTraceItem): string =>
-    `${task.id}  → ${task.targetAgentName ?? task.targetAgentId}  ` +
-    `${colorState(task.state)}  ${kleur.dim(formatAge(task.createdAt))}`
+const taskTable = (tasks: A2aTaskTraceItem[]): string[] =>
+    formatTable(
+        ['ID', 'PEER', 'STATE', 'CREATED'],
+        tasks.map((task): TableCell[] => [
+            task.id,
+            task.targetAgentName ?? task.targetAgentId,
+            [task.state, stateStyle(task.state)],
+            [formatAge(task.createdAt), kleur.dim]
+        ])
+    )
 
 const renderStream = async (
     stream: AsyncIterable<A2aStreamEvent>,
@@ -478,15 +486,21 @@ const renderStatus = async (
             console.error(kleur.dim('no peer agents granted'))
         else {
             console.log(kleur.bold(`Callable peers (${peers.length})`))
-            for (const peer of peers)
-                console.log(`  ${peer.name}  ${kleur.dim(peer.agentId)}`)
+            for (const line of formatTable(
+                ['NAME', 'AGENT ID'],
+                peers.map((peer): TableCell[] => [
+                    peer.name,
+                    [peer.agentId, kleur.dim]
+                ])
+            ))
+                console.log(`  ${line}`)
         }
         const calls = inflight.tasks
         if (calls.length === 0)
             console.error(kleur.dim('no calls in progress'))
         else {
             console.log(kleur.bold(`\nIn-flight calls (${calls.length})`))
-            for (const task of calls) console.log(`  ${taskLine(task)}`)
+            for (const line of taskTable(calls)) console.log(`  ${line}`)
             console.error(
                 kleur.dim(
                     '\nmf a2a tasks list — all calls · mf a2a tasks get <peer> <id> — result'
@@ -516,7 +530,7 @@ const renderTasksList = async (
             console.error(kleur.dim('no outbound A2A calls'))
             return
         }
-        for (const task of page.tasks) console.log(taskLine(task))
+        for (const line of taskTable(page.tasks)) console.log(line)
         if (page.nextCursor)
             console.error(kleur.dim('(more — narrow with --state)'))
     } catch (err) {

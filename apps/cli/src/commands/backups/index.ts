@@ -3,6 +3,7 @@ import kleur from 'kleur'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
 
 interface RootOpts {
@@ -54,11 +55,17 @@ export const registerBackups = (program: Command): void => {
                 console.log(kleur.dim('(no backups)'))
                 return
             }
-            for (const b of list) {
-                console.log(
-                    `${b.id}  ${kleur.cyan(b.sourceAgentName)}  ${b.status}  ${kleur.dim(`${b.archiveBytes}B`)}`
-                )
-            }
+            const rows = list.map((b): TableCell[] => [
+                b.id,
+                [b.sourceAgentName, kleur.cyan],
+                b.status,
+                [`${b.archiveBytes}B`, kleur.dim]
+            ])
+            for (const line of formatTable(
+                ['ID', 'AGENT', 'STATUS', 'SIZE'],
+                rows
+            ))
+                console.log(line)
         })
 
     cmd.command('create <agentId>')

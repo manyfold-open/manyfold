@@ -342,19 +342,31 @@ export const registerSkills = (program: Command): void => {
                 console.log(
                     kleur.cyan(`${group.agent.name} (${group.agent.id})`)
                 )
-                for (const s of group.skills) {
-                    const mat =
-                        s.materializeStatus === 'failed'
-                            ? `  ${kleur.red('materialize failed')}`
-                            : s.materializeStatus === 'installing'
-                              ? `  ${kleur.yellow('installing')}`
-                              : ''
-                    console.log(
-                        `  ${s.id}  ${kleur.dim(s.installDir)}  ${s.enabled ? 'enabled' : 'disabled'}${mat}`
-                    )
+                if (group.skills.length === 0) {
+                    console.log(kleur.dim('  (none)'))
+                    continue
+                }
+                const [header, ...lines] = formatTable(
+                    ['ID', 'DIR', 'STATE'],
+                    group.skills.map((s): TableCell[] => {
+                        const state = s.enabled ? 'enabled' : 'disabled'
+                        return [
+                            s.id,
+                            [s.installDir, kleur.dim],
+                            s.materializeStatus === 'failed'
+                                ? [`${state}, materialize failed`, kleur.red]
+                                : s.materializeStatus === 'installing'
+                                  ? [`${state}, installing`, kleur.yellow]
+                                  : state
+                        ]
+                    })
+                )
+                console.log(`  ${header}`)
+                group.skills.forEach((s, index) => {
+                    console.log(`  ${lines[index]}`)
                     if (s.materializeStatus === 'failed' && s.materializeError)
                         console.log(`      ${kleur.dim(s.materializeError)}`)
-                }
+                })
             }
         })
 
@@ -395,11 +407,16 @@ export const registerSkills = (program: Command): void => {
             }
             if (page.items.length === 0)
                 console.log(kleur.dim('(no skills found)'))
-            for (const s of page.items) {
-                console.log(
-                    `${s.skillId}  ${kleur.cyan(s.name)}  ${kleur.dim(s.description ?? '')}`
-                )
-            }
+            else
+                for (const line of formatTable(
+                    ['ID', 'NAME', 'DESCRIPTION'],
+                    page.items.map((s): TableCell[] => [
+                        s.skillId,
+                        [s.name, kleur.cyan],
+                        [s.description ?? '', kleur.dim]
+                    ])
+                ))
+                    console.log(line)
             if (page.pendingRepos?.length)
                 console.error(
                     kleur.dim(
@@ -994,11 +1011,18 @@ export const registerSkills = (program: Command): void => {
                 console.log(JSON.stringify(list, null, 2))
                 return
             }
-            for (const r of list) {
-                console.log(
-                    `${r.id}  ${kleur.cyan(`${r.owner}/${r.name}@${r.branch}`)}`
-                )
+            if (list.length === 0) {
+                console.log(kleur.dim('(no skill repos)'))
+                return
             }
+            for (const line of formatTable(
+                ['ID', 'REPO'],
+                list.map((r): TableCell[] => [
+                    r.id,
+                    [`${r.owner}/${r.name}@${r.branch}`, kleur.cyan]
+                ])
+            ))
+                console.log(line)
         })
 
     repos

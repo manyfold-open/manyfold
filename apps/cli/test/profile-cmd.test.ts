@@ -108,6 +108,31 @@ test('profile list enumerates profile dirs and marks the current one', async () 
     })
 })
 
+test('profile list prints a table with the current profile starred', async () => {
+    await withConfigDir(async (dir) => {
+        await seedProfile(dir, 'staging', { daemon: true })
+        await seedProfile(dir, 'team-a', { apiUrl: 'https://api.a.test/api' })
+        const out: string[] = []
+        const originalLog = console.log
+        console.log = (line?: unknown) => {
+            out.push(String(line ?? ''))
+        }
+        try {
+            const program = buildProgram()
+            program.exitOverride()
+            await program.parseAsync(['node', 'mf', 'profile', 'list'])
+        } finally {
+            console.log = originalLog
+        }
+        assert.deepEqual(out.slice(0, 4), [
+            'CURRENT  PROFILE  LOGIN       DAEMON      API URL',
+            '*        default  logged out  none        (channel default)',
+            '         staging  logged in   registered  https://api.test/api',
+            '         team-a   logged in   none        https://api.a.test/api'
+        ])
+    })
+})
+
 test('profile show reports source, paths and login state', async () => {
     await withConfigDir(async (dir) => {
         await seedProfile(dir, 'team-a', { apiUrl: 'https://api.a.test/api' })
