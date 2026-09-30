@@ -378,7 +378,7 @@ export class RuntimeAccessService {
         const [row] = await db
             .select({ value: count() })
             .from(channels)
-            .where(eq(channels.userId, userId))
+            .where(and(eq(channels.userId, userId), isNull(channels.origin)))
         return Number(row?.value ?? 0)
     }
 
@@ -1406,10 +1406,14 @@ export class RuntimeAccessService {
                 .where(eq(users.id, userId))
                 .limit(1)
             if (!row) throw new NotFoundException('user not found')
+            // A managed mirror is bounded by its source framework's own
+            // bindings, so it takes no slot here either.
             const [usage] = await tx
                 .select({ value: count() })
                 .from(channels)
-                .where(eq(channels.userId, userId))
+                .where(
+                    and(eq(channels.userId, userId), isNull(channels.origin))
+                )
             const current = Number(usage?.value ?? 0)
             if (current >= row.maxChannels)
                 throw planLimitReached(

@@ -22,6 +22,7 @@ import {
     type NewAgentRuntimeRow
 } from '@manyfold/db'
 import { RuntimeAccessService } from '../src/modules/runtime-access/runtime-access.service'
+import { FIXTURE } from './helpers/fixture-framework'
 
 // The quota and reservation rules of ADR-0037: hosts are the unit (a sandbox
 // VM, a cloud computer, a self-owned computer), a placement is derived from a
@@ -1836,7 +1837,14 @@ class FakeRuntimeAccessDb {
             if (grouped) return this.groupedHostUsage(rows)
             return [{ value: rows.length }]
         }
-        if (table === channels) return [{ value: this.channelRows.length }]
+        if (table === channels)
+            // Like the production query: a managed mirror takes no slot.
+            return [
+                {
+                    value: this.channelRows.filter((row) => row.origin == null)
+                        .length
+                }
+            ]
         if (table === automations)
             // The production query excludes tombstoned automations; mirror
             // that so a deletedAt row frees its plan slot in these tests.
@@ -2309,6 +2317,29 @@ test('RuntimeAccessService.reserveAutomationRun refuses a spent quota and says w
             assert.equal(details.planName, 'Free')
             assert.equal(details.resetAt, body.resetAt)
             assert.equal(typeof details.resetAt, 'string')
+            return true
+        }
+    )
+})
+
+test('RuntimeAccessService.reserveChannelSlot does not count managed mirrors', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.plans = [planRow({ maxChannels: 1 })]
+    db.channelRows.push({ id: 'chn-mirror', origin: { kind: FIXTURE } })
+    const service = makeService(db)
+
+    await service.reserveChannelSlot('user-1')
+
+    db.channelRows.push({ id: 'chn-own', origin: null })
+    await assert.rejects(
+        () => service.reserveChannelSlot('user-1'),
+        (err) => {
+            assert.deepEqual(planLimitBody(err).details, {
+                current: 1,
+                limit: 1,
+                planName: 'Free'
+            })
             return true
         }
     )
