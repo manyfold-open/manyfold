@@ -1010,6 +1010,101 @@ test('RuntimeAccessService.reserveStandaloneSandbox auto-names sandbox-NNN when 
     assert.equal(host.name, 'sandbox-004')
 })
 
+test('RuntimeAccessService.reserveSandboxRetry takes a failed sandbox back to provisioning in its own row', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.plans = [planRow({ id: 'free', maxAgentsProvisioned: 1 })]
+    db.users.push(userRow({ planId: 'free', statefulSandboxLimit: 1 }))
+    // Built long ago: an old emptied_at would let the reaper take the
+    // sandbox the moment it came up.
+    const builtAt = new Date('2026-04-01T00:00:00.000Z')
+    db.hostRows.push(
+        hostRow({
+            id: 'sbx-failed',
+            name: 'sandbox-001',
+            status: 'failed',
+            failureReason: 'runner did not connect',
+            emptiedAt: builtAt
+        })
+    )
+    const service = makeService(db)
+
+    // A failed row holds no slot, so the plan's only one is free for it.
+    const host = await service.reserveSandboxRetry({
+        userId: 'user-1',
+        hostId: 'sbx-failed'
+    })
+
+    assert.equal(host.id, 'sbx-failed')
+    assert.equal(host.name, 'sandbox-001')
+    assert.equal(host.status, 'provisioning')
+    assert.equal(host.failureReason, null)
+    assert.ok(host.emptiedAt instanceof Date && host.emptiedAt > builtAt)
+    assert.equal(db.hostRows.length, 1)
+    assert.deepEqual(
+        db.lockNamespaces,
+        ['0'],
+        'a retry must serialize with every other sandbox admission'
+    )
+})
+
+test('RuntimeAccessService.reserveSandboxRetry refuses a sandbox that is not failed', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.hostRows.push(hostRow({ id: 'sbx-ready', status: 'ready' }))
+    const service = makeService(db)
+
+    await assert.rejects(
+        () =>
+            service.reserveSandboxRetry({
+                userId: 'user-1',
+                hostId: 'sbx-ready'
+            }),
+        (err) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'SANDBOX_NOT_FAILED'
+    )
+    assert.equal(db.hostRows[0].status, 'ready')
+    assert.equal(db.hostUpdates.length, 0)
+})
+
+test('RuntimeAccessService.reserveSandboxRetry is refused when live sandboxes fill the quota', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.plans = [planRow({ id: 'free', maxAgentsProvisioned: 1 })]
+    db.users.push(userRow({ planId: 'free', statefulSandboxLimit: 1 }))
+    db.hostRows.push(hostRow({ id: 'sbx-failed', status: 'failed' }))
+    db.hostRows.push(hostRow({ id: 'sbx-live', status: 'ready' }))
+    const service = makeService(db)
+
+    await assert.rejects(
+        () =>
+            service.reserveSandboxRetry({
+                userId: 'user-1',
+                hostId: 'sbx-failed'
+            }),
+        (err) =>
+            err instanceof ForbiddenException &&
+            (err.getResponse() as { code?: string }).code ===
+                'RUNTIME_LIMIT_REACHED'
+    )
+    assert.equal(db.hostRows[0].status, 'failed')
+})
+
+test('RuntimeAccessService.reserveSandboxRetry answers not found for a sandbox that is gone', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    const service = makeService(db)
+
+    await assert.rejects(
+        () =>
+            service.reserveSandboxRetry({
+                userId: 'user-1',
+                hostId: 'sbx-gone'
+            }),
+        NotFoundException
+    )
+})
+
 // --- active-hours quota (ACTIVE_HOURS_QUOTA_REACHED) ---
 
 test('RuntimeAccessService.reserveActiveSlot rejects when included active hours are exhausted', async () => {
@@ -1397,6 +1492,7 @@ interface FakeHostRow {
     activeAccrualSince: Date | null
     emptiedAt: Date | null
     storageBytes: number | null
+    failureReason: string | null
     createdAt: Date
     updatedAt: Date
 }
@@ -1414,6 +1510,7 @@ const hostRow = (overrides: {
     emptiedAt?: Date | null
     activeAccrualSince?: Date | null
     storageBytes?: number | null
+    failureReason?: string | null
 }): FakeHostRow => {
     const kind = overrides.kind ?? 'hosted'
     const providerKind = kind === 'local' ? null : (overrides.providerKind ?? 'sprites')
@@ -1437,6 +1534,7 @@ const hostRow = (overrides: {
         activeAccrualSince: overrides.activeAccrualSince ?? null,
         emptiedAt: overrides.emptiedAt ?? null,
         storageBytes: overrides.storageBytes ?? null,
+        failureReason: overrides.failureReason ?? null,
         createdAt: now,
         updatedAt: now
     }

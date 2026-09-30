@@ -374,10 +374,19 @@ export class SpritesProvisioner {
             }
             if (options.freshMachine) {
                 const apiUrl = runnerApiUrl()
+                // The CLI's own words, when its register failed, say why.
+                const said = err.registerFailure
                 throw new ServiceUnavailableException({
-                    message: `the new sandbox's runner did not connect to this API at ${apiUrl} (${err.reason})`,
+                    message: said
+                        ? `the new sandbox's runner could not register with this API at ${apiUrl}: ${said}`
+                        : `the new sandbox's runner did not connect to this API at ${apiUrl} (${err.reason})`,
                     code: 'SANDBOX_RUNNER_NOT_CONNECTED',
-                    details: { hostId: host.id, apiUrl, reason: err.reason }
+                    details: {
+                        hostId: host.id,
+                        apiUrl,
+                        reason: err.reason,
+                        ...(said ? { registerFailure: said } : {})
+                    }
                 })
             }
             throw new ServiceUnavailableException({

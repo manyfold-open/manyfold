@@ -229,15 +229,19 @@ const makeHarness = (
             return { fs: {} }
         }
     }
+    const readCursors: Array<number | null | undefined> = []
     const reader = {
-        readMessages: async () => ({
-            sourceFile: '/tmp/s.jsonl',
-            warnings: [],
-            messages: options.localMessages ?? [],
-            transcript: options.readerTranscript ?? 'read',
-            lineCount: options.lineCount,
-            openTurnStartSeq: options.openTurnStartSeq
-        }),
+        readMessages: async (ctx: { syncCursor?: number | null }) => {
+            readCursors.push(ctx.syncCursor)
+            return {
+                sourceFile: '/tmp/s.jsonl',
+                warnings: [],
+                messages: options.localMessages ?? [],
+                transcript: options.readerTranscript ?? 'read',
+                lineCount: options.lineCount,
+                openTurnStartSeq: options.openTurnStartSeq
+            }
+        },
         listCandidates: async () => ({
             candidates: [],
             total: 0,
@@ -285,6 +289,7 @@ const makeHarness = (
         messages,
         sourceRows,
         cursorMoves,
+        readCursors,
         appendCallCount: () => appendCalls,
         fsCallCount: () => fsCalls,
         healthChecks,
@@ -664,6 +669,30 @@ test('with a cursor, a turn the file shows still running is held back whole', as
 
 // A session from before cursors (or whose last turn could not count) diffs by
 // content once, as it always did, and comes out of it with a cursor.
+// A reader that folds a reply's entries into one message must not fold across
+// the cursor, or the part past it would be skipped with the part before.
+test('the reader is told the cursor the sync takes what lies past', async () => {
+    const withCursor = makeHarness({
+        cloudMessages: liveTurnInCloud(),
+        localMessages: liveTurnInFile(),
+        runtimeSyncCursor: 22,
+        lineCount: 22
+    })
+    await withCursor.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.deepEqual(withCursor.readCursors, [22])
+    const without = makeHarness({ runtimeSyncCursor: null, lineCount: 4 })
+    await without.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.deepEqual(without.readCursors, [null])
+})
+
 test('without a cursor, the content diff runs once and establishes one', async () => {
     const h = makeHarness({
         localMessages: localSuperset,

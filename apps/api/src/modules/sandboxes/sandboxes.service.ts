@@ -257,7 +257,7 @@ export class SandboxesService {
     // A new sandbox: placement picks the provider, the host row is inserted
     // as `provisioning` under the user's quota, and the provisioner creates
     // the machine and brings its daemon up. A failed bring-up leaves the row
-    // `failed` with the reason; the user deletes it.
+    // `failed` with the reason; the user retries or deletes it.
     async create(
         userId: string,
         body: CreateSandboxBody,
@@ -274,6 +274,29 @@ export class SandboxesService {
             name: body.name,
             providerId: provider.id
         })
+        await this.provisionReserved(host)
+        return this.get(userId, host.id, isAdmin)
+    }
+
+    // A failed sandbox built again in place: the row keeps its id and name,
+    // the machine is made anew the way create makes it, and a failure leaves
+    // the row failed again with the new reason.
+    async retry(
+        userId: string,
+        hostId: string,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        this.spritesProvisioner.assertSandboxCanReachApi()
+        const host = await this.runtimeAccess.reserveSandboxRetry({
+            userId: r.host.userId,
+            hostId: r.host.id
+        })
+        await this.provisionReserved(host)
+        return this.get(userId, host.id, isAdmin)
+    }
+
+    private async provisionReserved(host: RuntimeHostRow): Promise<void> {
         try {
             await this.spritesProvisioner.provisionSandbox({ host })
         } catch (err) {
@@ -286,7 +309,6 @@ export class SandboxesService {
                 )
             throw err
         }
-        return this.get(userId, host.id, isAdmin)
     }
 
     // R8: refused while agents exist, else deleting → destroy → gone.

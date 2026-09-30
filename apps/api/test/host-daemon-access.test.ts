@@ -155,6 +155,26 @@ test('a sandbox whose CLI an update could not bring up to the work says why, and
     )
 })
 
+test('a machine whose register failed carries what the CLI said to the caller', async () => {
+    const { access } = build({
+        daemon: null,
+        resolution: {
+            handle: null,
+            fallbackReason: 'runner_unavailable',
+            registerFailure: 'cli Error: Unable to connect.'
+        }
+    })
+    await assert.rejects(
+        access.withHost({ host: host(), daemon: null, placement: 'sprites', reason: 'provision-sandbox' }, async () => 1),
+        (err: unknown) => {
+            assert.ok(err instanceof HostDaemonOfflineError)
+            assert.equal(err.reason, 'runner_unavailable')
+            assert.equal(err.registerFailure, 'cli Error: Unable to connect.')
+            return true
+        }
+    )
+})
+
 test('a read path that must not wake the machine reads the lease and holds nothing', async () => {
     const asleep = build({ daemon: daemon({ rpcInstanceId: null, rpcConnectedAt: null }) })
     const res = await asleep.access.ensure({ host: host(), daemon: null, placement: 'sprites', wake: false })

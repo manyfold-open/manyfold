@@ -60,6 +60,16 @@ export class SandboxesController {
         return this.sandboxes.create(user.userId, body)
     }
 
+    @Post(':id/retry')
+    @HttpCode(200)
+    @RequireApiTokenScope('sandboxes:edit')
+    async retry(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.retry(user.userId, id)
+    }
+
     @Delete(':id')
     @HttpCode(204)
     @RequireApiTokenScope('sandboxes:edit')

@@ -62,7 +62,11 @@ const zh: Translations = {
             AUTOMATION_RUN_QUOTA_REACHED:
                 '本账期内套餐包含的自动化运行次数已用完，升级套餐后可继续运行。',
             API_REQUEST_QUOTA_REACHED:
-                '本账期内套餐包含的 API 请求次数已用完，升级套餐后可继续使用。'
+                '本账期内套餐包含的 API 请求次数已用完，升级套餐后可继续使用。',
+            SANDBOX_API_UNREACHABLE:
+                '沙箱无法回连 {{apiUrl}} 上的 Manyfold，因此没有创建。请把 PUBLIC_API_BASE_URL 设为沙箱服务商能访问的地址（本地环境用隧道 URL），然后重启 API。',
+            SANDBOX_RUNNER_NOT_CONNECTED:
+                '新沙箱无法回连 {{apiUrl}} 上的 Manyfold。请重试；如果再次失败，说明沙箱服务商访问不到这个地址。'
         },
         agentName: {
             empty: '请填写 Agent 名称。',
@@ -3543,7 +3547,7 @@ const zh: Translations = {
                 slotTaken: '已经在跑 {{other}}，而一个沙箱只有一个公网端口',
                 podHostStarting: '还在启动，就绪后才能加入 agent',
                 podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
-                sandboxFailed: '启动失败；请在 设置 › 运行时 中删除它',
+                sandboxFailed: '启动失败；请在 设置 › 运行时 中重试或删除它',
                 podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
             },
             newMachine: {
@@ -3624,10 +3628,12 @@ const zh: Translations = {
                 goToSettings: '去设置',
                 leavesFlow: '会离开这条流程',
                 buildAndInstall: '建一台并装 {{cli}}',
+                retryBuildAndInstall: '重试 {{machine}} 并装 {{cli}}',
                 buildFine: '约 2 分钟 · 之后要登录一次 · 已用 {{used}} / {{limit}}',
                 installOn: '在 {{machine}} 上装 {{cli}}',
                 installFine: '约 1–2 分钟 · 之后要登录一次',
                 build: '建一台',
+                retryBuild: '重试 {{machine}}',
                 buildFineService: '约一分钟 · {{cli}} 在创建时安装 · 已用 {{used}} / {{limit}}',
                 installsAtCreate: '{{cli}} 在创建时安装 · 那时约 1–2 分钟',
                 createFineInstall: '约 1–2 分钟 · 先装 {{cli}}',
@@ -4513,6 +4519,7 @@ const zh: Translations = {
             deleteSandboxDescription: '删除沙箱“{{name}}”？这台机器及其上的所有内容都会被销毁。',
             rename: '重命名',
             stopping: '停止中…',
+            retrying: '重试中…',
             stoppingSandbox: '停止沙箱中…',
             deletingSandbox: '删除沙箱中…',
             machineOffline: '机器离线',

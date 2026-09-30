@@ -45,7 +45,9 @@ import {
 } from '../src/pages/AgentNew/v4/providerBinding'
 import {
     buildMachineOptions,
-    buildNewMachineOptions
+    buildNewMachineOptions,
+    sandboxLeftFailed,
+    sandboxToRetry
 } from '../src/pages/AgentNew/v4/machineOptions'
 import { FIXTURE_FRAMEWORK } from './fixture-framework'
 
@@ -398,6 +400,42 @@ test('a framework that cannot use a daemon says so on that row', () => {
         claude.find((o) => o.kind === 'ownComputer')?.disabled,
         false
     )
+})
+
+const withStatus = (
+    row: SandboxSummary,
+    status: SandboxSummary['status']
+): SandboxSummary => ({ ...row, status })
+
+test('a failed build is the row that was not there before it and now reads failed', () => {
+    const older = withStatus(sandbox('sbx_old', 'sandbox-001'), 'failed')
+    const built = withStatus(sandbox('sbx_new', 'sandbox-002'), 'failed')
+    // An older failure is not this build's to retry.
+    assert.equal(
+        sandboxLeftFailed(new Set(['sbx_old']), [older, built])?.id,
+        'sbx_new'
+    )
+    // Refused before any row was made (a quota, an unreachable API): there is
+    // nothing to retry, and the next press builds a new one.
+    assert.equal(sandboxLeftFailed(new Set(['sbx_old']), [older]), null)
+    assert.equal(
+        sandboxLeftFailed(new Set(), [
+            withStatus(sandbox('sbx_up', 'sandbox-003'), 'ready')
+        ]),
+        null
+    )
+})
+
+test('a failed build is retried only while the list still shows it failed', () => {
+    const failed = withStatus(sandbox('sbx_1', 'sandbox-001'), 'failed')
+    assert.equal(sandboxToRetry([failed], 'sbx_1')?.name, 'sandbox-001')
+    assert.equal(sandboxToRetry([failed], null), null)
+    // Retried elsewhere and building, or deleted: build a new one instead.
+    assert.equal(
+        sandboxToRetry([withStatus(failed, 'provisioning')], 'sbx_1'),
+        null
+    )
+    assert.equal(sandboxToRetry([], 'sbx_1'), null)
 })
 
 // The step bar and step ④'s confirmation list both summarise the same run.

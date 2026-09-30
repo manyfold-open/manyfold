@@ -241,6 +241,7 @@ export const apiPaths = {
     SANDBOX_TASK_BY_NAME: (id: string, name: string) =>
         `/sandboxes/${id}/tasks/${encodeURIComponent(name)}`,
     SANDBOX_STOP: (id: string) => `/sandboxes/${id}/stop`,
+    SANDBOX_RETRY: (id: string) => `/sandboxes/${id}/retry`,
     POD_HOSTS: '/pod-hosts',
     POD_HOST_BY_ID: (id: string) => `/pod-hosts/${id}`,
     POD_HOST_RENAME: (id: string) => `/pod-hosts/${id}/name`,

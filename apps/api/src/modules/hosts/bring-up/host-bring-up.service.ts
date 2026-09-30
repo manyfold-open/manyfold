@@ -157,6 +157,9 @@ export interface BringUpResolution {
     // With `runner_cli_too_old` after an update was tried: why it did not
     // give the daemon what was needed, and on which versions.
     cliRefusal?: HostCliRefusal
+    // When the machine's own `mf daemon register` failed: what the CLI said,
+    // the one clue to why its runner never connected.
+    registerFailure?: string
 }
 
 interface BringUpMachineState {
@@ -173,6 +176,7 @@ interface BringUpMachineState {
 interface BringUpOutcome {
     handle: BringUpHandle | null
     execFailure?: ExecEndpointFailure
+    registerFailure?: string
 }
 
 type BringUpInspection =
@@ -346,6 +350,9 @@ export class HostBringUpService {
                         : 'runner_unavailable',
                     ...(resolved.execFailure
                         ? { execFailure: resolved.execFailure }
+                        : {}),
+                    ...(resolved.registerFailure
+                        ? { registerFailure: resolved.registerFailure }
                         : {})
                 }
             const fresh = await this.hostDaemons.findByHostId(host.id)
@@ -612,7 +619,8 @@ export class HostBringUpService {
                     ? { handle: null, execFailure: inspected.execFailure }
                     : { handle: null }
             const prepared = await this.installAndRegister(adapter, call, state)
-            if (prepared !== 'ok') return { handle: null }
+            if (!prepared.ok)
+                return { handle: null, registerFailure: prepared.registerFailure }
             const waitMs = args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
             const startedAt = new Date()
             let online = await this.startHeldAwake(adapter, call, () =>
@@ -629,8 +637,12 @@ export class HostBringUpService {
                     this.logger.warn(
                         `daemon credential rejected, re-registering ${tag}`
                     )
-                    if (!(await this.register(adapter, call)).ok)
-                        return { handle: null }
+                    const again = await this.register(adapter, call)
+                    if (!again.ok)
+                        return {
+                            handle: null,
+                            registerFailure: registerFailureOf(again.detail)
+                        }
                     online = await this.startHeldAwake(adapter, call, () =>
                         this.waitForLease(host, startedAt, waitMs)
                     )
@@ -658,14 +670,14 @@ export class HostBringUpService {
         adapter: SandboxProvider,
         call: ProviderCall,
         state: BringUpMachineState
-    ): Promise<'ok' | 'install-failed' | 'register-failed'> {
+    ): Promise<{ ok: boolean; registerFailure?: string }> {
         const tooOld = isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
         if (!state.installed || tooOld) {
             if (tooOld && state.installed)
                 this.logger.log(
                     `daemon CLI ${state.version ?? 'unknown'} < ${DAEMON_MIN_CLI_VERSION}, upgrading hostId=${call.host.id}`
                 )
-            if (!(await this.installCli(adapter, call))) return 'install-failed'
+            if (!(await this.installCli(adapter, call))) return { ok: false }
         }
         // herdr rides along with the daemon (ADR-0031), best effort: a
         // machine without it still chats, it just cannot hand a session to
@@ -696,12 +708,16 @@ export class HostBringUpService {
                     `daemon CLI too old to read the token from stdin, reinstalling hostId=${call.host.id}`
                 )
                 if (!(await this.installCli(adapter, call)))
-                    return 'install-failed'
+                    return { ok: false }
                 registered = await this.register(adapter, call)
             }
-            if (!registered.ok) return 'register-failed'
+            if (!registered.ok)
+                return {
+                    ok: false,
+                    registerFailure: registerFailureOf(registered.detail)
+                }
         }
-        return 'ok'
+        return { ok: true }
     }
 
     // One round trip that both WAKES a sprite (any exec resumes it) and
@@ -861,7 +877,7 @@ export class HostBringUpService {
             // cannot reach, a rejected token, an old binary); the token itself
             // went over stdin and is never in this output.
             this.logger.warn(
-                `daemon register failed hostId=${host.id} exit=${res.exitCode} detail=${detail.replace(/\s+/g, ' ').trim().slice(0, 200) || '(no output)'}`
+                `daemon register failed hostId=${host.id} exit=${res.exitCode} detail=${registerFailureOf(detail) ?? '(no output)'}`
             )
             await this.discardToken(minted.tokenId, host)
         }
@@ -1025,6 +1041,10 @@ const unavailable = (reason: BringUpFallbackReason): BringUpResolution => ({
 // The token we send IS `ldt_`-prefixed, so the CLI complaining that it is not
 // can only mean the CLI never read stdin and used the literal `-`. Same for a
 // CLI that does not know the flag at all.
+// A failed register's output as one line, or nothing when it printed none.
+const registerFailureOf = (detail: string): string | undefined =>
+    detail.replace(/\s+/g, ' ').trim().slice(0, 200) || undefined
+
 const isStaleCliRegisterFailure = (detail: string): boolean =>
     /must start with ldt_|unknown option|requires --token/i.test(detail)
 

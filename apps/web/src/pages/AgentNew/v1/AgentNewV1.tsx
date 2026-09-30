@@ -1433,6 +1433,9 @@ const AgentNew: FC = (): ReactNode => {
             setRevealTargetKey(hostKey(created.id))
         } catch (err) {
             setError(apiErrorMessage(err))
+            // A build that failed leaves its sandbox behind as `failed`, and
+            // its card is where it can be retried.
+            await refetchSandboxes()
         } finally {
             setSandboxCreating(false)
         }
@@ -2076,6 +2079,24 @@ const AgentNew: FC = (): ReactNode => {
         }
     }
 
+    // A sandbox whose build failed is built again in place from its card; a
+    // failure again leaves it failed with the new reason.
+    const retrySandboxTarget = async (
+        hostId: string,
+        key: string
+    ): Promise<void> => {
+        setTargetActionKey(key)
+        setError(null)
+        try {
+            await client.sandboxes.retry(hostId)
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            await Promise.all([refetchRuntimes(), refetchSandboxes()])
+            setTargetActionKey(null)
+        }
+    }
+
     const agentsOnHost = (hostId: string): number =>
         (populationByHost.get(hostId) ?? []).reduce(
             (sum, entry) => sum + entry.agents,
@@ -2101,6 +2122,19 @@ const AgentNew: FC = (): ReactNode => {
         label: t('web.agentNew.renameSandbox'),
         onSelect: () => setRenameTarget({ kind: 'sandbox', id: hostId, name })
     })
+    const retrySandboxItem = (
+        hostId: string,
+        key: string
+    ): OverflowMenuEntry => {
+        const busy = targetActionKey === key
+        return {
+            label: busy
+                ? t('web.agentRuntimesList.retrying')
+                : t('common.retry'),
+            disabled: busy,
+            onSelect: () => void retrySandboxTarget(hostId, key)
+        }
+    }
     const deleteSandboxItem = (
         hostId: string,
         name: string,
@@ -2209,8 +2243,16 @@ const AgentNew: FC = (): ReactNode => {
         key: string
     ): OverflowMenuEntry[] => {
         const name = target.name ?? target.hostId
+        // A failed sandbox has no machine to check or install onto; the one
+        // way forward is to build it again.
+        const failed =
+            sandboxes.find((s) => s.id === target.hostId)?.status === 'failed'
+        const retryGroup: OverflowMenuEntry[] = [
+            retrySandboxItem(target.hostId, key),
+            { separator: true }
+        ]
         return [
-            ...frameworkInstallItems(target.hostId),
+            ...(failed ? retryGroup : frameworkInstallItems(target.hostId)),
             renameSandboxItem(target.hostId, name),
             deleteSandboxItem(target.hostId, name, key)
         ]
