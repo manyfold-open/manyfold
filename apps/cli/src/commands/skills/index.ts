@@ -111,7 +111,7 @@ const resolveContentOpt = async (opts: {
     contentFile?: string
 }): Promise<string | undefined> => {
     if (opts.content !== undefined && opts.contentFile !== undefined)
-        throw new Error('pass at most one of --content / --content-file')
+        throw new UsageError('pass at most one of --content / --content-file')
     if (opts.contentFile !== undefined)
         return readFile(opts.contentFile, 'utf8')
     return opts.content
@@ -122,7 +122,7 @@ const resolveConflictOpt = (
 ): LibrarySkillImportConflict | undefined => {
     if (value === undefined) return undefined
     if (!(IMPORT_CONFLICT_MODES as readonly string[]).includes(value))
-        throw new Error(
+        throw new UsageError(
             `--on-conflict must be one of ${IMPORT_CONFLICT_MODES.join(', ')}`
         )
     return value as LibrarySkillImportConflict
@@ -183,7 +183,7 @@ export const parseShareRef = (value: string): string => {
     } catch {
         // not a URL; fall through to the error below
     }
-    throw new Error(
+    throw new UsageError(
         'pass a share link (…/skills/shared/lss_…) or a bare lss_… id'
     )
 }
@@ -298,12 +298,12 @@ export const resolveInstallTarget = (input: {
             .split(',')
             .map((v) => v.trim())
             .filter(Boolean)
-        if (agentIds.length === 0) throw new Error('--agent-ids is empty')
+        if (agentIds.length === 0) throw new UsageError('--agent-ids is empty')
         return { mode: 'batch', skillId: input.skillId, agentIds }
     }
     const agentId = input.agentId?.trim()
     if (!agentId)
-        throw new Error(
+        throw new UsageError(
             'pass --agent-id (or --agent-ids for a batch install), or set $MF_AGENT_ID'
         )
     return { mode: 'single', skillId: input.skillId, agentId }
@@ -374,7 +374,7 @@ export const registerSkills = (program: Command): void => {
                     ? opts.sort
                     : undefined
             if (opts.sort !== undefined && sort === undefined)
-                throw new Error("--sort must be 'featured' or 'latest'")
+                throw new UsageError("--sort must be 'featured' or 'latest'")
             // Max page size on purpose: the pre-envelope command returned the
             // whole result set in one response, so defaulting to the server
             // cap keeps single-page parity at today's catalog sizes; beyond
@@ -511,7 +511,9 @@ export const registerSkills = (program: Command): void => {
         .option('--json', 'emit raw JSON', false)
         .action(async (userSkillId: string, opts: UpdateOpts) => {
             if (opts.enabled === opts.disabled)
-                throw new Error('pass exactly one of --enabled or --disabled')
+                throw new UsageError(
+                    'pass exactly one of --enabled or --disabled'
+                )
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.update(userSkillId, {
@@ -646,7 +648,7 @@ export const registerSkills = (program: Command): void => {
                 opts.description === undefined &&
                 content === undefined
             )
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.library.update(skillId, {
@@ -689,7 +691,7 @@ export const registerSkills = (program: Command): void => {
                 opts.share
             ].filter((v) => v !== undefined)
             if (provided.length !== 1)
-                throw new Error(
+                throw new UsageError(
                     'pass exactly one of --url / --file / --catalog-skill-id / --share'
                 )
             const onConflict = resolveConflictOpt(opts.onConflict)
@@ -944,7 +946,7 @@ export const registerSkills = (program: Command): void => {
         .action(async (skillId: string, opts: LibraryFileSetOpts) => {
             const content = await resolveContentOpt(opts)
             if (content === undefined)
-                throw new Error('pass one of --content / --content-file')
+                throw new UsageError('pass one of --content / --content-file')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.library.upsertFile(skillId, {
@@ -1027,11 +1029,13 @@ export const registerSkills = (program: Command): void => {
             const body: { branch?: string; enabled?: boolean } = {}
             if (opts.branch) body.branch = opts.branch
             if (opts.enabled && opts.disabled)
-                throw new Error('cannot pass both --enabled and --disabled')
+                throw new UsageError(
+                    'cannot pass both --enabled and --disabled'
+                )
             if (opts.enabled) body.enabled = true
             else if (opts.disabled) body.enabled = false
             if (Object.keys(body).length === 0)
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.repos.update(repoId, body)

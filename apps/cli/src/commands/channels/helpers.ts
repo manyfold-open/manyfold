@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import type { ChannelDetail } from '@manyfold/shared'
+import { UsageError } from '@/usage-error'
 
 export interface RootChannelOptions {
     apiUrl?: string
@@ -15,19 +16,27 @@ export const parseJsonArg = async (
     if (raw.startsWith('@')) {
         const path = raw.slice(1)
         if (!path)
-            throw new Error(
+            throw new UsageError(
                 `${label}: @ prefix requires a file path (e.g. @path/to/file.json)`
             )
-        source = await readFile(path, 'utf8')
+        try {
+            source = await readFile(path, 'utf8')
+        } catch (err) {
+            throw new UsageError(
+                `${label}: cannot read ${path} (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`
+            )
+        }
     }
     let parsed: unknown
     try {
         parsed = JSON.parse(source)
     } catch (err) {
-        throw new Error(`${label}: invalid JSON (${(err as Error).message})`)
+        throw new UsageError(
+            `${label}: invalid JSON (${(err as Error).message})`
+        )
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-        throw new Error(`${label}: expected a JSON object`)
+        throw new UsageError(`${label}: expected a JSON object`)
     return parsed as Record<string, unknown>
 }
 

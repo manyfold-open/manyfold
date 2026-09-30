@@ -19,6 +19,7 @@ import { isProcessRunning } from '@/daemon/pid'
 import { uninstallInitUnit } from '@/daemon/init-unit'
 import { readJsonState } from '@/json-state'
 import { emit, fail, jsonOption } from '@/output'
+import { UsageError } from '@/usage-error'
 
 interface ProfileInfo {
     name: string
@@ -215,7 +216,7 @@ export const registerProfile = (program: Command): void => {
                 const current = resolveProfile()
                 const root = resolveConfigDir()
                 if (target === 'default' && !opts.force)
-                    throw new Error(
+                    throw new UsageError(
                         "refusing to delete the 'default' profile (pass --force if you really mean it)"
                     )
                 const paths = profilePaths(root, target)
@@ -226,7 +227,7 @@ export const registerProfile = (program: Command): void => {
                     )
                 if (!opts.yes) {
                     if (!process.stdin.isTTY)
-                        throw new Error(
+                        throw new UsageError(
                             'non-interactive shell; pass --yes to skip the confirmation prompt'
                         )
                     const ok = await promptYesNo(

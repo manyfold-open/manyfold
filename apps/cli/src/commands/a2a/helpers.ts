@@ -11,6 +11,7 @@ import {
     type TextPart
 } from '@manyfold/a2a'
 import type { A2aSelfPeer } from '@manyfold/shared'
+import { UsageError } from '@/usage-error'
 
 export interface BuildMessageOpts {
     contextId?: string
@@ -52,7 +53,7 @@ export const buildA2aMessage = (
         })
     }
     if (parts.length === 0)
-        throw new Error('provide a prompt or --input-file')
+        throw new UsageError('provide a prompt or --input-file')
     const message: Message = {
         kind: 'message',
         role: 'user',

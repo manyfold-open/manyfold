@@ -1,11 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { once } from 'node:events'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChannelDetail } from '@manyfold/shared'
 import { buildSendBody } from '../src/commands/channels/send'
 import { maskSensitive, parseJsonArg } from '../src/commands/channels/helpers'
+import { UsageError } from '../src/usage-error'
+import { spawnMf } from './fixtures/spawn-mf'
+
+const usage =
+    (pattern: RegExp) =>
+    (err: unknown): boolean =>
+        err instanceof UsageError && pattern.test(err.message)
 
 test('parseJsonArg: inline JSON object', async () => {
     const parsed = await parseJsonArg('{"foo":"bar"}', '--config')
@@ -15,18 +23,18 @@ test('parseJsonArg: inline JSON object', async () => {
 test('parseJsonArg: rejects non-object inline JSON', async () => {
     await assert.rejects(
         () => parseJsonArg('"foo"', '--config'),
-        /expected a JSON object/
+        usage(/expected a JSON object/)
     )
     await assert.rejects(
         () => parseJsonArg('[1,2,3]', '--config'),
-        /expected a JSON object/
+        usage(/expected a JSON object/)
     )
 })
 
 test('parseJsonArg: invalid JSON reports the parse error', async () => {
     await assert.rejects(
         () => parseJsonArg('{ not json }', '--config'),
-        /invalid JSON/
+        usage(/invalid JSON/)
     )
 })
 
@@ -45,7 +53,14 @@ test('parseJsonArg: @path reads the file', async () => {
 test('parseJsonArg: @ with empty path errors', async () => {
     await assert.rejects(
         () => parseJsonArg('@', '--credentials'),
-        /requires a file path/
+        usage(/requires a file path/)
+    )
+})
+
+test('parseJsonArg: an @path that cannot be read names the flag', async () => {
+    await assert.rejects(
+        () => parseJsonArg('@/nonexistent/config.json', '--config'),
+        usage(/^--config: cannot read \/nonexistent\/config\.json \(ENOENT\)$/)
     )
 })
 
@@ -142,15 +157,18 @@ test('buildSendBody requires text and exactly one target', () => {
         buildSendBody({ replyTo: 'om_z', text: 'hi' }),
         { text: 'hi', replyToMessageId: 'om_z' }
     )
-    assert.throws(() => buildSendBody({ chatId: 'oc_x' }), /--text/)
-    assert.throws(() => buildSendBody({ chatId: 'oc_x', text: '   ' }), /--text/)
+    assert.throws(() => buildSendBody({ chatId: 'oc_x' }), usage(/--text/))
+    assert.throws(
+        () => buildSendBody({ chatId: 'oc_x', text: '   ' }),
+        usage(/--text/)
+    )
     assert.throws(
         () => buildSendBody({ text: 'hi' }),
-        /exactly one target/
+        usage(/exactly one target/)
     )
     assert.throws(
         () => buildSendBody({ chatId: 'oc_x', userId: 'ou_y', text: 'hi' }),
-        /exactly one target/
+        usage(/exactly one target/)
     )
 })
 
@@ -177,6 +195,34 @@ test('buildSendBody supports files with or without text', () => {
                 chatId: 'oc_x',
                 file: ['a', 'b', 'c', 'd', 'e']
             }),
-        /at most 4/
+        usage(/at most 4/)
     )
 })
+
+// A real child process, for the exit code the shell sees.
+test(
+    'a channels usage mistake exits 5 before any request',
+    { timeout: 60_000 },
+    async (t) => {
+        const dir = await mkdtemp(join(tmpdir(), 'mf-cli-channels-usage-'))
+        t.after(() => rm(dir, { recursive: true, force: true }))
+        const child = spawnMf(
+            [
+                '--api-url',
+                'http://127.0.0.1:9/api',
+                'channels',
+                'send',
+                'chn_1',
+                '--chat-id',
+                'oc_x'
+            ],
+            { HOME: dir, MF_CONFIG_DIR: dir, MF_API_TOKEN: 'nca_rt_env' }
+        )
+        child.stdin.end()
+        let stderr = ''
+        child.stderr.on('data', (data) => (stderr += data))
+        const [code] = await once(child, 'close')
+        assert.equal(code, 5)
+        assert.equal(stderr, 'error: provide --text, --file, or both\n')
+    }
+)

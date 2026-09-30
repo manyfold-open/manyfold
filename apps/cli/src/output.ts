@@ -3,6 +3,7 @@ import kleur from 'kleur'
 import { ApiError } from '@manyfold/sdk'
 import { A2aTransportError } from '@manyfold/a2a'
 import { resolveConfigPath, resolveProfile } from '@/config'
+import { UsageError } from '@/usage-error'
 
 // Single source of truth for `--json`. Register the flag with jsonOption(cmd),
 // then read it through emit(opts, payload, renderHuman). Every command prints
@@ -222,7 +223,7 @@ export const normalizeCliError = (
     error: unknown,
     extra: CliErrorExtra = {}
 ): CliFailure => {
-    if (error instanceof CommanderError) {
+    if (error instanceof CommanderError || error instanceof UsageError) {
         return {
             error: {
                 code: 'invalid_usage',

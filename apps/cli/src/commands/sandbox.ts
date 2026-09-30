@@ -151,7 +151,7 @@ export const registerSandbox = (program: Command): void => {
                 throw err
             }
             if (!opts.yes)
-                throw new Error(
+                throw new UsageError(
                     `refusing to delete sandbox ${sandbox.name} (${sandbox.id}) without --yes (or -y)`
                 )
             try {

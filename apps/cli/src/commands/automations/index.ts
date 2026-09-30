@@ -239,7 +239,7 @@ export const registerAutomations = (program: Command): void => {
             if (opts.clearModel) body.model = null
             else if (opts.model !== undefined) body.model = opts.model
             if (Object.keys(body).length === 0)
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const detail = await client.automations.update(id, body)
             if (opts.json) {
                 console.log(JSON.stringify(detail, null, 2))

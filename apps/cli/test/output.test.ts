@@ -12,6 +12,7 @@ import {
     type CliFailure
 } from '../src/output'
 import { handleTopLevelError, runCli } from '../src/run'
+import { UsageError } from '../src/usage-error'
 
 const apiError = (
     status: number,
@@ -299,6 +300,17 @@ test('Commander and unknown local errors have distinct stable fallbacks', () => 
     })
 })
 
+test('a UsageError is a usage failure however far it travels', () => {
+    assert.deepEqual(normalizeCliError(new UsageError('pass --name')), {
+        error: {
+            code: 'invalid_usage',
+            message: 'pass --name',
+            hint: 'Run the command with --help to see the expected usage.'
+        },
+        exitCode: 5
+    })
+})
+
 const captureConsoleErrors = async (
     fn: () => Promise<void> | void
 ): Promise<string[]> => {
@@ -428,6 +440,37 @@ test('human-mode Commander usage failures keep commander prose and exit 5', asyn
     assert.equal(result.exitCode, 5)
     assert.match(result.stderr, /unknown option '--bogus'/)
     assert.doesNotMatch(result.stderr, /cli Error:/)
+})
+
+test('a usage mistake an action finds itself exits 5 in both output modes', async () => {
+    const human = await captureRun([
+        'node',
+        'mf',
+        'channels',
+        'update',
+        'chn_1'
+    ])
+    assert.equal(human.stdout, '')
+    assert.equal(human.exitCode, 5)
+    assert.equal(
+        human.stderr,
+        'error: pass at least one of --label, --status, --config, --credentials\n'
+    )
+
+    const json = await captureRun([
+        'node',
+        'mf',
+        'channels',
+        'update',
+        'chn_1',
+        '--json'
+    ])
+    assert.equal(json.stdout, '')
+    assert.equal(json.exitCode, 5)
+    const parsed = JSON.parse(json.stderr) as CliFailure
+    assert.equal(parsed.error.code, 'invalid_usage')
+    assert.match(parsed.error.message, /^pass at least one of --label/)
+    assert.equal(json.stderr.trim().split('\n').length, 1)
 })
 
 test('JSON-mode help remains a successful human help flow', async () => {

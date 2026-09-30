@@ -3,6 +3,7 @@ import kleur from 'kleur'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { UsageError } from '@/usage-error'
 
 interface RootOpts {
     apiUrl?: string
@@ -97,7 +98,7 @@ export const registerBackups = (program: Command): void => {
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             if (!opts.yes)
-                throw new Error(
+                throw new UsageError(
                     `restoring overwrites ${agentId}'s current state; pass --yes to confirm`
                 )
             const res = await client.backups.restore(agentId, {

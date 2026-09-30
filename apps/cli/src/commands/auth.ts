@@ -8,6 +8,7 @@ import {
 } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { UsageError } from '@/usage-error'
 
 interface AuthEnsureOptions {
     scopes?: string
@@ -33,7 +34,7 @@ export const parseRequestedScopes = (csv: string): GrantableScope[] => {
         const trimmed = part.trim()
         if (!trimmed) continue
         if (!isGrantableScope(trimmed))
-            throw new Error(
+            throw new UsageError(
                 `unknown grant scope: ${trimmed}\n` +
                     `valid scopes: ${grantableScopes.join(', ')}`
             )
@@ -42,7 +43,7 @@ export const parseRequestedScopes = (csv: string): GrantableScope[] => {
         out.push(trimmed)
     }
     if (out.length === 0)
-        throw new Error('--scopes must list at least one grant scope')
+        throw new UsageError('--scopes must list at least one grant scope')
     return out
 }
 
@@ -50,11 +51,11 @@ export const ensurePermissionScopes = async (
     root: RootOptions,
     opts: AuthEnsureOptions
 ): Promise<PermissionEnsureResult> => {
-    if (!opts.scopes) throw new Error('--scopes <list> is required')
+    if (!opts.scopes) throw new UsageError('--scopes <list> is required')
     const scopes = parseRequestedScopes(opts.scopes)
     const agentId = opts.forAgent ?? root.agentId ?? process.env.MF_AGENT_ID
     if (!agentId)
-        throw new Error(
+        throw new UsageError(
             'no agent id: pass --for-agent <id>, --agent-id <id>, or run inside a managed runtime where $MF_AGENT_ID is set'
         )
     const { client } = await buildClient(root)

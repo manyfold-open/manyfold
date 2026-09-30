@@ -9,6 +9,7 @@ import {
     setSelfExposure,
     type GlobalAuthOpts
 } from '@/commands/a2a/self'
+import { UsageError } from '@/usage-error'
 
 interface JsonOpts {
     json?: boolean
@@ -32,7 +33,7 @@ export const parseExpiresInDays = (
     if (value === undefined) return undefined
     const parsed = Number(value)
     if (!Number.isInteger(parsed) || parsed <= 0)
-        throw new Error('--expires-in-days must be a positive integer')
+        throw new UsageError('--expires-in-days must be a positive integer')
     return parsed
 }
 
@@ -43,13 +44,13 @@ export const buildAddCallerBody = (
     const selected =
         Number(opts.external === true) + Number(Boolean(callerAgentId))
     if (selected !== 1)
-        throw new Error(
+        throw new UsageError(
             'pass exactly one of --external or --caller-agent-id <id>'
         )
     const expiresInDays = parseExpiresInDays(opts.expiresInDays)
     if (opts.external) {
         if (opts.replaceExisting)
-            throw new Error(
+            throw new UsageError(
                 '--replace-existing is only valid with --caller-agent-id'
             )
         return {
@@ -59,7 +60,7 @@ export const buildAddCallerBody = (
         }
     }
     if (opts.name !== undefined)
-        throw new Error('--name is only valid with --external')
+        throw new UsageError('--name is only valid with --external')
     return {
         kind: 'peer',
         callerAgentId: callerAgentId as string,

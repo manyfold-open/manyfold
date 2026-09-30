@@ -10,6 +10,7 @@ import {
     uploadFile
 } from '@/commands/files/transfer'
 import { emit } from '@/output'
+import { UsageError } from '@/usage-error'
 
 interface RootOpts {
     apiUrl?: string
@@ -77,7 +78,7 @@ const resolvePathTarget = (
         return { agentId: given[0], paths: given.slice(1) }
     const paths = [...given, ...defaults.slice(given.length)]
     if (paths.length < pathCount)
-        throw new Error(`expected ${pathCount} path argument(s)`)
+        throw new UsageError(`expected ${pathCount} path argument(s)`)
     return { agentId: resolveAgentId(undefined, program), paths }
 }
 
@@ -227,9 +228,9 @@ export const registerFiles = (program: Command): void => {
                 )
                 const path = paths[0]
                 if (opts.content === undefined && !opts.file)
-                    throw new Error('--content or --file is required')
+                    throw new UsageError('--content or --file is required')
                 if (opts.content !== undefined && opts.file)
-                    throw new Error(
+                    throw new UsageError(
                         '--content and --file are mutually exclusive'
                     )
                 if (opts.file) {

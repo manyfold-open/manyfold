@@ -3,6 +3,7 @@ import { ApiError, buildApiError } from '@manyfold/sdk'
 import { apiPaths, type AgentChannelSendResult } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { createCliFetch } from '@/transport'
+import { UsageError } from '@/usage-error'
 import type { RootChannelOptions } from './helpers'
 
 export interface ChannelSendFlags {
@@ -25,15 +26,15 @@ export const buildSendBody = (flags: ChannelSendFlags): ChannelSendBody => {
     const text = flags.text?.trim()
     const files = (flags.file ?? []).map((p) => p.trim()).filter(Boolean)
     if (!text && files.length === 0)
-        throw new Error('provide --text, --file, or both')
-    if (files.length > 4) throw new Error('at most 4 --file attachments')
+        throw new UsageError('provide --text, --file, or both')
+    if (files.length > 4) throw new UsageError('at most 4 --file attachments')
     const targets: Array<Partial<ChannelSendBody>> = []
     if (flags.chatId) targets.push({ chatId: flags.chatId })
     if (flags.userId) targets.push({ userId: flags.userId })
     if (flags.replyTo) targets.push({ replyToMessageId: flags.replyTo })
     const target = targets[0]
     if (!target || targets.length !== 1)
-        throw new Error(
+        throw new UsageError(
             'exactly one target is required: --chat-id, --user-id or --reply-to'
         )
     return {

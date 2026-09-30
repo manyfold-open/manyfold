@@ -6,6 +6,7 @@ import {
     resolveAgentHelpTopic,
     suggestAgentHelpTopics
 } from '@/agent-help/helpers'
+import { UsageError } from '@/usage-error'
 
 const findCommand = (program: Command, words: string[]): Command => {
     let current = program
@@ -42,7 +43,7 @@ export const registerHelp = (program: Command): void => {
         )
         .action((words: string[], opts: { agent: boolean; json: boolean }) => {
             if (!opts.agent) {
-                if (opts.json) throw new Error('--json requires --agent')
+                if (opts.json) throw new UsageError('--json requires --agent')
                 findCommand(program, words).outputHelp()
                 return
             }
