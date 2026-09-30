@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs'
 import type { Command } from 'commander'
 import kleur from 'kleur'
-import { chatCapabilitiesFor } from '@manyfold/shared'
 import { ApiError } from '@manyfold/sdk'
 import { buildClient } from '@/client'
 import { fail, jsonOption, printJson } from '@/output'
 import { chatLink } from '@/commands/agent/create'
 import {
+    assertTakesFiles,
     checkFiles,
     footer,
     humanView,
@@ -44,7 +44,7 @@ export const registerAgentSend = (cmd: Command, program: Command): void => {
             )
             .option(
                 '--file <path>',
-                "attach a local file, uploaded to the agent's workspace (repeatable)",
+                "attach a local file or image (PNG, JPG, …), uploaded to the agent's workspace (repeatable)",
                 (value: string, previous: string[]) => [...previous, value],
                 [] as string[]
             )
@@ -97,16 +97,7 @@ const runSend = async (
     if (!text.trim() && files.length === 0)
         throw new UsageError('nothing to send: pass a message, or --file')
     const { client } = await buildClient(global)
-    if (files.length > 0) {
-        const agent = await client.agents.get(agentId)
-        if (
-            agent.runtime === 'external' ||
-            !chatCapabilitiesFor(agent.framework).attachments
-        )
-            throw new UsageError(
-                `${agent.name} (${agent.framework}) has no workspace to put files in; send text only`
-            )
-    }
+    if (files.length > 0) assertTakesFiles(await client.agents.get(agentId))
     const session = await pickSession(client, agentId, opts)
     const link = () => chatLink(client, agentId, session.id)
     const human = humanView({

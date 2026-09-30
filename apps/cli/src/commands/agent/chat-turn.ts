@@ -7,6 +7,8 @@ import {
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
     CHAT_MESSAGE_MAX_TEXT,
+    chatCapabilitiesFor,
+    type AgentSummary,
     type ChatError,
     type ChatPermissionRequestEvent,
     type ChatSessionSummary,
@@ -88,6 +90,17 @@ export const checkFiles = async (
             `the files come to ${mib(total)}; one message takes at most ${mib(CHAT_ATTACHMENT_MAX_TOTAL_BYTES)}`
         )
     return files
+}
+
+// Files go to the agent's workspace, which an external agent has none of.
+export const assertTakesFiles = (agent: AgentSummary): void => {
+    if (
+        agent.runtime === 'external' ||
+        !chatCapabilitiesFor(agent.framework).attachments
+    )
+        throw new UsageError(
+            `${agent.name} (${agent.framework}) has no workspace to put files in; send text only`
+        )
 }
 
 // The session last active. The list comes oldest first by creation; a

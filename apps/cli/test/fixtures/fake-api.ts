@@ -26,7 +26,8 @@ export const json = (value: unknown, status = 200): Response =>
         headers: { 'content-type': 'application/json' }
     })
 
-const apiFetch =
+// Also for a test that drives an SDK client itself.
+export const apiFetch =
     (routes: Record<string, Route>, calls: Call[]): typeof fetch =>
     async (input, init) => {
         const url = new URL(String(input))

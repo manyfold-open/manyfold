@@ -124,7 +124,8 @@ stops the turn.
 
 `mf agent chat agt_xxx` is the same conversation at a prompt in your
 terminal, one message per line: `/new` starts a new session, `/exit` or
-Ctrl-D leaves.
+Ctrl-D leaves. `mf agent chat agt_xxx --file ./design.png` attaches a file
+or an image to your first message, as context for the rest of the chat.
 
 ## Update or delete an agent
 

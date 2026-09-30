@@ -125,8 +125,10 @@ mf agent send <agent-id> "what is in it?" --file ./screenshot.png
   the turn goes on on the server and the chat link says where to follow it.
 
 `chat` is the same conversation at a prompt in a terminal:
-`mf agent chat <agent-id> [--session <id> | -c]`, one message per line.
-`/new` starts a new session, `/exit` or Ctrl-D leaves; any other line
+`mf agent chat <agent-id> [--session <id> | -c] [--file <path>]`, one
+message per line. `--file` (a file or an image, repeatable) goes with the
+first message, as context for the chat; files it cannot upload wait for
+the next one. `/new` starts a new session, `/exit` or Ctrl-D leaves; any other line
 (slash commands included) goes to the agent. Ctrl-C during a reply stops
 the turn; at the prompt it leaves. It needs a terminal: from a script,
 use `send`.

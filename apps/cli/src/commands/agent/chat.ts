@@ -4,18 +4,26 @@ import kleur from 'kleur'
 import { buildClient } from '@/client'
 import { renderCliError } from '@/output'
 import { chatLink } from '@/commands/agent/create'
+import type { NcaClient } from '@manyfold/sdk'
 import {
+    assertTakesFiles,
+    checkFiles,
     footer,
     humanView,
     pickSession,
     runTurn,
-    TurnStreamLost
+    TurnStreamLost,
+    uploadFiles,
+    type LocalFile,
+    type TurnOutcome,
+    type TurnView
 } from '@/commands/agent/chat-turn'
 import { UsageError } from '@/usage-error'
 
 interface ChatOptions {
     session?: string
     continue?: boolean
+    file: string[]
 }
 
 export type ReplLine =
@@ -46,6 +54,12 @@ export const registerAgentChat = (cmd: Command, program: Command): void => {
             "continue the agent's most recent session",
             false
         )
+        .option(
+            '--file <path>',
+            "attach a local file or image (PNG, JPG, …) to your first message, uploaded to the agent's workspace (repeatable)",
+            (value: string, previous: string[]) => [...previous, value],
+            [] as string[]
+        )
     chat.action(async (agentId: string, opts: ChatOptions) => {
         try {
             await runChat(program, agentId, opts)
@@ -54,6 +68,47 @@ export const registerAgentChat = (cmd: Command, program: Command): void => {
             throw err
         }
     })
+}
+
+export interface ReplState {
+    // Null until the first message starts a session.
+    sessionId: string | null
+    // What --file named, until a message has taken it.
+    files: LocalFile[]
+}
+
+// One message from the prompt. The files still waiting go with it; they
+// stay waiting when their upload or the message itself was refused, and go
+// once the message is out, even if its reply is then lost.
+export const replTurn = async (
+    client: NcaClient,
+    agentId: string,
+    state: ReplState,
+    text: string,
+    view: TurnView
+): Promise<TurnOutcome> => {
+    if (!state.sessionId) {
+        state.sessionId = (await pickSession(client, agentId, {})).id
+        console.error(kleur.dim(`session ${state.sessionId}`))
+    }
+    const attachments = await uploadFiles(
+        client,
+        agentId,
+        state.sessionId,
+        state.files
+    )
+    try {
+        const outcome = await runTurn(
+            client,
+            { agentId, sessionId: state.sessionId, text, attachments },
+            view
+        )
+        state.files = []
+        return outcome
+    } catch (err) {
+        if (err instanceof TurnStreamLost) state.files = []
+        throw err
+    }
 }
 
 type Prompted = { line: string } | { closed: true } | { interrupted: true }
@@ -86,28 +141,39 @@ const runChat = async (
     agentId: string,
     opts: ChatOptions
 ): Promise<void> => {
-    if (!process.stdin.isTTY || !process.stdout.isTTY)
-        throw new UsageError(
-            'mf agent chat needs a terminal; from a script or a pipe, use mf agent send'
-        )
     if (opts.session && opts.continue)
         throw new UsageError(
             '--session and --continue both pick the session; pass one of them'
+        )
+    const files = await checkFiles(opts.file)
+    if (!process.stdin.isTTY || !process.stdout.isTTY)
+        throw new UsageError(
+            'mf agent chat needs a terminal; from a script or a pipe, use mf agent send'
         )
     const { client } = await buildClient(
         program.opts<{ apiUrl?: string; token?: string }>()
     )
     const agent = await client.agents.get(agentId)
+    if (files.length > 0) assertTakesFiles(agent)
     // A new session is started with the first message, not before.
-    let sessionId: string | null =
-        opts.session || opts.continue
-            ? (await pickSession(client, agentId, opts)).id
-            : null
+    const state: ReplState = {
+        sessionId:
+            opts.session || opts.continue
+                ? (await pickSession(client, agentId, opts)).id
+                : null,
+        files
+    }
     console.error(
         kleur.dim(
-            `${agent.name} (${agent.framework})${sessionId ? ` · session ${sessionId}` : ''} · /new starts a new session, /exit or Ctrl-D leaves`
+            `${agent.name} (${agent.framework})${state.sessionId ? ` · session ${state.sessionId}` : ''} · /new starts a new session, /exit or Ctrl-D leaves`
         )
     )
+    if (files.length > 0)
+        console.error(
+            kleur.dim(
+                `${files.map((file) => file.name).join(', ')} ${files.length > 1 ? 'go' : 'goes'} with your first message`
+            )
+        )
     let history: string[] = []
     while (true) {
         const read = await prompt(history)
@@ -121,25 +187,23 @@ const runChat = async (
         if (parsed.kind === 'exit') return
         if (parsed.kind === 'empty') continue
         if (parsed.kind === 'new') {
-            sessionId = null
+            state.sessionId = null
             console.error(
                 kleur.dim('a new session starts with your next message')
             )
             continue
         }
         try {
-            if (!sessionId) {
-                sessionId = (await pickSession(client, agentId, {})).id
-                console.error(kleur.dim(`session ${sessionId}`))
-            }
-            const session = sessionId
             const view = humanView({
                 stream: true,
-                chatLink: () => chatLink(client, agentId, session)
+                chatLink: () =>
+                    chatLink(client, agentId, state.sessionId ?? undefined)
             })
-            const outcome = await runTurn(
+            const outcome = await replTurn(
                 client,
-                { agentId, sessionId: session, text: parsed.text },
+                agentId,
+                state,
+                parsed.text,
                 view
             )
             view.finish(outcome)

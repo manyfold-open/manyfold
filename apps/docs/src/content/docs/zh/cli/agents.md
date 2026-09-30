@@ -109,7 +109,8 @@ Agent 的 workspace 并作为附件发送，图片也一样；一条消息最多
 25 MiB。`--json` 把这一轮输出为一个对象。按 Ctrl-C 会停止这一轮。
 
 `mf agent chat agt_xxx` 在终端的提示符下进行同样的对话，每行一条消息：`/new`
-开始新的 session，`/exit` 或 Ctrl-D 退出。
+开始新的 session，`/exit` 或 Ctrl-D 退出。`mf agent chat agt_xxx --file ./design.png`
+把文件或图片附在第一条消息上，作为整段对话的上下文。
 
 ## 更新或删除 Agent
 
