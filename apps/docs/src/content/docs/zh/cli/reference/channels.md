@@ -54,7 +54,7 @@ Create a channel
 | `--agent-id <id>` | agent id (defaults to $MF_AGENT_ID or --agent-id global) |
 | `--provider <name>` | channel provider (fake\|lark\|telegram\|slack\|discord\|matrix\|weixin\|whatsapp\|linear\|github\|line\|googlechat\|msteams\|imessage) 必填。 |
 | `--label <label>` | channel label (1-200 chars) 必填。 |
-| `--config <json>` | channel config (@path for file, or inline JSON object) 必填。 |
+| `--config <json>` | channel config (@path for file, or inline JSON object) 默认值: `{}`. |
 | `--credentials <json>` | channel credentials (@path for file, or inline JSON object) |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |

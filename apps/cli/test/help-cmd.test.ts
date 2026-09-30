@@ -85,6 +85,49 @@ test('mf help channels without --agent prints channels help', async () => {
     assert.doesNotMatch(out, /Core commands:/)
 })
 
+// optionDescription, not the rendered help: Commander wraps at 80 columns.
+test('human help marks the options a command cannot run without', async () => {
+    const program = buildProgram()
+    const find = (...path: string[]) =>
+        path.reduce((command, name) => {
+            const next = command.commands.find((child) => child.name() === name)
+            assert.ok(next, `mf ${path.join(' ')}`)
+            return next
+        }, program)
+    const described = (path: string[], flag: string): string => {
+        const command = find(...path)
+        const option = command.options.find((o) => o.long === flag)
+        assert.ok(option, flag)
+        return command.createHelp().optionDescription(option)
+    }
+
+    assert.match(
+        described(['channels', 'create'], '--provider'),
+        / \(required\)$/
+    )
+    assert.match(described(['channels', 'create'], '--label'), / \(required\)$/)
+    assert.equal(
+        described(['channels', 'create'], '--config'),
+        'channel config (@path for file, or inline JSON object) (default: "{}")'
+    )
+    assert.doesNotMatch(
+        described(['channels', 'create'], '--credentials'),
+        /required/
+    )
+    assert.match(
+        described(['skills', 'library', 'files', 'set'], '--path'),
+        / \(required\)$/
+    )
+
+    const out = await captureStdout(() =>
+        program.parseAsync(['help', 'channels', 'create'], { from: 'user' })
+    )
+    assert.match(
+        out,
+        /--label <label> +channel label \(1-200 chars\) \(required\)/
+    )
+})
+
 test('mf help with an unknown command rejects loudly', async () => {
     const program = buildProgram()
     await assert.rejects(

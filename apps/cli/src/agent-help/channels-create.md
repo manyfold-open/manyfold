@@ -28,9 +28,10 @@ mf channels test <channelId>
 mf channels update <channelId> --status active
 ```
 
-- `--agent-id <id>` defaults to `$MF_AGENT_ID`. `--config` is
-  required, `--credentials` optional; both take inline JSON objects
-  or `@path/to/file.json`.
+- `--agent-id <id>` defaults to `$MF_AGENT_ID`. `--config` defaults to
+  `{}` (enough for `fake` and the providers whose settings all have
+  defaults; lark, matrix and imessage need theirs), `--credentials` is
+  optional; both take inline JSON objects or `@path/to/file.json`.
 - Credentials keys per provider: lark `appSecret`; telegram `botToken`
   (optional `webhookSecret`); slack `botToken` + `signingSecret`;
   discord `botToken`; matrix `accessToken`; fake optional `secret`.
