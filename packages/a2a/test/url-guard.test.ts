@@ -97,3 +97,94 @@ test('the request deadline also bounds DNS validation', async (t) => {
     await assert.rejects(pending, /deadline/)
     resolve([{ address: '8.8.8.8', family: 4 }])
 })
+
+// The standalone mf runs on Bun, where the bundled undici never delivers a
+// streamed body; there the guard hands Bun's own fetch the checked address.
+const onBun = (t: { after: (fn: () => void) => void }): void => {
+    Object.defineProperty(process.versions, 'bun', {
+        value: '1.3.9',
+        configurable: true
+    })
+    t.after(() => {
+        delete (process.versions as Record<string, string | undefined>).bun
+    })
+}
+
+const answers = (
+    t: { mock: { method: typeof test.mock.method } },
+    hostname: string,
+    replies: Array<{ address: string; family: number }>
+): { count: () => number } => {
+    let resolutions = 0
+    const originalLookup = dns.lookup
+    t.mock.method(dns, 'lookup', async (host: string, options: LookupAllOptions) => {
+        if (host !== hostname) return originalLookup(host, options)
+        const reply = replies[Math.min(resolutions, replies.length - 1)]
+        resolutions++
+        return [reply]
+    })
+    return { count: () => resolutions }
+}
+
+const capturedFetch = (t: {
+    mock: { method: typeof test.mock.method }
+}): Array<{ url: string; init: RequestInit }> => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+    t.mock.method(globalThis, 'fetch', async (url: URL | string, init: RequestInit) => {
+        calls.push({ url: String(url), init })
+        return new Response('ok')
+    })
+    return calls
+}
+
+test('on Bun the native fetch connects to the checked address under the original Host', async (t) => {
+    onBun(t)
+    answers(t, 'a2a-bun.example', [{ address: '8.8.8.8', family: 4 }])
+    const calls = capturedFetch(t)
+
+    await guardedFetch('https://a2a-bun.example:8443/rpc?x=1', {
+        method: 'POST',
+        headers: { accept: 'text/event-stream' },
+        body: '{}'
+    })
+
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.url, 'https://8.8.8.8:8443/rpc?x=1')
+    const headers = calls[0]?.init.headers as Record<string, string>
+    assert.equal(headers.host, 'a2a-bun.example:8443')
+    assert.equal(headers.accept, 'text/event-stream')
+    assert.equal(calls[0]?.init.redirect, 'error')
+    assert.ok(!('dispatcher' in (calls[0]?.init ?? {})))
+})
+
+test('on Bun a second DNS answer cannot rebind a checked host to loopback', async (t) => {
+    onBun(t)
+    const lookups = answers(t, 'a2a-bun-rebind.example', [
+        { address: '8.8.8.8', family: 4 },
+        { address: '127.0.0.1', family: 4 }
+    ])
+    const calls = capturedFetch(t)
+
+    await assert.rejects(
+        guardedFetch('https://a2a-bun-rebind.example/rpc', {}),
+        /private or reserved/
+    )
+    assert.equal(lookups.count(), 2)
+    assert.equal(calls.length, 0)
+})
+
+test('on Bun an IPv6 answer is bracketed and a private dev target is left alone', async (t) => {
+    onBun(t)
+    answers(t, 'a2a-bun6.example', [
+        { address: '2001:4860:4860::8888', family: 6 }
+    ])
+    const calls = capturedFetch(t)
+
+    await guardedFetch('https://a2a-bun6.example/rpc', {})
+    await guardedFetch('http://127.0.0.1:8080/rpc', {}, { allowPrivate: true })
+
+    assert.equal(calls[0]?.url, 'https://[2001:4860:4860::8888]/rpc')
+    assert.equal(calls[1]?.url, 'http://127.0.0.1:8080/rpc')
+    assert.equal((calls[1]?.init.headers as Record<string, string>).host, undefined)
+})
+

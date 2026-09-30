@@ -99,29 +99,67 @@ export const assertSafeUrl = async (
     return url.toString()
 }
 
+const untilAborted = async <T>(
+    promise: Promise<T>,
+    signal: AbortSignal | null | undefined
+): Promise<T> => {
+    if (!signal) return promise
+    let abort: (() => void) | undefined
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_resolve, reject) => {
+                abort = () => reject(signal.reason)
+                signal.addEventListener('abort', abort, { once: true })
+            })
+        ])
+    } finally {
+        if (abort) signal.removeEventListener('abort', abort)
+    }
+}
+
+// Bun runs the bundled undici on its node:net shim, where a streamed response
+// body never delivers a chunk: `mf a2a send --stream` hung in the standalone
+// mf. Bun's own fetch takes the TLS server name and the certificate check from
+// the Host header, so it can still connect only to the checked address.
+const runsOnBun = (): boolean => Boolean(process.versions.bun)
+
+const nativeFetch = async (
+    safeUrl: string,
+    init: FetchInit,
+    opts: UrlGuardOptions
+): ReturnType<typeof fetch> => {
+    const { dispatcher: _dispatcher, ...rest } = init
+    const url = new URL(safeUrl)
+    const headers: Record<string, string> = {}
+    new Headers(rest.headers as unknown as HeadersInit).forEach(
+        (value, key) => {
+            headers[key] = value
+        }
+    )
+    const host = normalizeHost(url.hostname)
+    if (!allowsPrivate(opts) && !isIP(host)) {
+        const [checked] = await untilAborted(publicAddresses(host), init.signal)
+        headers.host = url.host
+        url.hostname =
+            checked.family === 6 ? `[${checked.address}]` : checked.address
+    }
+    const response = await globalThis.fetch(url, {
+        ...rest,
+        headers,
+        redirect: 'error'
+    } as unknown as RequestInit)
+    return response as unknown as Awaited<ReturnType<typeof fetch>>
+}
+
 export const guardedFetch = async (
     rawUrl: string,
     init: FetchInit,
     opts: UrlGuardOptions = {}
 ): ReturnType<typeof fetch> => {
-    const signal = init.signal
-    signal?.throwIfAborted()
-    let abort: (() => void) | undefined
-    let safeUrl: string
-    try {
-        const validated = assertSafeUrl(rawUrl, opts)
-        safeUrl = signal
-            ? await Promise.race([
-                  validated,
-                  new Promise<never>((_resolve, reject) => {
-                      abort = () => reject(signal.reason)
-                      signal.addEventListener('abort', abort, { once: true })
-                  })
-              ])
-            : await validated
-    } finally {
-        if (abort) signal?.removeEventListener('abort', abort)
-    }
+    init.signal?.throwIfAborted()
+    const safeUrl = await untilAborted(assertSafeUrl(rawUrl, opts), init.signal)
+    if (runsOnBun()) return nativeFetch(safeUrl, init, opts)
     return fetch(safeUrl, {
         ...init,
         dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
