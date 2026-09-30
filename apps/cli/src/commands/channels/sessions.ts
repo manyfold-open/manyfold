@@ -108,7 +108,7 @@ export const registerChannelsSessions = (
     sessions
         .command('new <channelId>')
         .description(
-            'Create a new active session in a scope (archives the current active)'
+            'Create a new active session in a scope (the previous one stays listed, inactive)'
         )
         .requiredOption('--scope-key <key>', 'target scope key')
         .option('--name <name>', 'display name for the new session')
@@ -197,7 +197,7 @@ export const registerChannelsSessions = (
     sessions
         .command('delete <channelId> <sessionId>')
         .description(
-            'Archive a session; with --activate-fallback, auto-activate newest remaining'
+            'Archive a session; with --activate-fallback, deleting the active one activates the newest remaining'
         )
         .option(
             '--activate-fallback',

@@ -202,10 +202,10 @@ Manage channel sessions (per scope, switch active)
 | --- | --- |
 | [`mf channels sessions scopes`](#mf-channels-sessions-scopes) | List scopes in a channel with their active session |
 | [`mf channels sessions list`](#mf-channels-sessions-list) | List channel sessions (optionally filtered by scope) |
-| [`mf channels sessions new`](#mf-channels-sessions-new) | Create a new active session in a scope (archives the current active) |
+| [`mf channels sessions new`](#mf-channels-sessions-new) | Create a new active session in a scope (the previous one stays listed, inactive) |
 | [`mf channels sessions switch`](#mf-channels-sessions-switch) | Make a session active (its scope swaps active to this session) |
 | [`mf channels sessions rename`](#mf-channels-sessions-rename) | Rename a session (sets display_name) |
-| [`mf channels sessions delete`](#mf-channels-sessions-delete) | Archive a session; with --activate-fallback, auto-activate newest remaining |
+| [`mf channels sessions delete`](#mf-channels-sessions-delete) | Archive a session; with --activate-fallback, deleting the active one activates the newest remaining |
 
 ### `mf channels sessions scopes`
 
@@ -249,7 +249,7 @@ List channel sessions (optionally filtered by scope)
 
 ### `mf channels sessions new`
 
-Create a new active session in a scope (archives the current active)
+Create a new active session in a scope (the previous one stays listed, inactive)
 
 **Usage:** `mf channels sessions new [options] <channelId>`
 
@@ -311,7 +311,7 @@ Rename a session (sets display_name)
 
 ### `mf channels sessions delete`
 
-Archive a session; with --activate-fallback, auto-activate newest remaining
+Archive a session; with --activate-fallback, deleting the active one activates the newest remaining
 
 **Usage:** `mf channels sessions delete [options] <channelId> <sessionId>`
 

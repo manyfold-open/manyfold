@@ -156,7 +156,7 @@ Print this command reference inside the channel.
 
 ## Idle auto-reset
 
-For long-running chats it's easy to accumulate context that drifts off-topic. A workspace can configure a channel to automatically start a fresh session when a scope has been quiet for a while. Set the channel's `resetOnIdleMins` to a number (minutes). When inactivity exceeds that threshold, the next message starts a new session and the old one is archived in the background. The cap is one week (10080 minutes). Leave it unset or set to 0 to disable.
+For long-running chats it's easy to accumulate context that drifts off-topic. A workspace can configure a channel to automatically start a fresh session when a scope has been quiet for a while. Set the channel's `resetOnIdleMins` to a number (minutes). When inactivity exceeds that threshold, the next message starts a new session and the old one becomes inactive. The cap is one week (10080 minutes). Leave it unset or set to 0 to disable.
 
 The reset is silent — no banner message — so people see a clean conversation rather than a "context reset" notification. The old session stays available in `/list`.
 

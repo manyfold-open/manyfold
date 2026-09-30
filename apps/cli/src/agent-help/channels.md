@@ -34,7 +34,8 @@ mf channels delete <channelId>
 ```
 
 Sessions — each scope (one chat/thread) has at most one active session;
-`new` archives the current active one:
+`new` starts one and leaves the previous one inactive (still listed, and
+`switch` brings it back); only `delete` archives:
 
 ```sh
 mf channels sessions scopes <channelId> --json
