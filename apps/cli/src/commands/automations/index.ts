@@ -6,10 +6,11 @@ import type {
     CreateAutomationBody,
     UpdateAutomationBody
 } from '@manyfold/shared'
+import { ApiError } from '@manyfold/sdk'
 
 import { resolveAgentId, resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
-import { emit } from '@/output'
+import { emit, fail } from '@/output'
 import { UsageError } from '@/usage-error'
 import {
     clockIn,
@@ -17,6 +18,7 @@ import {
     localTimezone,
     resolveSchedule
 } from '@/commands/automations/schedule'
+import { showRun } from '@/commands/automations/run-result'
 
 interface RootOpts {
     apiUrl?: string
@@ -60,6 +62,21 @@ interface UpdateOpts {
 interface JsonOpt {
     json?: boolean
 }
+
+interface RunOpts {
+    wait?: boolean
+    showThinking?: boolean
+    json?: boolean
+}
+
+interface ResultOpts {
+    run?: string
+    showThinking?: boolean
+    json?: boolean
+}
+
+const THINKING_HELP =
+    "print the agent's thinking, dim on stderr (with --json: a thinking field)"
 
 interface DeleteOpts {
     yes?: boolean
@@ -235,20 +252,84 @@ export const registerAutomations = (program: Command): void => {
         }
     })
 
-    cmd.command('run <id>')
+    const run = cmd
+        .command('run <id>')
         .description('Trigger an automation run now')
+        .option(
+            '--wait',
+            "follow the run's reply as it streams, then say how the run ended (Ctrl-C stops following; the run goes on)",
+            false
+        )
+        .option('--show-thinking', `with --wait, ${THINKING_HELP}`, false)
         .option('--json', 'emit raw JSON', false)
-        .action(async (id: string, opts: JsonOpt) => {
-            const global = program.opts<RootOpts>()
-            const { client } = await buildClient(global)
-            const run = await client.automations.run(id)
-            if (opts.json) {
-                console.log(JSON.stringify(run, null, 2))
+    run.action(async (id: string, opts: RunOpts) => {
+        if (opts.showThinking && !opts.wait)
+            run.error('error: --show-thinking goes with --wait')
+        const global = program.opts<RootOpts>()
+        const { client } = await buildClient(global)
+        // Read first: following the run's reply needs its agent.
+        const automation = opts.wait
+            ? await client.automations.get(id)
+            : undefined
+        let started
+        try {
+            started = await client.automations.run(id)
+        } catch (err) {
+            // Without a code of its own: the automation's run still going.
+            if (
+                err instanceof ApiError &&
+                err.status === 409 &&
+                err.code === 'bad_request'
+            ) {
+                fail(opts, err, {
+                    hint: `Follow that run with mf automations result ${id}`
+                })
                 return
             }
-            console.log(
-                `${run.id}  ${kleur.yellow(run.trigger)}  ${run.status}`
+            throw err
+        }
+        if (automation) {
+            await showRun(client, automation, started, opts)
+            return
+        }
+        if (opts.json) {
+            console.log(JSON.stringify(started, null, 2))
+            return
+        }
+        console.log(
+            `${started.id}  ${kleur.yellow(started.trigger)}  ${started.status}`
+        )
+        console.error(
+            kleur.dim(
+                `its result: mf automations result ${id} --run ${started.id}, or trigger with --wait to follow it`
             )
+        )
+    })
+
+    cmd.command('result <id>')
+        .description(
+            "Print a run's reply, or why it failed: the latest run's, or --run's (a run still going is followed to its end)"
+        )
+        .option(
+            '--run <runId>',
+            'this run instead of the latest; one of the 20 latest, which mf automations get lists'
+        )
+        .option('--show-thinking', THINKING_HELP, false)
+        .option('--json', 'emit raw JSON', false)
+        .action(async (id: string, opts: ResultOpts) => {
+            const global = program.opts<RootOpts>()
+            const { client } = await buildClient(global)
+            const automation = await client.automations.get(id)
+            const target = opts.run
+                ? automation.runs.find((entry) => entry.id === opts.run)
+                : automation.runs[0]
+            if (!target)
+                throw new Error(
+                    opts.run
+                        ? `${opts.run} is not one of the ${automation.runs.length} latest runs of ${id} (mf automations get ${id} lists them)`
+                        : `${id} has not run yet: mf automations run ${id} --wait`
+                )
+            await showRun(client, automation, target, opts)
         })
 
     cmd.command('delete <id>')

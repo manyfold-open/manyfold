@@ -11,11 +11,11 @@ import {
     footer,
     humanView,
     pickSession,
+    quietView,
     readMessage,
     runTurn,
     TurnStreamLost,
-    uploadFiles,
-    type TurnView
+    uploadFiles
 } from '@/commands/agent/chat-turn'
 import { UsageError } from '@/usage-error'
 
@@ -63,19 +63,6 @@ export const registerAgentSend = (cmd: Command, program: Command): void => {
             throw err
         }
     })
-}
-
-// Scripts read the one JSON object; stderr only says what it waits on.
-const quietView: TurnView = {
-    text: () => undefined,
-    thinking: () => undefined,
-    replaced: () => undefined,
-    toolCall: () => undefined,
-    notice: (line) => console.error(line),
-    permission: (event) =>
-        console.error(
-            `the agent asks: ${event.title}; answer it in the web chat, the turn waits for it`
-        )
 }
 
 const runSend = async (

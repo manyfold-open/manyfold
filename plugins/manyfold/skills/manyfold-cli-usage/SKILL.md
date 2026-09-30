@@ -76,7 +76,7 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 - `mf help channels --agent` — Telegram, Slack, Discord, Lark channel management
 - `mf help channels create --agent` — creating a channel step by step
 - `mf help channels send --agent` — agent-initiated sends: DM, chat post, native reply
-- `mf help automations --agent` — scheduled jobs: create, run, update, delete
+- `mf help automations --agent` — scheduled jobs: create, run and follow, read results, update, delete
 - `mf help files --agent` — agent workspace files: list, read, write, mv, rm
 - `mf help model-config --agent` — read or update the agent model configuration
 - `mf help model-providers --agent` — which saved or managed providers can serve a new agent, and its models

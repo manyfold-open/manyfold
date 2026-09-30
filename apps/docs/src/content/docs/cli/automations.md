@@ -41,11 +41,19 @@ Use `--model` only when this job should override the agent's normal model.
 ```sh
 mf automations list --agent-id agt_xxx
 mf automations get aut_xxx
-mf automations run aut_xxx
+mf automations run aut_xxx --wait
+mf automations result aut_xxx
 ```
 
 `get` includes recent runs. `run` triggers one run immediately without changing
-the saved schedule.
+the saved schedule. With `--wait` it follows the run's reply as it streams, the
+way `mf agent send` shows a reply, then says how the run ended and whether it
+reached the automation's channel. Ctrl-C only stops following; the run goes on.
+
+`result` prints the full reply of the latest run, or why it failed; pass
+`--run aur_xxx` for one of the 20 runs `get` lists. A run still going is
+followed to its end. Both commands exit 1 for a failed run, and with `--json`
+print `{ run, text, usage, error }`.
 
 ## Update, pause, or delete
 

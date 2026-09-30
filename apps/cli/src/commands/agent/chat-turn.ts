@@ -10,6 +10,7 @@ import {
     chatCapabilitiesFor,
     type AgentSummary,
     type ChatError,
+    type ChatMessage,
     type ChatPermissionRequestEvent,
     type ChatSessionSummary,
     type ChatToolCallEvent,
@@ -162,24 +163,30 @@ export const uploadFiles = async (
     return attachments
 }
 
+// A tool call as the stream sends it and the finished message keeps it.
+type ToolCall = Pick<ChatToolCallEvent, 'toolName' | 'args'>
+
 export interface TurnView {
     text: (chunk: string) => void
     thinking: (chunk: string) => void
     // The answer so far was superseded by this one.
     replaced: (text: string) => void
-    toolCall: (event: ChatToolCallEvent) => void
+    toolCall: (call: ToolCall) => void
     notice: (line: string) => void
     permission: (event: ChatPermissionRequestEvent) => void | Promise<void>
 }
 
-export interface TurnOutcome {
-    sessionId: string
-    userMessageId: string
-    assistantMessageId: string
+export interface TurnReply {
     text: string
     thinking: string
     usage: ChatUsage | null
     error: ChatError | null
+}
+
+export interface TurnOutcome extends TurnReply {
+    sessionId: string
+    userMessageId: string
+    assistantMessageId: string
     // Stopped by a Ctrl-C here, not by an error or from elsewhere.
     cancelled: boolean
     elapsedMs: number
@@ -222,9 +229,6 @@ export const runTurn = async (
 ): Promise<TurnOutcome> => {
     const { agentId, sessionId } = input
     const exit = deps.exit ?? ((code: number) => process.exit(code))
-    const retryDelayMs =
-        deps.retryDelayMs ??
-        ((attempt: number) => Math.min(1_000 * 2 ** (attempt - 1), 8_000))
     const started = Date.now()
     let assistantMessageId: string | null = null
     let stopping = false
@@ -267,92 +271,127 @@ export const runTurn = async (
         })
         assistantMessageId = sent.assistantMessageId
         if (stopping) sendCancel()
-        let text = ''
-        let thinking = ''
-        let usage: ChatUsage | null = null
-        let error: ChatError | null = null
-        let finished = false
-        let lastEventId: string | undefined
-        let failures = 0
-        while (!finished) {
-            try {
-                const events = client.chat.streamSession(agentId, sessionId, {
-                    ...(lastEventId
-                        ? { lastEventId }
-                        : { replayMessageId: assistantMessageId }),
-                    idleTimeoutMs: IDLE_MS
-                })
-                for await (const event of events) {
-                    lastEventId = event.eventId
-                    failures = 0
-                    // The stream carries every turn of the session.
-                    if (event.messageId !== assistantMessageId) continue
-                    if (event.type === 'token') {
-                        text += event.text
-                        view.text(event.text)
-                    } else if (event.type === 'thinking') {
-                        thinking += event.text
-                        view.thinking(event.text)
-                    } else if (event.type === 'replace') {
-                        text = event.text
-                        view.replaced(event.text)
-                    } else if (event.type === 'tool_call') view.toolCall(event)
-                    else if (event.type === 'usage') usage = event.usage
-                    else if (event.type === 'permission_request')
-                        await view.permission(event)
-                    else if (event.type === 'turn_status')
-                        view.notice(
-                            event.phase === 'recovering'
-                                ? 'the turn was interrupted; recovering it…'
-                                : 'picking the turn up again…'
-                        )
-                    else if (event.type === 'error') {
-                        error = event.error
-                        finished = true
-                    } else if (event.type === 'done') finished = true
-                    if (finished) break
-                }
-                if (!finished)
-                    throw new Error('the stream ended before the turn did')
-            } catch (err) {
-                if (!reconnectable(err) || ++failures > RECONNECTS)
-                    throw new TurnStreamLost(sessionId, err)
-                view.notice(
-                    `lost the reply stream; reconnecting (${failures}/${RECONNECTS})`
-                )
-                await new Promise((resolve) =>
-                    setTimeout(resolve, retryDelayMs(failures))
-                )
-            }
-        }
-        // The stream carries the turn's usage only on some paths; the turn's
-        // message has it once the turn has ended.
-        if (!usage) {
-            const turnId = assistantMessageId
-            usage = await client.chat
-                .listMessagePage(agentId, sessionId, { limit: 2 })
-                .then(
-                    (page) =>
-                        page.messages.find((message) => message.id === turnId)
-                            ?.usage ?? null
-                )
-                .catch(() => null)
-        }
+        const reply = await followTurn(
+            client,
+            { agentId, sessionId, assistantMessageId: sent.assistantMessageId },
+            view,
+            deps
+        )
         return {
             sessionId,
             userMessageId: sent.userMessage.id,
-            assistantMessageId,
-            text,
-            thinking,
-            usage,
-            error,
-            cancelled: stopping && error?.code === 'cancelled_by_user',
+            assistantMessageId: sent.assistantMessageId,
+            ...reply,
+            cancelled: stopping && reply.error?.code === 'cancelled_by_user',
             elapsedMs: Date.now() - started
         }
     } finally {
         process.removeListener('SIGINT', onSigint)
         clearTimeout(stopTimer)
     }
+}
+
+// Follows a turn's reply on its session's stream to the turn's end, from
+// its first event however far the turn has got, picking the stream up
+// again after the last event it gave when the connection drops.
+export const followTurn = async (
+    client: NcaClient,
+    turn: { agentId: string; sessionId: string; assistantMessageId: string },
+    view: TurnView,
+    deps: Pick<TurnDeps, 'retryDelayMs'> = {}
+): Promise<TurnReply> => {
+    const { agentId, sessionId, assistantMessageId } = turn
+    const retryDelayMs =
+        deps.retryDelayMs ??
+        ((attempt: number) => Math.min(1_000 * 2 ** (attempt - 1), 8_000))
+    let text = ''
+    let thinking = ''
+    let usage: ChatUsage | null = null
+    let error: ChatError | null = null
+    let finished = false
+    let lastEventId: string | undefined
+    let failures = 0
+    while (!finished) {
+        try {
+            const events = client.chat.streamSession(agentId, sessionId, {
+                ...(lastEventId
+                    ? { lastEventId }
+                    : { replayMessageId: assistantMessageId }),
+                idleTimeoutMs: IDLE_MS
+            })
+            for await (const event of events) {
+                lastEventId = event.eventId
+                failures = 0
+                // The stream carries every turn of the session.
+                if (event.messageId !== assistantMessageId) continue
+                if (event.type === 'token') {
+                    text += event.text
+                    view.text(event.text)
+                } else if (event.type === 'thinking') {
+                    thinking += event.text
+                    view.thinking(event.text)
+                } else if (event.type === 'replace') {
+                    text = event.text
+                    view.replaced(event.text)
+                } else if (event.type === 'tool_call') view.toolCall(event)
+                else if (event.type === 'usage') usage = event.usage
+                else if (event.type === 'permission_request')
+                    await view.permission(event)
+                else if (event.type === 'turn_status')
+                    view.notice(
+                        event.phase === 'recovering'
+                            ? 'the turn was interrupted; recovering it…'
+                            : 'picking the turn up again…'
+                    )
+                else if (event.type === 'error') {
+                    error = event.error
+                    finished = true
+                } else if (event.type === 'done') finished = true
+                if (finished) break
+            }
+            if (!finished)
+                throw new Error('the stream ended before the turn did')
+        } catch (err) {
+            if (!reconnectable(err) || ++failures > RECONNECTS)
+                throw new TurnStreamLost(sessionId, err)
+            view.notice(
+                `lost the reply stream; reconnecting (${failures}/${RECONNECTS})`
+            )
+            await new Promise((resolve) =>
+                setTimeout(resolve, retryDelayMs(failures))
+            )
+        }
+    }
+    // The stream carries the turn's usage only on some paths; the turn's
+    // message has it once the turn has ended.
+    if (!usage)
+        usage = await findMessage(client, turn, { limit: 2, pages: 1 })
+            .then((message) => message?.usage ?? null)
+            .catch(() => null)
+    return { text, thinking, usage, error }
+}
+
+// A turn's message, paging back through its session from the newest.
+export const findMessage = async (
+    client: NcaClient,
+    turn: { agentId: string; sessionId: string; assistantMessageId: string },
+    paging: { limit: number; pages: number } = { limit: 50, pages: 20 }
+): Promise<ChatMessage | null> => {
+    let before: string | undefined
+    for (let page = 0; page < paging.pages; page++) {
+        const found = await client.chat.listMessagePage(
+            turn.agentId,
+            turn.sessionId,
+            { limit: paging.limit, ...(before ? { before } : {}) }
+        )
+        const message = found.messages.find(
+            (candidate) => candidate.id === turn.assistantMessageId
+        )
+        if (message) return message
+        if (!found.hasMore || !found.nextBefore) return null
+        before = found.nextBefore
+    }
+    return null
 }
 
 const ARG_KEYS = [
@@ -366,7 +405,7 @@ const ARG_KEYS = [
 ]
 
 // `→ Read src/x.ts`: the tool and the argument that says what it acts on.
-export const toolLine = (event: ChatToolCallEvent): string => {
+export const toolLine = (event: ToolCall): string => {
     const args =
         event.args && typeof event.args === 'object'
             ? (event.args as Record<string, unknown>)
@@ -387,7 +426,7 @@ const count = (n: number): string =>
 
 // What the turn ran on and cost, and how to go on in the same session.
 export const footer = (
-    outcome: TurnOutcome,
+    outcome: Pick<TurnOutcome, 'sessionId' | 'usage' | 'elapsedMs'>,
     continueWith: string
 ): string[] => {
     const usage = outcome.usage
@@ -409,6 +448,19 @@ export const footer = (
     ]
 }
 
+// Scripts read the one JSON object; stderr only says what it waits on.
+export const quietView: TurnView = {
+    text: () => undefined,
+    thinking: () => undefined,
+    replaced: () => undefined,
+    toolCall: () => undefined,
+    notice: (line) => console.error(line),
+    permission: (event) =>
+        console.error(
+            `the agent asks: ${event.title}; answer it in the web chat, the turn waits for it`
+        )
+}
+
 // The reply as a person reads it. On a terminal it streams as it comes;
 // otherwise (a pipe, a file) the final answer is printed once at the end,
 // after any replacement. With `showThinking` the agent's thinking streams to
@@ -417,7 +469,7 @@ export const humanView = (options: {
     stream: boolean
     showThinking?: boolean
     chatLink: () => Promise<string | null>
-}): TurnView & { finish: (outcome: TurnOutcome) => void } => {
+}): TurnView & { finish: (outcome: TurnReply) => void } => {
     // Whether stdout holds a line not yet ended, and stderr one of thinking:
     // what goes to the other stream starts on a line of its own.
     let openLine = false

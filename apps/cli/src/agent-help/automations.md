@@ -3,7 +3,8 @@
 ## Purpose
 
 Manage scheduled automations: recurring prompts that run against an agent
-on an iCalendar RRULE schedule. Recent run history is included in `get`.
+on an iCalendar RRULE schedule. Recent run history is included in `get`;
+`result` prints a run's full reply.
 
 ## Scope
 
@@ -12,7 +13,7 @@ on an iCalendar RRULE schedule. Recent run history is included in `get`.
 - **Your own agent** (the default — `--agent-id $MF_AGENT_ID`): **no permission
   needed**. List/get/create/update/run/delete your own automations freely.
 - **The whole account** (`--account`): acts across ALL your agents and needs a
-  user grant — `automations:read` for `list`/`get`, `automations:edit` for
+  user grant — `automations:read` for `list`/`get`/`result`, `automations:edit` for
   `create`/`update`/`run`/`delete`. Missing it? the command prints a consent
   URL — post it to the user, they approve, then retry (`mf help auth --agent`).
 
@@ -29,7 +30,9 @@ mf automations create --agent-id $MF_AGENT_ID --title <title> \
 mf automations update <automation-id> --status paused
 mf automations update <automation-id> --schedule-preset weekly --day mon \
   --at 08:00 --timezone Europe/London
-mf automations run <automation-id> --json
+mf automations run <automation-id> --wait        # follow it to its end
+mf automations result <automation-id> --json     # the latest run's reply
+mf automations result <automation-id> --run <run-id>
 mf automations delete <automation-id> --yes
 ```
 
@@ -44,6 +47,12 @@ mf automations delete <automation-id> --yes
   now).
 - `--model <model>` overrides the agent model; `--clear-model` (update
   only) removes it. `update` also takes `--title` and `--prompt`.
+- `run --wait` follows the run's reply as it streams, then says how the
+  run ended; exit 1 for a failed run. Ctrl-C (exit 130) stops following
+  only: the run goes on. `--show-thinking` adds the agent's thinking.
+- `result` prints the reply of the latest run, or of `--run <run-id>` (one
+  of the 20 latest `get` lists), or why it failed; a run still going is
+  followed to its end.
 
 ## Output
 
@@ -54,6 +63,12 @@ mf automations delete <automation-id> --yes
   the next run on the automation's clock; `--json` for full detail.
 - `run`: `id trigger status` — status starts `running`, later
   `succeeded` or `failed`; `--json` available.
+- `run --wait` / `result`: the reply on stdout, then on stderr its model,
+  tokens, cost and time, its chat session (continue it with
+  `mf agent send`), and `run <id> succeeded` or `run <id> failed: <why>`,
+  with the channel delivery if the automation has one. `--json` emits
+  `{ run, text, usage, error }` (plus `thinking` with `--show-thinking`);
+  `text` is null when the run left no reply.
 - `delete`: prints `✓ deleted <id>`; `--json` emits `{ ok, id }`. No
   secrets appear in this output.
 
@@ -67,4 +82,6 @@ mf automations delete <automation-id> --yes
   again; adjust the schedule
 - "nothing to update" → pass at least one update flag
 - "refusing to delete … without --yes" → re-run with `--yes` (or `-y`)
-- run `failed` → `mf automations get <id>`, inspect `runs[].errorMessage`
+- run `failed` → `mf automations result <id> --run <run-id>` says why
+- `409` "automation already has a running run" → follow it:
+  `mf automations result <id>`

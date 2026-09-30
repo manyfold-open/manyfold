@@ -31,7 +31,8 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     channels: 'Telegram, Slack, Discord, Lark channel management',
     'channels-create': 'creating a channel step by step',
     'channels-send': 'agent-initiated sends: DM, chat post, native reply',
-    automations: 'scheduled jobs: create, run, update, delete',
+    automations:
+        'scheduled jobs: create, run and follow, read results, update, delete',
     files: 'agent workspace files: list, read, write, mv, rm',
     'model-config': 'read or update the agent model configuration',
     'model-providers':

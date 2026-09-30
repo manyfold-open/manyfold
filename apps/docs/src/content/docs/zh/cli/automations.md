@@ -40,10 +40,17 @@ schedule 和下一次运行时间。
 ```sh
 mf automations list --agent-id agt_xxx
 mf automations get aut_xxx
-mf automations run aut_xxx
+mf automations run aut_xxx --wait
+mf automations result aut_xxx
 ```
 
-`get` 包含近期 run；`run` 会立即触发一次，不会修改保存的 schedule。
+`get` 包含近期 run；`run` 会立即触发一次，不会修改保存的 schedule。加上
+`--wait` 会像 `mf agent send` 一样流式显示这次 run 的回复，结束后说明 run 的结果，
+以及是否已发送到 automation 的 channel。Ctrl-C 只停止跟随，run 会继续执行。
+
+`result` 打印最近一次 run 的完整回复，或失败原因；用 `--run aur_xxx` 查看
+`get` 列出的 20 次 run 中的某一次。仍在进行的 run 会跟随到结束。run 失败时两个命令都以
+1 退出；`--json` 输出 `{ run, text, usage, error }`。
 
 ## 更新、暂停或删除
 

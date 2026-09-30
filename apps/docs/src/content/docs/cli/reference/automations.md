@@ -20,6 +20,7 @@ order: 6
 | [`mf automations create`](#mf-automations-create) | Create a new automation |
 | [`mf automations update`](#mf-automations-update) | Update an existing automation |
 | [`mf automations run`](#mf-automations-run) | Trigger an automation run now |
+| [`mf automations result`](#mf-automations-result) | Print a run's reply, or why it failed: the latest run's, or --run's (a run still going is followed to its end) |
 | [`mf automations delete`](#mf-automations-delete) | Delete an automation |
 
 ## `mf automations list`
@@ -126,6 +127,29 @@ Trigger an automation run now
 
 | Options | Purpose |
 | --- | --- |
+| `--wait` | follow the run's reply as it streams, then say how the run ended (Ctrl-C stops following; the run goes on) |
+| `--show-thinking` | with --wait, print the agent's thinking, dim on stderr (with --json: a thinking field) |
+| `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
+## `mf automations result`
+
+Print a run's reply, or why it failed: the latest run's, or --run's (a run still going is followed to its end)
+
+**Usage:** `mf automations result [options] <id>`
+
+**Arguments**
+
+| Argument | Purpose |
+| --- | --- |
+| `<id>` |  |
+
+**Options**
+
+| Options | Purpose |
+| --- | --- |
+| `--run <runId>` | this run instead of the latest; one of the 20 latest, which mf automations get lists |
+| `--show-thinking` | print the agent's thinking, dim on stderr (with --json: a thinking field) |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 
