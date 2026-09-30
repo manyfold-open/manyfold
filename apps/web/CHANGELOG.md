@@ -1,5 +1,36 @@
 # @manyfold/web
 
+## 2.16.0
+
+### Minor Changes
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - `PATCH /agents/:id` with `mcp` changes only the scopes it names, as its contract says: a scope left out keeps its MCP servers, and an empty string clears one. The whole per-scope map used to be replaced, so an update of Claude Code's `user` scope dropped the `project` scope's servers, and the next push emptied the workspace's `.mcp.json`. The merge happens in the database, so two scope edits at once both land. Reading a machine's MCP config back into Manyfold (`POST /agents/:id/mcp/refresh`) likewise writes only the scopes it read in. The web app now sends only the scope it edits.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - The CLI sign-in page now covers sign-ins that an AI agent starts, not only a command typed in a terminal. The title, description, code check, one-time-code hint, expiry and error messages mention the terminal or the agent, and the page title reads "CLI sign-in". The safety note tells users to close the page if neither they nor their agent just started a sign-in. All 11 interface languages are updated.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - Agent create progress lists only the steps a create actually goes through:
+
+    - A new sandbox reports starting its runner as a step of its own, right after the VM is made. That wait, about 20 seconds, used to sit under "creating workspace" with nothing on screen.
+    - A cloud computer (k8s) create lists the steps it reports, instead of Kubernetes objects no create ever named. An external agent's list is validating and adding the agent.
+    - No list includes the network policy step: it is part of making the VM.
+    - The admin console's create page and a pending agent's page use the same lists as the web, so a service framework on a sandbox shows its install and service steps.
+
+- [#633](https://github.com/manyfold-open/manyfold/pull/633) [`5046b4c`](https://github.com/manyfold-open/manyfold/commit/5046b4c236513b9e4fda75fd4117838c7c9a6507) Thanks [@yingca1](https://github.com/yingca1)! - A runtime no longer has a primary agent. On a sandbox or a cloud computer, the agent a service framework always has — Hermes' `default` profile, OpenClaw's `main` agent — is stored under that name, so the runtime page shows the same name as the framework's own dashboard, and the reconcile knows that agent by its id like any other.
+
+    - **Deleting agents.** The framework's own agent stays while any other agent is on its runtime; delete those first, or delete the runtime (409 `BUILT_IN_AGENT_NOT_LAST`). On a sandbox or a cloud computer, deleting a runtime's last agent tears the runtime down, with the sandbox kept for reuse. No agent is promoted in place of a deleted one.
+    - **Joining a prepared runtime.** The first agent to join a service runtime prepared with no agent takes the framework's own profile on a sandbox too, as on a cloud computer.
+    - **Framework versions belong to the runtime.** `POST /agent-runtimes/:id/framework-version/refresh`, `/upgrade` and `/upgrade-stream` (and their `/admin/agent-runtimes` twins) replace the `/agents/:id/framework-version/*` routes, need the `agent-runtimes:edit` scope, and return the runtime; the stream's `complete` event carries `runtime`. A runtime with no agent on it can be upgraded.
+    - **API shape.** `primaryAgentId` is gone from the runtime summary, and the web and admin no longer show a primary agent or a Primary tag.
+    - **Migration.** Each sandbox and cloud computer runtime's existing primary for Hermes or OpenClaw is re-keyed to `default` or `main`; the `primary_agent_id` columns are dropped.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - Discovering skills no longer answers as if a repo had none because it has not been read yet. The first discover after a skill repo is added (a fresh install's built-in repos, or one added with `mf skills repos create`) used to start reading it in the background and answer without it, so the catalog showed a single skill until a later look. `GET /skills/discover` now reads such repos before answering, and waits for another server reading one, for up to 15 seconds; a repo that takes longer, or fails, is named in the page's new `pendingRepos`, which the web app's skills catalog shows as "still reading". Repos read before still refresh in the background, and only a first page waits.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - The "Use it in your agent" prompt for a local stack or another deployment now asks the agent to sign in with an `mf` profile that is only for that deployment, not "a separate" one, so an agent keeps a profile already signed in there instead of creating a second one. All 11 interface languages are updated.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - The chat page follows model settings changed elsewhere. It loaded them once, then sent that model, saved as the agent's default, with every message, so a chat left open while the model was changed from the CLI (`mf agent update --model`) or another client ran the old model on its next message and saved it back. It now reads them again when they change (and on focus, and every minute while visible). A model picked in the composer and not sent yet is kept.
+
+- [#632](https://github.com/manyfold-open/manyfold/pull/632) [`f4d719b`](https://github.com/manyfold-open/manyfold/commit/f4d719b8b4c0c221eff34deb1a25a82e1c14caa0) Thanks [@yingca1](https://github.com/yingca1)! - Installing an MCP server into a Codex agent writes valid config whatever its values hold. The server's TOML block put its url, headers, command, arguments and env values between quotes as they were, so a quote or a backslash in one produced text the API refused to save, and a server name or header name that is not a bare key (one with a dot or a space) broke the table. Values are now escaped and such names quoted.
+
 ## 2.15.0
 
 ### Minor Changes

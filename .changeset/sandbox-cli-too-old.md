@@ -1,5 +1,0 @@
----
-'@manyfold/api': minor
----
-
-A sandbox whose Manyfold CLI is too old for a file operation says why, as `SANDBOX_CLI_TOO_OLD`. Files, uploads (including chat attachments) and services on a sandbox need what newer CLIs bring; when the sandbox's CLI lacks it, the API tries to update it first. When that did not help, the reason was dropped and every sandbox got the same 503 `runtime_unavailable`: "the Manyfold CLI on sandbox-002 is too old for this, and no update carrying what it needs is published yet", even when a newer build could be installed. The answer is now a 409 `SANDBOX_CLI_TOO_OLD` that carries the actual reason, for example "sandbox-002 already runs the latest Manyfold CLI (4.8.0), which does not support this yet", with `details: { hostId, hostName, cliVersion, latestCliVersion }`, so a client can point at the sandbox's update. Cloud computers and your own computers keep `runtime_unavailable`, and a computer's message is unchanged. A chat turn refused because a sandbox's runner is too old now says to update the sandbox's Manyfold CLI from the Update Center (or `mf sandbox update`), instead of asking an administrator.
