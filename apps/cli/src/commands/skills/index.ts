@@ -209,22 +209,37 @@ export interface SkillRef {
     source: string | null
 }
 
+interface SkillMatch {
+    skillId: string
+    source: string
+    // How to name it alone: <owner>/<name>, or the id for a library skill.
+    handle: string
+}
+
 // A skill as the command line names it: an id passes through (a catalog id
 // holds a colon, a library one is skl_…); a name is looked for, exactly
 // and case-blind, in the library and in the catalog (by its name or its
-// folder's).
+// folder's), and `<owner>/<name>` narrows it to one repo owner's.
 export const resolveSkillRef = async (
     client: NcaClient,
     ref: string
 ): Promise<SkillRef> => {
-    const name = ref.trim()
-    if (name.includes(':') || isObjectId(name, 'librarySkill'))
-        return { skillId: name, source: null }
+    const given = ref.trim()
+    if (given.includes(':') || isObjectId(given, 'librarySkill'))
+        return { skillId: given, source: null }
+    const slash = given.indexOf('/')
+    const owner = slash > 0 ? given.slice(0, slash).toLowerCase() : null
+    const name = slash > 0 ? given.slice(slash + 1) : given
     const wanted = name.toLowerCase()
-    const found = new Map<string, string>()
-    for (const skill of await client.skills.library.list())
-        if (skill.name.toLowerCase() === wanted)
-            found.set(skill.id, 'your library')
+    const found = new Map<string, SkillMatch>()
+    if (owner === null)
+        for (const skill of await client.skills.library.list())
+            if (skill.name.toLowerCase() === wanted)
+                found.set(skill.id, {
+                    skillId: skill.id,
+                    source: 'your library',
+                    handle: skill.id
+                })
     let cursor: string | undefined
     for (let page = 0; page < NAME_LOOKUP_PAGES; page++) {
         const result = await client.skills.discoverPage({
@@ -234,21 +249,28 @@ export const resolveSkillRef = async (
         })
         for (const skill of result.items) {
             const folder = skill.sourcePath?.split('/').pop()?.toLowerCase()
-            if (skill.name.toLowerCase() === wanted || folder === wanted)
-                found.set(skill.skillId, `${skill.repoOwner}/${skill.repoName}`)
+            if (
+                (skill.name.toLowerCase() === wanted || folder === wanted) &&
+                (owner === null || skill.repoOwner.toLowerCase() === owner)
+            )
+                found.set(skill.skillId, {
+                    skillId: skill.skillId,
+                    source: `${skill.repoOwner}/${skill.repoName}`,
+                    handle: `${skill.repoOwner}/${name}`
+                })
         }
         if (!result.nextCursor) break
         cursor = result.nextCursor
     }
-    const matches = [...found]
+    const matches = [...found.values()]
     if (matches.length === 1)
-        return { skillId: matches[0][0], source: matches[0][1] }
+        return { skillId: matches[0].skillId, source: matches[0].source }
     if (matches.length === 0)
         throw new Error(
-            `no skill named "${name}" in your library or the catalog (mf skills discover --q ${name} searches the catalog)`
+            `no skill named "${given}" in ${owner === null ? 'your library or ' : ''}the catalog (mf skills discover --q ${name} searches the catalog)`
         )
     throw new UsageError(
-        `${matches.length} skills are named "${name}"; pass the id of the one to install:\n${matches.map(([id, source]) => `  ${id}  ${source}`).join('\n')}`
+        `${matches.length} skills are named "${given}"; name the one to install as below:\n${matches.map((match) => `  ${match.handle}  ${kleur.dim(match.handle === match.skillId ? match.source : match.skillId)}`).join('\n')}`
     )
 }
 

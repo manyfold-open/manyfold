@@ -64,8 +64,9 @@ mf skills install <name-or-id> --agent-ids <id1>,<id2>
 `install` takes the skill's id (`github:…` from `discover`, `skl_…` from
 the library; `--skill-id <id>` is the same) or its name: an exact,
 case-blind match in your library and the catalog (a skill's folder name
-counts too). A name that several skills share lists their ids and installs
-none (exit 5): install by id then. `install` returns a user-skill id — use
+counts too); `<owner>/<name>` (e.g. `anthropics/mcp-builder`) takes that
+repo owner's. A name that several skills share lists them, as
+`<owner>/<name>` and id, and installs none (exit 5): install one of those. `install` returns a user-skill id — use
 that for `update` / `delete`, not the catalog `<skill-id>` from
 `discover`. `delete` has alias `rm`.
 
@@ -119,7 +120,8 @@ unless `--force` (which uninstalls everywhere first).
 {{AUTH_RECOVERY}}
 - `pass exactly one of --enabled or --disabled` → `update` requires
   exactly one of the two flags.
-- `N skills are named "<name>"` → install one of the listed ids.
+- `N skills are named "<name>"` → install one as listed (`<owner>/<name>`
+  or its id).
 - `<skl-id> is installed on N agents` (library delete) → `--force`
   uninstalls it from them first.
 - `has no SKILL.md at its top` → the folder given is not a skill; point

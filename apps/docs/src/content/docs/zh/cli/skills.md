@@ -16,7 +16,7 @@ mf skills install code-review --agent-id agt_xxx
 mf skills installed --agent-id agt_xxx
 ```
 
-`install` 接受 skill 的名称或 id（`discover` 打印的 `github:…` id，或 library skill 的 `skl_…`）。名称在你的 library 和 catalog 中精确匹配，不区分大小写；多个 skill 同名时，命令列出它们的 id 而不安装，此时请改用 id 安装。`mf skills list` 与 `installed` 相同。
+`install` 接受 skill 的名称或 id（`discover` 打印的 `github:…` id，或 library skill 的 `skl_…`）。名称在你的 library 和 catalog 中精确匹配，不区分大小写；`<owner>/<name>`（例如 `anthropics/mcp-builder`）只取该仓库 owner 的 skill。多个 skill 同名时，命令列出它们而不安装，请按列出的写法安装其中一个。`mf skills list` 与 `installed` 相同。
 
 Discovery 是分页的：结果按页返回（每页最多 100 条，默认 featured 排序；`--sort latest` 按最新排序）。还有更多结果时命令会提示下一页的 cursor（传给 `--cursor` 继续），`--json` 输出的是页对象——`items` 加 `nextCursor`（最后一页为 `null`）。第一次读取的仓库（例如刚添加的）会在回答前先读取；若耗时超过几秒，命令会提示仍在读取，其 skill 会在之后再次运行时出现。
 

@@ -140,9 +140,49 @@ test('a name several skills share lists them, and installs none', async () => {
     assert.match(run.error.message, /skl_mine {2}your library/)
     assert.match(
         run.error.message,
-        /github:acme\/tools@main:skills\/pdf {2}acme\/tools/
+        /acme\/pdf {2}github:acme\/tools@main:skills\/pdf/
+    )
+    assert.match(
+        run.error.message,
+        /anthropics\/pdf {2}github:anthropics\/skills@main:skills\/pdf/
     )
     assert.deepEqual(installs(run), [])
+})
+
+test("<owner>/<name> picks one repo owner's skill of that name", async () => {
+    const page = {
+        items: [
+            catalogSkill('pdf'),
+            catalogSkill('pdf', {
+                skillId: 'github:acme/tools@main:skills/pdf',
+                repoOwner: 'acme',
+                repoName: 'tools'
+            })
+        ],
+        nextCursor: null
+    }
+    const run = await runMf(install('Acme/pdf'), routes([page]))
+    assert.equal(run.error, undefined, String(run.error))
+    assert.equal(
+        (installs(run)[0]?.body as { skillId: string }).skillId,
+        'github:acme/tools@main:skills/pdf'
+    )
+    // Only the catalog has owners; the library is not asked.
+    assert.equal(
+        run.calls.some((call) => call.path === '/skills/library'),
+        false
+    )
+    assert.equal(
+        run.calls
+            .find((call) => call.path === '/skills/discover')
+            ?.query.get('q'),
+        'pdf'
+    )
+    const none = await runMf(install('nobody/pdf'), routes([page]))
+    assert.match(
+        String(none.error),
+        /no skill named "nobody\/pdf" in the catalog/
+    )
 })
 
 test('a name nothing has says where to look; an id is taken as given', async () => {

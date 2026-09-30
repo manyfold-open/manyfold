@@ -20,8 +20,9 @@ mf skills installed --agent-id agt_xxx
 
 `install` takes a skill's name or its id (the `github:…` id `discover`
 prints, or a library skill's `skl_…`). A name is matched exactly, ignoring
-case, in your library and the catalog; when several skills share it, the
-command lists their ids and installs none, so install by id instead.
+case, in your library and the catalog, and `<owner>/<name>` (such as
+`anthropics/mcp-builder`) takes one repo owner's. When several skills share
+a name, the command lists them and installs none; install one as listed.
 `mf skills list` is the same as `installed`.
 
 Discovery is paginated: results arrive one page at a time (up to 100 per
