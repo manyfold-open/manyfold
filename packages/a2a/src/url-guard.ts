@@ -27,8 +27,10 @@ const publicAddresses = async (host: string) => {
     let addresses: LookupAddress[]
     try {
         addresses = await lookup(host, { all: true, verbatim: true })
-    } catch {
-        throw new Error(`A2A endpoint host ${host} could not be resolved`)
+    } catch (err) {
+        throw new Error(`A2A endpoint host ${host} could not be resolved`, {
+            cause: err
+        })
     }
     if (addresses.length === 0)
         throw new Error(`A2A endpoint host ${host} could not be resolved`)
@@ -99,6 +101,34 @@ export const assertSafeUrl = async (
     return url.toString()
 }
 
+const rootReason = (err: unknown): string => {
+    let reason = ''
+    let current: unknown = err
+    const seen = new Set<unknown>()
+    while (current && typeof current === 'object' && !seen.has(current)) {
+        seen.add(current)
+        const { message, code } = current as { message?: unknown; code?: unknown }
+        if (typeof message === 'string' && message) reason = message
+        else if (typeof code === 'string') reason = code
+        current = (current as { cause?: unknown }).cause
+    }
+    return reason || String(err)
+}
+
+// A transport failure names the endpoint it could not reach and keeps the
+// original error, with its code, as the cause. An abort stays what it is.
+const unreachable = (
+    url: string,
+    err: unknown,
+    signal: AbortSignal | null | undefined
+): unknown =>
+    signal?.aborted
+        ? err
+        : new Error(
+              `A2A endpoint ${new URL(url).host} could not be reached (${rootReason(err)})`,
+              { cause: err }
+          )
+
 const untilAborted = async <T>(
     promise: Promise<T>,
     signal: AbortSignal | null | undefined
@@ -144,12 +174,16 @@ const nativeFetch = async (
         url.hostname =
             checked.family === 6 ? `[${checked.address}]` : checked.address
     }
-    const response = await globalThis.fetch(url, {
-        ...rest,
-        headers,
-        redirect: 'error'
-    } as unknown as RequestInit)
-    return response as unknown as Awaited<ReturnType<typeof fetch>>
+    try {
+        const response = await globalThis.fetch(url, {
+            ...rest,
+            headers,
+            redirect: 'error'
+        } as unknown as RequestInit)
+        return response as unknown as Awaited<ReturnType<typeof fetch>>
+    } catch (err) {
+        throw unreachable(safeUrl, err, init.signal)
+    }
 }
 
 export const guardedFetch = async (
@@ -160,11 +194,15 @@ export const guardedFetch = async (
     init.signal?.throwIfAborted()
     const safeUrl = await untilAborted(assertSafeUrl(rawUrl, opts), init.signal)
     if (runsOnBun()) return nativeFetch(safeUrl, init, opts)
-    return fetch(safeUrl, {
-        ...init,
-        dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
-        redirect: 'error'
-    })
+    try {
+        return await fetch(safeUrl, {
+            ...init,
+            dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
+            redirect: 'error'
+        })
+    } catch (err) {
+        throw unreachable(safeUrl, err, init.signal)
+    }
 }
 
 const normalizeHost = (host: string): string =>

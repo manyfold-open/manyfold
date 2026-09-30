@@ -131,12 +131,19 @@ session with no memory of earlier calls.
 Human mode writes artifact text to stdout and status/task summaries to
 stderr, so stdout stays a clean, pipeable artifact (with `--async`, stdout
 is just the task id). `--json` writes raw protocol JSON. Errors print to
-stderr as `cli Error: …` and exit 1; tokens are never included.
+stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
+3 auth, 4 not found, 5 usage, 1 otherwise); tokens are never included.
 
 ## Failure recovery
 
-- `no granted peer matching "…"` → run `mf a2a status` to see exact names;
-  ask the user to grant the peer if missing.
+- `no granted peer matching "…"` (`a2a_peer_not_found`, exit 4) → run
+  `mf a2a status` to see exact names; ask the user to grant the peer if
+  missing.
+- `already has an active A2A grant` (`a2a_grant_exists`, 409) on
+  `callers add --caller-agent-id` → pass `--replace-existing`, or revoke the
+  grant first (`mf a2a callers list` shows it).
+- `A2A endpoint … could not be resolved` / `could not be reached` (exit 2) →
+  check the URL and this machine's network; the error names the endpoint.
 - `no usable A2A token` / `a2a:read` missing from a managed identity → run
   `mf auth ensure --scopes a2a:read`, post the consent URL to the user
   (existing permissions are kept), retry after they approve.

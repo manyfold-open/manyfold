@@ -256,9 +256,14 @@ export class ApiTokenService {
             )
             .limit(1)
         if (existing && !args.replaceExisting)
-            throw new ConflictException(
-                `caller ${args.callerAgentId} already has an active A2A grant for agent ${args.targetAgentId}`
-            )
+            throw new ConflictException({
+                code: 'a2a_grant_exists',
+                message: `caller ${args.callerAgentId} already has an active A2A grant for agent ${args.targetAgentId}`,
+                details: {
+                    callerAgentId: args.callerAgentId,
+                    targetAgentId: args.targetAgentId
+                }
+            })
         const now = new Date()
         if (existing) {
             const changed = await tx

@@ -81,7 +81,10 @@ const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
     )
         return 'network_tls'
     if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'network_dns'
-    if (code === 'ECONNREFUSED') return 'network_refused'
+    // The standalone mf runs on Bun, whose fetch reports a name that does not
+    // resolve and a closed port alike as ConnectionRefused.
+    if (code === 'ECONNREFUSED' || code === 'ConnectionRefused')
+        return 'network_refused'
     if (
         code === 'ABORT_ERR' ||
         code === 'ETIMEDOUT' ||
@@ -93,7 +96,9 @@ const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
         code === 'ECONNRESET' ||
         code === 'EHOSTUNREACH' ||
         code === 'ENETUNREACH' ||
-        code === 'UND_ERR_SOCKET'
+        code === 'UND_ERR_SOCKET' ||
+        code === 'FailedToOpenSocket' ||
+        code === 'ConnectionClosed'
     )
         return 'network_offline'
     if (error instanceof TypeError && error.message === 'fetch failed')
@@ -197,6 +202,10 @@ const CODE_HINTS: Record<string, CodeHint> = {
         `Every always-online agent your plan includes is in use${planUse(details)}: remove one with mf agent delete <id>, or upgrade your plan.`,
     ALWAYS_ONLINE_LIMIT_REACHED: (details) =>
         `Every always-online computer your plan includes is in use${planUse(details)}: remove one, or upgrade your plan.`,
+    a2a_peer_not_found: () =>
+        'mf a2a status lists the peers this agent may call; a peer shows up once it enables exposure and grants this agent (mf a2a callers add --caller-agent-id <id>, run by the peer).',
+    a2a_grant_exists: () =>
+        'Pass --replace-existing to replace the active grant, or revoke it first: mf a2a callers list shows it, mf a2a callers revoke <id> removes it.',
     channel_session_archived: (details) =>
         `A deleted session stays archived: start a new one with mf channels sessions new ${typeof details.channelId === 'string' ? details.channelId : '<channelId>'} --scope-key '${typeof details.scopeKey === 'string' ? details.scopeKey : '<key>'}'.`
 }
@@ -302,12 +311,24 @@ export const normalizeCliError = (
     }
     const networkCode = networkErrorCode(error)
     if (networkCode) {
+        // A failure its thrower put into words (an A2A endpoint that does not
+        // resolve) keeps them; a bare transport failure is the Manyfold API's.
+        const described =
+            error instanceof Error &&
+            error.cause !== undefined &&
+            !(error instanceof TypeError)
         return {
             error: {
                 code: networkCode,
-                message:
-                    'Could not reach the Manyfold API. Check your network connection and API URL.',
-                ...errorExtra({ hint: networkErrorHint(networkCode), ...extra })
+                message: described
+                    ? error.message
+                    : 'Could not reach the Manyfold API. Check your network connection and API URL.',
+                ...errorExtra({
+                    hint: described
+                        ? "Check the address and this machine's network connection."
+                        : networkErrorHint(networkCode),
+                    ...extra
+                })
             },
             exitCode: 2
         }

@@ -99,7 +99,7 @@ const resolveTarget = async (
     target: string,
     opts: CommonOpts,
     signal?: AbortSignal
-): Promise<ResolvedTarget | { error: string }> => {
+): Promise<ResolvedTarget | { error: unknown }> => {
     if (isHttpUrl(target)) {
         const bearer = resolveBearer(opts.bearer)
         try {
@@ -111,7 +111,7 @@ const resolveTarget = async (
             )
             return { endpointUrl, bearer, label: target }
         } catch (err) {
-            return { error: (err as Error).message }
+            return { error: err }
         }
     }
     const resolved = await resolvePeerForCall(

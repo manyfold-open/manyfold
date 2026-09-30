@@ -230,6 +230,53 @@ test('plan limits and quotas say what to free up, with the numbers', () => {
     )
 })
 
+test('the standalone mf (Bun) network failures exit 2, and a described one keeps its words', () => {
+    const bun = normalizeCliError(
+        Object.assign(
+            new Error('Unable to connect. Is the computer able to access the url?'),
+            { code: 'ConnectionRefused' }
+        )
+    )
+    assert.equal(bun.exitCode, 2)
+    assert.equal(bun.error.code, 'network_refused')
+    assert.match(bun.error.message, /^Could not reach the Manyfold API/)
+
+    const dns = normalizeCliError(
+        new Error('A2A endpoint host gone.example could not be resolved', {
+            cause: Object.assign(new Error('getaddrinfo ENOTFOUND gone.example'), {
+                code: 'ENOTFOUND'
+            })
+        })
+    )
+    assert.equal(dns.exitCode, 2)
+    assert.equal(dns.error.code, 'network_dns')
+    assert.equal(
+        dns.error.message,
+        'A2A endpoint host gone.example could not be resolved'
+    )
+    assert.doesNotMatch(dns.error.hint ?? '', /api-url|MF_API_URL/)
+})
+
+test('A2A peer and grant codes say what to do next', () => {
+    const peer = normalizeCliError(
+        apiError(404, {
+            code: 'a2a_peer_not_found',
+            serverMessage: 'no granted peer matching "x"'
+        })
+    )
+    assert.equal(peer.exitCode, 4)
+    assert.match(peer.error.hint ?? '', /^mf a2a status lists the peers/)
+
+    const grant = normalizeCliError(
+        apiError(409, {
+            code: 'a2a_grant_exists',
+            serverMessage: 'caller agt_a already has an active A2A grant for agent agt_b'
+        })
+    )
+    assert.equal(grant.exitCode, 1)
+    assert.match(grant.error.hint ?? '', /^Pass --replace-existing/)
+})
+
 test('an archived channel session says how to start a new one', () => {
     const details = {
         channelId: 'chn_1',

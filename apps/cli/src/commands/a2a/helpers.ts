@@ -46,7 +46,14 @@ export const buildA2aMessage = (
     const parts: Part[] = []
     if (prompt) parts.push({ kind: 'text', text: prompt })
     if (opts.inputFile) {
-        const bytes = readFileSync(opts.inputFile)
+        let bytes: Buffer
+        try {
+            bytes = readFileSync(opts.inputFile)
+        } catch (err) {
+            throw new UsageError(
+                `--input-file: cannot read ${opts.inputFile} (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`
+            )
+        }
         parts.push({
             kind: 'file',
             file: { name: basename(opts.inputFile), bytes: bytes.toString('base64') }

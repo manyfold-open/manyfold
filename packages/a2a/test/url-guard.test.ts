@@ -76,10 +76,10 @@ test('a second DNS answer cannot rebind a checked public host to loopback', asyn
     try {
         await assert.rejects(guardedFetch(`http://${hostname}:${address.port}/rpc`, {
             signal: AbortSignal.timeout(2000)
-        }, { allowHttp: true }), (err: unknown) => {
-            const cause = (err as { cause?: Error }).cause
-            return /private or reserved/.test(cause?.message ?? '')
-        })
+        }, { allowHttp: true }), (err: unknown) =>
+            /^A2A endpoint a2a-rebind\.example:\d+ could not be reached \(.*private or reserved/.test(
+                (err as Error).message
+            ))
         assert.equal(resolutions, 2)
         assert.equal(requests, 0)
     } finally {
@@ -186,5 +186,72 @@ test('on Bun an IPv6 answer is bracketed and a private dev target is left alone'
     assert.equal(calls[0]?.url, 'https://[2001:4860:4860::8888]/rpc')
     assert.equal(calls[1]?.url, 'http://127.0.0.1:8080/rpc')
     assert.equal((calls[1]?.init.headers as Record<string, string>).host, undefined)
+})
+
+const causeCodes = (err: unknown): string[] => {
+    const codes: string[] = []
+    let current = err as { code?: unknown; cause?: unknown } | undefined
+    while (current && typeof current === 'object') {
+        if (typeof current.code === 'string') codes.push(current.code)
+        current = current.cause as typeof current
+    }
+    return codes
+}
+
+test('a host that does not resolve keeps the DNS error as its cause', async (t) => {
+    t.mock.method(dns, 'lookup', async () => {
+        throw Object.assign(new Error('getaddrinfo ENOTFOUND gone.example'), {
+            code: 'ENOTFOUND'
+        })
+    })
+    await assert.rejects(assertSafeUrl('https://gone.example/rpc'), (err: unknown) => {
+        assert.equal((err as Error).message, 'A2A endpoint host gone.example could not be resolved')
+        assert.deepEqual(causeCodes(err), ['ENOTFOUND'])
+        return true
+    })
+})
+
+test('an endpoint that refuses the connection is named, with the socket error as the cause', async () => {
+    const server = createServer()
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+
+    await assert.rejects(
+        guardedFetch(`http://127.0.0.1:${address.port}/rpc`, {}, { allowPrivate: true }),
+        (err: unknown) => {
+            assert.match(
+                (err as Error).message,
+                new RegExp(`^A2A endpoint 127\\.0\\.0\\.1:${address.port} could not be reached \\(`)
+            )
+            assert.ok(causeCodes(err).includes('ECONNREFUSED'), causeCodes(err).join(','))
+            return true
+        }
+    )
+})
+
+test('an abort during the request is not dressed up as an unreachable endpoint', async (t) => {
+    const server = createServer(() => {})
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    t.after(() => {
+        server.closeAllConnections()
+        server.close()
+    })
+    const controller = new AbortController()
+    const pending = guardedFetch(
+        `http://127.0.0.1:${address.port}/rpc`,
+        { signal: controller.signal },
+        { allowPrivate: true }
+    )
+    setTimeout(() => controller.abort(new Error('deadline')), 50)
+    await assert.rejects(pending, (err: unknown) => {
+        assert.doesNotMatch(String((err as Error)?.message), /could not be reached/)
+        return true
+    })
 })
 
