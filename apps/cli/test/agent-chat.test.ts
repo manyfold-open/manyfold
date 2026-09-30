@@ -57,6 +57,7 @@ test('--file is checked before the chat starts, like send', async () => {
 
 const silent: TurnView = {
     text: () => undefined,
+    thinking: () => undefined,
     replaced: () => undefined,
     toolCall: () => undefined,
     notice: () => undefined,

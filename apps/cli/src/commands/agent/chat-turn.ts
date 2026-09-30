@@ -164,6 +164,7 @@ export const uploadFiles = async (
 
 export interface TurnView {
     text: (chunk: string) => void
+    thinking: (chunk: string) => void
     // The answer so far was superseded by this one.
     replaced: (text: string) => void
     toolCall: (event: ChatToolCallEvent) => void
@@ -176,6 +177,7 @@ export interface TurnOutcome {
     userMessageId: string
     assistantMessageId: string
     text: string
+    thinking: string
     usage: ChatUsage | null
     error: ChatError | null
     // Stopped by a Ctrl-C here, not by an error or from elsewhere.
@@ -266,6 +268,7 @@ export const runTurn = async (
         assistantMessageId = sent.assistantMessageId
         if (stopping) sendCancel()
         let text = ''
+        let thinking = ''
         let usage: ChatUsage | null = null
         let error: ChatError | null = null
         let finished = false
@@ -287,6 +290,9 @@ export const runTurn = async (
                     if (event.type === 'token') {
                         text += event.text
                         view.text(event.text)
+                    } else if (event.type === 'thinking') {
+                        thinking += event.text
+                        view.thinking(event.text)
                     } else if (event.type === 'replace') {
                         text = event.text
                         view.replaced(event.text)
@@ -337,6 +343,7 @@ export const runTurn = async (
             userMessageId: sent.userMessage.id,
             assistantMessageId,
             text,
+            thinking,
             usage,
             error,
             cancelled: stopping && error?.code === 'cancelled_by_user',
@@ -404,28 +411,44 @@ export const footer = (
 
 // The reply as a person reads it. On a terminal it streams as it comes;
 // otherwise (a pipe, a file) the final answer is printed once at the end,
-// after any replacement.
+// after any replacement. With `showThinking` the agent's thinking streams to
+// stderr, dim, as it comes either way.
 export const humanView = (options: {
     stream: boolean
+    showThinking?: boolean
     chatLink: () => Promise<string | null>
 }): TurnView & { finish: (outcome: TurnOutcome) => void } => {
-    // Whether stdout holds a line not yet ended, which a line on stderr
-    // would otherwise land in the middle of.
+    // Whether stdout holds a line not yet ended, and stderr one of thinking:
+    // what goes to the other stream starts on a line of its own.
     let openLine = false
+    let openThought = false
     const endLine = (): void => {
         if (!openLine) return
         process.stdout.write('\n')
         openLine = false
     }
+    const endThought = (): void => {
+        if (!openThought) return
+        process.stderr.write('\n')
+        openThought = false
+    }
     const aside = (line: string): void => {
         endLine()
+        endThought()
         console.error(line)
     }
     return {
         text: (chunk) => {
             if (!options.stream || !chunk) return
+            endThought()
             process.stdout.write(chunk)
             openLine = !chunk.endsWith('\n')
+        },
+        thinking: (chunk) => {
+            if (!options.showThinking || !chunk) return
+            endLine()
+            process.stderr.write(kleur.dim(chunk))
+            openThought = !chunk.endsWith('\n')
         },
         replaced: (text) => {
             if (!options.stream) return
@@ -446,6 +469,7 @@ export const humanView = (options: {
             )
         },
         finish: (outcome) => {
+            endThought()
             if (options.stream) endLine()
             else if (!outcome.error && outcome.text) console.log(outcome.text)
         }

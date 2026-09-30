@@ -107,6 +107,7 @@ stderr。每次运行都会新建 session，除非用 `--session <id>` 指定，
 继续最近用过的那个。消息也可以从 stdin 读取（`-`）。`--file` 会把本地文件上传到
 Agent 的 workspace 并作为附件发送，图片也一样；一条消息最多 10 个文件，每个
 25 MiB。`--json` 把这一轮输出为一个对象。按 Ctrl-C 会停止这一轮。
+`--show-thinking` 会同时以暗色实时打印 Agent 的思考过程，便于分析它为什么这样做。
 
 `mf agent chat agt_xxx` 在终端的提示符下进行同样的对话，每行一条消息：`/new`
 开始新的 session，`/exit` 或 Ctrl-D 退出。`mf agent chat agt_xxx --file ./design.png`

@@ -137,6 +137,7 @@ Send a message to an agent and print its reply ("-" or a pipe: the message from 
 | `--session <id>` | continue this session (default: a new one) |
 | `-c, --continue` | continue the agent's most recent session |
 | `--file <path>` | attach a local file or image (PNG, JPG, …), uploaded to the agent's workspace (repeatable) 默认值: ``. |
+| `--show-thinking` | print the agent's thinking, dim on stderr, as it streams (with --json: a thinking field) |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
@@ -159,6 +160,7 @@ Talk to an agent in this terminal, one message per line (/new, /exit)
 | `--session <id>` | continue this session (default: a new one) |
 | `-c, --continue` | continue the agent's most recent session |
 | `--file <path>` | attach a local file or image (PNG, JPG, …) to your first message, uploaded to the agent's workspace (repeatable) 默认值: ``. |
+| `--show-thinking` | print the agent's thinking, dim, as it streams |
 | `-h, --help` | display help for command |
 
 ## `mf agent delete`

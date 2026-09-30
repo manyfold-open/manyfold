@@ -23,6 +23,7 @@ interface SendOptions {
     session?: string
     continue?: boolean
     file: string[]
+    showThinking?: boolean
     json?: boolean
 }
 
@@ -48,6 +49,11 @@ export const registerAgentSend = (cmd: Command, program: Command): void => {
                 (value: string, previous: string[]) => [...previous, value],
                 [] as string[]
             )
+            .option(
+                '--show-thinking',
+                "print the agent's thinking, dim on stderr, as it streams (with --json: a thinking field)",
+                false
+            )
     )
     send.action(async (agentId: string, words: string[], opts: SendOptions) => {
         try {
@@ -62,6 +68,7 @@ export const registerAgentSend = (cmd: Command, program: Command): void => {
 // Scripts read the one JSON object; stderr only says what it waits on.
 const quietView: TurnView = {
     text: () => undefined,
+    thinking: () => undefined,
     replaced: () => undefined,
     toolCall: () => undefined,
     notice: (line) => console.error(line),
@@ -102,6 +109,7 @@ const runSend = async (
     const link = () => chatLink(client, agentId, session.id)
     const human = humanView({
         stream: !opts.json && process.stdout.isTTY === true,
+        showThinking: opts.showThinking,
         chatLink: link
     })
     let outcome
@@ -160,6 +168,7 @@ const runSend = async (
             userMessageId: outcome.userMessageId,
             assistantMessageId: outcome.assistantMessageId,
             text: outcome.text,
+            ...(opts.showThinking ? { thinking: outcome.thinking } : {}),
             usage: outcome.usage,
             error: outcome.error
         })

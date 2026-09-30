@@ -120,7 +120,8 @@ tokens, cost, session) on stderr. Each run starts a new session unless
 message can come from stdin (`-`). `--file` uploads a local file into the
 agent's workspace and attaches it, images included; a message takes up to
 10 files of 25 MiB each. `--json` prints the turn as one object. Ctrl-C
-stops the turn.
+stops the turn. `--show-thinking` also prints the agent's thinking, dim, as
+it streams, which helps when you want to see why an agent did something.
 
 `mf agent chat agt_xxx` is the same conversation at a prompt in your
 terminal, one message per line: `/new` starts a new session, `/exit` or

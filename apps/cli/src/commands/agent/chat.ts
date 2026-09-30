@@ -24,6 +24,7 @@ interface ChatOptions {
     session?: string
     continue?: boolean
     file: string[]
+    showThinking?: boolean
 }
 
 export type ReplLine =
@@ -59,6 +60,11 @@ export const registerAgentChat = (cmd: Command, program: Command): void => {
             "attach a local file or image (PNG, JPG, …) to your first message, uploaded to the agent's workspace (repeatable)",
             (value: string, previous: string[]) => [...previous, value],
             [] as string[]
+        )
+        .option(
+            '--show-thinking',
+            "print the agent's thinking, dim, as it streams",
+            false
         )
     chat.action(async (agentId: string, opts: ChatOptions) => {
         try {
@@ -196,6 +202,7 @@ const runChat = async (
         try {
             const view = humanView({
                 stream: true,
+                showThinking: opts.showThinking,
                 chatLink: () =>
                     chatLink(client, agentId, state.sessionId ?? undefined)
             })

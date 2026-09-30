@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CommanderError } from 'commander'
-import type { ChatSessionSummary } from '@manyfold/shared'
+import type { ChatSessionSummary, ChatToolCallEvent } from '@manyfold/shared'
 import { ApiError } from '@manyfold/sdk'
 import { json, runMf, type Route, type Run } from './fixtures/fake-api'
 import {
@@ -24,7 +24,12 @@ import {
     type StreamEvent
 } from './fixtures/chat-stream'
 import { spawnMf } from './fixtures/spawn-mf'
-import { latestSession, readMessage } from '../src/commands/agent/chat-turn'
+import {
+    humanView,
+    latestSession,
+    readMessage,
+    type TurnOutcome
+} from '../src/commands/agent/chat-turn'
 import { normalizeCliError } from '../src/output'
 import { UsageError } from '../src/usage-error'
 
@@ -669,3 +674,102 @@ test(
         assert.ok(Date.now() - second < 5_000)
     }
 )
+
+// What the view writes, raw streams and console alike, while `fn` runs.
+const captured = async (
+    fn: () => void | Promise<void>
+): Promise<{ out: string; err: string }> => {
+    const out: string[] = []
+    const err: string[] = []
+    const saved = {
+        out: process.stdout.write,
+        err: process.stderr.write,
+        log: console.log,
+        error: console.error
+    }
+    process.stdout.write = ((chunk: string) =>
+        out.push(String(chunk)) > 0) as typeof process.stdout.write
+    process.stderr.write = ((chunk: string) =>
+        err.push(String(chunk)) > 0) as typeof process.stderr.write
+    console.log = (...values: unknown[]) => {
+        out.push(`${values.join(' ')}\n`)
+    }
+    console.error = (...values: unknown[]) => {
+        err.push(`${values.join(' ')}\n`)
+    }
+    try {
+        await fn()
+    } finally {
+        process.stdout.write = saved.out
+        process.stderr.write = saved.err
+        console.log = saved.log
+        console.error = saved.error
+    }
+    return { out: out.join(''), err: err.join('') }
+}
+
+const answered = { text: 'Answer', error: null } as TurnOutcome
+const readTool = {
+    toolName: 'Read',
+    args: { file_path: 'a.ts' }
+} as ChatToolCallEvent
+
+test('--show-thinking streams the thinking to stderr, each run on lines of its own', async () => {
+    const onTerminal = await captured(() => {
+        const view = humanView({
+            stream: true,
+            showThinking: true,
+            chatLink: async () => null
+        })
+        view.thinking('Let me ')
+        view.thinking('check.')
+        view.text('Ans')
+        view.text('wer')
+        view.thinking('Double-check.')
+        view.toolCall(readTool)
+        view.finish(answered)
+    })
+    assert.equal(onTerminal.out, 'Answer\n')
+    assert.equal(onTerminal.err, 'Let me check.\nDouble-check.\n→ Read a.ts\n')
+    // Piped, the answer comes whole at the end; the thinking still streams.
+    const piped = await captured(() => {
+        const view = humanView({
+            stream: false,
+            showThinking: true,
+            chatLink: async () => null
+        })
+        view.thinking('Let me check.')
+        view.text('Answer')
+        view.finish(answered)
+    })
+    assert.equal(piped.err, 'Let me check.\n')
+    assert.equal(piped.out, 'Answer\n')
+    const quiet = await captured(() => {
+        const view = humanView({ stream: true, chatLink: async () => null })
+        view.thinking('Let me check.')
+        view.text('Answer')
+        view.finish(answered)
+    })
+    assert.equal(quiet.err, '')
+})
+
+test('--json carries the thinking only when asked for it', async () => {
+    const thought = [
+        chatEvent('thinking', 1, { text: 'Let me ' }),
+        chatEvent('thinking', 2, { text: 'check.' }),
+        chatEvent('token', 3, { text: 'pong' }),
+        chatEvent('usage', 4, { usage }),
+        chatEvent('done', 5, { finalMessageId: 'msg_a' })
+    ]
+    const asked = await runMf(
+        ['agent', 'send', 'agt_1', 'hi', '--json', '--show-thinking'],
+        routes([thought])
+    )
+    assert.equal(asked.error, undefined, String(asked.error))
+    assert.equal(JSON.parse(asked.out.join('\n')).thinking, 'Let me check.')
+    const plain = await runMf(
+        ['agent', 'send', 'agt_1', 'hi', '--json'],
+        routes([thought])
+    )
+    assert.equal('thinking' in JSON.parse(plain.out.join('\n')), false)
+})

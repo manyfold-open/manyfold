@@ -119,6 +119,9 @@ mf agent send <agent-id> "what is in it?" --file ./screenshot.png
   tool calls and the footer (model, tokens, cost, time) go to stderr.
   `--json` prints one object: `sessionId`, `userMessageId`,
   `assistantMessageId`, `text`, `usage`, `error`.
+- `--show-thinking` (on `send` and `chat`) prints the agent's thinking,
+  dim on stderr, as it streams; with `--json` the object carries it as
+  `thinking`. Without it the thinking is left out, as are tool results.
 - Exit codes: 0 when the turn ends, 1 when it fails (its error is printed),
   130 after Ctrl-C, which stops the turn on the server (a second Ctrl-C
   leaves at once). A dropped stream is picked up again; when it cannot be,
