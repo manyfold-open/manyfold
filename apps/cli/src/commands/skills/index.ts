@@ -8,6 +8,7 @@ import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit, fail, printJson } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
 import { plural } from '@/commands/doctor/describe'
 import {
@@ -567,13 +568,17 @@ export const registerSkills = (program: Command): void => {
                 console.log(kleur.dim('(no library skills)'))
                 return
             }
-            for (const s of list) {
-                console.log(
-                    `${s.id}  ${kleur.cyan(s.name)}  ${kleur.dim(
-                        `${plural(s.fileCount, 'file')}, on ${plural(s.installedAgentCount, 'agent')}`
-                    )}`
-                )
-            }
+            const rows = list.map((s): TableCell[] => [
+                s.id,
+                [s.name, kleur.cyan],
+                String(s.fileCount),
+                String(s.installedAgentCount)
+            ])
+            for (const line of formatTable(
+                ['ID', 'NAME', 'FILES', 'AGENTS'],
+                rows
+            ))
+                console.log(line)
         })
 
     library

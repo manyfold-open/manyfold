@@ -38,8 +38,8 @@ possible in the web app.
 
 ## Output
 
-- Human output: one line per provider, `id  name  managed|saved  status`,
-  then its models when usable.
+- Human output: a table (`ID NAME SOURCE STATUS NOTES`), each provider's
+  models under its row when usable.
 - `--json`: `{ framework, managed, providers }`; with `--framework` each
   provider also carries `verdict` and `models`, each model an object
   `{ value, label, providerModel, family, alias }` (`models` is null for

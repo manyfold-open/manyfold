@@ -56,8 +56,8 @@ mf automations delete <automation-id> --yes
 
 ## Output
 
-- `list`: one line per automation — `id title status preset agentId`;
-  `--json` for raw data.
+- `list`: a table — `ID TITLE STATUS SCHEDULE AGENT`; `--json` for raw
+  data.
 - `get`: always raw JSON — automation detail plus a `runs` array.
 - `create` / `update`: `id title status schedule (timezone) · next <time>`,
   the next run on the automation's clock; `--json` for full detail.

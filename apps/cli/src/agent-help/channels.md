@@ -48,8 +48,10 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 
 ## Output
 
-- `list` prints one line per channel (`id label provider status agentId`);
-  `--json` emits the JSON array. Every `sessions` subcommand accepts `--json`.
+- `list` prints a table (`ID LABEL PROVIDER STATUS AGENT`), and so do
+  `sessions scopes` and `sessions list` (`STATE` is `active`, `inactive` or
+  `archived`); `--json` emits the JSON array. Every `sessions` subcommand
+  accepts `--json`.
 - `get`/`create`/`update` print the channel as pretty JSON and accept
   `--json`; `delete` emits `{ ok, id }`; `test` and `register` always
   print the raw JSON result (`--json` accepted, already the default) and

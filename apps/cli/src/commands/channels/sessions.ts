@@ -1,7 +1,24 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
+import type { ChannelSessionSummary } from '@manyfold/shared'
 import { buildClient } from '@/client'
+import { formatTable, type TableCell } from '@/table'
 import { type RootChannelOptions } from './helpers'
+
+const SESSION_HEADERS = ['STATE', 'ID', 'SCOPE', 'NAME']
+
+const sessionCells = (r: ChannelSessionSummary): TableCell[] => [
+    r.isActive
+        ? ['active', kleur.green]
+        : r.archivedAt
+          ? ['archived', kleur.red]
+          : ['inactive', kleur.dim],
+    r.channelSessionId,
+    [r.scopeKey, kleur.dim],
+    r.displayName
+        ? [r.displayName, kleur.cyan]
+        : [r.chatTitle ?? '(untitled)', kleur.dim]
+]
 
 interface ListOptions {
     scopeKey?: string
@@ -56,15 +73,19 @@ export const registerChannelsSessions = (
                 console.log(kleur.dim('No scopes yet.'))
                 return
             }
-            for (const s of scopes) {
-                const name = s.scopeName ? kleur.cyan(s.scopeName) : kleur.dim('(no name)')
-                const active = s.activeSession
-                    ? kleur.green(s.activeSession.channelSessionId)
-                    : kleur.dim('(no active)')
-                console.log(
-                    `${kleur.dim(s.scopeKey)}  ${name}  count=${s.sessionCount}  active=${active}`
-                )
-            }
+            const rows = scopes.map((s): TableCell[] => [
+                [s.scopeKey, kleur.dim],
+                s.scopeName ? [s.scopeName, kleur.cyan] : ['-', kleur.dim],
+                String(s.sessionCount),
+                s.activeSession
+                    ? [s.activeSession.channelSessionId, kleur.green]
+                    : ['none', kleur.dim]
+            ])
+            for (const line of formatTable(
+                ['SCOPE', 'NAME', 'SESSIONS', 'ACTIVE'],
+                rows
+            ))
+                console.log(line)
         })
 
     sessions
@@ -88,21 +109,11 @@ export const registerChannelsSessions = (
                 console.log(kleur.dim('No sessions.'))
                 return
             }
-            for (const r of rows) {
-                const marker = r.isActive
-                    ? kleur.green('▶')
-                    : r.archivedAt
-                      ? kleur.red('✗')
-                      : kleur.dim('◻')
-                const label = r.displayName
-                    ? kleur.cyan(`🏷️ ${r.displayName}`)
-                    : r.chatTitle
-                      ? kleur.dim(r.chatTitle)
-                      : kleur.dim('(untitled)')
-                console.log(
-                    `${marker}  ${r.channelSessionId}  ${kleur.dim(r.scopeKey)}  ${label}`
-                )
-            }
+            for (const line of formatTable(
+                SESSION_HEADERS,
+                rows.map(sessionCells)
+            ))
+                console.log(line)
         })
 
     sessions

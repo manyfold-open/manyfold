@@ -31,6 +31,9 @@ mf automations get aut_xxx --json > automation.json
 stderr。Channel 和 credential 输出仍会 redact，`mf login --json` 永远不会打印
 bearer token。
 
+不加 `--json` 时，list 命令输出带表头的表格。表格是给人看的，列可能会变；脚本
+请使用 `--json`。
+
 失败时，stderr 使用下面的结构：
 
 ```json

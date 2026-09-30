@@ -33,6 +33,9 @@ On success, stdout contains only the raw JSON payload, formatted with two-space
 indentation. Human progress belongs on stderr. Channel and credential output
 remains redacted; `mf login --json` never prints the bearer token.
 
+Without `--json`, list commands print a table with a header row. The table is
+for people and its columns may change; scripts should use `--json`.
+
 On failure, stderr contains:
 
 ```json

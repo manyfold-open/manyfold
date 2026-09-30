@@ -226,7 +226,7 @@ test('a delete the agents holding the skill refuse names them and --force', asyn
     assert.match(error.hint, /--force/)
 })
 
-test('counts read as English: 1 file, 1 agent, 1 time', async () => {
+test('library list is a table, and a share count reads as English', async () => {
     const list = await runMf(['skills', 'library', 'list'], {
         'GET /skills/library': () =>
             json([
@@ -239,8 +239,9 @@ test('counts read as English: 1 file, 1 agent, 1 time', async () => {
             ])
     })
     assert.deepEqual(list.out, [
-        'skl_1  code-summarizer  1 file, on 1 agent',
-        'skl_2  code-summarizer  3 files, on 0 agents'
+        'ID     NAME             FILES  AGENTS',
+        'skl_1  code-summarizer  1      1',
+        'skl_2  code-summarizer  3      0'
     ])
     const id = 'skl_agqpcvns3zy2lptuyfdtzwaz7i'
     const share = await runMf(['skills', 'library', 'share', id], {

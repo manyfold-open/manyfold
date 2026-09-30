@@ -247,3 +247,68 @@ test('channels test and register exit 1 when the check fails', async () => {
         assert.equal(passed.exitCode, undefined)
     }
 })
+
+test('channels list and sessions list print aligned tables with a header', async () => {
+    const channel = (
+        id: string,
+        label: string,
+        provider: string,
+        status: string
+    ) => ({
+        id,
+        label,
+        provider,
+        status,
+        agentId: 'agt_1'
+    })
+    const list = await runMf(['channels', 'list'], {
+        'GET /channels': () =>
+            json([
+                channel('chn_1', 'Fake Channel 1 Renamed', 'fake', 'active'),
+                channel('chn_22', 'tg', 'telegram', 'draft')
+            ])
+    })
+    assert.equal(list.error, undefined, String(list.error))
+    assert.deepEqual(list.out, [
+        'ID      LABEL                   PROVIDER  STATUS  AGENT',
+        'chn_1   Fake Channel 1 Renamed  fake      active  agt_1',
+        'chn_22  tg                      telegram  draft   agt_1'
+    ])
+
+    const session = (id: string, overrides: Record<string, unknown>) => ({
+        channelSessionId: id,
+        chatSessionId: `cts_${id}`,
+        scopeKey: 'room-a',
+        scopeName: null,
+        displayName: null,
+        chatTitle: null,
+        isActive: false,
+        archivedAt: null,
+        ...overrides
+    })
+    const sessions = await runMf(
+        ['channels', 'sessions', 'list', 'chn_1', '--include-archived'],
+        {
+            'GET /channels/chn_1/sessions': () =>
+                json([
+                    session('chs_1', {
+                        isActive: true,
+                        displayName: 'Session A'
+                    }),
+                    session('chs_2', {}),
+                    session('chs_3', {
+                        archivedAt: '2026-09-30T16:36:30.415Z',
+                        chatTitle: 'Fake Channel 1'
+                    })
+                ])
+        }
+    )
+    assert.equal(sessions.error, undefined, String(sessions.error))
+    assert.deepEqual(sessions.out, [
+        'STATE     ID     SCOPE   NAME',
+        'active    chs_1  room-a  Session A',
+        'inactive  chs_2  room-a  (untitled)',
+        'archived  chs_3  room-a  Fake Channel 1'
+    ])
+})
+

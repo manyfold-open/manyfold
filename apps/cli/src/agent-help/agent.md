@@ -138,7 +138,8 @@ use `send`.
 
 ## Output
 
-- `list` / `get` / `update` print one line per agent:
+- `list` prints a `Scope:` line, then a table (`ID NAME FRAMEWORK RUNTIME
+  STATUS`); `get` / `update` print one line per agent:
   `id  name  framework/runtime  status`; `update` adds `model  <model>`
   when it changed the model. All accept `--json` (the
   scoped `{ scope, agents }` result for `list`, the full record otherwise);

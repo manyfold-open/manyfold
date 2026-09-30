@@ -107,7 +107,7 @@ unless `--force` (which uninstalls everywhere first).
   `(no skills found)` when none.
 - `install` / `update`: `<user-skill-id>  <name>  enabled|disabled`;
   `install` by name adds `from <owner>/<repo>` or `from your library`.
-- `library list`: `<skl-id>  <name>  <n> files, on <n> agents`.
+- `library list`: a table, `ID NAME FILES AGENTS`.
 - `library publish`: `created|updated  <skl-id>  <name>  <n> files`, then
   one line per agent pushed to (`pushed` or `failed  <why>`).
 - `delete`: `✓ deleted <id>` on success.
