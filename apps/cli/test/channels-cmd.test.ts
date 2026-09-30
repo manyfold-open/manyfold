@@ -8,6 +8,7 @@ import type { ChannelDetail } from '@manyfold/shared'
 import { buildSendBody } from '../src/commands/channels/send'
 import { maskSensitive, parseJsonArg } from '../src/commands/channels/helpers'
 import { UsageError } from '../src/usage-error'
+import { normalizeCliError } from '../src/output'
 import { json, runMf } from './fixtures/fake-api'
 import { spawnMf } from './fixtures/spawn-mf'
 
@@ -310,5 +311,53 @@ test('channels list and sessions list print aligned tables with a header', async
         'inactive  chs_2  room-a  (untitled)',
         'archived  chs_3  room-a  Fake Channel 1'
     ])
+})
+
+test('channels sessions get finds a session in the full list, archived ones too', async () => {
+    const archived = {
+        channelSessionId: 'chs_3',
+        chatSessionId: 'cts_3',
+        scopeKey: 'room-a',
+        scopeName: null,
+        displayName: null,
+        chatTitle: 'Fake Channel 1',
+        isActive: false,
+        archivedAt: '2026-09-30T16:36:30.415Z'
+    }
+    const queried: Array<string | null> = []
+    const routes = {
+        'GET /channels/chn_1/sessions': (call: {
+            query: URLSearchParams
+        }) => {
+            queried.push(call.query.get('includeArchived'))
+            return json([archived])
+        }
+    }
+
+    const scripted = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_3', '--json'],
+        routes
+    )
+    assert.equal(scripted.error, undefined, String(scripted.error))
+    assert.deepEqual(JSON.parse(scripted.out.join('\n')), archived)
+    assert.deepEqual(queried, ['true'])
+
+    const human = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_3'],
+        routes
+    )
+    assert.deepEqual(human.out, [
+        'STATE     ID     SCOPE   NAME',
+        'archived  chs_3  room-a  Fake Channel 1',
+        'chat session cts_3'
+    ])
+
+    const missing = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_nope'],
+        routes
+    )
+    const failure = normalizeCliError(missing.error)
+    assert.equal(failure.exitCode, 4)
+    assert.equal(failure.error.message, 'no session chs_nope in channel chn_1')
 })
 

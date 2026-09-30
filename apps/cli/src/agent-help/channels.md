@@ -40,6 +40,7 @@ Sessions — each scope (one chat/thread) has at most one active session;
 ```sh
 mf channels sessions scopes <channelId> --json
 mf channels sessions list <channelId> --scope-key <key> --include-archived --json
+mf channels sessions get <channelId> <sessionId> --json   # archived ones too
 mf channels sessions new <channelId> --scope-key <key> --name <name>
 mf channels sessions switch <channelId> <sessionId>
 mf channels sessions rename <channelId> <sessionId> <name>

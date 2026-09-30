@@ -164,7 +164,7 @@ Use /switch <number|name>, /current, /new, /help.
 
 也可以在聊天之外管理会话：
 
-- **CLI：** `mf channels sessions list|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
+- **CLI：** `mf channels sessions list|get|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
 - **REST：** `GET /channels/:id/scopes`、`GET /channels/:id/sessions`、`POST /channels/:id/sessions`、`PATCH /channels/:id/sessions/:sessionId`、`DELETE /channels/:id/sessions/:sessionId`。
 
 ## 另请参阅

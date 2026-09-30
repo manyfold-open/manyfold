@@ -164,7 +164,7 @@ The reset is silent — no banner message — so people see a clean conversation
 
 You can also manage sessions outside of chat:
 
-- **CLI:** `mf channels sessions list|new|switch|rename|delete` — see `mf channels sessions --help`.
+- **CLI:** `mf channels sessions list|get|new|switch|rename|delete` — see `mf channels sessions --help`.
 - **REST:** `GET /channels/:id/scopes`, `GET /channels/:id/sessions`, `POST /channels/:id/sessions`, `PATCH /channels/:id/sessions/:sessionId`, `DELETE /channels/:id/sessions/:sessionId`.
 
 ## See also

@@ -202,6 +202,7 @@ Manage channel sessions (per scope, switch active)
 | --- | --- |
 | [`mf channels sessions scopes`](#mf-channels-sessions-scopes) | List scopes in a channel with their active session |
 | [`mf channels sessions list`](#mf-channels-sessions-list) | List channel sessions (optionally filtered by scope) |
+| [`mf channels sessions get`](#mf-channels-sessions-get) | Show one channel session, archived ones included |
 | [`mf channels sessions new`](#mf-channels-sessions-new) | Create a new active session in a scope (the previous one stays listed, inactive) |
 | [`mf channels sessions switch`](#mf-channels-sessions-switch) | Make a session active (its scope swaps active to this session) |
 | [`mf channels sessions rename`](#mf-channels-sessions-rename) | Rename a session (sets display_name) |
@@ -244,6 +245,26 @@ List channel sessions (optionally filtered by scope)
 | --- | --- |
 | `--scope-key <key>` | filter by scopeKey |
 | `--include-archived` | include archived sessions |
+| `--json` | emit raw JSON |
+| `-h, --help` | display help for command |
+
+### `mf channels sessions get`
+
+Show one channel session, archived ones included
+
+**Usage:** `mf channels sessions get [options] <channelId> <sessionId>`
+
+**Arguments**
+
+| Argument | Purpose |
+| --- | --- |
+| `<channelId>` |  |
+| `<sessionId>` |  |
+
+**Options**
+
+| Options | Purpose |
+| --- | --- |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 
