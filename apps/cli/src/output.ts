@@ -326,6 +326,9 @@ export const fail = (
 }
 
 // The top-level error handler runs outside any parsed command opts, so it reads
-// the intent straight off argv.
-export const argvWantsJson = (argv: string[] = process.argv): boolean =>
-    argv.includes('--json')
+// the intent straight off argv, up to a `--`: what follows it is a command
+// line of its own (an MCP server's).
+export const argvWantsJson = (argv: string[] = process.argv): boolean => {
+    const end = argv.indexOf('--')
+    return (end === -1 ? argv : argv.slice(0, end)).includes('--json')
+}

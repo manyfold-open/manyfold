@@ -28,6 +28,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf runtime`](/docs/cli/reference/runtime/) | Manage agent runtimes (a framework on one of your computers) |
 | [`mf sandbox`](/docs/cli/reference/sandbox/) | List, delete and inspect your sandboxes |
 | [`mf skills`](/docs/cli/reference/skills/) | Manage installed agent skills |
+| [`mf mcp`](/docs/cli/reference/mcp/) | Manage an agent's MCP servers |
 | [`mf usage`](/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
 | [`mf daemon`](/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli) |

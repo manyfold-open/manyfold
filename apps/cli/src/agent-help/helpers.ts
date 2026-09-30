@@ -13,6 +13,7 @@ export const AGENT_HELP_TOPICS = [
     'model-config',
     'model-providers',
     'skills',
+    'mcp',
     'connections',
     'runtime',
     'sandbox',
@@ -38,6 +39,7 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     'model-providers':
         'which saved or managed providers can serve a new agent, and its models',
     skills: 'install, discover and manage agent skills',
+    mcp: "an agent's MCP servers: list, add, install, remove, pull, push",
     connections: 'external accounts (GitHub, Cloudflare, Composio) linked to the agent',
     runtime: 'runtime lifecycle, control UI, dashboard',
     sandbox:

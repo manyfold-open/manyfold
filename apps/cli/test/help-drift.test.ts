@@ -21,6 +21,7 @@ const TOPIC_COMMANDS: Record<AgentHelpTopic, string[]> = {
     'model-config': ['model-config'],
     'model-providers': ['model-providers'],
     skills: ['skills'],
+    mcp: ['mcp'],
     connections: ['connections'],
     runtime: ['runtime', 'agent-runtimes'],
     agent: ['agent', 'agents'],

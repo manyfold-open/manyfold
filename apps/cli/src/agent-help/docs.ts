@@ -10,6 +10,7 @@ import files from './files.md'
 import modelConfig from './model-config.md'
 import modelProviders from './model-providers.md'
 import skills from './skills.md'
+import mcp from './mcp.md'
 import connections from './connections.md'
 import runtime from './runtime.md'
 import sandbox from './sandbox.md'
@@ -30,6 +31,7 @@ export const agentHelpDocs: Record<AgentHelpTopic, string> = {
     'model-config': modelConfig,
     'model-providers': modelProviders,
     skills,
+    mcp,
     connections,
     runtime,
     sandbox,

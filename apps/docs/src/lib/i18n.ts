@@ -504,6 +504,7 @@ const defaultDocsGroups: DocsGroup[] = [
                     'cli/automations',
                     'cli/backups',
                     'cli/skills',
+                    'cli/mcp',
                     'cli/usage',
                     'cli/a2a'
                 ]
@@ -574,6 +575,7 @@ const defaultDocsGroups: DocsGroup[] = [
                     'cli/reference/runtime',
                     'cli/reference/sandbox',
                     'cli/reference/skills',
+                    'cli/reference/mcp',
                     'cli/reference/usage',
                     'cli/reference/a2a',
                     'cli/reference/daemon',
@@ -640,6 +642,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                         'cli/automations',
                         'cli/backups',
                         'cli/skills',
+                        'cli/mcp',
                         'cli/usage',
                         'cli/a2a'
                     ]
@@ -708,6 +711,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                         'cli/reference/runtime',
                         'cli/reference/sandbox',
                         'cli/reference/skills',
+                        'cli/reference/mcp',
                         'cli/reference/usage',
                         'cli/reference/a2a',
                         'cli/reference/daemon',

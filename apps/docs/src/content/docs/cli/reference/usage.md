@@ -1,7 +1,7 @@
 ---
 title: "mf usage"
 description: "Read token + cost usage statistics"
-order: 16
+order: 17
 ---
 **Usage:** `mf usage [command]`
 

@@ -27,6 +27,7 @@ export const HUMAN_HELP_GROUPS: readonly HumanHelpGroup[] = [
             'files',
             'backups',
             'skills',
+            'mcp',
             'usage',
             'connections',
             'a2a'

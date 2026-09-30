@@ -418,8 +418,16 @@ export interface AgentsClient {
     // Measures now; on a sleeping sandbox that wakes it.
     refreshStorageUsage: (agentId: string) => Promise<AgentStorageUsageResponse>
     refreshFrameworkVersion: (agentId: string) => Promise<AgentSummary>
-    refreshMcp: (agentId: string) => Promise<RefreshAgentMcpResponse>
-    materializeMcp: (agentId: string) => Promise<MaterializeAgentMcpResponse>
+    refreshMcp: (
+        agentId: string,
+        opts?: AbortableRequestOptions
+    ) => Promise<RefreshAgentMcpResponse>
+    // Waits for a machine another configuration push holds; pass a signal
+    // with room for it (the API waits up to 20 s, a push runs up to 90 s).
+    materializeMcp: (
+        agentId: string,
+        opts?: AbortableRequestOptions
+    ) => Promise<MaterializeAgentMcpResponse>
     upgradeFramework: (
         agentId: string,
         targetVersion: string
@@ -2110,14 +2118,15 @@ const buildAgentsClient = (
             request<AgentSummary>(paths.frameworkVersionRefresh(agentId), {
                 method: 'POST'
             }),
-        refreshMcp: (agentId) =>
+        refreshMcp: (agentId, opts) =>
             request<RefreshAgentMcpResponse>(paths.mcpRefresh(agentId), {
-                method: 'POST'
+                method: 'POST',
+                signal: opts?.signal
             }),
-        materializeMcp: (agentId) =>
+        materializeMcp: (agentId, opts) =>
             request<MaterializeAgentMcpResponse>(
                 paths.mcpMaterialize(agentId),
-                { method: 'POST' }
+                { method: 'POST', signal: opts?.signal }
             ),
         upgradeFramework: (agentId, targetVersion) =>
             request<AgentSummary>(paths.frameworkVersionUpgrade(agentId), {

@@ -81,6 +81,7 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 - `mf help model-config --agent` — read or update the agent model configuration
 - `mf help model-providers --agent` — which saved or managed providers can serve a new agent, and its models
 - `mf help skills --agent` — install, discover and manage agent skills
+- `mf help mcp --agent` — an agent's MCP servers: list, add, install, remove, pull, push
 - `mf help connections --agent` — external accounts (GitHub, Cloudflare, Composio) linked to the agent
 - `mf help runtime --agent` — runtime lifecycle, control UI, dashboard
 - `mf help sandbox --agent` — list, update and delete sandboxes; storage readings and attribution

@@ -411,6 +411,9 @@ importers:
       kleur:
         specifier: ^4.1.5
         version: 4.1.5
+      smol-toml:
+        specifier: ^1.7.0
+        version: 1.8.0
       ws:
         specifier: ^8.18.0
         version: 8.21.3
