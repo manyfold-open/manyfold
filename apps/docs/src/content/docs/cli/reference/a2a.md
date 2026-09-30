@@ -209,7 +209,7 @@ Send a message to a granted peer (name/id from `mf a2a status`) or a raw A2A url
 | `--context-id <id>` | reuse an A2A context (conversation) |
 | `--task-id <id>` | continue an existing task |
 | `--skill <id>` | select a remote skill by id |
-| `--input-file <path>` | attach a file as an A2A file part |
+| `--input-file <path>` | attach a file as an A2A file part (a Manyfold peer reads it in its workspace) |
 | `--stream` | stream status + artifact chunks (SSE) |
 | `--async` | submit and return a task id immediately (poll with `mf a2a tasks get`) |
 | `--timeout <seconds>` | client deadline in seconds (0 disables; default 900) |

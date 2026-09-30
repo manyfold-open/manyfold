@@ -124,7 +124,10 @@ session with no memory of earlier calls.
   covers the default 600s blocking cap — raise it if the operator raised
   the blocking cap.
 - `send` also accepts `--context-id <id>`, `--task-id <id>`, `--skill <id>`,
-  and `--input-file <path>` (attached as an A2A file part).
+  and `--input-file <path>`: the file goes as an A2A file part, and a
+  Manyfold peer gets it in its workspace like a chat upload. The peer takes
+  what the chat composer takes (text, code, images, PDF, Office documents;
+  name the file with its extension), up to 25 MB.
 
 ## Output
 
@@ -156,6 +159,9 @@ stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
   wait for one to finish (`mf a2a tasks list --state working`) and retry.
 - `-32001 Task not found` on `tasks get|cancel|subscribe` → the task id is
   unknown to that target or not visible to your credential.
+- `takes no files` / `is not a type this agent accepts` on `--input-file`
+  → that peer cannot read this file: put its content in the prompt, or
+  send a type the chat composer takes.
 - `unsupported A2A protocolVersion` / `exposes no JSONRPC interface` → a raw
   server speaks something this client does not (only v0.x JSON-RPC).
 - `… host … is not allowed` / `private or reserved address` → the url is

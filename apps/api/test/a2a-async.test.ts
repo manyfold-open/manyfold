@@ -62,7 +62,7 @@ const makeChatFake = (onTurn?: () => void) => ({
     announceSessionCreated: () => {},
     createSession: async () => ({ id: 'cs_1' }),
     sendMessage: async (...args: unknown[]) => {
-        const observer = args[args.length - 1] as
+        const observer = args[13] as
             | ((e: Record<string, unknown>) => void)
             | undefined
         observer?.({ type: 'token', text: 'hello' })
@@ -281,7 +281,7 @@ test('detached turn uses the async cap, not the blocking cap', async () => {
         announceSessionCreated: () => {},
         createSession: async () => ({ id: 'cs_1' }),
         sendMessage: async (...args: unknown[]) => {
-            const observer = args[args.length - 1] as
+            const observer = args[13] as
                 | ((e: Record<string, unknown>) => void)
                 | undefined
             setTimeout(() => {

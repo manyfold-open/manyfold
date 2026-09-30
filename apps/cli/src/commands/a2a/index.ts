@@ -217,7 +217,10 @@ const addMessageOptions = (cmd: Command): Command =>
         .option('--context-id <id>', 'reuse an A2A context (conversation)')
         .option('--task-id <id>', 'continue an existing task')
         .option('--skill <id>', 'select a remote skill by id')
-        .option('--input-file <path>', 'attach a file as an A2A file part')
+        .option(
+            '--input-file <path>',
+            'attach a file as an A2A file part (a Manyfold peer reads it in its workspace)'
+        )
 
 const addSendOptions = (cmd: Command): Command =>
     addMessageOptions(addCommonOptions(cmd))

@@ -7,6 +7,7 @@ import {
     Req,
     Res
 } from '@nestjs/common'
+import { RouteConfig } from '@nestjs/platform-fastify'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { trace } from '@opentelemetry/api'
 import {
@@ -18,7 +19,12 @@ import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { ApiQuotaService } from '@/common/api-quota/api-quota.service'
 import { ApiTokenService } from '@/modules/auth/api-token.service'
 import { SSE_MAX_BUFFERED_BYTES } from '@/modules/chat/sse-broadcaster'
-import { A2aService, type A2aAuthContext, type A2aStreamEmit } from './a2a.service'
+import {
+    A2A_RPC_BODY_LIMIT,
+    A2aService,
+    type A2aAuthContext,
+    type A2aStreamEmit
+} from './a2a.service'
 import { A2aRateLimitService, clientKey } from './a2a-rate-limit.service'
 import { A2aTicketService } from './a2a-ticket.service'
 import { A2aHttpError, authenticateA2aRequest, toJsonRpcError } from './a2a-http'
@@ -43,6 +49,7 @@ export class A2aRpcController {
     ) {}
 
     @Post('agents/:agentId/rpc')
+    @RouteConfig({ bodyLimit: A2A_RPC_BODY_LIMIT })
     async rpc(
         @Param('agentId') agentId: string,
         @Body() body: unknown,
