@@ -9,6 +9,8 @@ import {
     setSelfExposure,
     type GlobalAuthOpts
 } from '@/commands/a2a/self'
+import { formatTable, type TableCell } from '@/table'
+import { UsageError } from '@/usage-error'
 
 interface JsonOpts {
     json?: boolean
@@ -32,7 +34,7 @@ export const parseExpiresInDays = (
     if (value === undefined) return undefined
     const parsed = Number(value)
     if (!Number.isInteger(parsed) || parsed <= 0)
-        throw new Error('--expires-in-days must be a positive integer')
+        throw new UsageError('--expires-in-days must be a positive integer')
     return parsed
 }
 
@@ -43,13 +45,13 @@ export const buildAddCallerBody = (
     const selected =
         Number(opts.external === true) + Number(Boolean(callerAgentId))
     if (selected !== 1)
-        throw new Error(
+        throw new UsageError(
             'pass exactly one of --external or --caller-agent-id <id>'
         )
     const expiresInDays = parseExpiresInDays(opts.expiresInDays)
     if (opts.external) {
         if (opts.replaceExisting)
-            throw new Error(
+            throw new UsageError(
                 '--replace-existing is only valid with --caller-agent-id'
             )
         return {
@@ -59,7 +61,7 @@ export const buildAddCallerBody = (
         }
     }
     if (opts.name !== undefined)
-        throw new Error('--name is only valid with --external')
+        throw new UsageError('--name is only valid with --external')
     return {
         kind: 'peer',
         callerAgentId: callerAgentId as string,
@@ -97,23 +99,24 @@ const runExposure = async (
     printExposure(exposure)
 }
 
-const callerStatus = (caller: A2aGrantSummary): string => {
-    if (!caller.expiresAt) return kleur.dim('never expires')
-    const expired = new Date(caller.expiresAt).getTime() <= Date.now()
-    return expired
-        ? kleur.red(`expired ${caller.expiresAt}`)
-        : kleur.dim(`expires ${caller.expiresAt}`)
+const expiryCell = (caller: A2aGrantSummary): TableCell => {
+    if (!caller.expiresAt) return ['never', kleur.dim]
+    return new Date(caller.expiresAt).getTime() <= Date.now()
+        ? [`expired ${caller.expiresAt}`, kleur.red]
+        : [caller.expiresAt, kleur.dim]
 }
 
-const printCaller = (caller: A2aGrantSummary): void => {
-    const kind = caller.callerAgentId ? 'peer' : 'external'
-    const label = caller.callerAgentId
-        ? (caller.callerAgentName ?? caller.callerAgentId)
-        : (caller.name ?? 'External client')
-    console.log(
-        `${caller.tokenId}  ${kleur.yellow(kind)}  ${kleur.cyan(label)}  ${callerStatus(caller)}`
-    )
-}
+const callerRow = (caller: A2aGrantSummary): TableCell[] => [
+    caller.tokenId,
+    [caller.callerAgentId ? 'peer' : 'external', kleur.yellow],
+    [
+        caller.callerAgentId
+            ? (caller.callerAgentName ?? caller.callerAgentId)
+            : (caller.name ?? 'External client'),
+        kleur.cyan
+    ],
+    expiryCell(caller)
+]
 
 export const registerA2aManagement = (a2a: Command, program: Command): void => {
     const exposure = a2a
@@ -156,7 +159,11 @@ export const registerA2aManagement = (a2a: Command, program: Command): void => {
                 console.error(kleur.dim('no A2A callers'))
                 return
             }
-            for (const row of rows) printCaller(row)
+            for (const line of formatTable(
+                ['TOKEN ID', 'KIND', 'CALLER', 'EXPIRES'],
+                rows.map(callerRow)
+            ))
+                console.log(line)
         })
 
     callers

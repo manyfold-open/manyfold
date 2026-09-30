@@ -8,6 +8,7 @@ import {
 } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { emit, jsonOption } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import {
     CREATE_FRAMEWORKS,
     resolveProviderRef,
@@ -60,20 +61,28 @@ const formatModelProviders = (
         return kleur.dim(
             'No model providers yet: add one under Settings → Model providers in the web app.'
         )
-    const lines: string[] = []
-    for (const row of rows) {
-        const status = row.verdict
-            ? VERDICT_LABELS[row.verdict]
-            : (row.lastTestStatus ?? 'not tested yet')
-        const notes = [
-            row.channelDisabled ? 'closed to new agents' : null,
-            row.id === managed ? `what --model-provider managed picks` : null
-        ].filter(Boolean)
-        lines.push(
-            `${row.id}  ${kleur.cyan(row.providerName)}  ${row.source === 'managed' ? 'managed' : 'saved'}  ${status}${notes.length ? kleur.dim(`  (${notes.join('; ')})`) : ''}`,
-            ...modelLines(row)
-        )
-    }
+    const [header, ...table] = formatTable(
+        ['ID', 'NAME', 'SOURCE', 'STATUS', 'NOTES'],
+        rows.map((row): TableCell[] => {
+            const notes = [
+                row.channelDisabled ? 'closed to new agents' : null,
+                row.id === managed
+                    ? `what --model-provider managed picks`
+                    : null
+            ].filter(Boolean)
+            return [
+                row.id,
+                [row.providerName, kleur.cyan],
+                row.source === 'managed' ? 'managed' : 'saved',
+                row.verdict
+                    ? VERDICT_LABELS[row.verdict]
+                    : (row.lastTestStatus ?? 'not tested yet'),
+                [notes.join('; '), kleur.dim]
+            ]
+        })
+    )
+    const lines = [header!]
+    rows.forEach((row, index) => lines.push(table[index]!, ...modelLines(row)))
     if (framework && rows.some((row) => row.verdict === 'untested'))
         lines.push(
             kleur.dim(

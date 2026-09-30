@@ -205,6 +205,25 @@ curl -X POST https://api.manyfold.ai/api/a2a/agents/{agentId}/rpc \
 
 只有**你这个 token** 创建的 task 能这样引用。
 
+### 发送文件
+
+能收文件的 Agent 会在 card 的 `defaultInputModes` 里列出接受的类型。每个文件放进一个 `file` part，可以和 text part 一起发，也可以单独发：
+
+```json
+"parts": [
+  { "kind": "text", "text": "总结一下这份报告。" },
+  {
+    "kind": "file",
+    "file": { "name": "report.pdf", "mimeType": "application/pdf", "bytes": "JVBERi0xLjcK…" }
+  }
+]
+```
+
+- `file.bytes` 放 base64 内容；也可以改用 `file.uri` 给一个公网 `https://` 地址，由服务端去取。
+- 文件会像聊天上传一样写进 Agent 的工作区，这一轮以附件的形式拿到它们。接受的类型和聊天输入框一致（文本、代码、图片、PDF 和 Office 文档）：文件名带上扩展名，或者给出 `mimeType`。
+- 每条消息最多 10 个文件，每个 25 MB。内联的 `bytes` 计入请求体，一条消息最多容纳 25 MB，大文件优先用 `uri`。
+- 类型不在范围内的文件，或者发给不收文件的 Agent 的文件，会在创建 task 之前被拒绝，返回 JSON-RPC 错误 `-32005`。
+
 ### 长任务
 
 一轮可能跑很久时有两种做法：

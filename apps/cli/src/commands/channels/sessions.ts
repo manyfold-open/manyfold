@@ -1,11 +1,48 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
+import type { ChannelSessionSummary } from '@manyfold/shared'
+import { ApiError } from '@manyfold/sdk'
 import { buildClient } from '@/client'
+import { formatTable, type TableCell } from '@/table'
 import { type RootChannelOptions } from './helpers'
+
+const SESSION_HEADERS = ['STATE', 'ID', 'SCOPE', 'NAME']
+
+// The API has no single-session read; a miss in the list is a 404 like any
+// other, so it exits 4 with the same hint.
+class ChannelSessionNotFoundError extends ApiError {
+    constructor(channelId: string, sessionId: string) {
+        super({
+            status: 404,
+            statusText: 'Not Found',
+            code: 'not_found',
+            message: `no session ${sessionId} in channel ${channelId}`,
+            body: ''
+        })
+        this.name = 'ChannelSessionNotFoundError'
+    }
+}
+
+const sessionCells = (r: ChannelSessionSummary): TableCell[] => [
+    r.isActive
+        ? ['active', kleur.green]
+        : r.archivedAt
+          ? ['archived', kleur.red]
+          : ['inactive', kleur.dim],
+    r.channelSessionId,
+    [r.scopeKey, kleur.dim],
+    r.displayName
+        ? [r.displayName, kleur.cyan]
+        : [r.chatTitle ?? '(untitled)', kleur.dim]
+]
 
 interface ListOptions {
     scopeKey?: string
     includeArchived?: boolean
+    json?: boolean
+}
+
+interface GetOptions {
     json?: boolean
 }
 
@@ -56,15 +93,19 @@ export const registerChannelsSessions = (
                 console.log(kleur.dim('No scopes yet.'))
                 return
             }
-            for (const s of scopes) {
-                const name = s.scopeName ? kleur.cyan(s.scopeName) : kleur.dim('(no name)')
-                const active = s.activeSession
-                    ? kleur.green(s.activeSession.channelSessionId)
-                    : kleur.dim('(no active)')
-                console.log(
-                    `${kleur.dim(s.scopeKey)}  ${name}  count=${s.sessionCount}  active=${active}`
-                )
-            }
+            const rows = scopes.map((s): TableCell[] => [
+                [s.scopeKey, kleur.dim],
+                s.scopeName ? [s.scopeName, kleur.cyan] : ['-', kleur.dim],
+                String(s.sessionCount),
+                s.activeSession
+                    ? [s.activeSession.channelSessionId, kleur.green]
+                    : ['none', kleur.dim]
+            ])
+            for (const line of formatTable(
+                ['SCOPE', 'NAME', 'SESSIONS', 'ACTIVE'],
+                rows
+            ))
+                console.log(line)
         })
 
     sessions
@@ -88,27 +129,43 @@ export const registerChannelsSessions = (
                 console.log(kleur.dim('No sessions.'))
                 return
             }
-            for (const r of rows) {
-                const marker = r.isActive
-                    ? kleur.green('▶')
-                    : r.archivedAt
-                      ? kleur.red('✗')
-                      : kleur.dim('◻')
-                const label = r.displayName
-                    ? kleur.cyan(`🏷️ ${r.displayName}`)
-                    : r.chatTitle
-                      ? kleur.dim(r.chatTitle)
-                      : kleur.dim('(untitled)')
-                console.log(
-                    `${marker}  ${r.channelSessionId}  ${kleur.dim(r.scopeKey)}  ${label}`
-                )
-            }
+            for (const line of formatTable(
+                SESSION_HEADERS,
+                rows.map(sessionCells)
+            ))
+                console.log(line)
         })
+
+    sessions
+        .command('get <channelId> <sessionId>')
+        .description('Show one channel session, archived ones included')
+        .option('--json', 'emit raw JSON', false)
+        .action(
+            async (channelId: string, sessionId: string, opts: GetOptions) => {
+                const root = program.opts<RootChannelOptions>()
+                const { client } = await buildClient(root)
+                const rows = await client.channels.listSessions(channelId, {
+                    includeArchived: true
+                })
+                const row = rows.find((r) => r.channelSessionId === sessionId)
+                if (!row)
+                    throw new ChannelSessionNotFoundError(channelId, sessionId)
+                if (opts.json) {
+                    console.log(JSON.stringify(row, null, 2))
+                    return
+                }
+                for (const line of formatTable(SESSION_HEADERS, [
+                    sessionCells(row)
+                ]))
+                    console.log(line)
+                console.log(kleur.dim(`chat session ${row.chatSessionId}`))
+            }
+        )
 
     sessions
         .command('new <channelId>')
         .description(
-            'Create a new active session in a scope (archives the current active)'
+            'Create a new active session in a scope (the previous one stays listed, inactive)'
         )
         .requiredOption('--scope-key <key>', 'target scope key')
         .option('--name <name>', 'display name for the new session')
@@ -197,7 +254,7 @@ export const registerChannelsSessions = (
     sessions
         .command('delete <channelId> <sessionId>')
         .description(
-            'Archive a session; with --activate-fallback, auto-activate newest remaining'
+            'Archive a session; with --activate-fallback, deleting the active one activates the newest remaining'
         )
         .option(
             '--activate-fallback',

@@ -208,6 +208,25 @@ Pass the `contextId` from an earlier task to keep the same session:
 
 Only tasks created by *your* token are addressable this way.
 
+### Send files
+
+An agent that takes files lists their types in its card's `defaultInputModes`. Add each file as a `file` part, next to a text part or on its own:
+
+```json
+"parts": [
+  { "kind": "text", "text": "Summarize this report." },
+  {
+    "kind": "file",
+    "file": { "name": "report.pdf", "mimeType": "application/pdf", "bytes": "JVBERi0xLjcK…" }
+  }
+]
+```
+
+- `file.bytes` holds the base64 content. A public `https://` URL in `file.uri` works instead; the server fetches it.
+- The files land in the agent's workspace the way a chat upload does, and the turn gets them as attachments. The accepted types are the chat composer's (text, code, images, PDF and Office documents): name a file with its extension, or give its `mimeType`.
+- Up to 10 files per message, 25 MB each. Inline `bytes` count toward the request body, which holds 25 MB of them per message, so prefer a `uri` for large files.
+- A file of another type, or a file sent to an agent that takes none, is rejected with JSON-RPC error `-32005` before a task is created.
+
 ### Long turns
 
 Two options when a turn may run for a while:

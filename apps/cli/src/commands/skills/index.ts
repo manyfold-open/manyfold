@@ -8,6 +8,7 @@ import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit, fail, printJson } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
 import { plural } from '@/commands/doctor/describe'
 import {
@@ -111,7 +112,7 @@ const resolveContentOpt = async (opts: {
     contentFile?: string
 }): Promise<string | undefined> => {
     if (opts.content !== undefined && opts.contentFile !== undefined)
-        throw new Error('pass at most one of --content / --content-file')
+        throw new UsageError('pass at most one of --content / --content-file')
     if (opts.contentFile !== undefined)
         return readFile(opts.contentFile, 'utf8')
     return opts.content
@@ -122,7 +123,7 @@ const resolveConflictOpt = (
 ): LibrarySkillImportConflict | undefined => {
     if (value === undefined) return undefined
     if (!(IMPORT_CONFLICT_MODES as readonly string[]).includes(value))
-        throw new Error(
+        throw new UsageError(
             `--on-conflict must be one of ${IMPORT_CONFLICT_MODES.join(', ')}`
         )
     return value as LibrarySkillImportConflict
@@ -183,7 +184,7 @@ export const parseShareRef = (value: string): string => {
     } catch {
         // not a URL; fall through to the error below
     }
-    throw new Error(
+    throw new UsageError(
         'pass a share link (…/skills/shared/lss_…) or a bare lss_… id'
     )
 }
@@ -298,12 +299,12 @@ export const resolveInstallTarget = (input: {
             .split(',')
             .map((v) => v.trim())
             .filter(Boolean)
-        if (agentIds.length === 0) throw new Error('--agent-ids is empty')
+        if (agentIds.length === 0) throw new UsageError('--agent-ids is empty')
         return { mode: 'batch', skillId: input.skillId, agentIds }
     }
     const agentId = input.agentId?.trim()
     if (!agentId)
-        throw new Error(
+        throw new UsageError(
             'pass --agent-id (or --agent-ids for a batch install), or set $MF_AGENT_ID'
         )
     return { mode: 'single', skillId: input.skillId, agentId }
@@ -341,19 +342,31 @@ export const registerSkills = (program: Command): void => {
                 console.log(
                     kleur.cyan(`${group.agent.name} (${group.agent.id})`)
                 )
-                for (const s of group.skills) {
-                    const mat =
-                        s.materializeStatus === 'failed'
-                            ? `  ${kleur.red('materialize failed')}`
-                            : s.materializeStatus === 'installing'
-                              ? `  ${kleur.yellow('installing')}`
-                              : ''
-                    console.log(
-                        `  ${s.id}  ${kleur.dim(s.installDir)}  ${s.enabled ? 'enabled' : 'disabled'}${mat}`
-                    )
+                if (group.skills.length === 0) {
+                    console.log(kleur.dim('  (none)'))
+                    continue
+                }
+                const [header, ...lines] = formatTable(
+                    ['ID', 'DIR', 'STATE'],
+                    group.skills.map((s): TableCell[] => {
+                        const state = s.enabled ? 'enabled' : 'disabled'
+                        return [
+                            s.id,
+                            [s.installDir, kleur.dim],
+                            s.materializeStatus === 'failed'
+                                ? [`${state}, materialize failed`, kleur.red]
+                                : s.materializeStatus === 'installing'
+                                  ? [`${state}, installing`, kleur.yellow]
+                                  : state
+                        ]
+                    })
+                )
+                console.log(`  ${header}`)
+                group.skills.forEach((s, index) => {
+                    console.log(`  ${lines[index]}`)
                     if (s.materializeStatus === 'failed' && s.materializeError)
                         console.log(`      ${kleur.dim(s.materializeError)}`)
-                }
+                })
             }
         })
 
@@ -374,7 +387,7 @@ export const registerSkills = (program: Command): void => {
                     ? opts.sort
                     : undefined
             if (opts.sort !== undefined && sort === undefined)
-                throw new Error("--sort must be 'featured' or 'latest'")
+                throw new UsageError("--sort must be 'featured' or 'latest'")
             // Max page size on purpose: the pre-envelope command returned the
             // whole result set in one response, so defaulting to the server
             // cap keeps single-page parity at today's catalog sizes; beyond
@@ -394,11 +407,16 @@ export const registerSkills = (program: Command): void => {
             }
             if (page.items.length === 0)
                 console.log(kleur.dim('(no skills found)'))
-            for (const s of page.items) {
-                console.log(
-                    `${s.skillId}  ${kleur.cyan(s.name)}  ${kleur.dim(s.description ?? '')}`
-                )
-            }
+            else
+                for (const line of formatTable(
+                    ['ID', 'NAME', 'DESCRIPTION'],
+                    page.items.map((s): TableCell[] => [
+                        s.skillId,
+                        [s.name, kleur.cyan],
+                        [s.description ?? '', kleur.dim]
+                    ])
+                ))
+                    console.log(line)
             if (page.pendingRepos?.length)
                 console.error(
                     kleur.dim(
@@ -511,7 +529,9 @@ export const registerSkills = (program: Command): void => {
         .option('--json', 'emit raw JSON', false)
         .action(async (userSkillId: string, opts: UpdateOpts) => {
             if (opts.enabled === opts.disabled)
-                throw new Error('pass exactly one of --enabled or --disabled')
+                throw new UsageError(
+                    'pass exactly one of --enabled or --disabled'
+                )
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.update(userSkillId, {
@@ -565,13 +585,17 @@ export const registerSkills = (program: Command): void => {
                 console.log(kleur.dim('(no library skills)'))
                 return
             }
-            for (const s of list) {
-                console.log(
-                    `${s.id}  ${kleur.cyan(s.name)}  ${kleur.dim(
-                        `${plural(s.fileCount, 'file')}, on ${plural(s.installedAgentCount, 'agent')}`
-                    )}`
-                )
-            }
+            const rows = list.map((s): TableCell[] => [
+                s.id,
+                [s.name, kleur.cyan],
+                String(s.fileCount),
+                String(s.installedAgentCount)
+            ])
+            for (const line of formatTable(
+                ['ID', 'NAME', 'FILES', 'AGENTS'],
+                rows
+            ))
+                console.log(line)
         })
 
     library
@@ -646,7 +670,7 @@ export const registerSkills = (program: Command): void => {
                 opts.description === undefined &&
                 content === undefined
             )
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.library.update(skillId, {
@@ -689,7 +713,7 @@ export const registerSkills = (program: Command): void => {
                 opts.share
             ].filter((v) => v !== undefined)
             if (provided.length !== 1)
-                throw new Error(
+                throw new UsageError(
                     'pass exactly one of --url / --file / --catalog-skill-id / --share'
                 )
             const onConflict = resolveConflictOpt(opts.onConflict)
@@ -944,7 +968,7 @@ export const registerSkills = (program: Command): void => {
         .action(async (skillId: string, opts: LibraryFileSetOpts) => {
             const content = await resolveContentOpt(opts)
             if (content === undefined)
-                throw new Error('pass one of --content / --content-file')
+                throw new UsageError('pass one of --content / --content-file')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.library.upsertFile(skillId, {
@@ -987,11 +1011,18 @@ export const registerSkills = (program: Command): void => {
                 console.log(JSON.stringify(list, null, 2))
                 return
             }
-            for (const r of list) {
-                console.log(
-                    `${r.id}  ${kleur.cyan(`${r.owner}/${r.name}@${r.branch}`)}`
-                )
+            if (list.length === 0) {
+                console.log(kleur.dim('(no skill repos)'))
+                return
             }
+            for (const line of formatTable(
+                ['ID', 'REPO'],
+                list.map((r): TableCell[] => [
+                    r.id,
+                    [`${r.owner}/${r.name}@${r.branch}`, kleur.cyan]
+                ])
+            ))
+                console.log(line)
         })
 
     repos
@@ -1027,11 +1058,13 @@ export const registerSkills = (program: Command): void => {
             const body: { branch?: string; enabled?: boolean } = {}
             if (opts.branch) body.branch = opts.branch
             if (opts.enabled && opts.disabled)
-                throw new Error('cannot pass both --enabled and --disabled')
+                throw new UsageError(
+                    'cannot pass both --enabled and --disabled'
+                )
             if (opts.enabled) body.enabled = true
             else if (opts.disabled) body.enabled = false
             if (Object.keys(body).length === 0)
-                throw new Error('nothing to update')
+                throw new UsageError('nothing to update')
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
             const res = await client.skills.repos.update(repoId, body)

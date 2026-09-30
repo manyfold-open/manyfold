@@ -130,7 +130,14 @@ test('external A2A grant allowlist admits only the caller-less grant for that ag
                 targetAgentId: h.targetId,
                 callerAgentIds: [h.callerId]
             }),
-        /already has an active A2A grant/
+        (err: unknown) => {
+            assert.match(String(err), /already has an active A2A grant/)
+            const body = (err as { getResponse?: () => unknown }).getResponse?.() as
+                | { code?: string }
+                | undefined
+            assert.equal(body?.code, 'a2a_grant_exists')
+            return true
+        }
     )
     const [replacementPeer] = await h.tokens.mintA2aGrants({
         userId: h.userId,

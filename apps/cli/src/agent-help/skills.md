@@ -100,14 +100,16 @@ unless `--force` (which uninstalls everywhere first).
 
 ## Output
 
-- `installed`: one header per agent (`<name> (<id>)`), then one line per
-  skill: `<user-skill-id>  <install-dir>  enabled|disabled`. Prints
-  `(no installed skills)` when empty.
-- `discover`: `<skill-id>  <name>  <description>` per line;
-  `(no skills found)` when none.
+- `installed`: one heading per agent (`<name> (<id>)`), then a table of
+  its skills (`ID DIR STATE`, the state `enabled|disabled`, with the
+  materialize failure under the row). Prints `(no installed skills)` when
+  empty.
+- `discover`: a table, `ID NAME DESCRIPTION`; `(no skills found)` when
+  none.
 - `install` / `update`: `<user-skill-id>  <name>  enabled|disabled`;
   `install` by name adds `from <owner>/<repo>` or `from your library`.
-- `library list`: `<skl-id>  <name>  <n> files, on <n> agents`.
+- `library list`: a table, `ID NAME FILES AGENTS`; `repos list`: `ID
+  REPO`.
 - `library publish`: `created|updated  <skl-id>  <name>  <n> files`, then
   one line per agent pushed to (`pushed` or `failed  <why>`).
 - `delete`: `✓ deleted <id>` on success.

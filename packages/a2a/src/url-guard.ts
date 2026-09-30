@@ -27,8 +27,10 @@ const publicAddresses = async (host: string) => {
     let addresses: LookupAddress[]
     try {
         addresses = await lookup(host, { all: true, verbatim: true })
-    } catch {
-        throw new Error(`A2A endpoint host ${host} could not be resolved`)
+    } catch (err) {
+        throw new Error(`A2A endpoint host ${host} could not be resolved`, {
+            cause: err
+        })
     }
     if (addresses.length === 0)
         throw new Error(`A2A endpoint host ${host} could not be resolved`)
@@ -99,34 +101,108 @@ export const assertSafeUrl = async (
     return url.toString()
 }
 
+const rootReason = (err: unknown): string => {
+    let reason = ''
+    let current: unknown = err
+    const seen = new Set<unknown>()
+    while (current && typeof current === 'object' && !seen.has(current)) {
+        seen.add(current)
+        const { message, code } = current as { message?: unknown; code?: unknown }
+        if (typeof message === 'string' && message) reason = message
+        else if (typeof code === 'string') reason = code
+        current = (current as { cause?: unknown }).cause
+    }
+    return reason || String(err)
+}
+
+// A transport failure names the endpoint it could not reach and keeps the
+// original error, with its code, as the cause. An abort stays what it is.
+const unreachable = (
+    url: string,
+    err: unknown,
+    signal: AbortSignal | null | undefined
+): unknown =>
+    signal?.aborted
+        ? err
+        : new Error(
+              `A2A endpoint ${new URL(url).host} could not be reached (${rootReason(err)})`,
+              { cause: err }
+          )
+
+const untilAborted = async <T>(
+    promise: Promise<T>,
+    signal: AbortSignal | null | undefined
+): Promise<T> => {
+    if (!signal) return promise
+    let abort: (() => void) | undefined
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_resolve, reject) => {
+                abort = () => reject(signal.reason)
+                signal.addEventListener('abort', abort, { once: true })
+            })
+        ])
+    } finally {
+        if (abort) signal.removeEventListener('abort', abort)
+    }
+}
+
+// Bun runs the bundled undici on its node:net shim, where a streamed response
+// body never delivers a chunk: `mf a2a send --stream` hung in the standalone
+// mf. Bun's own fetch takes the TLS server name and the certificate check from
+// the Host header, so it can still connect only to the checked address.
+const runsOnBun = (): boolean => Boolean(process.versions.bun)
+
+const nativeFetch = async (
+    safeUrl: string,
+    init: FetchInit,
+    opts: UrlGuardOptions
+): ReturnType<typeof fetch> => {
+    const { dispatcher: _dispatcher, ...rest } = init
+    const url = new URL(safeUrl)
+    const headers: Record<string, string> = {}
+    new Headers(rest.headers as unknown as HeadersInit).forEach(
+        (value, key) => {
+            headers[key] = value
+        }
+    )
+    const host = normalizeHost(url.hostname)
+    if (!allowsPrivate(opts) && !isIP(host)) {
+        const [checked] = await untilAborted(publicAddresses(host), init.signal)
+        headers.host = url.host
+        url.hostname =
+            checked.family === 6 ? `[${checked.address}]` : checked.address
+    }
+    try {
+        const response = await globalThis.fetch(url, {
+            ...rest,
+            headers,
+            redirect: 'error'
+        } as unknown as RequestInit)
+        return response as unknown as Awaited<ReturnType<typeof fetch>>
+    } catch (err) {
+        throw unreachable(safeUrl, err, init.signal)
+    }
+}
+
 export const guardedFetch = async (
     rawUrl: string,
     init: FetchInit,
     opts: UrlGuardOptions = {}
 ): ReturnType<typeof fetch> => {
-    const signal = init.signal
-    signal?.throwIfAborted()
-    let abort: (() => void) | undefined
-    let safeUrl: string
+    init.signal?.throwIfAborted()
+    const safeUrl = await untilAborted(assertSafeUrl(rawUrl, opts), init.signal)
+    if (runsOnBun()) return nativeFetch(safeUrl, init, opts)
     try {
-        const validated = assertSafeUrl(rawUrl, opts)
-        safeUrl = signal
-            ? await Promise.race([
-                  validated,
-                  new Promise<never>((_resolve, reject) => {
-                      abort = () => reject(signal.reason)
-                      signal.addEventListener('abort', abort, { once: true })
-                  })
-              ])
-            : await validated
-    } finally {
-        if (abort) signal?.removeEventListener('abort', abort)
+        return await fetch(safeUrl, {
+            ...init,
+            dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
+            redirect: 'error'
+        })
+    } catch (err) {
+        throw unreachable(safeUrl, err, init.signal)
     }
-    return fetch(safeUrl, {
-        ...init,
-        dispatcher: allowsPrivate(opts) ? init.dispatcher : publicDispatcher,
-        redirect: 'error'
-    })
 }
 
 const normalizeHost = (host: string): string =>

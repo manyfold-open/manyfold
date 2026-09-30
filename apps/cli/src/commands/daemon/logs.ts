@@ -1,15 +1,19 @@
 import { stat } from 'node:fs/promises'
-import type { Command } from 'commander'
+import { InvalidArgumentError, type Command } from 'commander'
 import kleur from 'kleur'
 import { daemonPaths } from '@/daemon/config'
 import { followFile, readLastLines } from '@/daemon/log-file'
 
 export const parseLineCount = (value: string): number => {
     if (!/^\d+$/.test(value))
-        throw new Error('lines must be an integer greater than or equal to 0')
+        throw new InvalidArgumentError(
+            'lines must be an integer greater than or equal to 0'
+        )
     const count = Number(value)
     if (!Number.isSafeInteger(count))
-        throw new Error('lines must be an integer greater than or equal to 0')
+        throw new InvalidArgumentError(
+            'lines must be an integer greater than or equal to 0'
+        )
     return count
 }
 

@@ -20,6 +20,7 @@ import { ConfigService } from '@nestjs/config'
 import { HttpExceptionFilter } from '@/common/filters/http-exception.filter'
 import { OtelNestLogger } from '@/common/telemetry/otel-nest-logger'
 import { isRawBodyPath } from '@/common/raw-body-paths'
+import { applyRouteBodyLimits } from '@/common/route-body-limit'
 import { registerChannelFormBodyGuard } from '@/modules/channels/webhook-body-parser'
 import { registerOctetStreamParser } from '@/modules/agents/files/octet-stream-parser'
 import {
@@ -212,6 +213,7 @@ const bootstrap = async (rootModule: Type<unknown>): Promise<void> => {
     })
 
     const fastify = app.getHttpAdapter().getInstance()
+    applyRouteBodyLimits(fastify)
     registerOctetStreamParser(fastify)
     registerChannelFormBodyGuard(fastify)
     fastify.addHook('preParsing', (req, _reply, payload, done) => {

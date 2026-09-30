@@ -249,6 +249,19 @@ export class ChatRepository {
                             .select({ id: chatMessages.id })
                             .from(chatMessages)
                             .where(eq(chatMessages.sessionId, chatSessions.id))
+                    ),
+                    // channel_sessions.chat_session_id cascades: deleting this
+                    // would take a channel scope's session with it.
+                    notExists(
+                        this.db
+                            .select({ id: channelSessions.id })
+                            .from(channelSessions)
+                            .where(
+                                eq(
+                                    channelSessions.chatSessionId,
+                                    chatSessions.id
+                                )
+                            )
                     )
                 )
             )

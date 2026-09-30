@@ -40,9 +40,10 @@ export const registerChannelsCreate = (
             'channel provider (fake|lark|telegram|slack|discord|matrix|weixin|whatsapp|linear|github|line|googlechat|msteams|imessage)'
         )
         .requiredOption('--label <label>', 'channel label (1-200 chars)')
-        .requiredOption(
+        .option(
             '--config <json>',
-            'channel config (@path for file, or inline JSON object)'
+            'channel config (@path for file, or inline JSON object)',
+            '{}'
         )
         .option(
             '--credentials <json>',

@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
+import { formatTable, type TableCell } from '@/table'
 import { maskSensitive, type RootChannelOptions } from './helpers'
 
 interface ListOptions {
@@ -43,10 +44,17 @@ export const registerChannelsList = (
                 console.log(kleur.dim('No channels.'))
                 return
             }
-            for (const c of filtered) {
-                console.log(
-                    `${c.id}  ${kleur.cyan(c.label)}  ${kleur.yellow(c.provider)}  ${c.status}  ${kleur.dim(c.agentId)}`
-                )
-            }
+            const rows = filtered.map((c): TableCell[] => [
+                c.id,
+                [c.label, kleur.cyan],
+                [c.provider, kleur.yellow],
+                c.status,
+                [c.agentId, kleur.dim]
+            ])
+            for (const line of formatTable(
+                ['ID', 'LABEL', 'PROVIDER', 'STATUS', 'AGENT'],
+                rows
+            ))
+                console.log(line)
         })
 }

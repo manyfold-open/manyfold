@@ -17,6 +17,8 @@ import {
 } from '../src/commands/a2a/helpers'
 import type { AgentCard, Task } from '@manyfold/a2a'
 import type { A2aSelfPeer } from '@manyfold/shared'
+import { UsageError } from '../src/usage-error'
+import { json, runMf } from './fixtures/fake-api'
 import {
     buildAddCallerBody,
     parseExpiresInDays
@@ -301,3 +303,25 @@ test('human streaming output contains the final artifact once; JSON preserves ev
         await new Promise<void>((resolve) => server.close(() => resolve()))
     }
 })
+
+test('an --input-file that cannot be read is a usage error naming the flag', () => {
+    assert.throws(
+        () => buildA2aMessage('hi', { inputFile: '/nonexistent/doc.txt' }),
+        (err: unknown) =>
+            err instanceof UsageError &&
+            /^--input-file: cannot read \/nonexistent\/doc\.txt \(ENOENT\)$/.test(
+                err.message
+            )
+    )
+})
+
+test('a peer this agent holds no grant for exits 4 and points at mf a2a status', async () => {
+    const run = await runMf(['--agent-id', 'agt_me', 'a2a', 'send', 'nobody', 'hi'], {
+        'GET /agent-self/a2a/peers': () => json([])
+    })
+    assert.equal(run.exitCode, 4)
+    const stderr = run.err.join('\n')
+    assert.match(stderr, /no granted peer matching "nobody"/)
+    assert.match(stderr, /mf a2a status lists the peers this agent may call/)
+})
+

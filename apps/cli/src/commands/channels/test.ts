@@ -14,5 +14,6 @@ export const registerChannelsTest = (
             const { client } = await buildClient(root)
             const result = await client.channels.test(channelId)
             console.log(JSON.stringify(result, null, 2))
+            if (!result.ok) process.exitCode = 1
         })
 }

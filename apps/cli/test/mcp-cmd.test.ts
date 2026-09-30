@@ -241,9 +241,10 @@ test('list shows each scope and what reached the machine, and no secret values',
         assert.ok(!text.includes(secret), `${secret} must not show`)
     assert.deepEqual(run.out, [
         'User  ~/.claude.json  on the machine',
-        '  search  http  https://mcp.example.com/sse?…  headers: Authorization',
-        '  pg  stdio  npx pg-mcp postgres://app:***@db/app  env: PGPASSWORD',
-        "  composio  http  from the agent's Composio connection",
+        '  NAME      TRANSPORT  TARGET                                HEADERS        ENV',
+        '  search    http       https://mcp.example.com/sse?…         Authorization',
+        '  pg        stdio      npx pg-mcp postgres://app:***@db/app                 PGPASSWORD',
+        "  composio  http       from the agent's Composio connection",
         'Project  <workspace>/.mcp.json  waiting to reach the machine',
         "  (its config does not parse; fix it in the web app's MCP settings of the agent)"
     ])
@@ -500,7 +501,10 @@ test('the catalog and your library, from the terminal', async () => {
             })
         }
     })
-    assert.deepEqual(list.out, ['github  GitHub  http  Repos and PRs'])
+    assert.deepEqual(list.out, [
+        'ID      NAME    TRANSPORT  DESCRIPTION',
+        'github  GitHub  http       Repos and PRs'
+    ])
 
     const created = await runMf(
         [

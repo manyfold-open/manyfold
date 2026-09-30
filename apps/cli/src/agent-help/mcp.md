@@ -62,10 +62,12 @@ mf mcp library delete pg --yes
 ## Output
 
 - `list`: one line per scope (`<label>  <path>` and whether it is on the
-  machine), then one per server: `<name>  http|stdio  <url or command>`,
-  with the names of its headers / env (never their values; the full
-  config is in `mf agent get <id> --json`). A server from the agent's
-  Composio connection shows as managed.
+  machine), then a table of its servers (`NAME TRANSPORT TARGET HEADERS
+  ENV`): the URL or command, and the names of its headers / env (never
+  their values; the full config is in `mf agent get <id> --json`). A
+  server from the agent's Composio connection shows as managed.
+- `catalog list`: a table, `ID NAME TRANSPORT DESCRIPTION`;
+  `library list`: `KEY NAME TRANSPORT TARGET`.
 - `add` / `install` / `remove`: `✓ <done> <name> in <scope> (<path>) of
   <agent>`, then on stderr where it was written, or why not yet.
 - `pull`: `<scope>  imported|unchanged|skipped|error`; `push`: one line

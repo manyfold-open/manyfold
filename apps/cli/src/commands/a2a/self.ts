@@ -193,20 +193,32 @@ export interface ResolvedPeerCall {
     expiresAt: string
 }
 
+// A peer this agent holds no grant for: a 404 like any other, so it exits 4.
+class PeerNotFoundError extends ApiError {
+    constructor(ref: string) {
+        super({
+            status: 404,
+            statusText: 'Not Found',
+            code: 'a2a_peer_not_found',
+            message: `no granted peer matching "${ref}"`,
+            body: ''
+        })
+        this.name = 'PeerNotFoundError'
+    }
+}
+
 // List peers, match the requested one, and mint a per-call bearer — the full
-// resolution `mf a2a send` needs. Returns an `error` string for any failure so
-// the command can print it and exit without try/catch threading.
+// resolution `mf a2a send` needs. Returns the `error` of any failure, as
+// thrown so its exit code survives, for the command to print without
+// try/catch threading.
 export const resolvePeerForCall = async (
     global: GlobalAuthOpts,
     ref: string,
     signal?: AbortSignal
-): Promise<ResolvedPeerCall | { error: string }> => {
+): Promise<ResolvedPeerCall | { error: unknown }> => {
     try {
         const match = findSelfPeer(await fetchSelfPeers(global, signal), ref)
-        if (!match)
-            return {
-                error: `no granted peer matching "${ref}" — run \`mf a2a status\` to list`
-            }
+        if (!match) return { error: new PeerNotFoundError(ref) }
         const minted = await mintSelfPeerToken(global, match.agentId, signal)
         return {
             name: match.name,
@@ -215,6 +227,6 @@ export const resolvePeerForCall = async (
             expiresAt: minted.expiresAt
         }
     } catch (err) {
-        return { error: (err as Error).message }
+        return { error: err }
     }
 }

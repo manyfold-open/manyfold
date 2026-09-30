@@ -3,7 +3,7 @@ name: manyfold-cli-usage
 description: Operate Manyfold resources through mf from managed runtimes or external coding agents, delegate via A2A, and show results in the workbench when available. Not for developing Manyfold source code.
 version: 0.0.0-dev
 metadata:
-  references-sha256: "d615b4aa1d9d8978277036d3c6b123d5496ceddd0db3ca5818205c13b1b5b343"
+  references-sha256: "f7d53145c20a1093b7c95a834afb3fc8cfe1cb73243269c8d5d8e455d4431a3a"
 ---
 # Manyfold CLI (`mf`) — agent guide
 
@@ -97,10 +97,14 @@ emitted on stderr as
 `{ "error": { "code", "status"?, "message", "hint"?, "details"? } }`
 (never the raw response body), so both success and failure stay parseable.
 `details` comes with the codes a script can act on, such as
-`RUNTIME_LIMIT_REACHED`. Exit codes are stable in every mode: 2 network
+`RUNTIME_LIMIT_REACHED`; every plan limit or quota (`*_LIMIT_REACHED`,
+`*_QUOTA_REACHED`) puts `current`, `limit` and `planName` there. Exit codes
+are stable in every mode: 2 network
 failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
-(400/422), 130 interrupted (Ctrl-C), 1 anything else. `mf <command> --help`
-shows human-readable flags.
+(400/422), 130 interrupted (Ctrl-C), 1 anything else. A command that runs
+a check (`mf doctor`, `mf model-providers test`, `mf channels test` and
+`register`) also exits 1 when the check fails, with its report still on
+stdout. `mf <command> --help` shows human-readable flags.
 
 ## Execution and recovery
 

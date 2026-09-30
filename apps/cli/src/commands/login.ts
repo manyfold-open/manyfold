@@ -14,6 +14,7 @@ import {
 import { printJson } from '@/output'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliClient } from '@/transport'
+import { UsageError } from '@/usage-error'
 
 interface LoginOptions {
     apiUrl?: string
@@ -55,7 +56,7 @@ export const resolveLoginMode = (
     }
     if (opts.launchBrowser === false) {
         if (!stdinIsTTY)
-            throw new Error(
+            throw new UsageError(
                 '--no-launch-browser requires an interactive terminal; without one, run `mf login --print-auth-url` and finish with `mf login --auth-code <code>`'
             )
         return 'headless'

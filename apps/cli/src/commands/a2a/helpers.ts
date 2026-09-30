@@ -11,6 +11,7 @@ import {
     type TextPart
 } from '@manyfold/a2a'
 import type { A2aSelfPeer } from '@manyfold/shared'
+import { UsageError } from '@/usage-error'
 
 export interface BuildMessageOpts {
     contextId?: string
@@ -45,14 +46,21 @@ export const buildA2aMessage = (
     const parts: Part[] = []
     if (prompt) parts.push({ kind: 'text', text: prompt })
     if (opts.inputFile) {
-        const bytes = readFileSync(opts.inputFile)
+        let bytes: Buffer
+        try {
+            bytes = readFileSync(opts.inputFile)
+        } catch (err) {
+            throw new UsageError(
+                `--input-file: cannot read ${opts.inputFile} (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`
+            )
+        }
         parts.push({
             kind: 'file',
             file: { name: basename(opts.inputFile), bytes: bytes.toString('base64') }
         })
     }
     if (parts.length === 0)
-        throw new Error('provide a prompt or --input-file')
+        throw new UsageError('provide a prompt or --input-file')
     const message: Message = {
         kind: 'message',
         role: 'user',

@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ConflictException } from '@nestjs/common'
 import type {
     ChannelDeliveryRow,
     ChannelRow,
@@ -253,7 +254,8 @@ const makeServiceRow = (overrides: Partial<ChannelRow> = {}): ChannelRow => ({
 
 const makeRegisterHarness = (
     initial: ChannelRow,
-    registerResult: () => Promise<{ ok: boolean; message?: string }>
+    registerResult: () => Promise<{ ok: boolean; message?: string }>,
+    testResult?: () => Promise<{ ok: boolean; message: string }>
 ): {
     service: ChannelsService
     row: () => ChannelRow
@@ -273,7 +275,8 @@ const makeRegisterHarness = (
     const provider = {
         validateConfig: (config: unknown) => config,
         validateCredentials: () => null,
-        register: registerResult
+        register: registerResult,
+        ...(testResult ? { test: testResult } : {})
     }
     const db = {
         select: () => ({
@@ -342,6 +345,22 @@ test('register failure on a draft channel still degrades it to error', async () 
 
     assert.equal(result.ok, false)
     assert.equal(h.row().status, 'error')
+})
+
+test('an auto-register that fails on a missing bot token does not point at the public URL', async () => {
+    const h = makeRegisterHarness(
+        makeServiceRow({ status: 'draft' }),
+        async () => ({ ok: false, message: 'botToken missing' }),
+        async () => ({ ok: false, message: '✗ botToken missing' })
+    )
+
+    const result = await h.service.test('user-1', 'channel-1')
+
+    assert.equal(result.ok, false)
+    assert.equal(
+        result.message,
+        '✗ botToken missing\n\n→ Auto-register failed: botToken missing'
+    )
 })
 
 test('update resets the reconnect backoff so the tick retries promptly', async () => {
@@ -683,4 +702,64 @@ test('update allows rebinding a flag-on channel to another agent that delivers i
     await h.service.update('user-1', 'channel-1', { agentId: 'agent-2' })
 
     assert.deepEqual(h.rebinds, [{ id: 'channel-1', agentId: 'agent-2' }])
+})
+
+test('switching to an archived channel session is a conflict and renames nothing', async () => {
+    const renamed: unknown[] = []
+    const switched: unknown[] = []
+    const channel = makeServiceRow()
+    const repo = {
+        getById: async () => channel,
+        getOwned: async () => channel,
+        findSessionById: async () => ({
+            id: 'chs-1',
+            channelId: 'channel-1',
+            scopeKey: 'telegram:42',
+            isActive: false,
+            archivedAt: new Date('2026-09-01T00:00:00Z')
+        }),
+        renameSession: async (...args: unknown[]) => {
+            renamed.push(args)
+        }
+    }
+    const service = new ChannelsService(
+        {} as never,
+        repo as never,
+        { get: () => ({}) } as never,
+        {
+            encrypt: () => ({ ciphertext: 'ciphertext', keyVersion: 1 }),
+            decrypt: () => '{}'
+        } as never,
+        { reload: async () => undefined } as never,
+        {
+            fork: async () => null,
+            switchTo: async (...args: unknown[]) => {
+                switched.push(args)
+            }
+        } as never,
+        { reserveChannelSlot: async () => undefined } as never,
+        { get: () => undefined } as never,
+        fixtureExtensions
+    )
+
+    await assert.rejects(
+        () =>
+            service.updateChannelSession('user-1', 'channel-1', 'chs-1', {
+                displayName: 'renamed',
+                makeActive: true
+            }),
+        (err) => {
+            assert.ok(err instanceof ConflictException)
+            const body = err.getResponse() as Record<string, unknown>
+            assert.equal(body.code, 'channel_session_archived')
+            assert.deepEqual(body.details, {
+                channelId: 'channel-1',
+                channelSessionId: 'chs-1',
+                scopeKey: 'telegram:42'
+            })
+            return true
+        }
+    )
+    assert.deepEqual(renamed, [], 'a refused PATCH must not half-apply')
+    assert.deepEqual(switched, [])
 })

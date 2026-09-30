@@ -3,6 +3,7 @@ import kleur from 'kleur'
 import type { AddRuntimeAgentBody } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 
 interface AddOptions {
     name: string
@@ -66,11 +67,13 @@ export const registerRuntimeAgents = (cmd: Command, program: Command): void => {
                 console.log(kleur.dim('(no framework agents)'))
                 return
             }
-            for (const a of list) {
-                console.log(
-                    `${a.id}  ${kleur.cyan(a.name)}  ${kleur.dim(a.model ?? '')}`
-                )
-            }
+            const rows = list.map((a): TableCell[] => [
+                a.id,
+                [a.name, kleur.cyan],
+                [a.model ?? '', kleur.dim]
+            ])
+            for (const line of formatTable(['ID', 'NAME', 'MODEL'], rows))
+                console.log(line)
         })
 
     sub.command('remove <agentId>')

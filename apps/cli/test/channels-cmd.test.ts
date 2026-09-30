@@ -1,11 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { once } from 'node:events'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChannelDetail } from '@manyfold/shared'
 import { buildSendBody } from '../src/commands/channels/send'
 import { maskSensitive, parseJsonArg } from '../src/commands/channels/helpers'
+import { UsageError } from '../src/usage-error'
+import { normalizeCliError } from '../src/output'
+import { json, runMf } from './fixtures/fake-api'
+import { spawnMf } from './fixtures/spawn-mf'
+
+const usage =
+    (pattern: RegExp) =>
+    (err: unknown): boolean =>
+        err instanceof UsageError && pattern.test(err.message)
 
 test('parseJsonArg: inline JSON object', async () => {
     const parsed = await parseJsonArg('{"foo":"bar"}', '--config')
@@ -15,18 +25,18 @@ test('parseJsonArg: inline JSON object', async () => {
 test('parseJsonArg: rejects non-object inline JSON', async () => {
     await assert.rejects(
         () => parseJsonArg('"foo"', '--config'),
-        /expected a JSON object/
+        usage(/expected a JSON object/)
     )
     await assert.rejects(
         () => parseJsonArg('[1,2,3]', '--config'),
-        /expected a JSON object/
+        usage(/expected a JSON object/)
     )
 })
 
 test('parseJsonArg: invalid JSON reports the parse error', async () => {
     await assert.rejects(
         () => parseJsonArg('{ not json }', '--config'),
-        /invalid JSON/
+        usage(/invalid JSON/)
     )
 })
 
@@ -45,7 +55,14 @@ test('parseJsonArg: @path reads the file', async () => {
 test('parseJsonArg: @ with empty path errors', async () => {
     await assert.rejects(
         () => parseJsonArg('@', '--credentials'),
-        /requires a file path/
+        usage(/requires a file path/)
+    )
+})
+
+test('parseJsonArg: an @path that cannot be read names the flag', async () => {
+    await assert.rejects(
+        () => parseJsonArg('@/nonexistent/config.json', '--config'),
+        usage(/^--config: cannot read \/nonexistent\/config\.json \(ENOENT\)$/)
     )
 })
 
@@ -142,15 +159,18 @@ test('buildSendBody requires text and exactly one target', () => {
         buildSendBody({ replyTo: 'om_z', text: 'hi' }),
         { text: 'hi', replyToMessageId: 'om_z' }
     )
-    assert.throws(() => buildSendBody({ chatId: 'oc_x' }), /--text/)
-    assert.throws(() => buildSendBody({ chatId: 'oc_x', text: '   ' }), /--text/)
+    assert.throws(() => buildSendBody({ chatId: 'oc_x' }), usage(/--text/))
+    assert.throws(
+        () => buildSendBody({ chatId: 'oc_x', text: '   ' }),
+        usage(/--text/)
+    )
     assert.throws(
         () => buildSendBody({ text: 'hi' }),
-        /exactly one target/
+        usage(/exactly one target/)
     )
     assert.throws(
         () => buildSendBody({ chatId: 'oc_x', userId: 'ou_y', text: 'hi' }),
-        /exactly one target/
+        usage(/exactly one target/)
     )
 })
 
@@ -177,6 +197,167 @@ test('buildSendBody supports files with or without text', () => {
                 chatId: 'oc_x',
                 file: ['a', 'b', 'c', 'd', 'e']
             }),
-        /at most 4/
+        usage(/at most 4/)
     )
 })
+
+// A real child process, for the exit code the shell sees.
+test(
+    'a channels usage mistake exits 5 before any request',
+    { timeout: 60_000 },
+    async (t) => {
+        const dir = await mkdtemp(join(tmpdir(), 'mf-cli-channels-usage-'))
+        t.after(() => rm(dir, { recursive: true, force: true }))
+        const child = spawnMf(
+            [
+                '--api-url',
+                'http://127.0.0.1:9/api',
+                'channels',
+                'send',
+                'chn_1',
+                '--chat-id',
+                'oc_x'
+            ],
+            { HOME: dir, MF_CONFIG_DIR: dir, MF_API_TOKEN: 'nca_rt_env' }
+        )
+        child.stdin.end()
+        let stderr = ''
+        child.stderr.on('data', (data) => (stderr += data))
+        const [code] = await once(child, 'close')
+        assert.equal(code, 5)
+        assert.equal(stderr, 'error: provide --text, --file, or both\n')
+    }
+)
+
+test('channels test and register exit 1 when the check fails', async () => {
+    for (const verb of ['test', 'register']) {
+        const failed = await runMf(['channels', verb, 'chn_1'], {
+            [`POST /channels/chn_1/${verb}`]: () =>
+                json({ ok: false, message: 'botToken missing' })
+        })
+        assert.equal(failed.error, undefined, String(failed.error))
+        assert.equal(failed.exitCode, 1)
+        assert.equal(JSON.parse(failed.out.join('\n')).ok, false)
+        assert.deepEqual(failed.err, [])
+
+        const passed = await runMf(['channels', verb, 'chn_1'], {
+            [`POST /channels/chn_1/${verb}`]: () =>
+                json({ ok: true, message: 'registration completed' })
+        })
+        assert.equal(passed.error, undefined, String(passed.error))
+        assert.equal(passed.exitCode, undefined)
+    }
+})
+
+test('channels list and sessions list print aligned tables with a header', async () => {
+    const channel = (
+        id: string,
+        label: string,
+        provider: string,
+        status: string
+    ) => ({
+        id,
+        label,
+        provider,
+        status,
+        agentId: 'agt_1'
+    })
+    const list = await runMf(['channels', 'list'], {
+        'GET /channels': () =>
+            json([
+                channel('chn_1', 'Fake Channel 1 Renamed', 'fake', 'active'),
+                channel('chn_22', 'tg', 'telegram', 'draft')
+            ])
+    })
+    assert.equal(list.error, undefined, String(list.error))
+    assert.deepEqual(list.out, [
+        'ID      LABEL                   PROVIDER  STATUS  AGENT',
+        'chn_1   Fake Channel 1 Renamed  fake      active  agt_1',
+        'chn_22  tg                      telegram  draft   agt_1'
+    ])
+
+    const session = (id: string, overrides: Record<string, unknown>) => ({
+        channelSessionId: id,
+        chatSessionId: `cts_${id}`,
+        scopeKey: 'room-a',
+        scopeName: null,
+        displayName: null,
+        chatTitle: null,
+        isActive: false,
+        archivedAt: null,
+        ...overrides
+    })
+    const sessions = await runMf(
+        ['channels', 'sessions', 'list', 'chn_1', '--include-archived'],
+        {
+            'GET /channels/chn_1/sessions': () =>
+                json([
+                    session('chs_1', {
+                        isActive: true,
+                        displayName: 'Session A'
+                    }),
+                    session('chs_2', {}),
+                    session('chs_3', {
+                        archivedAt: '2026-09-30T16:36:30.415Z',
+                        chatTitle: 'Fake Channel 1'
+                    })
+                ])
+        }
+    )
+    assert.equal(sessions.error, undefined, String(sessions.error))
+    assert.deepEqual(sessions.out, [
+        'STATE     ID     SCOPE   NAME',
+        'active    chs_1  room-a  Session A',
+        'inactive  chs_2  room-a  (untitled)',
+        'archived  chs_3  room-a  Fake Channel 1'
+    ])
+})
+
+test('channels sessions get finds a session in the full list, archived ones too', async () => {
+    const archived = {
+        channelSessionId: 'chs_3',
+        chatSessionId: 'cts_3',
+        scopeKey: 'room-a',
+        scopeName: null,
+        displayName: null,
+        chatTitle: 'Fake Channel 1',
+        isActive: false,
+        archivedAt: '2026-09-30T16:36:30.415Z'
+    }
+    const queried: Array<string | null> = []
+    const routes = {
+        'GET /channels/chn_1/sessions': (call: {
+            query: URLSearchParams
+        }) => {
+            queried.push(call.query.get('includeArchived'))
+            return json([archived])
+        }
+    }
+
+    const scripted = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_3', '--json'],
+        routes
+    )
+    assert.equal(scripted.error, undefined, String(scripted.error))
+    assert.deepEqual(JSON.parse(scripted.out.join('\n')), archived)
+    assert.deepEqual(queried, ['true'])
+
+    const human = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_3'],
+        routes
+    )
+    assert.deepEqual(human.out, [
+        'STATE     ID     SCOPE   NAME',
+        'archived  chs_3  room-a  Fake Channel 1',
+        'chat session cts_3'
+    ])
+
+    const missing = await runMf(
+        ['channels', 'sessions', 'get', 'chn_1', 'chs_nope'],
+        routes
+    )
+    const failure = normalizeCliError(missing.error)
+    assert.equal(failure.exitCode, 4)
+    assert.equal(failure.error.message, 'no session chs_nope in channel chn_1')
+})
+

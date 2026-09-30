@@ -568,6 +568,51 @@ test('telegram sendText posts to Telegram API and returns message id', async () 
     assert.equal(calls[0]?.body.parse_mode, 'HTML')
 })
 
+test('telegram register points at the public URL only when setWebhook refuses it', async () => {
+    const provider = new TelegramChannelProvider()
+    let refuse: 'getMe' | 'setWebhook' = 'setWebhook'
+    ;(
+        provider as unknown as {
+            callApi: (token: string, method: string) => Promise<unknown>
+        }
+    ).callApi = async (_token, method) => {
+        if (method === refuse)
+            throw new Error(
+                refuse === 'getMe'
+                    ? 'telegram getMe failed: 401 Unauthorized'
+                    : 'telegram setWebhook failed: 400 Bad Request: bad webhook: An HTTPS URL must be provided for webhook'
+            )
+        if (method === 'getMe')
+            return { id: 7, is_bot: true, first_name: 'Nca', username: 'NcaBot' }
+        return true
+    }
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig(),
+        credentials: { botToken: '12345678:AAA', webhookSecret: null }
+    }
+    const inboundUrl = 'http://localhost:7190/api/channels/chn-1/inbound'
+
+    await assert.rejects(
+        () => provider.register(ctx, inboundUrl),
+        {
+            message:
+                /^telegram setWebhook failed: 400 .* \(check PUBLIC_API_BASE_URL: Telegram requires a public HTTPS URL\)$/
+        }
+    )
+
+    refuse = 'getMe'
+    await assert.rejects(
+        () => provider.register(ctx, inboundUrl),
+        { message: /^telegram getMe failed: 401 Unauthorized$/ }
+    )
+
+    assert.deepEqual(
+        await provider.register({ ...ctx, credentials: null }, inboundUrl),
+        { ok: false, message: 'botToken missing' }
+    )
+})
+
 test('telegram markdown renderer escapes text and preserves unmatched markers', () => {
     assert.equal(
         markdownToTelegramHtml(

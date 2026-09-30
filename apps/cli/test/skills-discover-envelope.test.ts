@@ -95,9 +95,10 @@ test('skills discover human output lists items and hints at the next page on std
         const { out, err } = await withCapturedOutput(() =>
             runCli(baseUrl, ['skills', 'discover'])
         )
-        assert.equal(out.length, 2)
-        assert.match(out[0], /sk_alpha/)
-        assert.match(out[1], /sk_beta/)
+        assert.equal(out.length, 3)
+        assert.match(out[0], /^ID +NAME +DESCRIPTION$/)
+        assert.match(out[1], /sk_alpha/)
+        assert.match(out[2], /sk_beta/)
         assert.equal(err.length, 1)
         assert.match(err[0], /--cursor 100/)
     })

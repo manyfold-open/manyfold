@@ -8,6 +8,7 @@ import type {
 } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
+import { UsageError } from '@/usage-error'
 import {
     maskSensitive,
     parseJsonArg,
@@ -56,7 +57,7 @@ export const registerChannelsUpdate = (
                     '--credentials'
                 )) as ChannelCredentials
             if (Object.keys(body).length === 0)
-                throw new Error(
+                throw new UsageError(
                     'pass at least one of --label, --status, --config, --credentials'
                 )
             const { client } = await buildClient(root)

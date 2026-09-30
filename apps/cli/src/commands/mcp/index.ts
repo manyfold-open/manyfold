@@ -18,6 +18,7 @@ import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
 import { emit, printJson } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
 import {
     assertServerName,
@@ -243,20 +244,15 @@ const writeServer = async (
 const target = (server: McpServerView): string =>
     server.url ?? [server.command ?? '', ...(server.args ?? [])].join(' ')
 
-const serverLine = (server: McpServerView): string =>
-    [
-        kleur.cyan(server.name),
-        server.transport,
-        server.managed
-            ? kleur.dim("from the agent's Composio connection")
-            : target(server),
-        server.headers
-            ? kleur.dim(`headers: ${server.headers.join(', ')}`)
-            : '',
-        server.env ? kleur.dim(`env: ${server.env.join(', ')}`) : ''
-    ]
-        .filter(Boolean)
-        .join('  ')
+const serverRow = (server: McpServerView): TableCell[] => [
+    [server.name, kleur.cyan],
+    server.transport,
+    server.managed
+        ? ["from the agent's Composio connection", kleur.dim]
+        : target(server),
+    [server.headers?.join(', ') ?? '', kleur.dim],
+    [server.env?.join(', ') ?? '', kleur.dim]
+]
 
 const PENDING = 'Configuration saved; delivery is pending.'
 
@@ -423,8 +419,11 @@ export const registerMcp = (program: Command): void => {
                 else if (scope.servers.length === 0)
                     console.log(kleur.dim('  (none)'))
                 else
-                    for (const server of scope.servers)
-                        console.log(`  ${serverLine(server)}`)
+                    for (const line of formatTable(
+                        ['NAME', 'TRANSPORT', 'TARGET', 'HEADERS', 'ENV'],
+                        scope.servers.map(serverRow)
+                    ))
+                        console.log(`  ${line}`)
             }
         })
     )
@@ -636,10 +635,17 @@ export const registerMcp = (program: Command): void => {
             }
             if (page.items.length === 0)
                 console.log(kleur.dim('(no MCP servers found)'))
-            for (const entry of page.items)
-                console.log(
-                    `${entry.id}  ${kleur.cyan(entry.name)}  ${entry.transport}  ${kleur.dim(entry.description)}`
-                )
+            else
+                for (const line of formatTable(
+                    ['ID', 'NAME', 'TRANSPORT', 'DESCRIPTION'],
+                    page.items.map((entry): TableCell[] => [
+                        entry.id,
+                        [entry.name, kleur.cyan],
+                        entry.transport,
+                        [entry.description, kleur.dim]
+                    ])
+                ))
+                    console.log(line)
             if (page.nextCursor)
                 console.error(
                     kleur.dim(
@@ -699,10 +705,25 @@ export const registerMcp = (program: Command): void => {
             emit(opts, servers, () => {
                 if (servers.length === 0)
                     console.log(kleur.dim('(no MCP servers in your library)'))
-                for (const server of servers)
-                    console.log(
-                        `${server.serverKey}  ${kleur.cyan(server.name)}  ${server.transport}  ${kleur.dim(server.url ? maskUrl(server.url) : [server.command ?? '', ...(server.args ?? [])].join(' '))}`
-                    )
+                else
+                    for (const line of formatTable(
+                        ['KEY', 'NAME', 'TRANSPORT', 'TARGET'],
+                        servers.map((server): TableCell[] => [
+                            server.serverKey,
+                            [server.name, kleur.cyan],
+                            server.transport,
+                            [
+                                server.url
+                                    ? maskUrl(server.url)
+                                    : [
+                                          server.command ?? '',
+                                          ...(server.args ?? [])
+                                      ].join(' '),
+                                kleur.dim
+                            ]
+                        ])
+                    ))
+                        console.log(line)
             })
         })
     )

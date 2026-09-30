@@ -19,6 +19,8 @@ import { isProcessRunning } from '@/daemon/pid'
 import { uninstallInitUnit } from '@/daemon/init-unit'
 import { readJsonState } from '@/json-state'
 import { emit, fail, jsonOption } from '@/output'
+import { formatTable, type TableCell } from '@/table'
+import { UsageError } from '@/usage-error'
 
 interface ProfileInfo {
     name: string
@@ -102,17 +104,17 @@ const promptYesNo = async (q: string): Promise<boolean> => {
     }
 }
 
-const formatProfileLine = (info: ProfileInfo): string => {
-    const marker = info.current ? kleur.green('*') : ' '
-    const apiUrl = info.apiUrl ?? kleur.dim('(channel default)')
-    const login = info.loggedIn ? kleur.green('logged in') : kleur.gray('logged out')
-    const daemon = info.daemonPid
-        ? kleur.green(`daemon pid=${info.daemonPid}`)
+const profileRow = (info: ProfileInfo): TableCell[] => [
+    info.current ? ['*', kleur.green] : '',
+    info.name,
+    info.loggedIn ? ['logged in', kleur.green] : ['logged out', kleur.gray],
+    info.daemonPid
+        ? [`pid ${info.daemonPid}`, kleur.green]
         : info.daemonRegistered
-          ? kleur.gray('daemon registered')
-          : kleur.gray('no daemon')
-    return `${marker} ${info.name.padEnd(16)} ${login}  ${daemon}  ${apiUrl}`
-}
+          ? ['registered', kleur.gray]
+          : ['none', kleur.gray],
+    info.apiUrl ?? ['(channel default)', kleur.dim]
+]
 
 export const registerProfile = (program: Command): void => {
     const profile = program
@@ -180,7 +182,11 @@ export const registerProfile = (program: Command): void => {
                     .map((name) => readProfileInfo(root, name, current))
             )
             emit(opts, { profiles: infos }, () => {
-                for (const info of infos) console.log(formatProfileLine(info))
+                for (const line of formatTable(
+                    ['CURRENT', 'PROFILE', 'LOGIN', 'DAEMON', 'API URL'],
+                    infos.map(profileRow)
+                ))
+                    console.log(line)
                 console.log(
                     kleur.dim(
                         '\nselect one with --profile <name> or MF_PROFILE=<name>'
@@ -215,7 +221,7 @@ export const registerProfile = (program: Command): void => {
                 const current = resolveProfile()
                 const root = resolveConfigDir()
                 if (target === 'default' && !opts.force)
-                    throw new Error(
+                    throw new UsageError(
                         "refusing to delete the 'default' profile (pass --force if you really mean it)"
                     )
                 const paths = profilePaths(root, target)
@@ -226,7 +232,7 @@ export const registerProfile = (program: Command): void => {
                     )
                 if (!opts.yes) {
                     if (!process.stdin.isTTY)
-                        throw new Error(
+                        throw new UsageError(
                             'non-interactive shell; pass --yes to skip the confirmation prompt'
                         )
                     const ok = await promptYesNo(

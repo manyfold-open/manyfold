@@ -22,6 +22,7 @@ import {
     type NewAgentRuntimeRow
 } from '@manyfold/db'
 import { RuntimeAccessService } from '../src/modules/runtime-access/runtime-access.service'
+import { FIXTURE } from './helpers/fixture-framework'
 
 // The quota and reservation rules of ADR-0037: hosts are the unit (a sandbox
 // VM, a cloud computer, a self-owned computer), a placement is derived from a
@@ -181,7 +182,9 @@ test('RuntimeAccessService rejects an always-online runtime for default users', 
             err instanceof ForbiddenException &&
             (err.getResponse() as { code?: string }).code ===
                 'ALWAYS_ONLINE_AGENT_LIMIT_REACHED' &&
-            (err.getResponse() as { kind?: string }).kind === 'k8s'
+            (err.getResponse() as { kind?: string }).kind === 'k8s' &&
+            (err.getResponse() as { details?: { kind?: string } }).details
+                ?.kind === 'k8s'
     )
 })
 
@@ -567,6 +570,11 @@ test('RuntimeAccessService.enableKeepAlive counts kept-awake but sleeping hosts 
             assert.equal(body.current, 1, 'the kept-awake sleeping host occupies the slot')
             assert.equal(body.limit, 1)
             assert.equal(body.planName, 'Free')
+            assert.deepEqual((body as { details?: unknown }).details, {
+                current: 1,
+                limit: 1,
+                planName: 'Free'
+            })
             return true
         }
     )
@@ -1131,7 +1139,9 @@ test('RuntimeAccessService.reserveActiveSlot rejects when included active hours 
                 body.code === 'ACTIVE_HOURS_QUOTA_REACHED' &&
                 body.current === 5 &&
                 body.limit === 5 &&
-                body.planName === 'Free'
+                body.planName === 'Free' &&
+                JSON.stringify((body as { details?: unknown }).details) ===
+                    JSON.stringify({ current: 5, limit: 5, planName: 'Free' })
             )
         }
     )
@@ -1373,7 +1383,9 @@ test('RuntimeAccessService.reserveStandaloneSandbox rejects when storage is at t
             return (
                 err instanceof ForbiddenException &&
                 body.code === 'STORAGE_LIMIT_REACHED' &&
-                body.limit === 3_000_000_000
+                body.limit === 3_000_000_000 &&
+                (body as { details?: { limit?: number } }).details?.limit ===
+                    3_000_000_000
             )
         }
     )
@@ -1825,7 +1837,14 @@ class FakeRuntimeAccessDb {
             if (grouped) return this.groupedHostUsage(rows)
             return [{ value: rows.length }]
         }
-        if (table === channels) return [{ value: this.channelRows.length }]
+        if (table === channels)
+            // Like the production query: a managed mirror takes no slot.
+            return [
+                {
+                    value: this.channelRows.filter((row) => row.origin == null)
+                        .length
+                }
+            ]
         if (table === automations)
             // The production query excludes tombstoned automations; mirror
             // that so a deletedAt row frees its plan slot in these tests.
@@ -2227,4 +2246,101 @@ test('RuntimeAccessService admits an external runtime while the shared cap has r
     const runtime = await service.reserveRuntime(runtimeRow({ id: 'runtime-1' }))
 
     assert.equal(runtime.id, 'runtime-1')
+})
+
+// The error envelope forwards only details, so a client sees the numbers only
+// if they are there.
+const planLimitBody = (err: unknown): Record<string, unknown> => {
+    assert.ok(err instanceof ForbiddenException)
+    return err.getResponse() as Record<string, unknown>
+}
+
+test('RuntimeAccessService.reserveChannelSlot refuses a full plan with its numbers in details', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.plans = [planRow({ maxChannels: 2 })]
+    db.channelRows.push({ id: 'chn-1' }, { id: 'chn-2' })
+    const service = makeService(db)
+
+    await assert.rejects(
+        () => service.reserveChannelSlot('user-1'),
+        (err) => {
+            const body = planLimitBody(err)
+            assert.equal(body.code, 'CHANNEL_LIMIT_REACHED')
+            assert.deepEqual(body.details, {
+                current: 2,
+                limit: 2,
+                planName: 'Free'
+            })
+            return true
+        }
+    )
+})
+
+test('RuntimeAccessService.reserveAutomationSlot refuses a full plan with its numbers in details', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.plans = [planRow({ maxAutomations: 1 })]
+    db.automationRows.push({ id: 'atm-1' })
+    const service = makeService(db)
+
+    await assert.rejects(
+        () => service.reserveAutomationSlot('user-1'),
+        (err) => {
+            const body = planLimitBody(err)
+            assert.equal(body.code, 'AUTOMATION_LIMIT_REACHED')
+            assert.deepEqual(body.details, {
+                current: 1,
+                limit: 1,
+                planName: 'Free'
+            })
+            return true
+        }
+    )
+})
+
+test('RuntimeAccessService.reserveAutomationRun refuses a spent quota and says when it renews', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.plans = [planRow({ maxAutomationRunsMonthly: 2 })]
+    db.automationRunRows.push({ id: 'atr-1' }, { id: 'atr-2' })
+    const service = makeService(db)
+
+    await assert.rejects(
+        () => service.reserveAutomationRun('user-1'),
+        (err) => {
+            const body = planLimitBody(err)
+            assert.equal(body.code, 'AUTOMATION_RUN_QUOTA_REACHED')
+            const details = body.details as Record<string, unknown>
+            assert.equal(details.current, 2)
+            assert.equal(details.limit, 2)
+            assert.equal(details.planName, 'Free')
+            assert.equal(details.resetAt, body.resetAt)
+            assert.equal(typeof details.resetAt, 'string')
+            return true
+        }
+    )
+})
+
+test('RuntimeAccessService.reserveChannelSlot does not count managed mirrors', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow())
+    db.plans = [planRow({ maxChannels: 1 })]
+    db.channelRows.push({ id: 'chn-mirror', origin: { kind: FIXTURE } })
+    const service = makeService(db)
+
+    await service.reserveChannelSlot('user-1')
+
+    db.channelRows.push({ id: 'chn-own', origin: null })
+    await assert.rejects(
+        () => service.reserveChannelSlot('user-1'),
+        (err) => {
+            assert.deepEqual(planLimitBody(err).details, {
+                current: 1,
+                limit: 1,
+                planName: 'Free'
+            })
+            return true
+        }
+    )
 })

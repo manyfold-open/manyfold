@@ -28,9 +28,10 @@ mf channels test <channelId>
 mf channels update <channelId> --status active
 ```
 
-- `--agent-id <id>` defaults to `$MF_AGENT_ID`. `--config` is
-  required, `--credentials` optional; both take inline JSON objects
-  or `@path/to/file.json`.
+- `--agent-id <id>` defaults to `$MF_AGENT_ID`. `--config` defaults to
+  `{}` (enough for `fake` and the providers whose settings all have
+  defaults; lark, matrix and imessage need theirs), `--credentials` is
+  optional; both take inline JSON objects or `@path/to/file.json`.
 - Credentials keys per provider: lark `appSecret`; telegram `botToken`
   (optional `webhookSecret`); slack `botToken` + `signingSecret`;
   discord `botToken`; matrix `accessToken`; fake optional `secret`.
@@ -55,7 +56,8 @@ from the user. Ask for them, pass them straight into the flag (prefer
 - Secret-bearing fields (`credentials`, `token`, `secret`, `apiKey`, and
   nested values such as Lark `verificationToken`/`encryptKey`) are masked
   as `[redacted]` at every nesting level in channel output.
-- `mf channels test` prints a JSON object: `ok` (boolean) + `message`.
+- `mf channels test` prints a JSON object: `ok` (boolean) + `message`,
+  and exits 1 when `ok` is false.
 
 ## Failure recovery
 

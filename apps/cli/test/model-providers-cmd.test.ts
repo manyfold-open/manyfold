@@ -48,7 +48,7 @@ test('model-providers list checks each provider against a framework and names th
     const text = human.out.join('\n')
     assert.match(
         text,
-        /ump_managed .*managed {2}usable.*what --model-provider managed picks/
+        /ump_managed .*managed +usable +what --model-provider managed picks/
     )
     assert.match(
         text,
@@ -58,7 +58,7 @@ test('model-providers list checks each provider against a framework and names th
         text,
         /An alias \(sonnet, opus, …\) follows its family's newest/
     )
-    assert.match(text, /ump_fresh .*saved {2}not tested yet/)
+    assert.match(text, /ump_fresh .*saved +not tested yet/)
     assert.match(text, /ump_openai .*cannot serve it/)
     assert.match(text, /mf model-providers test <id\|name> tests it/)
 

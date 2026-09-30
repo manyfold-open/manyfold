@@ -34,11 +34,13 @@ mf channels delete <channelId>
 ```
 
 Sessions — each scope (one chat/thread) has at most one active session;
-`new` archives the current active one:
+`new` starts one and leaves the previous one inactive (still listed, and
+`switch` brings it back); only `delete` archives:
 
 ```sh
 mf channels sessions scopes <channelId> --json
 mf channels sessions list <channelId> --scope-key <key> --include-archived --json
+mf channels sessions get <channelId> <sessionId> --json   # archived ones too
 mf channels sessions new <channelId> --scope-key <key> --name <name>
 mf channels sessions switch <channelId> <sessionId>
 mf channels sessions rename <channelId> <sessionId> <name>
@@ -47,11 +49,14 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 
 ## Output
 
-- `list` prints one line per channel (`id label provider status agentId`);
-  `--json` emits the JSON array. Every `sessions` subcommand accepts `--json`.
+- `list` prints a table (`ID LABEL PROVIDER STATUS AGENT`), and so do
+  `sessions scopes` and `sessions list` (`STATE` is `active`, `inactive` or
+  `archived`); `--json` emits the JSON array. Every `sessions` subcommand
+  accepts `--json`.
 - `get`/`create`/`update` print the channel as pretty JSON and accept
   `--json`; `delete` emits `{ ok, id }`; `test` and `register` always
-  print the raw JSON result (`--json` accepted, already the default).
+  print the raw JSON result (`--json` accepted, already the default) and
+  exit 1 when its `ok` is false.
 - Secret-bearing fields (`credentials`, `apiKey`, `token`, `secret`, and
   nested values such as Lark `verificationToken`/`encryptKey`) are masked
   as `[redacted]` at every nesting level, including in `list --json`.
@@ -68,3 +73,9 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 - "pass at least one of --label, --status, --config, --credentials" →
   `update` requires at least one field.
 - "agent id is required" → pass `--agent-id` or rely on `$MF_AGENT_ID`.
+- `CHANNEL_LIMIT_REACHED` (403, exit 3) → every channel the plan includes
+  is in use (`details`: `current`, `limit`, `planName`): delete one with
+  `mf channels delete <id>`, or upgrade the plan.
+- `channel_session_archived` (409, exit 1) on `sessions switch` → a deleted
+  session cannot be made active again: start a new one with
+  `mf channels sessions new <channelId> --scope-key <key>`.

@@ -1,4 +1,4 @@
-import type { Command } from 'commander'
+import { Help, type Command, type Option } from 'commander'
 
 export interface HumanHelpGroup {
     title: string
@@ -107,9 +107,27 @@ export const renderGroupedRootHelp = (program: Command): string => {
     ].join('\n\n')
 }
 
+const defaultHelp = new Help()
+
+const optionDescription = (option: Option): string => {
+    const description = defaultHelp.optionDescription(option)
+    return option.mandatory ? `${description} (required)` : description
+}
+
+// Commander copies help settings to a subcommand only when .command() creates
+// it, and every command exists by now: walk the tree.
+const markRequiredOptions = (command: Command): void => {
+    command.configureHelp({ ...command.configureHelp(), optionDescription })
+    command.commands.forEach(markRequiredOptions)
+}
+
 export const configureHumanHelp = (program: Command): void => {
+    markRequiredOptions(program)
     // Keep Commander's usage, description, and options rendering. Only suppress
     // its flat root command list and replace it with product-owned groups.
-    program.configureHelp({ visibleCommands: () => [] })
+    program.configureHelp({
+        ...program.configureHelp(),
+        visibleCommands: () => []
+    })
     program.addHelpText('after', () => `\n${renderGroupedRootHelp(program)}\n`)
 }

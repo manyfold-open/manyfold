@@ -33,6 +33,9 @@ On success, stdout contains only the raw JSON payload, formatted with two-space
 indentation. Human progress belongs on stderr. Channel and credential output
 remains redacted; `mf login --json` never prints the bearer token.
 
+Without `--json`, list commands print a table with a header row. The table is
+for people and its columns may change; scripts should use `--json`.
+
 On failure, stderr contains:
 
 ```json
@@ -48,6 +51,11 @@ On failure, stderr contains:
 
 `status` and `hint` appear only when available. The CLI never includes an
 unparsed response body in the error envelope.
+
+A plan limit or quota (`CHANNEL_LIMIT_REACHED`, `ACTIVE_HOURS_QUOTA_REACHED`
+and the other `*_LIMIT_REACHED` / `*_QUOTA_REACHED` codes) also carries
+`details` with `current`, `limit` and `planName`. It exits `3` like any `403`,
+and its `hint` says what to free up.
 
 ## Exit codes
 
@@ -72,9 +80,11 @@ else
 fi
 ```
 
-`mf doctor` is the one exception: it exits `1` when any check fails, but its
-report still goes to stdout and stderr stays empty. Read `ok`, or each check's
-`status`, from `mf doctor --json`.
+Commands that run a check are the exception: `mf doctor`,
+`mf model-providers test`, `mf channels test` and `mf channels register` exit
+`1` when the check fails, but their report still goes to stdout and stderr
+stays empty. Read the report's `ok` (and, from `mf doctor --json`, each
+check's `status`).
 
 ## Commands without JSON mode
 

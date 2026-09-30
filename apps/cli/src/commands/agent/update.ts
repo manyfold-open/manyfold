@@ -52,7 +52,7 @@ const runUpdate = async (
     const { client } = await buildClient(global)
     const model = opts.clearModel ? null : opts.model
     if (opts.name === undefined && model === undefined)
-        throw new Error(
+        throw new UsageError(
             'nothing to update: pass --name, --model, or --clear-model'
         )
     // Claude Code, Codex and the other model-config frameworks keep their

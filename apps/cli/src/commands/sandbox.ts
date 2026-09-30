@@ -11,6 +11,7 @@ import { ApiError } from '@manyfold/sdk'
 import { buildClient } from '@/client'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { emit, fail, jsonOption } from '@/output'
+import { formatTable, type TableCell } from '@/table'
 import { assertSandboxStorageContract } from '@/storage-contract'
 import { resolveSandboxRef } from '@/commands/agent/create-source'
 import { UsageError } from '@/usage-error'
@@ -62,24 +63,30 @@ const formatSandboxList = (
     rows: readonly SandboxRow[],
     quota: { used: number; limit: number; plan: string }
 ): string => {
-    const lines =
-        rows.length === 0
-            ? [kleur.dim('No sandboxes yet.')]
-            : rows.map((row) => {
-                  const frameworks =
-                      row.runtimes
-                          .map((runtime) => runtime.framework)
-                          .join(', ') || 'nothing installed'
-                  const state = [row.status, row.powerState]
-                      .filter(Boolean)
-                      .join(', ')
-                  const line = `${row.id}  ${kleur.cyan(row.name)}  ${state}  ${row.agentsCount} agent${row.agentsCount === 1 ? '' : 's'}  ${frameworks}  ${kleur.dim(`created ${row.createdAt.slice(0, 10)}`)}`
-                  // Why a sandbox that never came up failed; mf sandbox
-                  // delete clears it.
-                  return row.status === 'failed' && row.failureReason
-                      ? `${line}\n${kleur.red(`  ${row.failureReason}`)}`
-                      : line
-              })
+    const lines: string[] = []
+    if (rows.length === 0) lines.push(kleur.dim('No sandboxes yet.'))
+    else {
+        const [header, ...table] = formatTable(
+            ['ID', 'NAME', 'STATE', 'AGENTS', 'FRAMEWORKS', 'CREATED'],
+            rows.map((row): TableCell[] => [
+                row.id,
+                [row.name, kleur.cyan],
+                [row.status, row.powerState].filter(Boolean).join(', '),
+                String(row.agentsCount),
+                row.runtimes.map((runtime) => runtime.framework).join(', ') ||
+                    'nothing installed',
+                [row.createdAt.slice(0, 10), kleur.dim]
+            ])
+        )
+        lines.push(header!)
+        rows.forEach((row, index) => {
+            lines.push(table[index]!)
+            // Why a sandbox that never came up failed; mf sandbox delete
+            // clears it.
+            if (row.status === 'failed' && row.failureReason)
+                lines.push(kleur.red(`  ${row.failureReason}`))
+        })
+    }
     lines.push(
         kleur.dim(
             `${quota.used} of ${quota.limit} sandboxes in use (${quota.plan} plan)`
@@ -151,7 +158,7 @@ export const registerSandbox = (program: Command): void => {
                 throw err
             }
             if (!opts.yes)
-                throw new Error(
+                throw new UsageError(
                     `refusing to delete sandbox ${sandbox.name} (${sandbox.id}) without --yes (or -y)`
                 )
             try {

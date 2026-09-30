@@ -264,7 +264,7 @@ test('discover says when it has nothing to list, and which repos it is still rea
             }
         ])
     )
-    assert.equal(reading.out.length, 1)
+    assert.equal(reading.out.length, 2)
     assert.deepEqual(reading.err, [
         'still reading ComposioHQ/awesome-claude-skills: their skills are not listed yet; run this again in a minute'
     ])
