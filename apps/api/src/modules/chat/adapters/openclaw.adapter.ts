@@ -82,15 +82,13 @@ const openclawModelRef = (model: string): string =>
 // session/new carries the SAME _meta.sessionKey — the ACP sessionId itself is
 // disposable — so this deterministic key IS the session identity, and the API
 // never calls session/resume.
-// The Manyfold-provisioned gateway (sprite/k8s, buildOpenclawConfigJson) hosts
-// exactly one agent — the default, `main`; a BYOD daemon's gateway defaults to
-// `main` too. The manyfold agent id is NOT a gateway agent name, so the session
-// binds to `main` and ctx.sessionId keeps the key unique per chat. Verified
-// in-sprite [2026-09-08]: `sessions.patch` on `agent:main:…` returns ok:true,
-// on `agent:<agentId>:…` fails "Agent <id> no longer exists in configuration"
-// (the manyfold id was never registered as a gateway agent).
-const openclawGatewaySessionKey = (sessionId: string): string =>
-    `agent:main:mf-${sessionId}`
+// `agent:<id>:` picks the OpenClaw agent the turn runs as, with its workspace
+// and session store (ADR-0027); an agent's internalId is its OpenClaw id, `main`
+// for the framework's own (ADR-0040). ctx.sessionId keeps the key unique per
+// chat. Seen in-sprite [2026-09-08]: an id the gateway has not registered fails
+// "Agent <id> no longer exists in configuration".
+const openclawGatewaySessionKey = (agentId: string, sessionId: string): string =>
+    `agent:${agentId}:mf-${sessionId}`
 
 // One ACP event -> the durable raw_source row plus its semantic event, mirroring
 // the SSE path's shape so the renderer treats an ACP turn like any other.
@@ -228,7 +226,12 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             yield refusal
             return
         }
-        yield* this.sendViaDaemonAcp(ctx, userMessage, daemonId)
+        yield* this.sendViaDaemonAcp(
+            ctx,
+            userMessage,
+            daemonId,
+            agentRow.internalId
+        )
     }
 
     // Whether this daemon may be sent an openclaw ACP turn, and if not, the
@@ -337,13 +340,14 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     private async *sendViaDaemonAcp(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        daemonId: string
+        daemonId: string,
+        agentId: string
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
             return
         }
-        const sessionKey = openclawGatewaySessionKey(ctx.sessionId)
+        const sessionKey = openclawGatewaySessionKey(agentId, ctx.sessionId)
         // The daemon maps the mode onto openclaw's own session permission
         // mode. A per-message model pick routes as primary/<model>.
         const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'

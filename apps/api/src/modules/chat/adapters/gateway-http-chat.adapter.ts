@@ -116,7 +116,7 @@ interface OpenAIError {
 // that routes to its daemon.
 export interface GatewayAgentRow {
     placement: RuntimePlacement
-    internalId: string | null
+    internalId: string
     hostId: string | null
 }
 
