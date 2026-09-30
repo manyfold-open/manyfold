@@ -50,14 +50,37 @@ mf skills delete usk_xxx --yes
 ```sh
 mf skills library list
 mf skills library get skl_xxx
-mf skills library create --name my-review --content-file ./SKILL.md
+mf skills library create --content-file ./SKILL.md
 mf skills library update skl_xxx --content-file ./SKILL.md
 ```
 
-可从 GitHub、catalog entry、unlisted share link 或 `.skill`/zip archive 导入：
+一个 skill 就是一个文件夹：顶层有 `SKILL.md`，其指令用到的文件放在旁边：
+
+```markdown
+---
+name: my-review
+description: Review a change for correctness and style.
+---
+# My review
+
+When asked to review a change, …
+```
+
+`create` 从 frontmatter 取 skill 名称，`--name` 可覆盖。
+
+本地开发的 skill 用一条命令发布：`publish` 用该文件夹创建 library skill；已有同名 skill 时则更新它，并 push 到已安装它的 Agent：
+
+```sh
+mf skills library publish ./my-review
+```
+
+与 import 一样，隐藏文件、license 文件和超过 1 MiB 的文件不会包含在内。
+
+可从 GitHub、catalog entry、unlisted share link、本地文件夹或 `.skill`/zip archive 导入：
 
 ```sh
 mf skills library import --url https://github.com/example/skills/tree/main/review
+mf skills library import --file ./review
 mf skills library import --file ./review.skill
 mf skills library import --share https://manyfold.ai/skills/shared/lss_xxx
 ```

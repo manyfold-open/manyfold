@@ -64,15 +64,42 @@ the catalog skill ID. Uninstall is irreversible and requires explicit
 ```sh
 mf skills library list
 mf skills library get skl_xxx
-mf skills library create --name my-review --content-file ./SKILL.md
+mf skills library create --content-file ./SKILL.md
 mf skills library update skl_xxx --content-file ./SKILL.md
 ```
 
-Import from GitHub, a catalog entry, an unlisted share link, or a `.skill`/zip
-archive:
+A skill is a folder with a `SKILL.md` at its top, and any files its
+instructions use next to it:
+
+```markdown
+---
+name: my-review
+description: Review a change for correctness and style.
+---
+# My review
+
+When asked to review a change, …
+```
+
+`create` takes the skill's name from that frontmatter; `--name` overrides it.
+
+Publish a skill you work on locally with one command. `publish` creates the
+library skill from the folder, or, when one of that name exists, updates it
+and pushes it to the agents that have it installed:
+
+```sh
+mf skills library publish ./my-review
+```
+
+Hidden files, license files and files over 1 MiB stay out, as they do in an
+import.
+
+Import from GitHub, a catalog entry, an unlisted share link, a local folder, or
+a `.skill`/zip archive:
 
 ```sh
 mf skills library import --url https://github.com/example/skills/tree/main/review
+mf skills library import --file ./review
 mf skills library import --file ./review.skill
 mf skills library import --share https://manyfold.ai/skills/shared/lss_xxx
 ```

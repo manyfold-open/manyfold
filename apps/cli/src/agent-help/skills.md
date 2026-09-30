@@ -45,10 +45,11 @@ mf skills delete <user-skill-id> --yes
 mf skills repos list --json
 mf skills library list --json
 mf skills library get <skl-id> --json
-mf skills library create --name <name> --content-file ./SKILL.md
+mf skills library create --content-file ./SKILL.md   # name from its frontmatter
 mf skills library update <skl-id> --content-file ./SKILL.md
+mf skills library publish ./my-skill                   # create or update, then push
 mf skills library import --url <github-url> --on-conflict rename
-mf skills library import --file ./my-skill.skill
+mf skills library import --file ./my-skill            # a folder, or a .skill/.zip
 mf skills library import --share https://manyfold.ai/skills/shared/<lss-id>
 mf skills library share <skl-id-or-name> --json
 mf skills library share <skl-id-or-name> --revoke
@@ -78,10 +79,16 @@ a minute.
 Library skills install with the same `mf skills install`, by name or by
 the `skl_…` library id. `install` takes exactly one of
 `--agent-id` or `--agent-ids` (comma-separated batch; per-agent results,
-one failure does not abort the rest). `library import` accepts exactly one
-of `--url` (github.com repo / tree / SKILL.md blob), `--file` (`.skill` /
-`.zip`), `--catalog-skill-id`, or `--share` (a share link or `lss_…` id);
-`--on-conflict` is `fail` (default) | `overwrite` | `rename`.
+one failure does not abort the rest). `library create` takes the name from
+the content's frontmatter `name:` unless `--name` gives one. `library
+import` accepts exactly one of `--url` (github.com repo / tree / SKILL.md
+blob), `--file` (a local skill folder with `SKILL.md` at its top, or a
+`.skill` / `.zip` archive), `--catalog-skill-id`, or `--share` (a share
+link or `lss_…` id); `--on-conflict` is `fail` (default) | `overwrite` |
+`rename`. `library publish <folder>` is the local loop in one step: the
+folder's skill created, or (same name) overwritten in place, then pushed
+to every agent that has it; a folder's hidden files, license files and
+files over 1 MiB stay out, as in any import.
 `library share` mints (or prints, if one exists) an unlisted link anyone
 can open to view the skill and import a snapshot copy into their own
 library; `--revoke` disables the link (already-imported copies keep
@@ -99,6 +106,9 @@ unless `--force` (which uninstalls everywhere first).
   `(no skills found)` when none.
 - `install` / `update`: `<user-skill-id>  <name>  enabled|disabled`;
   `install` by name adds `from <owner>/<repo>` or `from your library`.
+- `library list`: `<skl-id>  <name>  <n> files, on <n> agents`.
+- `library publish`: `created|updated  <skl-id>  <name>  <n> files`, then
+  one line per agent pushed to (`pushed` or `failed  <why>`).
 - `delete`: `✓ deleted <id>` on success.
 - `--json` (raw JSON) exists on every subcommand; `delete` and
   `repos delete` emit `{ ok, id }`. Skills output contains no secrets.
@@ -110,6 +120,10 @@ unless `--force` (which uninstalls everywhere first).
 - `pass exactly one of --enabled or --disabled` → `update` requires
   exactly one of the two flags.
 - `N skills are named "<name>"` → install one of the listed ids.
+- `<skl-id> is installed on N agents` (library delete) → `--force`
+  uninstalls it from them first.
+- `has no SKILL.md at its top` → the folder given is not a skill; point
+  at the folder that holds `SKILL.md`.
 - `no skill named "<name>"` → `mf skills discover --q <name>` for the
   catalog, `mf skills library list` for yours; install by id.
 - `refusing to delete … without --yes` → deletes never prompt; add `--yes`

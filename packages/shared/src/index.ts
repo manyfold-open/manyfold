@@ -86,6 +86,7 @@ export {
     MAX_LIBRARY_SKILL_FILE_BYTES,
     MAX_LIBRARY_SKILL_FILE_COUNT,
     MAX_LIBRARY_SKILL_TOTAL_BYTES,
+    shouldIgnoreLibrarySkillPath,
     validateLibraryFilePath,
     type LibraryFilePathValidationCode,
     type LibraryFilePathValidationResult
