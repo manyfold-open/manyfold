@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Command, CommanderError } from 'commander'
 import { ApiError } from '@manyfold/sdk'
-import { A2aTransportError } from '@manyfold/a2a'
+import { A2aError, A2aErrorCode, A2aTransportError } from '@manyfold/a2a'
 import {
     fail,
     normalizeCliError,
@@ -275,6 +275,58 @@ test('A2A peer and grant codes say what to do next', () => {
     )
     assert.equal(grant.exitCode, 1)
     assert.match(grant.error.hint ?? '', /^Pass --replace-existing/)
+})
+
+test('a JSON-RPC refusal with a code keeps it, with its hint and exit', () => {
+    const tooOld = normalizeCliError(
+        new A2aError(
+            A2aErrorCode.internalError,
+            'the Manyfold CLI on sandbox-001 (4.8.0) is too old for this',
+            {
+                status: 409,
+                code: 'SANDBOX_CLI_TOO_OLD',
+                details: { hostName: 'sandbox-001', cliVersion: '4.8.0' }
+            }
+        )
+    )
+    assert.equal(tooOld.exitCode, 1)
+    assert.equal(tooOld.error.code, 'SANDBOX_CLI_TOO_OLD')
+    assert.equal(tooOld.error.status, 409)
+    assert.equal(
+        tooOld.error.message,
+        'the Manyfold CLI on sandbox-001 (4.8.0) is too old for this'
+    )
+    assert.match(tooOld.error.hint ?? '', /^Update it: mf sandbox update sandbox-001 /)
+    assert.deepEqual(tooOld.error.details, {
+        hostName: 'sandbox-001',
+        cliVersion: '4.8.0'
+    })
+
+    const badFile = normalizeCliError(
+        new A2aError(A2aErrorCode.invalidParams, 'file URL returned 404', {
+            status: 400,
+            code: 'bad_file'
+        })
+    )
+    assert.equal(badFile.exitCode, 5)
+    assert.equal(badFile.error.hint, undefined)
+
+    const busy = normalizeCliError(
+        new A2aError(
+            A2aErrorCode.internalError,
+            'too many concurrent A2A delegations (3/3); retry when one finishes',
+            { code: 'delegation_limit', inflight: 3, limit: 3 }
+        )
+    )
+    assert.equal(busy.exitCode, 1)
+    assert.equal(busy.error.code, 'delegation_limit')
+    assert.match(busy.error.hint ?? '', /mf a2a tasks list --state working/)
+
+    const bare = normalizeCliError(
+        new A2aError(A2aErrorCode.taskNotFound, 'task not found')
+    )
+    assert.equal(bare.error.code, 'cli_error')
+    assert.equal(bare.exitCode, 1)
 })
 
 test('an archived channel session says how to start a new one', () => {

@@ -1,7 +1,7 @@
 import { CommanderError, type Command } from 'commander'
 import kleur from 'kleur'
 import { ApiError } from '@manyfold/sdk'
-import { A2aTransportError } from '@manyfold/a2a'
+import { A2aError, A2aTransportError } from '@manyfold/a2a'
 import { resolveConfigPath, resolveProfile } from '@/config'
 import { UsageError } from '@/usage-error'
 
@@ -206,6 +206,8 @@ const CODE_HINTS: Record<string, CodeHint> = {
         'mf a2a status lists the peers this agent may call; a peer shows up once it enables exposure and grants this agent (mf a2a callers add --caller-agent-id <id>, run by the peer).',
     a2a_grant_exists: () =>
         'Pass --replace-existing to replace the active grant, or revoke it first: mf a2a callers list shows it, mf a2a callers revoke <id> removes it.',
+    delegation_limit: () =>
+        'Wait for one of your A2A calls to finish (mf a2a tasks list --state working shows them), then retry.',
     channel_session_archived: (details) =>
         `A deleted session stays archived: start a new one with mf channels sessions new ${typeof details.channelId === 'string' ? details.channelId : '<channelId>'} --scope-key '${typeof details.scopeKey === 'string' ? details.scopeKey : '<key>'}'.`
 }
@@ -296,6 +298,31 @@ export const normalizeCliError = (
                     : {})
             },
             exitCode: exitCodeForStatus(error.status)
+        }
+    }
+    // A Manyfold A2A server puts the code of a refusal it hit (a sandbox CLI
+    // too old for files, the delegation cap) in the JSON-RPC error's data.
+    if (error instanceof A2aError) {
+        const data = recordOf(error.data)
+        if (typeof data.code === 'string') {
+            const status =
+                typeof data.status === 'number' ? data.status : undefined
+            const hint = codeHint(data.code)
+            return {
+                error: {
+                    code: data.code,
+                    ...(status !== undefined ? { status } : {}),
+                    message: error.message,
+                    ...errorExtra({
+                        hint: hint?.(recordOf(data.details)),
+                        ...extra
+                    }),
+                    ...(hint && data.details !== undefined
+                        ? { details: data.details }
+                        : {})
+                },
+                exitCode: exitCodeForStatus(status)
+            }
         }
     }
     if (error instanceof A2aTransportError) {

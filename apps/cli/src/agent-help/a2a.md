@@ -155,13 +155,18 @@ stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
 {{AUTH_RECOVERY}}
 - `needs an agent context` (user token) → add `--agent-id <id>` for an agent
   you own, e.g. `mf --agent-id <id> a2a status`.
-- `too many concurrent A2A delegations` → you have hit the in-flight cap;
-  wait for one to finish (`mf a2a tasks list --state working`) and retry.
+- `too many concurrent A2A delegations` (`delegation_limit`) → you have hit
+  the in-flight cap; wait for one to finish
+  (`mf a2a tasks list --state working`) and retry.
 - `-32001 Task not found` on `tasks get|cancel|subscribe` → the task id is
   unknown to that target or not visible to your credential.
 - `takes no files` / `is not a type this agent accepts` on `--input-file`
   → that peer cannot read this file: put its content in the prompt, or
-  send a type the chat composer takes.
+  send a type the chat composer takes. `has no type` → give the file its
+  extension (`notes` → `notes.txt`).
+- `SANDBOX_CLI_TOO_OLD` on `--input-file` → the peer's sandbox runs a CLI
+  too old to take files: update it as the hint says
+  (`mf sandbox update <sandbox>`), or send without the file.
 - `unsupported A2A protocolVersion` / `exposes no JSONRPC interface` → a raw
   server speaks something this client does not (only v0.x JSON-RPC).
 - `… host … is not allowed` / `private or reserved address` → the url is

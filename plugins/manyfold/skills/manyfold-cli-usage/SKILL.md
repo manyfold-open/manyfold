@@ -3,7 +3,7 @@ name: manyfold-cli-usage
 description: Operate Manyfold resources through mf from managed runtimes or external coding agents, delegate via A2A, and show results in the workbench when available. Not for developing Manyfold source code.
 version: 0.0.0-dev
 metadata:
-  references-sha256: "2e2e96991d3a13a159d50de03840eb8aa12bfe17f75813c2b077a1aaa16d6ace"
+  references-sha256: "9d702d6cc71cf6d1f570996b5a70e4b5bd7e96d2911caa7e56c4891cae03e4b4"
 ---
 # Manyfold CLI (`mf`) — agent guide
 
