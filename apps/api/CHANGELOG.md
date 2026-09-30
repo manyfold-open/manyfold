@@ -1,5 +1,42 @@
 # @manyfold/api
 
+## 10.1.0
+
+### Minor Changes
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - A2A messages can carry files. A `file` part (base64 `bytes`, or a public `https` `uri`) is written into the target agent's workspace the way a chat upload is, and the turn gets it as an attachment; a message may be files alone. The agent card lists the accepted types in `defaultInputModes` for agents that take files. A file of a type chat does not take, or a file sent to an agent that takes none, is refused with `-32005` before a task is created. Before, file parts were dropped and the agent saw only the text.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - Adding an A2A peer caller that already has an active grant is now a `409` with the code `a2a_grant_exists`, and `details` names both agents, so a client can tell it apart from other conflicts. An outbound A2A request that cannot reach its endpoint (an external A2A provider) now names the endpoint in its error.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - Channel sessions handle three edge cases correctly.
+
+    - Deleting an inactive session with `activateFallback` no longer fails with a `500`. Only deleting the active session activates a fallback; before, a second active session broke the one-active-per-scope rule.
+    - Deleting a session that is already archived keeps the time it was archived.
+    - Switching to an archived session is now a `409` `channel_session_archived` with the scope in `details`, and a rename in the same request is not applied. Before, it answered `200` and changed nothing, apart from the rename. Creating a session without a `scopeKey` is now a `400`, not a `404`.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - Browsing the web chat no longer deletes channel sessions. The chat page cleans up an empty conversation when you move on from it, and an empty conversation that a channel scope points at, for example one that `mf channels sessions new` just created, used to be deleted together with that scope's session. A non-forced delete of such a conversation is now a `409` `session_bound_to_channel`. Deleting it from the sidebar still works.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - A managed channel mirror (a channel binding that a service framework owns, shown in Manyfold) no longer takes one of the plan's channel slots, as the channel docs already said. Creating a channel now counts only the user's own channels, and so does the channel usage and quota warning the web app shows. Before, mirrors could fill a Free plan's two slots and block every channel of the user's own.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - Every plan limit or quota refusal (`CHANNEL_LIMIT_REACHED`, `AUTOMATION_LIMIT_REACHED`, `AUTOMATION_RUN_QUOTA_REACHED`, `ACTIVE_HOURS_QUOTA_REACHED`, `STORAGE_LIMIT_REACHED`, `CONCURRENT_ACTIVE_LIMIT_REACHED`, the always-online limits and `API_REQUEST_QUOTA_REACHED`) now carries `details` with `current`, `limit` and `planName` (and `resetAt` or `kind` where they apply), as `RUNTIME_LIMIT_REACHED` already did. Before, the numbers never reached a client, because the error envelope forwards only `details`.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `POST /api/v1/chat/completions` now accepts request bodies up to its intended 32 MiB (base64 file content). Before, it answered `413` above Fastify's 1 MiB default, because the limit a route declares with `@RouteConfig({ bodyLimit })` was never applied.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - A Telegram channel test or registration that fails now mentions `PUBLIC_API_BASE_URL` only when Telegram refused the webhook URL. A missing or rejected bot token is reported on its own, without the misleading hint about a public HTTPS URL.
+
+- [#637](https://github.com/manyfold-open/manyfold/pull/637) [`b0d54ec`](https://github.com/manyfold-open/manyfold/commit/b0d54eceaf6164f0f40741103b275c1dce388823) Thanks [@yingca1](https://github.com/yingca1)! - A pi conversation continued in the terminal comes back into chat with one message per reply, as a reply made in chat does. pi records one entry per model call, so a prompt whose tools led to several calls used to show as a run of separate answers. The runtime session list counts a reply once as well.
+
+- [#637](https://github.com/manyfold-open/manyfold/pull/637) [`b0d54ec`](https://github.com/manyfold-open/manyfold/commit/b0d54eceaf6164f0f40741103b275c1dce388823) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox that failed to start can be retried in place, instead of being deleted and built again under a new name:
+
+    - `POST /sandboxes/:id/retry` builds a failed sandbox again in its own row: same id and name, a new machine. It is admitted under the owner's plan like a new sandbox (a failed one holds no slot), answers 409 `SANDBOX_NOT_FAILED` for a sandbox in any other state and, like a create, 503 `SANDBOX_API_UNREACHABLE` before anything is made when no sandbox could reach this API. A build that fails again leaves the sandbox failed with the new reason.
+    - Settings › Runtimes offers Retry on a failed sandbox.
+    - Creating an agent: when the new sandbox built in step ② fails to start, the button retries that sandbox rather than building another. In the classic form, a failed sandbox's card offers Retry and no longer lists checks or installs for a machine that does not exist.
+
+- [#637](https://github.com/manyfold-open/manyfold/pull/637) [`b0d54ec`](https://github.com/manyfold-open/manyfold/commit/b0d54eceaf6164f0f40741103b275c1dce388823) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox whose runner could not connect says why:
+
+    - When a new sandbox's `mf daemon register` fails, `SANDBOX_RUNNER_NOT_CONNECTED` carries what the CLI printed, in its message and in `details.registerFailure`. That message is also the reason the failed sandbox keeps, so Settings › Runtimes shows it.
+    - The web explains `SANDBOX_RUNNER_NOT_CONNECTED` and `SANDBOX_API_UNREACHABLE` in the user's language and names the address the sandbox had to reach, where it used to show the server's English text.
+
 ## 10.0.0
 
 ### Major Changes
