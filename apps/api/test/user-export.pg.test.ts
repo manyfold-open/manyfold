@@ -170,6 +170,11 @@ const SEEDED_SECRETS = [
     'sk-byo-seeded-789', // agent extras modelConfig.apiKey
     'ldt_seededmcpsecret', // agent extras MCP server env
     'pat_seededbearer', // agent extras MCP server auth header
+    'ldt_seededmcpargsecret', // a connection string in an MCP server's args
+    'ldt_seededmcpurlsecret', // a key in an MCP server's url
+    'ldt_seededmcpbroken', // an MCP scope whose text does not parse
+    'ldt_seededcodexenv', // codex TOML scope, env table
+    'ldt_seededcodexheader', // codex TOML scope, http_headers table
     'SEEDEDCHANNELCIPHER', // channels.credentials_ciphertext
     'seeded-verification-token', // channels.config_json (Lark keeps it there)
     'seeded-encrypt-key', // channels.config_json
@@ -235,15 +240,51 @@ const seedFixtureUser = async (db: ReturnType<typeof createDb>) => {
             envText:
                 'OPENAI_API_KEY=sk-test-abc123\nANTHROPIC_API_KEY=sk-ant-seeded456',
             modelConfig: { provider: 'byo', apiKey: 'sk-byo-seeded-789' },
+            // As the product stores it: each scope's servers as the
+            // framework's own config text.
             mcp: {
-                servers: {
+                user: JSON.stringify({
                     docs: {
                         command: 'npx',
-                        args: ['docs-mcp'],
-                        env: { MCP_TOKEN: 'ldt_seededmcpsecret' },
+                        args: [
+                            'docs-mcp',
+                            'postgres://docs:ldt_seededmcpargsecret@db/docs'
+                        ],
+                        env: { MCP_TOKEN: 'ldt_seededmcpsecret' }
+                    },
+                    search: {
+                        type: 'http',
+                        url: 'https://mcp.example.com/sse?key=ldt_seededmcpurlsecret',
                         headers: { authorization: 'Bearer pat_seededbearer' }
                     }
-                }
+                }),
+                project: '{"docs": {"env": {"T": "ldt_seededmcpbroken"'
+            }
+        }
+    })
+    await db.insert(agents).values({
+        id: 'agt_v6codex',
+        userId: 'usr_v6',
+        name: 'codex-agent',
+        framework: 'codex',
+        runtimeId: 'art_v6',
+        internalId: 'ia_v6codex',
+        extras: {
+            mcp: {
+                global: [
+                    '[mcp_servers.docs]',
+                    'command = "npx"',
+                    'args = ["docs-mcp"]',
+                    '',
+                    '[mcp_servers.docs.env]',
+                    'DOCS_TOKEN = "ldt_seededcodexenv"',
+                    '',
+                    '[mcp_servers.remote]',
+                    'url = "https://mcp.example.com/mcp"',
+                    '',
+                    '[mcp_servers.remote.http_headers]',
+                    'X-Auth = "ldt_seededcodexheader"'
+                ].join('\n')
             }
         }
     })
@@ -402,6 +443,9 @@ test(
                 assert.equal(profile.email, 'v6@pgtest.local')
                 const agentsText = strFromU8(zip['agents.ndjson'])
                 assert.ok(agentsText.includes('main-agent'))
+                // MCP config keeps its shape; only what can carry a secret goes.
+                assert.ok(agentsText.includes('https://mcp.example.com/sse'))
+                assert.ok(agentsText.includes('mcp_servers.remote'))
                 assert.ok(agentsText.includes('"a2aExposure":"public"'))
                 assert.ok(
                     agentsText.includes('[redacted]'),
