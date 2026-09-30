@@ -17,6 +17,7 @@ import {
 import {
     BadRequestException,
     Body,
+    ConflictException,
     Controller,
     Delete,
     Get,
@@ -69,6 +70,10 @@ import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
 import { McpImportService } from '@/modules/agents/mcp-import.service'
 import { McpConfigMaterializer } from '@/modules/agent-runtimes/mcp/mcp-config-materializer.service'
+import {
+    DAEMON_CONFIG_REQUEST_WAIT_MS,
+    DaemonConfigDeliveryError
+} from '@/modules/daemon/daemon-config-delivery.service'
 import { FrameworkUpgradeService } from '@/modules/agents/framework-versions/framework-upgrade.service'
 import { AgentServiceRestartService } from '@/modules/agents/agent-service-restart.service'
 import { UpgradeFrameworkVersionDto } from '@/modules/agents/dto/upgrade-framework-version.dto'
@@ -244,8 +249,19 @@ export class AgentsController {
         if (!agent) throw new NotFoundException(`agent ${id} not found`)
         let scopes
         try {
-            scopes = await this.mcpMaterializer.materializeForAgent(agent)
+            scopes = await this.mcpMaterializer.materializeForAgent(agent, {
+                leaseWaitMs: DAEMON_CONFIG_REQUEST_WAIT_MS
+            })
         } catch (err) {
+            if (
+                err instanceof DaemonConfigDeliveryError &&
+                err.reason === 'busy'
+            )
+                throw new ConflictException({
+                    code: 'DAEMON_CONFIG_BUSY',
+                    message:
+                        'another configuration push is still using this machine; retry in a moment'
+                })
             throw new BadRequestException((err as Error).message)
         }
         return {

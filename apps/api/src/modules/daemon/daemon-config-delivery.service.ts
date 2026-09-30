@@ -36,6 +36,13 @@ import {
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 type Reader = Pick<Database, 'select'>
 export const DAEMON_CONFIG_LEASE_MS = 120_000
+// How long a push waits for a machine another push is holding. A push holds
+// it for at most 90 s; one started by a save runs in the background and can
+// outwait any, one a request asked for answers that request.
+export const DAEMON_CONFIG_ON_CHANGE_WAIT_MS = 100_000
+export const DAEMON_CONFIG_REQUEST_WAIT_MS = 20_000
+const LEASE_RETRY_FIRST_MS = 500
+const LEASE_RETRY_MAX_MS = 5_000
 export const daemonConfigLeaseName = (hostId: string): string =>
     `daemon-config:${hostId}`
 export const configDigest = (value: unknown): string =>
@@ -220,6 +227,9 @@ export interface DaemonConfigDeliveryOptions {
     automatic?: boolean
     evidence?: DaemonHelloEvidence
     signal?: AbortSignal
+    // Wait this long for a machine another push holds, instead of failing
+    // `busy` at once.
+    leaseWaitMs?: number
 }
 
 @Injectable()
@@ -229,6 +239,8 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         { abort: AbortController; done: Promise<unknown> }
     >()
     private stopping = false
+    // Wakes pushes waiting for a machine when the module stops.
+    private readonly stopped = new AbortController()
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly registry: DaemonRegistryService,
@@ -237,6 +249,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
 
     async onModuleDestroy(): Promise<void> {
         this.stopping = true
+        this.stopped.abort()
         for (const { abort } of this.active.values()) abort.abort()
         await Promise.allSettled(
             [...this.active.values()].map(({ done }) => done)
@@ -279,6 +292,38 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         if (this.stopping) throw new DaemonConfigDeliveryError('cancelled')
         const hostId = await this.hostIdFor(agent)
         if (!hostId) throw new DaemonConfigDeliveryError('unsupported')
+        // Each try claims the machine afresh once the push holding it is done.
+        const giveUpAt = Date.now() + (options.leaseWaitMs ?? 0)
+        for (
+            let delay = LEASE_RETRY_FIRST_MS;
+            ;
+            delay = Math.min(delay * 2, LEASE_RETRY_MAX_MS)
+        ) {
+            try {
+                return await this.attempt(agent, hostId, work, options)
+            } catch (err) {
+                if (
+                    !(err instanceof DaemonConfigDeliveryError) ||
+                    err.reason !== 'busy' ||
+                    Date.now() + delay > giveUpAt
+                )
+                    throw err
+            }
+            await pause(delay, [options.signal, this.stopped.signal])
+            if (this.stopping || options.signal?.aborted)
+                throw new DaemonConfigDeliveryError('cancelled')
+        }
+    }
+
+    private async attempt<T>(
+        agent: Agent,
+        hostId: string,
+        work: (
+            snapshot: DaemonConfigSnapshot,
+            attempt: DaemonConfigAttempt
+        ) => Promise<T>,
+        options: DaemonConfigDeliveryOptions
+    ): Promise<T> {
         const holderId = createObjectId('daemonConfigAttempt')
         const abort = new AbortController()
         const cancel = () => abort.abort()
@@ -527,3 +572,19 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
         }
     }
 }
+
+const pause = (
+    ms: number,
+    signals: Array<AbortSignal | undefined>
+): Promise<void> =>
+    new Promise((resolve) => {
+        const done = (): void => {
+            clearTimeout(timer)
+            for (const signal of signals)
+                signal?.removeEventListener('abort', done)
+            resolve()
+        }
+        const timer = setTimeout(done, ms)
+        for (const signal of signals)
+            signal?.addEventListener('abort', done, { once: true })
+    })
