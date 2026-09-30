@@ -122,6 +122,14 @@ const serviceFrameworks = (): string[] =>
         (framework) => frameworkCapability(framework).kind === 'service'
     )
 
+const sandboxNotFailed = (status: string | null): ConflictException =>
+    new ConflictException({
+        message: status
+            ? `only a failed sandbox can be retried; this one is ${status}`
+            : 'only a failed sandbox can be retried',
+        code: 'SANDBOX_NOT_FAILED'
+    })
+
 @Injectable()
 export class RuntimeAccessService {
     constructor(
@@ -1076,6 +1084,39 @@ export class RuntimeAccessService {
         return inserted
     }
 
+    // Whether one more sandbox fits the user's plan: storage and the
+    // provisioned count. Callers hold the namespace-0 per-user lock.
+    private async assertSandboxSlotAvailable(
+        tx: Tx,
+        userId: string
+    ): Promise<void> {
+        const [row] = await tx
+            .select({
+                statefulSandboxLimit: users.statefulSandboxLimit,
+                planName: plans.name,
+                maxAgentsProvisioned: plans.maxAgentsProvisioned,
+                maxStorageGb: plans.maxStorageGb
+            })
+            .from(users)
+            .innerJoin(plans, eq(plans.id, users.planId))
+            .where(eq(users.id, userId))
+            .limit(1)
+        if (!row) throw new NotFoundException('user not found')
+
+        await this.assertStorageQuotaAvailable(tx, {
+            userId,
+            maxStorageGb: row.maxStorageGb,
+            planName: row.planName
+        })
+        await this.assertProvisionedQuotaAvailable(tx, {
+            userId,
+            statefulSandboxLimit: row.statefulSandboxLimit,
+            maxAgentsProvisioned: row.maxAgentsProvisioned,
+            planName: row.planName,
+            kind: 'sprites'
+        })
+    }
+
     async reserveStandaloneSandbox(input: {
         userId: string
         name?: string
@@ -1085,37 +1126,59 @@ export class RuntimeAccessService {
             await tx.execute(
                 sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`
             )
-            const [row] = await tx
-                .select({
-                    statefulSandboxLimit: users.statefulSandboxLimit,
-                    planName: plans.name,
-                    maxAgentsProvisioned: plans.maxAgentsProvisioned,
-                    maxStorageGb: plans.maxStorageGb
-                })
-                .from(users)
-                .innerJoin(plans, eq(plans.id, users.planId))
-                .where(eq(users.id, input.userId))
-                .limit(1)
-            if (!row) throw new NotFoundException('user not found')
-
-            await this.assertStorageQuotaAvailable(tx, {
-                userId: input.userId,
-                maxStorageGb: row.maxStorageGb,
-                planName: row.planName
-            })
-            await this.assertProvisionedQuotaAvailable(tx, {
-                userId: input.userId,
-                statefulSandboxLimit: row.statefulSandboxLimit,
-                maxAgentsProvisioned: row.maxAgentsProvisioned,
-                planName: row.planName,
-                kind: 'sprites'
-            })
+            await this.assertSandboxSlotAvailable(tx, input.userId)
             return this.insertSandboxHost(tx, {
                 userId: input.userId,
                 name: input.name ?? (await this.nextSandboxName(tx, input.userId)),
                 providerId: input.providerId,
                 emptiedAt: new Date()
             })
+        })
+    }
+
+    // A failed sandbox built again in its own row. While failed it held no
+    // slot (HOSTED_LIVE_STATUSES), so it is admitted like a new sandbox, and
+    // it leaves `failed` only once: a delete or another retry that got there
+    // first wins. The reaper's empty clock restarts as it does for a new one.
+    async reserveSandboxRetry(input: {
+        userId: string
+        hostId: string
+    }): Promise<RuntimeHostRow> {
+        return this.db.transaction(async (tx) => {
+            await tx.execute(
+                sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`
+            )
+            const [host] = await tx
+                .select()
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        eq(runtimeHosts.id, input.hostId),
+                        eq(runtimeHosts.userId, input.userId)
+                    )
+                )
+                .limit(1)
+            if (!host || host.kind !== 'hosted')
+                throw new NotFoundException(`sandbox ${input.hostId} not found`)
+            if (host.status !== 'failed') throw sandboxNotFailed(host.status)
+            await this.assertSandboxSlotAvailable(tx, input.userId)
+            const [retried] = await tx
+                .update(runtimeHosts)
+                .set({
+                    status: 'provisioning',
+                    failureReason: null,
+                    emptiedAt: new Date(),
+                    updatedAt: new Date()
+                })
+                .where(
+                    and(
+                        eq(runtimeHosts.id, host.id),
+                        eq(runtimeHosts.status, 'failed')
+                    )
+                )
+                .returning()
+            if (!retried) throw sandboxNotFailed(null)
+            return retried
         })
     }
 

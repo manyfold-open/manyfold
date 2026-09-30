@@ -28,7 +28,7 @@ import EmptyState from '@/components/EmptyState'
 import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu } from '@/components/CreateMenu'
 import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
-import { GhostRailRows, SheenText } from '@/components/Loading'
+import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import OverflowMenu, { type OverflowMenuItem } from '@/components/OverflowMenu'
@@ -858,6 +858,8 @@ const HostDetailPanel: FC<{
     upgradingSandboxHerdr?: boolean
     onDelete?: (hostId: string) => void | Promise<void>
     onStop?: (hostId: string) => Promise<void>
+    // Builds a failed sandbox again in place.
+    onRetry?: (hostId: string) => Promise<void>
     onRename?: (name: string) => Promise<void>
     onToggleTerminal?: (
         hostId: string,
@@ -898,6 +900,7 @@ const HostDetailPanel: FC<{
     upgradingSandboxHerdr,
     onDelete,
     onStop,
+    onRetry,
     onRename,
     onToggleTerminal,
     togglingTerminal,
@@ -914,6 +917,7 @@ const HostDetailPanel: FC<{
     const navigate = useNavigate()
     const [deleting, setDeleting] = useState(false)
     const [stopping, setStopping] = useState(false)
+    const [retrying, setRetrying] = useState(false)
     const [refreshingStatus, setRefreshingStatus] = useState(false)
     const [renameOpen, setRenameOpen] = useState(false)
     const { confirm, confirmDialog } = useProductConfirm()
@@ -1144,6 +1148,13 @@ const HostDetailPanel: FC<{
             })
             .finally(() => setStopping(false))
     }
+    // The request answers once the new machine is up or has failed again,
+    // about a minute either way.
+    const handleRetrySandboxClick = (): void => {
+        if (!sandboxHostId || !onRetry || retrying) return
+        setRetrying(true)
+        void onRetry(sandboxHostId).finally(() => setRetrying(false))
+    }
     const handleDeleteSandboxClick = async (): Promise<void> => {
         if (!sandboxHostId || !onDelete) return
         if (
@@ -1252,6 +1263,24 @@ const HostDetailPanel: FC<{
                     tone='danger'
                     title={t('web.agentRuntimesList.hostFailed')}
                     detail={sandbox?.failureReason ?? undefined}
+                    action={
+                        vm.kind === 'sprites' && sandboxHostId && onRetry ? (
+                            <button
+                                type='button'
+                                className='workbench-button-secondary'
+                                onClick={handleRetrySandboxClick}
+                                disabled={retrying}
+                                aria-busy={retrying}
+                            >
+                                {retrying && (
+                                    <Spinner size={16} className='mr-2' />
+                                )}
+                                {retrying
+                                    ? t('web.agentRuntimesList.retrying')
+                                    : t('common.retry')}
+                            </button>
+                        ) : undefined
+                    }
                 />
             )}
             {(vm.hostStatus === 'provisioning' ||
@@ -2345,6 +2374,21 @@ const AgentRuntimesList: FC = (): ReactNode => {
         [client, handleRefreshSandboxStatus]
     )
 
+    // A retry that fails again leaves the row failed with the new reason,
+    // which the refresh brings in either way.
+    const handleRetrySandbox = useCallback(
+        async (hostId: string): Promise<void> => {
+            setError(null)
+            try {
+                await client.sandboxes.retry(hostId)
+            } catch (e) {
+                setError((e as Error).message)
+            }
+            refresh()
+        },
+        [client, refresh]
+    )
+
     const reloadRuntimes = useCallback(async (): Promise<void> => {
         const [rows, sandboxes] = await Promise.all([
             client.agentRuntimes.list(),
@@ -2686,6 +2730,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         }
                         onDelete={handleDeleteSandbox}
                         onStop={handleStopSandbox}
+                        onRetry={handleRetrySandbox}
                         onRename={
                             selectedVM.hostId !== null
                                 ? (name) => handleRenameHost(selectedVM, name)

@@ -681,6 +681,8 @@ export interface SandboxesClient {
     list: () => Promise<SandboxSummary[]>
     get: (id: string) => Promise<SandboxSummary>
     create: (body: CreateSandboxBody) => Promise<SandboxSummary>
+    // Build a failed sandbox again in place: same id and name, a new machine.
+    retry: (id: string) => Promise<SandboxSummary>
     delete: (id: string) => Promise<void>
     rename: (id: string, name: string) => Promise<SandboxSummary>
     // The host's keep-awake switch (ADR-0037): keeps the machine running.
@@ -2800,6 +2802,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<SandboxSummary>(apiPaths.SANDBOXES, {
                     method: 'POST',
                     body: JSON.stringify(body)
+                }),
+            retry: (id) =>
+                request<SandboxSummary>(apiPaths.SANDBOX_RETRY(id), {
+                    method: 'POST'
                 }),
             delete: (id) => deleteNoBody(apiPaths.SANDBOX_BY_ID(id)),
             rename: (id, name) =>
