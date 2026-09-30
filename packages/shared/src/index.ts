@@ -1047,6 +1047,15 @@ export {
 } from './agent-ingress'
 export type { AgentIngressScheme } from './agent-ingress'
 export {
+    AUTOMATION_DEFAULT_TIME,
+    AUTOMATION_SCHEDULE_PRESETS,
+    AUTOMATION_WEEKDAYS,
+    automationPresetRrule,
+    automationRruleTime,
+    automationRruleWeekday
+} from './automation-schedule'
+export type { AutomationWeekday } from './automation-schedule'
+export {
     DEFAULT_AUTOMATION_RETENTION,
     DEFAULT_AUTOMATION_RETENTION_DAYS,
     MAX_AUTOMATION_RETENTION_DAYS
