@@ -219,3 +219,29 @@ test('createCliFetch skips default timeouts for binary uploads', async () => {
         assert.equal(calls[0].signal, undefined)
     }
 })
+
+test('createCliClient takes a request timeout of its own', async () => {
+    const fetchImpl: typeof fetch = async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+                'abort',
+                () => reject(init.signal?.reason),
+                { once: true }
+            )
+        })
+    const client = createCliClient({
+        baseUrl: 'https://api.test/api',
+        token: 'nca_rt_test',
+        fetch: fetchImpl,
+        timeoutMs: 10
+    })
+    const keepEventLoopAlive = setTimeout(() => {}, 100)
+    try {
+        await assert.rejects(
+            () => client.sandboxes.list(),
+            (error: unknown) => (error as Error).name === 'TimeoutError'
+        )
+    } finally {
+        clearTimeout(keepEventLoopAlive)
+    }
+})

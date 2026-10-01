@@ -37,6 +37,38 @@ does not load goes into `errors` (`source`, `code`, `status`, `message`),
 its rows are left out, and the command still exits `0`. Only when nothing
 loads does it fail, with that failure's exit code.
 
+## Apply
+
+```sh
+mf updates apply --yes
+mf updates apply --kind cli --yes --json
+mf updates apply cli:sandbox:<sandboxId> --to <version> --yes
+```
+
+`apply` runs the ids given, or every update that `--kind` and `--where`
+select and that can run from here. Rows that cannot (by hand, offline) are
+skipped and listed in `skipped`. Updates run one at a time, in the web's
+order: skills, sandboxes, computers and cloud computers, frameworks, and
+rebuilt frameworks last. It keeps to the API's five computer updates a
+minute (herdr included) and waits out one `429`. One update can take
+minutes: the server answers once it is through.
+
+Each result is `updated`, `pending` (the machine takes it once its sessions
+or current work finish; `mf updates list` shows when it has), or `failed`
+with the error's `code` and `message`. `--json` emits
+`{ results, skipped, summary, errors }`. `apply` exits `1` when any update
+failed, and `0` when the rest are updated or pending.
+
+Without `--yes` it shows the plan and asks on a terminal. A shell that
+cannot answer, and every `--json` run, needs `--yes`. `--to <version>`
+picks the version for exactly one update, from its `targetChoices`
+(`mf updates list --json`).
+
+It needs `sandboxes:edit` for sandboxes, `agent-runtimes:edit` for
+frameworks and cloud computers, and `skills:edit` for skills, which an
+agent-bound token cannot install for other agents; computers need a login
+session or a full-access token.
+
 ## Versions
 
 ```sh

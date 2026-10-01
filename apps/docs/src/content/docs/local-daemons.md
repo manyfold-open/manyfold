@@ -224,6 +224,11 @@ daemon environment to disable this, or `1` to force it for a custom deployment.
 Manual `mf update` still requires restarting the daemon so the init unit loads
 the new binary.
 
+From any machine, `mf updates list --kind cli` shows which of your computers
+are behind, and `mf updates apply --kind cli` updates the ones an init unit
+manages. A busy daemon takes its update when its sessions end; one started by
+hand shows as `by hand`, with the command to run on it.
+
 ### Preview: execs that survive a daemon restart
 
 By default a chat turn's process is a child of the daemon, so a daemon restart

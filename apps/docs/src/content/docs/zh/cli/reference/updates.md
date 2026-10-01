@@ -16,6 +16,7 @@ order: 22
 | 命令 | 用途 |
 | --- | --- |
 | [`mf updates list`](#mf-updates-list) | List pending updates and what each one needs |
+| [`mf updates apply`](#mf-updates-apply) | Run pending updates: the ids given, or every one that can run from here |
 | [`mf updates versions`](#mf-updates-versions) | Versions you can install, newest first: cli for the mf CLI or a framework name; without one, the latest of each |
 
 ## `mf updates list`
@@ -31,7 +32,30 @@ List pending updates and what each one needs
 | Option | 用途 |
 | --- | --- |
 | `--kind <kind>` | only this kind of update 可选值: `cli`, `herdr`, `framework`, `cli-usage`, `skill`. |
-| `--where <name\|id>` | only updates on this computer, sandbox, cloud computer or agent |
+| `--where <name\|id>` | only updates on this computer, sandbox, cloud computer, runtime or agent |
+| `--json` | output the result as JSON |
+| `-h, --help` | display help for command |
+
+## `mf updates apply`
+
+Run pending updates: the ids given, or every one that can run from here
+
+**用法:** `mf updates apply [options] [ids...]`
+
+**Argument**
+
+| 参数 | 用途 |
+| --- | --- |
+| `[ids...]` |  |
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--kind <kind>` | only this kind of update 可选值: `cli`, `herdr`, `framework`, `cli-usage`, `skill`. |
+| `--where <name\|id>` | only updates on this computer, sandbox, cloud computer, runtime or agent |
+| `--to <version>` | the version to go to, for one update |
+| `-y, --yes` | skip the confirmation prompt |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
