@@ -98,10 +98,14 @@ jobs:
                   else
                       emit 'cli_content=false'
                   fi
-            # This is the only PR-specific release gate. Failing it prevents
-            # every heavyweight job from starting for an incomplete PR.
+            # The PR-specific release gates. Failing one prevents every
+            # heavyweight job from starting for an incomplete PR.
             - if: github.event_name == 'pull_request'
               run: pnpm changeset-presence:check
+            # Claude Code and Codex keep one copy of the plugin per version, so
+            # a PR that changes what it ships has to raise that version.
+            - if: github.event_name == 'pull_request'
+              run: pnpm plugin-version:check
 
     static-checks:
         needs: prepare
