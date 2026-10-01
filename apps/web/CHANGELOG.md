@@ -1,5 +1,25 @@
 # @manyfold/web
 
+## 2.18.0
+
+### Minor Changes
+
+- [#642](https://github.com/manyfold-open/manyfold/pull/642) [`8acec81`](https://github.com/manyfold-open/manyfold/commit/8acec814f353cc04f04b63c5ae29e19dd79a8b42) Thanks [@yingca1](https://github.com/yingca1)! - An open chat page no longer keeps waking its sleeping sandbox. Before, each wake made the page sync the session's transcript again once the sandbox fell back asleep, and every sync woke the sandbox, so a page left open held the sandbox awake. That counted as active time, even in a hidden tab.
+
+    The page now syncs once per opened session. `POST /api/agents/:id/runtime-sessions/sync` leaves a sandbox that is asleep, or whose daemon is not connected, untouched, and answers `skipped: 'asleep'`. Sending a message still wakes the sandbox as before.
+
+- [#645](https://github.com/manyfold-open/manyfold/pull/645) [`5f15d84`](https://github.com/manyfold-open/manyfold/commit/5f15d84e87180879814ebe1dad22f838a2a2e3a7) Thanks [@yingca1](https://github.com/yingca1)! - A chat turn the platform stops no longer reads as the user's cancel. When an A2A task's time limit stopped the turn it started, the turn ended `cancelled_by_user`, and the chat showed a silent stop with no reason. It now ends with the error `a2a_turn_timeout` and a message naming the limit that stopped it, and counts as a failure rather than a cancel. A cancel you send yourself still ends `cancelled_by_user`.
+
+    The chat explains a turn stopped at a time limit in plain words, keeping the technical message under it. This covers the A2A limit and the turn length limits the platform already enforced, which until now showed only their raw message.
+
+- [#642](https://github.com/manyfold-open/manyfold/pull/642) [`8acec81`](https://github.com/manyfold-open/manyfold/commit/8acec814f353cc04f04b63c5ae29e19dd79a8b42) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox CLI update that the sandbox defers until its current sessions finish now completes. Before, the sandbox could fall asleep with the update half done. The API keeps the sandbox awake until the new CLI reports, which takes at most about 12 minutes and counts as active time.
+
+    While the update waits, the sandbox summary carries `cliUpdateDeferred` (`activeSessions`, `deadline`). The runtimes page and `mf sandbox update` say how many active sessions the update is waiting for, instead of reporting the old version as upgraded. The Update Center keeps the row waiting until the sandbox reports another CLI. Asking again while the daemon is applying the update now waits for the new CLI instead of answering 503.
+
+### Patch Changes
+
+- [#643](https://github.com/manyfold-open/manyfold/pull/643) [`5bebaee`](https://github.com/manyfold-open/manyfold/commit/5bebaee9a36bb4a1451c51cdf85f90c65d2b2a7f) Thanks [@yingca1](https://github.com/yingca1)! - The Update Center now builds its list from the same model as the CLI's new `mf updates`, which moved into `@manyfold/shared`; nothing on the page changes.
+
 ## 2.17.0
 
 ### Minor Changes

@@ -1,5 +1,31 @@
 # @manyfold/api
 
+## 10.2.0
+
+### Minor Changes
+
+- [#645](https://github.com/manyfold-open/manyfold/pull/645) [`5f15d84`](https://github.com/manyfold-open/manyfold/commit/5f15d84e87180879814ebe1dad22f838a2a2e3a7) Thanks [@yingca1](https://github.com/yingca1)! - An A2A turn that runs past the blocking limit keeps running instead of being stopped. A blocking `message/send` (or a `message/stream`) that reached the blocking cap, 10 minutes by default, used to cancel the agent's turn and fail the task with `turn_timeout`, however close the work was to done and even when the caller had already hung up and was polling. Now the caller gets the task back as `working` (a stream ends on a non-final `working` status update), and the same turn carries on under the async cap, 2 hours by default, which is what bounds a task now whichever way it was sent. Follow it with `tasks/get`, or reattach with `tasks/resubscribe`.
+
+    An agent backed by a remote A2A server follows such a task to its end with `tasks/get` instead of taking the stream's early end as the answer, and forwards a cancel made while it follows.
+
+    The admin A2A turn timeouts page describes the two caps this way.
+
+- [#643](https://github.com/manyfold-open/manyfold/pull/643) [`5bebaee`](https://github.com/manyfold-open/manyfold/commit/5bebaee9a36bb4a1451c51cdf85f90c65d2b2a7f) Thanks [@yingca1](https://github.com/yingca1)! - The usage endpoints, the user's and the admin's, answer `400` for a query they cannot read instead of guessing. A `limit` must be a whole number of at least 1: before, `0` became 1, and `abc` returned an empty events page or the whole agent ranking. A `from`, `to` or `cursor` must be a date or timestamp such as `2026-10-01` or `2026-10-01T09:00:00Z`: before, one that did not parse was dropped and the query covered all time. A time without a zone is UTC. A limit above the maximum is still capped.
+
+- [#642](https://github.com/manyfold-open/manyfold/pull/642) [`8acec81`](https://github.com/manyfold-open/manyfold/commit/8acec814f353cc04f04b63c5ae29e19dd79a8b42) Thanks [@yingca1](https://github.com/yingca1)! - An open chat page no longer keeps waking its sleeping sandbox. Before, each wake made the page sync the session's transcript again once the sandbox fell back asleep, and every sync woke the sandbox, so a page left open held the sandbox awake. That counted as active time, even in a hidden tab.
+
+    The page now syncs once per opened session. `POST /api/agents/:id/runtime-sessions/sync` leaves a sandbox that is asleep, or whose daemon is not connected, untouched, and answers `skipped: 'asleep'`. Sending a message still wakes the sandbox as before.
+
+- [#645](https://github.com/manyfold-open/manyfold/pull/645) [`5f15d84`](https://github.com/manyfold-open/manyfold/commit/5f15d84e87180879814ebe1dad22f838a2a2e3a7) Thanks [@yingca1](https://github.com/yingca1)! - A chat turn the platform stops no longer reads as the user's cancel. When an A2A task's time limit stopped the turn it started, the turn ended `cancelled_by_user`, and the chat showed a silent stop with no reason. It now ends with the error `a2a_turn_timeout` and a message naming the limit that stopped it, and counts as a failure rather than a cancel. A cancel you send yourself still ends `cancelled_by_user`.
+
+    The chat explains a turn stopped at a time limit in plain words, keeping the technical message under it. This covers the A2A limit and the turn length limits the platform already enforced, which until now showed only their raw message.
+
+- [#642](https://github.com/manyfold-open/manyfold/pull/642) [`8acec81`](https://github.com/manyfold-open/manyfold/commit/8acec814f353cc04f04b63c5ae29e19dd79a8b42) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox CLI update that the sandbox defers until its current sessions finish now completes. Before, the sandbox could fall asleep with the update half done. The API keeps the sandbox awake until the new CLI reports, which takes at most about 12 minutes and counts as active time.
+
+    While the update waits, the sandbox summary carries `cliUpdateDeferred` (`activeSessions`, `deadline`). The runtimes page and `mf sandbox update` say how many active sessions the update is waiting for, instead of reporting the old version as upgraded. The Update Center keeps the row waiting until the sandbox reports another CLI. Asking again while the daemon is applying the update now waits for the new CLI instead of answering 503.
+
+- [#645](https://github.com/manyfold-open/manyfold/pull/645) [`5f15d84`](https://github.com/manyfold-open/manyfold/commit/5f15d84e87180879814ebe1dad22f838a2a2e3a7) Thanks [@yingca1](https://github.com/yingca1)! - A deploy no longer kills the chat turns it hands off. When the shutdown drain ran out of time, the API handed each live turn off for the next instance to adopt, but that turn's own lease renewal, refused by the handoff, read as losing the turn to someone else: the turn was aborted, its sandbox process killed, and the stop recorded as the user's cancel. A refused renewal now ends the renewal only, and a turn is aborted only when its execution row has really moved to another owner, so the next instance adopts the turn and finishes it.
+
 ## 10.1.0
 
 ### Minor Changes
