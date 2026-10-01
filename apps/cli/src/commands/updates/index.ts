@@ -1,6 +1,7 @@
 import { Option, type Command } from 'commander'
 import { UPDATE_KINDS, buildUpdateRows, kindParamOf } from '@manyfold/shared'
 import { buildClient } from '@/client'
+import { refuseStrayWords } from '@/default-command'
 import { emit, jsonOption } from '@/output'
 import { resolveHttpTimeoutMs } from '@/transport'
 import {
@@ -63,6 +64,7 @@ export const registerUpdates = (
             .option('--where <name|id>', WHERE_HELP)
     )
     list.action(async (opts: ListOpts) => {
+        refuseStrayWords(list)
         const { client } = await buildClient(program.opts<GlobalOpts>())
         const { inputs, errors } = await loadUpdateCenter(client)
         const rows = filterUpdates(

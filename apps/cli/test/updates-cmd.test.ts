@@ -232,6 +232,21 @@ test('--kind keeps one kind and --where one place, by name or id', async () => {
     assert.match(String(bad.error), /Allowed choices are cli, herdr, framework, cli-usage, skill/)
 })
 
+test('a word that names no subcommand is refused, not run as list', async () => {
+    const typo = await runMf(['updates', 'lsit'], routes())
+    assert.ok(typo.error instanceof UsageError)
+    assert.equal(
+        typo.error.message,
+        "unknown command 'lsit': mf updates has list, apply and versions"
+    )
+    assert.equal(normalizeCliError(typo.error).exitCode, 5)
+    assert.deepEqual(typo.calls, [])
+
+    const bare = await runMf(['updates', '--kind', 'cli'], routes())
+    assert.equal(bare.error, undefined, String(bare.error))
+    assert.ok(bare.calls.length > 0)
+})
+
 test('--where refuses a name two places share and a name nothing has', async () => {
     const twins = await runMf(
         ['updates', '--where', 'twin'],
