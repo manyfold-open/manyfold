@@ -1538,6 +1538,7 @@ const ko: Record<string, string> = {
     'web.chat.error.runnerUnavailable': "에이전트의 컴퓨터를 사용할 수 없습니다. 다시 연결한 후 시도하세요.",
     'web.chat.error.runnerUpgradeRequired': "채팅을 계속하려면 에이전트 컴퓨터의 Manyfold CLI를 업데이트해야 합니다.",
     'web.chat.error.threadBusy': "이 대화는 터미널에서 열려 있으며, 한 번에 하나의 세션만 여기에 기록할 수 있습니다. 그쪽 TUI를 종료한 뒤 다시 보내세요.",
+    'web.chat.error.turnDurationExceeded': '에이전트가 이 메시지를 처리하다 시간 제한을 넘겨 중지되었습니다. 지금까지 생성된 내용은 유지됩니다. 계속하려면 후속 메시지를 보내세요.',
     "web.chat.error.updateKey": "키 업데이트",
     "web.chat.error.switchToPlatform": "플랫폼 크레딧으로 전환",
     "web.chat.error.switching": "전환 중…",

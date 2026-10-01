@@ -7,6 +7,7 @@ import {
     isDaemonOfflineTransportError
 } from '@/modules/chat/chat-adapter'
 import { SANDBOX_EXEC_UNAVAILABLE_CODE } from '@/modules/chat/sprite-exec-terminal'
+import { A2A_TURN_TIMEOUT_CODE } from '@/modules/chat/turn-abort-reason'
 import { UPSTREAM_RATE_LIMIT_SIGNATURE } from '@/modules/chat/upstream-rate-limit-signal'
 import {
     CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
@@ -41,6 +42,7 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     openclaw_stream_stall: 'inactivity_timeout',
     turn_max_duration: 'turn_duration_exceeded',
     openclaw_turn_timeout: 'turn_duration_exceeded',
+    [A2A_TURN_TIMEOUT_CODE]: 'turn_duration_exceeded',
     claude_resume_unsupported: 'unsupported_capability',
     codex_resume_unsupported: 'unsupported_capability',
     gemini_resume_unsupported: 'unsupported_capability',

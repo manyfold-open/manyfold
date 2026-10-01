@@ -96,6 +96,34 @@ test('classifies a codex thread held by another writer as thread_busy and keeps 
     assert.match(display.detail ?? '', /active writer/)
 })
 
+test('a turn stopped at a time limit gets the plain-language copy, whichever cap stopped it', () => {
+    for (const [code, message] of [
+        [
+            'a2a_turn_timeout',
+            'the A2A task that started this turn reached its 7200s detached cap, so the turn was stopped'
+        ],
+        [
+            'turn_max_duration',
+            'turn was still streaming after 7200s (max duration budget 7200s)'
+        ]
+    ] as const) {
+        const display = resolveChatErrorDisplay(
+            {
+                code,
+                message,
+                retryable: code === 'turn_max_duration',
+                cause: 'turn_duration_exceeded'
+            },
+            t
+        )
+        assert.deepEqual(display, {
+            kind: 'turn_duration_exceeded',
+            title: 'web.chat.error.turnDurationExceeded',
+            detail: message
+        })
+    }
+})
+
 test('the API balance cause wins over authentication words in the message', () => {
     const display = resolveChatErrorDisplay(
         {

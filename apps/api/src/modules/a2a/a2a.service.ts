@@ -57,6 +57,10 @@ import {
     SessionImportPendingError
 } from '@/modules/chat/chat.service'
 import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
+import {
+    A2A_TURN_TIMEOUT_CODE,
+    TurnAbortReason
+} from '@/modules/chat/turn-abort-reason'
 import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
 import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.service'
 import {
@@ -974,7 +978,14 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 .cancelMessage(
                     task.userId,
                     task.targetAgentId,
-                    sent.assistantMessageId
+                    sent.assistantMessageId,
+                    new TurnAbortReason(
+                        A2A_TURN_TIMEOUT_CODE,
+                        `the A2A task that started this turn reached its ${Math.round(
+                            timeoutMs / 1000
+                        )}s ${mode} cap, so the turn was stopped`,
+                        false
+                    )
                 )
                 .catch((err) =>
                     this.log.warn(

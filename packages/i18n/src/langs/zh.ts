@@ -2700,6 +2700,8 @@ const zh: Translations = {
                 runnerUpgradeRequired: 'Agent 所在计算机上的 Manyfold CLI 需要升级后才能继续聊天。',
                 threadBusy:
                     '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
+                turnDurationExceeded:
+                    'Agent 处理这条消息超过了时长上限，已被停止。已产出的内容会保留；发送一条后续消息即可继续。',
                 updateKey: '更新 key',
                 switchToPlatform: '改用平台额度',
                 switching: '切换中…',

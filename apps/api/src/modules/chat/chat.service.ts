@@ -210,6 +210,10 @@ import {
     type TurnBudgets
 } from '@/modules/chat/turn-budgets'
 import {
+    TurnAbortReason,
+    turnAbortErrorEvent
+} from '@/modules/chat/turn-abort-reason'
+import {
     createProcessLoadSampler,
     TURN_CONCURRENCY_GAUGE_MS,
     type ProcessLoadSampler,
@@ -1437,17 +1441,25 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // assistant turn rather than "the session's latest" — cancelStream resolves
     // latestInflightMessageId and would cancel the wrong turn when several tasks
     // share a context/session.
+    //
+    // `reason` is for a stop the platform makes (a cap), so the terminal says
+    // so instead of reading as the user's cancel. It only travels with a local
+    // abort: the peer NOTIFY and cancel_requested_at carry no reason, so a turn
+    // owned by another instance still ends cancelled_by_user. That is rare for
+    // the one caller with a reason, the A2A cap, whose timer runs in the
+    // process that dispatched the turn.
     async cancelMessage(
         userId: string,
         agentId: string,
-        assistantMessageId: string
+        assistantMessageId: string,
+        reason?: TurnAbortReason
     ): Promise<void> {
         const message = await this.repo.getMessageById(assistantMessageId)
         if (!message) return
         await this.assertSessionAccess(message.sessionId, userId, agentId)
         const controller = this.runningAdapters.get(assistantMessageId)
         if (controller) {
-            controller.abort()
+            controller.abort(reason)
             return
         }
         await this.requestCancelRemotely(assistantMessageId)
@@ -3792,7 +3804,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             let verdict: TurnRecoveryVerdict = await recoverTurnFromClaudeJsonl(
@@ -3956,7 +3968,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: CodexTurnVerdict = await recoverTurnFromCodexRollout(
@@ -4130,7 +4142,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }.bind(this)
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: GeminiTurnVerdict =
@@ -4333,7 +4345,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: PiTurnVerdict | AntigravityTurnVerdict = await args
@@ -5195,12 +5207,19 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // own retryable terminal HERE, ahead of the
                 // `abortSignal.aborted` fallthrough below, or the watchdog's
                 // own abort would make the turn read as cancelled_by_user.
-                // Every other rejection still propagates to the caller
-                // untouched — resume hands its exact generation back for a
-                // bounded retry, while adoption lets the lease lapse so a
-                // later sweep retries.
-                if (!(err instanceof TurnBudgetExceededError)) throw err
-                terminalError = turnBudgetErrorEvent(err)
+                // A platform stop (TurnAbortReason) is a terminal for the same
+                // reason: what it throws is its own abort tearing the transport
+                // down, and rethrown it would hand the turn back for a retry
+                // the platform just refused. Every other rejection still
+                // propagates to the caller untouched — resume hands its exact
+                // generation back for a bounded retry, while adoption lets the
+                // lease lapse so a later sweep retries.
+                const budgetErr =
+                    err instanceof TurnBudgetExceededError ? err : null
+                if (!budgetErr && !platformStopped(abortSignal)) throw err
+                terminalError = budgetErr
+                    ? turnBudgetErrorEvent(budgetErr)
+                    : abortTerminalEvent(abortSignal)
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
                     await emitEvent(
@@ -5212,7 +5231,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // Terminal first, abort second: that emit is what releases
                 // the inflight claim and closes turn_executions. The shared
                 // tail below then reports it through the normal funnel.
-                this.abortTimedOutTurn(assistantMessageId, err)
+                if (budgetErr)
+                    this.abortTimedOutTurn(assistantMessageId, budgetErr)
             }
             if (fenceLostByAbort(abortSignal)) fenceLost = true
             if (
@@ -5230,7 +5250,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // user cancel: the new owner aborts this carrier to take the
                 // turn, and this branch would otherwise read that abort as the
                 // user's and terminalize a turn that is still running.
-                terminalError = cancelledByUserEvent()
+                terminalError = abortTerminalEvent(abortSignal)
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
                     await emitEvent(
@@ -6161,7 +6181,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 !fenceLost &&
                 abortSignal.aborted
             ) {
-                const event = cancelledByUserEvent()
+                const event = abortTerminalEvent(abortSignal)
                 terminalError = event
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
@@ -6290,7 +6310,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             const event = budgetErr
                 ? turnBudgetErrorEvent(budgetErr)
                 : abortSignal.aborted
-                  ? cancelledByUserEvent()
+                  ? abortTerminalEvent(abortSignal)
                   : adapterExceptionEvent(err)
             const terminalContent = await prepareTerminalContent()
             const persisted = (
@@ -7036,6 +7056,16 @@ const cancelledByUserEvent = (): EmittedErrorEvent => ({
     }
 })
 
+const platformStopped = (signal: AbortSignal): boolean =>
+    signal.aborted && signal.reason instanceof TurnAbortReason
+
+// The terminal an aborted turn ends with: the platform's own stop when one
+// aborted it, the user's cancel otherwise.
+const abortTerminalEvent = (signal: AbortSignal): EmittedErrorEvent =>
+    signal.reason instanceof TurnAbortReason
+        ? turnAbortErrorEvent(signal.reason)
+        : cancelledByUserEvent()
+
 const interruptedErrorEvent = (): EmittedErrorEvent => ({
     type: 'error',
     error: {
@@ -7119,6 +7149,13 @@ const normalizeEventForAbort = (
     event: EmittedChatEvent,
     abortSignal: AbortSignal
 ): EmittedChatEvent => {
+    // First: the adapters report cancelled_by_user for any abort they see
+    // before dispatch, and the platform's reason has to win over that too.
+    if (
+        platformStopped(abortSignal) &&
+        (event.type === 'done' || event.type === 'error')
+    )
+        return abortTerminalEvent(abortSignal)
     if (event.type === 'error' && event.error.code === CANCELLED_BY_USER_CODE)
         return {
             type: 'error',

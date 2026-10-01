@@ -8,6 +8,7 @@ export type ChatErrorKind =
     | 'runner_unavailable'
     | 'runner_upgrade_required'
     | 'account_pool_empty'
+    | 'turn_duration_exceeded'
     | null
 
 export interface ChatErrorDisplay {
@@ -61,6 +62,13 @@ export const resolveChatErrorDisplay = (
         return {
             kind: 'thread_busy',
             title: t('web.chat.error.threadBusy'),
+            detail: message || null
+        }
+    }
+    if (error.cause === 'turn_duration_exceeded') {
+        return {
+            kind: 'turn_duration_exceeded',
+            title: t('web.chat.error.turnDurationExceeded'),
             detail: message || null
         }
     }

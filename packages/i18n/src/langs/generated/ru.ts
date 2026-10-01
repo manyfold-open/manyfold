@@ -1548,6 +1548,7 @@ const ru: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'Компьютер агента недоступен. Восстановите соединение и повторите попытку.',
     'web.chat.error.runnerUpgradeRequired': 'Для продолжения чата необходимо обновить Manyfold CLI на компьютере агента.',
     'web.chat.error.threadBusy': 'Эта беседа открыта в терминале, и записывать в неё может только одна сессия за раз. Выйдите там из TUI и отправьте снова.',
+    'web.chat.error.turnDurationExceeded': 'Агент превысил лимит времени на это сообщение и был остановлен. Всё, что он успел сделать, сохранено; отправьте следующее сообщение, чтобы продолжить.',
     'web.chat.error.updateKey': 'Обновить ключ',
     'web.chat.error.switchToPlatform': 'Переключиться на кредиты платформы',
     'web.chat.error.switching': 'Переключение…',

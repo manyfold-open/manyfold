@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { A2aService } from '../src/modules/a2a/a2a.service'
 import { A2aSelfController } from '../src/modules/a2a/a2a-self.controller'
 import type { A2aTaskRepository } from '../src/modules/a2a/a2a-task.repository'
+import {
+    A2A_TURN_TIMEOUT_CODE,
+    TurnAbortReason
+} from '../src/modules/chat/turn-abort-reason'
 
 // writeAudit is best-effort; a no-op insert keeps it from throwing.
 const dbFake = { insert: () => ({ values: async () => {} }) } as never
@@ -226,7 +230,10 @@ const settingsFake = (
 // A ChatService fake whose turn never finishes (observer never emits done),
 // with a cancelMessage recorder for the timeout-cancel assertion.
 const makeStuckChatFake = () => {
-    const state = { cancelled: false }
+    const state: { cancelled: boolean; reason: unknown } = {
+        cancelled: false,
+        reason: undefined
+    }
     return {
         state,
         fake: {
@@ -236,11 +243,20 @@ const makeStuckChatFake = () => {
                 userMessage: { id: 'um_1' },
                 assistantMessageId: 'am_1'
             }),
-            cancelMessage: async () => {
+            cancelMessage: async (...args: unknown[]) => {
                 state.cancelled = true
+                state.reason = args[3]
             }
         }
     }
+}
+
+// The cap's cancel names itself, so the chat turn does not read as the user's.
+const assertPlatformStop = (reason: unknown, cap: RegExp): void => {
+    assert.ok(reason instanceof TurnAbortReason)
+    assert.equal(reason.code, A2A_TURN_TIMEOUT_CODE)
+    assert.equal(reason.retryable, false)
+    assert.match(reason.message, cap)
 }
 
 test('blocking send fails with turn_timeout at the blocking cap and cancels the turn', async () => {
@@ -267,6 +283,7 @@ test('blocking send fails with turn_timeout at the blocking cap and cancels the 
     assert.equal(errorJson.code, 'turn_timeout')
     assert.match(errorJson.message, /blocking cap/)
     assert.equal(state.cancelled, true)
+    assertPlatformStop(state.reason, /blocking cap/)
     const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
     assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
     assert.equal(timeoutEvent.attrs.mode, 'blocking')
@@ -345,6 +362,7 @@ test('detached turn past the async cap fails with turn_timeout (detached cap)', 
     assert.equal(errorJson.code, 'turn_timeout')
     assert.match(errorJson.message, /detached cap/)
     assert.equal(state.cancelled, true)
+    assertPlatformStop(state.reason, /detached cap/)
     const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
     assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
     assert.equal(timeoutEvent.attrs.mode, 'detached')
