@@ -35,6 +35,7 @@ daemon. If you only want the client, install without setup and run `mf login`.
 | Agent-to-agent              | `mf a2a`                           | Inspect Agent Cards, call granted peers, and track A2A tasks.                                 |
 | Self-owned computer         | `mf daemon`                        | Register a machine, install autostart, check status/logs, and diagnose frameworks.            |
 | Profiles and environments   | `mf profile`                       | Inspect, select, and remove isolated CLI control-plane profiles.                              |
+| Updates                     | `mf updates`                       | List pending updates on computers, sandboxes, frameworks and skills, and the versions to install. |
 | CLI lifecycle and help      | `mf update`, `mf help`             | Check/install CLI updates and open human- or agent-oriented help.                             |
 
 Run `mf <command> --help` before a write or destructive operation to see the current arguments and flags. The CLI help is the exact reference for the installed version.

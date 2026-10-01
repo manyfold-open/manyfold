@@ -35,6 +35,7 @@ client，可在安装时跳过 setup，之后单独运行 `mf login`。
 | Agent-to-agent     | `mf a2a`                           | 查看 Agent Card、调用已授权 peer，并跟踪 A2A task。                                |
 | 自有计算机         | `mf daemon`                        | 注册机器、安装 autostart、查看状态/日志并诊断 framework。                          |
 | Profile 和环境     | `mf profile`                       | 查看、选择和删除隔离的 CLI control-plane profile。                                 |
+| 更新        | `mf updates`                      | 列出电脑、沙箱、framework 和 skill 上待装的更新，以及可装的版本。 |
 | CLI 生命周期和帮助 | `mf update`、`mf help`             | 检查/安装 CLI 更新，查看面向用户或 Agent 的帮助。                                  |
 
 执行写入或破坏性操作前先运行 `mf <command> --help`，查看当前版本准确的参数和 flag。已安装 CLI 的 help 是对应版本的精确参考。

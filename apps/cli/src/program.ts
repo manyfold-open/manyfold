@@ -22,6 +22,7 @@ import { registerDaemon } from '@/commands/daemon'
 import { registerDoctor } from '@/commands/doctor'
 import { registerSetup } from '@/commands/setup'
 import { registerUpdate } from '@/commands/update'
+import { registerUpdates } from '@/commands/updates'
 import { registerVersion } from '@/commands/version'
 import { configureHumanHelp } from '@/human-help'
 import { resolveProfile, setProfileFlag } from '@/config'
@@ -85,6 +86,7 @@ export const buildProgram = (): Command => {
     registerDaemon(program)
     registerProfile(program)
     registerUpdate(program)
+    registerUpdates(program)
     registerVersion(program)
     registerDoctor(program)
     registerHelp(program)
