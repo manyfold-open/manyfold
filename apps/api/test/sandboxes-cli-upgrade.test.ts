@@ -21,6 +21,8 @@ import { DaemonRpcResponseError } from '../src/modules/daemon/daemon-registry.se
 
 const OLD = '0.31.2-dev.202609091242.909c84a'
 const NEW = '0.33.1-dev.202609100748.ab03120'
+// When a deferring daemon applies the update at the latest.
+const DEADLINE = new Date('2026-09-30T15:28:58Z')
 
 // The sandbox held awake with its daemon reachable (ADR-0038): the session's
 // rpc routes by the host id; a daemon the API holds no socket to is refused.
@@ -56,6 +58,9 @@ const buildHarness = (opts: {
     ack?: Record<string, unknown>
     successorBack?: boolean
     latest?: string
+    cliVersion?: string
+    // a drain this instance already holds the sandbox for
+    drain?: { before: string; activeSessions: number; deadline: Date }
 }) => {
     const host = {
         id: 'sbx_1',
@@ -75,7 +80,7 @@ const buildHarness = (opts: {
     }
     const daemon = {
         hostId: 'sbx_1',
-        cliVersion: OLD,
+        cliVersion: opts.cliVersion ?? OLD,
         herdrVersion: null,
         startupMethod: opts.startupMethod ?? 'manual',
         clientFeatures: opts.features ?? [DAEMON_FEATURE_MANUAL_UPDATE],
@@ -94,15 +99,18 @@ const buildHarness = (opts: {
     // Drains handed to the background hold, and whether the request still
     // held the machine when it handed them over.
     const drains: Array<{ before: unknown; activeSessions: unknown; held: boolean }> = []
+    let drain = opts.drain ?? null
     const hostCli = {
         awaitSuccessor: async (_host: unknown, before: unknown, polls: unknown) => {
             waits.push({ before, polls, held: hold.held })
             return opts.successorBack === false ? null : { ...daemon, cliVersion: NEW }
         },
-        holdThroughDrain: async (_host: unknown, before: unknown, activeSessions: unknown) => {
+        holdThroughDrain: (_host: unknown, before: string, activeSessions: number) => {
             drains.push({ before, activeSessions, held: hold.held })
-            return null
-        }
+            drain = { before, activeSessions, deadline: DEADLINE }
+            return Promise.resolve(null)
+        },
+        deferredUpdate: () => drain
     }
     const svc = new SandboxesService(
         { getSandboxForUser: async () => view, getSandboxById: async () => view } as never,
@@ -160,9 +168,30 @@ test('an update the daemon deferred is answered now and held through the drain',
     const h = buildHarness({
         ack: { toVersion: null, restarting: false, deferred: true, activeSessions: 1 }
     })
-    await h.svc.upgradeCli('user_1', 'sbx_1')
+    const summary = await h.svc.upgradeCli('user_1', 'sbx_1')
     assert.deepEqual(h.waits, [], 'the request does not wait for the drain')
     assert.deepEqual(h.drains, [{ before: OLD, activeSessions: 1, held: true }])
+    assert.equal(summary.cliVersion, OLD)
+    assert.deepEqual(summary.cliUpdateDeferred, {
+        activeSessions: 1,
+        deadline: DEADLINE.toISOString()
+    })
+})
+
+// WHY: answered with the old version alone, a deferred update read as done
+// ("mf CLI upgraded to v<old>") and as finished in the Update Center.
+test('a sandbox shows its deferred update until the daemon reports another CLI', async () => {
+    const drain = { before: OLD, activeSessions: 2, deadline: DEADLINE }
+    const draining = buildHarness({ drain })
+    assert.deepEqual((await draining.svc.get('user_1', 'sbx_1')).cliUpdateDeferred, {
+        activeSessions: 2,
+        deadline: DEADLINE.toISOString()
+    })
+    const landed = buildHarness({ drain, cliVersion: NEW })
+    const summary = await landed.svc.get('user_1', 'sbx_1')
+    assert.equal('cliUpdateDeferred' in summary, false, 'the successor reported first')
+    const idle = await buildHarness({}).svc.get('user_1', 'sbx_1')
+    assert.equal('cliUpdateDeferred' in idle, false)
 })
 
 test('a deferred update that brings no other CLI is not held', async () => {

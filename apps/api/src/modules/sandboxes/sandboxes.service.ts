@@ -102,7 +102,8 @@ import { recordProbedEntries } from '@/modules/daemon/probed-inventory'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     HostCliService,
-    updatesItself
+    updatesItself,
+    type DeferredCliUpdate
 } from '@/modules/hosts/bring-up/host-cli.service'
 
 const DETECT_TIMEOUT_MS = 30_000
@@ -204,7 +205,8 @@ export class SandboxesService {
                 r,
                 latest,
                 activeSeconds.get(r.host.id) ?? 0,
-                latestHerdr
+                latestHerdr,
+                this.hostCli?.deferredUpdate(r.host.id) ?? null
             )
         )
     }
@@ -225,7 +227,8 @@ export class SandboxesService {
             r,
             latest,
             activeSeconds.get(r.host.id) ?? 0,
-            latestHerdr
+            latestHerdr,
+            this.hostCli?.deferredUpdate(r.host.id) ?? null
         )
     }
 
@@ -1276,10 +1279,20 @@ const toSandboxSummary = (
     view: SandboxHostView,
     latest: LatestCliVersion,
     activeSecondsThisPeriod: number,
-    latestHerdrVersion: string | null
+    latestHerdrVersion: string | null,
+    deferred: DeferredCliUpdate | null
 ): SandboxSummary => {
     const { host, daemon } = view
     const cliVersion = daemon?.cliVersion ?? null
+    // Still deferred only while the daemon reports the CLI it deferred on:
+    // the successor's version can land before the drain's next poll.
+    const cliUpdateDeferred =
+        deferred && cliVersion === deferred.before
+            ? {
+                  activeSessions: deferred.activeSessions,
+                  deadline: deferred.deadline.toISOString()
+              }
+            : undefined
     const herdrVersion = daemon?.herdrVersion ?? null
     // A sandbox with no daemon yet gets one on the current CLI, which starts
     // every herdr framework.
@@ -1310,6 +1323,7 @@ const toSandboxSummary = (
             cliVersion,
             latest.version
         ),
+        ...(cliUpdateDeferred ? { cliUpdateDeferred } : {}),
         herdrVersion,
         latestHerdrVersion,
         // An absent herdr is offered as an install to the latest.

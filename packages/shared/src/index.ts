@@ -207,6 +207,7 @@ export type {
     ChatSessionsChangedEvent,
     RuntimeServiceStatus,
     AgentRuntimeSummary,
+    CliUpdateDeferred,
     SandboxSummary,
     CliVersionCatalog,
     CliUpgradeBody,
