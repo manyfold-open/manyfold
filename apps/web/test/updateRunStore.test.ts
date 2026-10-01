@@ -565,6 +565,7 @@ test('deferred daemon upgrades remain pending until a heartbeat confirms the tar
                 ok: true,
                 deferred: true,
                 activeSessions: 2,
+                fromVersion: '3.0.0',
                 toVersion: '3.1.0'
             }
         }
@@ -573,7 +574,12 @@ test('deferred daemon upgrades remain pending until a heartbeat confirms the tar
     await waitFor(finished)
     assert.deepEqual(runOf('cli:daemon:dmn_1'), {
         state: 'deferred',
-        detail: { kind: 'deferred', activeSessions: 2, targetVersion: '3.1.0' }
+        detail: {
+            kind: 'deferred',
+            activeSessions: 2,
+            targetVersion: '3.1.0',
+            fromVersion: '3.0.0'
+        }
     })
     assert.equal(updateRunStore.getState().batch?.succeeded, 0)
     assert.equal(updateRunStore.getState().batch?.awaiting, 1)
@@ -586,6 +592,43 @@ test('deferred daemon upgrades remain pending until a heartbeat confirms the tar
     })
     assert.equal(runOf('cli:daemon:dmn_1')?.state, 'succeeded')
     assert.equal(updateRunStore.getState().batch?.succeeded, 1)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 0)
+})
+
+// WHY: the sandbox step used to count a deferred update as done, while the
+// sandbox still ran the old CLI until its sessions ended.
+test('a deferred sandbox CLI update waits for its sessions until the sandbox reports another CLI', async () => {
+    const { client } = fakeClient({
+        upgradeCli: async () => ({
+            id: 'sbx_1',
+            cliVersion: '3.0.0',
+            cliUpdateDeferred: {
+                activeSessions: 1,
+                deadline: '2026-09-30T15:28:58.000Z'
+            }
+        })
+    })
+    updateRunStore.start(client, [sandboxStep(1)], ['cli:sandbox:sbx_1'])
+    await waitFor(finished)
+    assert.deepEqual(runOf('cli:sandbox:sbx_1'), {
+        state: 'deferred',
+        detail: {
+            kind: 'deferred',
+            activeSessions: 1,
+            targetVersion: null,
+            fromVersion: '3.0.0'
+        }
+    })
+    assert.equal(updateRunStore.getState().batch?.succeeded, 0)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 1)
+    updateRunStore.reconcile({
+        sandboxes: [{ id: 'sbx_1', cliVersion: '3.0.0' }] as never
+    })
+    assert.equal(runOf('cli:sandbox:sbx_1')?.state, 'deferred')
+    updateRunStore.reconcile({
+        sandboxes: [{ id: 'sbx_1', cliVersion: '3.1.0' }] as never
+    })
+    assert.equal(runOf('cli:sandbox:sbx_1')?.state, 'succeeded')
     assert.equal(updateRunStore.getState().batch?.awaiting, 0)
 })
 

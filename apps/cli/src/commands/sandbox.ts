@@ -14,6 +14,7 @@ import { emit, fail, jsonOption } from '@/output'
 import { formatTable, type TableCell } from '@/table'
 import { assertSandboxStorageContract } from '@/storage-contract'
 import { resolveSandboxRef } from '@/commands/agent/create-source'
+import { duration, plural } from '@/commands/doctor/describe'
 import { UsageError } from '@/usage-error'
 
 const bytesLabel = (bytes: number | null): string => {
@@ -302,9 +303,17 @@ const runSandboxUpdate = async (
                 )
                 return
             }
-            if (opts.to || sandbox.cliUpdateAvailable) {
+            if (after.cliUpdateDeferred) {
+                const { activeSessions, deadline } = after.cliUpdateDeferred
+                const left = Math.max(0, Date.parse(deadline) - Date.now())
                 console.log(
-                    `${sandbox.name} takes the update once its current work finishes; mf sandbox list shows its version.`
+                    `${sandbox.name} takes the update once its ${plural(activeSessions, 'active session')} ${activeSessions === 1 ? 'finishes' : 'finish'}, within ${duration(left)} at the latest; mf sandbox list shows its version.`
+                )
+                return
+            }
+            if ((opts.to && opts.to !== from) || sandbox.cliUpdateAvailable) {
+                console.log(
+                    `${sandbox.name} has not reported the new Manyfold CLI yet; mf sandbox list shows its version once it does.`
                 )
                 return
             }

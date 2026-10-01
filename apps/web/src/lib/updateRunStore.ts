@@ -19,7 +19,13 @@ export type RunDetail =
     | { kind: 'phase'; phase: FrameworkUpgradeStep }
     | { kind: 'text'; text: string }
     | { kind: 'materializing'; revision: string | null; updatedAt: string }
-    | { kind: 'deferred'; activeSessions: number; targetVersion: string | null }
+    | {
+          kind: 'deferred'
+          activeSessions: number
+          targetVersion: string | null
+          // the CLI it deferred on: any other version reported means it landed
+          fromVersion: string | null
+      }
 
 export interface RowRun {
     state: RunState
@@ -159,13 +165,22 @@ const runSteps = async (
                         })
                         break
                     }
-                    case 'sandboxCli':
-                        await client.sandboxes.upgradeCli(
+                    case 'sandboxCli': {
+                        const updated = await client.sandboxes.upgradeCli(
                             step.hostId,
                             step.targetVersion ?? undefined
                         )
-                        succeed(ids)
+                        if (updated.cliUpdateDeferred)
+                            setRun(ids, 'deferred', {
+                                kind: 'deferred',
+                                activeSessions:
+                                    updated.cliUpdateDeferred.activeSessions,
+                                targetVersion: step.targetVersion ?? null,
+                                fromVersion: updated.cliVersion
+                            })
+                        else succeed(ids)
                         break
+                    }
                     case 'sandboxHerdr':
                         await client.sandboxes.upgradeHerdr(step.hostId)
                         succeed(ids)
@@ -234,7 +249,8 @@ const runSteps = async (
                             setRun(ids, 'deferred', {
                                 kind: 'deferred',
                                 activeSessions: response.activeSessions ?? 0,
-                                targetVersion: response.toVersion
+                                targetVersion: response.toVersion,
+                                fromVersion: response.fromVersion ?? null
                             })
                         else succeed(ids)
                         break
@@ -374,21 +390,41 @@ const batchCounts = (runs: Record<string, RowRun>, rowIds: string[]) => ({
     ).length
 })
 
+// A deferred CLI update has landed once the machine reports the version it
+// was asked for, or any CLI other than the one it deferred on.
+const deferredCliLanded = (
+    run: RowRun | undefined,
+    cliVersion: string | null
+): boolean => {
+    if (run?.state !== 'deferred' || run.detail?.kind !== 'deferred')
+        return false
+    const { targetVersion, fromVersion } = run.detail
+    return (
+        (targetVersion !== null && cliVersion === targetVersion) ||
+        (fromVersion !== null && cliVersion !== fromVersion)
+    )
+}
+
 const reconcile = (
-    inputs: Partial<Pick<UpdateCenterInputs, 'daemonHosts' | 'skillGroups'>>
+    inputs: Partial<
+        Pick<UpdateCenterInputs, 'daemonHosts' | 'sandboxes' | 'skillGroups'>
+    >
 ): void => {
     useUpdateRunState.setState((prev) => {
         const runs = { ...prev.runs }
         let changed = false
-        for (const host of inputs.daemonHosts ?? []) {
-            const id = `cli:daemon:${host.id}`
-            const run = runs[id]
-            if (
-                run?.state === 'deferred' &&
-                run.detail?.kind === 'deferred' &&
-                run.detail.targetVersion &&
-                host.cliVersion === run.detail.targetVersion
-            ) {
+        const cliHosts = [
+            ...(inputs.daemonHosts ?? []).map((host) => ({
+                id: `cli:daemon:${host.id}`,
+                cliVersion: host.cliVersion
+            })),
+            ...(inputs.sandboxes ?? []).map((sandbox) => ({
+                id: `cli:sandbox:${sandbox.id}`,
+                cliVersion: sandbox.cliVersion
+            }))
+        ]
+        for (const { id, cliVersion } of cliHosts) {
+            if (deferredCliLanded(runs[id], cliVersion)) {
                 runs[id] = { state: 'succeeded', detail: null }
                 changed = true
             }

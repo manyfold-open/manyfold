@@ -208,6 +208,49 @@ test('a version the catalog does not list is refused before anything is sent', a
     )
 })
 
+// WHY: the old message was a guess from an unchanged version; the API now
+// says when the daemon deferred, and for how many sessions.
+test('a deferred update says how many sessions it waits for', async () => {
+    const deadline = new Date(Date.now() + 9 * 60_000 + 30_000).toISOString()
+    const run = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 2, deadline } })
+    )
+    assert.equal(run.error, undefined, String(run.error))
+    assert.match(
+        run.out.join('\n'),
+        /sandbox-002 takes the update once its 2 active sessions finish, within 9m at the latest/
+    )
+    const one = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 1, deadline } })
+    )
+    assert.match(
+        one.out.join('\n'),
+        /sandbox-002 takes the update once its 1 active session finishes, within 9m/
+    )
+    const json = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--json'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 1, deadline } })
+    )
+    assert.deepEqual(JSON.parse(json.out.join('\n')).sandbox.cliUpdateDeferred, {
+        activeSessions: 1,
+        deadline
+    })
+})
+
+test('an update whose new CLI has not reported yet says so', async () => {
+    const run = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes(old)
+    )
+    assert.equal(run.error, undefined, String(run.error))
+    assert.match(
+        run.out.join('\n'),
+        /sandbox-002 has not reported the new Manyfold CLI yet/
+    )
+})
+
 test('a sandbox already on its channel latest is shown the newer builds', async () => {
     const run = await runMf(
         ['sandbox', 'update', 'sandbox-002'],
