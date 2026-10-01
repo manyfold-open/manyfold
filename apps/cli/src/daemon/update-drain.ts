@@ -1,3 +1,7 @@
+import {
+    DAEMON_UPDATE_DRAIN_TIMEOUT_MS,
+    DAEMON_UPDATE_IN_PROGRESS_ERROR
+} from '@manyfold/shared'
 import type { CliChannel } from '@/channel'
 import type { SelfUpdateResult } from '@/commands/update'
 
@@ -19,8 +23,9 @@ export type IdleUpdateOutcome =
 // the update, stops admitting new sessions, and applies once the last session
 // ends. The deadline bounds the wait: an idle-forever pty must not park the
 // daemon in a half-closed state indefinitely, so after it the update proceeds
-// even at the cost of the remaining sessions (the admin asked for it).
-export const DEFAULT_DRAIN_TIMEOUT_MS = 10 * 60_000
+// even at the cost of the remaining sessions (the admin asked for it). The API
+// holds a sandbox awake for the same window, so the drain can finish.
+const DEFAULT_DRAIN_TIMEOUT_MS = DAEMON_UPDATE_DRAIN_TIMEOUT_MS
 
 export const UPDATE_PENDING_ERROR =
     'daemon is applying an update and will restart shortly; retry in a moment'
@@ -45,7 +50,7 @@ export class UpdateDrainCoordinator {
     }
 
     async request(spec: DaemonUpdateSpec): Promise<UpdateRequestOutcome> {
-        if (this.applying) throw new Error('daemon update already in progress')
+        if (this.applying) throw new Error(DAEMON_UPDATE_IN_PROGRESS_ERROR)
         const active = this.deps.activeSessions()
         if (active === 0) {
             this.takePending()

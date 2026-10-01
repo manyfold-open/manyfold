@@ -15,6 +15,7 @@ import {
     DAEMON_FEATURE_HERDR_PI,
     DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_DETECTABLE_FRAMEWORKS,
+    DAEMON_UPDATE_IN_PROGRESS_ERROR,
     SANDBOX_PREINSTALLED_FRAMEWORKS,
     frameworkCapability,
     herdrFrameworksFor
@@ -529,6 +530,7 @@ export class SandboxesService {
         // version we actually list, and its channel comes from the version
         // string (so a dev build installs from the dev CDN).
         let channel: MfCliChannel
+        let latestVersion: string | null = null
         if (targetVersion) {
             if (!(await this.cliCatalog.isInstallableVersion(targetVersion)))
                 throw new BadRequestException(
@@ -536,7 +538,9 @@ export class SandboxesService {
                 )
             channel = cliChannelOfVersion(targetVersion)
         } else {
-            channel = (await this.cliVersion.getCachedLatest()).channel
+            const latest = await this.cliVersion.getCachedLatest()
+            channel = latest.channel
+            latestVersion = latest.version
         }
         return this.withSandboxDaemon(r, 'upgrade-cli', async (session) => {
             if (!updatesItself(session.daemon))
@@ -552,6 +556,10 @@ export class SandboxesService {
                     const payload: Record<string, unknown> = { channel }
                     if (targetVersion) payload.targetVersion = targetVersion
                     const before = session.daemon.cliVersion
+                    // A daemon whose machine slept under it while it applied
+                    // an earlier request still answers that it is applying:
+                    // it exits for its successor once it runs again.
+                    let applying = false
                     const ack = await session
                         .rpc({
                             method: 'daemon.update',
@@ -559,14 +567,23 @@ export class SandboxesService {
                             timeoutMs: DAEMON_UPDATE_RPC_TIMEOUT_MS
                         })
                         .catch((err: Error) => {
+                            if (err.message === DAEMON_UPDATE_IN_PROGRESS_ERROR) {
+                                applying = true
+                                return undefined
+                            }
                             throw new ServiceUnavailableException(
                                 `mf CLI upgrade failed: ${err.message}`
                             )
                         })
                     const toVersion =
                         typeof ack?.toVersion === 'string' ? ack.toVersion : null
+                    const deferred = ack?.deferred === true
+                    const activeSessions =
+                        typeof ack?.activeSessions === 'number'
+                            ? ack.activeSessions
+                            : 0
                     this.log.log(
-                        `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${ack?.deferred === true}`
+                        `sandbox cli upgrade via daemon.update host=${hostId} to=${toVersion ?? targetVersion ?? 'latest'} deferred=${deferred}${deferred ? ` activeSessions=${activeSessions}` : ''}${applying ? ' applying=true' : ''}`
                     )
                     // The daemon hands off to its successor and exits, which is
                     // no platform activity: released on the ack, the machine
@@ -574,7 +591,17 @@ export class SandboxesService {
                     // read the old CLI until its next wake. Seen on staging
                     // [2026-09-28]: daemon.log had the handoff while
                     // host_daemons kept the old version.
-                    if (ack?.restarting === true && this.hostCli) {
+                    const expectsNewCli = targetVersion
+                        ? targetVersion !== before
+                        : !latestVersion ||
+                          isCliUpdateAvailable(channel, before, latestVersion)
+                    if (deferred && expectsNewCli && this.hostCli)
+                        void this.hostCli.holdThroughDrain(
+                            host,
+                            before,
+                            activeSessions
+                        )
+                    else if ((ack?.restarting === true || applying) && this.hostCli) {
                         const back = await this.hostCli.awaitSuccessor(
                             host,
                             before,

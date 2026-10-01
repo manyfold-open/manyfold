@@ -661,6 +661,11 @@ export const DAEMON_FEATURE_FS_WRITE_BINARY = 'fs.write.binary'
 // them: the ack carries `deferred`/`activeSessions` and the daemon restarts
 // itself once drained. Daemons without this restart immediately.
 export const DAEMON_FEATURE_DAEMON_UPDATE_DRAIN = 'daemon.update.drain'
+// How long a deferred update waits for the daemon's sessions before it is
+// applied anyway; the API holds a sandbox awake for about this long.
+export const DAEMON_UPDATE_DRAIN_TIMEOUT_MS = 10 * 60_000
+// The daemon's answer to an update request while it is applying one.
+export const DAEMON_UPDATE_IN_PROGRESS_ERROR = 'daemon update already in progress'
 // The daemon accepts turn.start for the named framework (see
 // DaemonTurnStartPayload). `turn.openclaw` is the gateway-http shape, which
 // only gateway-transport frameworks send now (openclaw chat is ACP-only since

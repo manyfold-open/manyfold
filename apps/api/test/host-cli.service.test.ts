@@ -49,11 +49,23 @@ const offline = { rpcInstanceId: null, rpcConnectedAt: null }
 
 class InstantHostCli extends HostCliService {
     delays = 0
+    // Polls a deferred update's watcher gets before its window ends.
+    drainWindow = 4
 
+    // A macrotask, so a caller and a drain watcher polling at once take turns.
     protected override delay(): Promise<void> {
         this.delays++
-        return Promise.resolve()
+        return new Promise((resolve) => setImmediate(resolve))
     }
+
+    protected override drainPolls(): number {
+        return this.drainWindow
+    }
+}
+
+const settle = async (done: () => boolean): Promise<void> => {
+    for (let turn = 0; turn < 10_000 && !done(); turn++)
+        await new Promise((resolve) => setImmediate(resolve))
 }
 
 // The daemon's registration, as each re-read after the update finds it: the
@@ -94,6 +106,21 @@ const build = (
             return { exitCode: 0, stdout: 'mf-upgraded=4.6.0\n', stderr: '' }
         }
     }
+    // The machine's awake leases the drain takes.
+    const holds: string[] = []
+    let released = 0
+    const awake = {
+        hold: (_host: unknown, reason: string) => {
+            holds.push(reason)
+            return {
+                settled: Promise.resolve(true),
+                release: async () => {
+                    released++
+                },
+                detach: () => {}
+            }
+        }
+    }
     const cli = new InstantHostCli(
         daemonHosts as never,
         hostDaemons as never,
@@ -101,9 +128,10 @@ const build = (
         cliVersion as never,
         { isInstallableVersion: async () => true } as never,
         { providerForHost: async () => ({ id: 'rtp_k8s', kind: 'k8s' }) } as never,
-        { for: () => adapter } as never
+        { for: () => adapter } as never,
+        awake as never
     )
-    return { cli, upgrades, scripts }
+    return { cli, upgrades, scripts, holds, released: () => released }
 }
 
 test('a connected daemon its host restarts updates itself', async () => {
@@ -307,8 +335,12 @@ test('every feature a caller needs has to be there', async () => {
 // updates when that work ends or its own drain deadline passes. The caller is
 // told to retry soon instead of waiting minutes for a successor, and the update
 // is not asked for again while it drains: re-asking re-armed the deadline.
-test('a daemon that defers the update for its current work is left to drain', async () => {
+// WHY the hold: the drain, the download and the successor's start are no
+// platform activity, so a sprite let go suspends mid-way and the update waits
+// for its next wake.
+test('a daemon that defers the update for its current work is held while it drains', async () => {
     const rig = build({ registrations: [spriteDaemon()], deferred: true })
+    rig.cli.drainWindow = 60
     await assert.rejects(
         rig.cli.ensure(spriteHost(), { features: [DAEMON_FEATURE_EXEC_ROOTS] }),
         (err: { response?: { code?: string; message?: string } }) =>
@@ -316,16 +348,25 @@ test('a daemon that defers the update for its current work is left to drain', as
             /once its current work finishes/.test(err.response?.message ?? '')
     )
     assert.equal(rig.upgrades.length, 1)
-    assert.ok(rig.cli.delays < 10, 'the caller waits a moment, not minutes')
+    assert.deepEqual(rig.holds, ['cli-drain'])
+    assert.equal(rig.released(), 0, 'the machine stays held while it drains')
+    assert.deepEqual(
+        { ...rig.cli.deferredUpdate('sbx_1'), deadline: undefined },
+        { before: '3.0.1', activeSessions: 2, deadline: undefined }
+    )
     await assert.rejects(
         rig.cli.ensure(spriteHost(), { features: [DAEMON_FEATURE_EXEC_ROOTS] }),
         (err: { response?: { code?: string } }) =>
             err.response?.code === 'SANDBOX_DAEMON_UPDATING'
     )
     assert.equal(rig.upgrades.length, 1, 'no second request while it drains')
+    assert.deepEqual(rig.holds, ['cli-drain'], 'one hold for the one drain')
+    await settle(() => rig.released() > 0)
+    assert.equal(rig.released(), 1, 'the window ends and lets the machine go')
+    assert.equal(rig.cli.deferredUpdate('sbx_1'), null)
 })
 
-test('a drained daemon is used once its successor is back', async () => {
+test('a drained daemon is used once its successor is back, and the drain lets go', async () => {
     const back = spriteDaemon({
         cliVersion: '4.6.0',
         clientFeatures: [DAEMON_FEATURE_MANUAL_UPDATE, DAEMON_FEATURE_EXEC_ROOTS]
@@ -338,4 +379,20 @@ test('a drained daemon is used once its successor is back', async () => {
         features: [DAEMON_FEATURE_EXEC_ROOTS]
     })
     assert.equal(got, back)
+    await settle(() => rig.released() > 0)
+    assert.deepEqual(rig.holds, ['cli-drain'])
+    assert.equal(rig.released(), 1)
+    assert.equal(rig.cli.deferredUpdate('sbx_1'), null)
+})
+
+test('a second deferral on a draining host shares its one hold', async () => {
+    const rig = build({ registrations: [spriteDaemon()] })
+    rig.cli.drainWindow = 60
+    const first = rig.cli.holdThroughDrain(spriteHost(), '3.0.1', 1)
+    const second = rig.cli.holdThroughDrain(spriteHost(), '3.0.1', 3)
+    assert.equal(first, second, 'the second caller shares the running drain')
+    assert.deepEqual(rig.holds, ['cli-drain'])
+    assert.equal(rig.cli.deferredUpdate('sbx_1')?.activeSessions, 3)
+    assert.equal(await first, null, 'no successor within the window')
+    assert.equal(rig.released(), 1)
 })
