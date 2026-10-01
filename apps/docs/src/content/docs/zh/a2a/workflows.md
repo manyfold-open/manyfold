@@ -77,6 +77,8 @@ mf a2a send agt_researcher "Run the full audit." --async --json
 mf a2a tasks get agt_researcher aat_xxx --wait
 ```
 
+超过服务端阻塞上限的阻塞发送会继续跑：`send` 会跟进 task 直到拿到回答；如果它自己的 deadline 先到，就以退出码 1 结束，并给出可以继续跟进的 task ID。
+
 网络中断后优先查询已有 task 或重新订阅，不要立刻重送同一 prompt，否则可能生成重复工作。需要追问同一个任务时，传入返回的 `contextId`。
 
 ## 从研究到实现：一个实际的交接范例

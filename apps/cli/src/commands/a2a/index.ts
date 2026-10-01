@@ -55,16 +55,35 @@ interface TasksListOpts {
 
 const POLL_INTERVAL_MS = 3000
 
-const TERMINAL_STATES = new Set([
-    'completed',
-    'failed',
-    'canceled',
-    'rejected'
-])
+// States in which a task is still producing; anything else ends a wait, a
+// required-input prompt included.
+const RUNNING_STATES = new Set(['submitted', 'working', 'unknown'])
+const FAILED_STATES = new Set(['failed', 'canceled', 'rejected'])
 
 const guardOf = (opts: CommonOpts) => ({
     allowPrivate: opts.allowHttpLocalhost === true
 })
+
+const clientFor = (resolved: ResolvedTarget, opts: CommonOpts): A2aClient =>
+    new A2aClient({
+        endpointUrl: resolved.endpointUrl,
+        bearer: resolved.bearer,
+        ...guardOf(opts)
+    })
+
+// Why a task ended without its work done, or null when it did not.
+const failureReason = (task: Task): string | null => {
+    if (!FAILED_STATES.has(task.status.state)) return null
+    const said = task.status.message
+        ? partsToText(task.status.message.parts)
+        : ''
+    return said || `task ${task.status.state}`
+}
+
+// A command that waited for a task fails when the task did.
+const exitForState = (state: string | null): void => {
+    if (state && FAILED_STATES.has(state)) process.exitCode = 1
+}
 
 const resolveEndpoint = async (
     url: string,
@@ -175,12 +194,50 @@ const taskTable = (tasks: A2aTaskTraceItem[]): string[] =>
         ])
     )
 
+interface StreamSummary {
+    taskId: string | null
+    state: string | null
+    // A final status-update, a terminal task snapshot, or a direct message
+    // answer. A stream that ends without one ended before its task did: a
+    // Manyfold peer does that at its blocking cap and keeps the task running.
+    final: boolean
+    text: string
+    reason: string | null
+}
+
+// Prints progress as it arrives and returns what the stream amounted to; the
+// text itself is the caller's to print, since a stream that ended early is
+// not the answer yet.
 const renderStream = async (
     stream: AsyncIterable<A2aStreamEvent>,
     json: boolean
-): Promise<void> => {
+): Promise<StreamSummary> => {
     const output = new A2aTextAccumulator()
+    const summary: StreamSummary = {
+        taskId: null,
+        state: null,
+        final: false,
+        text: '',
+        reason: null
+    }
     for await (const event of stream) {
+        if (event.kind === 'message') summary.final = true
+        else if (event.kind === 'artifact-update') summary.taskId = event.taskId
+        else {
+            summary.taskId = event.kind === 'task' ? event.id : event.taskId
+            summary.state = event.status.state
+            if (
+                event.kind === 'task'
+                    ? !RUNNING_STATES.has(event.status.state)
+                    : event.final
+            )
+                summary.final = true
+            if (FAILED_STATES.has(event.status.state))
+                summary.reason =
+                    (event.status.message
+                        ? partsToText(event.status.message.parts)
+                        : '') || `task ${event.status.state}`
+        }
         if (json) {
             console.log(JSON.stringify(event))
             continue
@@ -193,8 +250,16 @@ const renderStream = async (
         else if (event.kind === 'task')
             console.error(kleur.dim(`task ${event.id} — ${event.status.state}`))
     }
-    // stdout may be a pipe: provisional text cannot be retracted there.
-    if (!json && output.text()) console.log(output.text())
+    summary.text = output.text()
+    return summary
+}
+
+// stdout may be a pipe: provisional text cannot be retracted there, so only a
+// stream's final text is printed, once.
+const printStreamed = (summary: StreamSummary, json: boolean): void => {
+    if (json) return
+    if (summary.text) console.log(summary.text)
+    if (summary.reason) console.error(kleur.red(summary.reason))
 }
 
 const renderTask = (task: Task, json?: boolean): void => {
@@ -204,6 +269,8 @@ const renderTask = (task: Task, json?: boolean): void => {
     }
     const text = artifactText(task)
     if (text) console.log(text)
+    const reason = failureReason(task)
+    if (reason) console.error(kleur.red(reason))
     console.error(kleur.dim(`task ${task.id} — ${task.status.state}`))
 }
 
@@ -258,6 +325,18 @@ const runSend = async (
     }
     const seconds = resolveTimeoutSeconds(opts.timeout)
     const deadline = createDeadline(seconds)
+    // The task being followed once the peer handed it over; a deadline that
+    // passes after that leaves a running task, not a call with no response.
+    let followingId: string | null = null
+    let lastSeen: Task | null = null
+    const announceFollow = (taskId: string): void => {
+        if (!opts.json)
+            console.error(
+                kleur.dim(
+                    `task ${taskId} is still running on the peer; following it`
+                )
+            )
+    }
     try {
         const resolved = await resolveTarget(
             program,
@@ -270,14 +349,30 @@ const runSend = async (
             fail(opts, resolved.error)
             return
         }
-        const client = new A2aClient({
-            endpointUrl: resolved.endpointUrl,
-            bearer: resolved.bearer,
-            ...guardOf(opts)
-        })
+        const client = clientFor(resolved, opts)
         const message = buildA2aMessage(prompt, opts)
+        const follow = async (taskId: string): Promise<Task | null> => {
+            followingId = taskId
+            announceFollow(taskId)
+            const task = await followTask(
+                program,
+                target,
+                opts,
+                resolved,
+                taskId,
+                deadline.signal,
+                (last) => {
+                    lastSeen = last
+                }
+            )
+            if ('error' in task) {
+                fail(opts, task.error)
+                return null
+            }
+            return task
+        }
         if (opts.stream) {
-            await renderStream(
+            const streamed = await renderStream(
                 client.sendStreamingMessage(
                     {
                         message,
@@ -289,9 +384,26 @@ const runSend = async (
             )
             if (deadline.timedOut())
                 throw new Error('A2A stream deadline exceeded')
+            if (!streamed.final && streamed.taskId) {
+                const task = await follow(streamed.taskId)
+                if (!task) return
+                // The polled task carries the whole answer; what streamed
+                // before the peer let go of the stream is only a prefix.
+                if (opts.json) console.log(JSON.stringify(task))
+                else {
+                    const text = artifactText(task)
+                    if (text) console.log(text)
+                    const reason = failureReason(task)
+                    if (reason) console.error(kleur.red(reason))
+                }
+                exitForState(task.status.state)
+                return
+            }
+            printStreamed(streamed, opts.json === true)
+            exitForState(streamed.state)
             return
         }
-        const result = await client.sendMessage(
+        let result = await client.sendMessage(
             {
                 message,
                 configuration: {
@@ -301,8 +413,20 @@ const runSend = async (
             },
             deadline.signal
         )
+        if (
+            !opts.async &&
+            result.kind === 'task' &&
+            RUNNING_STATES.has(result.status.state)
+        ) {
+            lastSeen = result
+            const task = await follow(result.id)
+            if (!task) return
+            result = task
+        }
         if (opts.json) {
             console.log(JSON.stringify(result, null, 2))
+            if (result.kind === 'task' && !opts.async)
+                exitForState(result.status.state)
             return
         }
         if (result.kind !== 'task') {
@@ -325,13 +449,30 @@ const runSend = async (
         }
         const text = artifactText(result)
         if (text) console.log(text)
+        const reason = failureReason(result)
+        if (reason) console.error(kleur.red(reason))
         console.error(
             kleur.dim(
                 `task ${result.id} · context ${result.contextId} — ${result.status.state}`
             )
         )
+        exitForState(result.status.state)
     } catch (err) {
         if (deadline.timedOut()) {
+            // Assigned from callbacks, so control flow cannot see it here.
+            const runningId = followingId as string | null
+            if (runningId) {
+                const seen = lastSeen as Task | null
+                if (opts.json && seen) console.log(JSON.stringify(seen, null, 2))
+                fail(
+                    opts,
+                    `timed out after ${seconds}s; task ${runningId} is still running on the peer`,
+                    {
+                        hint: `track: mf a2a tasks get ${target} ${runningId} --wait`
+                    }
+                )
+                return
+            }
             fail(opts, `timed out after ${seconds}s with no response`)
             return
         }
@@ -350,53 +491,71 @@ const isExpiring = (resolved: ResolvedTarget): boolean => {
     return Number.isFinite(at) && at - Date.now() < TICKET_REFRESH_MS
 }
 
+// Polls a task until it stops running (`tasks get --wait`, and `send` once the
+// peer hands a task over at its blocking cap). The signal is the caller's
+// deadline; `onPoll` sees every snapshot on the way.
+const followTask = async (
+    program: Command,
+    target: string,
+    opts: CommonOpts,
+    resolved: ResolvedTarget,
+    taskId: string,
+    signal: AbortSignal,
+    onPoll?: (task: Task) => void
+): Promise<Task | { error: unknown }> => {
+    let current = resolved
+    let client = clientFor(current, opts)
+    for (;;) {
+        // Re-mint a peer ticket about to expire so a long wait doesn't 401.
+        if (isExpiring(current)) {
+            const next = await resolveTarget(program, target, opts)
+            if ('error' in next) return next
+            current = next
+            client = clientFor(current, opts)
+        }
+        const task = await client.getTask({ id: taskId }, signal)
+        onPoll?.(task)
+        if (!RUNNING_STATES.has(task.status.state)) return task
+        await delay(POLL_INTERVAL_MS, signal)
+    }
+}
+
 const runTaskGet = async (
     program: Command,
     target: string,
     taskId: string,
     opts: TaskGetOpts
 ): Promise<void> => {
-    let resolved = await resolveTarget(program, target, opts)
+    const resolved = await resolveTarget(program, target, opts)
     if ('error' in resolved) {
         fail(opts, resolved.error)
         return
     }
-    const clientFor = (r: ResolvedTarget): A2aClient =>
-        new A2aClient({
-            endpointUrl: r.endpointUrl,
-            bearer: r.bearer,
-            ...guardOf(opts)
-        })
     if (!opts.wait) {
-        const task = await clientFor(resolved).getTask(
+        const task = await clientFor(resolved, opts).getTask(
             { id: taskId },
             new AbortController().signal
         )
         renderTask(task, opts.json)
         return
     }
-    let client = clientFor(resolved)
     const seconds = resolveTimeoutSeconds(opts.timeout)
     const deadline = createDeadline(seconds)
     try {
-        for (;;) {
-            // Re-mint a peer ticket about to expire so a long wait doesn't 401.
-            if (isExpiring(resolved)) {
-                const next = await resolveTarget(program, target, opts)
-                if ('error' in next) {
-                    fail(opts, next.error)
-                    return
-                }
-                resolved = next
-                client = clientFor(resolved)
-            }
-            const task = await client.getTask({ id: taskId }, deadline.signal)
-            if (TERMINAL_STATES.has(task.status.state)) {
-                renderTask(task, opts.json)
-                return
-            }
-            await delay(POLL_INTERVAL_MS, deadline.signal)
+        const task = await followTask(
+            program,
+            target,
+            opts,
+            resolved,
+            taskId,
+            deadline.signal
+        )
+        if ('error' in task) {
+            fail(opts, task.error)
+            return
         }
+        renderTask(task, opts.json)
+        exitForState(task.status.state)
     } catch (err) {
         if (deadline.timedOut()) {
             fail(
@@ -456,10 +615,12 @@ const runTaskSubscribe = async (
     })
     const controller = new AbortController()
     process.once('SIGINT', () => controller.abort())
-    await renderStream(
+    const streamed = await renderStream(
         client.resubscribe({ id: taskId }, controller.signal),
         opts.json === true
     )
+    printStreamed(streamed, opts.json === true)
+    exitForState(streamed.state)
 }
 
 const renderStatus = async (

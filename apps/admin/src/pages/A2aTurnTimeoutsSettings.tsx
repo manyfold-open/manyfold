@@ -57,12 +57,14 @@ const A2aTurnTimeoutsSettingsPage: FC<{ embedded?: boolean }> = ({
                     A2A turn timeouts
                 </Heading>
                 <p className='admin-page-description'>
-                    Server-side caps on delegated agent-to-agent turns. Blocking
-                    sends hold the caller&apos;s request open, so they get the
-                    short cap; async sends (blocking:false / mf a2a send
-                    --async) are polled later via tasks/get and get the longer
-                    cap. Past its cap a task fails with turn_timeout and the
-                    target turn is cancelled.
+                    Server-side caps on delegated agent-to-agent turns. The
+                    blocking cap bounds how long a blocking send holds the
+                    caller&apos;s request open: past it the caller gets the task
+                    back as working and the turn keeps running, the way an async
+                    send (blocking:false / mf a2a send --async) does, to be
+                    fetched via tasks/get. The async cap bounds the turn itself:
+                    past it the task fails with turn_timeout and the target turn
+                    is stopped.
                 </p>
             </div>
 
@@ -86,7 +88,7 @@ const A2aTurnTimeoutsSettingsPage: FC<{ embedded?: boolean }> = ({
                     <div className='space-y-2'>
                         <Input
                             id='blocking-timeout-seconds'
-                            label='Blocking turn cap (seconds)'
+                            label='Blocking send cap (seconds)'
                             type='number'
                             min={30}
                             value={String(draft.blockingTimeoutSeconds)}
@@ -104,7 +106,7 @@ const A2aTurnTimeoutsSettingsPage: FC<{ embedded?: boolean }> = ({
                             label='Async turn cap (seconds)'
                             type='number'
                             min={30}
-                            hint='Must be at least the blocking cap; async tasks keep running detached and are polled via tasks/get.'
+                            hint='Must be at least the blocking cap. Caps the whole turn, including a blocking send that ran past the blocking cap.'
                             value={String(draft.asyncTimeoutSeconds)}
                             onChange={(e) =>
                                 setDraft({

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
     A2aClient,
     A2aError,
+    A2aErrorCode,
     A2aTransportError,
     A2aTextAccumulator,
     fetchAgentCard,
@@ -10,6 +12,7 @@ import {
     type A2aStreamEvent,
     type Message,
     type Part,
+    type Task,
     type TextPart
 } from '@manyfold/a2a'
 import type { ChatMessage } from '@manyfold/shared'
@@ -43,6 +46,14 @@ interface A2aRemoteRef {
     agentCardUrl?: string
     selectedSkillId?: string
 }
+
+// Following a task whose stream ended first: the poll interval doubles from the
+// caller's up to this ceiling, so an hours-long task costs a few hundred
+// tasks/get calls, not thousands, against the remote account's quota.
+const DEFAULT_FOLLOW_POLL_MS = 3_000
+const FOLLOW_MAX_POLL_MS = 30_000
+const FOLLOW_POLL_TIMEOUT_MS = 30_000
+const FOLLOW_MAX_FAILED_POLLS = 5
 
 const resolveEndpoint = async (
     input: Pick<InvokeInput, 'config' | 'binding'>,
@@ -117,6 +128,7 @@ class A2aProvider implements ExternalProvider {
 
         let sentSessionRef = false
         let sentTaskId: string | null = null
+        let lastState: string | null = null
         const output = new A2aTextAccumulator()
         // Aborting the stream only stops delivery; the remote A2A task keeps
         // running. The protocol has first-class cancel (tasks/cancel), so a
@@ -176,6 +188,8 @@ class A2aProvider implements ExternalProvider {
                     else
                         yield { type: 'replace', text, reason: 'a2a_artifact_updated' }
                 }
+                if (event.kind === 'task' || event.kind === 'status-update')
+                    lastState = event.status.state
                 if (event.kind === 'task') {
                     if (isFailure(event.status.state)) {
                         yield errorEvent(
@@ -202,6 +216,13 @@ class A2aProvider implements ExternalProvider {
             // this point on its own lifetime, and the caller already knows the
             // terminal is cancelled_by_user.
             if (signal.aborted) return
+            // The stream ended before its task did. A Manyfold peer does that
+            // at its blocking cap and keeps the task running, so what streamed
+            // so far is not the answer: follow the task to its end.
+            if (sentTaskId && isStillRunning(lastState)) {
+                yield* this.follow(client, sentTaskId, output, signal, input)
+                return
+            }
             yield { type: 'done' }
         } catch (err) {
             if (signal.aborted) return
@@ -262,32 +283,102 @@ class A2aProvider implements ExternalProvider {
             endpointUrl,
             bearer: input.config.apiKey || undefined
         })
-        const task = await client.getTask({ id: taskId }, signal)
-        const state = task.status.state
-        // submitted/working are the only states that mean "come back later".
-        // `unknown` joins them rather than terminalizing: the spec uses it for
-        // a server that cannot answer yet, and the caller's budget bounds it.
-        if (state === 'submitted' || state === 'working' || state === 'unknown')
-            return { status: 'running' }
-        if (state === 'canceled') return { status: 'cancelled' }
-        if (isFailure(state))
-            return {
-                status: 'failed',
-                error: {
-                    code: `a2a_${state}`,
-                    message: task.status.message
-                        ? partsToText(task.status.message.parts)
-                        : `remote A2A task ${state}`,
-                    retryable: false
+        return outcomeOfTask(await client.getTask({ id: taskId }, signal))
+    }
+
+    // tasks/get until the task ends, then deliver what it produced. The
+    // stream's upstream-cancel bridge ended with the stream, so a cancel that
+    // lands now is forwarded from here.
+    private async *follow(
+        client: A2aClient,
+        taskId: string,
+        output: A2aTextAccumulator,
+        signal: AbortSignal,
+        input: InvokeInput
+    ): AsyncIterable<EmittedEvent> {
+        const forwardCancel = (): void => {
+            void client
+                .cancelTask({ id: taskId }, AbortSignal.timeout(10_000))
+                .catch((err: Error) => {
+                    input.logger?.warn(
+                        `a2a upstream cancel failed for task=${taskId}: ${err.message}`
+                    )
+                })
+        }
+        signal.addEventListener('abort', forwardCancel, { once: true })
+        let waitMs = input.followPollMs ?? DEFAULT_FOLLOW_POLL_MS
+        let failedPolls = 0
+        let answered = false
+        try {
+            for (;;) {
+                await delay(waitMs, undefined, { signal }).catch(() => undefined)
+                if (signal.aborted) return
+                waitMs = Math.min(waitMs * 2, FOLLOW_MAX_POLL_MS)
+                let task: Task
+                try {
+                    task = await client.getTask(
+                        { id: taskId },
+                        AbortSignal.any([
+                            signal,
+                            AbortSignal.timeout(FOLLOW_POLL_TIMEOUT_MS)
+                        ])
+                    )
+                } catch (err) {
+                    if (signal.aborted) return
+                    // A server that cannot be asked about its tasks: what it
+                    // streamed is all there will be.
+                    if (
+                        !answered &&
+                        err instanceof A2aError &&
+                        (err.code === A2aErrorCode.methodNotFound ||
+                            err.code === A2aErrorCode.taskNotFound)
+                    ) {
+                        yield { type: 'done' }
+                        return
+                    }
+                    if (++failedPolls < FOLLOW_MAX_FAILED_POLLS) continue
+                    yield {
+                        type: 'error',
+                        error: {
+                            code: 'a2a_stream_error',
+                            message: `following remote A2A task ${taskId} failed: ${(err as Error).message}`,
+                            retryable: true
+                        }
+                    }
+                    return
                 }
+                answered = true
+                failedPolls = 0
+                const outcome = outcomeOfTask(task)
+                if (outcome.status === 'running') continue
+                if (outcome.status === 'cancelled') {
+                    yield errorEvent('canceled')
+                    return
+                }
+                if (outcome.status === 'failed') {
+                    yield { type: 'error', error: outcome.error }
+                    return
+                }
+                const previous = output.text()
+                if (outcome.text !== previous) {
+                    if (outcome.text.startsWith(previous))
+                        yield {
+                            type: 'token',
+                            text: outcome.text.slice(previous.length)
+                        }
+                    else
+                        yield {
+                            type: 'replace',
+                            text: outcome.text,
+                            reason: 'a2a_artifact_updated'
+                        }
+                }
+                yield { type: 'done' }
+                return
             }
-        // completed / input-required / auth-required: the task stopped
-        // producing, so deliver what it produced. The live path treats the same
-        // non-failure final states as `done`.
-        const text =
-            new A2aTextAccumulator().apply(task) ||
-            (task.status.message ? partsToText(task.status.message.parts) : '')
-        return { status: 'completed', text }
+        } finally {
+            signal.removeEventListener('abort', forwardCancel)
+        }
     }
 
     async testConnection(
@@ -320,6 +411,41 @@ const taskIdOfEvent = (event: A2aStreamEvent): string | null =>
 
 const isFailure = (state: string): boolean =>
     state === 'failed' || state === 'rejected' || state === 'canceled'
+
+// null is a stream that named its task but never its state.
+const isStillRunning = (state: string | null): boolean =>
+    state === null ||
+    state === 'submitted' ||
+    state === 'working' ||
+    state === 'unknown'
+
+const outcomeOfTask = (task: Task): ConvergeOutcome => {
+    const state = task.status.state
+    // submitted/working are the only states that mean "come back later".
+    // `unknown` joins them rather than terminalizing: the spec uses it for
+    // a server that cannot answer yet, and the caller's budget bounds it.
+    if (state === 'submitted' || state === 'working' || state === 'unknown')
+        return { status: 'running' }
+    if (state === 'canceled') return { status: 'cancelled' }
+    if (isFailure(state))
+        return {
+            status: 'failed',
+            error: {
+                code: `a2a_${state}`,
+                message: task.status.message
+                    ? partsToText(task.status.message.parts)
+                    : `remote A2A task ${state}`,
+                retryable: false
+            }
+        }
+    // completed / input-required / auth-required: the task stopped
+    // producing, so deliver what it produced. The live path treats the same
+    // non-failure final states as `done`.
+    const text =
+        new A2aTextAccumulator().apply(task) ||
+        (task.status.message ? partsToText(task.status.message.parts) : '')
+    return { status: 'completed', text }
+}
 
 const errorEvent = (state: string, detail?: string): EmittedEvent => ({
     type: 'error',

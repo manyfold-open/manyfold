@@ -85,15 +85,18 @@ leaf command supports `--json`.
 
 ## Long tasks: submit async, fetch later
 
-A blocking `send` holds the call open until the peer finishes, and the
-hosted server caps a blocking turn short (default **10 minutes**). For a
-long task prefer `--async`: it returns a **task id** immediately, the work
-survives even if your sandbox sleeps while the peer runs, and the server
-applies its much longer async cap (default **2 hours**; operators can tune
-both caps). Async is **not unbounded**: past the cap the task fails with
-`turn_timeout` and the peer's turn is cancelled — whatever it produced by
-then is visible via `mf a2a tasks get`. Split work that may exceed the cap
-into smaller delegations.
+A blocking `send` holds the call open while the peer works, but the hosted
+server holds it only up to its blocking cap (default **10 minutes**). A turn
+still running then keeps running: the server hands the task back as
+`working`, and `send` follows it with `tasks get` until it finishes, within
+the same `--timeout`. If `--timeout` passes first, `send` exits 1 with the
+task id and the `mf a2a tasks get … --wait` command that keeps following it.
+For a task you expect to be long, prefer `--async`: it returns a **task id**
+immediately, the work survives even if your sandbox sleeps while the peer
+runs, and nothing waits on the call. Either way the task is **not
+unbounded**: past the async cap (default **2 hours**; operators can tune both
+caps) it fails with `turn_timeout` and the peer's turn is stopped. Split work
+that may exceed it into smaller delegations.
 
 ```sh
 id=$(mf a2a send <peer> "<long task>" --async)   # prints the task id to stdout
@@ -118,12 +121,10 @@ session with no memory of earlier calls.
 - `--json` — emit raw A2A `Task` / `Message` / stream-event JSON.
 - `--allow-http-localhost` — permit `http://` and localhost/private targets
   (local dev only; HTTPS public hosts only by default — SSRF guard).
-- `--timeout <seconds>` — client deadline for `send` and `tasks get --wait`
-  (`0` disables; default 900). The hosted server enforces its own per-turn
-  caps (blocking vs async, see "Long tasks"); this is the client-side
-  backstop so the CLI never hangs forever. The 900s default comfortably
-  covers the default 600s blocking cap — raise it if the operator raised
-  the blocking cap.
+- `--timeout <seconds>` — client deadline for `send` (including following a
+  task the server handed back `working`) and `tasks get --wait` (`0`
+  disables; default 900). It is the client-side backstop so the CLI never
+  hangs forever; the server's own caps still apply (see "Long tasks").
 - `send` also accepts `--context-id <id>`, `--task-id <id>`, `--skill <id>`,
   and `--input-file <path>`: the file goes as an A2A file part, and a
   Manyfold peer gets it in its workspace like a chat upload. The peer takes
@@ -163,6 +164,12 @@ stderr as `cli Error: …` and exit by kind like every `mf` command (2 network,
   (`mf a2a tasks list --state working`) and retry.
 - `-32001 Task not found` on `tasks get|cancel|subscribe` → the task id is
   unknown to that target or not visible to your credential.
+- `timed out after …s; task … is still running on the peer` (exit 1) → the
+  peer is still working; run the `track:` command it prints instead of
+  sending again, which would start the same work twice.
+- `delegated turn exceeded …s (detached cap)` (`turn_timeout`, exit 1) →
+  the task ran past the async cap and the peer's turn was stopped; split the
+  work into smaller delegations.
 - `takes no files` / `is not a type this agent accepts` on `--input-file`
   → that peer cannot read this file: put its content in the prompt, or
   send a type the chat composer takes. `has no type` → give the file its

@@ -29,7 +29,10 @@ const params = (messageId = 'm'): MessageSendParams => ({
     }
 })
 
-const harness = () => {
+// Fractional seconds give sub-second caps: the settings fake skips normalize.
+const harness = (
+    caps: { blockingTimeoutSeconds: number; asyncTimeoutSeconds: number } | null = null
+) => {
     const rows = new Map<string, A2aTask>()
     const entered = deferred()
     const dispatch = deferred()
@@ -135,7 +138,9 @@ const harness = () => {
         chat as never,
         tasks as never,
         undefined,
-        undefined,
+        (caps
+            ? { getCachedA2aTurnTimeoutsOverride: async () => caps }
+            : undefined) as never,
         undefined,
         broadcaster as never
     )
@@ -308,4 +313,77 @@ test('disconnecting resubscribe releases its subscription without canceling the 
     )
     h.finish()
     await sending
+})
+
+// ---- the blocking cap hands the turn over (2026-10-01) ----
+
+const HANDOVER_CAPS = { blockingTimeoutSeconds: 0.05, asyncTimeoutSeconds: 5 }
+
+test('a message/stream past the blocking cap ends on a non-final working, and the same turn completes the task', { timeout: 5000 }, async () => {
+    const h = harness(HANDOVER_CAPS)
+    const events: A2aStreamEvent[] = []
+    const sending = h.service.sendMessage(ctx, params(), (event) =>
+        events.push(event)
+    )
+    await h.entered.promise
+    h.dispatch.resolve()
+    const task = await sending
+    assert.equal(task.status.state, 'working')
+    const last = events.at(-1) as {
+        kind: string
+        final: boolean
+        status: { state: string }
+    }
+    assert.equal(last.kind, 'status-update')
+    assert.equal(last.final, false)
+    assert.equal(last.status.state, 'working')
+
+    const seen = events.length
+    h.finish()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(events.length, seen, 'nothing reaches the ended stream')
+    assert.equal(h.row().state, 'completed')
+    assert.deepEqual(h.row().artifactJson, {
+        artifactId: 'artifact-1',
+        parts: [{ kind: 'text', text: 'answer' }]
+    })
+    assert.equal(h.counts().cancels, 0)
+})
+
+test('resubscribe after a handover follows the turn to its terminal', { timeout: 5000 }, async () => {
+    const h = harness(HANDOVER_CAPS)
+    const sending = h.service.sendMessage(ctx, params())
+    await h.entered.promise
+    h.dispatch.resolve()
+    assert.equal((await sending).status.state, 'working')
+
+    const events: A2aStreamEvent[] = []
+    const streaming = h.service.resubscribe(ctx, h.row().id, (event) =>
+        events.push(event)
+    )
+    await h.subscribed.promise
+    h.stream({ type: 'token', messageId: 'assistant', text: 'answer' })
+    h.finish()
+    await streaming
+    const terminal = events.at(-1) as {
+        final: boolean
+        status: { state: string }
+    }
+    assert.equal(terminal.final, true)
+    assert.equal(terminal.status.state, 'completed')
+    assert.equal(h.row().state, 'completed')
+})
+
+test('tasks/cancel after a handover cancels the turn once and the task stays canceled', { timeout: 5000 }, async () => {
+    const h = harness(HANDOVER_CAPS)
+    const sending = h.service.sendMessage(ctx, params())
+    await h.entered.promise
+    h.dispatch.resolve()
+    assert.equal((await sending).status.state, 'working')
+
+    const canceled = await h.service.cancelTask(ctx, h.row().id)
+    assert.equal(canceled.status.state, 'canceled')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(h.counts().cancels, 1)
+    assert.equal(h.row().state, 'canceled')
 })
