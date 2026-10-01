@@ -1,12 +1,16 @@
 import { Option, type Command } from 'commander'
 import type { AgentFramework, UsageBucket } from '@manyfold/shared'
-import { resolveOptionalAgentId } from '@/agent-context'
+import {
+    resolveExplicitAgentId,
+    resolveOptionalAgentId
+} from '@/agent-context'
 import { buildClient } from '@/client'
 import { instantOption, limitOption } from '@/option-parsers'
 
 interface RootOpts {
     apiUrl?: string
     token?: string
+    account?: boolean
 }
 
 interface CommonOpts {
@@ -37,7 +41,9 @@ interface TopAgentsOpts {
 
 const buildQuery = (opts: CommonOpts, program: Command) => {
     const q: Record<string, string | undefined> = {}
-    const agentId = resolveOptionalAgentId(opts.agentId, program)
+    const agentId = program.opts<RootOpts>().account
+        ? resolveExplicitAgentId(opts.agentId, program)
+        : resolveOptionalAgentId(opts.agentId, program)
     if (opts.from) q.from = opts.from
     if (opts.to) q.to = opts.to
     if (opts.framework) q.framework = opts.framework

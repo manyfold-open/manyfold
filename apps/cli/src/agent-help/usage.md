@@ -10,11 +10,15 @@ summaries, and a cross-agent ranking. Everything here is read-only.
 
 {{CALLER_CONTEXT}}
 
-> Required **only for `--account`** (account-wide) usage (e.g. `top-agents`,
-> or any subcommand with `--account`). Your **own** agent's usage (the
-> default) needs no permission.
+> Your **own** agent's usage needs no permission. In an agent runtime,
+> `summary`, `timeseries`, `events` and `sessions` read the agent's own
+> usage. `mf --account usage …` reads the whole account instead, or the
+> agent `--agent-id` names, and needs `usage:read`. `top-agents` always
+> ranks the whole account: in a runtime it is
+> `mf --account usage top-agents`, with `usage:read`.
 
-- `usage:read` — account-wide usage (`--account`); own-agent usage is free.
+- `usage:read` — the account's usage and other agents' (`--account`); the
+  agent's own usage is free.
 
 For a scope denial, follow `mf help auth --agent` for the current identity.
 
@@ -48,9 +52,9 @@ mf usage top-agents --limit 10
 - A value none of these take (`--bucket month`, `--limit 0`,
   `--from yesterday`) is refused with exit `5` before anything is sent. A
   `--cursor` the API did not give answers `400`, also exit `5`.
-- With an agent-bound token the other subcommands default to the bound
-  agent when `--agent-id` is omitted; passing a different `--agent-id`
-  fails with `403` (`token bound to …, request targets …`).
+- Without `--account`, an agent's token reads only that agent: the other
+  subcommands default to it when `--agent-id` is omitted, and a different
+  `--agent-id` fails with `403` (`token bound to …, request targets …`).
 
 ## Output
 

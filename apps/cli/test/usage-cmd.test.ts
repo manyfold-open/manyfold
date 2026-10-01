@@ -72,3 +72,23 @@ test('good options reach the query as given', async () => {
     )
     assert.equal(hourly.calls[0]?.query.get('bucket'), 'hour')
 })
+
+test("--account reads past the runtime's own agent; a typed --agent-id still filters", async () => {
+    const runtime = { MF_AGENT_ID: 'agt_self' }
+    const agentOf = async (args: string[]): Promise<string | null> => {
+        const run = await runMf(args, routes(), runtime)
+        assert.equal(run.error, undefined, String(run.error))
+        return run.calls[0]?.query.get('agentId') ?? null
+    }
+    assert.equal(await agentOf(['usage', 'summary']), 'agt_self')
+    assert.equal(await agentOf(['--account', 'usage', 'summary']), null)
+    assert.equal(await agentOf(['--account', 'usage', 'sessions']), null)
+    assert.equal(
+        await agentOf(['--account', 'usage', 'summary', '--agent-id', 'agt_other']),
+        'agt_other'
+    )
+    assert.equal(
+        await agentOf(['--account', '--agent-id', 'agt_other', 'usage', 'events']),
+        'agt_other'
+    )
+})
