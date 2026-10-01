@@ -146,11 +146,14 @@ The command produces a consent URL for the user to approve. Never share or print
 mf doctor
 mf update --check
 mf update
+mf updates
 mf help
 ```
 
 - Run `mf doctor` first. It checks the install, every profile's sign-in and API, and the local daemons, and prints a fix for each problem it finds. It exits `1` when a check fails; `mf doctor --json` returns the same report for scripts.
 - Installed standalone binaries can self-update on macOS, Linux, and Windows. Downloads are SHA-256 verified and extracted in-process; no system `tar` or `unzip` command is required.
+- `mf update --check --json` reports the current and latest version for scripts. `mf update --to <version>` installs one version; `mf updates versions cli` lists them.
+- `mf updates` lists what is behind on your other machines, sandboxes, frameworks and skills, and `mf updates apply` updates them.
 - Use `mf <command> --help` when an option is rejected; commands can change between CLI versions.
 - Use `mf whoami` when authentication or account selection looks wrong.
 - Use `mf daemon doctor` for the raw local facts behind the daemon checks: detected frameworks, terminal support, autostart units and session hooks.

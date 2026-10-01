@@ -140,11 +140,14 @@ mf auth ensure --scopes channels:read,channels:edit
 mf doctor
 mf update --check
 mf update
+mf updates
 mf help
 ```
 
 - 先运行 `mf doctor`。它检查安装、每个 profile 的登录与 API，以及本机 daemon，并为发现的每个问题给出修复方法。有检查失败时退出码为 `1`；`mf doctor --json` 为脚本返回同一份报告。
 - 已安装的 standalone binary 可在 macOS、Linux 和 Windows 上自行更新。下载内容会经过 SHA-256 校验并由进程内置逻辑解压，不依赖系统 `tar` 或 `unzip` 命令。
+- `mf update --check --json` 给脚本报告当前版本和最新版本。`mf update --to <version>` 安装指定版本，`mf updates versions cli` 列出可装的版本。
+- `mf updates` 列出其他电脑、沙箱、framework 和 skill 上落后的版本，`mf updates apply` 执行更新。
 - 参数被拒绝时运行 `mf <command> --help`；不同 CLI 版本的命令可能变化。
 - 认证或账号不符合预期时运行 `mf whoami`。
 - `mf daemon doctor` 列出 daemon 检查背后的原始本地信息：检测到的 framework、终端支持、autostart unit 和 session hooks。

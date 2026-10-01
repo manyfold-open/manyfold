@@ -94,7 +94,6 @@ fi
 - `mf daemon register`
 - `mf daemon stop`
 - `mf setup`
-- `mf update`
 
 请用 `mf <command> --help` 确认已安装版本的能力。
 

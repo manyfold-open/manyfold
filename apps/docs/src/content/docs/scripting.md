@@ -99,7 +99,6 @@ process instead of JSON:
 - `mf daemon register`
 - `mf daemon stop`
 - `mf setup`
-- `mf update`
 
 Confirm the installed version with `mf <command> --help`.
 

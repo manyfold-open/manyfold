@@ -33,7 +33,7 @@ order: 12
 | [`mf a2a`](/zh/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
 | [`mf daemon`](/zh/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi / antigravity-cli) |
 | [`mf profile`](/zh/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |
-| [`mf update`](/zh/docs/cli/reference/update/) | Update the mf CLI to the latest version |
+| [`mf update`](/zh/docs/cli/reference/update/) | Update this machine's mf CLI to the latest version |
 | [`mf updates`](/zh/docs/cli/reference/updates/) | Pending updates on your computers, sandboxes, frameworks and skills, as in the web's Update Center |
 | [`mf version`](/zh/docs/cli/reference/version/) | Show the installed version, update channel and build metadata |
 | [`mf doctor`](/zh/docs/cli/reference/doctor/) | Diagnose this machine's mf setup: the install, every profile's sign-in and API, and local daemons |
