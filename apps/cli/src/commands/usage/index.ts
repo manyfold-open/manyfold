@@ -1,7 +1,8 @@
-import type { Command } from 'commander'
+import { Option, type Command } from 'commander'
 import type { AgentFramework, UsageBucket } from '@manyfold/shared'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
+import { instantOption, limitOption } from '@/option-parsers'
 
 interface RootOpts {
     apiUrl?: string
@@ -24,13 +25,13 @@ interface TimeseriesOpts extends CommonOpts {
 
 interface EventsOpts extends CommonOpts {
     cursor?: string
-    limit?: string
+    limit?: number
 }
 
 interface TopAgentsOpts {
     from?: string
     to?: string
-    limit?: string
+    limit?: number
     json?: boolean
 }
 
@@ -55,8 +56,8 @@ const buildQuery = (opts: CommonOpts, program: Command) => {
 
 const commonFilterOptions = (cmd: Command): Command =>
     cmd
-        .option('--from <iso>', 'inclusive start (ISO8601)')
-        .option('--to <iso>', 'exclusive end (ISO8601)')
+        .option('--from <iso>', 'inclusive start (ISO8601)', instantOption)
+        .option('--to <iso>', 'exclusive end (ISO8601)', instantOption)
         .option('--framework <name>', 'filter by framework')
         .option('--runtime-id <id>', 'filter by runtime')
         .option('--agent-id <id>', 'filter by agent')
@@ -80,17 +81,17 @@ export const registerUsage = (program: Command): void => {
     commonFilterOptions(
         cmd.command('timeseries').description('Bucketed usage time series')
     )
-        .option('--bucket <bucket>', 'hour | day (default: day)')
+        .addOption(
+            new Option('--bucket <bucket>', 'bucket size (default: day)').choices(
+                ['hour', 'day']
+            )
+        )
         .action(async (opts: TimeseriesOpts) => {
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
-            const bucket =
-                opts.bucket === 'hour' || opts.bucket === 'day'
-                    ? (opts.bucket as UsageBucket)
-                    : undefined
             const res = await client.usage.timeseries({
                 ...buildQuery(opts, program),
-                bucket
+                bucket: opts.bucket as UsageBucket | undefined
             })
             console.log(JSON.stringify(res, null, 2))
         })
@@ -99,15 +100,14 @@ export const registerUsage = (program: Command): void => {
         cmd.command('events').description('Paginated usage events')
     )
         .option('--cursor <cursor>', 'opaque cursor from previous page')
-        .option('--limit <n>', 'page size (1-200, default 50)')
+        .option('--limit <n>', 'page size (1-200, default 50)', limitOption(200))
         .action(async (opts: EventsOpts) => {
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
-            const limit = opts.limit ? Number(opts.limit) : undefined
             const res = await client.usage.events({
                 ...buildQuery(opts, program),
                 cursor: opts.cursor,
-                limit
+                limit: opts.limit
             })
             console.log(JSON.stringify(res, null, 2))
         })
@@ -123,18 +123,17 @@ export const registerUsage = (program: Command): void => {
 
     cmd.command('top-agents')
         .description('Rank agents by usage (cross-agent — denied for bound tokens)')
-        .option('--from <iso>', 'inclusive start')
-        .option('--to <iso>', 'exclusive end')
-        .option('--limit <n>', 'top N (default 10)')
+        .option('--from <iso>', 'inclusive start (ISO8601)', instantOption)
+        .option('--to <iso>', 'exclusive end (ISO8601)', instantOption)
+        .option('--limit <n>', 'top N (1-100, default 10)', limitOption(100))
         .option('--json', 'emit raw JSON (default)', true)
         .action(async (opts: TopAgentsOpts) => {
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
-            const limit = opts.limit ? Number(opts.limit) : undefined
             const res = await client.usage.topAgents({
                 from: opts.from,
                 to: opts.to,
-                limit
+                limit: opts.limit
             })
             console.log(JSON.stringify(res, null, 2))
         })

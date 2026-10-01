@@ -35,13 +35,19 @@ mf usage sessions --session-id <session-id>
 mf usage top-agents --limit 10
 ```
 
+- `--from` and `--to` take a date (`2026-10-01`) or a date and time
+  (`2026-10-01T09:00:00Z`, or with an offset such as `+01:00`); a time
+  without a zone is UTC.
 - `--bucket` (timeseries only) is `hour` or `day`; default `day`.
 - `--framework` takes a framework id such as `openclaw`, `hermes`,
   `claude-code`, `codex`, `gemini-cli`, `pi` or `antigravity-cli`.
 - `events --limit` is 1-200 (default 50); follow the returned
   `nextCursor` until it is `null`.
 - `top-agents` ranks across all the user's agents (`--from`, `--to`,
-  `--limit`, default 10); it is denied for agent-bound tokens.
+  `--limit` 1-100, default 10); it is denied for agent-bound tokens.
+- A value none of these take (`--bucket month`, `--limit 0`,
+  `--from yesterday`) is refused with exit `5` before anything is sent. A
+  `--cursor` the API did not give answers `400`, also exit `5`.
 - With an agent-bound token the other subcommands default to the bound
   agent when `--agent-id` is omitted; passing a different `--agent-id`
   fails with `403` (`token bound to …, request targets …`).
@@ -53,12 +59,13 @@ accepted but already the default — there is no table mode. `summary`
 returns token totals (`totalInputTokens`, `totalOutputTokens`, cache
 tokens), `totalCostUsd` (may be `null`), `eventCount`, and a `byModel`
 breakdown. `events` returns `items` plus `nextCursor`. Usage output
-contains no secrets. Errors print to stderr as `cli Error: …` and exit 1.
+contains no secrets. A failure prints `error: …` to stderr and exits with
+the code for its kind: `5` for a bad option or a `400`, `3` for a missing
+permission.
 
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
 {{AUTH_RECOVERY}}
 - `400 unknown framework: <name>` → use a framework value listed above
-- empty results → widen or drop `--from`/`--to`; an unparseable ISO
-  date is silently ignored (treated as no bound), not rejected
+- empty results → widen or drop `--from`/`--to`

@@ -57,7 +57,7 @@ Bucketed usage time series
 | `--agent-id <id>` | filter by agent |
 | `--session-id <id>` | filter by chat session |
 | `--json` | emit raw JSON (default) |
-| `--bucket <bucket>` | hour \| day (default: day) |
+| `--bucket <bucket>` | bucket size (default: day) One of: `hour`, `day`. |
 | `-h, --help` | display help for command |
 
 ## `mf usage events`
@@ -110,8 +110,8 @@ Rank agents by usage (cross-agent — denied for bound tokens)
 
 | Options | Purpose |
 | --- | --- |
-| `--from <iso>` | inclusive start |
-| `--to <iso>` | exclusive end |
-| `--limit <n>` | top N (default 10) |
+| `--from <iso>` | inclusive start (ISO8601) |
+| `--to <iso>` | exclusive end (ISO8601) |
+| `--limit <n>` | top N (1-100, default 10) |
 | `--json` | emit raw JSON (default) |
 | `-h, --help` | display help for command |
