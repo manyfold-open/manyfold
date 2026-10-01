@@ -16,8 +16,8 @@ import path from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
-const until = async (condition: () => boolean) => {
-    const end = Date.now() + 5000
+const until = async (condition: () => boolean, budgetMs = 5000) => {
+    const end = Date.now() + budgetMs
     while (!condition()) {
         if (Date.now() >= end)
             throw new Error('config commit fixture timed out')
@@ -79,10 +79,16 @@ const fixture = async (t: TestContext) => {
         const terminal = once(child, 'close')
         children.push(child)
         terminals.push(terminal)
+        // A peer starts by transforming the daemon sources with tsx, and its
+        // cache lives in TMPDIR, which is new for every test. Seen on the
+        // macos-15-intel ownership runner [2026-10-01]: a passing
+        // `admitted-but-uncommitted` took 2.4-6.2 s, nearly all of it this
+        // start, and 4 of the last 60 runs failed here at a 5 s budget.
         await until(
             () =>
                 events.some((event) => event.type === 'ready') ||
-                child.exitCode !== null
+                child.exitCode !== null,
+            15_000
         )
         assert.equal(child.exitCode, null, output)
         const request = (payload: Record<string, unknown>) => {
