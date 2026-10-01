@@ -27,6 +27,16 @@ export type IdleUpdateOutcome =
 // holds a sandbox awake for the same window, so the drain can finish.
 const DEFAULT_DRAIN_TIMEOUT_MS = DAEMON_UPDATE_DRAIN_TIMEOUT_MS
 
+// Nobody waits on a deferred update's RPC, so only the daemon sees it fail. A
+// failure the next attempt can get past (the manifest or the download timing
+// out) is tried again a little later, new sessions still refused in between;
+// the last failure gives the update up.
+// Seen on local [2026-10-01]: a deferred apply's manifest fetch hit its 10 s
+// timeout, the update was dropped and the API held the sandbox awake for the
+// rest of its drain window; asked again, the same update landed in seconds.
+const DEFERRED_APPLY_ATTEMPTS = 3
+const DEFAULT_RETRY_DELAY_MS = 15_000
+
 export const UPDATE_PENDING_ERROR =
     'daemon is applying an update and will restart shortly; retry in a moment'
 
@@ -36,12 +46,15 @@ export interface UpdateDrainDeps {
     restart: (result: SelfUpdateResult) => void
     log: (msg: string) => void
     drainTimeoutMs?: number
+    retryDelayMs?: number
 }
 
 export class UpdateDrainCoordinator {
     private pending: DaemonUpdateSpec | null = null
     private applying = false
     private deadlineTimer: NodeJS.Timeout | null = null
+    private retryTimer: NodeJS.Timeout | null = null
+    private failedAttempts = 0
 
     constructor(private readonly deps: UpdateDrainDeps) {}
 
@@ -51,6 +64,7 @@ export class UpdateDrainCoordinator {
 
     async request(spec: DaemonUpdateSpec): Promise<UpdateRequestOutcome> {
         if (this.applying) throw new Error(DAEMON_UPDATE_IN_PROGRESS_ERROR)
+        this.failedAttempts = 0
         const active = this.deps.activeSessions()
         if (active === 0) {
             this.takePending()
@@ -78,16 +92,12 @@ export class UpdateDrainCoordinator {
     }
 
     onSessionEnd(): void {
-        if (!this.pending || this.applying) return
+        if (!this.pending || this.applying || this.retryTimer) return
         if (this.deps.activeSessions() > 0) return
         const spec = this.takePending()
         if (!spec) return
         this.deps.log('all sessions ended; applying deferred update')
-        void this.apply(spec).catch((err) =>
-            this.deps.log(
-                `deferred update failed: ${(err as Error).message}`
-            )
-        )
+        this.applyDeferred(spec)
     }
 
     private armDeadline(): void {
@@ -99,14 +109,45 @@ export class UpdateDrainCoordinator {
             this.deps.log(
                 `update drain deadline reached with ${active} active session(s); applying update now`
             )
-            void this.apply(spec).catch((err) =>
-                this.deps.log(
-                    `deferred update failed: ${(err as Error).message}`
-                )
-            )
+            this.applyDeferred(spec)
         }, this.deps.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS)
         timer.unref?.()
         this.deadlineTimer = timer
+    }
+
+    private applyDeferred(spec: DaemonUpdateSpec): void {
+        void this.apply(spec).then(
+            () => {
+                this.failedAttempts = 0
+            },
+            (err) => {
+                const reason = (err as Error).message
+                this.failedAttempts += 1
+                if (this.failedAttempts >= DEFERRED_APPLY_ATTEMPTS) {
+                    this.failedAttempts = 0
+                    this.deps.log(`deferred update failed: ${reason}`)
+                    return
+                }
+                const delayMs =
+                    this.deps.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
+                this.deps.log(
+                    `deferred update failed: ${reason}; trying again in ${Math.round(delayMs / 1000)}s`
+                )
+                this.pending = spec
+                const timer = setTimeout(() => {
+                    this.retryTimer = null
+                    // A session that got in anyway is drained like any other.
+                    if (this.deps.activeSessions() > 0) {
+                        if (!this.deadlineTimer) this.armDeadline()
+                        return
+                    }
+                    const next = this.takePending()
+                    if (next) this.applyDeferred(next)
+                }, delayMs)
+                timer.unref?.()
+                this.retryTimer = timer
+            }
+        )
     }
 
     private takePending(): DaemonUpdateSpec | null {
@@ -115,6 +156,10 @@ export class UpdateDrainCoordinator {
         if (this.deadlineTimer) {
             clearTimeout(this.deadlineTimer)
             this.deadlineTimer = null
+        }
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer)
+            this.retryTimer = null
         }
         return spec
     }
