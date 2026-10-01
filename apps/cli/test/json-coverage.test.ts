@@ -18,7 +18,6 @@ const JSON_EXEMPT = new Set<string>([
     'daemon register', // interactive daemon enrolment
     'daemon stop', // progressive teardown output (json deferred, see B3)
     'setup', // interactive onboarding (browser login + init-unit install)
-    'update', // interactive self-update (json deferred)
     'agent chat' // interactive terminal chat; agent send --json is the scriptable form
 ])
 

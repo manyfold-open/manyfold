@@ -17,6 +17,7 @@ import {
 import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
+import { limitOption } from '@/option-parsers'
 import { emit, printJson } from '@/output'
 import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
@@ -58,7 +59,7 @@ interface CatalogOpts {
     category?: string
     sort?: string
     cursor?: string
-    limit?: string
+    limit?: number
     json?: boolean
 }
 
@@ -610,7 +611,7 @@ export const registerMcp = (program: Command): void => {
         .option('--category <id>', 'only this category')
         .option('--sort <order>', "'featured' (default) or 'latest'")
         .option('--cursor <cursor>', 'opaque cursor from the previous page')
-        .option('--limit <n>', 'page size (1-100, default 100)')
+        .option('--limit <n>', 'page size (1-100, default 100)', limitOption(100))
         .option('--json', 'emit raw JSON', false)
     catalogList.action(
         withUsage(catalogList, async (opts: CatalogOpts) => {
@@ -627,7 +628,7 @@ export const registerMcp = (program: Command): void => {
                 category: opts.category,
                 sort: opts.sort as CatalogSort | undefined,
                 cursor: opts.cursor,
-                limit: opts.limit ? Number(opts.limit) : 100
+                limit: opts.limit ?? 100
             })
             if (opts.json) {
                 printJson(page)

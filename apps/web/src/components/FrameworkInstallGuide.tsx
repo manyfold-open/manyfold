@@ -1,64 +1,10 @@
+import { FRAMEWORK_INSTALL_GUIDES } from '@manyfold/shared'
 import type { VersionedFramework } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
 import ProductDialog from '@/components/ProductDialog'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
-
-// Per-framework install/upgrade guidance for self-owned (daemon) hosts — we
-// never install CLIs on a user's own machine, so we show the command + official
-// docs and let the daemon detect it on PATH. Most are npm; hermes and agy ship
-// their own install script + `<bin> update`.
-const FRAMEWORK_INSTALL_GUIDE: Partial<
-    Record<
-        VersionedFramework,
-        { bin: string; install: string; upgrade: string; docs: string }
-    >
-> = {
-    'claude-code': {
-        bin: 'claude',
-        install: 'npm install -g @anthropic-ai/claude-code',
-        upgrade: 'npm install -g @anthropic-ai/claude-code@latest',
-        docs: 'https://docs.anthropic.com/en/docs/claude-code/setup'
-    },
-    codex: {
-        bin: 'codex',
-        install: 'npm install -g @openai/codex',
-        upgrade: 'npm install -g @openai/codex@latest',
-        docs: 'https://github.com/openai/codex'
-    },
-    'gemini-cli': {
-        bin: 'gemini',
-        install: 'npm install -g @google/gemini-cli',
-        upgrade: 'npm install -g @google/gemini-cli@latest',
-        docs: 'https://github.com/google-gemini/gemini-cli'
-    },
-    pi: {
-        bin: 'pi',
-        install: 'npm install -g @earendil-works/pi-coding-agent',
-        upgrade: 'npm install -g @earendil-works/pi-coding-agent@latest',
-        docs: 'https://pi.dev'
-    },
-    'antigravity-cli': {
-        bin: 'agy',
-        install: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
-        upgrade: 'agy update',
-        docs: 'https://antigravity.google/docs/cli/install/'
-    },
-    openclaw: {
-        bin: 'openclaw',
-        install: 'npm install -g openclaw',
-        upgrade: 'npm install -g openclaw@latest',
-        docs: 'https://github.com/openclaw/openclaw'
-    },
-    hermes: {
-        bin: 'hermes',
-        install:
-            'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash',
-        upgrade: 'hermes update',
-        docs: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation'
-    }
-}
 
 // "弹出引导官网" popup for daemon hosts: shows the install/upgrade command + a
 // link to the official docs. The daemon detects the CLI automatically once it
@@ -70,7 +16,7 @@ const FrameworkInstallGuide: FC<{
     onClose: () => void
 }> = ({ framework, mode, hostName, onClose }): ReactNode => {
     const { t } = useI18n()
-    const guide = FRAMEWORK_INSTALL_GUIDE[framework]
+    const guide = FRAMEWORK_INSTALL_GUIDES[framework]
     const [copied, setCopied] = useState(false)
     if (!guide) return null
     const cmd = mode === 'upgrade' ? guide.upgrade : guide.install

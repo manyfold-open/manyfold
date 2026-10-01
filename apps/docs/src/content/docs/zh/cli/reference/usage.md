@@ -37,7 +37,7 @@ Aggregate usage in a window
 | `--runtime-id <id>` | filter by runtime |
 | `--agent-id <id>` | filter by agent |
 | `--session-id <id>` | filter by chat session |
-| `--json` | emit raw JSON (default) |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
 ## `mf usage timeseries`
@@ -56,8 +56,8 @@ Bucketed usage time series
 | `--runtime-id <id>` | filter by runtime |
 | `--agent-id <id>` | filter by agent |
 | `--session-id <id>` | filter by chat session |
-| `--json` | emit raw JSON (default) |
-| `--bucket <bucket>` | hour \| day (default: day) |
+| `--json` | output the result as JSON |
+| `--bucket <bucket>` | bucket size (default: day) 可选值: `hour`, `day`. |
 | `-h, --help` | display help for command |
 
 ## `mf usage events`
@@ -76,7 +76,7 @@ Paginated usage events
 | `--runtime-id <id>` | filter by runtime |
 | `--agent-id <id>` | filter by agent |
 | `--session-id <id>` | filter by chat session |
-| `--json` | emit raw JSON (default) |
+| `--json` | output the result as JSON |
 | `--cursor <cursor>` | opaque cursor from previous page |
 | `--limit <n>` | page size (1-200, default 50) |
 | `-h, --help` | display help for command |
@@ -97,7 +97,7 @@ Per-session usage summaries
 | `--runtime-id <id>` | filter by runtime |
 | `--agent-id <id>` | filter by agent |
 | `--session-id <id>` | filter by chat session |
-| `--json` | emit raw JSON (default) |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
 ## `mf usage top-agents`
@@ -110,8 +110,8 @@ Rank agents by usage (cross-agent — denied for bound tokens)
 
 | Option | 用途 |
 | --- | --- |
-| `--from <iso>` | inclusive start |
-| `--to <iso>` | exclusive end |
-| `--limit <n>` | top N (default 10) |
-| `--json` | emit raw JSON (default) |
+| `--from <iso>` | inclusive start (ISO8601) |
+| `--to <iso>` | exclusive end (ISO8601) |
+| `--limit <n>` | top N (1-100, default 10) |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |

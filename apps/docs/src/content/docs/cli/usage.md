@@ -3,8 +3,9 @@ title: Query usage with the CLI
 description: Read token and cost summaries, time series, events, sessions, and top agents.
 order: 10
 ---
-`mf usage` reads token and cost records. Its data commands emit JSON by
-default, making them suitable for reporting and monitoring.
+`mf usage` reads token and cost records. Each command prints a table; add
+`--json` for reporting and monitoring, which prints the records as JSON.
+`mf usage` on its own runs `mf usage summary`.
 
 ## Summary and time series
 

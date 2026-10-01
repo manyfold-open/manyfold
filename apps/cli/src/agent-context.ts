@@ -20,6 +20,22 @@ export const resolveOptionalAgentId = (
     return trimmed ? trimmed : undefined
 }
 
+// Only an --agent-id typed on this command line. Under --account the
+// runtime's own agent, which the root option defaults to from $MF_AGENT_ID,
+// must not narrow the request back to that agent.
+export const resolveExplicitAgentId = (
+    localAgentId: string | undefined,
+    program: Command
+): string | undefined => {
+    const typed =
+        localAgentId ??
+        (program.getOptionValueSource('agentId') === 'cli'
+            ? program.opts<{ agentId?: string }>().agentId
+            : undefined)
+    const trimmed = typed?.trim()
+    return trimmed ? trimmed : undefined
+}
+
 export const resolveAgentId = (
     localAgentId: string | undefined,
     program: Command

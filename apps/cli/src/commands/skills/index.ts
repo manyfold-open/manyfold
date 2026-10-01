@@ -7,6 +7,7 @@ import type { LibrarySkillImportConflict } from '@manyfold/shared'
 import { ApiError, type NcaClient } from '@manyfold/sdk'
 import { resolveOptionalAgentId } from '@/agent-context'
 import { buildClient } from '@/client'
+import { limitOption } from '@/option-parsers'
 import { emit, fail, printJson } from '@/output'
 import { formatTable, type TableCell } from '@/table'
 import { UsageError } from '@/usage-error'
@@ -35,7 +36,7 @@ interface DiscoverOpts {
     repoId?: string
     sort?: string
     cursor?: string
-    limit?: string
+    limit?: number
     json?: boolean
 }
 
@@ -377,7 +378,7 @@ export const registerSkills = (program: Command): void => {
         .option('--repo-id <id>', 'filter to a specific repo')
         .option('--sort <order>', "'featured' (default) or 'latest'")
         .option('--cursor <cursor>', 'opaque cursor from previous page')
-        .option('--limit <n>', 'page size (1-100, default 100)')
+        .option('--limit <n>', 'page size (1-100, default 100)', limitOption(100))
         .option('--json', 'emit raw JSON', false)
         .action(async (opts: DiscoverOpts) => {
             const global = program.opts<RootOpts>()
@@ -399,7 +400,7 @@ export const registerSkills = (program: Command): void => {
                 repoId: opts.repoId,
                 sort,
                 cursor: opts.cursor,
-                limit: opts.limit ? Number(opts.limit) : 100
+                limit: opts.limit ?? 100
             })
             if (opts.json) {
                 console.log(JSON.stringify(page, null, 2))

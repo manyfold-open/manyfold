@@ -68,6 +68,20 @@ const causeCode = (error: unknown): string | undefined => {
     return undefined
 }
 
+// A fetch that failed without a code is still a network failure when a
+// command wrapped it to say what it was fetching.
+const failedFetchInChain = (error: unknown): boolean => {
+    let current = error
+    const seen = new Set<unknown>()
+    while (current instanceof Error && !seen.has(current)) {
+        seen.add(current)
+        if (current instanceof TypeError && current.message === 'fetch failed')
+            return true
+        current = current.cause
+    }
+    return false
+}
+
 const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
     if (!(error instanceof Error)) return undefined
     if (error.name === 'AbortError' || error.name === 'TimeoutError')
@@ -101,8 +115,7 @@ const networkErrorCode = (error: unknown): NetworkErrorCode | undefined => {
         code === 'ConnectionClosed'
     )
         return 'network_offline'
-    if (error instanceof TypeError && error.message === 'fetch failed')
-        return 'network_offline'
+    if (failedFetchInChain(error)) return 'network_offline'
     return undefined
 }
 
@@ -230,6 +243,9 @@ const apiErrorHint = (error: ApiError): string | undefined => {
     const byCode = codeHint(error.code)
     if (byCode) return byCode(recordOf(error.details))
     const status = error.status
+    // A valid token of the wrong kind: signing in again changes nothing.
+    if (status === 401 && /requires api\.full token/.test(error.serverMessage ?? ''))
+        return 'This needs a login session (mf login) or a full-access token; a scoped token, or an agent\'s own, cannot read it.'
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
     if (status === 403)
         return 'Check that this token has the required scope and resource access.'

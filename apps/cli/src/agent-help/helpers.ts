@@ -17,6 +17,7 @@ export const AGENT_HELP_TOPICS = [
     'connections',
     'runtime',
     'sandbox',
+    'updates',
     'agent',
     'backups',
     'usage',
@@ -44,6 +45,8 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     runtime: 'runtime lifecycle, control UI, dashboard',
     sandbox:
         'list, update and delete sandboxes; storage readings and attribution',
+    updates:
+        'pending updates on computers, sandboxes, frameworks and skills, and the versions to install',
     agent: 'create (model source, sandbox reuse), list, update, send and chat (talk to an agent), delete, credentials',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',
@@ -61,7 +64,8 @@ const TOPIC_ALIASES: Record<string, AgentHelpTopic> = {
     agents: 'agent',
     'agent-runtimes': 'runtime',
     backup: 'backups',
-    'model-provider': 'model-providers'
+    'model-provider': 'model-providers',
+    'update-center': 'updates'
 }
 
 const isAgentHelpTopic = (value: string): value is AgentHelpTopic =>

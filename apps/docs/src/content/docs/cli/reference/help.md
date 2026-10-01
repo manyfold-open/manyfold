@@ -1,7 +1,7 @@
 ---
 title: "mf help"
 description: "display help for a command; --agent prints the agent operations guide"
-order: 24
+order: 25
 ---
 **Usage:** `mf help [options] [topic...]`
 

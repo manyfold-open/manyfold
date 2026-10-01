@@ -15,8 +15,21 @@ const sandbox = (
         ...over
     }) as SandboxSummary
 
-const busy = sandbox({ id: 'sbx_busy', name: 'busy', agentsCount: 2 })
-const idle = sandbox({ id: 'sbx_idle', name: 'idle' })
+const busy = sandbox({
+    id: 'sbx_busy',
+    name: 'busy',
+    agentsCount: 2,
+    cliVersion: '4.8.0',
+    latestCliVersion: '4.9.0',
+    cliUpdateAvailable: true
+})
+const idle = sandbox({
+    id: 'sbx_idle',
+    name: 'idle',
+    cliVersion: '4.9.0',
+    latestCliVersion: '4.9.0',
+    cliUpdateAvailable: false
+})
 const broken = sandbox({
     id: 'sbx_broken',
     name: 'broken',
@@ -54,14 +67,19 @@ test('sandbox list shows what runs on each sandbox and how many the plan include
     const human = await runMf(['sandbox', 'list'], listRoutes)
     assert.equal(human.error, undefined, String(human.error))
     const text = human.out.join('\n')
-    assert.match(text, /^ID +NAME +STATE +AGENTS +FRAMEWORKS +CREATED$/m)
+    assert.match(text, /^ID +NAME +STATE +AGENTS +FRAMEWORKS +CLI +CREATED$/m)
     assert.match(
         text,
-        /sbx_busy +\S*busy\S* +ready, suspended +2 +claude-code, codex/
+        /sbx_busy +\S*busy\S* +ready, suspended +2 +claude-code, codex +\S*4\.8\.0 → 4\.9\.0\S* +\S*2026-09-28/
     )
     assert.match(
         text,
-        /sbx_idle +\S*idle\S* +ready, suspended +0 +nothing installed/
+        /sbx_idle +\S*idle\S* +ready, suspended +0 +nothing installed +4\.9\.0 +\S*2026-09-28/
+    )
+    assert.match(text, /sbx_broken +\S*broken\S* +failed.* +— +\S*2026-09-28/)
+    assert.match(
+        text,
+        /mf sandbox update <sandbox> updates one; mf updates apply --kind cli updates them all\./
     )
     assert.match(text, /2 of 3 sandboxes in use \(Free plan\)/)
     assert.match(

@@ -1,4 +1,8 @@
 import { ApiError, type NcaClient } from '@manyfold/sdk'
+import {
+    DAEMON_UPGRADES_PER_WINDOW,
+    DAEMON_UPGRADE_WINDOW_MS
+} from '@manyfold/shared'
 import type { FrameworkUpgradeStep } from '@manyfold/shared'
 import { create } from 'zustand'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -47,15 +51,6 @@ export interface UpdateRunState {
     runs: Record<string, RowRun>
     batch: UpdateBatch | null
 }
-
-// The server allows 5 daemon upgrades per 60s per actor and does not forward a
-// retry hint: the rate limiter puts `retryAfter` at the top level of the body,
-// where the global exception filter (which only passes through code, message
-// and details) drops it, and the Retry-After header is emitted only for the
-// differently-named `retryAfterSec`. So the queue paces itself to the same
-// window rather than reading a number that never arrives.
-const DAEMON_UPGRADES_PER_WINDOW = 5
-const DAEMON_RATE_WINDOW_MS = 62_000
 
 interface Timers {
     now: () => number
@@ -204,7 +199,7 @@ const runSteps = async (
                     case 'daemonCli': {
                         if (daemonsThisWindow >= DAEMON_UPGRADES_PER_WINDOW) {
                             const wait =
-                                DAEMON_RATE_WINDOW_MS -
+                                DAEMON_UPGRADE_WINDOW_MS -
                                 (timers.now() - windowStartedAt)
                             if (wait > 0) {
                                 setRun(ids, 'running', { kind: 'waiting' })
@@ -236,7 +231,7 @@ const runSteps = async (
                             )
                                 throw err
                             setRun(ids, 'running', { kind: 'waiting' })
-                            await timers.sleep(DAEMON_RATE_WINDOW_MS)
+                            await timers.sleep(DAEMON_UPGRADE_WINDOW_MS)
                             if (stale()) return
                             daemonsThisWindow = 1
                             windowStartedAt = timers.now()

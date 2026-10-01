@@ -15,6 +15,7 @@ export const buildClient = async (opts: {
     apiUrl?: string
     token?: string
     account?: boolean
+    timeoutMs?: number
 }): Promise<{ client: NcaClient; ctx: ClientContext }> => {
     const stored = await loadConfig()
     const apiUrl = opts.apiUrl ?? stored.apiUrl ?? DEFAULT_API_URL
@@ -26,7 +27,8 @@ export const buildClient = async (opts: {
     const client = createCliClient({
         baseUrl: apiUrl,
         token,
-        accountScope: opts.account
+        accountScope: opts.account,
+        timeoutMs: opts.timeoutMs
     })
     return { client, ctx: { apiUrl, token } }
 }
