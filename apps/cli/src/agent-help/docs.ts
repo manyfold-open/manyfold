@@ -14,6 +14,7 @@ import mcp from './mcp.md'
 import connections from './connections.md'
 import runtime from './runtime.md'
 import sandbox from './sandbox.md'
+import updates from './updates.md'
 import agent from './agent.md'
 import backups from './backups.md'
 import usage from './usage.md'
@@ -35,6 +36,7 @@ export const agentHelpDocs: Record<AgentHelpTopic, string> = {
     connections,
     runtime,
     sandbox,
+    updates,
     agent,
     backups,
     usage,

@@ -1,6 +1,6 @@
 ---
 title: "mf update"
-description: "Update the mf CLI to the latest version"
+description: "Update this machine's mf CLI to the latest version"
 order: 21
 ---
 **用法:** `mf update [options]`
@@ -14,4 +14,5 @@ order: 21
 | `--force` | reinstall even when already on the target version |
 | `--check` | show available update without installing |
 | `--yes` | skip the confirmation prompt |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |

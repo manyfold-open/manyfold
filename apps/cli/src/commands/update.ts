@@ -2,7 +2,6 @@ import { mkdir, chmod, writeFile, rm, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { createInterface } from 'node:readline/promises'
 import { cliChannelOfVersion, compareCliSemver } from '@manyfold/shared'
 import type { Command } from 'commander'
 import kleur from 'kleur'
@@ -20,6 +19,7 @@ import { daemonPaths } from '@/daemon/config'
 import {
     fetchReleaseManifest,
     manifestArtifact,
+    ReleaseManifestHttpError,
     type ReleaseManifest
 } from '@/release-manifest'
 import {
@@ -28,6 +28,9 @@ import {
     resolveUpdateTarget
 } from '@/self-update'
 import { isBunStandalone } from '@/standalone'
+import { emit, fail, jsonOption } from '@/output'
+import { promptYesNo } from '@/prompt'
+import { UsageError } from '@/usage-error'
 import { keepPreviousBinary, precheckBinary } from '@/daemon/manual-update'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 
@@ -37,6 +40,7 @@ interface UpdateOptions {
     check?: boolean
     to?: string
     channel?: string
+    json?: boolean
 }
 
 const downloadAndHash = async (
@@ -48,16 +52,6 @@ const downloadAndHash = async (
     const data = Buffer.from(await res.arrayBuffer())
     const hash = createHash('sha256').update(data).digest('hex')
     return { data, hash }
-}
-
-const promptYesNo = async (q: string): Promise<boolean> => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-    try {
-        const ans = (await rl.question(q)).trim().toLowerCase()
-        return ans === '' || ans.startsWith('y')
-    } finally {
-        rl.close()
-    }
 }
 
 export type UpdateStatus = 'up-to-date' | 'update' | 'ahead'
@@ -219,213 +213,354 @@ export const performSelfUpdate = async (opts: {
     }
 }
 
-export const registerUpdate = (program: Command): void => {
-    program
-        .command('update')
-        .description('Update the mf CLI to the latest version')
-        .option('--to <version>', 'install a specific version (e.g. 0.1.0)')
-        .option(
-            '--channel <channel>',
-            'update channel: dev or stable (remembers your choice)'
+// Why this binary cannot update itself; the hint says what to do instead.
+export class UpdateUnavailableError extends Error {
+    constructor(
+        message: string,
+        readonly hint?: string
+    ) {
+        super(message)
+        this.name = 'UpdateUnavailableError'
+    }
+}
+
+const VERSION_RE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
+// A failure the sink files by its cause: a network one exits 2 and keeps
+// these words, which name the host that could not be reached.
+const failure = (message: string, err: unknown): Error => {
+    const cause = err as Error | undefined
+    const wrapped = new Error(`${message}: ${cause?.message ?? String(err)}`, {
+        cause: err
+    })
+    if (cause?.name === 'AbortError' || cause?.name === 'TimeoutError')
+        wrapped.name = 'TimeoutError'
+    return wrapped
+}
+
+export interface SelfUpdateDeps {
+    standalone: () => boolean
+    resolveTarget: () => unknown
+    fetchManifest: (url: string) => Promise<ReleaseManifest>
+    loadChannelPref: () => Promise<CliChannel | null>
+    saveChannelPref: (channel: CliChannel) => Promise<void>
+    interactive: () => boolean
+    confirm: (question: string) => Promise<boolean>
+    install: (opts: {
+        manifest: ReleaseManifest
+        channel: CliChannel
+        force?: boolean
+        onProgress: (msg: string) => void
+    }) => Promise<SelfUpdateResult>
+    reportedVersion: (execPath: string) => string | null
+    daemonPid: () => Promise<number | null>
+    current: { version: string; commit: string | null; channel: CliChannel }
+}
+
+export const defaultSelfUpdateDeps = (): SelfUpdateDeps => ({
+    standalone: isBunStandalone,
+    resolveTarget: resolveUpdateTarget,
+    fetchManifest: (url) => fetchReleaseManifest(url),
+    loadChannelPref: loadUpdateChannelPref,
+    saveChannelPref: saveUpdateChannelPref,
+    interactive: () => Boolean(process.stdin.isTTY),
+    confirm: promptYesNo,
+    install: (opts) => performSelfUpdate(opts),
+    reportedVersion: (execPath) =>
+        spawnSync(execPath, ['--version'], {
+            encoding: 'utf8',
+            timeout: 5000
+        }).stdout?.trim() || null,
+    daemonPid: runningDaemonPid,
+    current: {
+        version: MF_CLI_VERSION,
+        commit: MF_CLI_COMMIT || null,
+        channel: CLI_CHANNEL
+    }
+})
+
+export type SelfUpdateOutcome =
+    | {
+          action: 'check'
+          status: UpdateStatus
+          channel: CliChannel
+          current: string
+          latest: string
+      }
+    | { action: 'none'; channel: CliChannel; current: string }
+    | { action: 'cancelled' }
+    | {
+          action: 'installed'
+          channel: CliChannel
+          from: string
+          to: string
+          commit: string | null
+          execPath: string
+          reportedVersion: string | null
+          daemonPid: number | null
+      }
+
+// What `mf update` does, with every side effect behind `deps`. The channel
+// preference is written only once the target resolved and nobody declined.
+export const runSelfUpdate = async (
+    opts: UpdateOptions,
+    deps: SelfUpdateDeps,
+    say: (line: string) => void
+): Promise<SelfUpdateOutcome> => {
+    if (!deps.standalone())
+        throw new UpdateUnavailableError(
+            'update only works on installed mf binaries',
+            'In dev mode, rebuild via `pnpm build` instead.'
         )
-        .option('--force', 'reinstall even when already on the target version')
-        .option('--check', 'show available update without installing')
-        .option('--yes', 'skip the confirmation prompt')
-        .action(async (opts: UpdateOptions) => {
-            if (!isBunStandalone()) {
-                console.error(
-                    kleur.red('update only works on installed mf binaries.')
-                )
-                console.error(
-                    kleur.dim(
-                        '  In dev mode, rebuild via `pnpm build` instead.'
-                    )
-                )
-                process.exit(1)
-                return
-            }
+    deps.resolveTarget()
+    if (opts.to !== undefined && !VERSION_RE.test(opts.to.trim()))
+        throw new UsageError(
+            '--to takes a version such as 5.8.0; mf updates versions cli lists them'
+        )
+    let flagChannel: CliChannel | null = null
+    try {
+        flagChannel = opts.channel
+            ? normalizeUpdateChannelFlag(opts.channel)
+            : null
+    } catch (err) {
+        throw new UsageError((err as Error).message)
+    }
+    if (flagChannel && opts.to && cliChannelOfVersion(opts.to) !== flagChannel)
+        throw new UsageError(
+            `--to ${opts.to} is a ${cliChannelOfVersion(opts.to)} build but --channel is ${flagChannel}`
+        )
+    const channel = resolveEffectiveUpdateChannel({
+        flagChannel,
+        savedPref: await deps.loadChannelPref(),
+        toVersion: opts.to,
+        baked: deps.current.channel
+    })
 
-            try {
-                resolveUpdateTarget()
-            } catch (err) {
-                console.error(kleur.red((err as Error).message))
-                process.exit(1)
-                return
-            }
-
-            let channel: CliChannel
-            try {
-                const flagChannel = opts.channel
-                    ? normalizeUpdateChannelFlag(opts.channel)
-                    : null
-                if (
-                    flagChannel &&
-                    opts.to &&
-                    cliChannelOfVersion(opts.to) !== flagChannel
-                )
-                    throw new Error(
-                        `--to ${opts.to} is a ${cliChannelOfVersion(opts.to)} build but --channel is ${flagChannel}`
-                    )
-                channel = resolveEffectiveUpdateChannel({
-                    flagChannel,
-                    savedPref: await loadUpdateChannelPref(),
-                    toVersion: opts.to,
-                    baked: CLI_CHANNEL
-                })
-                if (flagChannel && !opts.check) {
-                    await saveUpdateChannelPref(flagChannel)
-                    console.log(
-                        kleur.dim(`pinned update channel to ${flagChannel}`)
-                    )
-                }
-            } catch (err) {
-                console.error(kleur.red((err as Error).message))
-                process.exit(1)
-                return
-            }
-
-            const current = MF_CLI_VERSION
-            let manifest: ReleaseManifest
-            try {
-                manifest = await fetchReleaseManifest(
-                    opts.to
-                        ? versionManifestUrl(opts.to)
-                        : channelManifestUrl(channel)
-                )
-            } catch (err) {
-                console.error(
-                    kleur.red('failed to resolve the target release:'),
-                    (err as Error).message
-                )
-                process.exit(1)
-                return
-            }
-            const targetVersion = manifest.version
-
-            if (opts.check) {
-                const status = resolveUpdateStatus({
-                    channel,
-                    currentVersion: current,
-                    currentCommit: MF_CLI_COMMIT || null,
-                    targetVersion,
-                    targetCommit: manifest.commit
-                })
-                const suffix =
-                    channel === CLI_CHANNEL ? '' : kleur.dim(` [${channel}]`)
-                if (status === 'up-to-date') {
-                    console.log(
-                        `${kleur.green('✓')} up to date (${kleur.cyan(current)})${suffix}`
-                    )
-                } else if (status === 'update') {
-                    console.log(
-                        `${kleur.yellow('↑')} update available: ${kleur.dim(current)} → ${kleur.cyan(targetVersion)}${suffix}`
-                    )
-                } else {
-                    console.log(
-                        `${kleur.dim('current')} ${kleur.cyan(current)} ${kleur.dim('is ahead of latest')} ${kleur.cyan(targetVersion)}${suffix}`
-                    )
-                }
-                return
-            }
-
-            if (
-                resolveUpdateStatus({
-                    channel,
-                    currentVersion: current,
-                    currentCommit: MF_CLI_COMMIT || null,
-                    targetVersion,
-                    targetCommit: manifest.commit
-                }) === 'up-to-date' &&
-                !opts.force
-            ) {
-                console.log(
-                    `${kleur.green('✓')} already on ${kleur.cyan(current)} ${kleur.dim('(use --force to reinstall)')}`
-                )
-                return
-            }
-
-            if (!opts.yes) {
-                if (!process.stdin.isTTY) {
-                    console.error(
-                        kleur.red(
-                            'non-interactive shell; pass --yes to skip the confirmation prompt'
-                        )
-                    )
-                    process.exit(1)
-                    return
-                }
-                const channelNote =
-                    channel === CLI_CHANNEL
-                        ? ''
-                        : kleur.dim(` on the ${channel} channel`)
-                const verb =
-                    current === targetVersion
-                        ? `Reinstall ${kleur.cyan(current)}${channelNote}?`
-                        : `Update ${kleur.dim(current)} → ${kleur.cyan(targetVersion)}${channelNote}?`
-                const ok = await promptYesNo(`${verb} [Y/n] `)
-                if (!ok) {
-                    console.log(kleur.dim('cancelled.'))
-                    return
-                }
-            }
-
-            let result: SelfUpdateResult
-            try {
-                result = await performSelfUpdate({
-                    manifest,
-                    channel,
-                    force: opts.force,
-                    onProgress: (msg) => console.log(kleur.dim(msg))
-                })
-            } catch (err) {
-                console.error(
-                    kleur.red('update failed:'),
-                    (err as Error).message
-                )
-                process.exit(1)
-                return
-            }
-
-            console.log(
-                `${kleur.green('✓')} installed ${kleur.cyan(result.to)} at ${kleur.dim(result.execPath)}`
+    const url = opts.to ? versionManifestUrl(opts.to) : channelManifestUrl(channel)
+    let manifest: ReleaseManifest
+    try {
+        manifest = await deps.fetchManifest(url)
+    } catch (err) {
+        if (err instanceof ReleaseManifestHttpError && err.status === 404 && opts.to)
+            throw new UsageError(
+                `no mf release ${opts.to}; mf updates versions cli lists the versions you can install`
             )
+        throw failure(
+            `failed to resolve the target release at ${new URL(url).host}`,
+            err
+        )
+    }
+    const status = resolveUpdateStatus({
+        channel,
+        currentVersion: deps.current.version,
+        currentCommit: deps.current.commit,
+        targetVersion: manifest.version,
+        targetCommit: manifest.commit
+    })
+    if (opts.check)
+        return {
+            action: 'check',
+            status,
+            channel,
+            current: deps.current.version,
+            latest: manifest.version
+        }
 
-            const verify = spawnSync(result.execPath, ['--version'], {
-                encoding: 'utf8',
-                timeout: 5000
-            })
-            const installedVer = verify.stdout?.trim() ?? ''
-            if (installedVer && installedVer !== result.to) {
-                console.log(
-                    kleur.yellow(
-                        `warning: new binary reports version ${installedVer}, expected ${result.to}`
-                    )
-                )
-            }
+    const pin = async (): Promise<void> => {
+        if (!flagChannel) return
+        await deps.saveChannelPref(flagChannel)
+        say(kleur.dim(`pinned update channel to ${flagChannel}`))
+    }
+    if (status === 'up-to-date' && !opts.force) {
+        await pin()
+        return { action: 'none', channel, current: deps.current.version }
+    }
 
-            if (channel !== CLI_CHANNEL) {
-                const apiNote =
-                    channel === 'dev'
-                        ? ' The dev channel is an update policy only: it still defaults to the production API, so target a pre-production API with an explicit `--api-url` at login.'
-                        : ''
-                console.log(
-                    kleur.yellow(
-                        `note: the ${channel} binary defaults to profile '${channel === 'stable' ? 'default' : channel}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).${apiNote}`
-                    )
-                )
-            }
+    if (!opts.yes) {
+        if (opts.json)
+            throw new UsageError(
+                '--json never prompts: pass --yes to install, or --check'
+            )
+        if (!deps.interactive())
+            throw new UsageError(
+                'non-interactive shell; pass --yes to skip the confirmation prompt'
+            )
+        const channelNote =
+            channel === deps.current.channel
+                ? ''
+                : kleur.dim(` on the ${channel} channel`)
+        const verb =
+            deps.current.version === manifest.version
+                ? `Reinstall ${kleur.cyan(deps.current.version)}${channelNote}?`
+                : `Update ${kleur.dim(deps.current.version)} → ${kleur.cyan(manifest.version)}${channelNote}?`
+        if (!(await deps.confirm(`${verb} [Y/n] `))) return { action: 'cancelled' }
+    }
 
-            const pid = await runningDaemonPid()
-            if (pid !== null) {
-                const channelSwitchNote =
-                    channel === CLI_CHANNEL
-                        ? ''
-                        : ' the daemon keeps its registration across the channel switch and will only log a channel warning.'
-                console.log(
-                    kleur.yellow(
-                        `note: daemon is running (pid=${pid}) with the previous binary; restart with \`mf daemon stop && mf daemon start\` to pick up the new code.${channelSwitchNote}`
-                    )
-                )
-            }
+    await pin()
+    let result: SelfUpdateResult
+    try {
+        result = await deps.install({
+            manifest,
+            channel,
+            force: opts.force,
+            onProgress: (msg) => say(kleur.dim(msg))
         })
+    } catch (err) {
+        throw failure('update failed', err)
+    }
+    return {
+        action: 'installed',
+        channel,
+        from: result.from,
+        to: result.to,
+        commit: result.commit,
+        execPath: result.execPath,
+        reportedVersion: deps.reportedVersion(result.execPath),
+        daemonPid: await deps.daemonPid()
+    }
+}
+
+const renderInstalled = (
+    outcome: Extract<SelfUpdateOutcome, { action: 'installed' }>,
+    baked: CliChannel
+): void => {
+    console.log(
+        `${kleur.green('✓')} installed ${kleur.cyan(outcome.to)} at ${kleur.dim(outcome.execPath)}`
+    )
+    if (outcome.reportedVersion && outcome.reportedVersion !== outcome.to)
+        console.log(
+            kleur.yellow(
+                `warning: new binary reports version ${outcome.reportedVersion}, expected ${outcome.to}`
+            )
+        )
+    if (outcome.channel !== baked) {
+        const apiNote =
+            outcome.channel === 'dev'
+                ? ' The dev channel is an update policy only: it still defaults to the production API, so target a pre-production API with an explicit `--api-url` at login.'
+                : ''
+        console.log(
+            kleur.yellow(
+                `note: the ${outcome.channel} binary defaults to profile '${outcome.channel === 'stable' ? 'default' : outcome.channel}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).${apiNote}`
+            )
+        )
+    }
+    if (outcome.daemonPid !== null) {
+        const channelSwitchNote =
+            outcome.channel === baked
+                ? ''
+                : ' the daemon keeps its registration across the channel switch and will only log a channel warning.'
+        console.log(
+            kleur.yellow(
+                `note: daemon is running (pid=${outcome.daemonPid}) with the previous binary; restart with \`mf daemon stop && mf daemon start\` to pick up the new code.${channelSwitchNote}`
+            )
+        )
+    }
+}
+
+const renderOutcome = (
+    outcome: SelfUpdateOutcome,
+    baked: CliChannel
+): void => {
+    const suffix = (channel: CliChannel): string =>
+        channel === baked ? '' : kleur.dim(` [${channel}]`)
+    switch (outcome.action) {
+        case 'check':
+            if (outcome.status === 'up-to-date')
+                console.log(
+                    `${kleur.green('✓')} up to date (${kleur.cyan(outcome.current)})${suffix(outcome.channel)}`
+                )
+            else if (outcome.status === 'update')
+                console.log(
+                    `${kleur.yellow('↑')} update available: ${kleur.dim(outcome.current)} → ${kleur.cyan(outcome.latest)}${suffix(outcome.channel)}`
+                )
+            else
+                console.log(
+                    `${kleur.dim('current')} ${kleur.cyan(outcome.current)} ${kleur.dim('is ahead of latest')} ${kleur.cyan(outcome.latest)}${suffix(outcome.channel)}`
+                )
+            return
+        case 'none':
+            console.log(
+                `${kleur.green('✓')} already on ${kleur.cyan(outcome.current)} ${kleur.dim('(use --force to reinstall)')}`
+            )
+            return
+        case 'cancelled':
+            console.log(kleur.dim('cancelled.'))
+            return
+        case 'installed':
+            renderInstalled(outcome, baked)
+    }
+}
+
+const jsonOutcome = (outcome: SelfUpdateOutcome): unknown => {
+    switch (outcome.action) {
+        case 'check':
+            return {
+                channel: outcome.channel,
+                current: outcome.current,
+                latest: outcome.latest,
+                status: outcome.status
+            }
+        case 'none':
+            return {
+                channel: outcome.channel,
+                from: outcome.current,
+                to: outcome.current,
+                changed: false
+            }
+        case 'cancelled':
+            return { cancelled: true }
+        case 'installed':
+            return {
+                channel: outcome.channel,
+                from: outcome.from,
+                to: outcome.to,
+                commit: outcome.commit,
+                execPath: outcome.execPath,
+                changed: true
+            }
+    }
+}
+
+export const registerUpdate = (
+    program: Command,
+    deps: () => SelfUpdateDeps = defaultSelfUpdateDeps
+): void => {
+    jsonOption(
+        program
+            .command('update')
+            .description("Update this machine's mf CLI to the latest version")
+            .option('--to <version>', 'install a specific version (e.g. 0.1.0)')
+            .option(
+                '--channel <channel>',
+                'update channel: dev or stable (remembers your choice)'
+            )
+            .option(
+                '--force',
+                'reinstall even when already on the target version'
+            )
+            .option('--check', 'show available update without installing')
+            .option('--yes', 'skip the confirmation prompt')
+    ).action(async (opts: UpdateOptions) => {
+        const resolved = deps()
+        // With --json, stdout carries only the result.
+        const say = (line: string): void =>
+            opts.json ? console.error(line) : console.log(line)
+        let outcome: SelfUpdateOutcome
+        try {
+            outcome = await runSelfUpdate(opts, resolved, say)
+        } catch (err) {
+            if (err instanceof UsageError) throw err
+            fail(
+                opts,
+                err,
+                err instanceof UpdateUnavailableError && err.hint
+                    ? { hint: err.hint }
+                    : {}
+            )
+            return
+        }
+        emit(opts, jsonOutcome(outcome), () =>
+            renderOutcome(outcome, resolved.current.channel)
+        )
+    })
 }

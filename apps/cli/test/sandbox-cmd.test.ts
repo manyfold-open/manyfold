@@ -15,8 +15,21 @@ const sandbox = (
         ...over
     }) as SandboxSummary
 
-const busy = sandbox({ id: 'sbx_busy', name: 'busy', agentsCount: 2 })
-const idle = sandbox({ id: 'sbx_idle', name: 'idle' })
+const busy = sandbox({
+    id: 'sbx_busy',
+    name: 'busy',
+    agentsCount: 2,
+    cliVersion: '4.8.0',
+    latestCliVersion: '4.9.0',
+    cliUpdateAvailable: true
+})
+const idle = sandbox({
+    id: 'sbx_idle',
+    name: 'idle',
+    cliVersion: '4.9.0',
+    latestCliVersion: '4.9.0',
+    cliUpdateAvailable: false
+})
 const broken = sandbox({
     id: 'sbx_broken',
     name: 'broken',
@@ -54,14 +67,19 @@ test('sandbox list shows what runs on each sandbox and how many the plan include
     const human = await runMf(['sandbox', 'list'], listRoutes)
     assert.equal(human.error, undefined, String(human.error))
     const text = human.out.join('\n')
-    assert.match(text, /^ID +NAME +STATE +AGENTS +FRAMEWORKS +CREATED$/m)
+    assert.match(text, /^ID +NAME +STATE +AGENTS +FRAMEWORKS +CLI +CREATED$/m)
     assert.match(
         text,
-        /sbx_busy +\S*busy\S* +ready, suspended +2 +claude-code, codex/
+        /sbx_busy +\S*busy\S* +ready, suspended +2 +claude-code, codex +\S*4\.8\.0 → 4\.9\.0\S* +\S*2026-09-28/
     )
     assert.match(
         text,
-        /sbx_idle +\S*idle\S* +ready, suspended +0 +nothing installed/
+        /sbx_idle +\S*idle\S* +ready, suspended +0 +nothing installed +4\.9\.0 +\S*2026-09-28/
+    )
+    assert.match(text, /sbx_broken +\S*broken\S* +failed.* +— +\S*2026-09-28/)
+    assert.match(
+        text,
+        /mf sandbox update <sandbox> updates one; mf updates apply --kind cli updates them all\./
     )
     assert.match(text, /2 of 3 sandboxes in use \(Free plan\)/)
     assert.match(
@@ -205,6 +223,49 @@ test('a version the catalog does not list is refused before anything is sent', a
     assert.equal(
         run.calls.some((call) => call.method === 'POST'),
         false
+    )
+})
+
+// WHY: the old message was a guess from an unchanged version; the API now
+// says when the daemon deferred, and for how many sessions.
+test('a deferred update says how many sessions it waits for', async () => {
+    const deadline = new Date(Date.now() + 9 * 60_000 + 30_000).toISOString()
+    const run = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 2, deadline } })
+    )
+    assert.equal(run.error, undefined, String(run.error))
+    assert.match(
+        run.out.join('\n'),
+        /sandbox-002 takes the update once its 2 active sessions finish, within 9m at the latest/
+    )
+    const one = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 1, deadline } })
+    )
+    assert.match(
+        one.out.join('\n'),
+        /sandbox-002 takes the update once its 1 active session finishes, within 9m/
+    )
+    const json = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--json'],
+        updateRoutes({ ...old, cliUpdateDeferred: { activeSessions: 1, deadline } })
+    )
+    assert.deepEqual(JSON.parse(json.out.join('\n')).sandbox.cliUpdateDeferred, {
+        activeSessions: 1,
+        deadline
+    })
+})
+
+test('an update whose new CLI has not reported yet says so', async () => {
+    const run = await runMf(
+        ['sandbox', 'update', 'sandbox-002', '--to', '5.6.0-dev.202609291528.61f0db7'],
+        updateRoutes(old)
+    )
+    assert.equal(run.error, undefined, String(run.error))
+    assert.match(
+        run.out.join('\n'),
+        /sandbox-002 has not reported the new Manyfold CLI yet/
     )
 })
 

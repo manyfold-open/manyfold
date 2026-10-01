@@ -14,7 +14,10 @@ import {
     runtimeRow,
     spritesHostRow
 } from './helpers/runtime-context-fixture'
-import type { TurnExecutionFence } from '../src/modules/chat/turn-fence'
+import {
+    TurnFenceLostError,
+    type TurnExecutionFence
+} from '../src/modules/chat/turn-fence'
 import {
     TURN_LEASE_RENEW_MS,
     TURN_LEASE_SECONDS
@@ -118,10 +121,11 @@ interface Harness {
     settle: () => Promise<void>
     releaseCalls: string[]
     adapterStarts: () => number
+    adapterSignal: () => AbortSignal | undefined
     inflight: () => string | null
 }
 
-type AdapterScript = 'ref-then-done' | 'park' | 'suspend'
+type AdapterScript = 'ref-then-done' | 'park' | 'suspend' | 'error-on-abort'
 type RefWriteMode = 'commit' | 'defer' | 'reject-once' | 'no-row'
 type StampWriteMode = 'commit' | 'null' | 'throw'
 
@@ -134,6 +138,7 @@ const makeHarness = (opts: {
     refWrite?: RefWriteMode
     stampWrite?: StampWriteMode
     renewResult?: boolean
+    fenceHolds?: boolean
     streamFenceThrows?: boolean
     converge?: (
         ctx: ApiChatConvergeContext
@@ -161,7 +166,9 @@ const makeHarness = (opts: {
     const convergeCalls: ApiChatConvergeContext[] = []
     const insertedMessages: Array<{ id: string; role: string }> = []
     const releaseCalls: string[] = []
+    const handedOff = new Set<string>()
     let adapterStarts = 0
+    let adapterSignal: AbortSignal | undefined
     let latestInflight: string | null = null
     let adapterStartedResolve!: () => void
     const adapterStarted = new Promise<void>((r) => {
@@ -258,10 +265,13 @@ const makeHarness = (opts: {
                 durableRef.upstreamMessageId = ref.upstreamMessageId
             return { written: true, fenceLost: false }
         },
+        // The real UPDATE only matches running/adopting, so a row this
+        // instance handed off refuses the renewal while still owned here.
         renewTurnLease: async (messageId: string) => {
             renewals.push(messageId)
-            return opts.renewResult ?? true
+            return opts.renewResult ?? !handedOff.has(messageId)
         },
+        turnFenceHolds: async () => opts.fenceHolds ?? true,
         // Models the real UPDATE: it can only hand off rows that EXIST and are
         // owned here. A fake that returned the live message id regardless would
         // pass on code that never stamped an external row at all — which is
@@ -291,6 +301,7 @@ const makeHarness = (opts: {
                 if (ref.upstreamMessageId)
                     durableRef.upstreamMessageId = ref.upstreamMessageId
             }
+            for (const row of rows) handedOff.add(row.messageId)
             return rows.map((row) => row.messageId)
         },
         handoffOwnedTurn: async (
@@ -335,6 +346,7 @@ const makeHarness = (opts: {
             ctx: ApiChatAdapterContext
         ): AsyncIterable<EmittedChatEvent> {
             adapterStarts += 1
+            adapterSignal = ctx.abortSignal
             adapterStartedResolve()
             // Awaited exactly as the real external adapter awaits it — the sink
             // is a durability barrier, so a stream that ran on would be testing
@@ -359,7 +371,7 @@ const makeHarness = (opts: {
                 }
                 return
             }
-            if (opts.script === 'park') {
+            if (opts.script === 'park' || opts.script === 'error-on-abort') {
                 const signal = ctx.abortSignal
                 await new Promise<void>((resolve) => {
                     if (!signal) return
@@ -369,6 +381,16 @@ const makeHarness = (opts: {
                             once: true
                         })
                 })
+                // What a real transport reports when its teardown cuts it.
+                if (opts.script === 'error-on-abort')
+                    yield {
+                        type: 'error',
+                        error: {
+                            code: 'dify_stream_error',
+                            message: 'upstream stream aborted',
+                            retryable: true
+                        }
+                    }
                 return
             }
             yield { type: 'done', finalMessageId: ctx.messageId }
@@ -457,6 +479,7 @@ const makeHarness = (opts: {
         terminalEmitted,
         releaseCalls,
         adapterStarts: () => adapterStarts,
+        adapterSignal: () => adapterSignal,
         inflight: () => latestInflight,
         // Several hops of promise plumbing sit between a repo write and the
         // broadcast it unblocks, so one turn of the loop is not enough to claim
@@ -802,7 +825,8 @@ test('a rejected lease renewal stops without a false terminal or claim release',
             runtime: 'external',
             framework: 'dify',
             script: 'park',
-            renewResult: false
+            renewResult: false,
+            fenceHolds: false
         })
         const sent = await h.service.sendMessage(
             'user-1',
@@ -817,6 +841,7 @@ test('a rejected lease renewal stops without a false terminal or claim release',
         await h.settle()
 
         assert.deepEqual(h.renewals, [sent.assistantMessageId])
+        assert.ok(h.adapterSignal()?.reason instanceof TurnFenceLostError)
         assert.deepEqual(
             h.emitted.map((event) => event.type),
             ['token']
@@ -824,6 +849,131 @@ test('a rejected lease renewal stops without a false terminal or claim release',
         assert.deepEqual(h.releaseCalls, [])
         assert.equal(h.inflight(), sent.assistantMessageId)
         assert.equal(h.service.activeTurnCount(), 0)
+    } finally {
+        mock.timers.reset()
+    }
+})
+
+// A fence that really moved, with an adapter that reports the error its own
+// teardown produced (what a real transport does when the abort cuts it).
+// Written, that error would close a turn that is live under its new owner.
+test('a relay that lost its fence writes no terminal even when the adapter reports one', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] })
+    try {
+        const h = makeHarness({
+            runtime: 'external',
+            framework: 'dify',
+            script: 'error-on-abort',
+            renewResult: false,
+            fenceHolds: false
+        })
+        const sent = await h.service.sendMessage(
+            'user-1',
+            'agent-1',
+            'session-1',
+            'hello'
+        )
+        await h.adapterStarted
+        await h.settle()
+
+        t.mock.timers.tick(TURN_LEASE_RENEW_MS)
+        await h.settle()
+
+        assert.deepEqual(
+            h.emitted.map((event) => event.type),
+            ['token']
+        )
+        assert.deepEqual(h.releaseCalls, [])
+        assert.equal(h.inflight(), sent.assistantMessageId)
+    } finally {
+        mock.timers.reset()
+    }
+})
+
+// Seen on prod [2026-10-01]: the drain timed out, the turn was handed off, and
+// the next lease tick (renewal refused by the handoff row) aborted it — which
+// killed the sprite exec and wrote the abort as a user cancel, so the
+// adopter had nothing left to adopt.
+for (const [runtime, framework] of [
+    ['external', 'dify'],
+    ['sprites', 'claude-code']
+] as const) {
+    test(`a lease tick after our own shutdown handoff neither aborts nor ends the turn (${runtime})`, async (t) => {
+        t.mock.timers.enable({ apis: ['setInterval'] })
+        try {
+            const h = makeHarness({ runtime, framework, script: 'park' })
+            const sent = await h.service.sendMessage(
+                'user-1',
+                'agent-1',
+                'session-1',
+                'hello'
+            )
+            await h.adapterStarted
+            await h.settle()
+
+            const result = await h.service.prepareForShutdown(10)
+            assert.equal(result.handedOffTurns, 1)
+
+            t.mock.timers.tick(TURN_LEASE_RENEW_MS)
+            await h.settle()
+            t.mock.timers.tick(TURN_LEASE_RENEW_MS)
+            await h.settle()
+
+            assert.deepEqual(
+                h.renewals,
+                [sent.assistantMessageId],
+                'the refused renewal stops the timer instead of repeating'
+            )
+            assert.equal(h.adapterSignal()?.aborted, false)
+            assert.deepEqual(
+                h.emitted.map((event) => event.type),
+                ['token']
+            )
+            assert.deepEqual(h.releaseCalls, [])
+            assert.equal(h.inflight(), sent.assistantMessageId)
+            assert.equal(h.service.activeTurnCount(), 1)
+        } finally {
+            mock.timers.reset()
+        }
+    })
+}
+
+test('an adopted external turn keeps converging when its renewal is refused but the fence holds', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] })
+    try {
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let convergeSignal: AbortSignal | undefined
+        const h = makeHarness({
+            runtime: 'external',
+            framework: 'dify',
+            renewResult: false,
+            converge: async function* (ctx) {
+                convergeSignal = ctx.abortSignal
+                await gate
+                yield {
+                    type: 'replace',
+                    text: 'the recovered answer',
+                    reason: 'upstream_converged'
+                }
+                yield { type: 'done', finalMessageId: 'assistant-1' }
+            }
+        })
+
+        const adopted = h.service.adoptTurnExecution(executionRow())
+        await h.settle()
+        t.mock.timers.tick(TURN_LEASE_RENEW_MS)
+        await h.settle()
+        assert.equal(convergeSignal?.aborted, false)
+
+        release()
+        await adopted
+        assert.deepEqual(
+            h.emitted.map((event) => event.type),
+            ['turn_status', 'replace', 'done']
+        )
     } finally {
         mock.timers.reset()
     }

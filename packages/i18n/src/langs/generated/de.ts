@@ -1547,6 +1547,7 @@ const de: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'Der Computer des Agenten ist nicht verfügbar. Verbinde ihn erneut und versuche es noch einmal.',
     'web.chat.error.runnerUpgradeRequired': 'Die Manyfold CLI auf dem Computer des Agenten muss aktualisiert werden, bevor der Chat fortgesetzt werden kann.',
     'web.chat.error.threadBusy': 'Diese Unterhaltung ist in einem Terminal geöffnet, und es kann immer nur eine Sitzung darin schreiben. Beende die TUI dort und sende dann erneut.',
+    'web.chat.error.turnDurationExceeded': 'Der Agent hat für diese Nachricht sein Zeitlimit überschritten und wurde gestoppt. Was bis dahin entstanden ist, bleibt erhalten; sende eine Folgenachricht, um weiterzumachen.',
     'web.chat.error.updateKey': 'Schlüssel aktualisieren',
     'web.chat.error.switchToPlatform': 'Wechseln Sie zu Plattform-Credits',
     'web.chat.error.switching': 'Wechseln…',

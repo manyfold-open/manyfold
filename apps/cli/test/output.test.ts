@@ -329,6 +329,23 @@ test('a JSON-RPC refusal with a code keeps it, with its hint and exit', () => {
     assert.equal(bare.exitCode, 1)
 })
 
+test('a 401 for a token of the wrong kind says which token it needs', () => {
+    const narrow = normalizeCliError(
+        apiError(401, {
+            code: 'unauthorized',
+            serverMessage:
+                'this endpoint requires api.full token; narrow scope tokens cannot access it'
+        })
+    )
+    assert.equal(narrow.exitCode, 3)
+    assert.match(narrow.error.hint ?? '', /^This needs a login session \(mf login\) or a full-access token/)
+
+    const expired = normalizeCliError(
+        apiError(401, { code: 'unauthorized', serverMessage: 'token expired' })
+    )
+    assert.match(expired.error.hint ?? '', /^Run mf login to sign in again/)
+})
+
 test('an archived channel session says how to start a new one', () => {
     const details = {
         channelId: 'chn_1',

@@ -130,6 +130,8 @@ export class RuntimeSessionController {
         )
     }
 
+    // The chat page fires this on session open and on every switch back from
+    // the terminal: a page that only looks never wakes a sleeping sandbox.
     @Post('sync')
     @HttpCode(200)
     async sync(
@@ -140,7 +142,8 @@ export class RuntimeSessionController {
         return this.recovery.syncRuntimeSessionIntoCloud(
             user.userId,
             agentId,
-            body?.sessionId?.trim() || ''
+            body?.sessionId?.trim() || '',
+            { wake: false }
         )
     }
 }

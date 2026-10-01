@@ -207,6 +207,7 @@ export type {
     ChatSessionsChangedEvent,
     RuntimeServiceStatus,
     AgentRuntimeSummary,
+    CliUpdateDeferred,
     SandboxSummary,
     CliVersionCatalog,
     CliUpgradeBody,
@@ -987,6 +988,8 @@ export {
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_FS_WRITE_BINARY,
     DAEMON_FEATURE_DAEMON_UPDATE_DRAIN,
+    DAEMON_UPDATE_DRAIN_TIMEOUT_MS,
+    DAEMON_UPDATE_IN_PROGRESS_ERROR,
     DAEMON_FEATURE_TURN_HERMES,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
@@ -1035,6 +1038,7 @@ export type {
     UsageTopAgent,
     UsageSessionSummary
 } from './usage'
+export { parseUsageInstant } from './usage'
 export type {
     AdminChatSessionStatus,
     AdminChatSessionError,
@@ -1342,3 +1346,32 @@ export type {
     HostPowerStatusUpdate,
     HostStatusEvent
 } from './dtos'
+export { FRAMEWORK_INSTALL_GUIDES } from './framework-install-guides'
+export {
+    DAEMON_UPGRADES_PER_WINDOW,
+    DAEMON_UPGRADE_WINDOW_MS,
+    SKILL_INSTALL_BATCH_LIMIT,
+    UPDATE_KINDS,
+    blockerStatus,
+    buildUpdateRows,
+    countUpdates,
+    displayStatus,
+    emptyUpdateCenterInputs,
+    filterRowsByKind,
+    frameworkCatalogVersions,
+    isRunnableUpdate,
+    kindParamOf,
+    parseKindParam,
+    planBatch,
+    sandboxFrameworkUpdateId,
+    shortRevision,
+    skillUpdateId
+} from './update-center'
+export type {
+    BatchStep,
+    UpdateCenterInputs,
+    UpdateKind,
+    UpdateRow,
+    UpdateStatus,
+    UpdateTargetKind
+} from './update-center'

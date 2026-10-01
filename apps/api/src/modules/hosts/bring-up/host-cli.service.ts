@@ -1,5 +1,6 @@
 import {
     DAEMON_FEATURE_MANUAL_UPDATE,
+    DAEMON_UPDATE_DRAIN_TIMEOUT_MS,
     cliChannelOfVersion,
     isCliUpdateAvailable,
     isCliVersionTooOld,
@@ -11,6 +12,7 @@ import {
     BadRequestException,
     Injectable,
     Logger,
+    Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
@@ -19,6 +21,10 @@ import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.s
 import { DaemonCliVersionService } from '@/modules/daemon/daemon-cli-version.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { HostsService } from '@/modules/hosts/hosts.service'
+import {
+    HostAwakeService,
+    NOOP_HOLD
+} from '@/modules/hosts/host-awake.service'
 import {
     HostDaemonsService,
     hasRpcLease
@@ -31,15 +37,27 @@ const CLI_INSTALL_TIMEOUT_MS = 180_000
 const REREGISTER_POLLS = 60
 const REREGISTER_POLL_MS = 3_000
 // A daemon with work in progress defers an update until that work ends, or
-// until its own drain deadline (10 minutes) passes; it takes no new work in
-// between. The update it was asked for is not asked for again inside that
-// window: re-asking re-armed the deadline, and a busy sandbox put the update
-// off for good. A caller waits a moment for the successor, then is told to
-// retry.
+// until its own drain deadline passes; it takes no new work in between. The
+// update it was asked for is not asked for again inside that window:
+// re-asking re-armed the deadline, and a busy sandbox put the update off for
+// good. A caller waits a moment for the successor, then is told to retry.
 // Seen on local [2026-09-29]: five requests three minutes apart, each
 // deferred behind the sessions still open, and the update never ran.
-const DRAIN_WINDOW_MS = 11 * 60_000
+// The window also covers what follows the deadline: the download, the exit
+// and the restart of the successor.
+const DRAIN_WINDOW_MS = DAEMON_UPDATE_DRAIN_TIMEOUT_MS + 2 * 60_000
 const DRAINING_POLLS = 7
+
+// An update a daemon deferred, as this instance holds its machine for it.
+export interface DeferredCliUpdate {
+    before: string | null
+    activeSessions: number
+    deadline: Date
+}
+
+interface Drain extends DeferredCliUpdate {
+    done: Promise<HostDaemonRow | null>
+}
 
 // What the caller needs of a hosted machine's daemon.
 export interface HostCliNeed {
@@ -113,8 +131,8 @@ export class HostCliService {
     private readonly log = new Logger(HostCliService.name)
     // One update per host at a time: concurrent callers share it.
     private readonly inFlight = new Map<string, Promise<HostDaemonRow>>()
-    // Hosts whose daemon deferred an update, and since when.
-    private readonly draining = new Map<string, number>()
+    // Hosts whose daemon deferred an update, held until the update lands.
+    private readonly drains = new Map<string, Drain>()
 
     constructor(
         private readonly daemonHosts: DaemonHostService,
@@ -123,7 +141,8 @@ export class HostCliService {
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
         private readonly clients: HostProviderResolver,
-        private readonly providers: SandboxProviderRegistry
+        private readonly providers: SandboxProviderRegistry,
+        @Optional() private readonly awake?: HostAwakeService
     ) {}
 
     // A connected daemon that updates itself does: a pod host's exits and the
@@ -139,13 +158,20 @@ export class HostCliService {
         targetVersion?: string
     }): Promise<UpgradeDaemonHostResponse | undefined> {
         const daemon = await this.hostDaemons.findByHostId(args.host.id)
-        if (daemon && hasRpcLease(daemon) && updatesItself(daemon))
-            return this.daemonHosts.upgrade({
+        if (daemon && hasRpcLease(daemon) && updatesItself(daemon)) {
+            const outcome = await this.daemonHosts.upgrade({
                 host: args.host,
                 actorId: args.actorId,
                 targetVersion: args.targetVersion
             })
-        else if (podHost(args.host))
+            if (outcome?.deferred && args.targetVersion !== daemon.cliVersion)
+                void this.holdThroughDrain(
+                    args.host,
+                    daemon.cliVersion,
+                    outcome.activeSessions ?? 0
+                )
+            return outcome
+        } else if (podHost(args.host))
             await this.installOver(args.host, args.targetVersion)
         else
             throw new HostCliTooOldError(
@@ -203,9 +229,78 @@ export class HostCliService {
         return null
     }
 
+    // A deferred update lands only while its machine is up: the drain, the
+    // download and the successor's start are no platform activity, so a
+    // sprite left alone suspends mid-way and the update waits for its next
+    // wake. The machine is held until the successor reports, or until the
+    // drain window ends. One drain per host on this instance; another caller
+    // shares it.
+    // Seen on staging [2026-09-30]: two sandboxes deferred behind the API's
+    // own storage measurement and slept within 30 s; one had still not
+    // updated when it was asked again 11 minutes later.
+    holdThroughDrain(
+        host: RuntimeHostRow,
+        before: string | null,
+        activeSessions: number
+    ): Promise<HostDaemonRow | null> {
+        const running = this.drains.get(host.id)
+        if (running) {
+            running.activeSessions = activeSessions
+            return running.done
+        }
+        const hold = this.awake?.hold(host, 'cli-drain') ?? NOOP_HOLD
+        const drain: Drain = {
+            before,
+            activeSessions,
+            deadline: new Date(Date.now() + DAEMON_UPDATE_DRAIN_TIMEOUT_MS),
+            done: Promise.resolve(null)
+        }
+        this.log.log(
+            `host cli update deferred host=${host.id} from=${before ?? 'unknown'} activeSessions=${activeSessions}; holding the machine through the drain`
+        )
+        drain.done = this.awaitSuccessor(host, before, this.drainPolls())
+            .then((back) => {
+                if (back)
+                    this.log.log(
+                        `host cli drained update landed host=${host.id} to=${back.cliVersion ?? 'unknown'}`
+                    )
+                else
+                    this.log.warn(
+                        `host cli drain window ended host=${host.id} without the updated daemon reporting`
+                    )
+                return back
+            })
+            .catch((err: Error) => {
+                this.log.warn(
+                    `host cli drain watch failed host=${host.id}: ${err.message}`
+                )
+                return null
+            })
+            .finally(() => {
+                void hold.release()
+                if (this.drains.get(host.id) === drain)
+                    this.drains.delete(host.id)
+            })
+        this.drains.set(host.id, drain)
+        return drain.done
+    }
+
+    // The deferred update this instance holds the host's machine for.
+    deferredUpdate(hostId: string): DeferredCliUpdate | null {
+        const drain = this.drains.get(hostId)
+        if (!drain) return null
+        const { before, activeSessions, deadline } = drain
+        return { before, activeSessions, deadline }
+    }
+
     // Overridable in tests.
     protected delay(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
+    // Overridable in tests.
+    protected drainPolls(): number {
+        return Math.ceil(DRAIN_WINDOW_MS / REREGISTER_POLL_MS)
     }
 
     // Updates to the channel's latest and returns the daemon once it is back
@@ -225,17 +320,12 @@ export class HostCliService {
                 `${host.name} already runs the latest Manyfold CLI (${before}), which does not support this yet`,
                 { cliVersion: before, latestCliVersion: latest.version }
             )
-        const drainingSince = this.draining.get(host.id)
-        if (drainingSince && Date.now() - drainingSince < DRAIN_WINDOW_MS)
-            return this.awaitDrained(host, before)
+        if (this.drains.has(host.id)) return this.awaitDrained(host, before)
         this.log.log(
             `host cli update host=${host.id} from=${before ?? 'unknown'} to=${latest.version ?? 'latest'}`
         )
         const outcome = await this.update({ host, actorId: host.userId })
-        if (outcome?.deferred) {
-            this.draining.set(host.id, Date.now())
-            return this.awaitDrained(host, before)
-        }
+        if (outcome?.deferred) return this.awaitDrained(host, before)
         const back = await this.awaitSuccessor(host, before)
         if (back) return back
         throw new HostCliTooOldError(
@@ -251,7 +341,6 @@ export class HostCliService {
     ): Promise<HostDaemonRow> {
         const back = await this.awaitSuccessor(host, before, DRAINING_POLLS)
         if (!back) throw new HostCliUpdatingError(host)
-        this.draining.delete(host.id)
         return back
     }
 

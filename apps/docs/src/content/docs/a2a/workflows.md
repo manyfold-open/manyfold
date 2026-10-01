@@ -77,6 +77,8 @@ mf a2a send agt_researcher "Run the full audit." --async --json
 mf a2a tasks get agt_researcher aat_xxx --wait
 ```
 
+A blocking send that outlasts the server's blocking limit keeps running: `send` follows the task to its answer, and if its own deadline passes first it exits 1 with the task ID to keep following.
+
 After a network interruption, query or resubscribe to the existing task before resending the prompt; an immediate retry can create duplicate work. For an intentional follow-up, pass the returned `contextId`.
 
 ## From research to implementation: a practical handoff

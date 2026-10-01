@@ -14,6 +14,7 @@ import { emit, fail, jsonOption } from '@/output'
 import { formatTable, type TableCell } from '@/table'
 import { assertSandboxStorageContract } from '@/storage-contract'
 import { resolveSandboxRef } from '@/commands/agent/create-source'
+import { duration, plural } from '@/commands/doctor/describe'
 import { UsageError } from '@/usage-error'
 
 const bytesLabel = (bytes: number | null): string => {
@@ -59,6 +60,12 @@ type SandboxRow = SandboxSummary & {
     runtimes: Array<Pick<AgentRuntimeSummary, 'id' | 'framework' | 'status'>>
 }
 
+// The version, and where it would go when an update is out.
+const cliCell = (row: SandboxRow): TableCell =>
+    row.cliUpdateAvailable && row.latestCliVersion
+        ? [`${row.cliVersion ?? '—'} → ${row.latestCliVersion}`, kleur.yellow]
+        : (row.cliVersion ?? '—')
+
 const formatSandboxList = (
     rows: readonly SandboxRow[],
     quota: { used: number; limit: number; plan: string }
@@ -67,7 +74,7 @@ const formatSandboxList = (
     if (rows.length === 0) lines.push(kleur.dim('No sandboxes yet.'))
     else {
         const [header, ...table] = formatTable(
-            ['ID', 'NAME', 'STATE', 'AGENTS', 'FRAMEWORKS', 'CREATED'],
+            ['ID', 'NAME', 'STATE', 'AGENTS', 'FRAMEWORKS', 'CLI', 'CREATED'],
             rows.map((row): TableCell[] => [
                 row.id,
                 [row.name, kleur.cyan],
@@ -75,6 +82,7 @@ const formatSandboxList = (
                 String(row.agentsCount),
                 row.runtimes.map((runtime) => runtime.framework).join(', ') ||
                     'nothing installed',
+                cliCell(row),
                 [row.createdAt.slice(0, 10), kleur.dim]
             ])
         )
@@ -87,6 +95,12 @@ const formatSandboxList = (
                 lines.push(kleur.red(`  ${row.failureReason}`))
         })
     }
+    if (rows.some((row) => row.cliUpdateAvailable))
+        lines.push(
+            kleur.dim(
+                'mf sandbox update <sandbox> updates one; mf updates apply --kind cli updates them all.'
+            )
+        )
     lines.push(
         kleur.dim(
             `${quota.used} of ${quota.limit} sandboxes in use (${quota.plan} plan)`
@@ -302,9 +316,17 @@ const runSandboxUpdate = async (
                 )
                 return
             }
-            if (opts.to || sandbox.cliUpdateAvailable) {
+            if (after.cliUpdateDeferred) {
+                const { activeSessions, deadline } = after.cliUpdateDeferred
+                const left = Math.max(0, Date.parse(deadline) - Date.now())
                 console.log(
-                    `${sandbox.name} takes the update once its current work finishes; mf sandbox list shows its version.`
+                    `${sandbox.name} takes the update once its ${plural(activeSessions, 'active session')} ${activeSessions === 1 ? 'finishes' : 'finish'}, within ${duration(left)} at the latest; mf sandbox list shows its version.`
+                )
+                return
+            }
+            if ((opts.to && opts.to !== from) || sandbox.cliUpdateAvailable) {
+                console.log(
+                    `${sandbox.name} has not reported the new Manyfold CLI yet; mf sandbox list shows its version once it does.`
                 )
                 return
             }

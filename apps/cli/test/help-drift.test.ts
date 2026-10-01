@@ -26,6 +26,7 @@ const TOPIC_COMMANDS: Record<AgentHelpTopic, string[]> = {
     runtime: ['runtime', 'agent-runtimes'],
     agent: ['agent', 'agents'],
     sandbox: ['sandbox'],
+    updates: ['updates'],
     backups: ['backups'],
     usage: ['usage'],
     a2a: ['a2a']

@@ -298,7 +298,8 @@ abstract class ExternalApiChatAdapterBase implements ApiChatAdapter {
                         files,
                         logger: {
                             warn: (message: string) => this.log.warn(message)
-                        }
+                        },
+                        followPollMs: resolveConvergePollIntervalMs()
                     },
                     controller.signal
                 )

@@ -23,6 +23,7 @@
         "test-runtime:check": "node scripts/check-test-runtime.mjs",
         "test-native:prepare": "node scripts/rebuild-test-native.mjs",
         "changeset-presence:check": "node --test scripts/check-changeset-presence.test.mjs && node scripts/check-changeset-presence.mjs",
+        "plugin-version:check": "node --test scripts/check-plugin-version.test.mjs && node scripts/check-plugin-version.mjs",
         "cli-content:check": "pnpm --filter @manyfold/docs check:cli-content",
         "social-card:check": "pnpm --filter @manyfold/web exec tsx scripts/og/check.ts",
         "check": "turbo check",

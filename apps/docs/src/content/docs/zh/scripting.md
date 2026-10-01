@@ -80,6 +80,9 @@ fi
 执行检查的命令是例外：`mf doctor`、`mf model-providers test`、`mf channels test`
 和 `mf channels register` 在检查失败时退出码为 `1`，但报告仍输出到 stdout，stderr
 为空。脚本请读取报告里的 `ok`（`mf doctor --json` 还可以读每项检查的 `status`）。
+`mf updates apply` 同样在有更新失败时退出 `1`，每一项的结果都输出到 stdout。
+`mf updates list` 即使它汇总的某个列表没加载出来也退出 `0`，那个列表会出现在
+`errors` 里。
 
 ## 不提供 JSON mode 的命令
 
@@ -91,7 +94,6 @@ fi
 - `mf daemon register`
 - `mf daemon stop`
 - `mf setup`
-- `mf update`
 
 请用 `mf <command> --help` 确认已安装版本的能力。
 

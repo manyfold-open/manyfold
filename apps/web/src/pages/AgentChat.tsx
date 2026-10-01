@@ -56,6 +56,10 @@ import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
 import { RuntimeLocalSignInCard } from '@/components/chat/RuntimeLocalSignInCard'
 import { ChatStreamRecoveryNotice } from '@/components/chat/ChatStreamRecoveryNotice'
 import { shouldShowRuntimeSignIn } from '@/lib/runtimeSignIn'
+import {
+    canSyncRuntimeSession,
+    runtimeSyncOpenKey
+} from '@/lib/runtimeSessionSync'
 import { useI18n } from '@/lib/i18n'
 import { Ghost } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
@@ -951,19 +955,16 @@ const AgentChat: FC = (): ReactNode => {
     // The server no-ops on anything unsyncable, so this is safe to call on
     // session open (throttled) and on every switch back from the terminal
     // (forced). Only appended>0 warrants a reload.
+    const currentAgentRef = useRef(currentAgent)
+    useLayoutEffect(() => {
+        currentAgentRef.current = currentAgent
+    }, [currentAgent])
     const syncRuntimeSessionAndReload = useCallback(
         async (force: boolean): Promise<void> => {
             const sid = activeSessionIdRef.current
             const aid = agentIdRef.current
-            if (!aid || !sid || !currentAgent) return
-            if (
-                currentAgent.framework !== 'claude-code' &&
-                currentAgent.framework !== 'codex' &&
-                currentAgent.framework !== 'pi' &&
-                currentAgent.framework !== 'antigravity-cli'
-            )
-                return
-            if (currentAgent.runtime === 'external') return
+            if (!aid || !sid) return
+            if (!canSyncRuntimeSession(currentAgentRef.current)) return
             // The server owns the real gate (session ref, reader, inflight);
             // it returns quickly when there is nothing to sync. Gating on the
             // client's session cache here would over-skip when that cache is
@@ -1009,19 +1010,19 @@ const AgentChat: FC = (): ReactNode => {
                 runtimeSyncInFlightRef.current.delete(sid)
             }
         },
-        [client, currentAgent, reloadSessionMessages]
+        [client, reloadSessionMessages]
     )
 
     // On session open: once the initial page has loaded, pull anything a
-    // terminal TUI added while we were away.
-    useEffect(() => {
-        if (loadedMessagesSessionId && loadedMessagesSessionId === activeSessionId)
-            void syncRuntimeSessionAndReload(false)
-    }, [
+    // terminal TUI added while we were away (runtimeSyncOpenKey).
+    const openSyncKey = runtimeSyncOpenKey(
+        currentAgent,
         activeSessionId,
-        loadedMessagesSessionId,
-        syncRuntimeSessionAndReload
-    ])
+        loadedMessagesSessionId
+    )
+    useEffect(() => {
+        if (openSyncKey) void syncRuntimeSessionAndReload(false)
+    }, [openSyncKey, syncRuntimeSessionAndReload])
 
     const loadOlderMessages = useCallback(async (): Promise<void> => {
         if (

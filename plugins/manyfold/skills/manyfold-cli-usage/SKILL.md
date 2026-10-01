@@ -3,7 +3,7 @@ name: manyfold-cli-usage
 description: Operate Manyfold resources through mf from managed runtimes or external coding agents, delegate via A2A, and show results in the workbench when available. Not for developing Manyfold source code.
 version: 0.0.0-dev
 metadata:
-  references-sha256: "f7d53145c20a1093b7c95a834afb3fc8cfe1cb73243269c8d5d8e455d4431a3a"
+  references-sha256: "40748e63bb34c01542cb4bb4ed34b26e63d96d79ab8c767def5e98d3d4e420d7"
 ---
 # Manyfold CLI (`mf`) — agent guide
 
@@ -85,6 +85,7 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 - `mf help connections --agent` — external accounts (GitHub, Cloudflare, Composio) linked to the agent
 - `mf help runtime --agent` — runtime lifecycle, control UI, dashboard
 - `mf help sandbox --agent` — list, update and delete sandboxes; storage readings and attribution
+- `mf help updates --agent` — pending updates on computers, sandboxes, frameworks and skills, and the versions to install
 - `mf help agent --agent` — create (model source, sandbox reuse), list, update, send and chat (talk to an agent), delete, credentials
 - `mf help backups --agent` — agent snapshots: list, create, restore
 - `mf help usage --agent` — token and cost statistics
@@ -104,7 +105,7 @@ failure, 3 auth (401/403), 4 not found, 5 invalid usage or arguments
 (400/422), 130 interrupted (Ctrl-C), 1 anything else. A command that runs
 a check (`mf doctor`, `mf model-providers test`, `mf channels test` and
 `register`) also exits 1 when the check fails, with its report still on
-stdout. `mf <command> --help` shows human-readable flags.
+stdout, and so does `mf updates apply` when any update failed. `mf <command> --help` shows human-readable flags.
 
 ## Execution and recovery
 

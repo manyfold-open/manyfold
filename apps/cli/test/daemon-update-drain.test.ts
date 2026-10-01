@@ -23,6 +23,7 @@ interface Harness {
 const makeHarness = (opts?: {
     changed?: boolean
     drainTimeoutMs?: number
+    retryDelayMs?: number
     applyUpdate?: (spec: DaemonUpdateSpec) => Promise<SelfUpdateResult>
 }): Harness => {
     let active = 0
@@ -55,7 +56,8 @@ const makeHarness = (opts?: {
             harness.restarts += 1
         },
         log: (msg) => logs.push(msg),
-        drainTimeoutMs: opts?.drainTimeoutMs
+        drainTimeoutMs: opts?.drainTimeoutMs,
+        retryDelayMs: opts?.retryDelayMs
     })
     return harness
 }
@@ -113,9 +115,60 @@ test('the drain deadline bounds the wait and force-applies', async () => {
     assert.ok(h.logs.some((l) => /drain deadline/.test(l)))
 })
 
-test('a failed deferred apply logs and unblocks new sessions', async () => {
+// WHY: nobody waits on a deferred update's RPC, so a failure there dropped an
+// update its caller had been told would land.
+//
+// The retry tests tick their timers by hand. On the wall clock, a retry had to
+// stay unfired for as long as the test took to look, which a loaded machine
+// does not promise. Seen on macOS with the cli, web and shared suites running
+// at once [2026-10-01]: `a session ending does not cut the wait short` failed
+// `2 !== 1`.
+test('a deferred apply that fails is tried again, with new sessions still refused', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let attempts = 0
     const h = makeHarness({
+        retryDelayMs: 20,
+        applyUpdate: async (spec) => {
+            attempts += 1
+            if (attempts === 1) throw new Error('The operation was aborted.')
+            h.applied.push(spec)
+            return {
+                from: '1.0.0',
+                to: '2.0.0',
+                commit: 'a72f4de',
+                execPath: '/tmp/mf',
+                changed: true
+            }
+        }
+    })
+    h.setActive(1)
+    await h.coordinator.request({ targetVersion: '2.0.0' })
+
+    h.setActive(0)
+    h.coordinator.onSessionEnd()
+    await flush()
+    assert.ok(
+        h.logs.some((l) => /deferred update failed: The operation was aborted\.; trying again in/.test(l)),
+        h.logs.join('\n')
+    )
+    assert.equal(h.coordinator.blocksNewSessions(), true)
+    h.coordinator.onSessionEnd()
+    await flush()
+    assert.equal(attempts, 1, 'a session ending does not cut the wait short')
+
+    t.mock.timers.tick(20)
+    await flush()
+    assert.deepEqual(h.applied, [{ targetVersion: '2.0.0' }])
+    assert.equal(h.restarts, 1)
+})
+
+test('a deferred apply that keeps failing gives up and unblocks new sessions', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let attempts = 0
+    const h = makeHarness({
+        retryDelayMs: 5,
         applyUpdate: async () => {
+            attempts += 1
             throw new Error('cdn unreachable')
         }
     })
@@ -125,9 +178,82 @@ test('a failed deferred apply logs and unblocks new sessions', async () => {
     h.setActive(0)
     h.coordinator.onSessionEnd()
     await flush()
-    assert.ok(h.logs.some((l) => /deferred update failed/.test(l)))
+    // The next retry is scheduled after tick() returns, so each tick fires one.
+    for (let i = 0; i < 2; i += 1) {
+        t.mock.timers.tick(5)
+        await flush()
+    }
+    assert.equal(attempts, 3)
+    assert.equal(h.logs.at(-1), 'deferred update failed: cdn unreachable')
     assert.equal(h.coordinator.blocksNewSessions(), false)
     assert.equal(h.restarts, 0)
+})
+
+test('a retry that finds a session live drains it first', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    let attempts = 0
+    const h = makeHarness({
+        retryDelayMs: 10,
+        drainTimeoutMs: 60_000,
+        applyUpdate: async (spec) => {
+            attempts += 1
+            if (attempts === 1) throw new Error('cdn unreachable')
+            h.applied.push(spec)
+            return {
+                from: '1.0.0',
+                to: '2.0.0',
+                commit: 'a72f4de',
+                execPath: '/tmp/mf',
+                changed: true
+            }
+        }
+    })
+    h.setActive(1)
+    await h.coordinator.request({ targetVersion: '2.0.0' })
+    h.setActive(0)
+    h.coordinator.onSessionEnd()
+    await flush()
+
+    h.setActive(1)
+    t.mock.timers.tick(10)
+    await flush()
+    assert.equal(attempts, 1, 'the live session is not killed')
+    assert.equal(h.coordinator.blocksNewSessions(), true)
+
+    h.setActive(0)
+    h.coordinator.onSessionEnd()
+    await flush()
+    assert.deepEqual(h.applied, [{ targetVersion: '2.0.0' }])
+    assert.equal(h.restarts, 1)
+})
+
+test('a request while a failed deferred apply waits applies at once', async () => {
+    let attempts = 0
+    const h = makeHarness({
+        retryDelayMs: 60_000,
+        applyUpdate: async (spec) => {
+            attempts += 1
+            if (attempts === 1) throw new Error('cdn unreachable')
+            h.applied.push(spec)
+            return {
+                from: '1.0.0',
+                to: spec.targetVersion ?? '2.0.0',
+                commit: 'a72f4de',
+                execPath: '/tmp/mf',
+                changed: true
+            }
+        }
+    })
+    h.setActive(1)
+    await h.coordinator.request({ targetVersion: '2.0.0' })
+    h.setActive(0)
+    h.coordinator.onSessionEnd()
+    await flush()
+
+    const outcome = await h.coordinator.request({ targetVersion: '2.1.0' })
+    assert.equal(outcome.kind, 'applied')
+    assert.deepEqual(h.applied, [{ targetVersion: '2.1.0' }])
+    assert.equal(h.restarts, 1)
 })
 
 test('a repeated request while draining replaces the pending target', async () => {

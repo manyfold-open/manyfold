@@ -325,3 +325,176 @@ test('a peer this agent holds no grant for exits 4 and points at mf a2a status',
     assert.match(stderr, /mf a2a status lists the peers this agent may call/)
 })
 
+// ---- a task the peer hands over at its blocking cap (2026-10-01) ----
+//
+// A Manyfold peer answers a blocking send `working` at its blocking cap (a
+// message/stream ends on that non-final frame) and keeps the task running.
+// `send` used to print nothing and exit 0 there, and exited 0 on a failed task.
+
+type PeerAnswer = { result: unknown } | { stream: unknown[] }
+
+const sendToPeer = async (
+    answer: (method: string) => PeerAnswer,
+    args: string[] = []
+) => {
+    const methods: string[] = []
+    const server = http.createServer((req, res) => {
+        let raw = ''
+        req.on('data', (chunk) => {
+            raw += chunk
+        })
+        req.on('end', () => {
+            const rpc = JSON.parse(raw) as { id: unknown; method: string }
+            methods.push(rpc.method)
+            const reply = answer(rpc.method)
+            if ('stream' in reply) {
+                res.writeHead(200, { 'content-type': 'text/event-stream' })
+                for (const result of reply.stream)
+                    res.write(
+                        `data: ${JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result })}\n\n`
+                    )
+                res.end()
+                return
+            }
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(
+                JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: reply.result })
+            )
+        })
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/rpc`
+    const out: string[] = []
+    const err: string[] = []
+    const log = console.log
+    const error = console.error
+    const previousExitCode = process.exitCode
+    let exitCode: number | undefined
+    console.log = (...values: unknown[]) => {
+        out.push(values.map(String).join(' '))
+    }
+    console.error = (...values: unknown[]) => {
+        err.push(values.map(String).join(' '))
+    }
+    process.exitCode = undefined
+    try {
+        const program = new Command().exitOverride()
+        registerA2a(program)
+        await program.parseAsync(
+            ['a2a', 'send', url, 'work', '--allow-http-localhost', ...args],
+            { from: 'user' }
+        )
+    } finally {
+        exitCode =
+            typeof process.exitCode === 'number' ? process.exitCode : undefined
+        process.exitCode = previousExitCode
+        console.log = log
+        console.error = error
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+    return { out, err: err.join('\n'), exitCode, methods, url }
+}
+
+const peerTask = (state: string, text?: string, message?: string) => ({
+    kind: 'task',
+    id: 'task-1',
+    contextId: 'context-1',
+    status: {
+        state,
+        ...(message
+            ? {
+                  message: {
+                      kind: 'message',
+                      messageId: 'status',
+                      role: 'agent',
+                      parts: [{ kind: 'text', text: message }]
+                  }
+              }
+            : {})
+    },
+    artifacts: text
+        ? [{ artifactId: 'a', parts: [{ kind: 'text', text }] }]
+        : []
+})
+
+test('a blocking send answered working follows the task to its answer', async () => {
+    const run = await sendToPeer((method) => ({
+        result:
+            method === 'message/send'
+                ? peerTask('working')
+                : peerTask('completed', 'the long answer')
+    }))
+    assert.equal(run.exitCode, undefined)
+    assert.deepEqual(run.out, ['the long answer'])
+    assert.match(run.err, /task-1 is still running on the peer; following it/)
+    assert.deepEqual(run.methods, ['message/send', 'tasks/get'])
+})
+
+test('a send whose deadline passes while following exits 1 naming the running task', async () => {
+    const run = await sendToPeer(() => ({ result: peerTask('working') }), [
+        '--timeout',
+        '1'
+    ])
+    assert.equal(run.exitCode, 1)
+    assert.match(
+        run.err,
+        /timed out after 1s; task task-1 is still running on the peer/
+    )
+    assert.ok(
+        run.err.includes(`track: mf a2a tasks get ${run.url} task-1 --wait`),
+        run.err
+    )
+})
+
+test('a send whose task ends failed prints why and exits 1', async () => {
+    const run = await sendToPeer(() => ({
+        result: peerTask(
+            'failed',
+            undefined,
+            'delegated turn exceeded 7200s (detached cap)'
+        )
+    }))
+    assert.equal(run.exitCode, 1)
+    assert.deepEqual(run.out, [])
+    assert.match(run.err, /delegated turn exceeded 7200s \(detached cap\)/)
+})
+
+test('a stream that ends before its task prints the followed answer, not the partial', async () => {
+    for (const asJson of [false, true]) {
+        const run = await sendToPeer(
+            (method) =>
+                method === 'message/stream'
+                    ? {
+                          stream: [
+                              {
+                                  kind: 'status-update',
+                                  taskId: 'task-1',
+                                  contextId: 'context-1',
+                                  status: { state: 'working' },
+                                  final: false
+                              },
+                              {
+                                  kind: 'artifact-update',
+                                  taskId: 'task-1',
+                                  contextId: 'context-1',
+                                  artifact: {
+                                      artifactId: 'a',
+                                      parts: [{ kind: 'text', text: 'part' }]
+                                  },
+                                  append: true
+                              }
+                          ]
+                      }
+                    : { result: peerTask('completed', 'part of the full answer') },
+            ['--stream', ...(asJson ? ['--json'] : [])]
+        )
+        assert.equal(run.exitCode, undefined, `json=${asJson}`)
+        if (asJson) {
+            const last = JSON.parse(run.out.at(-1) ?? '{}')
+            assert.equal(last.kind, 'task')
+            assert.equal(last.status.state, 'completed')
+        } else assert.deepEqual(run.out, ['part of the full answer'])
+    }
+})

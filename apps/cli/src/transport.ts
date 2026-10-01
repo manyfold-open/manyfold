@@ -110,10 +110,14 @@ export const createCliFetch = (options: CliFetchOptions = {}): typeof fetch => {
     }
 }
 
-export const createCliClient = (options: ClientOptions): NcaClient => {
-    const { fetch: fetchImpl, ...clientOptions } = options
+// `timeoutMs` replaces MF_HTTP_TIMEOUT for calls the server itself keeps open
+// for minutes, such as an update it waits to see through.
+export const createCliClient = (
+    options: ClientOptions & { timeoutMs?: number }
+): NcaClient => {
+    const { fetch: fetchImpl, timeoutMs, ...clientOptions } = options
     return createClient({
         ...clientOptions,
-        fetch: createCliFetch({ fetchImpl })
+        fetch: createCliFetch({ fetchImpl, timeoutMs })
     })
 }

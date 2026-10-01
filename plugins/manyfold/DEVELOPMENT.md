@@ -31,6 +31,22 @@ Manyfold's skill discovery and release readers. Plugin manifest versions
 control host installation independently. Keep the Claude Code and Codex
 manifests in sync when releasing the plugin.
 
+## Releasing the Plugin
+
+Claude Code and Codex install one copy of the plugin per manifest version. Until
+the version changes, `claude plugin update` answers "already at the latest
+version", and installed copies keep the old skill. So the PR that changes
+anything the plugin ships, which is everything under `plugins/manyfold/` except
+this file and the README, raises the version:
+- Raise it by semver precedence. A new `+…` build suffix alone doesn't count.
+- Give both manifests the same version.
+
+`pnpm plugin-version:check` enforces both on every PR. Agent-help changes
+regenerate the bundled skill, so they raise the version too.
+
+Both marketplaces read the repository's default branch. Installed copies can
+update once the change has been promoted to `main`.
+
 ## Local Installation
 
 Run these commands from the OSS repository root, which contains both

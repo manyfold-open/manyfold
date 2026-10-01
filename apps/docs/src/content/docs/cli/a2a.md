@@ -64,6 +64,14 @@ mf a2a tasks get peer-name aat_xxx --wait
 The default client deadline is 900 seconds. `--timeout 0` disables the client
 deadline, but it does not remove server-side task limits.
 
+A blocking `send`, with or without `--stream`, is held by the server only up to
+its blocking limit (10 minutes on the hosted service). A turn still running then
+keeps running: the server hands the task back as `working`, and `send` follows
+it with `tasks get` until it finishes, within the same client deadline. If the
+deadline passes first, `send` exits 1 with the task ID and the
+`mf a2a tasks get … --wait` command that keeps following it. A task that ends
+`failed`, `canceled` or `rejected` prints its reason and exits 1.
+
 ## Recover or cancel
 
 ```sh

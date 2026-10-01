@@ -1,21 +1,11 @@
 import type {
-    AgentFramework,
-    UsageBucket,
     UsageEventsPage,
-    UsageQuery,
     UsageSessionSummary,
     UsageSummary,
     UsageTimeSeriesPoint,
     UsageTopAgent
 } from '@manyfold/shared'
-import { isExternal, isRegisteredFramework } from '@manyfold/shared'
-import {
-    BadRequestException,
-    Controller,
-    Get,
-    Query,
-    UseGuards
-} from '@nestjs/common'
+import { Controller, Get, Query, UseGuards } from '@nestjs/common'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
@@ -24,43 +14,15 @@ import {
     SubjectAgentFromQuery
 } from '@/common/decorators/subject-agent.decorator'
 import { boundAgentIdFromUser } from '@/modules/agents/agents.controller'
+import {
+    buildUserQuery,
+    parseBucket,
+    parseCursor,
+    parseInstant,
+    parseLimit,
+    type UsageQueryDto
+} from './usage-query'
 import { UsageService } from './usage.service'
-
-// Usage accrues to frameworks that run in a runtime; the external-API ones
-// report none.
-export const parseFramework = (value?: string): AgentFramework | undefined => {
-    if (!value) return undefined
-    if (isRegisteredFramework(value) && !isExternal(value)) return value
-    throw new BadRequestException(`unknown framework: ${value}`)
-}
-
-export const parseBucket = (value?: string): UsageBucket => {
-    if (value === 'hour' || value === 'day') return value
-    if (!value) return 'day'
-    throw new BadRequestException(`bucket must be 'hour' or 'day'`)
-}
-
-export interface UsageQueryDto {
-    from?: string
-    to?: string
-    framework?: string
-    runtimeId?: string
-    agentId?: string
-    sessionId?: string
-}
-
-export const buildUserQuery = (
-    userId: string,
-    q: UsageQueryDto
-): UsageQuery => ({
-    userId,
-    from: q.from,
-    to: q.to,
-    framework: parseFramework(q.framework),
-    runtimeId: q.runtimeId,
-    agentId: q.agentId,
-    sessionId: q.sessionId
-})
 
 @Controller('usage')
 @UseGuards(AuthGuard)
@@ -97,10 +59,10 @@ export class UsageController {
         @CurrentUser() user: AuthPrincipal,
         @Query() q: UsageQueryDto & { cursor?: string; limit?: string }
     ): Promise<UsageEventsPage> {
-        const limit = q.limit ? Math.max(1, Math.min(200, Number(q.limit))) : 50
+        const limit = parseLimit(q.limit, 50, 200)
         return this.usage.events(buildUserQuery(user.userId, withBoundAgent(q, user)), {
             limit,
-            cursor: q.cursor ?? null
+            cursor: parseCursor(q.cursor)
         })
     }
 
@@ -121,8 +83,13 @@ export class UsageController {
         @CurrentUser() user: AuthPrincipal,
         @Query() q: { from?: string; to?: string; limit?: string }
     ): Promise<UsageTopAgent[]> {
-        const limit = q.limit ? Number(q.limit) : 10
-        return this.usage.topAgents(q.from, q.to, limit, user.userId)
+        const limit = parseLimit(q.limit, 10, 100)
+        return this.usage.topAgents(
+            parseInstant('from', q.from),
+            parseInstant('to', q.to),
+            limit,
+            user.userId
+        )
     }
 }
 

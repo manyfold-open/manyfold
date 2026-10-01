@@ -137,6 +137,18 @@ export const manifestArtifact = (
     return artifact
 }
 
+// Its message is the one doctor and the daemon have always printed; the
+// status is what lets `mf update --to` tell a missing release from an outage.
+export class ReleaseManifestHttpError extends Error {
+    constructor(
+        readonly url: string,
+        readonly status: number
+    ) {
+        super(`GET ${url} → ${status}`)
+        this.name = 'ReleaseManifestHttpError'
+    }
+}
+
 export const fetchReleaseManifest = async (
     url: string,
     opts: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
@@ -149,7 +161,7 @@ export const fetchReleaseManifest = async (
     )
     try {
         const res = await doFetch(url, { signal: controller.signal })
-        if (!res.ok) throw new Error(`GET ${url} → ${res.status}`)
+        if (!res.ok) throw new ReleaseManifestHttpError(url, res.status)
         const text = await res.text()
         if (text.length > MAX_MANIFEST_BYTES)
             fail(url, `body exceeds ${MAX_MANIFEST_BYTES} bytes`)

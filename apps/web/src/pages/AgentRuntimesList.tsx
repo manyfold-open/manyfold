@@ -2482,11 +2482,17 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     prev.map((s) => (s.id === hostId ? updated : s))
                 )
                 setMessage(
-                    t('web.agentRuntimesList.upgradedMessage', {
-                        version:
-                            updated.cliVersion ??
-                            t('web.agentRuntimesList.latest')
-                    })
+                    updated.cliUpdateDeferred
+                        ? t('web.updates.run.deferredDetail', {
+                              count: String(
+                                  updated.cliUpdateDeferred.activeSessions
+                              )
+                          })
+                        : t('web.agentRuntimesList.upgradedMessage', {
+                              version:
+                                  updated.cliVersion ??
+                                  t('web.agentRuntimesList.latest')
+                          })
                 )
             } catch (e) {
                 setError((e as Error).message)

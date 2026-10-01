@@ -35,6 +35,7 @@ client，可在安装时跳过 setup，之后单独运行 `mf login`。
 | Agent-to-agent     | `mf a2a`                           | 查看 Agent Card、调用已授权 peer，并跟踪 A2A task。                                |
 | 自有计算机         | `mf daemon`                        | 注册机器、安装 autostart、查看状态/日志并诊断 framework。                          |
 | Profile 和环境     | `mf profile`                       | 查看、选择和删除隔离的 CLI control-plane profile。                                 |
+| 更新        | `mf updates`                      | 列出并执行电脑、沙箱、framework 和 skill 上待装的更新，和 Web 的 Update Center 一致。 |
 | CLI 生命周期和帮助 | `mf update`、`mf help`             | 检查/安装 CLI 更新，查看面向用户或 Agent 的帮助。                                  |
 
 执行写入或破坏性操作前先运行 `mf <command> --help`，查看当前版本准确的参数和 flag。已安装 CLI 的 help 是对应版本的精确参考。
@@ -139,11 +140,14 @@ mf auth ensure --scopes channels:read,channels:edit
 mf doctor
 mf update --check
 mf update
+mf updates
 mf help
 ```
 
 - 先运行 `mf doctor`。它检查安装、每个 profile 的登录与 API，以及本机 daemon，并为发现的每个问题给出修复方法。有检查失败时退出码为 `1`；`mf doctor --json` 为脚本返回同一份报告。
 - 已安装的 standalone binary 可在 macOS、Linux 和 Windows 上自行更新。下载内容会经过 SHA-256 校验并由进程内置逻辑解压，不依赖系统 `tar` 或 `unzip` 命令。
+- `mf update --check --json` 给脚本报告当前版本和最新版本。`mf update --to <version>` 安装指定版本，`mf updates versions cli` 列出可装的版本。
+- `mf updates` 列出其他电脑、沙箱、framework 和 skill 上落后的版本，`mf updates apply` 执行更新。
 - 参数被拒绝时运行 `mf <command> --help`；不同 CLI 版本的命令可能变化。
 - 认证或账号不符合预期时运行 `mf whoami`。
 - `mf daemon doctor` 列出 daemon 检查背后的原始本地信息：检测到的 framework、终端支持、autostart unit 和 session hooks。

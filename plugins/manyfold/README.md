@@ -41,6 +41,21 @@ codex plugin add manyfold@manyfold
 Start a new coding-agent conversation after installation. For a local source
 checkout, see [development installation](DEVELOPMENT.md#local-installation).
 
+### Update
+
+A new plugin version arrives through the marketplace. Refresh it, update the
+plugin, then start a new conversation:
+
+```sh
+claude plugin marketplace update manyfold
+claude plugin update manyfold@manyfold   # then restart Claude Code
+```
+
+```sh
+codex plugin marketplace upgrade manyfold
+codex plugin add manyfold@manyfold
+```
+
 ## Authenticate
 
 ### External Coding Agents

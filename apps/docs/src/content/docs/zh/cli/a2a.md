@@ -61,6 +61,12 @@ mf a2a tasks get peer-name aat_xxx --wait
 默认 client deadline 是 900 秒。`--timeout 0` 只会关闭 client deadline，不会移除
 server-side task limit。
 
+阻塞的 `send`（带不带 `--stream` 都一样）最多被服务端挂到它的阻塞上限（托管服务是
+10 分钟）。到那时还在跑的一轮会继续跑：服务端把 task 以 `working` 状态交还，`send`
+在同一个 client deadline 内用 `tasks get` 跟到它结束。如果 deadline 先到，`send`
+以退出码 1 结束，并给出 task ID 和继续跟进用的 `mf a2a tasks get … --wait` 命令。
+以 `failed`、`canceled` 或 `rejected` 结束的 task 会打印原因，退出码为 1。
+
 ## 恢复或取消
 
 ```sh

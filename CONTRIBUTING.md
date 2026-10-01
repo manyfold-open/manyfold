@@ -63,6 +63,10 @@ Node production dependency graph, not mutable base images or OS repositories.
   says why no release note is owed. `.changeset/README.md` explains bump
   levels. Only Git Added changesets count: editing, deleting or renaming a
   pre-existing note does not make it this PR's release artifact.
+- A PR that changes what the coding-agent plugin ships also raises its version
+  in both manifests under `plugins/manyfold/`. That includes agent-help changes,
+  which regenerate its skill. CI enforces it (`pnpm plugin-version:check`); see
+  [releasing the plugin](plugins/manyfold/DEVELOPMENT.md#releasing-the-plugin).
 - Tests must encode why the behavior matters, not just what it does. Tests
   here are hermetic: they run against the open-source composition only, with
   no external credentials (CI has zero secrets).

@@ -7,9 +7,11 @@ mf sandbox list --json
 mf sandbox delete <sandbox-id|name> --yes
 ```
 
-`list` shows each sandbox with its state, agent count and the frameworks
-installed on it (`runtimes`), plus how many sandboxes the plan includes
-(`quota`: `used`, `limit`, `plan`). Deleting an agent does not free its
+`list` shows each sandbox with its state, agent count, the frameworks
+installed on it (`runtimes`) and its Manyfold CLI version (`old → new` when
+an update is out; `cliVersion`, `latestCliVersion`, `cliUpdateAvailable` in
+JSON), plus how many sandboxes the plan includes (`quota`: `used`, `limit`,
+`plan`). Deleting an agent does not free its
 sandbox; deleting the sandbox does. `delete` is irreversible, refuses
 without `--yes`/`-y`, and answers `HOST_NOT_EMPTY` while agents are on it,
 naming them. It needs `sandboxes:read` and `sandboxes:edit`; `list` needs
@@ -26,11 +28,15 @@ mf sandbox update <sandbox-id|name> --to <version> --json
 ```
 
 `update` installs the sandbox's channel's latest Manyfold CLI, or `--to`
-one version the web's Update Center lists (dev builds included), and
+one version the web's Update Center lists (`mf updates versions cli`, dev
+builds included), and
 prints `from → to`; `--json` emits `{ id, name, from, to, sandbox }`.
-A sandbox busy with work takes the update when that finishes. Already on
-the latest release, it says so and lists newer builds for `--to`. It
-needs `sandboxes:read` and `sandboxes:edit`.
+A sandbox busy with work takes the update when that finishes, and is kept
+awake until it does: it says how many sessions it waits for, and
+`sandbox.cliUpdateDeferred` carries `{ activeSessions, deadline }`.
+Already on the latest release, it says so and lists newer builds for
+`--to`. It needs `sandboxes:read` and `sandboxes:edit`. To update every
+sandbox, and what else is behind, use `mf updates` (`mf help updates --agent`).
 
 A file operation, upload or chat attachment on a sandbox whose CLI lacks
 what it needs answers `SANDBOX_CLI_TOO_OLD` (409) with the reason and

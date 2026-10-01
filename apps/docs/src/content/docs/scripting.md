@@ -84,7 +84,9 @@ Commands that run a check are the exception: `mf doctor`,
 `mf model-providers test`, `mf channels test` and `mf channels register` exit
 `1` when the check fails, but their report still goes to stdout and stderr
 stays empty. Read the report's `ok` (and, from `mf doctor --json`, each
-check's `status`).
+check's `status`). `mf updates apply` likewise exits `1` when any update
+failed, with every result on stdout. `mf updates list` exits `0` even when
+one of the lists it joins did not load; that list is in `errors`.
 
 ## Commands without JSON mode
 
@@ -97,7 +99,6 @@ process instead of JSON:
 - `mf daemon register`
 - `mf daemon stop`
 - `mf setup`
-- `mf update`
 
 Confirm the installed version with `mf <command> --help`.
 

@@ -2386,6 +2386,13 @@ export interface AgentRuntimeSummary {
     serviceStatusAt: string | null
 }
 
+// The daemon's count of sessions when it deferred, platform work included,
+// and the latest time it applies the update anyway.
+export interface CliUpdateDeferred {
+    activeSessions: number
+    deadline: string
+}
+
 export interface SandboxSummary {
     id: string
     userId: string
@@ -2410,6 +2417,10 @@ export interface SandboxSummary {
     cliVersion: string | null
     latestCliVersion: string | null
     cliUpdateAvailable: boolean
+    // An update the sandbox's daemon deferred until its sessions end, while
+    // the API holds the sandbox awake for it. Known only to the API instance
+    // holding it: a summary without it is no proof that nothing is pending.
+    cliUpdateDeferred?: CliUpdateDeferred
     // herdr inside the sandbox (ADR-0031): null version = not installed;
     // the Update Center then offers the install as an upgrade to the latest.
     herdrVersion: string | null

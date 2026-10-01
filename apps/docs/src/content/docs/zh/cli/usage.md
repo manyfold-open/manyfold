@@ -3,8 +3,8 @@ title: 用 CLI 查询用量
 description: 查询 token/cost summary、time series、event、session 和 top Agent。
 order: 10
 ---
-`mf usage` 读取 token 和 cost record。Data command 默认输出 JSON，适合 report
-和 monitoring。
+`mf usage` 读取 token 和 cost record。每个命令输出表格；做 report 和 monitoring
+时加 `--json`，按 JSON 输出 record。只敲 `mf usage` 等于 `mf usage summary`。
 
 ## Summary 和 time series
 
