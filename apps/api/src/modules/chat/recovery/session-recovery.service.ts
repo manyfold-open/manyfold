@@ -52,6 +52,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
+import { hostUp } from '@/modules/hosts/host-daemons.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
@@ -118,7 +119,13 @@ interface RawSourceComparison {
     degraded: boolean
 }
 
-type RecoveryAgent = Agent & { runtime: RuntimePlacement; hostId: string | null }
+type RecoveryAgent = Agent & {
+    runtime: RuntimePlacement
+    hostId: string | null
+    // A hosted machine that is not running with its daemon connected:
+    // reading it would wake it, or bring its daemon up.
+    asleep: boolean
+}
 
 @Injectable()
 export class SessionRecoveryService {
@@ -838,11 +845,13 @@ export class SessionRecoveryService {
     // cloud messages, and appends only what the TUI added. Every non-actionable
     // state (no ref, no reader, live turn, nothing new) returns appended:0, so
     // the caller may fire it freely — on every switch back to chat and on
-    // session open.
+    // session open. `wake: false` leaves a sleeping machine alone: it added
+    // nothing since it slept, and a read would wake it and bill it.
     async syncRuntimeSessionIntoCloud(
         userId: string,
         agentId: string,
-        sessionId: string
+        sessionId: string,
+        opts: { wake?: boolean } = {}
     ): Promise<RuntimeSessionSyncResponse> {
         const { session, agent } = await this.loadContext(
             userId,
@@ -899,6 +908,14 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'exec-unavailable',
+                transcript: null,
+                warnings: []
+            }
+        if (opts.wake === false && agent.asleep)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'asleep',
                 transcript: null,
                 warnings: []
             }
@@ -1422,7 +1439,10 @@ export class SessionRecoveryService {
         return {
             ...agent,
             runtime: machine?.placement ?? 'external',
-            hostId: machine?.host?.id ?? null
+            hostId: machine?.host?.id ?? null,
+            asleep:
+                machine?.host?.kind === 'hosted' &&
+                !hostUp(machine.host, machine.daemon)
         }
     }
 

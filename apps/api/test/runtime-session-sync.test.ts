@@ -4,10 +4,12 @@ import test from 'node:test'
 import { terminalSessions } from '@manyfold/db'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
 import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
+import { RuntimeSessionController } from '../src/modules/chat/recovery/session-recovery.controller'
 import {
     contextOf,
     fakeRuntimeContext,
     hostRow,
+    offlineDaemonRow,
     runtimeRow,
     spritesHostRow
 } from './helpers/runtime-context-fixture'
@@ -84,6 +86,10 @@ const makeHarness = (
         holderIdentity?: { hostId: string; runtimeId: string } | null
         readerTranscript?: 'read' | 'missing' | 'unreadable'
         fsThrows?: boolean
+        // The sandbox's power, and whether the API holds a socket to its
+        // daemon.
+        powerState?: 'running' | 'suspended' | 'stopped'
+        daemonConnected?: boolean
     } = {}
 ) => {
     const session = {
@@ -277,8 +283,16 @@ const makeHarness = (
                 }),
                 host:
                     (options.runtime ?? 'daemon') === 'sprites'
-                        ? spritesHostRow({ id: 'host-1', userId: 'user-1' })
-                        : hostRow({ id: 'host-1', userId: 'user-1' })
+                        ? spritesHostRow({
+                              id: 'host-1',
+                              userId: 'user-1',
+                              powerState: options.powerState ?? 'running'
+                          })
+                        : hostRow({ id: 'host-1', userId: 'user-1' }),
+                daemon:
+                    options.daemonConnected === false
+                        ? offlineDaemonRow({ hostId: 'host-1', userId: 'user-1' })
+                        : undefined
             })
         ) as never
     )
@@ -938,4 +952,103 @@ test('a settle that loses the clear to a newer release stays pending', async () 
     )
     assert.equal(res.state, 'pending')
     assert.ok(res.warnings.some((w) => w.includes('re-stamped')))
+})
+
+// WHY: the chat page syncs on session open, and a read of a sleeping sandbox
+// woke it. Seen on staging [2026-09-30]: an open page woke its sandbox 42
+// times in 25 minutes; a sleeping sandbox added nothing to read since it slept.
+test('an open sync leaves a sleeping sandbox asleep', async () => {
+    for (const powerState of ['suspended', 'stopped'] as const) {
+        const h = makeHarness({
+            runtime: 'sprites',
+            powerState,
+            localMessages: localSuperset
+        })
+        const res = await h.service.syncRuntimeSessionIntoCloud(
+            'user-1',
+            'agent-1',
+            'session-1',
+            { wake: false }
+        )
+        assert.deepEqual(res, {
+            appended: 0,
+            recoveredSourceCount: 0,
+            skipped: 'asleep',
+            transcript: null,
+            warnings: []
+        }, powerState)
+        assert.equal(h.fsCallCount(), 0, 'no daemon, no hold, no read')
+        assert.deepEqual(h.cursorMoves, [])
+        assert.equal(h.messages.length, 2)
+    }
+})
+
+test('an open sync leaves a running sandbox alone while its daemon is not connected', async () => {
+    const h = makeHarness({
+        runtime: 'sprites',
+        daemonConnected: false,
+        localMessages: localSuperset
+    })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1',
+        { wake: false }
+    )
+    assert.equal(res.skipped, 'asleep', 'bringing the daemon up is billed work too')
+    assert.equal(h.fsCallCount(), 0)
+})
+
+test('an open sync on a running sandbox with its daemon connected reads as before', async () => {
+    const h = makeHarness({ runtime: 'sprites', localMessages: localSuperset })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1',
+        { wake: false }
+    )
+    assert.equal(res.skipped, null)
+    assert.equal(res.appended, 2)
+    assert.equal(h.fsCallCount(), 1)
+})
+
+test('the user’s own computer is not gated: it does not sleep', async () => {
+    const h = makeHarness({ daemonConnected: false, localMessages: localSuperset })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1',
+        { wake: false }
+    )
+    assert.notEqual(res.skipped, 'asleep')
+    assert.equal(h.fsCallCount(), 1)
+})
+
+test('a pending import still settles on a sleeping sandbox', async () => {
+    const h = makeHarness({
+        runtime: 'sprites',
+        powerState: 'suspended',
+        importPendingSince: PENDING_AT,
+        localMessages: localSuperset
+    })
+    const res = await h.service.settlePendingImport('user-1', 'agent-1', 'session-1')
+    assert.equal(res.state, 'done', 'the import a terminal release left is still owed')
+    assert.equal(res.appended, 2)
+    assert.equal(h.fsCallCount(), 1)
+})
+
+test('the sync endpoint never wakes the machine', async () => {
+    const calls: unknown[][] = []
+    const controller = new RuntimeSessionController({
+        syncRuntimeSessionIntoCloud: async (...args: unknown[]) => {
+            calls.push(args)
+            return {}
+        }
+    } as never)
+    await controller.sync(
+        { userId: 'user-1' } as never,
+        'agent-1',
+        { sessionId: ' session-1 ' } as never
+    )
+    assert.deepEqual(calls, [['user-1', 'agent-1', 'session-1', { wake: false }]])
 })

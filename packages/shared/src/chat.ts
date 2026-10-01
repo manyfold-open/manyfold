@@ -686,13 +686,16 @@ export interface RuntimeSessionSyncResponse {
     // 'inflight' when a live turn holds the session; 'held-by-terminal' while
     // a terminal owns its writes; 'no-session-ref' / 'unsupported' when there
     // is nothing to read; 'exec-unavailable' while the Sprite's exec endpoint
-    // awaits its single recovery probe. null when a read ran.
+    // awaits its single recovery probe; 'asleep' when the sandbox is not
+    // running with its daemon connected, which a read would wake. null when
+    // a read ran.
     skipped:
         | 'inflight'
         | 'held-by-terminal'
         | 'no-session-ref'
         | 'unsupported'
         | 'exec-unavailable'
+        | 'asleep'
         | null
     // What the read found, when one ran: the transcript itself, no file for
     // the ref, or a file that could not be read. Null when skipped. An import

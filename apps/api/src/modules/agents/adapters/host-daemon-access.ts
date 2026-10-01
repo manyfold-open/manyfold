@@ -8,7 +8,8 @@ import type {
 import type { HostDaemonRow, RuntimeHostRow } from '@manyfold/db'
 import {
     HostDaemonsService,
-    hasRpcLease
+    hasRpcLease,
+    hostUp
 } from '@/modules/hosts/host-daemons.service'
 import {
     HostAwakeService,
@@ -268,9 +269,7 @@ export class HostDaemonAccess {
     private async assertUp(args: EnsureHostDaemonArgs): Promise<void> {
         const daemon =
             args.daemon ?? (await this.hostDaemons.findByHostId(args.host.id))
-        const up =
-            args.host.kind === 'local' || args.host.powerState === 'running'
-        if (!up || !hasRpcLease(daemon))
+        if (!hostUp(args.host, daemon))
             throw new HostDaemonOfflineError(
                 args.host,
                 daemon ? 'runner_unavailable' : 'runner_missing'
