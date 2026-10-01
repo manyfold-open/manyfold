@@ -57,6 +57,10 @@ import {
     SessionImportPendingError
 } from '@/modules/chat/chat.service'
 import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
+import {
+    A2A_TURN_TIMEOUT_CODE,
+    TurnAbortReason
+} from '@/modules/chat/turn-abort-reason'
 import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
 import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.service'
 import {
@@ -79,34 +83,61 @@ import {
     type A2aTaskScope,
     type A2aTaskState
 } from '@/modules/a2a/a2a-task.repository'
-import { inBackgroundContext } from '@/common/telemetry/background-context'
+import {
+    inBackgroundContext,
+    inRequestContinuation
+} from '@/common/telemetry/background-context'
 
 const PROTOCOL_VERSION = '0.3.0'
 const DEFAULT_SKILL_ID = 'general-chat'
-// Hard ceilings on a single delegated A2A turn, split by send mode: blocking
-// sends hold the caller's request (and its in-turn `mf a2a send`) open, so
-// they stay short; async (blocking:false) tasks are polled via tasks/get and
-// get a much longer cap for real agent work. On expiry we cancel the target
-// turn and fail the task with 'turn_timeout'. Resolution precedence lives in
-// resolveTurnTimeouts(). Defaults come from DEFAULT_A2A_TURN_TIMEOUTS.
+// Two ceilings on a delegated A2A turn. The blocking cap bounds how long a
+// blocking send (and its in-turn `mf a2a send`) holds the caller: past it the
+// caller gets the task back `working` and the same turn carries on, finishing
+// the task the way an async (blocking:false) send does. The async cap bounds
+// the turn itself: past it we stop the target turn and fail the task with
+// 'turn_timeout'. Resolution precedence lives in resolveTurnTimeouts().
+// Defaults come from DEFAULT_A2A_TURN_TIMEOUTS.
 type A2aTurnMode = 'blocking' | 'detached'
-// Cap on a single user's concurrently in-flight A2A turns. message/send is
-// blocking, so every level of a delegation chain (and any A↔B cycle) holds
-// one 'working' task for the user at the same time — a per-user concurrency
-// cap therefore bounds recursion depth directly, without threading a depth
-// counter through ChatService. Normal parallel fan-out stays well under it;
-// a runaway chain climbs until it trips and then unwinds. Override with
-// A2A_MAX_INFLIGHT_PER_USER.
+type TurnSettlement = { error: { message: string; code: string } | null }
+type TurnWait =
+    | { kind: 'settled'; settlement: TurnSettlement }
+    | { kind: 'row'; row: A2aTask }
+    | { kind: 'cap' }
+type TurnEnd =
+    | Exclude<TurnWait, { kind: 'cap' }>
+    | { kind: 'expired'; capMs: number }
+// One delegated turn, shared by runTurn and the continuation that finishes it
+// after a handover. text and usage are read when the task is finished: the
+// observer keeps updating them for the whole turn.
+interface A2aTurnRun {
+    task: A2aTask
+    assistantMessageId: string
+    mode: A2aTurnMode
+    startedAt: number
+    handedOver: boolean
+    done: Promise<TurnSettlement>
+    text: () => string
+    usage: () => Record<string, unknown> | null
+    emit: (event: A2aStreamEvent) => void
+    closeStream: () => void
+}
+// Cap on a single user's concurrently in-flight A2A turns. A task stays
+// 'working' for as long as its turn runs, so every level of a delegation chain
+// (and any A↔B cycle) holds one 'working' task for the user at the same time
+// — a per-user concurrency cap therefore bounds recursion depth directly,
+// without threading a depth counter through ChatService. Normal parallel
+// fan-out stays well under it; a runaway chain climbs until it trips and then
+// unwinds. Override with A2A_MAX_INFLIGHT_PER_USER.
 const DEFAULT_MAX_INFLIGHT_PER_USER = 8
-// Stale-task sweep: async (blocking:false) turns run detached in-process, so an
-// API restart can leave a task stuck non-terminal with no runTurn to finish it.
+// Stale-task sweep: async (blocking:false) and handed-over turns run detached
+// in-process, so an API restart can leave a task stuck non-terminal with nothing
+// to finish it.
 // Every interval we force-fail non-terminal tasks untouched for longer than the
 // turn timeout plus a grace window — past that, a live turn's own timeoutGuard
 // would already have written a terminal, so anything still 'working' is orphaned.
 // The window uses the LARGEST cap (async) because task rows record neither their
-// send mode nor a deadline, and updatedAt is not refreshed mid-turn; a crashed
-// blocking task therefore lingers up to the async window — acceptable for a
-// correctness backstop.
+// send mode nor a deadline, updatedAt is not refreshed mid-turn, and a blocking
+// send handed over at its cap legitimately runs on under the async cap.
 const STALE_SWEEP_INTERVAL_MS = 60_000
 const STALE_SWEEP_GRACE_MS = 60_000
 const STALE_SWEEP_BATCH = 50
@@ -627,7 +658,8 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         // drive the turn detached, so a caller doesn't hold a long request (and
         // its sprite doesn't hibernate) waiting on the peer. The result stays
         // durable in a2a_tasks for later tasks/get polling. SSE (onEvent) always
-        // runs inline — the live turn IS the stream.
+        // runs inline — the live turn IS the stream — until the blocking cap
+        // hands it over (see handOver).
         if (params.configuration?.blocking === false && !onEvent) {
             void this.runTurnDetached(task, prompt, files)
             return this.toWireTask({ ...task, state: 'working' })
@@ -740,28 +772,35 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         try {
             await this.runTurn(task, prompt, 'detached', undefined, files)
         } catch (err) {
-            this.log.error(
-                `detached a2a task ${task.id} threw: ${(err as Error).message}`
-            )
-            // Conditional: only fail it if it's still active (don't clobber a
-            // terminal state the turn or a cancel already wrote).
-            await this.tasks
-                .updateIfActive(task.id, {
-                    state: 'failed',
-                    errorJson: {
-                        message: (err as Error).message,
-                        code: 'detached_error'
-                    },
-                    completedAt: new Date()
-                })
-                .catch((e) =>
-                    this.log.warn(
-                        `failed to fail detached task ${task.id}: ${
-                            (e as Error).message
-                        }`
-                    )
-                )
+            await this.failDetachedTask(task, err)
         }
+    }
+
+    // Nothing waits on a detached turn (blocking:false, or handed over at the
+    // blocking cap), so a throw that escapes it would leave the task 'working'
+    // until the stale sweep.
+    private async failDetachedTask(task: A2aTask, err: unknown): Promise<void> {
+        this.log.error(
+            `detached a2a task ${task.id} threw: ${(err as Error).message}`
+        )
+        // Conditional: only fail it if it's still active (don't clobber a
+        // terminal state the turn or a cancel already wrote).
+        await this.tasks
+            .updateIfActive(task.id, {
+                state: 'failed',
+                errorJson: {
+                    message: (err as Error).message,
+                    code: 'detached_error'
+                },
+                completedAt: new Date()
+            })
+            .catch((e) =>
+                this.log.warn(
+                    `failed to fail detached task ${task.id}: ${
+                        (e as Error).message
+                    }`
+                )
+            )
     }
 
     private async runTurn(
@@ -776,8 +815,11 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         span?.setAttribute('nca.a2a_task_id', task.id)
         if (task.callerAgentId)
             span?.setAttribute('nca.a2a_peer_agent_id', task.callerAgentId)
+        // A handover closes this so the caller's stream ends while the turn's
+        // observer keeps feeding the background continuation.
+        let sink = onEvent
         const emit = (event: A2aStreamEvent): void => {
-            if (onEvent) onEvent(event)
+            sink?.(event)
         }
 
         let text = ''
@@ -922,44 +964,152 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         }
 
         const { blockingMs, asyncMs } = await this.resolveTurnTimeouts()
-        const timeoutMs = mode === 'detached' ? asyncMs : blockingMs
-        let timedOut = false
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const timeoutGuard = new Promise<{
-            error: { message: string; code: string } | null
-        }>((resolve) => {
-            timer = setTimeout(() => {
-                timedOut = true
-                resolve({
-                    error: {
-                        message: `delegated turn exceeded ${Math.round(
-                            timeoutMs / 1000
-                        )}s (${mode} cap)`,
-                        code: 'turn_timeout'
-                    }
-                })
-            }, timeoutMs)
-        })
-
-        const reconciliation = new AbortController()
-        const outcome = await Promise.race([
+        const run: A2aTurnRun = {
+            task,
+            assistantMessageId: sent.assistantMessageId,
+            mode,
+            startedAt,
+            handedOver: false,
             done,
-            timeoutGuard,
-            this.waitForTaskTerminal(task, reconciliation.signal).then((row) => ({
-                row
-            }))
-        ]).finally(() => {
+            text: () => text,
+            usage: () => usage,
+            emit,
+            closeStream: () => {
+                sink = undefined
+            }
+        }
+        const capStartedAt = Date.now()
+        const wait = await this.waitForTurn(
+            run,
+            mode === 'detached' ? asyncMs : blockingMs
+        )
+        if (wait.kind !== 'cap') return this.finishTurn(run, wait)
+        if (mode === 'detached')
+            return this.finishTurn(run, { kind: 'expired', capMs: asyncMs })
+        return this.handOver(run, { blockingMs, asyncMs, capStartedAt })
+    }
+
+    // Whichever comes first: the turn's own terminal, the cap, or another
+    // writer (a cancel, the sweep, a reconcile) terminalizing the task.
+    private async waitForTurn(
+        run: A2aTurnRun,
+        capMs: number
+    ): Promise<TurnWait> {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const cap = new Promise<TurnWait>((resolve) => {
+            timer = setTimeout(
+                () => resolve({ kind: 'cap' }),
+                Math.max(0, capMs)
+            )
+        })
+        const reconciliation = new AbortController()
+        try {
+            return await Promise.race<TurnWait>([
+                run.done.then(
+                    (settlement): TurnWait => ({ kind: 'settled', settlement })
+                ),
+                cap,
+                this.waitForTaskTerminal(run.task, reconciliation.signal).then(
+                    (row): TurnWait => ({ kind: 'row', row })
+                )
+            ])
+        } finally {
             reconciliation.abort()
             if (timer) clearTimeout(timer)
-        })
-        if ('row' in outcome) {
-            if (usage) await this.tasks.update(task.id, { usageJson: usage })
-            this.emitSnapshot(outcome.row, emit)
-            return this.toWireTask(outcome.row)
         }
-        if (timedOut) {
+    }
+
+    // The blocking cap bounds how long a send holds its caller, not how long the
+    // turn may run. Past it the caller gets the task back `working` (a
+    // message/stream ends on that non-final frame) and the same turn carries on
+    // in the background under what is left of the async cap, finishing the task
+    // the way a blocking:false send does; the caller follows with tasks/get or
+    // tasks/resubscribe.
+    // Seen on prod [2026-10-01]: the cap cancelled healthy turns at 600 s for a
+    // caller that had hung up 0.13 s in and was polling tasks/get anyway.
+    private async handOver(
+        run: A2aTurnRun,
+        caps: { blockingMs: number; asyncMs: number; capStartedAt: number }
+    ): Promise<Task> {
+        const remainingMs = caps.asyncMs - (Date.now() - caps.capStartedAt)
+        // Caps saved equal leave nothing to run on: fail it inline rather than
+        // answer `working` for a task about to fail.
+        if (remainingMs <= 0)
+            return this.finishTurn(run, {
+                kind: 'expired',
+                capMs: caps.asyncMs
+            })
+        const row = await this.tasks.findById(
+            run.task.id,
+            this.scopeOfTask(run.task)
+        )
+        if (!row) throw new A2aError(A2aErrorCode.taskNotFound)
+        if (!isActive(row)) return this.finishTurn(run, { kind: 'row', row })
+        this.emitSnapshot(row, run.emit)
+        run.closeStream()
+        run.handedOver = true
+        this.log.log(
+            `a2a task ${run.task.id} reached its ${caps.blockingMs}ms blocking cap; answering working, the turn continues under the async cap`
+        )
+        this.telemetry?.event('a2a.turn.handover', {
+            taskId: run.task.id,
+            userId: run.task.userId,
+            targetAgentId: run.task.targetAgentId,
+            callerAgentId: run.task.callerAgentId,
+            blockingMs: caps.blockingMs,
+            asyncMs: caps.asyncMs,
+            remainingMs,
+            durationMs: Date.now() - run.startedAt
+        })
+        void inRequestContinuation(
+            () => this.continueHandedOver(run, remainingMs, caps.asyncMs),
+            {
+                'nca.a2a_task_id': run.task.id,
+                'nca.agent_id': run.task.targetAgentId
+            }
+        )
+        return this.toWireTask(row)
+    }
+
+    private async continueHandedOver(
+        run: A2aTurnRun,
+        remainingMs: number,
+        asyncMs: number
+    ): Promise<void> {
+        try {
+            const wait = await this.waitForTurn(run, remainingMs)
+            await this.finishTurn(
+                run,
+                wait.kind === 'cap' ? { kind: 'expired', capMs: asyncMs } : wait
+            )
+        } catch (err) {
+            await this.failDetachedTask(run.task, err)
+        }
+    }
+
+    // Writes the task's terminal for the way its turn ended, and answers the
+    // caller with it. After a handover nobody is listening: emit is closed and
+    // the returned task is dropped.
+    private async finishTurn(run: A2aTurnRun, end: TurnEnd): Promise<Task> {
+        const { task, emit, mode } = run
+        if (end.kind === 'row') {
+            const usage = run.usage()
+            if (usage) await this.tasks.update(task.id, { usageJson: usage })
+            this.emitSnapshot(end.row, emit)
+            return this.toWireTask(end.row)
+        }
+        const expired = end.kind === 'expired'
+        const error = expired
+            ? {
+                  message: `delegated turn exceeded ${Math.round(
+                      end.capMs / 1000
+                  )}s (detached cap)`,
+                  code: 'turn_timeout'
+              }
+            : end.settlement.error
+        if (expired) {
             this.log.warn(
-                `a2a task ${task.id} timed out after ${timeoutMs}ms (${mode} cap); canceling target turn`
+                `a2a task ${task.id} reached its ${end.capMs}ms async cap; stopping the target turn`
             )
             this.telemetry?.event('a2a.turn.timeout', {
                 taskId: task.id,
@@ -967,28 +1117,18 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 targetAgentId: task.targetAgentId,
                 callerAgentId: task.callerAgentId,
                 mode,
-                timeoutMs,
-                durationMs: Date.now() - startedAt
+                handedOver: run.handedOver,
+                timeoutMs: end.capMs,
+                durationMs: Date.now() - run.startedAt
             })
-            await this.chat
-                .cancelMessage(
-                    task.userId,
-                    task.targetAgentId,
-                    sent.assistantMessageId
-                )
-                .catch((err) =>
-                    this.log.warn(
-                        `cancel after a2a timeout failed for ${task.id}: ${
-                            (err as Error).message
-                        }`
-                    )
-                )
         }
+        const text = run.text()
+        const usage = run.usage()
         const completedAt = new Date()
-        const finalState: TaskState = outcome.error ? 'failed' : 'completed'
-        const artifactJson = outcome.error ? null : textArtifact(text)
-        const errorJson = outcome.error
-            ? { message: outcome.error.message, code: outcome.error.code }
+        const finalState: TaskState = error ? 'failed' : 'completed'
+        const artifactJson = error ? null : textArtifact(text)
+        const errorJson = error
+            ? { message: error.message, code: error.code }
             : null
 
         // Conditional: if a cancel/sweep already terminalized this task while the
@@ -1000,6 +1140,32 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             usageJson: usage,
             completedAt
         })
+
+        // Task terminal first, then the stop, the order cancelTask uses: a
+        // reconcile racing the stop finds the task already failed turn_timeout
+        // instead of writing the chat turn's stop over it. Stopped even when
+        // the write lost, since the sweep may have orphaned a turn still running.
+        if (expired)
+            await this.chat
+                .cancelMessage(
+                    task.userId,
+                    task.targetAgentId,
+                    run.assistantMessageId,
+                    new TurnAbortReason(
+                        A2A_TURN_TIMEOUT_CODE,
+                        `the A2A task that started this turn reached its ${Math.round(
+                            end.capMs / 1000
+                        )}s time limit, so the turn was stopped`,
+                        false
+                    )
+                )
+                .catch((err) =>
+                    this.log.warn(
+                        `cancel after a2a timeout failed for ${task.id}: ${
+                            (err as Error).message
+                        }`
+                    )
+                )
 
         if (!terminalized) {
             if (usage) await this.tasks.update(task.id, { usageJson: usage })
@@ -1013,9 +1179,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         }
 
         await this.writeAudit(
-            outcome.error
-                ? auditAction.A2A_TASK_FAILED
-                : auditAction.A2A_TASK_COMPLETED,
+            error ? auditAction.A2A_TASK_FAILED : auditAction.A2A_TASK_COMPLETED,
             task.id,
             task.userId,
             {
@@ -1024,36 +1188,34 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 callerAgentId: task.callerAgentId,
                 externalSubject: task.externalSubject,
                 state: finalState,
-                errorCode: outcome.error?.code ?? null
+                errorCode: error?.code ?? null
             }
         )
 
-        if (!outcome.error)
+        if (!error)
             this.telemetry?.event('a2a.turn.complete', {
                 taskId: task.id,
                 userId: task.userId,
                 targetAgentId: task.targetAgentId,
                 callerAgentId: task.callerAgentId,
                 mode,
+                handedOver: run.handedOver,
                 state: finalState,
-                durationMs: Date.now() - startedAt
+                durationMs: Date.now() - run.startedAt
             })
-        else if (!timedOut)
-            this.telemetry?.error(
-                'a2a.turn.error',
-                new Error(outcome.error.message),
-                {
-                    taskId: task.id,
-                    userId: task.userId,
-                    targetAgentId: task.targetAgentId,
-                    callerAgentId: task.callerAgentId,
-                    mode,
-                    errorCode: outcome.error.code,
-                    durationMs: Date.now() - startedAt
-                }
-            )
+        else if (!expired)
+            this.telemetry?.error('a2a.turn.error', new Error(error.message), {
+                taskId: task.id,
+                userId: task.userId,
+                targetAgentId: task.targetAgentId,
+                callerAgentId: task.callerAgentId,
+                mode,
+                handedOver: run.handedOver,
+                errorCode: error.code,
+                durationMs: Date.now() - run.startedAt
+            })
 
-        if (!outcome.error)
+        if (!error)
             emit({
                 kind: 'artifact-update',
                 taskId: task.id,

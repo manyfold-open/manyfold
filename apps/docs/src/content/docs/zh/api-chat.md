@@ -151,6 +151,7 @@ curl -X POST \
 - 该接口需要带 `chat:edit` scope 的 API token（`api.full` 也可以）。仅有 `chat.completions` scope 无法取消；如果集成需要中断回合，请给 token 追加 `chat:edit`。
 - 返回 `204 No Content`，取消该会话最新的进行中 assistant 回合；没有进行中的回合时不做任何事。
 - 被取消的回合以错误码 `cancelled_by_user` 结束，取消前已产出的内容会保留在会话里。
+- 由平台停止的回合会用它自己的错误码结束，例如发起它的 A2A 任务超过时长上限时是 `a2a_turn_timeout`。这算错误，不算取消。
 - 对 Dify agent，取消会同时停止所连 Dify 应用的生成，而不是让它在后台继续跑完。
 
 ## 发送文件

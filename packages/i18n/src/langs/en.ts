@@ -2788,6 +2788,8 @@ const en = {
                 runnerUpgradeRequired: "The Manyfold CLI on the agent's computer needs an update before chat can continue.",
                 threadBusy:
                     'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
+                turnDurationExceeded:
+                    'The agent ran past its time limit for this message and was stopped. What it produced so far is kept; send a follow-up to continue.',
                 updateKey: 'Update key',
                 switchToPlatform: 'Switch to platform credits',
                 switching: 'Switching…',

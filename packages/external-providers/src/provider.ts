@@ -32,6 +32,9 @@ export interface InvokeInput {
     // Best-effort observability for fire-and-forget work (upstream stop on
     // abort) whose outcome can no longer be yielded as a stream event.
     logger?: ProviderLogger
+    // How long to wait before asking about a task whose stream ended before
+    // the task did (A2A); later polls back off from here.
+    followPollMs?: number
 }
 
 export interface ProviderLogger {

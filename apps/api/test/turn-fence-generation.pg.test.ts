@@ -747,6 +747,38 @@ test('a repeated initial stamp cannot reuse a generation even for the same owner
     }
 })
 
+// The carrier's lease loop tells "we handed this off ourselves" from "someone
+// took it" by exactly this pair: the handoff refuses renewal, the fence holds.
+test('a turn handed off on shutdown refuses renewal while its fence still holds', async (t) => {
+    if (!RUN) return t.skip('set RUN_PG_E2E=1')
+    const h = await buildHarness()
+    try {
+        const fence = await stamp(h, ONE_OWNER)
+        assert.deepEqual(await h.repo.handoffOwnedTurns([fence]), [
+            h.messageId
+        ])
+        assert.equal(
+            await h.repo.renewTurnLease(
+                fence.messageId,
+                fence.ownerId,
+                90,
+                fence.generation
+            ),
+            false
+        )
+        assert.equal(await h.repo.turnFenceHolds(fence), true)
+        assert.equal(
+            await h.repo.turnFenceHolds({
+                ...fence,
+                generation: fence.generation + 1
+            }),
+            false
+        )
+    } finally {
+        await h.close()
+    }
+})
+
 test('recovery handles and usage reject a stale generation', async (t) => {
     if (!RUN) return t.skip('set RUN_PG_E2E=1')
     const h = await buildHarness()

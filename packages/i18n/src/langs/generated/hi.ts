@@ -1545,6 +1545,7 @@ const hi: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'एजेंट का कंप्यूटर उपलब्ध नहीं है। उसे फिर से कनेक्ट करें और दोबारा कोशिश करें।',
     'web.chat.error.runnerUpgradeRequired': 'चैट जारी रखने से पहले एजेंट के कंप्यूटर पर Manyfold CLI को अपडेट करना होगा।',
     'web.chat.error.threadBusy': 'यह बातचीत किसी टर्मिनल में खुली है, और एक समय में केवल एक ही सत्र इसमें लिख सकता है। वहाँ TUI से बाहर निकलें, फिर दोबारा भेजें।',
+    'web.chat.error.turnDurationExceeded': 'इस संदेश के लिए एजेंट अपनी समय-सीमा से आगे चला गया और रोक दिया गया। अब तक जो बना है, वह सुरक्षित है; जारी रखने के लिए अगला संदेश भेजें।',
     'web.chat.error.updateKey': 'अद्यतन कुंजी',
     'web.chat.error.switchToPlatform': 'प्लेटफ़ॉर्म क्रेडिट पर स्विच करें',
     'web.chat.error.switching': 'स्विचिंग...',

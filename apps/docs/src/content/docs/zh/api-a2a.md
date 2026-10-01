@@ -231,11 +231,18 @@ curl -X POST https://api.manyfold.ai/api/a2a/agents/{agentId}/rpc \
 - **流式**——`message/stream` 返回 Server-Sent Events（先 `status-update`，然后是 `artifact-update` 分片）。
 - **提交后轮询**——`message/send` 带上 `"configuration": { "blocking": false }`，立刻拿到 `working` 状态的 task，之后用 task id 轮询 `tasks/get`。
 
+有两个时长上限，都由运营方设置（括号里是托管服务的默认值）：
+
+- **阻塞上限**（10 分钟）——阻塞的 `message/send` 或 `message/stream` 最多把请求挂这么久。一轮跑过这个时间时，`message/send` 返回 `working` 状态的 task，`message/stream` 在一条 `"state": "working"`、`"final": false` 的 `status-update` 之后结束。这一轮会继续跑：轮询 `tasks/get`，或者用 `tasks/resubscribe` 重新挂上（会从头重放回答）。
+- **任务上限**（2 小时）——一个 task 总共最多跑多久，不论用哪种方式发送。超过后 task 以 `turn_timeout` 失败，Agent 的这一轮会被停止。
+
+如果你的客户端本来就会轮询 `tasks/get`，请发送 `blocking: false`，这样请求就不会被挂到阻塞上限。
+
 ## 支持的方法
 
 | 方法 | 用途 |
 | --- | --- |
-| `message/send` | 跑一轮（阻塞，或 `blocking:false` 提交后轮询） |
+| `message/send` | 跑一轮（阻塞到阻塞上限为止，或 `blocking:false` 提交后轮询） |
 | `message/stream` | 跑一轮并用 SSE 推送事件 |
 | `tasks/get` | 按 id 取单个 task |
 | `tasks/list` | 列出该 token 在这个 Agent 上的 task |

@@ -417,6 +417,7 @@ test('the budget codes carry their own identity and never need the prose', () =>
     assert.equal(cause('openclaw_stream_stall', ''), 'inactivity_timeout')
     assert.equal(cause('turn_max_duration', ''), 'turn_duration_exceeded')
     assert.equal(cause('openclaw_turn_timeout', ''), 'turn_duration_exceeded')
+    assert.equal(cause('a2a_turn_timeout', ''), 'turn_duration_exceeded')
     // A silent stream and a turn that ran too long are different incidents
     // with different fixes; folding them together would be a worse lie than
     // leaving them unclassified.

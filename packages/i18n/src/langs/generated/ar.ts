@@ -1181,6 +1181,7 @@ const ar: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'جهاز الوكيل غير متاح. أعد الاتصال به وحاول مرة أخرى.',
     'web.chat.error.runnerUpgradeRequired': 'يحتاج Manyfold CLI على جهاز الوكيل إلى تحديث قبل متابعة المحادثة.',
     'web.chat.error.threadBusy': 'هذه المحادثة مفتوحة في طرفية، ولا يمكن إلا لجلسة واحدة الكتابة إليها في الوقت نفسه. أغلق TUI هناك ثم أعد الإرسال.',
+    'web.chat.error.turnDurationExceeded': 'تجاوز الوكيل حدّه الزمني لهذه الرسالة فتم إيقافه. ما أنتجه حتى الآن محفوظ؛ أرسل رسالة متابعة للمواصلة.',
     'web.chat.error.switchToPlatform': 'التبديل إلى أرصدة المنصة',
     'web.chat.error.switchedToPlatform': 'تم التبديل إلى أرصدة المنصة. أرسل رسالتك مرة أخرى.',
     'web.chat.error.switching': 'جارٍ التبديل…',

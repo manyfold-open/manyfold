@@ -153,6 +153,7 @@ curl -X POST \
 - The endpoint needs an API token with the `chat:edit` scope (`api.full` also works). The `chat.completions` scope alone cannot cancel; add `chat:edit` to the token if your integration needs to stop turns.
 - It returns `204 No Content` and cancels the session's latest running assistant turn. If nothing is running, it changes nothing.
 - The cancelled turn ends with the error code `cancelled_by_user`. Output produced before the cancel stays in the session.
+- A turn the platform stops ends with its own code instead, for example `a2a_turn_timeout` when the A2A task that started it runs past its time limit. It is an error, not a cancel.
 - For a Dify agent, the cancel also stops the connected Dify app's generation instead of leaving it running in the background.
 
 ## Send files

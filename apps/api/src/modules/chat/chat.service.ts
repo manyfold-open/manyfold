@@ -210,6 +210,10 @@ import {
     type TurnBudgets
 } from '@/modules/chat/turn-budgets'
 import {
+    TurnAbortReason,
+    turnAbortErrorEvent
+} from '@/modules/chat/turn-abort-reason'
+import {
     createProcessLoadSampler,
     TURN_CONCURRENCY_GAUGE_MS,
     type ProcessLoadSampler,
@@ -718,6 +722,43 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         const controller = this.runningAdapters.get(messageId)
         if (!controller || controller.signal.aborted) return
         controller.abort()
+    }
+
+    // Every carrier that owns a turn (dispatch, resume, adoption) renews its
+    // lease here. A refused renewal is not by itself a lost turn:
+    // renewTurnLease only matches running/adopting rows, so our own shutdown
+    // handoff, or a terminal we already wrote, refuses it while this
+    // (owner, generation) still holds the row. Only a fence that no longer
+    // holds means someone else has the turn.
+    // Seen on prod [2026-10-01]: the dispatch lease tick after the shutdown
+    // handoff read that refusal as a takeover, aborted the turn (killing the
+    // sprite exec adoption was meant to recover) and wrote it as a cancel.
+    private holdTurnLease(
+        fence: TurnExecutionFence,
+        onLost: () => void
+    ): ReturnType<typeof setInterval> {
+        let stopped = false
+        const timer: ReturnType<typeof setInterval> = setInterval(() => {
+            if (stopped) return
+            void this.repo
+                .renewTurnLease(
+                    fence.messageId,
+                    fence.ownerId,
+                    TURN_LEASE_SECONDS,
+                    fence.generation
+                )
+                .then(async (renewed) => {
+                    if (renewed || stopped) return
+                    const holds = await this.repo.turnFenceHolds(fence)
+                    if (stopped) return
+                    stopped = true
+                    clearInterval(timer)
+                    if (!holds) onLost()
+                })
+                .catch(() => undefined)
+        }, TURN_LEASE_RENEW_MS)
+        timer.unref?.()
+        return timer
     }
 
     // The owner-side half of the cancel contract. `notify()` is fire-and-forget
@@ -1400,17 +1441,25 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // assistant turn rather than "the session's latest" — cancelStream resolves
     // latestInflightMessageId and would cancel the wrong turn when several tasks
     // share a context/session.
+    //
+    // `reason` is for a stop the platform makes (a cap), so the terminal says
+    // so instead of reading as the user's cancel. It only travels with a local
+    // abort: the peer NOTIFY and cancel_requested_at carry no reason, so a turn
+    // owned by another instance still ends cancelled_by_user. That is rare for
+    // the one caller with a reason, the A2A cap, whose timer runs in the
+    // process that dispatched the turn.
     async cancelMessage(
         userId: string,
         agentId: string,
-        assistantMessageId: string
+        assistantMessageId: string,
+        reason?: TurnAbortReason
     ): Promise<void> {
         const message = await this.repo.getMessageById(assistantMessageId)
         if (!message) return
         await this.assertSessionAccess(message.sessionId, userId, agentId)
         const controller = this.runningAdapters.get(assistantMessageId)
         if (controller) {
-            controller.abort()
+            controller.abort(reason)
             return
         }
         await this.requestCancelRemotely(assistantMessageId)
@@ -3034,25 +3083,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // A daemon stream can legitimately run for the turn's whole
             // remaining life, so the claim above has to be kept alive or a
             // sweep would find the turn adoptable under a live resume.
-            const renewOwnerId = fence.ownerId
-            leaseTimer = setInterval(() => {
-                void this.repo
-                    .renewTurnLease(
-                        message.id,
-                        renewOwnerId,
-                        TURN_LEASE_SECONDS,
-                        fence!.generation
-                    )
-                    .then((renewed) => {
-                        if (renewed) return
-                        resumeFenceLost = true
-                        abortController.abort(
-                            new TurnFenceLostError(message.id)
-                        )
-                    })
-                    .catch(() => undefined)
-            }, TURN_LEASE_RENEW_MS)
-            leaseTimer.unref?.()
+            leaseTimer = this.holdTurnLease(fence, () => {
+                resumeFenceLost = true
+                abortController.abort(new TurnFenceLostError(message.id))
+            })
             const resumeStatusOrdinal = await this.resumingStatusOrdinal(
                 message.id
             )
@@ -3497,24 +3531,18 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // legitimately stream for the turn's full remaining life).
             const ownerId = this.turnAdoption?.ownerId
             const leaseTimer = ownerId
-                ? setInterval(() => {
-                      void this.repo
-                          .renewTurnLease(
-                              row.messageId,
-                              ownerId,
-                              TURN_LEASE_SECONDS,
-                              fence.generation
+                ? this.holdTurnLease(
+                      {
+                          messageId: row.messageId,
+                          ownerId,
+                          generation: fence.generation
+                      },
+                      () =>
+                          abortController.abort(
+                              new TurnFenceLostError(row.messageId)
                           )
-                          .then((renewed) => {
-                              if (!renewed)
-                                  abortController.abort(
-                                      new TurnFenceLostError(row.messageId)
-                                  )
-                          })
-                          .catch(() => undefined)
-                  }, TURN_LEASE_RENEW_MS)
+                  )
                 : null
-            leaseTimer?.unref()
             const expectedSessionRef = session.frameworkSessionRef ?? ''
             const deliveredBaseline =
                 deliveredBaselineFromStreamEvents(streamEvents)
@@ -3692,24 +3720,18 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // deliver the same answer twice.
         const ownerId = this.turnAdoption?.ownerId
         const leaseTimer = ownerId
-            ? setInterval(() => {
-                  void this.repo
-                      .renewTurnLease(
-                          row.messageId,
-                          ownerId,
-                          TURN_LEASE_SECONDS,
-                          fence.generation
+            ? this.holdTurnLease(
+                  {
+                      messageId: row.messageId,
+                      ownerId,
+                      generation: fence.generation
+                  },
+                  () =>
+                      abortController.abort(
+                          new TurnFenceLostError(row.messageId)
                       )
-                      .then((renewed) => {
-                          if (!renewed)
-                              abortController.abort(
-                                  new TurnFenceLostError(row.messageId)
-                              )
-                      })
-                      .catch(() => undefined)
-              }, TURN_LEASE_RENEW_MS)
+              )
             : null
-        leaseTimer?.unref()
         try {
             const result = await this.runAdapterFromIterable(
                 converged,
@@ -3782,7 +3804,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             let verdict: TurnRecoveryVerdict = await recoverTurnFromClaudeJsonl(
@@ -3946,7 +3968,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: CodexTurnVerdict = await recoverTurnFromCodexRollout(
@@ -4120,7 +4142,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }.bind(this)
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: GeminiTurnVerdict =
@@ -4323,7 +4345,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let polls = 0
         for (;;) {
             if (args.abortSignal.aborted) {
-                yield cancelledByUserEvent()
+                yield abortTerminalEvent(args.abortSignal)
                 return
             }
             const verdict: PiTurnVerdict | AntigravityTurnVerdict = await args
@@ -5077,6 +5099,16 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         latestContextUsage = event.context
                         continue
                     }
+                    // A carrier torn down for losing its fence reports whatever
+                    // the teardown produced. That is not the turn's terminal:
+                    // the turn is still live under its owner.
+                    if (
+                        (event.type === 'done' || event.type === 'error') &&
+                        (fenceLost || fenceLostByAbort(abortSignal))
+                    ) {
+                        fenceLost = true
+                        break
+                    }
                     if (event.type === 'done') {
                         completed = true
                         const terminalContent = await prepareTerminalContent()
@@ -5175,12 +5207,19 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // own retryable terminal HERE, ahead of the
                 // `abortSignal.aborted` fallthrough below, or the watchdog's
                 // own abort would make the turn read as cancelled_by_user.
-                // Every other rejection still propagates to the caller
-                // untouched — resume hands its exact generation back for a
-                // bounded retry, while adoption lets the lease lapse so a
-                // later sweep retries.
-                if (!(err instanceof TurnBudgetExceededError)) throw err
-                terminalError = turnBudgetErrorEvent(err)
+                // A platform stop (TurnAbortReason) is a terminal for the same
+                // reason: what it throws is its own abort tearing the transport
+                // down, and rethrown it would hand the turn back for a retry
+                // the platform just refused. Every other rejection still
+                // propagates to the caller untouched — resume hands its exact
+                // generation back for a bounded retry, while adoption lets the
+                // lease lapse so a later sweep retries.
+                const budgetErr =
+                    err instanceof TurnBudgetExceededError ? err : null
+                if (!budgetErr && !platformStopped(abortSignal)) throw err
+                terminalError = budgetErr
+                    ? turnBudgetErrorEvent(budgetErr)
+                    : abortTerminalEvent(abortSignal)
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
                     await emitEvent(
@@ -5192,13 +5231,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // Terminal first, abort second: that emit is what releases
                 // the inflight claim and closes turn_executions. The shared
                 // tail below then reports it through the normal funnel.
-                this.abortTimedOutTurn(assistantMessageId, err)
+                if (budgetErr)
+                    this.abortTimedOutTurn(assistantMessageId, budgetErr)
             }
-            if (
-                abortSignal.aborted &&
-                abortSignal.reason instanceof TurnFenceLostError
-            )
-                fenceLost = true
+            if (fenceLostByAbort(abortSignal)) fenceLost = true
             if (
                 !suspended &&
                 !completed &&
@@ -5214,7 +5250,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // user cancel: the new owner aborts this carrier to take the
                 // turn, and this branch would otherwise read that abort as the
                 // user's and terminalize a turn that is still running.
-                terminalError = cancelledByUserEvent()
+                terminalError = abortTerminalEvent(abortSignal)
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
                     await emitEvent(
@@ -5715,22 +5751,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // ahead of this point had no row to be fenced against — nothing
             // could own the turn yet. From the stamp on, they do.
             this.setTurnFence(turnFence)
-            const generation = turnFence.generation
-            leaseTimer = setInterval(() => {
-                void this.repo
-                    .renewTurnLease(
-                        assistantMessageId,
-                        ownerId,
-                        TURN_LEASE_SECONDS,
-                        generation
-                    )
-                    .then((renewed) => {
-                        if (renewed) return
-                        loseTurnFence()
-                    })
-                    .catch(() => undefined)
-            }, TURN_LEASE_RENEW_MS)
-            if (typeof leaseTimer.unref === 'function') leaseTimer.unref()
+            leaseTimer = this.holdTurnLease(turnFence, loseTurnFence)
         }
         // Keep every observed-but-unconfirmed ref available both to the next
         // announcement and to graceful shutdown. handoffOwnedTurns folds these
@@ -6013,6 +6034,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     latestContextUsage = event.context
                     continue
                 }
+                // loseTurnFence latches this before it aborts, so whatever the
+                // teardown makes the adapter report is not the turn's terminal.
+                if (
+                    fenceLost &&
+                    (event.type === 'done' || event.type === 'error')
+                )
+                    break
                 if (event.type === 'done') {
                     completed = true
                     const terminalContent = await prepareTerminalContent()
@@ -6153,7 +6181,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 !fenceLost &&
                 abortSignal.aborted
             ) {
-                const event = cancelledByUserEvent()
+                const event = abortTerminalEvent(abortSignal)
                 terminalError = event
                 const terminalContent = await prepareTerminalContent()
                 terminalPersisted = (
@@ -6282,7 +6310,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             const event = budgetErr
                 ? turnBudgetErrorEvent(budgetErr)
                 : abortSignal.aborted
-                  ? cancelledByUserEvent()
+                  ? abortTerminalEvent(abortSignal)
                   : adapterExceptionEvent(err)
             const terminalContent = await prepareTerminalContent()
             const persisted = (
@@ -7028,6 +7056,16 @@ const cancelledByUserEvent = (): EmittedErrorEvent => ({
     }
 })
 
+const platformStopped = (signal: AbortSignal): boolean =>
+    signal.aborted && signal.reason instanceof TurnAbortReason
+
+// The terminal an aborted turn ends with: the platform's own stop when one
+// aborted it, the user's cancel otherwise.
+const abortTerminalEvent = (signal: AbortSignal): EmittedErrorEvent =>
+    signal.reason instanceof TurnAbortReason
+        ? turnAbortErrorEvent(signal.reason)
+        : cancelledByUserEvent()
+
 const interruptedErrorEvent = (): EmittedErrorEvent => ({
     type: 'error',
     error: {
@@ -7104,10 +7142,20 @@ const adapterExceptionEvent = (err: unknown): EmittedErrorEvent =>
 const safeErrorClass = (err: unknown): string =>
     err instanceof Error && err.name ? err.name : typeof err
 
+const fenceLostByAbort = (signal: AbortSignal): boolean =>
+    signal.aborted && signal.reason instanceof TurnFenceLostError
+
 const normalizeEventForAbort = (
     event: EmittedChatEvent,
     abortSignal: AbortSignal
 ): EmittedChatEvent => {
+    // First: the adapters report cancelled_by_user for any abort they see
+    // before dispatch, and the platform's reason has to win over that too.
+    if (
+        platformStopped(abortSignal) &&
+        (event.type === 'done' || event.type === 'error')
+    )
+        return abortTerminalEvent(abortSignal)
     if (event.type === 'error' && event.error.code === CANCELLED_BY_USER_CODE)
         return {
             type: 'error',

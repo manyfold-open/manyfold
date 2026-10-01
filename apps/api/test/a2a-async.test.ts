@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { A2aService } from '../src/modules/a2a/a2a.service'
 import { A2aSelfController } from '../src/modules/a2a/a2a-self.controller'
 import type { A2aTaskRepository } from '../src/modules/a2a/a2a-task.repository'
+import {
+    A2A_TURN_TIMEOUT_CODE,
+    TurnAbortReason
+} from '../src/modules/chat/turn-abort-reason'
 
 // writeAudit is best-effort; a no-op insert keeps it from throwing.
 const dbFake = { insert: () => ({ values: async () => {} }) } as never
@@ -223,28 +227,142 @@ const settingsFake = (
     getCachedA2aTurnTimeoutsOverride: async () => override
 })
 
-// A ChatService fake whose turn never finishes (observer never emits done),
-// with a cancelMessage recorder for the timeout-cancel assertion.
-const makeStuckChatFake = () => {
-    const state = { cancelled: false }
+// A ChatService fake whose turn runs until the test finishes it through the
+// captured observer, with a cancelMessage recorder for the timeout-cancel
+// assertions. `updatesAtCancel` is how many task writes preceded the cancel.
+const makeStuckChatFake = (updates?: UpdateCall[]) => {
+    const state: {
+        cancelled: boolean
+        reason: unknown
+        updatesAtCancel: number | null
+        observer: ((e: Record<string, unknown>) => void) | undefined
+    } = {
+        cancelled: false,
+        reason: undefined,
+        updatesAtCancel: null,
+        observer: undefined
+    }
     return {
         state,
         fake: {
             announceSessionCreated: () => {},
             createSession: async () => ({ id: 'cs_1' }),
-            sendMessage: async () => ({
-                userMessage: { id: 'um_1' },
-                assistantMessageId: 'am_1'
-            }),
-            cancelMessage: async () => {
+            sendMessage: async (...args: unknown[]) => {
+                state.observer = args[13] as typeof state.observer
+                return {
+                    userMessage: { id: 'um_1' },
+                    assistantMessageId: 'am_1'
+                }
+            },
+            getTurnOutcome: async () => ({ state: 'running' }),
+            cancelMessage: async (...args: unknown[]) => {
                 state.cancelled = true
+                state.reason = args[3]
+                state.updatesAtCancel = updates?.length ?? null
             }
         }
     }
 }
 
-test('blocking send fails with turn_timeout at the blocking cap and cancels the turn', async () => {
+// The cap's cancel names itself, so the chat turn does not read as the user's.
+const assertPlatformStop = (reason: unknown, cap: RegExp): void => {
+    assert.ok(reason instanceof TurnAbortReason)
+    assert.equal(reason.code, A2A_TURN_TIMEOUT_CODE)
+    assert.equal(reason.retryable, false)
+    assert.match(reason.message, cap)
+}
+
+// Seen on prod [2026-10-01]: the blocking cap cancelled healthy turns at 600 s
+// for a caller that had hung up and was polling tasks/get anyway.
+test('a blocking send past its cap answers working and the same turn finishes the task', async () => {
     const { fake: tasks, updates } = makeTasksFake()
+    const { fake: chat, state } = makeStuckChatFake(updates)
+    const { fake: telemetry, events } = makeTelemetryFake()
+    const svc = new A2aService(
+        dbFake,
+        chat as never,
+        tasks as never,
+        undefined,
+        settingsFake({
+            blockingTimeoutSeconds: 0.05,
+            asyncTimeoutSeconds: 5
+        }) as never,
+        telemetry as never
+    )
+
+    const task = await svc.sendMessage(ctx, sendParams('m3'))
+    assert.equal(task.status.state, 'working')
+    assert.equal(state.cancelled, false)
+    const handover = events.find((e) => e.name === 'a2a.turn.handover')
+    assert.ok(handover, 'expected a2a.turn.handover telemetry')
+    assert.equal(handover.attrs.taskId, task.id)
+    assert.equal(handover.attrs.blockingMs, 50)
+    assert.equal(handover.attrs.asyncMs, 5000)
+    assert.equal(
+        events.some((e) => e.name === 'a2a.turn.timeout'),
+        false
+    )
+
+    state.observer?.({ type: 'token', text: 'the long answer' })
+    state.observer?.({ type: 'done' })
+    await new Promise((r) => setTimeout(r, 30))
+    const last = updates[updates.length - 1]
+    assert.equal(last.patch.state, 'completed')
+    assert.deepEqual(
+        (last.patch.artifactJson as { parts: unknown[] }).parts,
+        [{ kind: 'text', text: 'the long answer' }]
+    )
+    assert.equal(state.cancelled, false)
+    const complete = events.find((e) => e.name === 'a2a.turn.complete')
+    assert.ok(complete, 'expected a2a.turn.complete telemetry')
+    assert.equal(complete.attrs.mode, 'blocking')
+    assert.equal(complete.attrs.handedOver, true)
+})
+
+test('a handed-over turn past the async cap fails turn_timeout, writes the task terminal before the stop, and the stop names itself', async () => {
+    const { fake: tasks, updates } = makeTasksFake()
+    const { fake: chat, state } = makeStuckChatFake(updates)
+    const { fake: telemetry, events } = makeTelemetryFake()
+    const svc = new A2aService(
+        dbFake,
+        chat as never,
+        tasks as never,
+        undefined,
+        settingsFake({
+            blockingTimeoutSeconds: 0.05,
+            asyncTimeoutSeconds: 0.15
+        }) as never,
+        telemetry as never
+    )
+
+    const task = await svc.sendMessage(ctx, sendParams('m3b'))
+    assert.equal(task.status.state, 'working')
+    await new Promise((r) => setTimeout(r, 300))
+    const failedAt = updates.findIndex((u) => u.patch.state === 'failed')
+    assert.ok(failedAt >= 0, 'expected the task terminal')
+    const errorJson = updates[failedAt].patch.errorJson as {
+        message: string
+        code: string
+    }
+    assert.equal(errorJson.code, 'turn_timeout')
+    assert.match(errorJson.message, /detached cap/)
+    assert.equal(state.cancelled, true)
+    assert.ok(
+        state.updatesAtCancel !== null && state.updatesAtCancel > failedAt,
+        'the task is terminal before the turn is stopped'
+    )
+    assertPlatformStop(state.reason, /time limit/)
+    const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
+    assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
+    assert.equal(timeoutEvent.attrs.mode, 'blocking')
+    assert.equal(timeoutEvent.attrs.handedOver, true)
+    assert.equal(timeoutEvent.attrs.timeoutMs, 150)
+})
+
+// Validation allows the two caps to be equal: nothing is left to run on, so the
+// caller gets the failure rather than a `working` that fails a moment later.
+test('equal caps expire inline instead of handing over', async () => {
+    const { fake: tasks } = makeTasksFake()
     const { fake: chat, state } = makeStuckChatFake()
     const { fake: telemetry, events } = makeTelemetryFake()
     const svc = new A2aService(
@@ -254,25 +372,18 @@ test('blocking send fails with turn_timeout at the blocking cap and cancels the 
         undefined,
         settingsFake({
             blockingTimeoutSeconds: 0.05,
-            asyncTimeoutSeconds: 10
+            asyncTimeoutSeconds: 0.05
         }) as never,
         telemetry as never
     )
 
-    const task = await svc.sendMessage(ctx, sendParams('m3'))
+    const task = await svc.sendMessage(ctx, sendParams('m3c'))
     assert.equal(task.status.state, 'failed')
-    const last = updates[updates.length - 1]
-    assert.equal(last.patch.state, 'failed')
-    const errorJson = last.patch.errorJson as { message: string; code: string }
-    assert.equal(errorJson.code, 'turn_timeout')
-    assert.match(errorJson.message, /blocking cap/)
     assert.equal(state.cancelled, true)
-    const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
-    assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
-    assert.equal(timeoutEvent.attrs.mode, 'blocking')
-    assert.equal(timeoutEvent.attrs.taskId, task.id)
-    assert.equal(timeoutEvent.attrs.timeoutMs, 50)
-    assert.equal(typeof timeoutEvent.attrs.durationMs, 'number')
+    assert.equal(
+        events.some((e) => e.name === 'a2a.turn.handover'),
+        false
+    )
 })
 
 test('detached turn uses the async cap, not the blocking cap', async () => {
@@ -345,6 +456,7 @@ test('detached turn past the async cap fails with turn_timeout (detached cap)', 
     assert.equal(errorJson.code, 'turn_timeout')
     assert.match(errorJson.message, /detached cap/)
     assert.equal(state.cancelled, true)
+    assertPlatformStop(state.reason, /time limit/)
     const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
     assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
     assert.equal(timeoutEvent.attrs.mode, 'detached')

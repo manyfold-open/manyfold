@@ -1539,6 +1539,7 @@ const ja: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'エージェントのコンピューターを利用できません。再接続してからもう一度お試しください。',
     'web.chat.error.runnerUpgradeRequired': 'チャットを続けるには、エージェントのコンピューター上の Manyfold CLI を更新してください。',
     'web.chat.error.threadBusy': 'この会話は端末で開かれており、同時に書き込めるセッションは 1 つだけです。そちらの TUI を終了してから、もう一度送信してください。',
+    'web.chat.error.turnDurationExceeded': 'エージェントはこのメッセージの処理で制限時間を超えたため停止されました。ここまでの出力は残っています。続けるには、続きのメッセージを送信してください。',
     'web.chat.error.updateKey': '更新キー',
     'web.chat.error.switchToPlatform': 'プラットフォーム クレジットに切り替える',
     'web.chat.error.switching': '切り替え中…',

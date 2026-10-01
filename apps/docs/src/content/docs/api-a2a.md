@@ -234,11 +234,18 @@ Two options when a turn may run for a while:
 - **Stream** — `message/stream` returns Server-Sent Events (`status-update`, then `artifact-update` chunks).
 - **Submit and poll** — send `message/send` with `"configuration": { "blocking": false }`, get a `working` task immediately, then poll `tasks/get` with the task id.
 
+Two time limits apply, both set by the operator (hosted defaults in brackets):
+
+- **Blocking limit** (10 minutes) — how long a blocking `message/send` or a `message/stream` holds your request open. When a turn runs past it, `message/send` returns the task as `working` and `message/stream` ends after a `status-update` with `"state": "working"` and `"final": false`. The turn keeps running: poll `tasks/get`, or reattach with `tasks/resubscribe`, which replays the answer from the start.
+- **Task limit** (2 hours) — how long a task may run in total, whichever way it was sent. Past it the task fails with `turn_timeout` and the agent's turn is stopped.
+
+If your client polls `tasks/get` anyway, send `blocking: false` so it is never held up to the blocking limit.
+
 ## Supported methods
 
 | Method | Purpose |
 | --- | --- |
-| `message/send` | Run one turn (blocking, or `blocking:false` to submit and poll) |
+| `message/send` | Run one turn (blocking up to the blocking limit, or `blocking:false` to submit and poll) |
 | `message/stream` | Run one turn and stream events over SSE |
 | `tasks/get` | Fetch one task by id |
 | `tasks/list` | List your token's tasks on this agent |

@@ -1547,6 +1547,7 @@ const fr: Record<string, string> = {
     'web.chat.error.runnerUnavailable': 'L’ordinateur de l’agent est indisponible. Reconnectez-le et réessayez.',
     'web.chat.error.runnerUpgradeRequired': 'La Manyfold CLI sur l’ordinateur de l’agent doit être mise à jour pour continuer la conversation.',
     'web.chat.error.threadBusy': 'Cette conversation est ouverte dans un terminal, et une seule session peut y écrire à la fois. Quittez la TUI là-bas, puis renvoyez.',
+    'web.chat.error.turnDurationExceeded': 'L’agent a dépassé sa limite de temps pour ce message et a été arrêté. Ce qu’il a produit jusque-là est conservé ; envoyez un message de suivi pour continuer.',
     'web.chat.error.updateKey': 'Clé de mise à jour',
     'web.chat.error.switchToPlatform': 'Passer aux crédits de plateforme',
     'web.chat.error.switching': 'Commutation…',
