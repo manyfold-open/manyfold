@@ -30,13 +30,13 @@ For a scope denial, follow `mf help auth --agent` for the current identity.
 `--session-id <id>`.
 
 ```sh
-mf usage summary --from <iso8601> --to <iso8601>
-mf usage summary --agent-id <agent-id>
-mf usage timeseries --bucket hour --from <iso8601>
-mf usage events --limit 200 --framework claude-code
-mf usage events --cursor <next-cursor-from-previous-page>
-mf usage sessions --session-id <session-id>
-mf usage top-agents --limit 10
+mf usage summary --from <iso8601> --to <iso8601> --json
+mf usage summary --agent-id <agent-id> --json
+mf usage timeseries --bucket hour --from <iso8601> --json
+mf usage events --limit 200 --framework claude-code --json
+mf usage events --cursor <next-cursor-from-previous-page> --json
+mf usage sessions --session-id <session-id> --json
+mf usage top-agents --limit 10 --json
 ```
 
 - `--from` and `--to` take a date (`2026-10-01`) or a date and time
@@ -58,14 +58,21 @@ mf usage top-agents --limit 10
 
 ## Output
 
-Every subcommand prints pretty-printed JSON to stdout; `--json` is
-accepted but already the default — there is no table mode. `summary`
-returns token totals (`totalInputTokens`, `totalOutputTokens`, cache
-tokens), `totalCostUsd` (may be `null`), `eventCount`, and a `byModel`
-breakdown. `events` returns `items` plus `nextCursor`. Usage output
-contains no secrets. A failure prints `error: …` to stderr and exits with
-the code for its kind: `5` for a bad option or a `400`, `3` for a missing
-permission.
+Agents and scripts pass `--json`, which prints the API's payload unchanged.
+`summary` returns token totals (`totalInputTokens`, `totalOutputTokens`,
+cache tokens), `totalCostUsd` (may be `null`), `eventCount`, and a
+`byModel` breakdown. `events` returns `items` plus `nextCursor`. Usage
+output contains no secrets.
+
+Without `--json` each subcommand prints a table for a person: `summary` a
+totals line and a row per model, framework and runtime; `timeseries` a row
+per UTC day or hour; `events` a row per call, with
+`(more — continue with --cursor …)` on stderr when there is a next page;
+`sessions` and `top-agents` a row each. An empty result is a note on
+stderr, exit `0`. `mf usage` alone runs `summary`.
+
+A failure goes to stderr and exits with the code for its kind: `5` for a
+bad option or a `400`, `3` for a missing permission.
 
 ## Failure recovery
 
