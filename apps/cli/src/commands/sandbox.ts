@@ -60,6 +60,12 @@ type SandboxRow = SandboxSummary & {
     runtimes: Array<Pick<AgentRuntimeSummary, 'id' | 'framework' | 'status'>>
 }
 
+// The version, and where it would go when an update is out.
+const cliCell = (row: SandboxRow): TableCell =>
+    row.cliUpdateAvailable && row.latestCliVersion
+        ? [`${row.cliVersion ?? '—'} → ${row.latestCliVersion}`, kleur.yellow]
+        : (row.cliVersion ?? '—')
+
 const formatSandboxList = (
     rows: readonly SandboxRow[],
     quota: { used: number; limit: number; plan: string }
@@ -68,7 +74,7 @@ const formatSandboxList = (
     if (rows.length === 0) lines.push(kleur.dim('No sandboxes yet.'))
     else {
         const [header, ...table] = formatTable(
-            ['ID', 'NAME', 'STATE', 'AGENTS', 'FRAMEWORKS', 'CREATED'],
+            ['ID', 'NAME', 'STATE', 'AGENTS', 'FRAMEWORKS', 'CLI', 'CREATED'],
             rows.map((row): TableCell[] => [
                 row.id,
                 [row.name, kleur.cyan],
@@ -76,6 +82,7 @@ const formatSandboxList = (
                 String(row.agentsCount),
                 row.runtimes.map((runtime) => runtime.framework).join(', ') ||
                     'nothing installed',
+                cliCell(row),
                 [row.createdAt.slice(0, 10), kleur.dim]
             ])
         )
@@ -88,6 +95,12 @@ const formatSandboxList = (
                 lines.push(kleur.red(`  ${row.failureReason}`))
         })
     }
+    if (rows.some((row) => row.cliUpdateAvailable))
+        lines.push(
+            kleur.dim(
+                'mf sandbox update <sandbox> updates one; mf updates apply --kind cli updates them all.'
+            )
+        )
     lines.push(
         kleur.dim(
             `${quota.used} of ${quota.limit} sandboxes in use (${quota.plan} plan)`
