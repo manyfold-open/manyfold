@@ -243,6 +243,9 @@ const apiErrorHint = (error: ApiError): string | undefined => {
     const byCode = codeHint(error.code)
     if (byCode) return byCode(recordOf(error.details))
     const status = error.status
+    // A valid token of the wrong kind: signing in again changes nothing.
+    if (status === 401 && /requires api\.full token/.test(error.serverMessage ?? ''))
+        return 'This needs a login session (mf login) or a full-access token; a scoped token, or an agent\'s own, cannot read it.'
     if (status === 401) return `Run mf login to sign in again${profileHint()}.`
     if (status === 403)
         return 'Check that this token has the required scope and resource access.'
