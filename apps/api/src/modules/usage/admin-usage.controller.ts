@@ -13,9 +13,12 @@ import { AdminGuard } from '@/common/guards/admin.guard'
 import {
     buildUserQuery,
     parseBucket,
+    parseCursor,
     parseFramework,
+    parseInstant,
+    parseLimit,
     type UsageQueryDto
-} from './usage.controller'
+} from './usage-query'
 import { UsageService } from './usage.service'
 
 type AdminQueryDto = UsageQueryDto & { userId?: string }
@@ -24,8 +27,8 @@ const buildAdminQuery = (q: AdminQueryDto): UsageQuery =>
     q.userId
         ? buildUserQuery(q.userId, q)
         : {
-              from: q.from,
-              to: q.to,
+              from: parseInstant('from', q.from),
+              to: parseInstant('to', q.to),
               framework: parseFramework(q.framework),
               runtimeId: q.runtimeId,
               agentId: q.agentId,
@@ -53,10 +56,10 @@ export class AdminUsageController {
     events(
         @Query() q: AdminQueryDto & { cursor?: string; limit?: string }
     ): Promise<UsageEventsPage> {
-        const limit = q.limit ? Math.max(1, Math.min(200, Number(q.limit))) : 50
+        const limit = parseLimit(q.limit, 50, 200)
         return this.usage.events(buildAdminQuery(q), {
             limit,
-            cursor: q.cursor ?? null
+            cursor: parseCursor(q.cursor)
         })
     }
 
@@ -69,15 +72,23 @@ export class AdminUsageController {
     topUsers(
         @Query() q: { from?: string; to?: string; limit?: string }
     ): Promise<UsageTopUser[]> {
-        const limit = q.limit ? Number(q.limit) : 10
-        return this.usage.topUsers(q.from, q.to, limit)
+        const limit = parseLimit(q.limit, 10, 100)
+        return this.usage.topUsers(
+            parseInstant('from', q.from),
+            parseInstant('to', q.to),
+            limit
+        )
     }
 
     @Get('top-agents')
     topAgents(
         @Query() q: { from?: string; to?: string; limit?: string }
     ): Promise<UsageTopAgent[]> {
-        const limit = q.limit ? Number(q.limit) : 10
-        return this.usage.topAgents(q.from, q.to, limit)
+        const limit = parseLimit(q.limit, 10, 100)
+        return this.usage.topAgents(
+            parseInstant('from', q.from),
+            parseInstant('to', q.to),
+            limit
+        )
     }
 }

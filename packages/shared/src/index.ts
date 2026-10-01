@@ -1038,6 +1038,7 @@ export type {
     UsageTopAgent,
     UsageSessionSummary
 } from './usage'
+export { parseUsageInstant } from './usage'
 export type {
     AdminChatSessionStatus,
     AdminChatSessionError,
