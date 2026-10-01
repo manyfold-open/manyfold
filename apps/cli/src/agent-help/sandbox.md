@@ -28,9 +28,11 @@ mf sandbox update <sandbox-id|name> --to <version> --json
 `update` installs the sandbox's channel's latest Manyfold CLI, or `--to`
 one version the web's Update Center lists (dev builds included), and
 prints `from → to`; `--json` emits `{ id, name, from, to, sandbox }`.
-A sandbox busy with work takes the update when that finishes. Already on
-the latest release, it says so and lists newer builds for `--to`. It
-needs `sandboxes:read` and `sandboxes:edit`.
+A sandbox busy with work takes the update when that finishes, and is kept
+awake until it does: it says how many sessions it waits for, and
+`sandbox.cliUpdateDeferred` carries `{ activeSessions, deadline }`.
+Already on the latest release, it says so and lists newer builds for
+`--to`. It needs `sandboxes:read` and `sandboxes:edit`.
 
 A file operation, upload or chat attachment on a sandbox whose CLI lacks
 what it needs answers `SANDBOX_CLI_TOO_OLD` (409) with the reason and

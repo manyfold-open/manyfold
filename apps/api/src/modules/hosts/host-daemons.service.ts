@@ -5,7 +5,8 @@ import {
     hostDaemons,
     type Database,
     type HostDaemonRow,
-    type NewHostDaemonRow
+    type NewHostDaemonRow,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 
@@ -19,6 +20,15 @@ export const hasRpcLease = (
     daemon: HostDaemonRow | null | undefined
 ): daemon is HostDaemonRow =>
     Boolean(daemon?.rpcInstanceId && daemon.rpcConnectedAt)
+
+// The machine runs and the API holds a socket to its daemon: work on it
+// needs no wake and no bring-up, both of which start billed running time.
+export const hostUp = (
+    host: Pick<RuntimeHostRow, 'kind' | 'powerState'>,
+    daemon: HostDaemonRow | null | undefined
+): boolean =>
+    (host.kind === 'local' || host.powerState === 'running') &&
+    hasRpcLease(daemon)
 
 @Injectable()
 export class HostDaemonsService {

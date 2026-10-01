@@ -66,7 +66,7 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
             orValue(client.cliVersions.list(), { stable: [], dev: [] })
         ])
         if (cancelled.current) return
-        updateRunStore.reconcile({ daemonHosts, skillGroups })
+        updateRunStore.reconcile({ daemonHosts, sandboxes, skillGroups })
         snapshot.current = {
             daemonHosts,
             sandboxes,
