@@ -1,5 +1,41 @@
 # @manyfold/cli
 
+## 5.8.0
+
+### Minor Changes
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf a2a` failures now exit according to their kind and say what failed.
+
+    - An A2A endpoint that does not resolve, or refuses the connection, exits `2`, and the error names the endpoint (`A2A endpoint host … could not be resolved`).
+    - A peer this agent holds no grant for exits `4`, with a hint to run `mf a2a status`.
+    - Adding a caller that already has an active grant suggests `--replace-existing`.
+    - An `--input-file` that cannot be read is a usage error (exit `5`).
+    - In the standalone `mf`, any network failure now exits `2` like it does in the source build. Bun reports a host that does not resolve, and a closed port, as `ConnectionRefused`, which used to exit `1`.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf a2a send --input-file` now reaches a Manyfold peer: the peer gets the file in its workspace and can read it. Before, the server dropped the file part and the peer answered from the prompt alone.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - When a Manyfold A2A server refuses a call and names the cause, `mf a2a` now reports that cause instead of `cli_error`. The error shows the code (for example `SANDBOX_CLI_TOO_OLD` for a peer sandbox whose CLI predates files, or `delegation_limit`), and the command prints the matching hint and exits with the code for that kind of failure.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf a2a send --stream` no longer hangs in the standalone `mf` binary. Before, the reply finished on the server within seconds, but the command printed nothing and never exited. A2A requests from the standalone binary now use Bun's own fetch. They are still pinned to the address the SSRF check approved, and the TLS certificate is still verified against the endpoint's host name. The source build was not affected.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf channels sessions switch` to a deleted session now fails and says how to start a new session in that scope (`mf channels sessions new <channelId> --scope-key <key>`). Before, it reported success and changed nothing.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf channels test` and `mf channels register` now exit `1` when the check fails (`ok: false`), as `mf doctor` and `mf model-providers test` already did. The JSON report still goes to stdout. A script running with `set -e` now stops at a failed channel check instead of carrying on.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - The remaining list commands also print an aligned table with a header row: `mf a2a callers list`, `mf a2a tasks list` (and the peers and in-flight calls in `mf a2a status`), `mf backups list`, `mf runtime agents list`, `mf skills installed`, `skills discover` and `skills repos list`, `mf mcp list`, `mcp catalog list` and `mcp library list`, and `mf profile list`. In `mf profile list` the daemon column reads `pid <n>`, `registered` or `none`. `--json` is unchanged.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - List commands print an aligned table with a header row: `mf channels list`, `mf channels sessions scopes` and `sessions list`, `mf agent list`, `mf runtime list`, `mf automations list`, `mf skills library list`, `mf sandbox list` and `mf model-providers list`. Before, each printed space-separated values with no header, so a label with spaces in it shifted every column after it. `sessions list` names each session's state (`active`, `inactive`, `archived`) instead of a glyph. Chinese and other wide text lines up too. `--json` is unchanged and remains the format for scripts.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - A plan limit or quota no longer tells you to check your token's scopes. `CHANNEL_LIMIT_REACHED` and the other limit and quota codes each get a hint with the numbers, `(2 of 2 on the Free plan)`, and what to free up, for example `mf channels delete <id>`. Any other `*_LIMIT_REACHED` / `*_QUOTA_REACHED` code gets a generic plan-limit hint. `--json` passes their `details` through. They still exit `3`, like every `403`.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `--help` marks the options a command cannot run without as `(required)`, on every command at every depth, so the flags you must pass are visible without a failed run. `mf channels create --config` is now optional and defaults to `{}`, which is enough for `fake` and for the providers whose settings all have defaults. Lark, Matrix and iMessage still say which settings they need.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - New `mf channels sessions get <channelId> <sessionId>` shows one channel session, archived ones included, as a table row followed by its chat session id. `--json` prints the session record. An unknown session exits `4`, like any other not-found error.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - `mf channels sessions new --help` and the agent guide no longer say that `new` archives the current session. It leaves that session inactive: it stays in `sessions list`, and `sessions switch` brings it back. Only `delete` archives. The `sessions delete` help now says that `--activate-fallback` activates a fallback only when the active session is the one deleted.
+
+- [#638](https://github.com/manyfold-open/manyfold/pull/638) [`14c7ac9`](https://github.com/manyfold-open/manyfold/commit/14c7ac9801167071f8f5be9a2959fa3918675a9b) Thanks [@yingca1](https://github.com/yingca1)! - A mistake on the command line now exits `5` with `invalid_usage` wherever the command notices it, as the exit-code table already promised. That covers a missing or conflicting flag, `nothing to update`, a `--config` / `--credentials` / `--body` that is not a JSON object, a missing agent id, and the checks in `mf channels`, `skills`, `files`, `auth`, `a2a`, `backups`, `profile` and `sandbox` that exited `1` before. An `@file` that cannot be read now names its flag (`--config: cannot read ./x.json (ENOENT)`) instead of printing Node's raw error.
+
 ## 5.7.0
 
 ### Minor Changes

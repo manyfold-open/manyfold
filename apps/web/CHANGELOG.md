@@ -1,5 +1,20 @@
 # @manyfold/web
 
+## 2.17.0
+
+### Minor Changes
+
+- [#637](https://github.com/manyfold-open/manyfold/pull/637) [`b0d54ec`](https://github.com/manyfold-open/manyfold/commit/b0d54eceaf6164f0f40741103b275c1dce388823) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox that failed to start can be retried in place, instead of being deleted and built again under a new name:
+
+    - `POST /sandboxes/:id/retry` builds a failed sandbox again in its own row: same id and name, a new machine. It is admitted under the owner's plan like a new sandbox (a failed one holds no slot), answers 409 `SANDBOX_NOT_FAILED` for a sandbox in any other state and, like a create, 503 `SANDBOX_API_UNREACHABLE` before anything is made when no sandbox could reach this API. A build that fails again leaves the sandbox failed with the new reason.
+    - Settings › Runtimes offers Retry on a failed sandbox.
+    - Creating an agent: when the new sandbox built in step ② fails to start, the button retries that sandbox rather than building another. In the classic form, a failed sandbox's card offers Retry and no longer lists checks or installs for a machine that does not exist.
+
+- [#637](https://github.com/manyfold-open/manyfold/pull/637) [`b0d54ec`](https://github.com/manyfold-open/manyfold/commit/b0d54eceaf6164f0f40741103b275c1dce388823) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox whose runner could not connect says why:
+
+    - When a new sandbox's `mf daemon register` fails, `SANDBOX_RUNNER_NOT_CONNECTED` carries what the CLI printed, in its message and in `details.registerFailure`. That message is also the reason the failed sandbox keeps, so Settings › Runtimes shows it.
+    - The web explains `SANDBOX_RUNNER_NOT_CONNECTED` and `SANDBOX_API_UNREACHABLE` in the user's language and names the address the sandbox had to reach, where it used to show the server's English text.
+
 ## 2.16.0
 
 ### Minor Changes
