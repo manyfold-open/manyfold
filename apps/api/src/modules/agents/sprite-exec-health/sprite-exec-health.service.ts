@@ -3,7 +3,8 @@ import { and, eq, isNotNull, lte, sql } from 'drizzle-orm'
 import {
     runtimeHosts,
     type Database,
-    type RuntimeHostProviderRef
+    type RuntimeHostProviderRef,
+    type RuntimeHostRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { providerRefLabel } from '@/modules/agent-runtimes/host-ref'
@@ -41,6 +42,9 @@ export interface SpriteExecAdmission {
     // into the column. It is the probe's proof of ownership — recordProbe
     // compares it back and does nothing if it no longer matches.
     lease: Date | null
+    // Only a `probe` admission carries one: the probe's budget, sized with its
+    // lease for whether the host was asleep when the lease was claimed.
+    probeTimeoutMs: number | null
 }
 
 export interface SpriteExecFailure {
@@ -76,6 +80,14 @@ export const DEFAULT_SPRITE_EXEC_PROBE_LEASE_MS = 20_000
 // The probe's own budget. A dead endpoint answers fast or not at all; anything
 // longer is a hung handshake, which is the very thing being measured.
 export const DEFAULT_SPRITE_EXEC_PROBE_TIMEOUT_MS = 5_000
+// The probe's budget on a host that is asleep. Nothing else has woken it — on
+// a scheduled turn the probe IS the first exec — so it has to cover a cold
+// start, which the budget above never can. 45s is about where sprites.dev
+// gives up on a cold start itself (a 502 after ~44s).
+// Seen on prod [2026-10-03]: a sandbox armed once stayed refused for 13
+// hourly automation runs in a row; each probe met it cold (a cold start takes
+// 23–40s), timed out at 5s and re-armed the window it was there to lift.
+export const DEFAULT_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS = 45_000
 // The budget for the turn's FIRST exec — the runner inspect, which is the exec
 // a dead endpoint surfaces on. It has to be a health budget rather than a
 // command budget: the 60s it used to get is why the failure took 39s to be
@@ -105,6 +117,8 @@ export const spriteExecHealthConfig = (): {
     cooldownMs: number
     probeLeaseMs: number
     probeTimeoutMs: number
+    coldProbeLeaseMs: number
+    coldProbeTimeoutMs: number
     firstExecTimeoutMs: number
 } => {
     const probeTimeoutMs = envMs(
@@ -118,16 +132,26 @@ export const spriteExecHealthConfig = (): {
         ),
         probeTimeoutMs + 1_000
     )
+    const coldProbeTimeoutMs = Math.max(
+        envMs(
+            'MF_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS',
+            DEFAULT_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS
+        ),
+        probeTimeoutMs
+    )
+    const coldProbeLeaseMs = Math.max(probeLeaseMs, coldProbeTimeoutMs + 1_000)
     return {
         cooldownMs: Math.max(
             envMs(
                 'MF_SPRITE_EXEC_COOLDOWN_MS',
                 DEFAULT_SPRITE_EXEC_COOLDOWN_MS
             ),
-            probeLeaseMs + 1_000
+            coldProbeLeaseMs + 1_000
         ),
         probeLeaseMs,
         probeTimeoutMs,
+        coldProbeLeaseMs,
+        coldProbeTimeoutMs,
         firstExecTimeoutMs: envMs(
             'MF_SPRITE_EXEC_FIRST_EXEC_TIMEOUT_MS',
             DEFAULT_SPRITE_EXEC_FIRST_EXEC_TIMEOUT_MS
@@ -178,7 +202,8 @@ export class SpriteExecHealthService {
             hostId,
             decision: 'pass',
             retryAt: null,
-            lease: null
+            lease: null,
+            probeTimeoutMs: null
         }
         try {
             const host = await this.read(hostId)
@@ -198,9 +223,14 @@ export class SpriteExecHealthService {
             // so a µs value written in SQL would return through the driver
             // rounded to ms and could never match itself again — the same trap
             // active_accrual_since documents from the other side.
-            const lease = new Date(
-                Date.now() + spriteExecHealthConfig().probeLeaseMs
-            )
+            //
+            // An asleep host gets the cold budget, and a lease that covers it:
+            // a probe outliving its lease has its verdict thrown away.
+            const config = spriteExecHealthConfig()
+            const cold =
+                host.powerState === 'suspended' || host.powerState === 'stopped'
+            const leaseMs = cold ? config.coldProbeLeaseMs : config.probeLeaseMs
+            const lease = new Date(Date.now() + leaseMs)
             const claimed = await this.db
                 .update(runtimeHosts)
                 .set({ execCooldownUntil: lease, updatedAt: new Date() })
@@ -219,9 +249,18 @@ export class SpriteExecHealthService {
             if (claimed.length > 0) {
                 this.telemetry?.event(SPRITE_EXEC_PROBE_EVENT, {
                     ...this.hostAttrs(hostId, host.providerRef),
-                    leaseMs: spriteExecHealthConfig().probeLeaseMs
+                    leaseMs,
+                    cold
                 })
-                return { hostId, decision: 'probe', retryAt: null, lease }
+                return {
+                    hostId,
+                    decision: 'probe',
+                    retryAt: null,
+                    lease,
+                    probeTimeoutMs: cold
+                        ? config.coldProbeTimeoutMs
+                        : config.probeTimeoutMs
+                }
             }
 
             // Losing the claim means somebody else moved the column, and that
@@ -361,11 +400,13 @@ export class SpriteExecHealthService {
     private async read(hostId: string): Promise<{
         providerRef: RuntimeHostProviderRef | null
         execCooldownUntil: Date | null
+        powerState: RuntimeHostRow['powerState']
     } | null> {
         const [row] = await this.db
             .select({
                 providerRef: runtimeHosts.providerRef,
-                execCooldownUntil: runtimeHosts.execCooldownUntil
+                execCooldownUntil: runtimeHosts.execCooldownUntil,
+                powerState: runtimeHosts.powerState
             })
             .from(runtimeHosts)
             .where(
@@ -390,7 +431,13 @@ export class SpriteExecHealthService {
             ...this.hostAttrs(hostId, host.providerRef),
             retryInMs: retryAt ? retryAt.getTime() - Date.now() : undefined
         })
-        return { hostId, decision: 'blocked', retryAt, lease: null }
+        return {
+            hostId,
+            decision: 'blocked',
+            retryAt,
+            lease: null,
+            probeTimeoutMs: null
+        }
     }
 
     // Operational identifiers only. Nothing a turn carries — prompt text, the

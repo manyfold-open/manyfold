@@ -609,6 +609,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly processLoad: ProcessLoadSampler =
         createProcessLoadSampler()
     private drainingForShutdown = false
+    // Fires with drainingForShutdown: a turn waiting to ask for its runner
+    // again has nothing in flight to hand off, so it ends instead of holding
+    // the drain until the process dies without its terminal.
+    private readonly shutdownDrain = new AbortController()
     private staleClaimSweepTimer: ReturnType<typeof setInterval> | null = null
     private cancelConvergenceTimer: ReturnType<typeof setInterval> | null = null
     private convergingCancels = false
@@ -824,6 +828,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
     async prepareForShutdown(timeoutMs: number): Promise<TurnShutdownResult> {
         this.drainingForShutdown = true
+        this.shutdownDrain.abort()
         const activeTurnsAtStart = this.activeTurnCount()
         await this.turnAdoption?.stopClaiming()
         const drainOutcome = await this.waitForActiveTurnsToDrain(timeoutMs)
@@ -1381,6 +1386,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // before any server-close hang, so the fallback handoff can still land.
     async onModuleDestroy(): Promise<void> {
         this.drainingForShutdown = true
+        this.shutdownDrain.abort()
         await this.turnAdoption?.stopClaiming()
         if (this.staleClaimSweepTimer) {
             clearInterval(this.staleClaimSweepTimer)
@@ -2027,9 +2033,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // between turn creation and its own bookkeeping is detectable instead
         // of producing a duplicate turn on replay. channelSource carries the
         // structured origin of an agent-managed channel turn to the adapter.
+        // runnerRetryDelaysMs: waits before asking again for a runner that
+        // failed to come up, for a caller with nobody waiting (automations).
         opts?: {
             assistantMessageId?: string
             channelSource?: ChannelSource | null
+            runnerRetryDelaysMs?: readonly number[]
         }
     ): Promise<{ userMessage: ChatMessage; assistantMessageId: string }> {
         const session = await this.assertSessionAccess(
@@ -2174,7 +2183,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 observer,
                 assistantMessageId,
                 agent,
-                opts?.channelSource ?? null
+                opts?.channelSource ?? null,
+                opts?.runnerRetryDelaysMs ?? []
             )
 
             return {
@@ -2769,7 +2779,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         observer?: ChatTurnObserver,
         assistantMessageId: string = randomUUID(),
         agent?: Agent,
-        channelSource?: ChannelSource | null
+        channelSource?: ChannelSource | null,
+        runnerRetryDelaysMs: readonly number[] = []
     ): Promise<string> {
         await this.repo.insertMessage({
             id: assistantMessageId,
@@ -2820,7 +2831,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 abortController.signal,
                 observer,
                 agent,
-                channelSource
+                channelSource,
+                runnerRetryDelaysMs
             ), {
                 'nca.user_id': session.userId,
                 'nca.agent_id': session.agentId,
@@ -4564,7 +4576,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // real command here could run it twice (#503).
         const lease = admission.lease
         if (!lease) return null
-        const probe = await this.probeSpriteExec(args.agentId)
+        const probe = await this.probeSpriteExec(
+            args.agentId,
+            admission.probeTimeoutMs ?? spriteExecHealthConfig().probeTimeoutMs
+        )
         // Inconclusive is neither recovery nor failure: an auth rejection or a
         // quota refusal says nothing about this VM's endpoint. Do not dispatch
         // the real command behind a probe whose lease remains held — that would
@@ -4607,13 +4622,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // account-wide auth or quota refusal, a fact about the request — and it
     // neither clears nor re-arms.
     private async probeSpriteExec(
-        agentId: string
+        agentId: string,
+        timeoutMs: number
     ): Promise<'ok' | 'inconclusive' | SpriteExecFailureClass> {
         try {
             return (
                 (await this.execDrivers?.probeExecForAgent(
                     agentId,
-                    spriteExecHealthConfig().probeTimeoutMs
+                    timeoutMs
                 )) ?? 'inconclusive'
             )
         } catch (err) {
@@ -4678,6 +4694,77 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 : undefined
         })
         return terminal
+    }
+
+    // The turn's runner, asked again after each of retryDelaysMs when it
+    // failed to come up. Only the resolution repeats: the turn's rows, slot and
+    // admission were settled before it and stay as they are.
+    // Seen on prod [2026-10-02]: sprites.dev answered a cold sandbox's exec
+    // upgrade 502 after ~44 s on 2.8% of bring-ups. Asking again at once
+    // recovered a third of them; a run repeated minutes later nearly always
+    // went through.
+    private async resolveTurnRunner(args: {
+        agent: Agent | string
+        agentId: string
+        runtime: RuntimePlacement
+        assistantMessageId: string
+        abortSignal: AbortSignal
+        retryDelaysMs: readonly number[]
+    }): Promise<{
+        runner: TurnDaemon | null
+        failure: EmittedErrorEvent | null
+        execFailure: TurnDaemonError['execFailure']
+    }> {
+        for (let attempt = 1; ; attempt += 1) {
+            let runner: TurnDaemon | null = null
+            let failure: EmittedErrorEvent | null = null
+            let execFailure: TurnDaemonError['execFailure']
+            let retryReason: string | null = null
+            try {
+                if (!this.execDrivers) throw new TurnDaemonError(args.runtime, 'runner service unavailable')
+                runner = await this.execDrivers.resolveTurnDaemon(args.agent)
+            } catch (err) {
+                failure = adapterExceptionEvent(
+                    err instanceof TurnDaemonError || err instanceof HttpException
+                        ? err
+                        : new TurnDaemonError(args.runtime, 'runner resolution failed')
+                )
+                if (err instanceof TurnDaemonError) execFailure = err.execFailure
+                retryReason = transientRunnerReason(err)
+                this.logger.warn(`runner resolution failed agentId=${args.agentId} class=${safeErrorClass(err)}`)
+            }
+            this.telemetry.event('chat.runner.resolve', {
+                agentId: args.agentId,
+                runnerKind: args.runtime,
+                outcome: runner ? 'runner' : 'unavailable',
+                errorCode: failure?.error.code ?? null,
+                attempt
+            })
+            const resolved = { runner, failure, execFailure }
+            const waitMs = args.retryDelaysMs[attempt - 1]
+            if (
+                retryReason === null ||
+                waitMs === undefined ||
+                args.abortSignal.aborted ||
+                this.drainingForShutdown
+            )
+                return resolved
+            this.logger.warn(
+                `runner resolution retry agentId=${args.agentId} attempt=${attempt + 1} inMs=${waitMs} reason=${retryReason}`
+            )
+            await this.abortableSleep(
+                waitMs,
+                AbortSignal.any([args.abortSignal, this.shutdownDrain.signal])
+            )
+            if (args.abortSignal.aborted || this.drainingForShutdown)
+                return resolved
+            // A peer that sees no live turn here closes it from a stream
+            // subscribe; a turn closed that way must not dispatch after all.
+            const closed = await this.repo
+                .findTerminalStreamEvent(args.assistantMessageId)
+                .catch(() => null)
+            if (closed) return resolved
+        }
     }
 
     private abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -5429,7 +5516,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         abortSignal: AbortSignal,
         observer?: ChatTurnObserver,
         agent?: Agent,
-        channelSource?: ChannelSource | null
+        channelSource?: ChannelSource | null,
+        runnerRetryDelaysMs: readonly number[] = []
     ): Promise<void> {
         const assistantBlocks = createAssistantBlockBuffer(
             this.logger,
@@ -5658,24 +5746,17 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let runnerFailure: EmittedErrorEvent | null = null
         let runnerExecFailure: TurnDaemonError['execFailure']
         if (!fastFail && !blockedTerminal && agentCtx.runtime !== 'external') {
-            try {
-                if (!this.execDrivers) throw new TurnDaemonError(agentCtx.runtime, 'runner service unavailable')
-                runner = await this.execDrivers.resolveTurnDaemon(agent ?? session.agentId)
-            } catch (err) {
-                runnerFailure = adapterExceptionEvent(
-                    err instanceof TurnDaemonError || err instanceof HttpException
-                        ? err
-                        : new TurnDaemonError(agentCtx.runtime, 'runner resolution failed')
-                )
-                if (err instanceof TurnDaemonError) runnerExecFailure = err.execFailure
-                this.logger.warn(`runner resolution failed agentId=${session.agentId} class=${safeErrorClass(err)}`)
-            }
-            this.telemetry.event('chat.runner.resolve', {
+            const resolved = await this.resolveTurnRunner({
+                agent: agent ?? session.agentId,
                 agentId: session.agentId,
-                runnerKind: agentCtx.runtime,
-                outcome: runner ? 'runner' : 'unavailable',
-                errorCode: runnerFailure?.error.code ?? null
+                runtime: agentCtx.runtime,
+                assistantMessageId,
+                abortSignal,
+                retryDelaysMs: runnerRetryDelaysMs
             })
+            runner = resolved.runner
+            runnerFailure = resolved.failure
+            runnerExecFailure = resolved.execFailure
         }
         const execTerminal = blockedTerminal ??
             (runnerExecFailure
@@ -7138,6 +7219,17 @@ const adapterExceptionEvent = (err: unknown): EmittedErrorEvent =>
     err instanceof TurnDaemonError
         ? { type: 'error', error: normalizeChatError(err.chatError) }
         : adapterErrorEvent(err instanceof Error ? err.message : String(err), httpErrorCode(err))
+
+// A runner that did not come up, and nothing proved the machine unusable: an
+// exec failure arms the sandbox breaker instead, and a refusal (quota, an old
+// CLI, a runtime that is not ready) answers the same however often it is asked.
+const transientRunnerReason = (err: unknown): string | null =>
+    err instanceof TurnDaemonError &&
+    !err.execFailure &&
+    err.chatError.code === 'chat_runner_unavailable' &&
+    (err.reason === 'runner_unavailable' || err.reason === 'runner_updating')
+        ? err.reason
+        : null
 
 const safeErrorClass = (err: unknown): string =>
     err instanceof Error && err.name ? err.name : typeof err

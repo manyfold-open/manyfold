@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, realpath, unlink } from 'node:fs/promises'
@@ -22,6 +23,42 @@ export const isProcessRunning = (pid: number): boolean => {
         }
     }
     return true
+}
+
+// When the process now holding `pid` started, in epoch ms, or null where the
+// platform cannot say. Linux reads /proc: start ticks since boot, which the
+// kernel reports at a fixed 100 per second. Other Unixes ask ps, to the
+// second.
+export const processStartedAtMs = (pid: number): number | null => {
+    if (process.platform === 'win32') return null
+    if (process.platform === 'linux') {
+        try {
+            const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+            const ticks = Number(
+                stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[19]
+            )
+            const bootSeconds = Number(
+                /^btime (\d+)$/m.exec(readFileSync('/proc/stat', 'utf8'))?.[1]
+            )
+            if (!Number.isFinite(ticks) || !Number.isFinite(bootSeconds))
+                return null
+            return bootSeconds * 1_000 + ticks * 10
+        } catch {
+            return null
+        }
+    }
+    try {
+        const started = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+            encoding: 'utf8',
+            env: { ...process.env, LC_ALL: 'C' },
+            stdio: ['ignore', 'pipe', 'ignore'],
+            timeout: 2_000
+        }).trim()
+        const ms = Date.parse(started)
+        return Number.isFinite(ms) ? ms : null
+    } catch {
+        return null
+    }
 }
 
 export class ProcessLockBusyError extends Error {

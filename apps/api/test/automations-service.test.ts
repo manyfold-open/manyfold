@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ForbiddenException } from '@nestjs/common'
 import { automationRuns, automations } from '@manyfold/db'
-import { AutomationsService } from '../src/modules/automations/automations.service'
+import {
+    AUTOMATION_RUNNER_RETRY_DELAYS_MS,
+    AutomationsService
+} from '../src/modules/automations/automations.service'
 
 const date = new Date('2026-04-28T09:00:00.000Z')
 
@@ -175,6 +178,61 @@ test('AutomationsService tick defers quota-skipped scheduled automation out of t
     )
 })
 
+const makeGatedService = (db: FakeDb, chat: FakeChat, availability: string) =>
+    new AutomationsService(
+        db as never,
+        chat as never,
+        { get: () => 'false' } as never,
+        { reserveAutomationRun: async () => {} } as never,
+        undefined,
+        undefined,
+        undefined,
+        { forAgent: async () => ({ availability }) } as never
+    )
+
+test('AutomationsService fails a scheduled run at admission when the agent computer is offline', async () => {
+    const db = new FakeDb()
+    db.selectResults.push(
+        [],
+        [],
+        [{ automation: automationRow, agent: agentRow, quotaRevision: 'fixture-revision' }],
+        []
+    )
+    const chat = new FakeChat()
+
+    await runSchedulerTick(makeGatedService(db, chat, 'offline'))
+
+    assert.deepEqual(chat.createdSessions, [])
+    assert.deepEqual(chat.sentMessages, [])
+    assert.equal(db.insertedRuns[0]?.status, 'failed')
+    assert.equal(db.insertedRuns[0]?.errorMessage, 'agent is offline')
+})
+
+test('AutomationsService admits a scheduled run on a sleeping sandbox, which the turn wakes', async () => {
+    const db = new FakeDb()
+    db.selectResults.push(
+        [],
+        [],
+        [{ automation: automationRow, agent: agentRow, quotaRevision: 'fixture-revision' }],
+        [],
+        [{ id: 'automation-1' }]
+    )
+    const chat = new FakeChat()
+
+    await runSchedulerTick(makeGatedService(db, chat, 'wakeable'))
+
+    assert.equal(chat.createdSessions.length, 1)
+    assert.equal(chat.sentMessages.length, 1)
+    assert.equal(db.insertedRuns[0]?.status, 'running')
+    assert.equal(db.insertedRuns[0]?.chatSessionId, 'session-1')
+    // Nobody waits on the run, so a sandbox that misses its start is asked
+    // again within it.
+    assert.deepEqual(chat.sentOpts, [
+        { runnerRetryDelaysMs: AUTOMATION_RUNNER_RETRY_DELAYS_MS }
+    ])
+    assert.deepEqual(AUTOMATION_RUNNER_RETRY_DELAYS_MS, [60_000, 180_000])
+})
+
 const runSchedulerTick = (service: AutomationsService): Promise<void> =>
     (service as unknown as { tick: () => Promise<void> }).tick()
 
@@ -214,15 +272,20 @@ class FakeChat {
         return { id: 'session-1' }
     }
 
+    sentOpts: unknown[] = []
+
     async sendMessage(
         userId: string,
         agentId: string,
         sessionId: string,
         text?: string,
         _attachments: unknown[] = [],
-        model?: string
+        model?: string,
+        ...rest: unknown[]
     ): Promise<{ assistantMessageId: string; userMessage: unknown }> {
         this.sentMessages.push({ userId, agentId, sessionId, text, model })
+        // opts follows the 8 turn settings, contextRefs and uploads.
+        this.sentOpts.push(rest[10])
         return { assistantMessageId: 'assistant-1', userMessage: {} }
     }
 }

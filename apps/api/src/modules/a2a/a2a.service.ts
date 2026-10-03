@@ -1033,8 +1033,12 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
     ): Promise<Task> {
         const remainingMs = caps.asyncMs - (Date.now() - caps.capStartedAt)
         // Caps saved equal leave nothing to run on: fail it inline rather than
-        // answer `working` for a task about to fail.
-        if (remainingMs <= 0)
+        // answer `working` for a task about to fail. Decided from the caps, not
+        // only the clock: the cap timer runs on the event loop's cached time,
+        // so Date.now() can read a few ms short of the cap when it fires.
+        // Seen on CI [2026-10-03]: equal 50 ms caps handed the task over with
+        // a few ms left, twice in a row on a loaded runner.
+        if (caps.asyncMs <= caps.blockingMs || remainingMs <= 0)
             return this.finishTurn(run, {
                 kind: 'expired',
                 capMs: caps.asyncMs
