@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 10.3.0
+
+### Minor Changes
+
+- [#649](https://github.com/manyfold-open/manyfold/pull/649) [`777b6dd`](https://github.com/manyfold-open/manyfold/commit/777b6ddfe70db4837c6c002c508587a73a7c0347) Thanks [@yingca1](https://github.com/yingca1)! - With the A2A blocking and async caps saved equal, a send that reaches the blocking cap now always fails its task right there, as intended. Before, a busy server could read the clock a few milliseconds short of the cap, answer `working` and hand the task over, and then fail it moments later.
+
+- [#649](https://github.com/manyfold-open/manyfold/pull/649) [`777b6dd`](https://github.com/manyfold-open/manyfold/commit/777b6ddfe70db4837c6c002c508587a73a7c0347) Thanks [@yingca1](https://github.com/yingca1)! - An automation run now checks the agent's machine before it starts. If the agent's computer is offline, or its runtime is not ready, the run fails straight away with `agent is offline` or `agent is unavailable`: no chat session is opened and no prompt is sent, and a run started by hand answers `400` with that reason. Before, this check never ran. The run opened a chat, sent the prompt and only then failed with `chat_runner_unavailable`. A sleeping sandbox is still admitted, and the run wakes it.
+
+- [#649](https://github.com/manyfold-open/manyfold/pull/649) [`777b6dd`](https://github.com/manyfold-open/manyfold/commit/777b6ddfe70db4837c6c002c508587a73a7c0347) Thanks [@yingca1](https://github.com/yingca1)! - An automation run whose sandbox does not come up now asks again instead of failing at once: after one minute, then after three more, within the same run and chat. A cold sandbox that misses one start usually comes up minutes later, so the run still gets its reply and its one delivery. If the sandbox still does not start, the run fails as before, about eight and a half minutes in at worst, and a cancel ends it at once. Messages sent from a chat are unchanged.
+
+- [#649](https://github.com/manyfold-open/manyfold/pull/649) [`777b6dd`](https://github.com/manyfold-open/manyfold/commit/777b6ddfe70db4837c6c002c508587a73a7c0347) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox whose commands were once refused ("not accepting commands") is no longer kept out just because it is asleep. The check that decides whether it recovered now gives a sleeping sandbox time to start, up to 45 s (`MF_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS`), instead of 5 s, which a cold start never fits in. Before, a sandbox that only scheduled runs reached stayed refused on every run: each check met it cold, timed out and refused it again.
+
 ## 10.2.0
 
 ### Minor Changes
