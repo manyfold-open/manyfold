@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ForbiddenException } from '@nestjs/common'
 import { automationRuns, automations } from '@manyfold/db'
-import { AutomationsService } from '../src/modules/automations/automations.service'
+import {
+    AUTOMATION_RUNNER_RETRY_DELAYS_MS,
+    AutomationsService
+} from '../src/modules/automations/automations.service'
 
 const date = new Date('2026-04-28T09:00:00.000Z')
 
@@ -222,6 +225,12 @@ test('AutomationsService admits a scheduled run on a sleeping sandbox, which the
     assert.equal(chat.sentMessages.length, 1)
     assert.equal(db.insertedRuns[0]?.status, 'running')
     assert.equal(db.insertedRuns[0]?.chatSessionId, 'session-1')
+    // Nobody waits on the run, so a sandbox that misses its start is asked
+    // again within it.
+    assert.deepEqual(chat.sentOpts, [
+        { runnerRetryDelaysMs: AUTOMATION_RUNNER_RETRY_DELAYS_MS }
+    ])
+    assert.deepEqual(AUTOMATION_RUNNER_RETRY_DELAYS_MS, [60_000, 180_000])
 })
 
 const runSchedulerTick = (service: AutomationsService): Promise<void> =>
@@ -263,15 +272,20 @@ class FakeChat {
         return { id: 'session-1' }
     }
 
+    sentOpts: unknown[] = []
+
     async sendMessage(
         userId: string,
         agentId: string,
         sessionId: string,
         text?: string,
         _attachments: unknown[] = [],
-        model?: string
+        model?: string,
+        ...rest: unknown[]
     ): Promise<{ assistantMessageId: string; userMessage: unknown }> {
         this.sentMessages.push({ userId, agentId, sessionId, text, model })
+        // opts follows the 8 turn settings, contextRefs and uploads.
+        this.sentOpts.push(rest[10])
         return { assistantMessageId: 'assistant-1', userMessage: {} }
     }
 }

@@ -14,7 +14,7 @@ export class TurnDaemonError extends Error {
 
     constructor(
         runtime: RuntimePlacement,
-        reason: string,
+        readonly reason: string,
         upgradeRequired = false,
         readonly execFailure?: ExecEndpointFailure
     ) {

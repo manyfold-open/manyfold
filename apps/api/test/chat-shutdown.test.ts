@@ -46,6 +46,7 @@ const makeHarness = (opts?: {
         peakRecoveryInflightSinceGauge: 0,
         telemetry: { event: () => undefined },
         drainingForShutdown: false,
+        shutdownDrain: new AbortController(),
         repo: {
             handoffOwnedTurns: async () => {
                 handoffs.push('handoff')

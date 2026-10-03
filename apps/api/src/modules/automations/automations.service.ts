@@ -84,6 +84,10 @@ export interface ManagedAutomationSpec {
 
 const MANAGED_RRULE = 'RRULE:FREQ=DAILY;COUNT=1'
 const QUOTA_RECHECK_MS = 60_000
+// Nobody waits on a run, so a sandbox that failed to come up is asked again
+// within the same run rather than failing it. Seen on prod [2026-10-02]: a
+// cold sandbox that missed one start came up minutes later.
+export const AUTOMATION_RUNNER_RETRY_DELAYS_MS = [60_000, 180_000] as const
 // Native epoch numerics retain microseconds and ignore session TimeZone/DateStyle.
 const quotaScheduleVersion = sql<string>`row(extract(epoch from ${automations.updatedAt}), extract(epoch from ${automations.dtstart}), extract(epoch from ${automations.nextRunAt}), extract(epoch from ${automations.quotaRetryAt}))::text`
 
@@ -484,7 +488,18 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 session.id,
                 row.automation.prompt,
                 [],
-                model ?? undefined
+                model ?? undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                [],
+                [],
+                { runnerRetryDelaysMs: AUTOMATION_RUNNER_RETRY_DELAYS_MS }
             )
             const [updatedRun] = await this.db
                 .update(automationRuns)
