@@ -4576,7 +4576,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // real command here could run it twice (#503).
         const lease = admission.lease
         if (!lease) return null
-        const probe = await this.probeSpriteExec(args.agentId)
+        const probe = await this.probeSpriteExec(
+            args.agentId,
+            admission.probeTimeoutMs ?? spriteExecHealthConfig().probeTimeoutMs
+        )
         // Inconclusive is neither recovery nor failure: an auth rejection or a
         // quota refusal says nothing about this VM's endpoint. Do not dispatch
         // the real command behind a probe whose lease remains held — that would
@@ -4619,13 +4622,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // account-wide auth or quota refusal, a fact about the request — and it
     // neither clears nor re-arms.
     private async probeSpriteExec(
-        agentId: string
+        agentId: string,
+        timeoutMs: number
     ): Promise<'ok' | 'inconclusive' | SpriteExecFailureClass> {
         try {
             return (
                 (await this.execDrivers?.probeExecForAgent(
                     agentId,
-                    spriteExecHealthConfig().probeTimeoutMs
+                    timeoutMs
                 )) ?? 'inconclusive'
             )
         } catch (err) {

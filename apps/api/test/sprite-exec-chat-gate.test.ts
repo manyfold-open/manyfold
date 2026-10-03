@@ -348,6 +348,25 @@ test('the probe winner runs one no-op, and only its success releases the host', 
     }
 })
 
+test('a probe runs on the budget its admission sized for the host', async () => {
+    const server = await startExitingServer()
+    const h = makeHarness({
+        port: server.port,
+        decision: 'probe',
+        probeTimeoutMs: 45_000
+    })
+    try {
+        await h.send()
+
+        // An asleep host's probe is its cold start; the admission sized the
+        // budget and the lease together, so the probe must not use another.
+        assert.deepEqual(h.calls.probeTimeouts, [45_000])
+        assert.equal(h.terminals[0].type, 'done')
+    } finally {
+        await server.close()
+    }
+})
+
 test('a stale successful probe cannot dispatch user work after losing its lease', async () => {
     const server = await startExitingServer()
     const h = makeHarness({
@@ -481,6 +500,8 @@ interface HarnessOptions {
     markUnavailable?: boolean
     // The turn's execution row cannot be written.
     stampFails?: boolean
+    // The budget a probe admission hands out.
+    probeTimeoutMs?: number
 }
 
 interface Harness {
@@ -495,6 +516,7 @@ interface Harness {
         upsertTurnExecution: number
         stampedResumeRef: number
         forAgent: number
+        probeTimeouts: number[]
     }
     lease: Date
     // Awake holds taken and not yet released or detached, by reason.
@@ -516,7 +538,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     const calls = {
         upsertTurnExecution: 0,
         stampedResumeRef: 0,
-        forAgent: 0
+        forAgent: 0,
+        probeTimeouts: [] as number[]
     }
     const lease = new Date(Date.now() + 20_000)
     let turnFinishedResolve!: () => void
@@ -658,7 +681,9 @@ const makeHarness = (opts: HarnessOptions): Harness => {
                     decision === 'blocked'
                         ? new Date(Date.now() + 45_000)
                         : null,
-                lease: decision === 'probe' ? lease : null
+                lease: decision === 'probe' ? lease : null,
+                probeTimeoutMs:
+                    decision === 'probe' ? (opts.probeTimeoutMs ?? 5_000) : null
             }
         },
         isKnownUnavailable: async (hostId: string | null) => {
@@ -702,8 +727,10 @@ const makeHarness = (opts: HarnessOptions): Harness => {
             timeoutMs: args.timeoutMs ?? 1000
         })
     const execDrivers = {
-        probeExecForAgent: async (_agentId: string, timeoutMs: number) =>
-            runnerManager.probeExec(HOST, timeoutMs),
+        probeExecForAgent: async (_agentId: string, timeoutMs: number) => {
+            calls.probeTimeouts.push(timeoutMs)
+            return runnerManager.probeExec(HOST, timeoutMs)
+        },
         resolveTurnDaemon: async () => {
             calls.forAgent += 1
             if (!opts.runner) return { daemonId: HOST_ID }

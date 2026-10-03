@@ -59,11 +59,15 @@ const fakeDb = (opts: FakeDbOpts) => {
     return { db: db as unknown as Database, reads, writes }
 }
 
-const sandbox = (execCooldownUntil: Date | null): Record<string, unknown> => ({
+const sandbox = (
+    execCooldownUntil: Date | null,
+    powerState: string | null = 'running'
+): Record<string, unknown> => ({
     id: 'rh_1',
     kind: 'sandbox',
     spriteName: 'art-abc',
-    execCooldownUntil
+    execCooldownUntil,
+    powerState
 })
 
 const withEnv = async (
@@ -170,6 +174,69 @@ test('winning the claim is what makes a turn the prober', async () => {
     // The lease it wrote is the token it must hand back: without it the report
     // cannot be told apart from one a lapsed prober sends minutes late.
     assert.ok((admission?.lease?.getTime() ?? 0) > Date.now())
+})
+
+for (const powerState of ['suspended', 'stopped'] as const) {
+    test(`a ${powerState} host's probe gets a cold-start budget and a lease that covers it`, async () => {
+        const { db } = fakeDb({
+            row: sandbox(new Date(Date.now() - 1_000), powerState),
+            claim: [{ id: 'rh_1' }]
+        })
+        const config = spriteExecHealthConfig()
+
+        const admission = await new SpriteExecHealthService(db).admit('rh_1')
+
+        // Nothing woke this host before the probe: the probe's own exec is the
+        // cold start, which 5s never covers, and a probe that outlives its
+        // lease has its verdict thrown away.
+        assert.equal(admission?.decision, 'probe')
+        assert.equal(admission?.probeTimeoutMs, config.coldProbeTimeoutMs)
+        assert.ok(
+            (admission?.lease?.getTime() ?? 0) >
+                Date.now() + config.coldProbeTimeoutMs
+        )
+    })
+}
+
+test('a running host keeps the short probe budget', async () => {
+    const { db } = fakeDb({
+        row: sandbox(new Date(Date.now() - 1_000), 'running'),
+        claim: [{ id: 'rh_1' }]
+    })
+    const config = spriteExecHealthConfig()
+
+    const admission = await new SpriteExecHealthService(db).admit('rh_1')
+
+    assert.equal(admission?.probeTimeoutMs, config.probeTimeoutMs)
+    assert.ok(
+        (admission?.lease?.getTime() ?? Infinity) <=
+            Date.now() + config.probeLeaseMs
+    )
+})
+
+test('a cold probe budget is a knob, never below the warm one', async () => {
+    await withEnv(
+        {
+            MF_SPRITE_EXEC_PROBE_TIMEOUT_MS: '5000',
+            MF_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS: '30000'
+        },
+        () => {
+            const config = spriteExecHealthConfig()
+            assert.equal(config.coldProbeTimeoutMs, 30_000)
+            assert.ok(config.coldProbeTimeoutMs < config.coldProbeLeaseMs)
+            assert.ok(config.coldProbeLeaseMs < config.cooldownMs)
+        }
+    )
+    await withEnv(
+        {
+            MF_SPRITE_EXEC_PROBE_TIMEOUT_MS: '8000',
+            MF_SPRITE_EXEC_COLD_PROBE_TIMEOUT_MS: '1000'
+        },
+        () => {
+            const config = spriteExecHealthConfig()
+            assert.equal(config.coldProbeTimeoutMs, 8_000)
+        }
+    )
 })
 
 test('a host being chosen is never the host being probed', async () => {
