@@ -175,6 +175,55 @@ test('AutomationsService tick defers quota-skipped scheduled automation out of t
     )
 })
 
+const makeGatedService = (db: FakeDb, chat: FakeChat, availability: string) =>
+    new AutomationsService(
+        db as never,
+        chat as never,
+        { get: () => 'false' } as never,
+        { reserveAutomationRun: async () => {} } as never,
+        undefined,
+        undefined,
+        undefined,
+        { forAgent: async () => ({ availability }) } as never
+    )
+
+test('AutomationsService fails a scheduled run at admission when the agent computer is offline', async () => {
+    const db = new FakeDb()
+    db.selectResults.push(
+        [],
+        [],
+        [{ automation: automationRow, agent: agentRow, quotaRevision: 'fixture-revision' }],
+        []
+    )
+    const chat = new FakeChat()
+
+    await runSchedulerTick(makeGatedService(db, chat, 'offline'))
+
+    assert.deepEqual(chat.createdSessions, [])
+    assert.deepEqual(chat.sentMessages, [])
+    assert.equal(db.insertedRuns[0]?.status, 'failed')
+    assert.equal(db.insertedRuns[0]?.errorMessage, 'agent is offline')
+})
+
+test('AutomationsService admits a scheduled run on a sleeping sandbox, which the turn wakes', async () => {
+    const db = new FakeDb()
+    db.selectResults.push(
+        [],
+        [],
+        [{ automation: automationRow, agent: agentRow, quotaRevision: 'fixture-revision' }],
+        [],
+        [{ id: 'automation-1' }]
+    )
+    const chat = new FakeChat()
+
+    await runSchedulerTick(makeGatedService(db, chat, 'wakeable'))
+
+    assert.equal(chat.createdSessions.length, 1)
+    assert.equal(chat.sentMessages.length, 1)
+    assert.equal(db.insertedRuns[0]?.status, 'running')
+    assert.equal(db.insertedRuns[0]?.chatSessionId, 'session-1')
+})
+
 const runSchedulerTick = (service: AutomationsService): Promise<void> =>
     (service as unknown as { tick: () => Promise<void> }).tick()
 

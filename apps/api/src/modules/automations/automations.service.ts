@@ -120,9 +120,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         private readonly channelBridge?: ChannelBridgeService,
         @Optional()
         private readonly broadcaster?: SpriteStatusBroadcaster,
-        // Appended last + @Optional: the run gate reads the agent's
-        // availability through it; absent, only the lifecycle is checked.
-        @Optional()
+        // The run gate reads the agent's availability through it. The `?` is
+        // for positional test construction only; it is not @Optional, so a
+        // module that cannot provide it fails boot. Seen on staging and prod
+        // [2026-10-02]: AutomationsModule did not import HostsModule, Nest
+        // injected undefined, and runs on a computer offline since July
+        // skipped the gate and failed as chat_runner_unavailable.
         private readonly runtimeContext?: RuntimeContextService
     ) {}
 
