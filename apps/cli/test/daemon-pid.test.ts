@@ -1,6 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    rm,
+    utimes,
+    writeFile
+} from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +19,7 @@ import {
     runningDaemonPid,
     type DaemonPidPaths
 } from '../src/daemon/pid'
+import { processStartedAtMs } from '../src/daemon/process-lock'
 
 const withPaths = async (
     fn: (paths: DaemonPidPaths) => Promise<void>
@@ -104,6 +112,38 @@ test('an ownership handle keeps its original profile when path getters change', 
         await assert.rejects(readFile(first.pidPath), { code: 'ENOENT' })
         assert.equal(await readFile(second, 'utf8'), 'keep this other profile')
     })
+})
+
+// A restart hands out low pids again: after a sandbox's container restarted,
+// the pid a killed daemon left behind was its supervisor's shell. A pid file
+// written before the process now holding that pid started cannot be its.
+test('a pid file older than the process now holding its pid is stale', {
+    skip: process.platform === 'win32'
+}, async () => {
+    await withPaths(async (paths) => {
+        await writeFile(paths.pidPath, `${process.pid}\n`, 'utf8')
+        const beforeThisProcess = new Date(
+            Date.now() - process.uptime() * 1_000 - 3_600_000
+        )
+        await utimes(paths.pidPath, beforeThisProcess, beforeThisProcess)
+
+        assert.equal(await runningDaemonPid(paths), null)
+        const ownership = await claimDaemonPid(process.pid + 1, paths)
+        try {
+            assert.equal(await readDaemonPid(paths), process.pid + 1)
+        } finally {
+            await ownership.release()
+        }
+    })
+})
+
+test('a process start time is read for a live pid', {
+    skip: process.platform === 'win32'
+}, () => {
+    const startedAt = processStartedAtMs(process.pid)
+    assert.notEqual(startedAt, null)
+    const expected = Date.now() - process.uptime() * 1_000
+    assert.ok(Math.abs((startedAt ?? 0) - expected) < 2_000)
 })
 
 test('stale metadata from a previous process with the same PID does not block startup', async () => {

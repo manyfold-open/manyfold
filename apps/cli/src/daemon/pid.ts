@@ -1,10 +1,11 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { renameWithWindowsRetry } from '@/atomic-rename'
 import { daemonPaths } from '@/daemon/config'
 import {
     acquireProcessLock,
     isProcessRunning,
+    processStartedAtMs,
     ProcessLockBusyError
 } from './process-lock'
 
@@ -63,19 +64,30 @@ export const clearDaemonPid = async (
     }
 }
 
+// A pid file outlives a daemon that was killed, and after a restart its number
+// can belong to another process: one that started after the file was written
+// is not the daemon that wrote it. A second of slack covers ps reporting start
+// times to the second.
+// Seen on prod [2026-10-03]: a sandbox daemon killed with SIGKILL left pid 8,
+// the container restarted and pid 8 became the supervisor's own shell. Every
+// `mf daemon start` then exited "daemon already running pid=8", and `mf daemon
+// stop` signalled the shell.
 export const runningDaemonPid = async (
     paths: DaemonPidPaths = daemonPaths
 ): Promise<number | null> => {
     let raw: string
+    let writtenAt: number
     try {
         raw = await readFile(paths.pidPath, 'utf8')
+        writtenAt = (await stat(paths.pidPath)).mtimeMs
     } catch {
         return null
     }
     const pid = parsePid(raw)
-    if (!pid) return null
-    if (isProcessRunning(pid)) return pid
-    return null
+    if (!pid || !isProcessRunning(pid)) return null
+    const startedAt = processStartedAtMs(pid)
+    if (startedAt !== null && startedAt > writtenAt + 1_000) return null
+    return pid
 }
 
 const writeDaemonPid = async (

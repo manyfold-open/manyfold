@@ -5,6 +5,7 @@ import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.mod
 import { AgentsModule } from '@/modules/agents/agents.module'
 import { ChannelsModule } from '@/modules/channels/channels.module'
 import { ChatModule } from '@/modules/chat/chat.module'
+import { HostsModule } from '@/modules/hosts/hosts.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { AutomationsController } from './automations.controller'
 import { AutomationRetentionService } from './automation-retention.service'
@@ -17,6 +18,7 @@ import { AutomationsService } from './automations.service'
         ChatModule,
         AgentsModule,
         ChannelsModule,
+        HostsModule,
         RuntimeAccessModule
     ],
     controllers: [AutomationsController],
