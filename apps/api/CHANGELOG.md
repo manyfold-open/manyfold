@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 10.3.1
+
+### Patch Changes
+
+- [#653](https://github.com/manyfold-open/manyfold/pull/653) [`25e0d6c`](https://github.com/manyfold-open/manyfold/commit/25e0d6c2791aa16c90bd67435d1d2251224039b5) Thanks [@yingca1](https://github.com/yingca1)! - The A2A turn events no longer bring attribute names the log store does not have, which made it refuse every batch that carried one. `a2a.turn.complete`, `a2a.turn.timeout` and `a2a.turn.error` drop `handedOver` (`a2a.turn.handover` records the handover by `taskId`), and `a2a.turn.handover` reports the cap it reached as `timeoutMs` instead of `blockingMs`, `asyncMs` and `remainingMs`.
+
+- [#653](https://github.com/manyfold-open/manyfold/pull/653) [`25e0d6c`](https://github.com/manyfold-open/manyfold/commit/25e0d6c2791aa16c90bd67435d1d2251224039b5) Thanks [@yingca1](https://github.com/yingca1)! - The runner and sandbox-probe events added in the previous release no longer bring new attribute names to the log store, which is at its column limit and refused every batch that carried one. `chat.runner.resolve` reports its attempt as `attempts`, and `sprite_exec.probe` no longer sends `cold` (its `leaseMs` already tells a cold probe from a warm one). Chat-turn logs and traces reach the log store again.
+
 ## 10.3.0
 
 ### Minor Changes
