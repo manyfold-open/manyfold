@@ -4733,12 +4733,16 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 retryReason = transientRunnerReason(err)
                 this.logger.warn(`runner resolution failed agentId=${args.agentId} class=${safeErrorClass(err)}`)
             }
+            // `attempts`, an attribute the log store already has: it is at its
+            // column limit and refuses a whole batch that brings a new name.
+            // Seen on prod [2026-10-04]: `attempt` dropped every batch with a
+            // chat turn in it.
             this.telemetry.event('chat.runner.resolve', {
                 agentId: args.agentId,
                 runnerKind: args.runtime,
                 outcome: runner ? 'runner' : 'unavailable',
                 errorCode: failure?.error.code ?? null,
-                attempt
+                attempts: attempt
             })
             const resolved = { runner, failure, execFailure }
             const waitMs = args.retryDelaysMs[attempt - 1]

@@ -62,6 +62,7 @@ interface Harness {
     terminals: Array<{ type: string; code: string | null }>
     roles: () => string[]
     attempts: () => Array<[unknown, unknown]>
+    resolveEvents: () => Array<Record<string, unknown>>
     warns: string[]
     start: (delays?: readonly number[]) => Promise<void>
     finished: Promise<void>
@@ -249,7 +250,11 @@ const makeHarness = (opts: {
         attempts: () =>
             events
                 .filter((e) => e.name === 'chat.runner.resolve')
-                .map((e) => [e.props.attempt, e.props.outcome]),
+                .map((e) => [e.props.attempts, e.props.outcome]),
+        resolveEvents: () =>
+            events
+                .filter((e) => e.name === 'chat.runner.resolve')
+                .map((e) => e.props),
         warns,
         start: async (delays) => {
             await service.sendMessage(
@@ -295,6 +300,16 @@ test('a runner that failed to come up is asked again, and the turn runs once it 
     assert.deepEqual(retryWarns(h), [
         'runner resolution retry agentId=agent-1 attempt=2 inMs=0 reason=runner_unavailable'
     ])
+    // The log store is at its column limit and refuses a whole batch that
+    // brings a new attribute name, so this event keeps to the names it has.
+    for (const props of h.resolveEvents())
+        assert.deepEqual(Object.keys(props).sort(), [
+            'agentId',
+            'attempts',
+            'errorCode',
+            'outcome',
+            'runnerKind'
+        ])
 })
 
 test('a runner that never comes up ends the turn once, after every delay is spent', async () => {

@@ -183,8 +183,16 @@ for (const powerState of ['suspended', 'stopped'] as const) {
             claim: [{ id: 'rh_1' }]
         })
         const config = spriteExecHealthConfig()
+        const events: Array<{ name: string; attrs: Record<string, unknown> }> = []
+        const telemetry = {
+            event: (name: string, attrs: Record<string, unknown>) =>
+                events.push({ name, attrs })
+        }
 
-        const admission = await new SpriteExecHealthService(db).admit('rh_1')
+        const admission = await new SpriteExecHealthService(
+            db,
+            telemetry as never
+        ).admit('rh_1')
 
         // Nothing woke this host before the probe: the probe's own exec is the
         // cold start, which 5s never covers, and a probe that outlives its
@@ -195,6 +203,11 @@ for (const powerState of ['suspended', 'stopped'] as const) {
             (admission?.lease?.getTime() ?? 0) >
                 Date.now() + config.coldProbeTimeoutMs
         )
+        // The log store is at its column limit: the event says cold through
+        // the lease it already reports, not through a new attribute.
+        const probe = events.find((e) => e.name === 'sprite_exec.probe')
+        assert.equal(probe?.attrs.leaseMs, config.coldProbeLeaseMs)
+        assert.equal('cold' in (probe?.attrs ?? {}), false)
     })
 }
 

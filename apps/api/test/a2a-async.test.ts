@@ -296,8 +296,10 @@ test('a blocking send past its cap answers working and the same turn finishes th
     const handover = events.find((e) => e.name === 'a2a.turn.handover')
     assert.ok(handover, 'expected a2a.turn.handover telemetry')
     assert.equal(handover.attrs.taskId, task.id)
-    assert.equal(handover.attrs.blockingMs, 50)
-    assert.equal(handover.attrs.asyncMs, 5000)
+    assert.equal(handover.attrs.timeoutMs, 50)
+    // Only names the log store already has: it refuses a batch with a new one.
+    for (const key of ['blockingMs', 'asyncMs', 'remainingMs', 'handedOver'])
+        assert.equal(key in handover.attrs, false, key)
     assert.equal(
         events.some((e) => e.name === 'a2a.turn.timeout'),
         false
@@ -316,7 +318,10 @@ test('a blocking send past its cap answers working and the same turn finishes th
     const complete = events.find((e) => e.name === 'a2a.turn.complete')
     assert.ok(complete, 'expected a2a.turn.complete telemetry')
     assert.equal(complete.attrs.mode, 'blocking')
-    assert.equal(complete.attrs.handedOver, true)
+    // The handover is a2a.turn.handover's, joined by taskId: the log store is
+    // at its column limit and refuses a batch that brings a new attribute.
+    assert.equal('handedOver' in complete.attrs, false)
+    assert.equal(complete.attrs.taskId, handover.attrs.taskId)
 })
 
 test('a handed-over turn past the async cap fails turn_timeout, writes the task terminal before the stop, and the stop names itself', async () => {
@@ -355,7 +360,15 @@ test('a handed-over turn past the async cap fails turn_timeout, writes the task 
     const timeoutEvent = events.find((e) => e.name === 'a2a.turn.timeout')
     assert.ok(timeoutEvent, 'expected a2a.turn.timeout telemetry')
     assert.equal(timeoutEvent.attrs.mode, 'blocking')
-    assert.equal(timeoutEvent.attrs.handedOver, true)
+    assert.equal('handedOver' in timeoutEvent.attrs, false)
+    assert.ok(
+        events.some(
+            (e) =>
+                e.name === 'a2a.turn.handover' &&
+                e.attrs.taskId === timeoutEvent.attrs.taskId
+        ),
+        'the handover is recorded by its own event'
+    )
     assert.equal(timeoutEvent.attrs.timeoutMs, 150)
 })
 
