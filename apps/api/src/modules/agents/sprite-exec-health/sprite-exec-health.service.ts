@@ -247,10 +247,12 @@ export class SpriteExecHealthService {
                 )
                 .returning({ id: runtimeHosts.id })
             if (claimed.length > 0) {
+                // No new attribute: the log store is at its column limit and
+                // refuses a batch that brings one. leaseMs already tells a
+                // cold probe from a warm one.
                 this.telemetry?.event(SPRITE_EXEC_PROBE_EVENT, {
                     ...this.hostAttrs(hostId, host.providerRef),
-                    leaseMs,
-                    cold
+                    leaseMs
                 })
                 return {
                     hostId,
