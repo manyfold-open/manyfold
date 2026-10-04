@@ -1055,14 +1055,16 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         this.log.log(
             `a2a task ${run.task.id} reached its ${caps.blockingMs}ms blocking cap; answering working, the turn continues under the async cap`
         )
+        // Names the log store already has (it refuses a batch that brings a
+        // new one): timeoutMs is the cap this turn reached, as on
+        // a2a.turn.timeout. The async budget left is the async cap setting
+        // minus durationMs.
         this.telemetry?.event('a2a.turn.handover', {
             taskId: run.task.id,
             userId: run.task.userId,
             targetAgentId: run.task.targetAgentId,
             callerAgentId: run.task.callerAgentId,
-            blockingMs: caps.blockingMs,
-            asyncMs: caps.asyncMs,
-            remainingMs,
+            timeoutMs: caps.blockingMs,
             durationMs: Date.now() - run.startedAt
         })
         void inRequestContinuation(
@@ -1115,13 +1117,15 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
             this.log.warn(
                 `a2a task ${task.id} reached its ${end.capMs}ms async cap; stopping the target turn`
             )
+            // No handedOver here or on the events below: the log store is at
+            // its column limit and refuses a whole batch that brings a new
+            // attribute name. a2a.turn.handover records the handover by taskId.
             this.telemetry?.event('a2a.turn.timeout', {
                 taskId: task.id,
                 userId: task.userId,
                 targetAgentId: task.targetAgentId,
                 callerAgentId: task.callerAgentId,
                 mode,
-                handedOver: run.handedOver,
                 timeoutMs: end.capMs,
                 durationMs: Date.now() - run.startedAt
             })
@@ -1203,7 +1207,6 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 targetAgentId: task.targetAgentId,
                 callerAgentId: task.callerAgentId,
                 mode,
-                handedOver: run.handedOver,
                 state: finalState,
                 durationMs: Date.now() - run.startedAt
             })
@@ -1214,7 +1217,6 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 targetAgentId: task.targetAgentId,
                 callerAgentId: task.callerAgentId,
                 mode,
-                handedOver: run.handedOver,
                 errorCode: error.code,
                 durationMs: Date.now() - run.startedAt
             })
