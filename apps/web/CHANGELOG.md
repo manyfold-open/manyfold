@@ -1,5 +1,13 @@
 # @manyfold/web
 
+## 2.18.1
+
+### Patch Changes
+
+- [#662](https://github.com/manyfold-open/manyfold/pull/662) [`982b6e3`](https://github.com/manyfold-open/manyfold/commit/982b6e37dd3ae07c1e4b8ccb55ac2f5e35955f02) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Tidy the danger zone on Settings → Account. Deleting the account is now a single card row, with a one-line summary and the button on the right, the same layout as the sign-in methods above it, and the sections on the page get their normal spacing back instead of the heading sitting flush against the previous card. The full list of consequences moves into the confirmation dialog. While a confirmation email is pending, the same row shows an "Awaiting confirmation" tag and a Resend email button.
+
+- [#663](https://github.com/manyfold-open/manyfold/pull/663) [`1836418`](https://github.com/manyfold-open/manyfold/commit/1836418b39f04b5b9a548f76500d295ca8473047) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Settings → Account: on a phone-width screen, a sign-in method's buttons wrap beneath its name instead of squeezing it. "Email & password" no longer breaks into one word per line with Set password and Change email drawn over it. Wider screens keep the single-row layout.
+
 ## 2.18.0
 
 ### Minor Changes
