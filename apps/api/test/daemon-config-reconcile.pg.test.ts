@@ -215,6 +215,50 @@ test(
 )
 
 test(
+    'a host without a declared home reports why its automatic delivery failed, and converges once it has one',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        await h.db
+            .update(runtimeHosts)
+            .set({ homeDir: null })
+            .where(eq(runtimeHosts.id, h.daemonId))
+        const api = await h.api()
+        await h.connect(api.url)
+        await until(() => h.observations.length > 0)
+        const [failed] = h.observations
+        assert.equal(failed.name, 'daemon_config_reconcile')
+        assert.equal(failed.attrs.outcome, 'failed')
+        assert.equal(failed.attrs.hostId, h.daemonId)
+        assert.equal(failed.attrs.failed, 1)
+        assert.equal(
+            failed.attrs.reason,
+            'Runtime home directory is unavailable.'
+        )
+        await h.db
+            .update(runtimeHosts)
+            .set({ homeDir: h.home })
+            .where(eq(runtimeHosts.id, h.daemonId))
+        await until(
+            () =>
+                h.observations.some(
+                    (event) => event.attrs.outcome === 'complete'
+                ),
+            10_000
+        )
+        const complete = h.observations.find(
+            (event) => event.attrs.outcome === 'complete'
+        )
+        assert.equal(complete?.attrs.failed, 0)
+        assert.equal(complete?.attrs.reason, undefined)
+        assert.equal(
+            JSON.parse(await h.readProject()).mcpServers.fixture.command,
+            'offline-desired'
+        )
+    }
+)
+
+test(
     'hello storms coalesce and unchanged delivery performs no filesystem RPC',
     { skip: !RUN, timeout: 20_000 },
     async (t) => {
