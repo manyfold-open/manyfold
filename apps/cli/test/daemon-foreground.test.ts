@@ -223,14 +223,12 @@ echo $$ > "$MF_FIXTURE_PIDS"
 wait
 `)
         try {
-            const started = Date.now()
             const [owner] = await h.start(1)
             await until(
                 () =>
                     h.frames.some((frame) => frame.type === 'hello') &&
                     h.heartbeats.length > 0
             )
-            assert.ok(Date.now() - started < 10_000)
             assert.match(
                 owner.output,
                 /PATH probe timeout; retaining current PATH/
@@ -238,6 +236,23 @@ wait
             assert.ok(
                 owner.output.indexOf('daemon starting ') <
                     owner.output.indexOf('PATH probe timeout')
+            )
+            // Timed by the daemon's own log stamps, so the window is the probe
+            // alone. Seen on macOS under concurrent builds [2026-09-19]: a 10 s
+            // wall clock that also held the worker's tsx start and everything
+            // up to the first heartbeat ran out at 10.6 s.
+            const loggedAt = (marker: string) => {
+                const line = owner.output
+                    .split('\n')
+                    .find((entry) => entry.includes(marker))
+                assert.ok(line, marker)
+                return Date.parse(line.slice(0, line.indexOf(' ')))
+            }
+            const probeMs =
+                loggedAt('PATH probe timeout') - loggedAt('daemon starting ')
+            assert.ok(
+                probeMs >= 2800 && probeMs < 5000,
+                `probe took ${probeMs} ms`
             )
             const pids = (await readFile(join(h.dir, 'probe.pids'), 'utf8'))
                 .trim()

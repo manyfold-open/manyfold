@@ -16,7 +16,17 @@ import path from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex')
-const until = async (condition: () => boolean, budgetMs = 5000) => {
+// Every wait crosses into a peer process on a shared CI runner. A peer's
+// start is a cold tsx transform of the daemon sources (TMPDIR, and with it
+// tsx's cache, is new for every test). Seen on the ownership runners
+// [2026-10-01]: on macos-15-intel a passing `admitted-but-uncommitted` took
+// 2.4-6.2 s and 4 of the last 60 runs failed waiting 5 s for a start; on
+// windows-2022 the first write of `protected config commits` was still not
+// held after 5 s, in a run where the next test took 8.4 s against its usual
+// 2-3.5 s. The tests' own timeout is longer still, so a wait reports a hang.
+const WAIT_BUDGET_MS = 15_000
+const TEST_TIMEOUT_MS = 60_000
+const until = async (condition: () => boolean, budgetMs = WAIT_BUDGET_MS) => {
     const end = Date.now() + budgetMs
     while (!condition()) {
         if (Date.now() >= end)
@@ -79,16 +89,10 @@ const fixture = async (t: TestContext) => {
         const terminal = once(child, 'close')
         children.push(child)
         terminals.push(terminal)
-        // A peer starts by transforming the daemon sources with tsx, and its
-        // cache lives in TMPDIR, which is new for every test. Seen on the
-        // macos-15-intel ownership runner [2026-10-01]: a passing
-        // `admitted-but-uncommitted` took 2.4-6.2 s, nearly all of it this
-        // start, and 4 of the last 60 runs failed here at a 5 s budget.
         await until(
             () =>
                 events.some((event) => event.type === 'ready') ||
-                child.exitCode !== null,
-            15_000
+                child.exitCode !== null
         )
         assert.equal(child.exitCode, null, output)
         const request = (payload: Record<string, unknown>) => {
@@ -151,7 +155,7 @@ const fixture = async (t: TestContext) => {
 
 test(
     'protected config commits fence a blocked old write across processes and survive restart/replay',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -200,7 +204,7 @@ test(
 
 test(
     'admitted-but-uncommitted generation retries, cancellation and manual edits remain loud',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -231,7 +235,7 @@ test(
 
 test(
     'missing differs from empty; malformed generation and symlinked metadata never write',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -280,7 +284,7 @@ test(
 
 test(
     'protected target and lock symlinks cannot redirect configuration or lock metadata',
-    { timeout: 20_000, skip: process.platform === 'win32' },
+    { timeout: TEST_TIMEOUT_MS, skip: process.platform === 'win32' },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -320,7 +324,7 @@ test(
 
 test(
     'an existing non-object sidecar never resets a committed high-water mark',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -348,7 +352,7 @@ test(
 
 test(
     'case aliases of a configuration target cannot obtain a second high-water mark',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -373,7 +377,7 @@ test(
 
 test(
     'a newer explicit absence fences pending creation and remains idempotent after restart',
-    { timeout: 20_000 },
+    { timeout: TEST_TIMEOUT_MS },
     async (t) => {
         const h = await fixture(t)
         const a = await h.peer()
@@ -429,7 +433,7 @@ test(
 for (const stage of ['admitted', 'committed'] as const)
     test(
         `process death after ${stage} before reply can retry the same generation`,
-        { timeout: 20_000 },
+        { timeout: TEST_TIMEOUT_MS },
         async (t) => {
             const h = await fixture(t)
             const a = await h.peer()
