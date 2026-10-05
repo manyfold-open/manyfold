@@ -56,6 +56,7 @@ import {
 import { HandlerStatusSpanProcessor } from './common/telemetry/handler-status-span-processor'
 import { SentryRatioSpanProcessor } from './common/telemetry/sentry-ratio-span-processor'
 import { credentialDiagLogger } from './common/telemetry/credential-diag-logger'
+import { BoundedLogAttributesProcessor } from './common/telemetry/bounded-log-attributes-processor'
 import {
     CredentialRedactionLogProcessor,
     CredentialRedactionSpanProcessor
@@ -143,11 +144,13 @@ export const flushOtelLogs = async (timeoutMs?: number): Promise<void> => {
 
 const defaultLogProcessor: LogRecordProcessor | undefined = enabled
     ? new CredentialRedactionLogProcessor(
-          new BatchLogRecordProcessor(
-              new OTLPLogExporter({
-                  url: `${endpoint}/v1/logs`,
-                  headers: buildHeaders(dataset)
-              })
+          new BoundedLogAttributesProcessor(
+              new BatchLogRecordProcessor(
+                  new OTLPLogExporter({
+                      url: `${endpoint}/v1/logs`,
+                      headers: buildHeaders(dataset)
+                  })
+              )
           )
       )
     : undefined
