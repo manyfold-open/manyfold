@@ -3300,6 +3300,8 @@ const zh: Translations = {
             savingPassword: '保存中…',
             dangerTitle: '危险操作',
             deleteAccountTitle: '删除账号',
+            deleteAccountSummary:
+                '永久删除所有 agent、sandbox 和工作区，并取消订阅。',
             deleteAccountDescription: '宽限期结束后，删除账号将无法撤销：',
             deleteConsequenceAgents:
                 '所有 agent、sandbox 及其工作区都会被永久删除。',
@@ -3310,7 +3312,7 @@ const zh: Translations = {
             deleteConfirmTitle: '删除你的账号？',
             deleteConfirmDescription:
                 '我们会向 {{email}} 发送确认链接。在你打开它之前不会发生任何事情——链接 24 小时后失效。',
-            deleteAwaitingTitle: '请查收邮件',
+            deleteAwaitingTag: '待确认',
             deleteAwaitingBody:
                 '确认链接已发送到 {{email}}。只有你确认后账号才会进入删除流程；链接于 {{expires}} 失效。',
             deleteResend: '重发邮件',
