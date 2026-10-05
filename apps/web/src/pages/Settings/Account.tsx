@@ -23,6 +23,7 @@ import {
 import { analyticsConfigured } from '@/lib/googleAnalytics'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { StatusTag } from '@/components/Tag'
 import { ChangeEmailDialog } from '@/components/ChangeEmailDialog'
 import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { SetPasswordDialog } from '@/components/SetPasswordDialog'
@@ -555,9 +556,21 @@ const Account: FC = (): ReactNode => {
     const requestDeletion = useCallback(async (): Promise<void> => {
         const ok = await confirm({
             title: t('web.account.deleteConfirmTitle'),
-            description: t('web.account.deleteConfirmDescription', {
-                email: accountEmail
-            }),
+            description: (
+                <>
+                    <p>{t('web.account.deleteAccountDescription')}</p>
+                    <ul className='mt-2 list-disc space-y-1 pl-5'>
+                        <li>{t('web.account.deleteConsequenceAgents')}</li>
+                        <li>{t('web.account.deleteConsequenceBilling')}</li>
+                        <li>{t('web.account.deleteConsequenceGrace')}</li>
+                    </ul>
+                    <p className='mt-3'>
+                        {t('web.account.deleteConfirmDescription', {
+                            email: accountEmail
+                        })}
+                    </p>
+                </>
+            ),
             confirmLabel: t('web.account.deleteAccountTitle'),
             tone: 'danger',
             requireMatch: accountEmail
@@ -874,7 +887,7 @@ const Account: FC = (): ReactNode => {
                 </div>
             </section>
 
-            <section>
+            <section className='settings-section'>
                 <div className='settings-card-label mb-3'>
                     {t('web.account.signInMethods')}
                 </div>
@@ -996,7 +1009,7 @@ const Account: FC = (): ReactNode => {
             </section>
 
             {analyticsConfigured ? (
-                <section>
+                <section className='settings-section'>
                     <div className='settings-card-label mb-3'>
                         {t('web.consent.settingsTitle')}
                     </div>
@@ -1028,50 +1041,55 @@ const Account: FC = (): ReactNode => {
                 </section>
             ) : null}
 
-            <section>
+            {/* Same row grammar as the sign-in methods above; the red button
+                is the only danger signal at rest. The full consequence list
+                lives in the confirm dialog, where the decision is made. */}
+            <section className='settings-section'>
                 <div className='settings-card-label mb-3'>
                     {t('web.account.dangerTitle')}
                 </div>
-                {deletion ? (
-                    <div className='border-divider rounded-md border px-4 py-3'>
-                        <p className='text-ui text-fg font-medium'>
-                            {t('web.account.deleteAwaitingTitle')}
+                <div className='workbench-panel flex flex-wrap items-center gap-x-3.5 gap-y-2.5 px-4 py-3.5 sm:px-5'>
+                    <div className='min-w-0 flex-1 basis-60'>
+                        <p className='text-ui text-fg flex flex-wrap items-center gap-x-2 gap-y-1 font-medium'>
+                            {t('web.account.deleteAccountTitle')}
+                            {deletion ? (
+                                <StatusTag
+                                    tone='warning'
+                                    label={t('web.account.deleteAwaitingTag')}
+                                />
+                            ) : null}
                         </p>
-                        <p className='text-ui text-muted mt-1'>
-                            {t('web.account.deleteAwaitingBody', {
-                                email: accountEmail,
-                                expires: formatDateTime(deletion.expiresAt)
-                            })}
+                        <p className='text-caption text-muted mt-0.5'>
+                            {deletion
+                                ? t('web.account.deleteAwaitingBody', {
+                                      email: accountEmail,
+                                      expires: formatDateTime(
+                                          deletion.expiresAt
+                                      )
+                                  })
+                                : t('web.account.deleteAccountSummary')}
                         </p>
+                    </div>
+                    {deletion ? (
                         <button
                             type='button'
-                            className='workbench-button-secondary mt-3 h-8 px-3'
+                            className='workbench-button-secondary h-8 shrink-0 px-3'
                             disabled={deletionBusy}
                             onClick={() => void sendDeletionRequest(true)}
                         >
                             {t('web.account.deleteResend')}
                         </button>
-                    </div>
-                ) : (
-                    <>
-                        <p className='text-ui text-muted mb-2'>
-                            {t('web.account.deleteAccountDescription')}
-                        </p>
-                        <ul className='text-ui text-muted mb-3 list-disc space-y-1 pl-5'>
-                            <li>{t('web.account.deleteConsequenceAgents')}</li>
-                            <li>{t('web.account.deleteConsequenceBilling')}</li>
-                            <li>{t('web.account.deleteConsequenceGrace')}</li>
-                        </ul>
+                    ) : (
                         <button
                             type='button'
-                            className='workbench-button-danger h-8 px-3'
+                            className='workbench-button-danger h-8 shrink-0 px-3'
                             disabled={deletionBusy}
                             onClick={() => void requestDeletion()}
                         >
                             {t('web.account.deleteAccountButton')}
                         </button>
-                    </>
-                )}
+                    )}
+                </div>
                 {deletionError && (
                     <p className='text-error text-ui mt-2' role='alert'>
                         {deletionError}
