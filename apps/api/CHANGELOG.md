@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 10.4.0
+
+### Minor Changes
+
+- [#657](https://github.com/manyfold-open/manyfold/pull/657) [`43563ec`](https://github.com/manyfold-open/manyfold/commit/43563ec6eb1a806ca151e1293d2772cced3ae550) Thanks [@yingca1](https://github.com/yingca1)! - A turn that wakes a sandbox from cold now gives its runner up to 90 seconds to boot and dial back in. Before, it waited 15 seconds and then tried to restart the runner while the machine was still booting. That could fail the turn with "not accepting commands" seconds before the runner came back.
+
+- [#657](https://github.com/manyfold-open/manyfold/pull/657) [`43563ec`](https://github.com/manyfold-open/manyfold/commit/43563ec6eb1a806ca151e1293d2772cced3ae550) Thanks [@yingca1](https://github.com/yingca1)! - Monthly plan allowances (sandbox active hours, API requests, automation runs and model spend) now reset every month on subscriptions billed over a longer term, such as annual plans. Until now the whole term was a single usage window, so an allowance used up in one month stayed used up until the term ended. Subscriptions billed monthly are unchanged.
+
 ## 10.3.1
 
 ### Patch Changes
