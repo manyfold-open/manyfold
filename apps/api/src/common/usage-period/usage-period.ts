@@ -5,7 +5,10 @@
 // Every usage meter (sandbox active seconds, api requests, automation runs,
 // model spend) resolves its window through resolveUsagePeriod so the "current
 // period" semantics live in exactly one place:
-//   - live subscription (active/past_due) with a the subscription provider period -> that period
+//   - live subscription (active/past_due) with a subscription provider period
+//     of at most a month -> that period
+//   - with a longer one (an annual or custom term) -> monthly anniversaries of
+//     its start, inside it: the plan allowances are monthly
 //   - live subscription without one (admin_grant, pre-backfill) -> monthly
 //     anniversaries of started_at
 //   - no live subscription -> UTC calendar month
@@ -46,6 +49,12 @@ export const addUtcMonthsClamped = (anchor: Date, months: number): Date => {
     )
 }
 
+// A monthly provider period runs 28 to 31 days; one past this is a longer term
+// and is metered month by month. Seen on prod [2026-10-05]: annual and
+// custom-term subscriptions were metered over their whole term, so a monthly
+// allowance spent in one month stayed spent until the term ended.
+const MONTHLY_PERIOD_MAX_MS = 32 * 24 * 60 * 60 * 1000
+
 const anniversaryPeriod = (
     anchor: Date,
     now: Date
@@ -77,8 +86,16 @@ export const resolveUsagePeriod = (
     }
     const start = sub.currentPeriodStartAt
     const end = sub.currentPeriodEndAt
-    if (start && end && start <= now && now < end)
-        return { start, end, source: 'subscription' }
+    if (start && end && start <= now && now < end) {
+        if (end.getTime() - start.getTime() <= MONTHLY_PERIOD_MAX_MS)
+            return { start, end, source: 'subscription' }
+        const month = anniversaryPeriod(start, now)
+        return {
+            start: month.start,
+            end: month.end < end ? month.end : end,
+            source: 'subscription'
+        }
+    }
     // Missing or stale (end <= now) the subscription provider period: roll monthly boundaries
     // forward from the best anchor until the window contains now.
     const anchor = start ?? sub.startedAt

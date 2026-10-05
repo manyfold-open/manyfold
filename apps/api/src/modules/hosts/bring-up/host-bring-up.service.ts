@@ -102,6 +102,15 @@ const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
 // back on a fresh lease within a few seconds; a process that is not back by
 // then is wedged or gone, and `daemon stop; daemon start` is what helps.
 const WAKE_RECONNECT_WAIT_MS = 15_000
+// A machine woken from cold boots first; only then does its supervisor's loop
+// start the daemon that dials in. Restarting it after a thaw's wait instead
+// meets a machine still booting: the inspect times out and the turn fails.
+// Seen on prod [2026-10-04]: a turn gave up 30s after the wake and its daemon
+// dialed in 13s later.
+// Measured on prod [2026-10-05]: of 558 wakes over 7 days that found a sprite
+// stopped and saw its daemon back, 82% were back within 15s, 95% within 60s
+// and 98% within 90s; the slowest took 159s.
+const COLD_WAKE_RECONNECT_WAIT_MS = 90_000
 export interface HostDaemonArgs {
     host: RuntimeHostRow
     // Telemetry only.
@@ -588,14 +597,17 @@ export class HostBringUpService {
             // seconds; restarting it instead ends every exec it still carries.
             // Seen on staging [2026-09-29]: a bring-up restarted a daemon that
             // had reconnected in the same second, with 13 streams in flight.
-            if (asleep || (await this.hostDaemons.findByHostId(host.id))) {
+            const daemon = await this.hostDaemons.findByHostId(host.id)
+            if (asleep || daemon) {
+                const reconnectMs =
+                    power === 'stopped' &&
+                    daemon?.startupMethod === 'container'
+                        ? COLD_WAKE_RECONNECT_WAIT_MS
+                        : WAKE_RECONNECT_WAIT_MS
                 const back = await this.waitForLease(
                     host,
                     since,
-                    Math.min(
-                        WAKE_RECONNECT_WAIT_MS,
-                        args.waitOnlineMs ?? WAKE_RECONNECT_WAIT_MS
-                    )
+                    Math.min(reconnectMs, args.waitOnlineMs ?? reconnectMs)
                 )
                 if (back) {
                     this.logger.log(`daemon reconnected ${tag}`)
