@@ -3465,6 +3465,8 @@ const en = {
             savingPassword: 'Saving…',
             dangerTitle: 'Danger zone',
             deleteAccountTitle: 'Delete account',
+            deleteAccountSummary:
+                'Permanently deletes all agents, sandboxes and workspaces, and cancels subscriptions.',
             deleteAccountDescription:
                 'Deleting your account cannot be undone once the grace period ends:',
             deleteConsequenceAgents:
@@ -3477,7 +3479,7 @@ const en = {
             deleteConfirmTitle: 'Delete your account?',
             deleteConfirmDescription:
                 'We will email a confirmation link to {{email}}. Nothing happens until you open it — the link expires after 24 hours.',
-            deleteAwaitingTitle: 'Check your email',
+            deleteAwaitingTag: 'Awaiting confirmation',
             deleteAwaitingBody:
                 'A confirmation link is on its way to {{email}}. Your account is only scheduled for deletion after you confirm; the link expires on {{expires}}.',
             deleteResend: 'Resend email',

@@ -225,6 +225,13 @@
       "when": 1790759737798,
       "tag": "0031_built_in_agent_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791216469589,
+      "tag": "0032_hosted_home_dir",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,7 @@ import {
 import { analyticsConfigured } from '@/lib/googleAnalytics'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { StatusTag } from '@/components/Tag'
 import { ChangeEmailDialog } from '@/components/ChangeEmailDialog'
 import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { SetPasswordDialog } from '@/components/SetPasswordDialog'
@@ -555,9 +556,21 @@ const Account: FC = (): ReactNode => {
     const requestDeletion = useCallback(async (): Promise<void> => {
         const ok = await confirm({
             title: t('web.account.deleteConfirmTitle'),
-            description: t('web.account.deleteConfirmDescription', {
-                email: accountEmail
-            }),
+            description: (
+                <>
+                    <p>{t('web.account.deleteAccountDescription')}</p>
+                    <ul className='mt-2 list-disc space-y-1 pl-5'>
+                        <li>{t('web.account.deleteConsequenceAgents')}</li>
+                        <li>{t('web.account.deleteConsequenceBilling')}</li>
+                        <li>{t('web.account.deleteConsequenceGrace')}</li>
+                    </ul>
+                    <p className='mt-3'>
+                        {t('web.account.deleteConfirmDescription', {
+                            email: accountEmail
+                        })}
+                    </p>
+                </>
+            ),
             confirmLabel: t('web.account.deleteAccountTitle'),
             tone: 'danger',
             requireMatch: accountEmail
@@ -874,7 +887,7 @@ const Account: FC = (): ReactNode => {
                 </div>
             </section>
 
-            <section>
+            <section className='settings-section'>
                 <div className='settings-card-label mb-3'>
                     {t('web.account.signInMethods')}
                 </div>
@@ -889,7 +902,7 @@ const Account: FC = (): ReactNode => {
                         {rows.map((row) => (
                             <li
                                 key={row.key}
-                                className='flex items-center gap-3.5 px-4 py-3.5 sm:px-5'
+                                className='flex flex-wrap items-center gap-x-3.5 gap-y-2.5 px-4 py-3.5 sm:px-5'
                             >
                                 <ShortcutTooltip
                                     label={
@@ -899,49 +912,57 @@ const Account: FC = (): ReactNode => {
                                             ? t('web.account.onlySignInMethod')
                                             : undefined
                                     }
-                                    className='w-full items-center gap-3.5'
+                                    className='w-full flex-wrap items-center gap-x-3.5 gap-y-2.5'
                                 >
-                                    <span
-                                        className={`rounded-pill flex h-9 w-9 shrink-0 items-center justify-center ${
-                                            row.state === 'connected'
-                                                ? 'bg-soft text-fg'
-                                                : 'border-divider text-placeholder border border-dashed'
-                                        }`}
-                                    >
-                                        <ProviderLogo
-                                            provider={row.provider}
-                                            size={18}
-                                            mono={row.state !== 'connected'}
-                                        />
-                                    </span>
-                                    <div className='min-w-0 flex-1'>
-                                        <p
-                                            className={`text-ui font-medium ${
+                                    {/* The basis fits the icon and the
+                                    longest label; when the actions no
+                                    longer fit beside it, they wrap beneath
+                                    instead of squeezing the label. */}
+                                    <div className='flex min-w-0 flex-1 basis-44 items-center gap-3.5'>
+                                        <span
+                                            className={`rounded-pill flex h-9 w-9 shrink-0 items-center justify-center ${
                                                 row.state === 'connected'
-                                                    ? 'text-fg'
-                                                    : 'text-placeholder'
+                                                    ? 'bg-soft text-fg'
+                                                    : 'border-divider text-placeholder border border-dashed'
                                             }`}
                                         >
-                                            {providerLabel(row.provider, t)}
-                                        </p>
-                                        <p
-                                            className={`text-caption truncate ${
-                                                row.state === 'connected'
-                                                    ? 'text-muted'
-                                                    : 'text-placeholder'
-                                            }`}
-                                        >
-                                            {row.state === 'disconnected'
-                                                ? t('web.account.notConnected')
-                                                : row.state ===
-                                                    'password-missing'
-                                                  ? row.identity?.email ||
-                                                    accountEmail ||
-                                                    t(
-                                                        'web.account.noPasswordSet'
-                                                    )
-                                                  : row.identity?.email}
-                                        </p>
+                                            <ProviderLogo
+                                                provider={row.provider}
+                                                size={18}
+                                                mono={row.state !== 'connected'}
+                                            />
+                                        </span>
+                                        <div className='min-w-0 flex-1'>
+                                            <p
+                                                className={`text-ui font-medium ${
+                                                    row.state === 'connected'
+                                                        ? 'text-fg'
+                                                        : 'text-placeholder'
+                                                }`}
+                                            >
+                                                {providerLabel(row.provider, t)}
+                                            </p>
+                                            <p
+                                                className={`text-caption truncate ${
+                                                    row.state === 'connected'
+                                                        ? 'text-muted'
+                                                        : 'text-placeholder'
+                                                }`}
+                                            >
+                                                {row.state === 'disconnected'
+                                                    ? t(
+                                                          'web.account.notConnected'
+                                                      )
+                                                    : row.state ===
+                                                        'password-missing'
+                                                      ? row.identity?.email ||
+                                                        accountEmail ||
+                                                        t(
+                                                            'web.account.noPasswordSet'
+                                                        )
+                                                      : row.identity?.email}
+                                            </p>
+                                        </div>
                                     </div>
                                     {/* No standing tags: the button label
                                     carries the password state, and a
@@ -950,7 +971,7 @@ const Account: FC = (): ReactNode => {
                                     {row.state === 'disconnected' ? (
                                         connectButton(row)
                                     ) : row.provider === 'email' ? (
-                                        <>
+                                        <div className='flex flex-wrap gap-x-3.5 gap-y-2.5'>
                                             <button
                                                 type='button'
                                                 className='workbench-button-secondary h-8 shrink-0 px-3'
@@ -976,7 +997,7 @@ const Account: FC = (): ReactNode => {
                                             >
                                                 {t('web.account.changeEmail')}
                                             </button>
-                                        </>
+                                        </div>
                                     ) : lastMethod ? null : (
                                         <button
                                             type='button'
@@ -996,7 +1017,7 @@ const Account: FC = (): ReactNode => {
             </section>
 
             {analyticsConfigured ? (
-                <section>
+                <section className='settings-section'>
                     <div className='settings-card-label mb-3'>
                         {t('web.consent.settingsTitle')}
                     </div>
@@ -1028,50 +1049,55 @@ const Account: FC = (): ReactNode => {
                 </section>
             ) : null}
 
-            <section>
+            {/* Same row grammar as the sign-in methods above; the red button
+                is the only danger signal at rest. The full consequence list
+                lives in the confirm dialog, where the decision is made. */}
+            <section className='settings-section'>
                 <div className='settings-card-label mb-3'>
                     {t('web.account.dangerTitle')}
                 </div>
-                {deletion ? (
-                    <div className='border-divider rounded-md border px-4 py-3'>
-                        <p className='text-ui text-fg font-medium'>
-                            {t('web.account.deleteAwaitingTitle')}
+                <div className='workbench-panel flex flex-wrap items-center gap-x-3.5 gap-y-2.5 px-4 py-3.5 sm:px-5'>
+                    <div className='min-w-0 flex-1 basis-60'>
+                        <p className='text-ui text-fg flex flex-wrap items-center gap-x-2 gap-y-1 font-medium'>
+                            {t('web.account.deleteAccountTitle')}
+                            {deletion ? (
+                                <StatusTag
+                                    tone='warning'
+                                    label={t('web.account.deleteAwaitingTag')}
+                                />
+                            ) : null}
                         </p>
-                        <p className='text-ui text-muted mt-1'>
-                            {t('web.account.deleteAwaitingBody', {
-                                email: accountEmail,
-                                expires: formatDateTime(deletion.expiresAt)
-                            })}
+                        <p className='text-caption text-muted mt-0.5'>
+                            {deletion
+                                ? t('web.account.deleteAwaitingBody', {
+                                      email: accountEmail,
+                                      expires: formatDateTime(
+                                          deletion.expiresAt
+                                      )
+                                  })
+                                : t('web.account.deleteAccountSummary')}
                         </p>
+                    </div>
+                    {deletion ? (
                         <button
                             type='button'
-                            className='workbench-button-secondary mt-3 h-8 px-3'
+                            className='workbench-button-secondary h-8 shrink-0 px-3'
                             disabled={deletionBusy}
                             onClick={() => void sendDeletionRequest(true)}
                         >
                             {t('web.account.deleteResend')}
                         </button>
-                    </div>
-                ) : (
-                    <>
-                        <p className='text-ui text-muted mb-2'>
-                            {t('web.account.deleteAccountDescription')}
-                        </p>
-                        <ul className='text-ui text-muted mb-3 list-disc space-y-1 pl-5'>
-                            <li>{t('web.account.deleteConsequenceAgents')}</li>
-                            <li>{t('web.account.deleteConsequenceBilling')}</li>
-                            <li>{t('web.account.deleteConsequenceGrace')}</li>
-                        </ul>
+                    ) : (
                         <button
                             type='button'
-                            className='workbench-button-danger h-8 px-3'
+                            className='workbench-button-danger h-8 shrink-0 px-3'
                             disabled={deletionBusy}
                             onClick={() => void requestDeletion()}
                         >
                             {t('web.account.deleteAccountButton')}
                         </button>
-                    </>
-                )}
+                    )}
+                </div>
                 {deletionError && (
                     <p className='text-error text-ui mt-2' role='alert'>
                         {deletionError}
