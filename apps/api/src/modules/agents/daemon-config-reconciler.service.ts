@@ -23,6 +23,15 @@ import { McpConfigMaterializer } from '@/modules/agent-runtimes/mcp/mcp-config-m
 import { contextDocInstructionFile } from '@/modules/agent-self/agent-context-doc.service'
 import { AgentContextDocManageService } from './agent-context-doc-manage.service'
 
+// A delivery error says why in fixed words; anything else is reported by its
+// class only, so a run's reason never carries a path or a payload.
+const failureOf = (error: unknown): string =>
+    error instanceof DaemonConfigDeliveryError
+        ? error.message
+        : error instanceof Error
+          ? error.name
+          : 'unknown'
+
 interface ReconcileState {
     userId: string
     evidence: DaemonHelloEvidence
@@ -127,6 +136,8 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
         let count = 0
         let cancelled = false
         let unsupported = false
+        let failed = 0
+        let reason: string | undefined
         const started = performance.now()
         await trace
             .getTracer('manyfold.daemon-config')
@@ -184,6 +195,7 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                             evidence,
                             signal: state.abort?.signal
                         }
+                        let failure: string | undefined
                         try {
                             if (frameworkMcpSupport(agent.framework)) {
                                 const results =
@@ -191,12 +203,13 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                                         agent,
                                         options
                                     )
-                                if (
-                                    results.some(
-                                        (result) => result.status === 'failed'
-                                    )
+                                const scope = results.find(
+                                    (result) => result.status === 'failed'
                                 )
+                                if (scope) {
                                     retry = true
+                                    failure = scope.message ?? scope.status
+                                }
                             }
                             if (contextDocInstructionFile(agent.framework))
                                 await this.context.refreshDaemon(agent, options)
@@ -220,14 +233,21 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                                     'superseded',
                                     'cancelled'
                                 ].includes(error.reason)
-                            )
+                            ) {
                                 retry = true
+                                failure ??= failureOf(error)
+                            }
+                        }
+                        if (failure) {
+                            failed++
+                            reason ??= failure
                         }
                         state.cursor = agent.id
                     }
                     if (rows.length === 100) continuation = true
-                } catch {
+                } catch (error) {
                     retry = true
+                    reason ??= failureOf(error)
                 } finally {
                     const outcome = cancelled
                         ? 'cancelled'
@@ -241,6 +261,9 @@ export class DaemonConfigReconciler implements OnModuleInit, OnModuleDestroy {
                     this.telemetry.event('daemon_config_reconcile', {
                         outcome,
                         count,
+                        hostId: daemonId,
+                        failed,
+                        reason,
                         attempts: state.attempts + 1,
                         durationMs: Math.round(performance.now() - started)
                     })
