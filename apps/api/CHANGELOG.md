@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 10.5.0
+
+### Minor Changes
+
+- [#664](https://github.com/manyfold-open/manyfold/pull/664) [`7bfb110`](https://github.com/manyfold-open/manyfold/commit/7bfb110788c92a830793c14fcc860ee3358e7bec) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox or cloud computer created before 8.0.0 gets its agents' MCP servers again when its daemon reconnects, and importing MCP servers from it works. The 8.0.0 upgrade that merged each machine's runner into the machine left the machine without a home directory. Since then, the automatic delivery after every reconnect failed for every MCP scope, with nothing in the logs, and an import answered `agent runtime home dir is unknown`. A migration restores the home directory the machine's image runs under (`/home/sprite` on a sandbox, `/home/node` on a cloud computer). The workspace and skill roots are left as they were, because only the machine's own registration can declare them.
+
+### Patch Changes
+
+- [#664](https://github.com/manyfold-open/manyfold/pull/664) [`7bfb110`](https://github.com/manyfold-open/manyfold/commit/7bfb110788c92a830793c14fcc860ee3358e7bec) Thanks [@yingca1](https://github.com/yingca1)! - `daemon_config_reconcile` now says which host it ran for (`hostId`), how many agents failed (`failed`) and why the first one failed (`reason`, the delivery's own wording or the error's class). Before, a run that kept failing recorded only `outcome: failed`. All three names already exist in the log store.
+
 ## 10.4.0
 
 ### Minor Changes
