@@ -889,7 +889,7 @@ const Account: FC = (): ReactNode => {
                         {rows.map((row) => (
                             <li
                                 key={row.key}
-                                className='flex items-center gap-3.5 px-4 py-3.5 sm:px-5'
+                                className='flex flex-wrap items-center gap-x-3.5 gap-y-2.5 px-4 py-3.5 sm:px-5'
                             >
                                 <ShortcutTooltip
                                     label={
@@ -899,49 +899,57 @@ const Account: FC = (): ReactNode => {
                                             ? t('web.account.onlySignInMethod')
                                             : undefined
                                     }
-                                    className='w-full items-center gap-3.5'
+                                    className='w-full flex-wrap items-center gap-x-3.5 gap-y-2.5'
                                 >
-                                    <span
-                                        className={`rounded-pill flex h-9 w-9 shrink-0 items-center justify-center ${
-                                            row.state === 'connected'
-                                                ? 'bg-soft text-fg'
-                                                : 'border-divider text-placeholder border border-dashed'
-                                        }`}
-                                    >
-                                        <ProviderLogo
-                                            provider={row.provider}
-                                            size={18}
-                                            mono={row.state !== 'connected'}
-                                        />
-                                    </span>
-                                    <div className='min-w-0 flex-1'>
-                                        <p
-                                            className={`text-ui font-medium ${
+                                    {/* The basis fits the icon and the
+                                    longest label; when the actions no
+                                    longer fit beside it, they wrap beneath
+                                    instead of squeezing the label. */}
+                                    <div className='flex min-w-0 flex-1 basis-44 items-center gap-3.5'>
+                                        <span
+                                            className={`rounded-pill flex h-9 w-9 shrink-0 items-center justify-center ${
                                                 row.state === 'connected'
-                                                    ? 'text-fg'
-                                                    : 'text-placeholder'
+                                                    ? 'bg-soft text-fg'
+                                                    : 'border-divider text-placeholder border border-dashed'
                                             }`}
                                         >
-                                            {providerLabel(row.provider, t)}
-                                        </p>
-                                        <p
-                                            className={`text-caption truncate ${
-                                                row.state === 'connected'
-                                                    ? 'text-muted'
-                                                    : 'text-placeholder'
-                                            }`}
-                                        >
-                                            {row.state === 'disconnected'
-                                                ? t('web.account.notConnected')
-                                                : row.state ===
-                                                    'password-missing'
-                                                  ? row.identity?.email ||
-                                                    accountEmail ||
-                                                    t(
-                                                        'web.account.noPasswordSet'
-                                                    )
-                                                  : row.identity?.email}
-                                        </p>
+                                            <ProviderLogo
+                                                provider={row.provider}
+                                                size={18}
+                                                mono={row.state !== 'connected'}
+                                            />
+                                        </span>
+                                        <div className='min-w-0 flex-1'>
+                                            <p
+                                                className={`text-ui font-medium ${
+                                                    row.state === 'connected'
+                                                        ? 'text-fg'
+                                                        : 'text-placeholder'
+                                                }`}
+                                            >
+                                                {providerLabel(row.provider, t)}
+                                            </p>
+                                            <p
+                                                className={`text-caption truncate ${
+                                                    row.state === 'connected'
+                                                        ? 'text-muted'
+                                                        : 'text-placeholder'
+                                                }`}
+                                            >
+                                                {row.state === 'disconnected'
+                                                    ? t(
+                                                          'web.account.notConnected'
+                                                      )
+                                                    : row.state ===
+                                                        'password-missing'
+                                                      ? row.identity?.email ||
+                                                        accountEmail ||
+                                                        t(
+                                                            'web.account.noPasswordSet'
+                                                        )
+                                                      : row.identity?.email}
+                                            </p>
+                                        </div>
                                     </div>
                                     {/* No standing tags: the button label
                                     carries the password state, and a
@@ -950,7 +958,7 @@ const Account: FC = (): ReactNode => {
                                     {row.state === 'disconnected' ? (
                                         connectButton(row)
                                     ) : row.provider === 'email' ? (
-                                        <>
+                                        <div className='flex flex-wrap gap-x-3.5 gap-y-2.5'>
                                             <button
                                                 type='button'
                                                 className='workbench-button-secondary h-8 shrink-0 px-3'
@@ -976,7 +984,7 @@ const Account: FC = (): ReactNode => {
                                             >
                                                 {t('web.account.changeEmail')}
                                             </button>
-                                        </>
+                                        </div>
                                     ) : lastMethod ? null : (
                                         <button
                                             type='button'
