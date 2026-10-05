@@ -32,7 +32,7 @@ const harness = () => {
 test('fixed scalar compatibility names retain their query paths after redaction', async (t) => {
     const { exporter, provider, logger } = harness()
     t.after(() => provider.shutdown())
-    assert.equal(new Set(FLATTENED_LOG_ATTRIBUTE_KEYS).size, 214)
+    assert.equal(new Set(FLATTENED_LOG_ATTRIBUTE_KEYS).size, 219)
     for (const key of FLATTENED_LOG_ATTRIBUTE_KEYS)
         logger.emit({
             body: 'compatibility',
@@ -40,7 +40,7 @@ test('fixed scalar compatibility names retain their query paths after redaction'
         })
     await provider.forceFlush()
     const records = exporter.getFinishedLogRecords()
-    assert.equal(records.length, 214)
+    assert.equal(records.length, 219)
     for (const [index, key] of FLATTENED_LOG_ATTRIBUTE_KEYS.entries())
         assert.deepEqual(
             records[index].attributes,

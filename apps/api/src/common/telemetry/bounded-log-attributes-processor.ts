@@ -2,8 +2,9 @@ import type { Context } from '@opentelemetry/api'
 import type { AnyValue, LogAttributes } from '@opentelemetry/api-logs'
 import type { LogRecordProcessor, SdkLogRecord } from '@opentelemetry/sdk-logs'
 
-// Frozen compatibility names, not a registry to extend for each new event.
-// Unknown keys remain typed/queryable inside custom instead of growing columns.
+// Frozen compatibility names: the flat log attribute columns the receiver
+// already holds. Not a registry to extend for each new event; unknown keys
+// remain typed/queryable inside custom instead of growing columns.
 export const FLATTENED_LOG_ATTRIBUTE_KEYS = [
     'accountId',
     'accountSlug',
@@ -13,6 +14,7 @@ export const FLATTENED_LOG_ATTRIBUTE_KEYS = [
     'activeTurnsRemaining',
     'adoptCount',
     'afterDays',
+    'ageMs',
     'agentAgeMs',
     'agentCount',
     'agentId',
@@ -93,8 +95,10 @@ export const FLATTENED_LOG_ATTRIBUTE_KEYS = [
     'http.request.method_original',
     'http.response.status_code',
     'http.route',
+    'idleMs',
     'inflight',
     'keepAliveDisabled',
+    'keepAwakeDisabled',
     'key',
     'kind',
     'leaseMs',
@@ -201,10 +205,12 @@ export const FLATTENED_LOG_ATTRIBUTE_KEYS = [
     'totalBytes',
     'trace_id',
     'trigger',
+    'tty',
     'turnDrainOutcome',
     'turnPhase',
     'unresolvedHosts',
     'uploads',
+    'upstreamStatus',
     'url.full',
     'url.path',
     'url.query',
