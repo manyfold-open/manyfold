@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 10.6.0
+
+### Minor Changes
+
+- [#448](https://github.com/manyfold-open/manyfold/pull/448) [`e671dc0`](https://github.com/manyfold-open/manyfold/commit/e671dc09d31eff04fc599f0c5e5f9693fcc61cd9) Thanks [@yingca1](https://github.com/yingca1)! - Log records exported over OTLP keep the attribute columns the receiver already has, and every other attribute (new names and nested values) goes into the `attributes.custom` map with its type intact. New telemetry fields no longer add receiver columns, so a receiver at its field limit stops rejecting whole log batches, ordinary and process-exit logs included. Query those attributes as `['attributes.custom']['<name>']`. The dataset must hold `attributes.custom` as a map field: Axiom creates it when the first span with a custom attribute arrives; on a new dataset, create it before enabling export.
+
 ## 10.5.0
 
 ### Minor Changes
