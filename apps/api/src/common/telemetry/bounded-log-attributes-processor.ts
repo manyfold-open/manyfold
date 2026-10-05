@@ -1,5 +1,5 @@
 import type { Context } from '@opentelemetry/api'
-import type { AnyValue, LogAttributes } from '@opentelemetry/api-logs'
+import type { AnyValue } from '@opentelemetry/api-logs'
 import type { LogRecordProcessor, SdkLogRecord } from '@opentelemetry/sdk-logs'
 
 // Frozen compatibility names: the flat log attribute columns the receiver
@@ -245,11 +245,10 @@ export class BoundedLogAttributesProcessor implements LogRecordProcessor {
             custom.push([key, value])
             delete record.attributes[key]
         }
-        // Preserve an input named custom under its own key. It cannot replace
-        // another attribute or the outer map, including via __proto__ keys.
+        // An input named custom stays under its own key inside the map, so it
+        // cannot replace another attribute or the map itself.
         if (custom.length > 0)
-            (record.attributes as LogAttributes).custom =
-                Object.fromEntries(custom)
+            record.attributes.custom = Object.fromEntries(custom)
         this.delegate.onEmit(record, context)
     }
 
