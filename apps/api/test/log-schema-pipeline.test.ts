@@ -184,7 +184,6 @@ for (const existingFields of [253, 257])
                         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${address.port}`,
                         OTEL_METRICS_EXPORTER: 'none',
                         OTEL_BSP_SCHEDULE_DELAY: '60000',
-                        OTEL_BLRP_SCHEDULE_DELAY: '60000',
                         SENTRY_DSN: `http://public@127.0.0.1:${address.port}/1`,
                         SENTRY_TRACES_SAMPLE_RATE: '1'
                     },

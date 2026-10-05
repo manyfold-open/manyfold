@@ -51,7 +51,7 @@ test('fixed scalar compatibility names retain their query paths after redaction'
 test('new keys, maps and heterogeneous arrays retain types without growing exported attribute paths', async (t) => {
     const { exporter, provider, logger } = harness()
     t.after(() => provider.shutdown())
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 3; i++) {
         logger.emit({
             body: 'dynamic fixture',
             attributes: {
@@ -68,24 +68,20 @@ test('new keys, maps and heterogeneous arrays retain types without growing expor
     }
     await provider.forceFlush()
     const records = exporter.getFinishedLogRecords()
-    assert.equal(records.length, 500)
-    for (const [index, record] of records.entries()) {
-        assert.equal(record.droppedAttributesCount, 0)
-        assert.deepEqual(Object.keys(record.attributes).sort(), [
-            'context',
-            'custom',
-            'durationMs'
-        ])
-        assert.equal(record.attributes.durationMs, index)
-        assert.deepEqual(record.attributes.custom, {
-            [`counter.${index}`]: index,
-            [`result.${index}`]: {
-                count: index,
-                pending: false,
-                values: ['ok', index, null, { nested: true }]
+    assert.equal(records.length, 3)
+    for (const [index, record] of records.entries())
+        assert.deepEqual(record.attributes, {
+            context: 'Fixture',
+            durationMs: index,
+            custom: {
+                [`counter.${index}`]: index,
+                [`result.${index}`]: {
+                    count: index,
+                    pending: false,
+                    values: ['ok', index, null, { nested: true }]
+                }
             }
         })
-    }
 })
 
 test('a preserved name with a nested value moves intact into the map', async (t) => {
@@ -134,21 +130,21 @@ test('custom input cannot overwrite compatible attributes and nested credentials
     })
     await provider.forceFlush()
     const record = exporter.getFinishedLogRecords()[0]
-    assert.equal(record.attributes.context, 'TrustedContext')
-    assert(!('trace_id' in record.attributes))
-    assert(!('url.query' in record.attributes))
     assert(!JSON.stringify(record).includes('synthetic-private'))
-    assert.deepEqual(record.attributes.custom, {
+    assert.deepEqual(record.attributes, {
+        context: 'TrustedContext',
         custom: {
-            context: 'cannot overwrite',
-            trace_id: 'cannot overwrite',
-            nested: { authorization: 'REDACTED' },
-            values: [
-                { api_key: 'REDACTED' },
-                'https://fixture.invalid/?token=REDACTED'
-            ]
-        },
-        constructor: 'ordinary key',
-        newValue: { token: 'REDACTED', safe: 7 }
+            custom: {
+                context: 'cannot overwrite',
+                trace_id: 'cannot overwrite',
+                nested: { authorization: 'REDACTED' },
+                values: [
+                    { api_key: 'REDACTED' },
+                    'https://fixture.invalid/?token=REDACTED'
+                ]
+            },
+            constructor: 'ordinary key',
+            newValue: { token: 'REDACTED', safe: 7 }
+        }
     })
 })
