@@ -60,6 +60,11 @@ interface HarnessOptions {
     // The awake hold's own exec thawed the machine: its daemon dials back in
     // right after the power read, with no wake needed.
     reconnectsOnThaw?: boolean
+    // The machine boots after the wake and its supervised daemon dials in this
+    // long after it, on the clock the bring-up polls by: the test mocks Date
+    // and `tick` advances it by each poll's delay.
+    dialsInAfterWakeMs?: number
+    tick?: (ms: number) => void
     logTail?: string
     registerExit?: number
     registerOutput?: string
@@ -177,6 +182,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
         }
     }
     let bumps = 0
+    let wokeAt: number | null = null
 
     const dialIn = (supervised = false) => {
         state.daemon = daemonRow({
@@ -217,6 +223,7 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             if (generation < state.host.generation)
                 throw new StaleGenerationError(state.host.id, generation, state.host.generation)
             if (opts.reconnectsOnWake) dialIn()
+            wokeAt = Date.now()
         },
         create: async () => {
             throw new Error('create is provisioning’s')
@@ -276,7 +283,15 @@ const buildHarness = (opts: HarnessOptions = {}) => {
     }
 
     class TestRunnerManager extends HostBringUpService {
-        protected override delay(): Promise<void> {
+        protected override delay(ms: number): Promise<void> {
+            opts.tick?.(ms)
+            if (
+                opts.dialsInAfterWakeMs !== undefined &&
+                wokeAt !== null &&
+                Date.now() - wokeAt >= opts.dialsInAfterWakeMs &&
+                !state.daemon?.rpcConnectedAt
+            )
+                dialIn(true)
             return Promise.resolve()
         }
     }
@@ -558,6 +573,43 @@ test('a suspended sprite whose daemon does not come back after the wake is boots
     assert.equal(res.handle?.started, true)
     assert.deepEqual(h.calls, ['power', 'wake', 'inspect', 'start'])
     assert.deepEqual(h.mints, [], 'a registered machine is not registered again')
+})
+
+// Seen on prod [2026-10-04]: a sprite woken from cold dialed back in 43s after
+// the wake, and the bring-up that stopped waiting at 15s timed out inspecting
+// the machine while it was still booting.
+test('a stopped sprite whose supervised daemon is still booting is waited for, not restarted', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T22:50:10Z') })
+    const h = buildHarness({
+        daemon: offlineDaemon({ startupMethod: 'container' }),
+        power: 'stopped',
+        registered: true,
+        dialsInAfterWakeMs: 45_000,
+        tick: (ms) => t.mock.timers.tick(ms)
+    })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle?.hostId, 'sbx_1')
+    assert.deepEqual(h.calls, ['power', 'wake'], 'no inspect and no restart while it boots')
+    assert.equal(h.bumps(), 0)
+})
+
+test('only a stopped machine whose daemon a supervisor restarts gets the cold wait', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-04T22:50:10Z') })
+    for (const [power, startupMethod] of [
+        ['suspended', 'container'],
+        ['stopped', 'manual']
+    ] as const) {
+        const h = buildHarness({
+            daemon: offlineDaemon({ startupMethod }),
+            power,
+            registered: true,
+            dialsInAfterWakeMs: 45_000,
+            tick: (ms) => t.mock.timers.tick(ms)
+        })
+        const res = await h.service.ensureHostDaemon({ host: h.state.host })
+        assert.equal(res.handle?.started, true, `${power}, ${startupMethod}`)
+        assert.deepEqual(h.calls, ['power', 'wake', 'inspect', 'start'], `${power}, ${startupMethod}`)
+    }
 })
 
 test('a daemon that never dials in degrades to null instead of throwing', async () => {
