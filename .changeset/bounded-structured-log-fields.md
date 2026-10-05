@@ -1,5 +1,5 @@
 ---
-'@manyfold/api': patch
+'@manyfold/api': minor
 ---
 
-Bound OTLP log attribute columns while preserving existing query fields. New and nested attributes remain typed inside the custom map after credential redaction, so structured business events cannot add unbounded columns and reject ordinary or process-exit logs in the same batch.
+Log records exported over OTLP keep the attribute columns the receiver already has, and every other attribute (new names and nested values) goes into the `attributes.custom` map with its type intact. New telemetry fields no longer add receiver columns, so a receiver at its field limit stops rejecting whole log batches, ordinary and process-exit logs included. Query those attributes as `['attributes.custom']['<name>']`. The dataset must hold `attributes.custom` as a map field: Axiom creates it when the first span with a custom attribute arrives; on a new dataset, create it before enabling export.
