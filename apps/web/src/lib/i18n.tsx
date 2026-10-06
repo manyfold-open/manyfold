@@ -137,10 +137,16 @@ export const ensurePageLanguage = (pathname: string): Promise<void> =>
     )
 export const i18nReady = loadWebLanguage(initialLanguage)
 
-export const I18nProvider: FC<{ children: ReactNode }> = ({
-    children
-}): ReactNode => {
-    const [language, setLanguageState] = useState<Language>(initialLanguage)
+// `initialLanguage` is for the build-time prerender, which renders several
+// pages in one process; in a browser the URL-pinned language read at module
+// load is the right start.
+export const I18nProvider: FC<{
+    children: ReactNode
+    initialLanguage?: Language
+}> = ({ children, initialLanguage: pageLanguage }): ReactNode => {
+    const [language, setLanguageState] = useState<Language>(
+        pageLanguage ?? initialLanguage
+    )
     const languageRequests = useRef(createLanguageRequestGuard())
 
     const setLanguage = useCallback(

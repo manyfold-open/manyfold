@@ -17,11 +17,20 @@ From the repo root: `just dev-web` for this app alone, `just dev` for the whole 
 
 ## Language loading
 
-The Web Vite alias uses `@manyfold/i18n/browser`: English is synchronous and other catalogs load on demand. The default package entry keeps synchronous English and Chinese for Node, Admin, and static rendering. Both entries share the same translation, brand, and extras state; do not introduce a second instance or import the default entry into the Web bundle.
+The Web Vite alias uses `@manyfold/i18n/browser`: English is synchronous and other catalogs load on demand. The default package entry keeps synchronous English and Chinese for Node and Admin. Both entries share the same translation, brand, and extras state; do not introduce a second instance or import the default entry into the Web bundle.
 
 Marketing URLs select their language before stored/browser preferences without overwriting the saved product preference. The initial render, page title, and consented pageview wait for that language's core and edition catalogs. Later product navigation uses the current selected language, including after recovery from a failed initial load. Edition extras retain one registered object and add completed catalogs by language, so a late load cannot replace another language or the current selection.
 
-Generated marketing HTML gives its local SPA entry low fetch priority, favoring CSS and fonts needed to paint the static body. Product shells retain default priority, and module execution, consent, and telemetry ordering are unchanged.
+## Marketing pages
+
+Every page in the SEO manifest (`src/seo/pages.ts`) is prerendered at build time from the app's own React tree (ADR-0042). `vite build --ssr src/entry-server.tsx` bundles the server entry with the same aliases and overlay as the client, and `scripts/render-static.ts` runs it once per page inside a first-time visitor's environment: the page's address, empty storage, no session. The browser hydrates that HTML (`hydrateRoot`) instead of replacing it, so the hero painted from HTML stays the same element.
+
+Two rules follow, and `test/marketingPrerender.test.mts` holds pages to both:
+
+- A marketing component's first render must not depend on the visitor: no stored choice, session, theme or browser API read during render. Apply per-visitor state after mount, or let CSS pick it from `html[data-theme]`. A mismatch makes React drop the prerendered markup.
+- Heavy decoration renders after hydration (`useHydrated`). The landing's isometric world ships as an empty `<svg>` box and draws once the page is interactive.
+
+Marketing HTML starts the app after its first paint, giving the fonts at most a second; product shells load it with the page. Module order, consent and telemetry are unchanged.
 
 ## Working against a remote API
 

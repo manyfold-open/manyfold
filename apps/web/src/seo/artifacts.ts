@@ -2,7 +2,6 @@ import {
     SITE_ORIGIN,
     seoCanonicalUrl,
     seoPageEntries,
-    type SeoPageDefinition,
     type SeoPageEntry
 } from '@/seo/pages'
 import { htmlLangFor, seoHeadTags } from '@/seo/head'
@@ -42,21 +41,14 @@ export const SPA_ROUTE_PREFIXES = [
     '/chat'
 ]
 
-// `extraPages` on these two is the post-build renderer's channel for an
-// editions-slot page (see seoPageEntries): a page the browser build reaches
-// through SEO_PAGES but tsx cannot. Without it a composition's page would be
-// served as a real file and still be missing from robots and the sitemap.
-export const buildRobotsTxt = (
-    env: WebEnv,
-    extraPages: SeoPageDefinition[] = []
-): string => {
+export const buildRobotsTxt = (env: WebEnv): string => {
     if (env !== 'production') {
         return ['User-agent: *', 'Disallow: /', ''].join('\n')
     }
     const disallows = [...SPA_ROUTE_PREFIXES, '/r'].map(
         (prefix) => `Disallow: ${prefix}`
     )
-    const allows = seoPageEntries(extraPages).map(
+    const allows = seoPageEntries().map(
         (entry) => `Allow: ${entry.path}`
     )
     return [
@@ -70,10 +62,8 @@ export const buildRobotsTxt = (
     ].join('\n')
 }
 
-export const buildSitemapXml = (
-    extraPages: SeoPageDefinition[] = []
-): string => {
-    const urls = seoPageEntries(extraPages)
+export const buildSitemapXml = (): string => {
+    const urls = seoPageEntries()
         .map((entry) => {
             const en = `${SITE_ORIGIN}${entry.def.paths.en}`
             const zh = `${SITE_ORIGIN}${entry.def.paths.zh}`
@@ -116,6 +106,19 @@ const assertPristineShell = (shell: string, needsRoot: boolean): void => {
     }
 }
 
+// A prerendered page is complete without the app, so the app starts once the
+// page has painted. Fetched alongside the HTML, the entry competes with the
+// hero's CSS and fonts for the connection, and a lab run charges its download
+// to LCP (ADR-0042). Same module and order, only a later start; the fonts get
+// at most a second, so a slow one cannot hold the app back for long.
+const startAppAfterPaint = (src: string): string =>
+    '<script>(function(){var started=false;var start=function(){if(started)return;started=true;' +
+    'requestAnimationFrame(function(){setTimeout(function(){' +
+    "var s=document.createElement('script');s.type='module';s.crossOrigin='';" +
+    `s.src=${JSON.stringify(src)};document.head.appendChild(s)},0)})};` +
+    'setTimeout(start,1000);' +
+    'if(document.fonts)document.fonts.ready.then(start,start);else start()})()</script>'
+
 export interface PageHtmlOptions {
     entry: SeoPageEntry
     bodyHtml: string
@@ -126,7 +129,8 @@ export interface PageHtmlOptions {
 // The vite-emitted index.html is the shell: it already carries the hashed
 // script/stylesheet tags, favicon and the theme bootstrap. Marketing pages
 // replace its placeholder title with full head metadata and pre-fill #root
-// with the crawler-visible body; React replaces that body when it boots.
+// with the page prerendered from the app's own tree, which React hydrates
+// when it boots (ADR-0042).
 export const buildPageHtml = (
     shell: string,
     { entry, bodyHtml, env, preloadTags }: PageHtmlOptions
@@ -136,24 +140,20 @@ export const buildPageHtml = (
         RENDER_MARKER,
         seoHeadTags(entry, { noindex: env !== 'production' })
     ].join('\n        ')
-    // The static body can paint before its SPA enhancement. Prioritize
-    // CSS/fonts on these pages without changing app.html or script order.
-    const marketingShell = shell.replace(/<script\b[^>]*>/g, (tag) => {
-        if (
-            !/\stype="module"/.test(tag) ||
-            !/\ssrc="\/assets\/[^"/]+\.js"/.test(tag)
-        ) return tag
-        return /\sfetchpriority="[^"]*"/.test(tag)
-            ? tag.replace(/\sfetchpriority="[^"]*"/, ' fetchpriority="low"')
-            : tag.replace('<script', '<script fetchpriority="low"')
-    })
+    const entryScript =
+        /<script\b[^>]*\stype="module"[^>]*\ssrc="(\/assets\/[^"/]+\.js)"[^>]*><\/script>/
+    if (!entryScript.test(shell))
+        throw new Error('index.html shell drifted: no module entry script')
+    const marketingShell = shell.replace(entryScript, (_tag, src: string) =>
+        startAppAfterPaint(src)
+    )
     return marketingShell
         .replace('<html lang="en">', `<html lang="${htmlLangFor(entry)}">`)
         .replace(
             TITLE_TAG,
             head + (preloadTags ? `\n        ${preloadTags}` : '')
         )
-        .replace(ROOT_DIV, `<div id="root">${bodyHtml}</div>`)
+        .replace(ROOT_DIV, `<div id="root" data-prerendered="">${bodyHtml}</div>`)
 }
 
 // Product and auth routes get a shell with no marketing body. The meta tag

@@ -6,7 +6,7 @@ import '@/lib/attribution'
 import { Sentry, SentryUserSync } from '@/lib/sentry'
 import '@/lib/editionFrameworks'
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from '@/App'
 import { WEB_EDITION } from '@/edition'
@@ -37,32 +37,39 @@ chatStreamStore.setTelemetry((event) => {
 
 browserTelemetry.install(window, document)
 
+const app = (
+    <StrictMode>
+        <I18nProvider>
+            <AnalyticsConsentBanner />
+            <AppAuthProvider>
+                <SentryUserSync />
+                <ThemeProvider>
+                    <FontSizeProvider>
+                        <BrowserRouter>
+                            <WebVitals />
+                            <DocumentTitle />
+                            <GoogleAnalytics />
+                            <Sentry.ErrorBoundary
+                                fallback={<AppCrashFallback />}
+                            >
+                                <App />
+                            </Sentry.ErrorBoundary>
+                        </BrowserRouter>
+                    </FontSizeProvider>
+                </ThemeProvider>
+            </AppAuthProvider>
+        </I18nProvider>
+    </StrictMode>
+)
+
 const renderApp = (): void => {
     document.documentElement.dataset.mfEdition = WEB_EDITION
-    createRoot(document.getElementById('root') as HTMLElement).render(
-        <StrictMode>
-            <I18nProvider>
-                <AnalyticsConsentBanner />
-                <AppAuthProvider>
-                    <SentryUserSync />
-                    <ThemeProvider>
-                        <FontSizeProvider>
-                            <BrowserRouter>
-                                <WebVitals />
-                                <DocumentTitle />
-                                <GoogleAnalytics />
-                                <Sentry.ErrorBoundary
-                                    fallback={<AppCrashFallback />}
-                                >
-                                    <App />
-                                </Sentry.ErrorBoundary>
-                            </BrowserRouter>
-                        </FontSizeProvider>
-                    </ThemeProvider>
-                </AppAuthProvider>
-            </I18nProvider>
-        </StrictMode>
-    )
+    const root = document.getElementById('root') as HTMLElement
+    // A prerendered marketing page is hydrated rather than replaced, so the
+    // hero it painted stays the same element once React takes over
+    // (ADR-0042). Everything else starts from the empty shell.
+    if (root.hasAttribute('data-prerendered')) hydrateRoot(root, app)
+    else createRoot(root).render(app)
 }
 
 void i18nReady.then(renderApp, renderApp)

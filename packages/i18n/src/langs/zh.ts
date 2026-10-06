@@ -785,10 +785,6 @@ const zh: Translations = {
             groupBy: '分组方式'
         },
         seo: {
-            signIn: '登录',
-            legal: '© 2026 Manyfold',
-            privacy: '隐私',
-            terms: '条款',
             socialImageAlt: 'Manyfold — AI Agent 工作台',
             notFoundTitle: '页面不存在 · Manyfold',
             notFoundHeading: '404 — 页面不存在',
@@ -799,23 +795,13 @@ const zh: Translations = {
             channels: {
                 description:
                     '把 Claude Code、Codex、Dify 或任何你在跑的智能体，接到 Slack、Microsoft Teams、WhatsApp、Lark、Telegram、Discord、微信、Google Chat、LINE、iMessage、Matrix、GitHub 和 Linear。',
-                h1: 'Claude Code 和 Codex，就在你每天用的软件里。',
-                ctaTitle: '去给你的智能体发条消息。'
+                h1: 'Claude Code 和 Codex，就在你每天用的软件里。'
             },
             home: {
                 title: 'Manyfold — 面向 Coding Agent 的 AI Agent 工作台',
                 description:
                     '在一个 AI Agent 工作台中运行 Claude Code、Codex、Gemini CLI 等 coding agent：托管沙箱、可恢复会话、聊天、文件、终端与团队渠道。',
-                h1: '托管你的智能体。你的产出，成倍放大。',
-                lead: 'Manyfold 是面向 coding agent 的 AI Agent 工作台。在一个地方创建并运行 Claude Code、Codex、Gemini CLI、OpenClaw、Hermes 等 agent——拥有聊天、文件、终端、可恢复会话、技能与团队渠道。',
-                ctaTitle: '从第一个 Agent 开始',
-                ctaPrimary: '申请使用',
-                ctaSecondary: '阅读文档',
-                docsLinksLabel: '了解更多',
-                docsGettingStarted: '快速开始',
-                docsWorkspace: 'Agent 工作台',
-                docsCreateAgent: '创建 Agent',
-                docsChannels: '渠道'
+                h1: '托管你的智能体。你的产出，成倍放大。'
             }
         },
         backgroundTasks: {
