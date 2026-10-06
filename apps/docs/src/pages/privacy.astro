@@ -19,7 +19,7 @@ const ui = getUi('en')
             <h1 class="mt-3 text-h1" id="page-title">
                 Privacy Policy
             </h1>
-            <p class="mt-2 text-ui text-muted">Last updated: September 17, 2026.</p>
+            <p class="mt-2 text-ui text-muted">Last updated: October 6, 2026.</p>
         </header>
 
         <div class="prose-doc">
@@ -331,20 +331,35 @@ const ui = getUi('en')
                 for the selected features to work and is always on.
             </p>
             <p>
-                With your consent, we use Google Analytics 4 to understand how
-                the Manyfold web app is used — pages viewed, sessions, and
-                product events such as requesting early access or creating an
-                agent. Google Analytics sets first-party <code>_ga</code>
-                cookies and only runs after you choose "Accept" in the
-                analytics banner. If you decline, no Google Analytics script
-                loads, no analytics cookies are set, and no data is sent to
-                Google.
+                We use Google Analytics 4 to understand how the Manyfold web
+                app is used — pages viewed, sessions, and product events such
+                as requesting early access or creating an agent. Google
+                Analytics sets first-party <code>_ga</code> cookies. Whether it
+                runs before you make a choice depends on where you are, which
+                we infer from your browser's time zone; we do not look up your
+                IP address or ask for your location for this:
             </p>
+            <ul>
+                <li>
+                    If your browser's time zone is in Europe (including the
+                    Azores, the Canary Islands, the Faroe Islands, Madeira and
+                    Iceland), or cannot be read, Google Analytics only runs
+                    after you choose "Accept" in the analytics banner. Until
+                    then, and if you decline, no Google Analytics script loads,
+                    no analytics cookies are set, and no data is sent to
+                    Google.
+                </li>
+                <li>
+                    Anywhere else, Google Analytics runs unless you turn it
+                    off. The analytics banner tells you so, and choosing
+                    "Decline" stops it.
+                </li>
+            </ul>
             <p>
                 We configure these analytics cookies to expire after up to
-                400 days without further consented analytics activity. Later
-                activity while your consent remains granted can renew that
-                period. Your browser may apply a shorter limit. This cookie
+                400 days without further analytics activity. Later activity
+                while analytics remains on can renew that period. Your
+                browser may apply a shorter limit. This cookie
                 lifetime describes storage in your browser; it does not set
                 the retention period for analytics data already sent to Google.
             </p>
@@ -355,8 +370,9 @@ const ui = getUi('en')
                 never reach Google. You can change your choice at any time via
                 "Cookie settings" in the footer of the Manyfold web app at
                 <code>manyfold.ai</code>, or in Settings &rarr; Account.
-                Withdrawing consent stops analytics immediately and deletes the
-                Google Analytics cookies we can access.
+                Turning analytics off, by declining or by withdrawing consent
+                you gave earlier, stops it immediately and deletes the Google
+                Analytics cookies we can access.
             </p>
             <p>
                 Separately from analytics, when you arrive via a Manyfold
@@ -364,20 +380,21 @@ const ui = getUi('en')
                 per-link daily aggregate that contains no visitor identifiers,
                 and we keep an encrypted reference to that link in your
                 browser's local storage for up to 90 days. If you later join
-                early access or create an account, that reference lets us
-                attribute the signup to the campaign; it is first-party data
-                stored with your account, is not readable by third parties,
-                and is deleted with your account.
+                early access, create an account or sign in, that reference
+                lets us attribute your signup or sign-in to the campaign; it
+                is first-party data stored with your account, is not readable
+                by third parties, and is deleted with your account.
             </p>
             <p>
-                For account-level attribution, we may keep one pending record
-                of an account's first successful Agent creation, including its
-                time and available marketing-link references. It is excluded
-                from conversion reports unless we also have a verified
-                new-account creation record. A pending record is kept with the
-                account until it qualifies as a conversion or the account is
-                deleted. This is separate from the 90-day browser reference
-                and from Google Analytics cookies.
+                For account-level attribution, we keep one record of the first
+                Agent creation and one of the first payment we observe for
+                each account, with the time and the marketing-link references
+                available at that moment. Our conversion reports count these
+                records only for accounts we recorded as newly created through
+                sign-up; records of other accounts are kept but not counted.
+                They are kept with the account and deleted with it. This is
+                separate from the 90-day browser reference and from Google
+                Analytics cookies.
             </p>
 
             <h2 id="your-rights">

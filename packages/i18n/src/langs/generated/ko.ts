@@ -1207,6 +1207,7 @@ const ko: Record<string, string> = {
     "web.consent.privacyLink": "개인 정보 보호 정책",
     "web.consent.settingsTitle": "분석 쿠키",
     "web.consent.settingsDescription": "Google 분석은 제품 사용을 이해하는 데 도움이 됩니다. _ga 쿠키를 설정하며 동의한 경우에만 실행됩니다.",
+    "web.consent.settingsDescriptionImplied": "Google 분석은 제품 사용을 이해하는 데 도움이 됩니다. _ga 쿠키를 설정하며 끄지 않는 한 실행됩니다.",
     "web.consent.statusGranted": "분석이 켜져 있습니다.",
     "web.consent.statusDenied": "분석이 꺼져 있습니다",
     "web.consent.statusUnset": "아직 선택하지 않았습니다",

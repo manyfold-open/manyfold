@@ -1022,7 +1022,11 @@ const Account: FC = (): ReactNode => {
                         {t('web.consent.settingsTitle')}
                     </div>
                     <p className='text-ui text-muted mb-3'>
-                        {t('web.consent.settingsDescription')}
+                        {t(
+                            analyticsConsentImplied()
+                                ? 'web.consent.settingsDescriptionImplied'
+                                : 'web.consent.settingsDescription'
+                        )}
                     </p>
                     <div className='flex items-center gap-3'>
                         <span className='text-ui text-fg'>

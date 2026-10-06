@@ -1214,6 +1214,7 @@ const hi: Record<string, string> = {
     'web.consent.privacyLink': 'गोपनीयता नीति',
     'web.consent.settingsTitle': 'विश्लेषिकी कुकीज़',
     'web.consent.settingsDescription': 'Google एनालिटिक्स हमें उत्पाद के उपयोग को समझने में मदद करता है। यह _ga कुकीज़ सेट करता है और केवल आपकी सहमति से चलता है।',
+    'web.consent.settingsDescriptionImplied': 'Google एनालिटिक्स हमें उत्पाद के उपयोग को समझने में मदद करता है। यह _ga कुकीज़ सेट करता है और जब तक आप इसे बंद नहीं करते, चलता रहता है।',
     'web.consent.statusGranted': 'एनालिटिक्स चालू है',
     'web.consent.statusDenied': 'एनालिटिक्स बंद है',
     'web.consent.statusUnset': 'अभी तक कोई विकल्प नहीं बनाया गया है',
