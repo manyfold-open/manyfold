@@ -2162,6 +2162,8 @@ const en = {
             settingsTitle: 'Analytics cookies',
             settingsDescription:
                 'Google Analytics helps us understand product usage. It sets _ga cookies and only runs with your consent.',
+            settingsDescriptionImplied:
+                'Google Analytics helps us understand product usage. It sets _ga cookies and runs unless you turn it off.',
             statusGranted: 'Analytics is on',
             statusDenied: 'Analytics is off',
             statusUnset: 'No choice made yet',
