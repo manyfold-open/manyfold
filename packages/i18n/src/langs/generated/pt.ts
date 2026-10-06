@@ -1216,6 +1216,7 @@ const pt: Record<string, string> = {
     'web.consent.privacyLink': 'Política de Privacidade',
     'web.consent.settingsTitle': 'Cookies analíticos',
     'web.consent.settingsDescription': 'Google Analytics nos ajuda a entender o uso do produto. Ele define cookies _ga e só é executado com o seu consentimento.',
+    'web.consent.settingsDescriptionImplied': 'Google Analytics nos ajuda a entender o uso do produto. Ele define cookies _ga e é executado a menos que você o desative.',
     'web.consent.statusGranted': 'A análise está ativada',
     'web.consent.statusDenied': 'A análise está desativada',
     'web.consent.statusUnset': 'Nenhuma escolha feita ainda',

@@ -2098,6 +2098,8 @@ const zh: Translations = {
             settingsTitle: '分析 Cookie',
             settingsDescription:
                 'Google Analytics 帮助我们了解产品使用情况。它会写入 _ga Cookie，且仅在你同意后运行。',
+            settingsDescriptionImplied:
+                'Google Analytics 帮助我们了解产品使用情况。它会写入 _ga Cookie，除非你关闭，否则会运行。',
             statusGranted: '分析已开启',
             statusDenied: '分析已关闭',
             statusUnset: '尚未选择',

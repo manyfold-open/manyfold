@@ -1217,6 +1217,7 @@ const ru: Record<string, string> = {
     'web.consent.privacyLink': 'Политика конфиденциальности',
     'web.consent.settingsTitle': 'Аналитические файлы cookie',
     'web.consent.settingsDescription': 'Google Analytics помогает нам понять использование продукта. Он устанавливает файлы cookie _ga и работает только с вашего согласия.',
+    'web.consent.settingsDescriptionImplied': 'Google Analytics помогает нам понять использование продукта. Он устанавливает файлы cookie _ga и работает, пока вы его не отключите.',
     'web.consent.statusGranted': 'Аналитика включена',
     'web.consent.statusDenied': 'Аналитика отключена',
     'web.consent.statusUnset': 'Выбор еще не сделан',

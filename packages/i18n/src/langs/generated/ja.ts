@@ -1208,6 +1208,7 @@ const ja: Record<string, string> = {
     'web.consent.privacyLink': 'プライバシーポリシー',
     'web.consent.settingsTitle': '分析クッキー',
     'web.consent.settingsDescription': 'Google 分析は、製品の使用状況を理解するのに役立ちます。 _ga Cookie を設定し、ユーザーの同意がある場合にのみ実行されます。',
+    'web.consent.settingsDescriptionImplied': 'Google 分析は、製品の使用状況を理解するのに役立ちます。 _ga Cookie を設定し、オフにしない限り実行されます。',
     'web.consent.statusGranted': '分析がオンになっています',
     'web.consent.statusDenied': 'アナリティクスがオフになっています',
     'web.consent.statusUnset': 'まだ選択はされていません',
