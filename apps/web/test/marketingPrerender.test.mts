@@ -109,6 +109,7 @@ test(
                         ? 'index.html'
                         : `${path.replace(/^\/|\/$/g, '')}/index.html`
                 const html = readFileSync(join(dist, file), 'utf8')
+                assert.ok(!html.includes('\u0000'), `${path} carries NUL bytes`)
                 const h1s = html.match(/<h1[\s>][\s\S]*?<\/h1>/g) ?? []
                 assert.equal(h1s.length, 1, `${path} needs exactly one H1`)
                 const entry = core.get(path)

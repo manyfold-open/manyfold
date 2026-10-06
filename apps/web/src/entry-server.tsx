@@ -1,9 +1,7 @@
 import { StrictMode } from 'react'
-import { renderToPipeableStream } from 'react-dom/server'
 import { StaticRouter } from 'react-router-dom/server'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { Writable } from 'node:stream'
 import { setLanguage, type Language } from '@manyfold/i18n'
 import '@/lib/editionFrameworks'
 import App, { marketingRouteModule } from '@/App'
@@ -21,6 +19,7 @@ import {
     resolveWebEnv
 } from '@/seo/artifacts'
 import { seoPageEntries } from '@/seo/pages'
+import { renderHtml } from '@/seo/renderHtml'
 
 // Build-time prerender of one marketing page (scripts/render-static.ts). The
 // tree is main.tsx's minus the components that only ever render null: the
@@ -32,39 +31,22 @@ export const renderMarketingPage = async (
 ): Promise<string> => {
     await loadWebLanguage(language)
     setLanguage(language)
-    return new Promise((resolve, reject) => {
-        let html = ''
-        const sink = new Writable({
-            write(chunk: Buffer, _encoding, done) {
-                html += chunk.toString()
-                done()
-            }
-        })
-        sink.on('finish', () => resolve(html))
-        // onAllReady, not the shell: lazy marketing routes must be in the
-        // HTML, not their Suspense fallback. Any render error fails the build.
-        const { pipe } = renderToPipeableStream(
-            <StrictMode>
-                <I18nProvider initialLanguage={language}>
-                    <AnalyticsConsentBanner />
-                    <AppAuthProvider>
-                        <ThemeProvider>
-                            <FontSizeProvider>
-                                <StaticRouter location={path}>
-                                    <App />
-                                </StaticRouter>
-                            </FontSizeProvider>
-                        </ThemeProvider>
-                    </AppAuthProvider>
-                </I18nProvider>
-            </StrictMode>,
-            {
-                onAllReady: () => pipe(sink),
-                onShellError: reject,
-                onError: reject
-            }
-        )
-    })
+    return renderHtml(
+        <StrictMode>
+            <I18nProvider initialLanguage={language}>
+                <AnalyticsConsentBanner />
+                <AppAuthProvider>
+                    <ThemeProvider>
+                        <FontSizeProvider>
+                            <StaticRouter location={path}>
+                                <App />
+                            </StaticRouter>
+                        </FontSizeProvider>
+                    </ThemeProvider>
+                </AppAuthProvider>
+            </I18nProvider>
+        </StrictMode>
+    )
 }
 
 // The hashes are only known after the client build, so the preload tags are
