@@ -489,9 +489,8 @@ const Setup: FC = (): ReactNode => {
                         </span>
                     </h2>
                 </div>
-                {/* The aside on the third step — where the worry about an
-                    agent in a team's chat actually lands — rides on the
-                    shared table, so the snapshot carries it too. */}
+                {/* The aside on the third step is where the worry about an
+                    agent in a team's chat actually lands. */}
                 <LandingSteps
                     steps={CHANNEL_STEP_KEYS.map((step) => ({
                         title: t(step.title),

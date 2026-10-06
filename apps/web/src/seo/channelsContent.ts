@@ -56,8 +56,7 @@ export const CHANNEL_TILE_GROUPS: ChannelTileGroup[] = [
 export const channelTileLabel = (provider: ChannelProviderName): string =>
     provider === 'lark' ? 'Lark / Feishu' : channelLabel(provider)
 
-/* The three steps, keyed. The live page and the snapshot both walk this, so
-   the aside on the third step cannot go missing from one of them. */
+/* The three steps, keyed. */
 export const CHANNEL_STEP_KEYS: Array<{
     title: string
     body: string

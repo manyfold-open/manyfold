@@ -108,12 +108,8 @@ export interface WorksWithChip {
     runtime?: 'sandbox' | 'cloud' | 'own' | 'external'
 }
 
-/* The rows, with an edition's framework chips (seo/worksWithEdition). The
-   post-build renderer runs under tsx, where that slot is always the core
-   file, so it passes the edition's chips in; the page takes the default. */
-export const worksWithRows = (
-    editionFrameworks: readonly WorksWithChip[] = worksWithEditionFrameworks
-): ReadonlyArray<{
+/* The rows, with an edition's framework chips (seo/worksWithEdition). */
+export const worksWithRows = (): ReadonlyArray<{
     labelKey: string
     chips: ReadonlyArray<WorksWithChip>
 }> => [
@@ -133,7 +129,7 @@ export const worksWithRows = (
             { name: 'Antigravity CLI', framework: 'antigravity-cli' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
-            ...editionFrameworks,
+            ...worksWithEditionFrameworks,
             { name: 'Dify', framework: 'dify' },
             { name: 'Langflow', framework: 'langflow' },
             { name: 'A2A', framework: 'a2a' }
