@@ -1,5 +1,15 @@
 # @manyfold/web
 
+## 2.19.0
+
+### Minor Changes
+
+- [#671](https://github.com/manyfold-open/manyfold/pull/671) [`e9ed6d8`](https://github.com/manyfold-open/manyfold/commit/e9ed6d8647da280e7fed8637448d03e0d2497ee9) Thanks [@yingca1](https://github.com/yingca1)! - On a `regional` consent build, Account settings now describe Google Analytics
+  the way the banner does for a visitor outside the opt-in region: it sets
+  `_ga` cookies and runs unless they turn it off. The settings used to say it
+  only runs with consent, while the toggle beside that text already showed it
+  running.
+
 ## 2.18.1
 
 ### Patch Changes
