@@ -228,7 +228,6 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
     const { t, language } = useI18n()
     const { pathname } = useLocation()
     const links = marketingLinksFor(marketingLinkLanguage(pathname, language))
-    const docsHref = links.docs
 
     const pinRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
@@ -597,14 +596,6 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                                     {scene.withCta ? (
                                         <div className='lp-scene-ctas'>
                                             {cta}
-                                            <a
-                                                className='lp-btn lp-btn-secondary'
-                                                href={docsHref}
-                                            >
-                                                {t(
-                                                    'web.landing.ctaSecondaryCta'
-                                                )}
-                                            </a>
                                         </div>
                                     ) : null}
                                     {scene.hint ? (
