@@ -2714,8 +2714,6 @@ const zh: Translations = {
             requestExpired: '此权限请求已过期或不再有效，请让 Agent 重新请求访问权限。',
             requestNotFound:
                 '找不到此权限请求。它可能已处理，或属于其他账号。',
-            requestingAgent: '请求 Agent',
-            capabilitiesRequested: '请求的能力',
             capabilitiesHint:
                 '选择要授予的能力。高风险能力默认未选中 — 仅在信任此 Agent 时选择。',
             selectCapability: '至少选择一项要授予的能力。',
@@ -2737,7 +2735,6 @@ const zh: Translations = {
             updated: '权限已更新。Agent 会在下次请求时获得新的能力。',
             grantDoneHint: 'Agent 会获取新的权限并继续运行。你可以关闭此窗口。',
             pageTitle: 'Agent 权限请求',
-            pageSubtitle: '查看此 Agent 请求的权限',
             openRequestPage: '打开请求页面',
             wantsCapabilities: '想要新的能力。查看并批准后它才能继续。',
             wantsCapabilitiesGeneric:
@@ -3976,16 +3973,13 @@ const zh: Translations = {
         },
         cliLogin: {
             titleLogin: '批准来自终端或 agent 的登录',
-            subtitleLogin:
-                '你在终端运行、或由你的 AI agent 运行的 mf CLI（mf login 或 mf setup）请求使用你的 Manyfold 账号。',
-            codeCheckHint: '确认下方代码与终端或 agent 显示的一致：',
+            codeCheckHint: '仅当下方代码与终端或 agent 显示的一致时才授权：',
             signedInAs: '当前身份',
             authorize: '授权登录',
             authorizing: '授权中…',
             redirecting: '正在完成登录…',
-            consequence: '授权后，那台机器上的 CLI 将以你的身份访问你的账号。',
+            consequence: 'mf CLI 将以你的身份登录，拥有你账号的完整访问权限。',
             useCodeInstead: '不在运行 mf 的那台电脑上？改用授权码授权',
-            safety: '你和你的 agent 刚才都没有发起登录？直接关闭本页即可，未经授权不会发生任何事。',
             authCodeTitle: '最后一步',
             authCodeHint: '把这段代码粘贴回终端，或发给你的 agent，完成登录：',
             authCodeHintRedirect:
@@ -3998,16 +3992,13 @@ const zh: Translations = {
         },
         connectA2a: {
             title: '将 agent 连接到应用',
-            subtitle: '一个应用请求连接你 Manyfold 账号下的 agent。',
-            codeCheckHint: '确认下方代码与应用里显示的一致：',
+            codeCheckHint: '仅当这次连接由你本人发起、且代码与应用里显示的一致时才批准：',
             signedInAs: '当前身份',
             requesterLabel: '发起请求的应用',
             unverifiedNote: '名称与 URL 由请求方自行提供，Manyfold 未做验证。',
             consequence:
                 '批准后，该应用可以以你的名义向选中的 agent 发消息并读取其任务结果。',
-            safety: '只有当你刚刚在该应用里主动发起连接时才继续。若这个链接是别人发给你的，请直接关闭本页。',
             agentsLabel: '要连接的 agent',
-            agentsHint: '应用会为每个选中的 agent 拿到一个独立的访问 token。',
             noAgents: '你的账号下还没有 agent。',
             exposedBadge: 'A2A 已开',
             notExposedBadge: 'A2A 未开',
