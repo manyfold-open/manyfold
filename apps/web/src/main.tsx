@@ -8,7 +8,7 @@ import '@/lib/editionFrameworks'
 import { StrictMode } from 'react'
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import App from '@/App'
+import App, { preloadMarketingRoute } from '@/App'
 import { WEB_EDITION } from '@/edition'
 import AnalyticsConsentBanner from '@/components/AnalyticsConsentBanner'
 import AppCrashFallback from '@/components/AppCrashFallback'
@@ -62,14 +62,19 @@ const app = (
     </StrictMode>
 )
 
-const renderApp = (): void => {
+const renderApp = async (): Promise<void> => {
     document.documentElement.dataset.mfEdition = WEB_EDITION
     const root = document.getElementById('root') as HTMLElement
     // A prerendered marketing page is hydrated rather than replaced, so the
     // hero it painted stays the same element once React takes over
-    // (ADR-0042). Everything else starts from the empty shell.
-    if (root.hasAttribute('data-prerendered')) hydrateRoot(root, app)
-    else createRoot(root).render(app)
+    // (ADR-0042). Its route chunk loads first, so no boundary waits
+    // mid-hydration. Everything else starts from the empty shell.
+    if (!root.hasAttribute('data-prerendered')) {
+        createRoot(root).render(app)
+        return
+    }
+    await preloadMarketingRoute(window.location.pathname).catch(() => {})
+    hydrateRoot(root, app)
 }
 
 void i18nReady.then(renderApp, renderApp)

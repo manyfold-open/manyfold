@@ -122,6 +122,7 @@ test(
             })
             let authCalls = 0
             let entryRequestedAt = 0
+            let delayChunk: RegExp | null = null
             const server = createServer(async (request, response) => {
                 const path = new URL(request.url!, 'http://owned').pathname
                 if (path.startsWith('/api/')) {
@@ -132,14 +133,17 @@ test(
                 if (path === entryPath && !entryRequestedAt)
                     entryRequestedAt = Date.now()
                 if (holdEntry && path === entryPath) await gate
+                if (delayChunk?.test(path))
+                    await new Promise((resolve) => setTimeout(resolve, 1500))
                 const file =
-                    path === '/'
-                        ? 'index.html'
-                        : path === '/zh/'
-                          ? 'zh/index.html'
-                          : path === '/workspace'
-                            ? 'app.html'
-                            : path.slice(1)
+                    path === '/workspace'
+                        ? 'app.html'
+                        : extname(path)
+                          ? path.slice(1)
+                          : `${path.replace(/^\/|\/$/g, '')}/index.html`.replace(
+                                /^\//,
+                                ''
+                            )
                 try {
                     const body = readFileSync(join(dist, file))
                     response.setHeader(
@@ -245,6 +249,54 @@ test(
                         await visit.close()
                     }
                 }
+
+                // A lazy marketing route hydrates only once its chunk is in:
+                // the auth config answers first, and a state update reaching
+                // a boundary still suspended mid-hydration would make React
+                // drop the prerendered markup (#421).
+                delayChunk = /\/assets\/ChannelsLanding-[^/]+\.js$/
+                const lazyRoute = await browser.newContext()
+                const lazyPage = await lazyRoute.newPage()
+                const lazyErrors: string[] = []
+                lazyPage.on('pageerror', (error) =>
+                    lazyErrors.push(error.message)
+                )
+                await lazyPage.route('**/*', (route) =>
+                    new URL(route.request().url()).origin === origin
+                        ? route.continue()
+                        : route.abort()
+                )
+                await lazyPage.goto(origin + '/agent-channels', {
+                    waitUntil: 'commit'
+                })
+                await lazyPage.locator('h1').waitFor()
+                await lazyPage.evaluate(() => {
+                    ;(
+                        document.querySelector('h1') as HTMLElement & {
+                            prerendered?: boolean
+                        }
+                    ).prerendered = true
+                })
+                await lazyPage.waitForFunction(() =>
+                    Object.keys(document.querySelector('h1') ?? {}).some(
+                        (key) => key.startsWith('__reactFiber')
+                    )
+                )
+                assert.equal(
+                    await lazyPage.evaluate(
+                        () =>
+                            (
+                                document.querySelector('h1') as HTMLElement & {
+                                    prerendered?: boolean
+                                }
+                            ).prerendered === true
+                    ),
+                    true,
+                    'the lazy route hydrated its prerendered markup'
+                )
+                assert.deepEqual(lazyErrors, [])
+                await lazyRoute.close()
+                delayChunk = null
 
                 const product = await browser.newContext()
                 const productPage = await product.newPage()

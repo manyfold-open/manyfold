@@ -15,6 +15,15 @@ const importCustomizeLayout = () => import('@/pages/Customize/CustomizeLayout')
 
 const ChannelsLanding = lazyChunk(() => import('@/pages/ChannelsLanding'))
 const CloudLanding = lazyChunk(() => import('@/pages/CloudLanding'))
+
+// The lazy marketing routes, loaded before their prerendered page hydrates
+// (see lazyChunk's preload). The landing is in the entry already.
+export const preloadMarketingRoute = (pathname: string): Promise<unknown> => {
+    const path = pathname.replace(/^\/zh(?=\/|$)/, '').replace(/\/$/, '')
+    if (path === '/agent-channels') return ChannelsLanding.preload()
+    if (path === '/hosted-agents') return CloudLanding.preload()
+    return Promise.resolve()
+}
 const Challenge = lazyChunk(() => import('@/pages/Challenge'))
 const ChallengeStatus = lazyChunk(() => import('@/pages/ChallengeStatus'))
 const AppShell = lazyChunk(importAppShell)
