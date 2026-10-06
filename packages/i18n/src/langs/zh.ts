@@ -3984,9 +3984,12 @@ const zh: Translations = {
             authorizing: '授权中…',
             redirecting: '正在完成登录…',
             consequence: '授权后，那台机器上的 CLI 将以你的身份访问你的账号。',
+            useCodeInstead: '不在运行 mf 的那台电脑上？改用授权码授权',
             safety: '你和你的 agent 刚才都没有发起登录？直接关闭本页即可，未经授权不会发生任何事。',
             authCodeTitle: '最后一步',
             authCodeHint: '把这段代码粘贴回终端，或发给你的 agent，完成登录：',
+            authCodeHintRedirect:
+                '把这段代码发给你的 agent，或在终端运行 mf login --auth-code 并带上它，完成登录：',
             expired: '该请求已过期。请在终端或 agent 里重新发起登录，获取新的链接。',
             alreadyDone: '该请求已在其他标签页完成。',
             missingRequest: '链接缺少登录请求参数，请从终端或 agent 复制完整 URL。',

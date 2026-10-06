@@ -8,6 +8,7 @@ import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorDetailMessage } from '@/lib/errorMessage'
 import { loginUrl, nextPath } from '@/lib/loginRedirect'
+import { isMobileDevice } from '@/lib/mobileDevice'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { useI18n } from '@/lib/i18n'
 
@@ -68,7 +69,7 @@ const CliLoginContent: FC<{
         }
     }, [client, requestId, userCode])
 
-    const doApprove = async (): Promise<void> => {
+    const doApprove = async (showCode: boolean): Promise<void> => {
         if (!requestId) return
         setApprove({ state: 'authorizing' })
         setError(null)
@@ -77,7 +78,12 @@ const CliLoginContent: FC<{
                 requestId,
                 userCode,
             })
-            if (result.redirectUrl) {
+            // The approval returns the auth code even when mf waits on a
+            // 127.0.0.1 redirect, and exchange accepts it either way. A
+            // browser on another device (a phone steering an agent) shows it
+            // to paste: the redirect would reach that device's own 127.0.0.1,
+            // and mf would wait out the whole session.
+            if (result.redirectUrl && !showCode) {
                 setApprove({ state: 'redirecting' })
                 window.location.assign(result.redirectUrl)
                 return
@@ -148,7 +154,11 @@ const CliLoginContent: FC<{
             <Shell title={t('web.cliLogin.authCodeTitle')}>
                 <div className='space-y-2'>
                     <p className='text-fg text-ui'>
-                        {t('web.cliLogin.authCodeHint')}
+                        {t(
+                            session.hasRedirect
+                                ? 'web.cliLogin.authCodeHintRedirect'
+                                : 'web.cliLogin.authCodeHint'
+                        )}
                     </p>
                     <div className='flex items-start gap-2'>
                         <div className='bg-surface-subtle border-divider min-w-0 flex-1 rounded-md border px-4 py-3 font-mono text-sm break-all'>
@@ -173,6 +183,8 @@ const CliLoginContent: FC<{
         )
     }
 
+    const mobile = isMobileDevice(navigator)
+
     return (
         <Shell title={title} subtitle={subtitle}>
             <div>
@@ -192,7 +204,12 @@ const CliLoginContent: FC<{
             )}
 
             <BrowserBody
-                onApprove={() => void doApprove()}
+                onApprove={() => void doApprove(mobile)}
+                onUseCode={
+                    session.hasRedirect && !mobile
+                        ? () => void doApprove(true)
+                        : undefined
+                }
                 approve={approve}
             />
 
@@ -227,8 +244,9 @@ const Shell: FC<{
 
 const BrowserBody: FC<{
     onApprove: () => void
+    onUseCode?: () => void
     approve: ApproveState
-}> = ({ onApprove, approve }): ReactNode => {
+}> = ({ onApprove, onUseCode, approve }): ReactNode => {
     const { t } = useI18n()
     return (
         <div>
@@ -247,6 +265,16 @@ const BrowserBody: FC<{
             <p className='text-subtle text-caption mt-2'>
                 {t('web.cliLogin.consequence')}
             </p>
+            {onUseCode && (
+                <button
+                    type='button'
+                    disabled={approve.state !== 'idle'}
+                    onClick={onUseCode}
+                    className='text-caption text-link hover:text-link-hover mt-3 block font-medium disabled:opacity-50'
+                >
+                    {t('web.cliLogin.useCodeInstead')}
+                </button>
+            )}
         </div>
     )
 }

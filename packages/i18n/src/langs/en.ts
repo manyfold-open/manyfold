@@ -4181,10 +4181,14 @@ const en = {
             redirecting: 'Finishing sign-in…',
             consequence:
                 'This signs that mf CLI in as you, with access to your account.',
+            useCodeInstead:
+                'Not on the computer running mf? Authorize with a code instead',
             safety: "Didn't just start a sign-in, yourself or through an agent? Close this page. Nothing happens until you authorize.",
             authCodeTitle: 'One last step',
             authCodeHint:
                 'Paste this code into your terminal, or send it to your agent, to finish signing in:',
+            authCodeHintRedirect:
+                'Send this code to your agent, or run mf login --auth-code with it in your terminal, to finish signing in:',
             expired:
                 'This request has expired. Start the sign-in again from your terminal or agent to get a fresh link.',
             alreadyDone: 'This request was already completed in another tab.',

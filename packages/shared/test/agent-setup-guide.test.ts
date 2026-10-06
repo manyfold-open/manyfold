@@ -284,6 +284,26 @@ test('the browser approval is an active wait, not the end of the turn', () => {
     assert.match(local, /Do not ask the user to tell you when they are done/)
 })
 
+// Steering the agent from a phone, the user opens the 2a link there. The
+// consent page then shows the auth code instead of redirecting to the phone's
+// own 127.0.0.1, and the loopback login waits out its 15 minutes unless the
+// agent stops it and redeems the code.
+test('a browser login approved on another device finishes with its code', () => {
+    for (const [name, guide] of Object.entries(variants)) {
+        const here = section(guide, '### 2a', '### 2b')
+        assert.match(here, /steering you from a phone/, name)
+        assert.match(
+            here,
+            /`kill "\$\(cat "\$HOME\/\.cache\/manyfold\/agent-login\.pid"\)"`/,
+            name
+        )
+        assert.ok(
+            shBlocks(here).some((b) => /login --auth-code '<code>'/.test(b)),
+            name
+        )
+    }
+})
+
 // Seen on a local stack [2026-09-28]: after a fresh install the agent ran
 // "$HOME/.local/bin/mf" but handed off a message that said plain `mf`.
 // Seen on a local stack [2026-09-29]: with `<profile>` in the template, two
