@@ -1997,8 +1997,9 @@ const zh: Translations = {
             // every name in it is a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: '创建你的第一个 Agent',
-            useInAgentCta: '在你的 agent 中使用',
-            useInAgentSteps: '查看具体步骤',
+            useInAgentCta: '让你的 agent 用上 Manyfold',
+            useInAgentPaste: '粘贴给你的 agent',
+            useInAgentFailed: '改为打开指南',
             faqQ1: '这只是 Claude Code 或 Codex 的一层壳吗？',
             faqA1: '不是。每个框架都以原生形态运行，保留自己的执行模型、模型配置和工作区语义。Manyfold 是它们外面那一层：运行时、工作区、编排、交付与计量。框架发布新能力的当天，你就能用上。',
             faqQ2: '这和自己开一台装好智能体的虚拟机有什么区别？',
