@@ -1,7 +1,7 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 import { worksWithEditionFrameworks } from '@/seo/worksWithEdition'
-// Shared between the interactive landing page and the build-time landing
-// snapshot so the crawler HTML and the hydrated page cannot drift.
+// The landing's content tables, outside the page because the edition slot
+// (worksWithEdition.ts) and a composition's pages read them too.
 
 export interface PricingTier {
     id: 'free' | 'hobby' | 'plus' | 'pro'
@@ -109,12 +109,8 @@ export interface WorksWithChip {
     runtime?: 'sandbox' | 'cloud' | 'own' | 'external'
 }
 
-/* The rows, with an edition's framework chips (seo/worksWithEdition). The
-   post-build renderer runs under tsx, where that slot is always the core
-   file, so it passes the edition's chips in; the page takes the default. */
-export const worksWithRows = (
-    editionFrameworks: readonly WorksWithChip[] = worksWithEditionFrameworks
-): ReadonlyArray<{
+/* The rows, with an edition's framework chips (seo/worksWithEdition). */
+export const worksWithRows = (): ReadonlyArray<{
     labelKey: string
     chips: ReadonlyArray<WorksWithChip>
 }> => [
@@ -134,7 +130,7 @@ export const worksWithRows = (
             { name: 'Antigravity CLI', framework: 'antigravity-cli' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
-            ...editionFrameworks,
+            ...worksWithEditionFrameworks,
             { name: 'Dify', framework: 'dify' },
             { name: 'Langflow', framework: 'langflow' },
             { name: 'A2A', framework: 'a2a' }

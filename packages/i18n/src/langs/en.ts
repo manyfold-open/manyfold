@@ -805,10 +805,6 @@ const en = {
             groupBy: 'Group by'
         },
         seo: {
-            signIn: 'Sign in',
-            legal: '© 2026 Manyfold',
-            privacy: 'Privacy',
-            terms: 'Terms',
             socialImageAlt: 'Manyfold — AI agent workspace',
             notFoundTitle: 'Page not found · Manyfold',
             notFoundHeading: '404 — page not found',
@@ -819,23 +815,13 @@ const en = {
             channels: {
                 description:
                     'Connect Claude Code, Codex, Dify or any agent you run to Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub and Linear.',
-                h1: 'Claude Code and Codex, now in your everyday apps.',
-                ctaTitle: 'Go write to your agent.'
+                h1: 'Claude Code and Codex, now in your everyday apps.'
             },
             home: {
                 title: 'Manyfold — AI Agent Workspace for Coding Agents',
                 description:
                     'Run Claude Code, Codex, Gemini CLI and more in one AI agent workspace: hosted sandboxes, persistent sessions, chat, files, terminal and team channels.',
-                h1: 'Host your agents. Your work, multiplied.',
-                lead: 'Manyfold is an AI agent workspace for coding agents. Create and run Claude Code, Codex, Gemini CLI, OpenClaw, Hermes and other agents from one place — with chat, files, terminal, resumable sessions, skills and team channels.',
-                ctaTitle: 'Start with your first agent',
-                ctaPrimary: 'Request access',
-                ctaSecondary: 'Read the docs',
-                docsLinksLabel: 'Learn more',
-                docsGettingStarted: 'Getting started',
-                docsWorkspace: 'Agent workspace',
-                docsCreateAgent: 'Create an agent',
-                docsChannels: 'Channels'
+                h1: 'Host your agents. Your work, multiplied.'
             }
         },
         backgroundTasks: {

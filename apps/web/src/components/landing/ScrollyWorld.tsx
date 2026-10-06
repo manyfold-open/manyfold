@@ -679,22 +679,28 @@ const FLUX_AURAS: Array<[string, string, number]> = [
    agent infrastructure on top, the Manyfold control plane in the middle,
    delivery surfaces at the bottom. The scroll loop in ScrollyStage owns
    the camera (translate/scale on the outer group) and the per-plane
-   opacity, so nothing here re-renders while the page scrolls. */
+   opacity, so nothing here re-renders while the page scrolls.
+   Until `drawn`, only the empty <svg> box renders: the world is about
+   100 KB of markup, and parsing and laying it out in front of the
+   prerendered hero's first paint costs more than the hero (ADR-0042). */
 export const ScrollyWorld: FC<{
     svgRef: RefObject<SVGSVGElement>
     groupRef: RefObject<SVGGElement>
     layers: WorldLayerRefs
-}> = ({ svgRef, groupRef, layers }) => {
+    drawn: boolean
+}> = ({ svgRef, groupRef, layers, drawn }) => {
     const { t } = useI18n()
+    const box = {
+        ref: svgRef,
+        className: 'lp-world',
+        viewBox: '44 -20 688 1095',
+        preserveAspectRatio: 'xMidYMid meet',
+        fill: 'none',
+        'aria-hidden': true
+    }
+    if (!drawn) return <svg {...box} />
     return (
-        <svg
-            ref={svgRef}
-            className='lp-world'
-            viewBox='44 -20 688 1095'
-            preserveAspectRatio='xMidYMid meet'
-            fill='none'
-            aria-hidden='true'
-        >
+        <svg {...box}>
             <defs>
                 <filter
                     id='lp-blur'
