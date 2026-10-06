@@ -11,6 +11,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { RuntimeContextService } from '@/modules/hosts/runtime-context.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
+    configFailureReason,
     daemonConfigRead,
     daemonConfigWrite,
     daemonConfigRpc
@@ -116,7 +117,7 @@ export class McpConfigMaterializer {
                 })
             } catch (err) {
                 if (args.safeErrors) {
-                    this.log.warn(`daemon configuration mcp scope ${target.scopeId} failed`)
+                    this.log.warn(`${args.targetLabel} mcp scope ${target.scopeId} failed reason=${configFailureReason(err)}`)
                     results.push({ scopeId: target.scopeId, status: 'failed', message: 'Configuration delivery failed; reconnect or retry the push.' })
                     continue
                 }
@@ -250,7 +251,7 @@ export class McpConfigMaterializer {
                                       }
                                     : {})
                             },
-                            targetLabel: 'daemon configuration',
+                            targetLabel: `daemon configuration hostId=${daemonId} agentId=${current.id}`,
                             framework: current.framework,
                             homeDir: snapshot.homeDir,
                             workspacePath:

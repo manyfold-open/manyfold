@@ -1997,6 +1997,8 @@ const zh: Translations = {
             // every name in it is a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: '创建你的第一个 Agent',
+            useInAgentCta: '在你的 agent 中使用',
+            useInAgentSteps: '查看具体步骤',
             faqQ1: '这只是 Claude Code 或 Codex 的一层壳吗？',
             faqA1: '不是。每个框架都以原生形态运行，保留自己的执行模型、模型配置和工作区语义。Manyfold 是它们外面那一层：运行时、工作区、编排、交付与计量。框架发布新能力的当天，你就能用上。',
             faqQ2: '这和自己开一台装好智能体的虚拟机有什么区别？',
@@ -2007,6 +2009,9 @@ const zh: Translations = {
             faqA4: '把你托管的智能体放在一个 OpenAI 兼容端点后面，现有 SDK 无需改动即可调用。这些调用与网页工作区共用同一套会话、权限和用量体系。它是一个由你管理的智能体，而不是一个裸的模型代理。',
             faqQ5: '团队应该从哪个入口开始？',
             faqA5: '多数开发者从网页工作区开始，然后把 API 接进产品，或把渠道接进团队沟通工具。偏运维的团队常常从定时任务加渠道开始。所有入口触达的是同一批智能体，先用哪个都不吃亏。',
+            faqQ6: '能在 Claude Code 或 Codex 里使用 Manyfold 吗？',
+            faqA6:
+                '可以。点页面顶部的「在你的 agent 中使用」，把提示词贴给你的 agent。它会安装 mf CLI，打开一次浏览器让你登录或注册，并添加 Manyfold 插件。适用于 Claude Code、Codex，以及任何能运行 shell 命令的 agent。',
             footerLegal: '© 2026 Manyfold',
             footerDocs: '文档',
             footerChallenge: 'Agent 挑战赛',
@@ -3456,6 +3461,9 @@ const zh: Translations = {
             pleaseWait: '请稍候...',
             createAccount: '创建账号',
             useExistingAccount: '使用已有账号',
+            agentConnectTitle: '你的 agent 正在请求连接 Manyfold',
+            agentConnectBody:
+                '先登录或注册，下一步批准这次连接。',
             errorAuthFailed: '认证失败',
             forgotPasswordCta: '忘记密码？',
             forgotPasswordTitle: '重置密码',

@@ -84,6 +84,7 @@ export const TIER_TAGLINE_KEY: Record<PricingTier['id'], string> = {
 
 export const FAQ_KEYS: Array<{ q: string; a: string }> = [
     { q: 'web.landing.faqQ1', a: 'web.landing.faqA1' },
+    { q: 'web.landing.faqQ6', a: 'web.landing.faqA6' },
     { q: 'web.landing.faqQ2', a: 'web.landing.faqA2' },
     { q: 'web.landing.faqQ3', a: 'web.landing.faqA3' },
     { q: 'web.landing.faqQ4', a: 'web.landing.faqA4' },

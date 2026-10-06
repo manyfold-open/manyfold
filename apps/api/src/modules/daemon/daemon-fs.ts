@@ -13,7 +13,7 @@ export const daemonConfigRpc = async (
     const stream = registry.streamRpc({
         daemonId,
         method,
-        payload,
+        payload: attempt.roots ? { ...payload, roots: attempt.roots } : payload,
         expectedConnection: attempt.expectedConnection,
         timeoutMs: 30_000,
         onEvent: undefined
@@ -28,6 +28,23 @@ export const daemonConfigRpc = async (
     } finally {
         attempt.signal.removeEventListener('abort', cancel)
     }
+}
+
+// Why a config read or write failed, in fixed words: the daemon's refusal
+// names the path, and on a self-owned computer the path names its owner.
+export const configFailureReason = (error: unknown): string => {
+    if (!(error instanceof Error)) return 'unknown'
+    if (error.name === 'DaemonConfigDeliveryError')
+        return (error as Error & { reason: string }).reason
+    const { message } = error
+    if (/^config_commit_[a-z_]+$/.test(message)) return message
+    if (message.includes('outside allowed roots'))
+        return 'outside_allowed_roots'
+    if (message.endsWith(' timed out')) return 'timeout'
+    if (message.endsWith(' is not connected')) return 'offline'
+    return error.name === 'DaemonRpcResponseError'
+        ? 'daemon_refused'
+        : error.name
 }
 
 export const daemonConfigRead = async (

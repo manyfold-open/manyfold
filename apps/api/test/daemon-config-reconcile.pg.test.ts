@@ -6,11 +6,13 @@ import {
     hostDaemons,
     serviceLeases,
     runtimeHosts,
+    runtimeProviders,
     userConnections,
     type Agent
 } from '@manyfold/db'
 import { createObjectId } from '@manyfold/shared'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { Logger } from '@nestjs/common'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as schedule } from 'node:timers'
 import { once } from 'node:events'
@@ -255,6 +257,118 @@ test(
             JSON.parse(await h.readProject()).mcpServers.fixture.command,
             'offline-desired'
         )
+    }
+)
+
+// A workspace outside the daemon's own tree and never registered with it, as
+// an older layout's ~/.nca/workspaces is on a sandbox.
+const unregisteredWorkspace = async (
+    h: Awaited<ReturnType<typeof configFixture>>
+): Promise<string> => {
+    const workspace = path.join(h.root, 'legacy', 'workspaces', h.agentId)
+    await mkdir(workspace, { recursive: true })
+    await h.db
+        .update(agents)
+        .set({ workspacePath: workspace, mountPath: workspace })
+        .where(eq(agents.id, h.agentId))
+    return workspace
+}
+
+test(
+    "a hosted machine's config calls vouch for a workspace outside its daemon's own tree",
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const workspace = await unregisteredWorkspace(h)
+        const providerId = createObjectId('runtimeProvider')
+        await h.db.insert(runtimeProviders).values({
+            id: providerId,
+            kind: 'sprites',
+            name: 'fixture provider',
+            credentialCiphertext: 'fixture'
+        })
+        await h.db
+            .update(runtimeHosts)
+            .set({ kind: 'hosted', providerId })
+            .where(eq(runtimeHosts.id, h.daemonId))
+        try {
+            const api = await h.api(false)
+            await h.connect(api.url)
+            const scopes = await api.mcp.materializeForAgent(
+                await h.readAgent()
+            )
+            assert.equal(
+                scopes.find((scope) => scope.scopeId === 'project')?.status,
+                'delivered'
+            )
+            await api.context.refreshDaemon(await h.readAgent())
+            assert.equal(
+                JSON.parse(
+                    await readFile(path.join(workspace, '.mcp.json'), 'utf8')
+                ).mcpServers.fixture.command,
+                'offline-desired'
+            )
+            assert(
+                (
+                    await stat(path.join(workspace, 'AGENTS.manyfold.md'))
+                ).isFile()
+            )
+            assert(
+                (
+                    await readFile(path.join(workspace, 'CLAUDE.md'), 'utf8')
+                ).includes(MANYFOLD_CONTEXT_START)
+            )
+            assert.equal(
+                (await h.readAgent()).extras.contextDocDelivery?.status,
+                'delivered'
+            )
+        } finally {
+            await h.db
+                .update(runtimeHosts)
+                .set({ kind: 'local', providerId: null })
+                .where(eq(runtimeHosts.id, h.daemonId))
+            await h.db
+                .delete(runtimeProviders)
+                .where(eq(runtimeProviders.id, providerId))
+        }
+    }
+)
+
+test(
+    'a self-owned computer still refuses a workspace its daemon never registered, and the warning says why',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const workspace = await unregisteredWorkspace(h)
+        const warnings: string[] = []
+        t.mock.method(Logger.prototype, 'warn', (message: unknown) => {
+            warnings.push(String(message))
+        })
+        const api = await h.api(false)
+        await h.connect(api.url)
+        const scopes = await api.mcp.materializeForAgent(await h.readAgent())
+        assert.equal(
+            scopes.find((scope) => scope.scopeId === 'project')?.status,
+            'failed'
+        )
+        await assert.rejects(api.context.refreshDaemon(await h.readAgent()), {
+            name: 'DaemonConfigDeliveryError'
+        })
+        assert(
+            warnings.includes(
+                `daemon configuration context write failed hostId=${h.daemonId} agentId=${h.agentId} reason=outside_allowed_roots`
+            ),
+            warnings.join('\n')
+        )
+        assert(
+            warnings.includes(
+                `daemon configuration hostId=${h.daemonId} agentId=${h.agentId} mcp scope project failed reason=outside_allowed_roots`
+            ),
+            warnings.join('\n')
+        )
+        await assert.rejects(stat(path.join(workspace, '.mcp.json')), {
+            code: 'ENOENT'
+        })
     }
 )
 
