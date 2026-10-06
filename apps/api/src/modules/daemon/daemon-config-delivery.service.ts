@@ -77,6 +77,19 @@ export interface DaemonConfigSnapshot {
 const isDeliverableHost = (host: RuntimeHostRow): boolean =>
     host.status !== 'retired' && host.status !== 'deleting'
 
+// The platform owns a hosted machine's filesystem, so the agent's workspace is
+// vouched for on each config call, as the files view does: a workspace an
+// older layout left outside the daemon's own tree (~/.nca/workspaces) is
+// otherwise refused. A self-owned computer admits only what its own daemon
+// registered.
+const vouchedConfigRoots = (
+    snapshot: Pick<DaemonConfigSnapshot, 'agent' | 'host'>
+): string[] | undefined => {
+    if (snapshot.host.kind !== 'hosted') return undefined
+    const workspace = snapshot.agent.workspacePath ?? snapshot.agent.mountPath
+    return workspace ? [workspace] : undefined
+}
+
 export const readDaemonConfigSnapshot = async (
     db: Reader,
     agentId: string,
@@ -213,6 +226,9 @@ export interface DaemonConfigAttempt {
     holderId: string
     signal: AbortSignal
     protectedWrites: boolean
+    // Directories vouched for on each config read and write of this delivery
+    // (DAEMON_FEATURE_FS_ROOTS); see vouchedConfigRoots.
+    roots?: readonly string[]
     expectedConnection: string | undefined
     assertCurrent(): Promise<void>
     publish(
@@ -493,6 +509,7 @@ export class DaemonConfigDeliveryService implements OnModuleDestroy {
                 holderId,
                 signal: abort.signal,
                 protectedWrites,
+                roots: vouchedConfigRoots(snapshot),
                 expectedConnection,
                 assertCurrent,
                 publish: (source, kind, patch, version) =>
