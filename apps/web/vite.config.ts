@@ -11,7 +11,7 @@ const { version } = createRequire(import.meta.url)('./package.json') as {
     version: string
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, isSsrBuild }) => {
     const env = loadEnv(mode, process.cwd(), '')
     const apiTarget =
         env.MF_DEV_API_TARGET ||
@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => {
             ),
             react(),
             sentryVitePlugin({
-                disable: !uploadSourcemaps,
+                disable: !uploadSourcemaps || isSsrBuild,
                 telemetry: false,
                 org: process.env.SENTRY_ORG,
                 project: process.env.SENTRY_PROJECT,
@@ -77,7 +77,16 @@ export default defineConfig(({ mode }) => {
         optimizeDeps: {
             exclude: ['@manyfold/shared', '@manyfold/sdk', '@manyfold/i18n']
         },
+        // The prerender bundle (src/entry-server.tsx, run once by
+        // scripts/render-static.ts) carries its dependencies: several ship
+        // ESM with extensionless imports that Node will not resolve.
+        ssr: { noExternal: true },
         build: {
+            // The prerender reads the client manifest to link a lazy marketing
+            // route's stylesheets from its page, then deletes it.
+            ...(isSsrBuild
+                ? { outDir: 'dist-ssr', copyPublicDir: false }
+                : { manifest: true }),
             // Inlining small font subsets forces every language's bytes into
             // the render-blocking stylesheet instead of honoring unicode-range.
             assetsInlineLimit: (filePath) =>

@@ -1,9 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
-import { setLanguage, tForLanguage } from '@manyfold/i18n'
 import {
     SEO_PAGES,
     SITE_ORIGIN,
@@ -23,8 +20,6 @@ import {
     buildSitemapXml,
     resolveWebEnv
 } from '../src/seo/artifacts'
-import { snapshotFor } from '../src/seo/snapshots'
-import { renderMarketingBody } from '../src/seo/renderStatic'
 import { pageTitleFor } from '../src/lib/pageTitle'
 
 const entries = seoPageEntries()
@@ -34,6 +29,7 @@ const SHELL = [
     '<html lang="en">',
     '    <head>',
     '        <title>Manyfold</title>',
+    '        <script type="module" crossorigin src="/assets/index-owned.js"></script>',
     '    </head>',
     '    <body>',
     '        <div id="root"></div>',
@@ -109,67 +105,6 @@ test('marketing titles resolve from the manifest in the URL language', () => {
     assert.ok(pageTitleFor('/zh/')?.includes('工作台'))
     // Non-marketing routes keep the table-driven titles.
     assert.equal(pageTitleFor('/workspace'), 'Workspace · Manyfold')
-})
-
-test('rendered bodies carry exactly one H1 matching the manifest', () => {
-    for (const entry of entries) {
-        setLanguage(entry.language)
-        const html = renderToStaticMarkup(
-            createElement(snapshotFor(entry.def.key), { entry })
-        )
-        const h1s = html.match(/<h1[\s>]/g) ?? []
-        assert.equal(h1s.length, 1, `${entry.path} has ${h1s.length} H1s`)
-        assert.ok(
-            html.includes(entry.copy.h1),
-            `${entry.path} body is missing its H1 text`
-        )
-        assert.ok(
-            html.includes(entry.copy.ctaPrimary.href),
-            `${entry.path} body is missing its primary CTA`
-        )
-    }
-    setLanguage('en')
-})
-
-/* The renderer used to default every entry to the home page's snapshot, so
-   /channels shipped the landing sections under the channels headline: two
-   URLs, one body, and nothing in the suite noticing. A page in the manifest
-   now needs its own snapshot or the build fails. */
-test('each manifest page renders its own body, not the home page\'s', () => {
-    const landingOnly = 'web.landing.worksWithTitle'
-    for (const entry of entries) {
-        setLanguage(entry.language)
-        const html = renderToStaticMarkup(
-            createElement(snapshotFor(entry.def.key), { entry })
-        )
-        const carriesLandingSections = html.includes(
-            tForLanguage(entry.language, landingOnly)
-        )
-        assert.equal(
-            carriesLandingSections,
-            entry.def.key === 'home',
-            `${entry.path} body ${carriesLandingSections ? 'repeats' : 'is missing'} the landing sections`
-        )
-    }
-    setLanguage('en')
-})
-
-test('a manifest page with no snapshot fails the build', () => {
-    assert.throws(
-        () => snapshotFor('a-page-nobody-wrote-a-snapshot-for'),
-        /no crawler snapshot/
-    )
-})
-
-test('rendered bodies open the landing style scope', () => {
-    for (const entry of entries) {
-        setLanguage(entry.language)
-        assert.ok(
-            renderMarketingBody(entry).startsWith('<div class="landing-root">'),
-            `${entry.path} body would paint unstyled until React boots`
-        )
-    }
-    setLanguage('en')
 })
 
 test('head tags carry canonical, reciprocal hreflang and x-default', () => {
@@ -295,7 +230,11 @@ test('page HTML gets metadata and body; staging adds noindex', () => {
         env: 'production'
     })
     assert.ok(production.includes('<html lang="zh-CN">'))
-    assert.ok(production.includes('<div id="root"><main>body</main></div>'))
+    assert.ok(
+        production.includes(
+            '<div id="root" data-prerendered=""><main>body</main></div>'
+        )
+    )
     assert.ok(!production.includes('noindex'))
     const staging = buildPageHtml(SHELL, {
         entry,
@@ -330,23 +269,38 @@ test('app.html is the shell plus an unconditional noindex', () => {
     assert.ok(build404Html().includes('404'))
 })
 
-test('only marketing HTML lowers its local module entry priority', () => {
+test('marketing HTML starts the app after its first paint; app.html loads it with the page', () => {
     const shell = SHELL.replace(
         '</head>',
-        '<script type="module" crossorigin src="/assets/index-owned.js"></script><script type="application/ld+json">{}</script></head>'
+        '<script type="application/ld+json">{}</script></head>'
     )
     const marketing = buildPageHtml(shell, {
         entry: entries[0],
         bodyHtml: '<main>body</main>',
         env: 'production'
     })
+    assert.ok(!/<script[^>]*type="module"/.test(marketing))
+    assert.ok(marketing.includes('s.src="/assets/index-owned.js"'))
+    assert.ok(marketing.includes('first-contentful-paint'))
+    assert.ok(marketing.includes('<script type="application/ld+json">'))
+    assert.ok(marketing.includes('<div id="root" data-prerendered="">'))
     assert.ok(
-        marketing.includes(
-            '<script fetchpriority="low" type="module" crossorigin src="/assets/index-owned.js">'
+        buildAppHtml(shell).includes(
+            '<script type="module" crossorigin src="/assets/index-owned.js"></script>'
         )
     )
-    assert.ok(marketing.includes('<script type="application/ld+json">'))
-    assert.ok(!buildAppHtml(shell).includes('fetchpriority='))
+})
+
+test('a shell without its module entry fails the page build', () => {
+    assert.throws(
+        () =>
+            buildPageHtml(SHELL.replace(/\s*<script type="module"[^\n]*/, ''), {
+                entry: entries[0],
+                bodyHtml: '<main>body</main>',
+                env: 'production'
+            }),
+        /no module entry script/
+    )
 })
 
 // Caddy serves the app shell only for the families listed above and 404s

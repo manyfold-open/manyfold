@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { CloudSectionLink } from '@/components/marketing/CloudNavLink'
 import { useI18n } from '@/lib/i18n'
+import { useHydrated } from '@/lib/useHydrated'
 import { marketingLinkLanguage, marketingLinksFor } from '@/seo/marketingLinks'
 import { ScrollyWorld, type WorldLayerRefs } from './ScrollyWorld'
 
@@ -229,6 +230,7 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
     const { pathname } = useLocation()
     const links = marketingLinksFor(marketingLinkLanguage(pathname, language))
 
+    const drawn = useHydrated()
     const pinRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
     const groupRef = useRef<SVGGElement>(null)
@@ -342,7 +344,7 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
         const svg = svgRef.current
         if (!svg || svg.querySelector('[data-outline]')) return
         outlineSolids(svg)
-    }, [language, svgRef])
+    }, [language, svgRef, drawn])
 
     /* One scroll-linked loop drives the camera, the layer opacities and the
        card cross-fade straight on the DOM. Routing it through state would
@@ -544,7 +546,7 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
             clearTimeout(snapTimer)
             if (raf) cancelAnimationFrame(raf)
         }
-    }, [layerOrder])
+    }, [layerOrder, drawn])
 
     return (
         <div className='lp-pin' ref={pinRef}>
@@ -565,6 +567,11 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                                 <div
                                     key={index}
                                     className='lp-scene'
+                                    // The hero scene is visible before the
+                                    // scroll loop runs, from the HTML on.
+                                    style={
+                                        index === 0 ? { opacity: 1 } : undefined
+                                    }
                                     ref={(el) => {
                                         cardsRef.current[index] = el
                                     }}
@@ -612,6 +619,7 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                             svgRef={svgRef}
                             groupRef={groupRef}
                             layers={layers}
+                            drawn={drawn}
                         />
                     </div>
                 </div>

@@ -905,8 +905,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'pages/agents/AgentA2a.tsx': ['mf a2a'],
     'pages/agents/AgentContextDoc.tsx': ['AGENTS.manyfold.md'],
     'pages/agents/AgentEnvVars.tsx': ['.env'],
-    'pages/agents/AgentPermissions.tsx': ['mf request-permission'],
-    'seo/StaticChrome.tsx': ['Manyfold']
+    'pages/agents/AgentPermissions.tsx': ['mf request-permission']
 }
 
 const normalizedDisplayValue = (value: string): string =>

@@ -15,6 +15,34 @@ const importCustomizeLayout = () => import('@/pages/Customize/CustomizeLayout')
 
 const ChannelsLanding = lazyChunk(() => import('@/pages/ChannelsLanding'))
 const CloudLanding = lazyChunk(() => import('@/pages/CloudLanding'))
+
+// The lazy marketing routes (the landing is in the entry already). Each one's
+// prerendered page loads the route chunk before it hydrates (lazyChunk's
+// preload) and links the chunk's stylesheets itself (entry-server.tsx), found
+// through `module`, the route's source file.
+const LAZY_MARKETING_ROUTES = [
+    {
+        path: '/agent-channels',
+        module: 'pages/ChannelsLanding.tsx',
+        component: ChannelsLanding
+    },
+    {
+        path: '/hosted-agents',
+        module: 'pages/CloudLanding.tsx',
+        component: CloudLanding
+    }
+]
+
+const lazyMarketingRoute = (pathname: string) => {
+    const path = pathname.replace(/^\/zh(?=\/|$)/, '').replace(/\/$/, '')
+    return LAZY_MARKETING_ROUTES.find((route) => route.path === path)
+}
+
+export const preloadMarketingRoute = (pathname: string): Promise<unknown> =>
+    lazyMarketingRoute(pathname)?.component.preload() ?? Promise.resolve()
+
+export const marketingRouteModule = (pathname: string): string | undefined =>
+    lazyMarketingRoute(pathname)?.module
 const Challenge = lazyChunk(() => import('@/pages/Challenge'))
 const ChallengeStatus = lazyChunk(() => import('@/pages/ChallengeStatus'))
 const AppShell = lazyChunk(importAppShell)
