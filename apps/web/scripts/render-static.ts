@@ -13,6 +13,9 @@ const distDir = resolve(values.dist ?? resolve(appDir, 'dist'))
 const ssrDir = resolve(values.ssr ?? resolve(appDir, 'dist-ssr'))
 
 const visit = installFirstVisit()
+// The bundle picks React's development or production build as it loads;
+// the client ships production.
+process.env.NODE_ENV ??= 'production'
 
 // Built by `vite build --ssr src/entry-server.tsx` with the same aliases and
 // overlay as the client, so a composition's pages render here as they boot

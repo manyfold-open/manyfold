@@ -73,6 +73,12 @@ export const installFirstVisit = (): ((path: string) => void) => {
         addEventListener: noop,
         removeEventListener: noop
     })
+    // Node 21+ has a navigator of its own, a getter that reports the build
+    // machine's locale; Node 20, which the image builds on, has none.
+    Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: '' },
+        configurable: true
+    })
     return (path) => {
         visit.path = path
     }
