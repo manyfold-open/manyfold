@@ -18,6 +18,7 @@ import {
     Sparkle
 } from 'lucide-react'
 import { ScrollyStage } from '@/components/landing/ScrollyStage'
+import UseInAgentCta from '@/components/landing/UseInAgentCta'
 import { MarketingFooter } from '@/components/marketing/MarketingFooter'
 import { MarketingNav } from '@/components/marketing/MarketingNav'
 import SignupGateModal from '@/components/signup-gate/SignupGateModal'
@@ -742,19 +743,24 @@ const Faq: FC = (): ReactNode => {
 }
 
 // The one CTA pair the hero scenes reuse: the gated sign-up flow when
-// signed out, a straight route into the workspace when signed in.
+// signed out, a straight route into the workspace when signed in, and beside
+// either the prompt that connects a visitor's own coding agent. That prompt
+// ends in a sign-up, so it waits for the gate like the sign-up button does.
 const HeroCta: FC = (): ReactNode => {
     const { t } = useI18n()
+    const gate = useSignupGate()
     return (
         <>
             <SignedOut>
                 <SignedOutCtas />
+                {gate.loaded && !gate.enabled ? <UseInAgentCta /> : null}
             </SignedOut>
             <SignedIn>
                 <Link to='/workspace' className='lp-btn lp-btn-primary'>
                     {t('web.landing.openWorkspace')}
                     <ArrowRight className='lp-arr' />
                 </Link>
+                <UseInAgentCta />
             </SignedIn>
         </>
     )

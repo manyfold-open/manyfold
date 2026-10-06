@@ -1,5 +1,6 @@
 import { type FC, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { SquareTerminal } from 'lucide-react'
 import { BrandMark } from '@/components/Brand'
 import { PreferenceControls } from '@/components/PreferenceControls'
 import { AuthSignIn, SignedIn } from '@/lib/auth'
@@ -15,6 +16,10 @@ const Login: FC = (): ReactNode => {
     // invited email locked in; everyone else gets the plain sign-in form.
     const isInvite = params.get('invite') === 'true'
     const inviteEmail = params.get('email')?.trim() || undefined
+    // An agent running mf login opened this tab, often for someone who has
+    // never seen Manyfold: say why they are here and that approving comes
+    // next, since the sign-in form alone reads like any other login.
+    const forAgent = redirectUrl.startsWith('/cli-login')
 
     return (
         <div className='login-shell text-fg flex min-h-screen flex-col px-5 py-5 md:px-8'>
@@ -36,6 +41,22 @@ const Login: FC = (): ReactNode => {
 
             <main className='flex flex-1 items-center justify-center py-10'>
                 <div className='w-full max-w-[28rem]'>
+                    {forAgent && (
+                        <div className='workbench-note mb-3 flex items-start gap-3'>
+                            <SquareTerminal
+                                aria-hidden='true'
+                                className='mt-0.5 h-4 w-4 shrink-0'
+                            />
+                            <div className='min-w-0'>
+                                <p className='text-fg font-medium'>
+                                    {t('web.auth.agentConnectTitle')}
+                                </p>
+                                <p className='mt-0.5'>
+                                    {t('web.auth.agentConnectBody')}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     <AuthSignIn
                         path='/login'
                         redirectUrl={redirectUrl}

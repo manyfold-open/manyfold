@@ -2052,6 +2052,8 @@ const en = {
             // every name in it is a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: 'Create your first agent',
+            useInAgentCta: 'Use in your agent',
+            useInAgentSteps: 'See the steps',
             faqQ1: 'Is this just a wrapper around Claude Code or Codex?',
             faqA1: 'No. Each framework runs in its native form, with its own execution model, model configuration and workspace semantics. Manyfold is the layer around them: runtime, workspace, orchestration, delivery and metering. When a framework ships something new, you get it the same day.',
             faqQ2: 'How is this different from a VM with agents installed?',
@@ -2062,6 +2064,9 @@ const en = {
             faqA4: 'Your hosted agent behind an OpenAI-compatible endpoint, so existing SDKs work unchanged. Calls join the same session, permission and usage system as the web workspace. It is an agent you manage, not a bare model proxy.',
             faqQ5: 'Which surface should my team start with?',
             faqA5: 'Most developers start in the web workspace, then wire the API into a product or a channel into team chat. Ops-minded teams often start with a schedule and a channel. Every surface reaches the same agents, so the order costs you nothing.',
+            faqQ6: 'Can I use Manyfold from Claude Code or Codex?',
+            faqA6:
+                'Yes. Open "Use in your agent" at the top of this page and paste the prompt into your agent. It installs the mf CLI, opens your browser once so you can sign in or create an account, and adds the Manyfold plugin. Works with Claude Code, Codex and any agent that can run shell commands.',
             footerLegal: '© 2026 Manyfold',
             footerDocs: 'Docs',
             footerChallenge: 'Agent Challenge',
@@ -3625,6 +3630,9 @@ const en = {
             pleaseWait: 'Please wait...',
             createAccount: 'Create an account',
             useExistingAccount: 'Use an existing account',
+            agentConnectTitle: 'Your agent wants to connect to Manyfold',
+            agentConnectBody:
+                "Sign in or create an account. Next, you'll approve the connection.",
             errorAuthFailed: 'Authentication failed',
             forgotPasswordCta: 'Forgot password?',
             forgotPasswordTitle: 'Reset your password',
