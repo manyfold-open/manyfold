@@ -3170,6 +3170,12 @@ html[data-theme='dark'] .landing-root .lp-nav-ico:hover {
     height: 16px;
     flex: none;
 }
+/* The theme toggle carries both icons and the inline bootstrap's data-theme
+   picks one, so a prerendered page needs no per-visitor markup (ADR-0042). */
+html:not([data-theme='dark']) .landing-root .lp-theme-dark,
+html[data-theme='dark'] .landing-root .lp-theme-light {
+    display: none;
+}
 
 /* The language control. "EN" already says "language", so the globe that used
    to sit beside it is dropped as duplicate; the chevron is what gets added

@@ -178,8 +178,7 @@ const LangSwitch: FC<{ languagePaths?: MarketingLanguagePaths }> = ({
 
 const ThemeToggle: FC = (): ReactNode => {
     const { t } = useI18n()
-    const { theme, toggleTheme } = useTheme()
-    const Icon = theme === 'dark' ? Moon : Sun
+    const { toggleTheme } = useTheme()
     return (
         <button
             type='button'
@@ -187,7 +186,8 @@ const ThemeToggle: FC = (): ReactNode => {
             aria-label={t('web.marketing.toggleTheme')}
             onClick={toggleTheme}
         >
-            <Icon />
+            <Sun className='lp-theme-light' />
+            <Moon className='lp-theme-dark' />
         </button>
     )
 }

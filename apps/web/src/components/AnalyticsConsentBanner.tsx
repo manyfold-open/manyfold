@@ -22,16 +22,16 @@ import { useI18n } from '@/lib/i18n'
 // visible or tappable way to answer.
 const AnalyticsConsentBanner: FC = (): ReactNode => {
     const { t } = useI18n()
-    const [visible, setVisible] = useState(
-        () => analyticsConfigured && analyticsConsent() === 'unset'
-    )
-    useEffect(
-        () =>
-            subscribeConsentPrompt(() => {
-                if (analyticsConfigured) setVisible(true)
-            }),
-        []
-    )
+    // Decided after mount: the stored choice is this visitor's, and a
+    // prerendered page renders what a first-time visitor sees (ADR-0042).
+    const [visible, setVisible] = useState(false)
+    useEffect(() => {
+        if (analyticsConfigured && analyticsConsent() === 'unset')
+            setVisible(true)
+        return subscribeConsentPrompt(() => {
+            if (analyticsConfigured) setVisible(true)
+        })
+    }, [])
     if (!visible) return null
     const choose = (value: 'granted' | 'denied'): void => {
         setAnalyticsConsent(value)
