@@ -281,7 +281,7 @@ test('marketing HTML starts the app after its first paint; app.html loads it wit
     })
     assert.ok(!/<script[^>]*type="module"/.test(marketing))
     assert.ok(marketing.includes('s.src="/assets/index-owned.js"'))
-    assert.ok(marketing.includes('requestAnimationFrame'))
+    assert.ok(marketing.includes('first-contentful-paint'))
     assert.ok(marketing.includes('<script type="application/ld+json">'))
     assert.ok(marketing.includes('<div id="root" data-prerendered="">'))
     assert.ok(

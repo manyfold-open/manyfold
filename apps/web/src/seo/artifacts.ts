@@ -107,17 +107,21 @@ const assertPristineShell = (shell: string, needsRoot: boolean): void => {
 }
 
 // A prerendered page is complete without the app, so the app starts once the
-// page has painted. Fetched alongside the HTML, the entry competes with the
-// hero's CSS and fonts for the connection, and a lab run charges its download
-// to LCP (ADR-0042). Same module and order, only a later start; the fonts get
-// at most a second, so a slow one cannot hold the app back for long.
+// page has been painted and its fonts are in. Fetched alongside the HTML, the
+// entry competes with the hero's CSS and fonts for the connection, and a lab
+// run charges its download to LCP (ADR-0042). The signal is the browser's own
+// first-contentful-paint entry, because a frame the main thread has drawn
+// reaches the screen later still. Same module and order, only a later start,
+// never more than 1.5 s late.
 const startAppAfterPaint = (src: string): string =>
-    '<script>(function(){var started=false;var start=function(){if(started)return;started=true;' +
-    'requestAnimationFrame(function(){setTimeout(function(){' +
+    '<script>(function(){var started=false,painted=false,fonts=!document.fonts;' +
+    'var start=function(){if(started)return;started=true;' +
     "var s=document.createElement('script');s.type='module';s.crossOrigin='';" +
-    `s.src=${JSON.stringify(src)};document.head.appendChild(s)},0)})};` +
-    'setTimeout(start,1000);' +
-    'if(document.fonts)document.fonts.ready.then(start,start);else start()})()</script>'
+    `s.src=${JSON.stringify(src)};document.head.appendChild(s)};` +
+    'var go=function(){if(painted&&fonts)start()};setTimeout(start,1500);' +
+    'if(!fonts)document.fonts.ready.then(function(){fonts=true;go()},start);' +
+    "try{new PerformanceObserver(function(list,observer){if(list.getEntriesByName('first-contentful-paint').length){observer.disconnect();painted=true;go()}}).observe({type:'paint',buffered:true})}catch(e){painted=true;go()}" +
+    '})()</script>'
 
 export interface PageHtmlOptions {
     entry: SeoPageEntry
