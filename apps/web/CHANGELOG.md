@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.21.0
+
+### Minor Changes
+
+- [#681](https://github.com/manyfold-open/manyfold/pull/681) [`63eb794`](https://github.com/manyfold-open/manyfold/commit/63eb7943d87957241a38f837783c4044804aa086) Thanks [@yingca1](https://github.com/yingca1)! - Marketing pages are prerendered at build time from the app's own React tree and hydrated in the browser, replacing the hand-written crawler snapshots. The hero paints from the HTML before the app starts, so Largest Contentful Paint no longer waits for the app bundle. The landing's decorative world draws once the page has hydrated. The analytics consent banner now appears after the page hydrates, and the nav's theme icon is chosen by the stylesheet, so neither depends on the visitor's stored choices in the first render.
+
 ## 2.20.0
 
 ### Minor Changes
