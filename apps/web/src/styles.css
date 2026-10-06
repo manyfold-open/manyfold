@@ -3015,9 +3015,7 @@ html[data-theme='dark'] .landing-root .lp-btn-secondary:hover {
    past the bottom: measured on local dev [2026-08-28] at 1920x1080, a 67px bar
    put the first scene's copy 67px below the viewport centre, and only the
    first 67px of scroll got it back. Still not a following bar — it scrolls
-   away with the hero, so the reasoning above stands. Scoped to .lp-z because
-   StaticChrome renders the same markup without it for the crawler snapshot,
-   which has plain sections instead of a pinned stage and needs the room. */
+   away with the hero, so the reasoning above stands. */
 .landing-root .lp-z > .lp-nav {
     position: absolute;
     inset: 0 0 auto;
@@ -3076,10 +3074,7 @@ html[data-theme='dark'] .landing-root .lp-btn-secondary:hover {
     gap: 6px;
 }
 
-/* Three-column nav: brand │ page destinations │ utilities + CTA. A modifier
-   rather than a change to .lp-nav-inner itself, because StaticChrome renders
-   a two-child version of that same container for crawlers and would lose its
-   right alignment under a three-column grid.
+/* Three-column nav: brand │ page destinations │ utilities + CTA.
 
    Grid, not the flex `space-between` above: the brand (~150px) and the
    utility cluster (~300px) are never the same width, so a flex row would
@@ -3262,21 +3257,6 @@ html[data-theme='dark'] .landing-root .lp-theme-light {
     height: 38px;
     font-size: 13.5px;
     gap: 6px;
-}
-
-/* Docs link sits next to the brand, sharing the chip style with lang/theme */
-.landing-root .lp-nav-chip-docs {
-    margin-left: 24px;
-    text-decoration: none;
-}
-
-@media (max-width: 880px) {
-    /* Docs is reachable from the More menu on mobile. The double class
-       selector overrides the shared .lp-nav-chip display rule that
-       appears later in the source. */
-    .landing-root .lp-nav-chip.lp-nav-chip-docs {
-        display: none;
-    }
 }
 
 /* Warm-tone chip buttons used by the nav language + theme controls */
@@ -3890,59 +3870,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     padding: 36px 0 40px;
 }
 
-.landing-root .lp-foot-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-foot-left {
-    display: inline-flex;
-    align-items: center;
-    gap: 18px;
-}
-
-.landing-root .lp-foot-left .lp-copy {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-muted);
-    letter-spacing: 0.02em;
-}
-
-.landing-root .lp-foot-links {
-    display: inline-flex;
-    align-items: center;
-    gap: 28px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-foot-links a,
-.landing-root .lp-foot-links button {
-    font-size: 14px;
-    color: var(--lp-ink-soft);
-    letter-spacing: -0.005em;
-    transition: color 120ms ease;
-}
-
-/* "Cookie settings" re-opens the consent banner rather than going anywhere,
-   so it is a button — and preflight left it at the body's size and full ink,
-   which is what made the one control in the row read a step larger and darker
-   than the six links beside it. */
-.landing-root .lp-foot-links button {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    font-family: inherit;
-    cursor: pointer;
-}
-
-.landing-root .lp-foot-links a:hover,
-.landing-root .lp-foot-links button:hover {
-    color: var(--lp-ink);
-}
-
 /* The social pair is one cluster, not a seventh and eighth text link — a
    hairline plus a wider gap is what says so. */
 .landing-root .lp-foot-social {
@@ -4041,14 +3968,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
 }
 
 @media (max-width: 640px) {
-    .landing-root .lp-foot-row {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 18px;
-    }
-    .landing-root .lp-foot-links {
-        gap: 16px 18px;
-    }
     /* Once the links wrap, the cluster can land at the start of a line and
        the hairline would float there with nothing before it. */
     .landing-root .lp-foot-social {
@@ -4061,17 +3980,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
 @media (max-width: 480px) {
     .landing-root .lp-foot {
         padding: 28px 0 32px;
-    }
-    .landing-root .lp-foot-left {
-        flex-wrap: wrap;
-        gap: 6px 14px;
-    }
-    .landing-root .lp-foot-left .lp-copy {
-        font-size: 11px;
-    }
-    .landing-root .lp-foot-links a,
-    .landing-root .lp-foot-links button {
-        font-size: 13.5px;
     }
 }
 
@@ -4151,9 +4059,8 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
 
 /* The size a hero headline gets, wherever one appears: the home page's
    scrolly stage and the channels page's centred hero. `.lp-h1` carries a
-   ramp one step above this (clamp(46, 6.6vw, 100)) and is rendered by
-   nothing but the crawler snapshot, so a real hero pointed at it ends up
-   half again the size of the one on the home page. */
+   ramp one step above this (clamp(46, 6.6vw, 100)), so a hero pointed at it
+   ends up half again the size of the one on the home page. */
 .landing-root .lp-scene-title,
 .landing-root .lp-cl-hero-copy .lp-h1 {
     font-size: calc(clamp(38px, 4.4vw, 68px) * var(--lp-display-scale));

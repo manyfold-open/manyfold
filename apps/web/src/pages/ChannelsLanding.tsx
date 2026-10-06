@@ -27,10 +27,6 @@ import {
 import { marketingLinkLanguage } from '@/seo/marketingLinks'
 import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
 
-/* Tile groups, setup labels and the display names all live in
-   seo/channelsContent: the crawler snapshot names the same apps in the same
-   groups, and it cannot do that from a second copy of the list. */
-
 /* The hero figure is a sky: the two runtimes standing on a planet at the
    bottom edge, the thirteen channels orbiting above them as bodies.
 

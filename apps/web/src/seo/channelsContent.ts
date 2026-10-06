@@ -1,11 +1,6 @@
 import type { ChannelProviderName } from '@manyfold/shared'
 import { channelLabel } from '@/lib/channelMeta'
 
-// The channels page's content tables, here rather than in the page for the
-// same reason landingContent.ts exists: the crawler snapshot and the
-// interactive page have to name the same apps in the same groups, and a
-// second copy of the list is how they stop doing that.
-
 /* The tile used to carry what the setup asks for — scan a code, paste a key,
    install an app — on the theory that a visitor wants it before they pick.
    They do not: by the time somebody is reading this grid they are looking for

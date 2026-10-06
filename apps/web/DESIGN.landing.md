@@ -45,7 +45,7 @@ landing 的真身在 `oss/`（公共仓库 `manyfold-open/manyfold`）。按 `AG
 | 挂载点                                         | 仓库 | 说明                                           |
 | ---------------------------------------------- | ---- | ---------------------------------------------- |
 | `oss/apps/web/src/pages/Landing.tsx:1916`      | 公共 | landing 本体，本轮的目标                       |
-| `oss/apps/web/src/seo/renderStatic.tsx:61`     | 公共 | 爬虫静态快照，必须一起看                       |
+| `oss/apps/web/src/entry-server.tsx`            | 公共 | 构建时预渲染，首帧和爬虫看的就是它             |
 | `apps/web-cloud/src/pages/Challenge.tsx`       | 私有 | 挑战赛页，`challenge.css` 用了 310 处 `--lp-*` |
 | `apps/web-cloud/src/pages/ChallengeStatus.tsx` | 私有 | 同上                                           |
 | `apps/web-cloud/src/pages/Invite.tsx`          | 私有 | 邀请页                                         |
@@ -887,7 +887,7 @@ DOM 形状：
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | **浅色 / 深色**             | 两套值都齐全；对比度见 §1.3；场在深色下自动变负片；主按钮反相                                                                                                                                                                      | 切 `data-theme` 逐屏看                             |
 | **375 / 768 / 1280 / 1920** | 场按 §7.2 换档；容器 ≥1440 不再增长；无横向滚动                                                                                                                                                                                    | 四个宽度各截一屏                                   |
-| **无 JS（爬虫快照）**       | 场**渲染为空**，且**布局不塌** —— 场容器必须有显式高度或绝对定位。文案与结构完整，只有一个 `<h1>`                                                                                                                                  | `renderStatic.tsx` 的产物直接看；`curl` 一次首页   |
+| **无 JS（预渲染 HTML）**    | 场**渲染为空**，且**布局不塌** —— 场容器必须有显式高度或绝对定位。文案与结构完整，只有一个 `<h1>`                                                                                                                                  | build 后看 `dist/index.html`；`curl` 一次首页      |
 | **字体未到（FOUT）**        | 首屏不许因为字体到达而跳版。**把 latin woff2 自托管到 `public/fonts/` 并在 `index.html` 里 `<link rel="preload">`** —— fontsource 的产物名带构建哈希，无法静态 preload。hero 给显式 `min-height` 兜住 CLS                          | Lighthouse 的 CLS ≤0.02；限速到 Slow 3G 录一次首屏 |
 | **reduced-motion**          | 场定格首帧、过渡归 0、翻面直切；页面**完全静止**                                                                                                                                                                                   | 开系统开关后录 5 秒，逐帧对比                      |
 | **forced-colors（高对比）** | 场与网点 `display: none`；阴影去掉；边框改用 `currentColor`；不依赖背景色传达状态                                                                                                                                                  | `@media (forced-colors: active)` 下过一遍          |
@@ -997,7 +997,7 @@ DOM 形状：
 ### P3 · 收尾
 
 - [ ] 重新生成 OG 海报，更新 `poster.lock.json`
-- [ ] `renderStatic.tsx` 静态快照过一遍（爬虫看到的是同一套 `.landing-root`）
+- [ ] 预渲染产物过一遍：build 后看 `dist/index.html`（爬虫和首帧看到的是同一套 `.landing-root`）
 - [ ] `pnpm changeset`（landing 是用户可见变更，必须有）
 - [ ] `pnpm check && pnpm lint && pnpm knip`（knip 最容易漏）
 - [ ] `pnpm build`
@@ -1063,7 +1063,7 @@ DOM 形状：
 
 **场景**
 
-- [ ] 无 JS（爬虫快照）下布局不塌、只有一个 `<h1>`
+- [ ] 无 JS（预渲染 HTML）下布局不塌、只有一个 `<h1>`
 - [ ] forced-colors 下场消失、状态不依赖背景色
 - [ ] `@media print` 下强制浅色、场消失
 - [ ] 切 `de` / `ru` hero 不溢出到第四行；切 `zh` / `ja` 标题走宋体且强调是实色

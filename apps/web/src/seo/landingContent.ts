@@ -1,7 +1,7 @@
 import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 import { worksWithEditionFrameworks } from '@/seo/worksWithEdition'
-// Shared between the interactive landing page and the build-time landing
-// snapshot so the crawler HTML and the hydrated page cannot drift.
+// The landing's content tables, outside the page because the edition slot
+// (worksWithEdition.ts) and a composition's pages read them too.
 
 export interface PricingTier {
     id: 'free' | 'hobby' | 'plus' | 'pro'
