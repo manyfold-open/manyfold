@@ -82,7 +82,11 @@ export default defineConfig(({ mode, isSsrBuild }) => {
         // ESM with extensionless imports that Node will not resolve.
         ssr: { noExternal: true },
         build: {
-            ...(isSsrBuild ? { outDir: 'dist-ssr', copyPublicDir: false } : {}),
+            // The prerender reads the client manifest to link a lazy marketing
+            // route's stylesheets from its page, then deletes it.
+            ...(isSsrBuild
+                ? { outDir: 'dist-ssr', copyPublicDir: false }
+                : { manifest: true }),
             // Inlining small font subsets forces every language's bytes into
             // the render-blocking stylesheet instead of honoring unicode-range.
             assetsInlineLimit: (filePath) =>

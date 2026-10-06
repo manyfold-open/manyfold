@@ -1,12 +1,12 @@
 import { StrictMode } from 'react'
 import { renderToPipeableStream } from 'react-dom/server'
 import { StaticRouter } from 'react-router-dom/server'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setLanguage, type Language } from '@manyfold/i18n'
 import '@/lib/editionFrameworks'
-import App from '@/App'
+import App, { marketingRouteModule } from '@/App'
 import AnalyticsConsentBanner from '@/components/AnalyticsConsentBanner'
 import { AppAuthProvider } from '@/lib/auth'
 import { FontSizeProvider } from '@/lib/fontSize'
@@ -86,6 +86,37 @@ const fontPreloadTags = (assets: string[], patterns: RegExp[]): string =>
         )
         .join('\n        ')
 
+interface ManifestChunk {
+    file: string
+    css?: string[]
+    imports?: string[]
+}
+
+// The stylesheets a lazy marketing route's chunk brings, its static imports
+// included, minus the entry's own: Vite links those only when the chunk
+// loads, and a prerendered page has to paint with them.
+const routeStylesheets = (
+    manifest: Record<string, ManifestChunk>,
+    module: string | undefined
+): string[] => {
+    const key = Object.keys(manifest).find(
+        (name) => name === module || name.endsWith(`/${module}`)
+    )
+    if (!module || !key) return []
+    const entryCss = new Set(manifest['index.html']?.css ?? [])
+    const seen = new Set<string>()
+    const css = new Set<string>()
+    const walk = (name: string): void => {
+        if (seen.has(name)) return
+        seen.add(name)
+        for (const file of manifest[name]?.css ?? [])
+            if (!entryCss.has(file)) css.add(file)
+        for (const imported of manifest[name]?.imports ?? []) walk(imported)
+    }
+    walk(key)
+    return [...css]
+}
+
 // Post-build step: turns the client build's shell into app.html, 404.html,
 // robots.txt, sitemap.xml and one prerendered page per manifest entry.
 // Environment awareness comes from VITE_MF_ENV — anything but 'production'
@@ -98,6 +129,9 @@ export const renderStaticPages = async (
     const env = resolveWebEnv(process.env.VITE_MF_ENV)
     const shell = await readFile(join(distDir, 'index.html'), 'utf8')
     const assets = await readdir(join(distDir, 'assets')).catch(() => [])
+    const manifest = JSON.parse(
+        await readFile(join(distDir, '.vite/manifest.json'), 'utf8')
+    ) as Record<string, ManifestChunk>
 
     // From the pristine shell, before index.html is overwritten below.
     await writeFile(
@@ -110,11 +144,21 @@ export const renderStaticPages = async (
 
     for (const entry of seoPageEntries()) {
         beforePage(entry.path)
+        const stylesheets = routeStylesheets(
+            manifest,
+            marketingRouteModule(entry.path)
+        )
         const html = buildPageHtml(shell, {
             entry,
             bodyHtml: await renderMarketingPage(entry.path, entry.language),
             env,
-            preloadTags: fontPreloadTags(assets, MARKETING_FONTS)
+            preloadTags: [
+                fontPreloadTags(assets, MARKETING_FONTS),
+                ...stylesheets.map(
+                    (file) =>
+                        `<link rel="stylesheet" crossorigin href="/${file}" />`
+                )
+            ].join('\n        ')
         })
         const target =
             entry.path === '/'
@@ -124,4 +168,5 @@ export const renderStaticPages = async (
         await writeFile(target, html)
         console.log(`rendered ${entry.path} (${env})`)
     }
+    await rm(join(distDir, '.vite'), { recursive: true, force: true })
 }

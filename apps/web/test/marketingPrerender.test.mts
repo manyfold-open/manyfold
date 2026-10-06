@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { extname, join, resolve } from 'node:path'
+import { extname, join, relative, resolve } from 'node:path'
 import test from 'node:test'
 import { chromium, type Page } from 'playwright'
 import { build } from 'vite'
@@ -26,6 +26,26 @@ const VISITORS: Record<string, Record<string, string>> = {
     'signed-in session': { mf_session: 'mfs_fixture' },
     'consent given': { 'mf.web.analyticsConsent': 'granted' }
 }
+
+// Every prerendered page the build wrote, a composition's included when the
+// build ran with its overlay (MF_WEB_OVERLAY_DIR).
+const prerenderedPages = (dist: string): string[] =>
+    readdirSync(dist, { recursive: true, encoding: 'utf8' })
+        .filter((file) => file === 'index.html' || file.endsWith('/index.html'))
+        .filter((file) =>
+            readFileSync(join(dist, file), 'utf8').includes('data-prerendered')
+        )
+        .map((file) => {
+            const dir = relative('.', file.replace(/\/?index\.html$/, ''))
+            return dir === '' ? '/' : dir === 'zh' ? '/zh/' : `/${dir}`
+        })
+
+const settled = (page: Page): Promise<unknown> =>
+    page.waitForFunction(() =>
+        Object.keys(document.querySelector('h1') ?? {}).some((key) =>
+            key.startsWith('__reactFiber')
+        )
+    )
 
 const worldDrawn = (page: Page): Promise<unknown> =>
     page.waitForFunction(
@@ -77,8 +97,13 @@ test(
 
             const text = (html: string): string =>
                 html.replace(/<[^>]+>/g, '').replace(/\s+/g, '')
-            for (const entry of seoPageEntries()) {
-                const path = entry.path
+            const pages = prerenderedPages(dist)
+            const core = new Map(
+                seoPageEntries().map((entry) => [entry.path, entry])
+            )
+            for (const entry of core.values())
+                assert.ok(pages.includes(entry.path), `${entry.path} was not prerendered`)
+            for (const path of pages) {
                 const file =
                     path === '/'
                         ? 'index.html'
@@ -86,11 +111,13 @@ test(
                 const html = readFileSync(join(dist, file), 'utf8')
                 const h1s = html.match(/<h1[\s>][\s\S]*?<\/h1>/g) ?? []
                 assert.equal(h1s.length, 1, `${path} needs exactly one H1`)
-                assert.equal(
-                    text(h1s[0]),
-                    text(entry.copy.h1),
-                    `${path} H1 drifted from the manifest`
-                )
+                const entry = core.get(path)
+                if (entry)
+                    assert.equal(
+                        text(h1s[0]),
+                        text(entry.copy.h1),
+                        `${path} H1 drifted from the manifest`
+                    )
                 assert.match(html, /<div id="root" data-prerendered="">/)
                 assert.doesNotMatch(
                     html,
@@ -126,9 +153,22 @@ test(
             const server = createServer(async (request, response) => {
                 const path = new URL(request.url!, 'http://owned').pathname
                 if (path.startsWith('/api/')) {
-                    if (path === '/api/auth/config') authCalls++
                     response.setHeader('content-type', 'application/json')
-                    return response.end(JSON.stringify({ configured: false }))
+                    // A configured deployment, as in production: an
+                    // unconfigured answer swaps the auth provider and
+                    // remounts every page, hydrated or not.
+                    if (path === '/api/auth/config') {
+                        authCalls++
+                        return response.end(
+                            JSON.stringify({
+                                configured: true,
+                                provider: 'native',
+                                methods: { password: true }
+                            })
+                        )
+                    }
+                    response.statusCode = 401
+                    return response.end('{}')
                 }
                 if (path === entryPath && !entryRequestedAt)
                     entryRequestedAt = Date.now()
@@ -222,8 +262,10 @@ test(
                 assert.deepEqual(errors, [])
                 await context.close()
 
-                for (const [visitor, stored] of Object.entries(VISITORS)) {
-                    for (const path of ['/', '/zh/']) {
+                for (const path of pages) {
+                    const visitors: Record<string, Record<string, string>> =
+                        { 'first visit': {}, ...VISITORS }
+                    for (const [visitor, stored] of Object.entries(visitors)) {
                         const visit = await browser.newContext()
                         await visit.addInitScript((items) => {
                             for (const [key, value] of Object.entries(items))
@@ -240,11 +282,28 @@ test(
                                 : route.abort()
                         )
                         await visitPage.goto(origin + path)
-                        await worldDrawn(visitPage)
+                        await settled(visitPage)
                         assert.deepEqual(
                             visitErrors,
                             [],
                             `${path} with ${visitor} failed to hydrate`
+                        )
+                        // A stylesheet that arrives after the first paint
+                        // restyles a page the visitor is already looking at.
+                        const late = await visitPage.evaluate(() => {
+                            const paint = performance.getEntriesByName(
+                                'first-contentful-paint'
+                            )[0]?.startTime
+                            return performance
+                                .getEntriesByType('resource')
+                                .filter((r) => r.name.endsWith('.css'))
+                                .filter((r) => r.startTime > paint)
+                                .map((r) => r.name)
+                        })
+                        assert.deepEqual(
+                            late,
+                            [],
+                            `${path} loads stylesheets after its first paint`
                         )
                         await visit.close()
                     }
