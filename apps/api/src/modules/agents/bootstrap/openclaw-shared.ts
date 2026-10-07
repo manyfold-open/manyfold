@@ -111,9 +111,13 @@ export const buildOpenclawConfigJson = (opts: OpenclawConfigOptions): string =>
                 customBindHost: opts.bindHost,
                 auth: { mode: 'token', token: opts.gatewayToken },
                 remote: { token: opts.gatewayToken },
+                // Seen on staging [2026-10-07]: OpenClaw 2026.9.8 refuses
+                // `controlUi.allowInsecureAuth` ("Unrecognized key", exit 78);
+                // it was retired in 2026.8. It never let the Control UI in
+                // through the ingress anyway: only dangerouslyDisableDeviceAuth
+                // bypasses device auth for a non-local client.
                 controlUi: {
                     enabled: opts.controlUiEnabled,
-                    allowInsecureAuth: true,
                     allowedOrigins: ['*'],
                     dangerouslyDisableDeviceAuth: true
                 },
