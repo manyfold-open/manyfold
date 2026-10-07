@@ -252,7 +252,12 @@ export interface ChannelProvider {
     // strict enables write-time-only checks (channel create/update). Runtime
     // parsing must stay lenient so existing stored configs keep working.
     validateConfig(config: unknown, opts?: { strict?: boolean }): ChannelConfig
-    validateCredentials(credentials: unknown): ChannelCredentials | null
+    // previous is the stored credentials when an update replaces them, so a
+    // provider can keep a field the caller left out.
+    validateCredentials(
+        credentials: unknown,
+        opts?: { previous?: ChannelCredentials | null }
+    ): ChannelCredentials | null
     // True when start() owns a live connection (websocket/sync loop) whose
     // loss is recoverable by restarting the handle. The manager only
     // auto-reconnects errored channels for these; webhook-style providers

@@ -167,6 +167,41 @@ test('weixin validateConfig normalizes and validateCredentials requires token', 
     assert.equal(creds?.baseUrl, 'https://idc.ilinkai.weixin.qq.com')
 })
 
+test('weixin a replacement token keeps the stored gateway unless one is named', () => {
+    const provider = providerFor()
+    const international = 'https://ilinkai.wechat.com'
+    const previous = { botToken: 'weixin-bot-token-old', baseUrl: international }
+    // The settings form sends baseUrl: null; the CLI may leave it out.
+    for (const update of [
+        { botToken: 'weixin-bot-token-new' },
+        { botToken: 'weixin-bot-token-new', baseUrl: null }
+    ])
+        assert.deepEqual(provider.validateCredentials(update, { previous }), {
+            botToken: 'weixin-bot-token-new',
+            baseUrl: international
+        })
+    assert.equal(
+        provider.validateCredentials(
+            {
+                botToken: 'weixin-bot-token-new',
+                baseUrl: 'https://ilinkai.weixin.qq.com/'
+            },
+            { previous }
+        )?.baseUrl,
+        'https://ilinkai.weixin.qq.com',
+        'a named gateway still wins'
+    )
+    // Without stored credentials (create), an unnamed gateway is the default.
+    for (const opts of [undefined, { previous: null }])
+        assert.equal(
+            provider.validateCredentials(
+                { botToken: 'weixin-bot-token-new', baseUrl: null },
+                opts
+            )?.baseUrl,
+            null
+        )
+})
+
 test('weixin computeScopeKey and evaluateInboundActor', () => {
     const provider = providerFor()
     const event = {

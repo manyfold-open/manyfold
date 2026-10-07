@@ -1,4 +1,5 @@
 import type {
+    ChannelCredentials,
     ChannelTestResult,
     WeixinChannelConfig,
     WeixinChannelCredentials
@@ -321,7 +322,8 @@ export class WeixinChannelProvider implements ChannelProvider {
     }
 
     validateCredentials(
-        credentials: unknown
+        credentials: unknown,
+        opts: { previous?: ChannelCredentials | null } = {}
     ): WeixinChannelCredentials | null {
         if (credentials === null || credentials === undefined) return null
         if (typeof credentials !== 'object')
@@ -330,9 +332,14 @@ export class WeixinChannelProvider implements ChannelProvider {
         const botToken = typeof c.botToken === 'string' ? c.botToken.trim() : ''
         if (botToken.length < 8 || /\s/.test(botToken))
             throw new BadRequestException('credentials.botToken is required')
+        // The gateway is the region the bot's QR login bound it to, so a
+        // replacement token keeps the stored one unless the caller names a
+        // gateway: falling back to the default would move an international
+        // bot onto the domestic host.
+        const previous = opts.previous as WeixinChannelCredentials | null
         return {
             botToken,
-            baseUrl: normalizeBaseUrl(c.baseUrl)
+            baseUrl: normalizeBaseUrl(c.baseUrl) ?? previous?.baseUrl ?? null
         }
     }
 
