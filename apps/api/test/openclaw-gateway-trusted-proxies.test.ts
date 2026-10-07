@@ -62,3 +62,16 @@ test('loopback stays trusted for same-host callers', () => {
     assert.ok(trusted.includes('127.0.0.1'))
     assert.ok(trusted.includes('::1'))
 })
+
+// OpenClaw validates gateway.controlUi strictly: 2026.9.8 exits 78 on a key it
+// retired (allowInsecureAuth, retired in 2026.8), so a gateway written with one
+// never starts.
+test('the Control UI block carries only keys every supported OpenClaw accepts', () => {
+    const controlUi = gatewayOf().controlUi as Record<string, unknown>
+    assert.deepEqual(Object.keys(controlUi).sort(), [
+        'allowedOrigins',
+        'dangerouslyDisableDeviceAuth',
+        'enabled'
+    ])
+    assert.equal(controlUi.dangerouslyDisableDeviceAuth, true)
+})

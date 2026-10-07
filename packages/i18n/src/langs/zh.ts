@@ -907,7 +907,36 @@ const zh: Translations = {
             promptLocal:
                 '这是我本地的 Manyfold 开发环境（{{host}}）：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
             promptOther:
-                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。'
+                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
+            stepPaste: '粘贴到你的 agent 里',
+            stepCopied: '已复制，粘贴到你的 agent 里',
+            stepApprove: '批准登录',
+            stepApproveHint: '你的 agent 会打开一个 Manyfold 页面或给出一个验证码，在这台电脑或手机上批准即可。',
+            stepConnected: '已连接',
+            stuck: '还没动静？看看 agent 的终端里有没有链接或验证码。',
+            waitingHint: '可以先关掉这个窗口，连接成功后侧栏会显示。',
+            connectedTitle: '你的 agent 已连接',
+            connectedDescription: '试着问它：',
+            tryPrompt: '列出我的 Manyfold agents，说说每个是做什么的。'
+        },
+        agentConnection: {
+            connect: '连接 agent',
+            connected: '已连接',
+            inUse: '使用中',
+            connectHint: '在 Claude Code、Codex 或任何编程 agent 中使用 Manyfold',
+            connectedHint: '你的 agent 已连接 Manyfold',
+            inUseHint: '你的 agent 正在使用 Manyfold',
+            panelTitle: '你的 agent',
+            lastRequest: '最近请求 {{when}}',
+            noRequests: '还没有请求',
+            signedIn: '{{when}}通过 mf login 登录',
+            signInCount: '{{count}} 个登录',
+            connectAnother: '连接另一个 agent',
+            manage: '管理登录',
+            disconnect: '断开连接',
+            disconnectConfirm: '断开你的 agent？之后它需要重新运行 mf login。',
+            disconnectConfirmMany:
+                '断开全部 {{count}} 个登录？每个 agent 都需要重新运行 mf login。'
         },
         agentSettings: {
             timing: {
@@ -1983,8 +2012,9 @@ const zh: Translations = {
             // every name in it is a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: '创建你的第一个 Agent',
-            useInAgentCta: '在你的 agent 中使用',
-            useInAgentSteps: '查看具体步骤',
+            useInAgentCta: '让你的 agent 用上 Manyfold',
+            useInAgentPaste: '粘贴给你的 agent',
+            useInAgentFailed: '改为打开指南',
             faqQ1: '这只是 Claude Code 或 Codex 的一层壳吗？',
             faqA1: '不是。每个框架都以原生形态运行，保留自己的执行模型、模型配置和工作区语义。Manyfold 是它们外面那一层：运行时、工作区、编排、交付与计量。框架发布新能力的当天，你就能用上。',
             faqQ2: '这和自己开一台装好智能体的虚拟机有什么区别？',
@@ -2707,8 +2737,6 @@ const zh: Translations = {
             requestExpired: '此权限请求已过期或不再有效，请让 Agent 重新请求访问权限。',
             requestNotFound:
                 '找不到此权限请求。它可能已处理，或属于其他账号。',
-            requestingAgent: '请求 Agent',
-            capabilitiesRequested: '请求的能力',
             capabilitiesHint:
                 '选择要授予的能力。高风险能力默认未选中 — 仅在信任此 Agent 时选择。',
             selectCapability: '至少选择一项要授予的能力。',
@@ -2730,7 +2758,6 @@ const zh: Translations = {
             updated: '权限已更新。Agent 会在下次请求时获得新的能力。',
             grantDoneHint: 'Agent 会获取新的权限并继续运行。你可以关闭此窗口。',
             pageTitle: 'Agent 权限请求',
-            pageSubtitle: '查看此 Agent 请求的权限',
             openRequestPage: '打开请求页面',
             wantsCapabilities: '想要新的能力。查看并批准后它才能继续。',
             wantsCapabilitiesGeneric:
@@ -3972,17 +3999,17 @@ const zh: Translations = {
         },
         cliLogin: {
             titleLogin: '批准来自终端或 agent 的登录',
-            subtitleLogin:
-                '你在终端运行、或由你的 AI agent 运行的 mf CLI（mf login 或 mf setup）请求使用你的 Manyfold 账号。',
-            codeCheckHint: '确认下方代码与终端或 agent 显示的一致：',
+            codeCheckHint: '仅当下方代码与终端或 agent 显示的一致时才授权：',
             signedInAs: '当前身份',
             authorize: '授权登录',
             authorizing: '授权中…',
             redirecting: '正在完成登录…',
-            consequence: '授权后，那台机器上的 CLI 将以你的身份访问你的账号。',
-            safety: '你和你的 agent 刚才都没有发起登录？直接关闭本页即可，未经授权不会发生任何事。',
+            consequence: 'mf CLI 将以你的身份登录，拥有你账号的完整访问权限。',
+            useCodeInstead: '不在运行 mf 的那台电脑上？改用授权码授权',
             authCodeTitle: '最后一步',
             authCodeHint: '把这段代码粘贴回终端，或发给你的 agent，完成登录：',
+            authCodeHintRedirect:
+                '把这段代码发给你的 agent，或在终端运行 mf login --auth-code 并带上它，完成登录：',
             expired: '该请求已过期。请在终端或 agent 里重新发起登录，获取新的链接。',
             alreadyDone: '该请求已在其他标签页完成。',
             missingRequest: '链接缺少登录请求参数，请从终端或 agent 复制完整 URL。',
@@ -3991,16 +4018,13 @@ const zh: Translations = {
         },
         connectA2a: {
             title: '将 agent 连接到应用',
-            subtitle: '一个应用请求连接你 Manyfold 账号下的 agent。',
-            codeCheckHint: '确认下方代码与应用里显示的一致：',
+            codeCheckHint: '仅当这次连接由你本人发起、且代码与应用里显示的一致时才批准：',
             signedInAs: '当前身份',
             requesterLabel: '发起请求的应用',
             unverifiedNote: '名称与 URL 由请求方自行提供，Manyfold 未做验证。',
             consequence:
                 '批准后，该应用可以以你的名义向选中的 agent 发消息并读取其任务结果。',
-            safety: '只有当你刚刚在该应用里主动发起连接时才继续。若这个链接是别人发给你的，请直接关闭本页。',
             agentsLabel: '要连接的 agent',
-            agentsHint: '应用会为每个选中的 agent 拿到一个独立的访问 token。',
             noAgents: '你的账号下还没有 agent。',
             exposedBadge: 'A2A 已开',
             notExposedBadge: 'A2A 未开',

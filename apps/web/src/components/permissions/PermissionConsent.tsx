@@ -215,8 +215,8 @@ const PermissionConsent: FC<Props> = ({
     if (load.kind === 'resolved') {
         const count = load.preview.approvedScopes.length
         return (
-            <>
-                <div className='bg-surface-subtle shadow-ring-light text-ui rounded-md px-3.5 py-3'>
+            <Ended onDismiss={onDismiss}>
+                <p className='text-ui text-fg'>
                     {load.preview.status === 'approved'
                         ? t('web.permissions.granted', {
                               count,
@@ -228,90 +228,65 @@ const PermissionConsent: FC<Props> = ({
                               name: load.preview.agentName
                           })
                         : t('web.permissions.declined')}
-                </div>
-                <DismissButton
-                    label={t('web.permissions.close')}
-                    onClick={onDismiss}
-                />
-            </>
+                </p>
+            </Ended>
         )
     }
 
     if (load.kind === 'expired') {
         return (
-            <>
-                <div className='workbench-alert-error'>
+            <Ended onDismiss={onDismiss}>
+                <div className='workbench-alert-error' role='alert'>
                     {t('web.permissions.requestExpired')}
                 </div>
-                <DismissButton
-                    label={t('web.permissions.close')}
-                    onClick={onDismiss}
-                />
-            </>
+            </Ended>
         )
     }
 
     if (load.kind === 'not_found') {
         return (
-            <>
-                <div className='workbench-alert-error'>
+            <Ended onDismiss={onDismiss}>
+                <div className='workbench-alert-error' role='alert'>
                     {t('web.permissions.requestNotFound')}
                 </div>
-                <DismissButton
-                    label={t('web.permissions.close')}
-                    onClick={onDismiss}
-                />
-            </>
+            </Ended>
         )
     }
 
     if (load.kind === 'error') {
         return (
-            <>
-                <div className='workbench-alert-error'>{load.message}</div>
-                <DismissButton
-                    label={t('web.permissions.close')}
-                    onClick={onDismiss}
-                />
-            </>
+            <Ended onDismiss={onDismiss}>
+                <div className='workbench-alert-error' role='alert'>
+                    {load.message}
+                </div>
+            </Ended>
         )
     }
 
     return (
-        <div className='space-y-5'>
-            <div>
-                <div className='workbench-field-label'>
-                    {t('web.permissions.requestingAgent')}
-                </div>
-                <div className='text-fg text-ui font-mono'>
+        <div className='space-y-4'>
+            <p className='text-ui text-muted'>
+                <span className='text-fg font-mono'>
                     {load.preview.agentName}
-                </div>
-            </div>
+                </span>{' '}
+                {t('web.permissions.wantsCapabilities')}
+            </p>
 
             <div>
-                <div className='workbench-field-label mb-2'>
-                    {t('web.permissions.capabilitiesRequested')}
-                </div>
-                <p className='text-caption text-subtle mb-3'>
-                    {t('web.permissions.capabilitiesHint')}
-                </p>
-                <ul className='space-y-2'>
+                <ul className='border-divider divide-divider divide-y overflow-hidden rounded-sm border'>
                     {orderedScopes.map((meta) => {
                         const isSelected = selected.has(meta.scope)
                         const isHigh = meta.danger === 'high'
                         return (
                             <li
                                 key={meta.scope}
-                                className={[
-                                    'border-divider bg-surface rounded-md border px-3.5 py-3 transition-shadow',
+                                className={
                                     isHigh && isSelected
-                                        ? 'ring-workflow-ship/40 ring-2'
-                                        : ''
-                                ]
-                                    .filter(Boolean)
-                                    .join(' ')}
+                                        ? 'ring-workflow-ship/40 ring-2 ring-inset transition-shadow'
+                                        : 'transition-shadow'
+                                }
                             >
-                                <label className='flex cursor-pointer items-start gap-3'>
+                                <label className='flex cursor-pointer items-start gap-3 px-3.5 py-3'>
                                     <input
                                         type='checkbox'
                                         className='border-divider text-fg focus-visible:ring-focus mt-0.5 h-4 w-4 rounded'
@@ -344,9 +319,26 @@ const PermissionConsent: FC<Props> = ({
                         )
                     })}
                 </ul>
+                <p className='workbench-hint'>
+                    {t('web.permissions.capabilitiesHint')}
+                </p>
             </div>
 
-            <div className='flex flex-wrap gap-2'>
+            {error && (
+                <div className='workbench-alert-error' role='alert'>
+                    {error}
+                </div>
+            )}
+
+            <div className='flex flex-wrap justify-end gap-2'>
+                <button
+                    type='button'
+                    className='workbench-button-secondary'
+                    disabled={decision !== null}
+                    onClick={() => void doDeny()}
+                >
+                    {denyLabel ?? t('web.permissions.deny')}
+                </button>
                 <button
                     type='button'
                     className='workbench-button-primary'
@@ -357,32 +349,30 @@ const PermissionConsent: FC<Props> = ({
                         ? t('web.permissions.granting')
                         : t('web.permissions.approve')}
                 </button>
-                <button
-                    type='button'
-                    className='workbench-button-secondary'
-                    disabled={decision !== null}
-                    onClick={() => void doDeny()}
-                >
-                    {denyLabel ?? t('web.permissions.deny')}
-                </button>
             </div>
-
-            {error && <div className='workbench-alert-error'>{error}</div>}
         </div>
     )
 }
 
-const DismissButton: FC<{ label: string; onClick: () => void }> = ({
-    label,
-    onClick
-}): ReactNode => (
-    <button
-        type='button'
-        className='workbench-button-secondary'
-        onClick={onClick}
-    >
-        {label}
-    </button>
-)
+const Ended: FC<{ children: ReactNode; onDismiss: () => void }> = ({
+    children,
+    onDismiss
+}): ReactNode => {
+    const { t } = useI18n()
+    return (
+        <div className='space-y-4'>
+            {children}
+            <div className='flex justify-end'>
+                <button
+                    type='button'
+                    className='workbench-button-secondary'
+                    onClick={onDismiss}
+                >
+                    {t('web.permissions.close')}
+                </button>
+            </div>
+        </div>
+    )
+}
 
 export default PermissionConsent

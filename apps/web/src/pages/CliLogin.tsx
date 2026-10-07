@@ -4,10 +4,12 @@ import {
 import type { FC, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
+import DialogPage, { VerificationCode } from '@/components/DialogPage'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorDetailMessage } from '@/lib/errorMessage'
 import { loginUrl, nextPath } from '@/lib/loginRedirect'
+import { isMobileDevice } from '@/lib/mobileDevice'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { useI18n } from '@/lib/i18n'
 
@@ -68,7 +70,7 @@ const CliLoginContent: FC<{
         }
     }, [client, requestId, userCode])
 
-    const doApprove = async (): Promise<void> => {
+    const doApprove = async (showCode: boolean): Promise<void> => {
         if (!requestId) return
         setApprove({ state: 'authorizing' })
         setError(null)
@@ -77,7 +79,12 @@ const CliLoginContent: FC<{
                 requestId,
                 userCode,
             })
-            if (result.redirectUrl) {
+            // The approval returns the auth code even when mf waits on a
+            // 127.0.0.1 redirect, and exchange accepts it either way. A
+            // browser on another device (a phone steering an agent) shows it
+            // to paste: the redirect would reach that device's own 127.0.0.1,
+            // and mf would wait out the whole session.
+            if (result.redirectUrl && !showCode) {
                 setApprove({ state: 'redirecting' })
                 window.location.assign(result.redirectUrl)
                 return
@@ -93,161 +100,130 @@ const CliLoginContent: FC<{
     }
 
     const title = t('web.cliLogin.titleLogin')
-    const subtitle = t('web.cliLogin.subtitleLogin')
 
     if (!requestId || !userCode) {
         return (
-            <Shell title={t('web.cliLogin.titleLogin')}>
-                <div className='workbench-alert-error'>
+            <DialogPage title={title}>
+                <div className='workbench-alert-error' role='alert'>
                     {t('web.cliLogin.missingRequest')}
                 </div>
-            </Shell>
+            </DialogPage>
         )
     }
 
     if (loadError) {
         return (
-            <Shell title={t('web.cliLogin.titleLogin')}>
-                <div className='workbench-alert-error'>{loadError}</div>
-            </Shell>
+            <DialogPage title={title}>
+                <div className='workbench-alert-error' role='alert'>
+                    {loadError}
+                </div>
+            </DialogPage>
         )
     }
 
     if (!session) {
         return (
-            <Shell title={t('web.cliLogin.titleLogin')}>
-                <p className='text-muted text-ui'>
-                    {t('web.cliLogin.loading')}
-                </p>
-            </Shell>
+            <DialogPage title={title} description={t('web.cliLogin.loading')} />
         )
     }
 
     if (session.status === 'expired') {
         return (
-            <Shell title={title}>
-                <div className='workbench-alert-error'>
-                    {t('web.cliLogin.expired')}
-                </div>
-            </Shell>
+            <DialogPage title={title} description={t('web.cliLogin.expired')} />
         )
     }
 
     if (session.status !== 'pending' && approve.state !== 'done') {
         return (
-            <Shell title={title}>
-                <div className='workbench-note'>
-                    {t('web.cliLogin.alreadyDone')}
-                </div>
-            </Shell>
+            <DialogPage
+                title={title}
+                description={t('web.cliLogin.alreadyDone')}
+            />
         )
     }
 
     if (authCode) {
         return (
-            <Shell title={t('web.cliLogin.authCodeTitle')}>
-                <div className='space-y-2'>
-                    <p className='text-fg text-ui'>
-                        {t('web.cliLogin.authCodeHint')}
-                    </p>
-                    <div className='flex items-start gap-2'>
-                        <div className='bg-surface-subtle border-divider min-w-0 flex-1 rounded-md border px-4 py-3 font-mono text-sm break-all'>
-                            {authCode}
-                        </div>
-                        <button
-                            type='button'
-                            onClick={() => {
-                                void navigator.clipboard
-                                    ?.writeText(authCode)
-                                    .then(() => setAuthCodeCopied(true))
-                            }}
-                            className='workbench-button-secondary text-ui h-9 shrink-0 px-3'
-                        >
-                            {authCodeCopied
-                                ? t('common.copied')
-                                : t('common.copy')}
-                        </button>
+            <DialogPage
+                title={t('web.cliLogin.authCodeTitle')}
+                description={t(
+                    session.hasRedirect
+                        ? 'web.cliLogin.authCodeHintRedirect'
+                        : 'web.cliLogin.authCodeHint'
+                )}
+            >
+                <div className='flex items-start gap-2'>
+                    <div className='bg-surface-subtle border-divider min-w-0 flex-1 rounded-sm border px-4 py-3 font-mono text-sm break-all'>
+                        {authCode}
                     </div>
+                    <button
+                        type='button'
+                        onClick={() => {
+                            void navigator.clipboard
+                                ?.writeText(authCode)
+                                .then(() => setAuthCodeCopied(true))
+                        }}
+                        className='workbench-button-secondary text-ui h-9 shrink-0 px-3'
+                    >
+                        {authCodeCopied ? t('common.copied') : t('common.copy')}
+                    </button>
                 </div>
-            </Shell>
+            </DialogPage>
         )
     }
 
+    const mobile = isMobileDevice(navigator)
+    const busy = approve.state !== 'idle'
+
     return (
-        <Shell title={title} subtitle={subtitle}>
+        <DialogPage
+            title={title}
+            description={t('web.cliLogin.consequence')}
+            meta={
+                currentUser?.email && (
+                    <>
+                        {t('web.cliLogin.signedInAs')}{' '}
+                        <span className='text-fg'>{currentUser.email}</span>
+                    </>
+                )
+            }
+            actions={
+                <button
+                    type='button'
+                    className='workbench-button-primary'
+                    disabled={busy}
+                    onClick={() => void doApprove(mobile)}
+                >
+                    {approve.state === 'redirecting'
+                        ? t('web.cliLogin.redirecting')
+                        : approve.state === 'authorizing'
+                          ? t('web.cliLogin.authorizing')
+                          : t('web.cliLogin.authorize')}
+                </button>
+            }
+        >
             <div>
-                <p className='text-fg text-ui font-medium'>
-                    {t('web.cliLogin.codeCheckHint')}
-                </p>
-                <div className='bg-surface-subtle border-divider mt-2 rounded-md border px-4 py-3 text-center font-mono text-xl font-medium'>
-                    {userCode}
-                </div>
+                <VerificationCode
+                    label={t('web.cliLogin.codeCheckHint')}
+                    code={userCode}
+                />
+                {session.hasRedirect && !mobile && (
+                    <button
+                        type='button'
+                        disabled={busy}
+                        onClick={() => void doApprove(true)}
+                        className='text-caption text-link hover:text-link-hover mt-2 block font-medium disabled:opacity-50'
+                    >
+                        {t('web.cliLogin.useCodeInstead')}
+                    </button>
+                )}
             </div>
-
-            {currentUser?.email && (
-                <p className='text-subtle text-caption'>
-                    {t('web.cliLogin.signedInAs')}{' '}
-                    <span className='text-fg'>{currentUser.email}</span>
-                </p>
+            {error && (
+                <div className='workbench-alert-error' role='alert'>
+                    {error}
+                </div>
             )}
-
-            <BrowserBody
-                onApprove={() => void doApprove()}
-                approve={approve}
-            />
-
-            {error && <div className='workbench-alert-error'>{error}</div>}
-
-            <p className='text-subtle text-caption border-t pt-4'>
-                {t('web.cliLogin.safety')}
-            </p>
-        </Shell>
-    )
-}
-
-const Shell: FC<{
-    title: string
-    subtitle?: string
-    children: ReactNode
-}> = ({ title, subtitle, children }): ReactNode => (
-    <div className='text-fg bg-main flex min-h-screen items-center justify-center px-5 py-10'>
-        <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
-            <div className='space-y-5'>
-                <div>
-                    <h1 className='text-h1 text-fg'>{title}</h1>
-                    {subtitle && (
-                        <p className='text-muted text-ui mt-1'>{subtitle}</p>
-                    )}
-                </div>
-                {children}
-            </div>
-        </main>
-    </div>
-)
-
-const BrowserBody: FC<{
-    onApprove: () => void
-    approve: ApproveState
-}> = ({ onApprove, approve }): ReactNode => {
-    const { t } = useI18n()
-    return (
-        <div>
-            <button
-                type='button'
-                className='workbench-button-primary'
-                disabled={approve.state !== 'idle'}
-                onClick={onApprove}
-            >
-                {approve.state === 'redirecting'
-                    ? t('web.cliLogin.redirecting')
-                    : approve.state === 'authorizing'
-                      ? t('web.cliLogin.authorizing')
-                      : t('web.cliLogin.authorize')}
-            </button>
-            <p className='text-subtle text-caption mt-2'>
-                {t('web.cliLogin.consequence')}
-            </p>
-        </div>
+        </DialogPage>
     )
 }
 

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import { Switch } from '@/components/ControlRow'
+import DialogPage, { VerificationCode } from '@/components/DialogPage'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorDetailMessage } from '@/lib/errorMessage'
@@ -138,92 +139,119 @@ const ConnectA2aContent: FC<{
         }
     }
 
+    const title = t('web.connectA2a.title')
+
     if (!requestId || !userCode) {
         return (
-            <Shell title={t('web.connectA2a.title')}>
-                <div className='workbench-alert-error'>
+            <DialogPage title={title}>
+                <div className='workbench-alert-error' role='alert'>
                     {t('web.connectA2a.missingRequest')}
                 </div>
-            </Shell>
+            </DialogPage>
         )
     }
 
     if (loadError) {
         return (
-            <Shell title={t('web.connectA2a.title')}>
-                <div className='workbench-alert-error'>{loadError}</div>
-            </Shell>
+            <DialogPage title={title}>
+                <div className='workbench-alert-error' role='alert'>
+                    {loadError}
+                </div>
+            </DialogPage>
         )
     }
 
     if (!session || agents === null) {
         return (
-            <Shell title={t('web.connectA2a.title')}>
-                <p className='text-muted text-ui'>
-                    {t('web.connectA2a.loading')}
-                </p>
-            </Shell>
+            <DialogPage
+                title={title}
+                description={t('web.connectA2a.loading')}
+            />
         )
     }
 
     if (phase.state === 'done') {
         return (
-            <Shell
+            <DialogPage
                 title={t('web.connectA2a.doneTitle', {
                     count: phase.agentCount
                 })}
-            >
-                <div className='workbench-note'>
-                    {t('web.connectA2a.doneHint', {
-                        clientName: session.clientName
-                    })}
-                </div>
-            </Shell>
+                description={t('web.connectA2a.doneHint', {
+                    clientName: session.clientName
+                })}
+            />
         )
     }
 
     if (phase.state === 'denied') {
         return (
-            <Shell title={t('web.connectA2a.deniedTitle')}>
-                <div className='workbench-note'>
-                    {t('web.connectA2a.deniedHint')}
-                </div>
-            </Shell>
+            <DialogPage
+                title={t('web.connectA2a.deniedTitle')}
+                description={t('web.connectA2a.deniedHint')}
+            />
         )
     }
 
     if (session.status === 'expired') {
         return (
-            <Shell title={t('web.connectA2a.title')}>
-                <div className='workbench-note'>
-                    {t('web.connectA2a.expired')}
-                </div>
-            </Shell>
+            <DialogPage
+                title={title}
+                description={t('web.connectA2a.expired')}
+            />
         )
     }
 
     if (session.status !== 'pending') {
         return (
-            <Shell title={t('web.connectA2a.title')}>
-                <div className='workbench-note'>
-                    {t('web.connectA2a.alreadyDone')}
-                </div>
-            </Shell>
+            <DialogPage
+                title={title}
+                description={t('web.connectA2a.alreadyDone')}
+            />
         )
     }
 
     const busy = phase.state === 'approving'
 
     return (
-        <Shell
-            title={t('web.connectA2a.title')}
-            subtitle={t('web.connectA2a.subtitle')}
+        <DialogPage
+            title={title}
+            description={t('web.connectA2a.consequence')}
+            meta={
+                currentUser?.email && (
+                    <>
+                        {t('web.connectA2a.signedInAs')}{' '}
+                        <span className='text-fg'>{currentUser.email}</span>
+                    </>
+                )
+            }
+            actions={
+                <>
+                    <button
+                        type='button'
+                        className='workbench-button-secondary'
+                        disabled={busy}
+                        onClick={() => void doDeny()}
+                    >
+                        {t('web.connectA2a.deny')}
+                    </button>
+                    <button
+                        type='button'
+                        className='workbench-button-primary'
+                        disabled={busy || selected.size === 0}
+                        onClick={() => void doApprove()}
+                    >
+                        {busy
+                            ? t('web.connectA2a.approving')
+                            : t('web.connectA2a.approve')}
+                    </button>
+                </>
+            }
         >
             <div>
-                <p className='workbench-group-label'>
+                <p className='workbench-field-label'>
                     {t('web.connectA2a.requesterLabel')}
                 </p>
-                <p className='text-fg text-ui mt-1 font-medium'>
+                <p className='text-fg text-ui font-medium'>
                     {session.clientName}
                 </p>
                 {session.clientUrl && (
@@ -231,24 +259,15 @@ const ConnectA2aContent: FC<{
                         {session.clientUrl}
                     </p>
                 )}
-                <p className='workbench-hint'>
+                <p className='text-subtle text-caption mt-0.5'>
                     {t('web.connectA2a.unverifiedNote')}
                 </p>
             </div>
 
-            <div>
-                <p className='text-fg text-ui font-medium'>
-                    {t('web.connectA2a.codeCheckHint')}
-                </p>
-                <div className='bg-surface-subtle border-divider mt-2 rounded-md border px-4 py-3 text-center font-mono text-xl font-medium'>
-                    {userCode}
-                </div>
-            </div>
-
-            <div className='workbench-note'>
-                <p>{t('web.connectA2a.consequence')}</p>
-                <p className='mt-2'>{t('web.connectA2a.safety')}</p>
-            </div>
+            <VerificationCode
+                label={t('web.connectA2a.codeCheckHint')}
+                code={userCode}
+            />
 
             <div>
                 <p className='workbench-field-label'>
@@ -259,16 +278,13 @@ const ConnectA2aContent: FC<{
                         {t('web.connectA2a.noAgents')}
                     </p>
                 ) : (
-                    <ul className='max-h-72 space-y-2 overflow-y-auto'>
+                    <ul className='border-divider divide-divider max-h-72 divide-y overflow-y-auto rounded-sm border'>
                         {agents.map((agent) => {
                             const checked = selected.has(agent.id)
                             const exposed = isExposed(agent)
                             return (
-                                <li
-                                    key={agent.id}
-                                    className='border-divider bg-surface rounded-md border px-3.5 py-3'
-                                >
-                                    <label className='flex cursor-pointer items-center gap-3'>
+                                <li key={agent.id}>
+                                    <label className='flex cursor-pointer items-center gap-3 px-3.5 py-2.5'>
                                         <input
                                             type='checkbox'
                                             className='border-divider text-fg focus-visible:ring-focus h-4 w-4 rounded'
@@ -304,81 +320,33 @@ const ConnectA2aContent: FC<{
                         })}
                     </ul>
                 )}
-                <p className='workbench-hint'>
-                    {t('web.connectA2a.agentsHint')}
-                </p>
+                {unexposedSelected.length > 0 && (
+                    <div className='mt-3 flex items-start gap-3'>
+                        <Switch
+                            checked={enableExposure}
+                            disabled={busy}
+                            onChange={() => setEnableExposure((prev) => !prev)}
+                            ariaLabel={t('web.connectA2a.enableExposureLabel')}
+                        />
+                        <div className='min-w-0'>
+                            <p className='text-ui text-fg'>
+                                {t('web.connectA2a.enableExposureLabel')}
+                            </p>
+                            <p className='text-caption text-workflow-ship mt-0.5'>
+                                {t('web.connectA2a.enableExposureHint')}
+                            </p>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            <div className='border-divider bg-surface flex items-center gap-3 rounded-md border px-3.5 py-3'>
-                <Switch
-                    checked={enableExposure}
-                    disabled={busy}
-                    onChange={() => setEnableExposure((prev) => !prev)}
-                    ariaLabel={t('web.connectA2a.enableExposureLabel')}
-                />
-                <div className='min-w-0'>
-                    <p className='text-ui text-fg font-medium'>
-                        {t('web.connectA2a.enableExposureLabel')}
-                    </p>
-                    {unexposedSelected.length > 0 && (
-                        <p className='text-caption text-workflow-ship mt-0.5'>
-                            {t('web.connectA2a.enableExposureHint')}
-                        </p>
-                    )}
+            {error && (
+                <div className='workbench-alert-error' role='alert'>
+                    {error}
                 </div>
-            </div>
-
-            {currentUser?.email && (
-                <p className='text-subtle text-caption'>
-                    {t('web.connectA2a.signedInAs')}{' '}
-                    <span className='text-fg'>{currentUser.email}</span>
-                </p>
             )}
-
-            {error && <div className='workbench-alert-error'>{error}</div>}
-
-            <div className='flex flex-wrap gap-2'>
-                <button
-                    type='button'
-                    className='workbench-button-primary'
-                    disabled={busy || selected.size === 0}
-                    onClick={() => void doApprove()}
-                >
-                    {busy
-                        ? t('web.connectA2a.approving')
-                        : t('web.connectA2a.approve')}
-                </button>
-                <button
-                    type='button'
-                    className='workbench-button-secondary'
-                    disabled={busy}
-                    onClick={() => void doDeny()}
-                >
-                    {t('web.connectA2a.deny')}
-                </button>
-            </div>
-        </Shell>
+        </DialogPage>
     )
 }
-
-const Shell: FC<{
-    title: string
-    subtitle?: string
-    children: ReactNode
-}> = ({ title, subtitle, children }): ReactNode => (
-    <div className='text-fg bg-main flex min-h-screen items-center justify-center px-5 py-10'>
-        <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
-            <div className='space-y-5'>
-                <div>
-                    <h1 className='text-h1 text-fg'>{title}</h1>
-                    {subtitle && (
-                        <p className='text-muted text-ui mt-1'>{subtitle}</p>
-                    )}
-                </div>
-                {children}
-            </div>
-        </main>
-    </div>
-)
 
 export default ConnectA2a

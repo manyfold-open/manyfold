@@ -97,7 +97,7 @@ export const renderAgentSetupGuide = (input: AgentSetupGuideInput): string => {
         '',
         '1. Do the steps in order. Setup is complete only when step 3 passes.',
         '2. Wait for each command to finish, and never run two logins at once.',
-        '3. Never ask the user for a token or an API key. The only thing they may send you is the one-time code in step 2b.',
+        `3. Never ask the user for a token or an API key. The only thing they may send you is the one-time ${code('mf_auth_')} code from step 2.`,
         `4. Run ${code('mf setup')} or ${code('mf daemon')} commands only if the user asks: they register this computer as a Manyfold host.`,
         `5. Do not replace, update or delete an ${code('mf')} that is already installed, and do not edit shell startup files.`,
         `6. Run the ${code('mf')} commands exactly as written below. The ones that talk to the API carry ${code(target)}; keep it on any other ${code('mf')} command you run for this deployment, and never point another profile at this API: ${code('mf')} sends a profile's saved token to whatever ${code('--api-url')} it is given.`,
@@ -197,7 +197,7 @@ export const renderAgentSetupGuide = (input: AgentSetupGuideInput): string => {
         '',
         `Codex stops background processes as soon as a command returns, so this block does not work there. In Codex, run ${code(`mf ${target} login --json`)} in the foreground instead: it prints the same lines at once and keeps running until the user approves, while you keep reading its output. Any agent: if the log stays empty, or the process is gone before the log shows a result, do the same.`,
         '',
-        `The log shows ${code('Open:')} with a sign-in link and ${code('Code:')} with a short code, and the link opens in the user's browser. Tell the user to approve Manyfold there, and give them both: the page shows the same code, so they can check the request is theirs.`,
+        `The log shows ${code('Open:')} with a sign-in link and ${code('Code:')} with a short code, and the link opens in the user's browser. Tell the user to approve Manyfold there, and give them both: the page shows the same code, so they can check the request is theirs. If they are not at this computer (they may be steering you from a phone), they can open the link on the device they have: the page then shows a code that starts with ${code('mf_auth_')} for them to send you.`,
         '',
         'Waiting for that approval is part of this step, not the end of your turn. Do not ask the user to tell you when they are done. Run this, and run it again for as long as it prints `waiting`; one run takes at most 100 seconds:',
         '',
@@ -206,7 +206,13 @@ export const renderAgentSetupGuide = (input: AgentSetupGuideInput): string => {
             `kill -0 "$(cat ${LOGIN_PID})" 2>/dev/null && echo waiting || cat ${LOGIN_LOG}`
         ),
         '',
-        `Once the login has finished, the log ends with a JSON object. ${code('"ok": true')} means you are signed in: go to step 3. Anything else, for example ${code('login timed out')} after 15 minutes: use 2b.`
+        `Once the login has finished, the log ends with a JSON object. ${code('"ok": true')} means you are signed in: go to step 3. Anything else, for example ${code('login timed out')} after 15 minutes: use 2b.`,
+        '',
+        `If the user sends you a code that starts with ${code('mf_auth_')} instead, they approved on another device, and this login will not finish on its own. Stop it (${code(`kill "$(cat ${LOGIN_PID})"`)}, or end the foreground command in Codex), check that the code is ${code('mf_auth_')} followed only by letters, digits, ${code('_')} or ${code('-')}, and finish with it inside the single quotes. It is already approved, so do not start another sign-in:`,
+        '',
+        ...sh(`mf ${target} login --auth-code '<code>' --json`),
+        '',
+        `Success prints ${code('"ok": true')}: go to step 3.`
     ]
 
     const signInElsewhere = [
