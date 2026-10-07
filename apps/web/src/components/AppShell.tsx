@@ -30,7 +30,7 @@ import {
 import { createPortal } from 'react-dom'
 import { Plus as LucidePlusIcon } from 'lucide-react'
 import {
-    AgentIcon,
+    AgentConnectionIcon,
     CheckIcon,
     ChevronDownIcon,
     ChevronRightIcon,
@@ -60,6 +60,7 @@ import {
     createSessionInvalidationQueue,
     type SessionInvalidationQueue
 } from '@/lib/sessionInvalidation'
+import { useAgentConnection } from '@/hooks/useAgentConnection'
 import { useShellPolling } from '@/hooks/useShellPolling'
 import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { subscribeAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
@@ -71,6 +72,7 @@ import { agentStatusDotClass, agentStatusDotLabel } from '@/lib/agentStatusDot'
 import { AgentIconStatus } from '@/components/AgentStatusDot'
 import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
+import AgentConnectionChip from '@/components/AgentConnectionChip'
 import ConcurrencyIndicator from '@/components/ConcurrencyIndicator'
 import { extraShellOverlays, extraSidebarMeters } from '@/shell-extra'
 import AgentSidebarControls from '@/components/AgentSidebarControls'
@@ -2052,7 +2054,7 @@ const SidebarSettingsMenu: FC<{
                         }}
                         className={sidebarMenuItemClass()}
                     >
-                        <AgentIcon className='h-4 w-4 shrink-0' />
+                        <AgentConnectionIcon className='h-4 w-4 shrink-0' />
                         {t('web.settingsMenu.useInAgent')}
                     </button>
 
@@ -2345,6 +2347,10 @@ const AppShell: FC = (): ReactNode => {
         setUseInAgentOpen(false)
         useInAgentTriggerRef.current?.focus()
     }, [])
+    // One poller for the shell: the rail chip (mounted twice, rail and
+    // drawer) and the setup dialog read the same list, polled faster while
+    // the dialog waits for a sign-in.
+    const agentConnection = useAgentConnection(useInAgentOpen)
 
     const currentAgent = useMemo(
         () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -4164,6 +4170,11 @@ const AppShell: FC = (): ReactNode => {
                         {extraSidebarMeters.map(({ Component, id }) => (
                             <Component key={id} collapsed={collapsed} />
                         ))}
+                        <AgentConnectionChip
+                            connection={agentConnection}
+                            collapsed={collapsed}
+                            onConnect={openUseInAgent}
+                        />
                     </div>
                     <div className={collapsed ? 'flex justify-center' : ''}>
                         <SidebarSettingsMenu
@@ -4351,7 +4362,10 @@ const AppShell: FC = (): ReactNode => {
                     />
                 )}
                 {useInAgentOpen && (
-                    <UseInAgentDialog onClose={closeUseInAgent} />
+                    <UseInAgentDialog
+                        connection={agentConnection}
+                        onClose={closeUseInAgent}
+                    />
                 )}
             </div>
         </div>

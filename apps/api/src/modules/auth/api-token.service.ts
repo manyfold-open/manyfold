@@ -95,6 +95,7 @@ export class ApiTokenService {
             // Tags ephemeral/session tokens (e.g. 'terminal') so the reaper and
             // the personal-token list can target them. Defaults to 'user-grant'.
             tokenKind?: 'user-grant' | 'a2a-grant' | 'terminal'
+            createdVia?: TokenCreatedVia
         },
         db: ApiTokenWriter = this.db
     ): Promise<MintedApiToken> {
@@ -120,7 +121,8 @@ export class ApiTokenService {
             scopes,
             expiresAt,
             createdAt: now,
-            ...(args.tokenKind ? { tokenKind: args.tokenKind } : {})
+            ...(args.tokenKind ? { tokenKind: args.tokenKind } : {}),
+            ...(args.createdVia ? { createdVia: args.createdVia } : {})
         })
 
         return {
@@ -129,7 +131,7 @@ export class ApiTokenService {
             expiresAt,
             scopes,
             agentId: null,
-            createdVia: null
+            createdVia: args.createdVia ?? null
         }
     }
 

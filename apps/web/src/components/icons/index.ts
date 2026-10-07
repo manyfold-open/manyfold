@@ -30,6 +30,7 @@ export {
     MessageCircle as MessageCircleIcon,
     Network as NetworkIcon,
     Plug as PlugIcon,
+    RadioTower as AgentConnectionIcon,
     Sparkles as SparklesIcon,
     Workflow as WorkflowIcon,
     CreditCard as BillingIcon,

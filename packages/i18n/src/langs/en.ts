@@ -930,7 +930,41 @@ const en = {
             promptLocal:
                 'This is my local Manyfold dev stack at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.',
             promptOther:
-                'This is the Manyfold deployment at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.'
+                'This is the Manyfold deployment at {{host}}: sign in with an `mf` profile that is only for it and leave my other `mf` logins and my installed `mf` untouched.',
+            stepPaste: 'Paste it into your agent',
+            stepCopied: 'Copied. Paste it into your agent',
+            stepApprove: 'Approve the sign-in',
+            stepApproveHint:
+                'Your agent opens a Manyfold page or shows a code. Approve it there, on this computer or your phone.',
+            stepConnected: 'Connected',
+            stuck:
+                'Nothing yet? Look for a link or a code in your agent’s terminal.',
+            waitingHint:
+                'You can close this. The sidebar shows when it connects.',
+            connectedTitle: 'Your agent is connected',
+            connectedDescription: 'Try asking it:',
+            tryPrompt: 'List my Manyfold agents and what each one does.'
+        },
+        agentConnection: {
+            connect: 'Connect agent',
+            connected: 'Connected',
+            inUse: 'In use',
+            connectHint:
+                'Use Manyfold from Claude Code, Codex or any coding agent',
+            connectedHint: 'Your agent is connected to Manyfold',
+            inUseHint: 'Your agent is using Manyfold right now',
+            panelTitle: 'Your agent',
+            lastRequest: 'Last request {{when}}',
+            noRequests: 'No requests yet',
+            signedIn: 'Signed in with mf login {{when}}',
+            signInCount: '{{count}} sign-ins',
+            connectAnother: 'Connect another agent',
+            manage: 'Manage sign-ins',
+            disconnect: 'Disconnect',
+            disconnectConfirm:
+                'Disconnect your agent? It will need to run mf login again.',
+            disconnectConfirmMany:
+                'Disconnect all {{count}} sign-ins? Each agent will need to run mf login again.'
         },
         agentSettings: {
             timing: {
