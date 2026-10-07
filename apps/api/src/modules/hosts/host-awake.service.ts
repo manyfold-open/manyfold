@@ -58,6 +58,7 @@ export const whileHeld = async <T>(
 // machine keeps executing (that is the whole point) and suspends on its own
 // soon after. Renewed at a third of the TTL so one failed renew is not fatal.
 export const AWAKE_TTL = '30m'
+const AWAKE_TTL_MS = 30 * 60_000
 const AWAKE_RENEW_MS = 10 * 60_000
 const RELEASE_GRACE_MS = 5_000
 // Inside the shutdown's own close budget (server-bootstrap.ts).
@@ -70,7 +71,13 @@ interface Lease {
     pending: Promise<boolean>
     renew: ReturnType<typeof setInterval>
     grace: ReturnType<typeof setTimeout> | null
+    // A holder handed its work on mid-flight (detach): whoever picked it up
+    // relies on this task until its TTL, so nothing here may delete it.
+    detached: boolean
 }
+
+const leaseName = (): string =>
+    `${AWAKE_HOLD_TASK_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 8)}`
 
 @Injectable()
 export class HostAwakeService implements OnModuleDestroy {
@@ -79,8 +86,15 @@ export class HostAwakeService implements OnModuleDestroy {
     // and the prefix is what marks it as the platform's (isPlatformTaskName),
     // so the sandbox's Tasks surface neither lists it as the agent's nor
     // deletes it on a user's stop.
-    private readonly leaseName = `${AWAKE_HOLD_TASK_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 8)}`
+    private readonly leaseName = leaseName()
     private readonly leases = new Map<string, Lease>()
+    // Until when a detached task of this instance may still carry handed-off
+    // work on a host. A lease opened there meanwhile takes a fresh name: under
+    // the instance's own name its release would delete that task.
+    // Seen on staging [2026-10-07]: a turn detached at shutdown, then the
+    // daemon's reconnect took a config-delivery hold on the same instance;
+    // that hold's release deleted the turn's task and the sprite went cold.
+    private readonly detachedUntil = new Map<string, number>()
     // A closed lease's release still in flight, by host. Every lease of this
     // instance has the same name, so the next lease on that host acquires only
     // once the release has landed: a PUT that overtook the DELETE would be
@@ -129,11 +143,13 @@ export class HostAwakeService implements OnModuleDestroy {
             detach: () => {
                 if (done) return
                 done = true
+                lease.detached = true
                 lease.count -= 1
                 if (lease.count > 0) return
                 clearInterval(lease.renew)
                 if (this.leases.get(host.id) === lease)
                     this.leases.delete(host.id)
+                this.markDetached(host.id)
             }
         }
     }
@@ -155,7 +171,11 @@ export class HostAwakeService implements OnModuleDestroy {
         }
         await Promise.race([
             Promise.allSettled([
-                ...leases.map((lease) => this.release(lease)),
+                // A detached lease carries work handed to another owner: it
+                // stays until its TTL, as the detach promised.
+                ...leases
+                    .filter((lease) => !lease.detached)
+                    .map((lease) => this.release(lease)),
                 // Leases already closing: their release is half done.
                 ...this.closing.values()
             ]),
@@ -176,8 +196,14 @@ export class HostAwakeService implements OnModuleDestroy {
     }
 
     private open(host: RuntimeHostRow): Lease {
-        const name = this.leaseName
-        const closing = this.closing.get(host.id)
+        const until = this.detachedUntil.get(host.id)
+        if (until !== undefined && until <= Date.now())
+            this.detachedUntil.delete(host.id)
+        const fresh = this.detachedUntil.has(host.id)
+        const name = fresh ? leaseName() : this.leaseName
+        // Only a lease of the instance's own name can race the DELETE of the
+        // last one; a fresh name has nothing in flight to wait for.
+        const closing = fresh ? undefined : this.closing.get(host.id)
         const lease: Lease = {
             host,
             name,
@@ -188,7 +214,8 @@ export class HostAwakeService implements OnModuleDestroy {
             renew: setInterval(() => {
                 lease.pending = this.acquire(host, name)
             }, AWAKE_RENEW_MS),
-            grace: null
+            grace: null,
+            detached: false
         }
         if (typeof lease.renew.unref === 'function') lease.renew.unref()
         this.leases.set(host.id, lease)
@@ -199,11 +226,23 @@ export class HostAwakeService implements OnModuleDestroy {
         if (this.leases.get(lease.host.id) !== lease || lease.count > 0) return
         clearInterval(lease.renew)
         this.leases.delete(lease.host.id)
+        // One of its holders detached: the work it handed on still needs the
+        // task, so it lapses by its TTL instead of being deleted.
+        if (lease.detached) {
+            this.markDetached(lease.host.id)
+            return
+        }
         const released = this.release(lease)
         this.closing.set(lease.host.id, released)
         await released
         if (this.closing.get(lease.host.id) === released)
             this.closing.delete(lease.host.id)
+    }
+
+    // Its last renew may have just landed, so the task lives a full TTL from
+    // now at most.
+    private markDetached(hostId: string): void {
+        this.detachedUntil.set(hostId, Date.now() + AWAKE_TTL_MS)
     }
 
     private async release(lease: Lease): Promise<void> {
