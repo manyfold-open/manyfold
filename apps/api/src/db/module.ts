@@ -3,11 +3,13 @@ import { ConfigService } from '@nestjs/config'
 import { createDb } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { BusPgService } from '@/db/bus-pg.service'
+import { onDbConnectionClosed } from '@/db/connection-telemetry'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 
 const drizzleProvider: Provider = {
     provide: DRIZZLE,
-    inject: [ConfigService],
-    useFactory: (config: ConfigService) => {
+    inject: [ConfigService, { token: TelemetryService, optional: true }],
+    useFactory: (config: ConfigService, telemetry?: TelemetryService) => {
         const url = config.get<string>('DATABASE_URL')
         if (!url) throw new Error('DATABASE_URL is required')
         // Pool size stays at the postgres.js default (10) unless explicitly
@@ -18,7 +20,11 @@ const drizzleProvider: Provider = {
             Number.isFinite(rawPoolMax) && rawPoolMax > 0
                 ? Math.floor(rawPoolMax)
                 : undefined
-        return createDb(url, { max, applicationName: 'mf-api' })
+        return createDb(url, {
+            max,
+            applicationName: 'mf-api',
+            onClose: onDbConnectionClosed(telemetry, 'app')
+        })
     }
 }
 

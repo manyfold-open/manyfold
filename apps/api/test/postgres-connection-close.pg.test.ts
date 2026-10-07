@@ -117,3 +117,12 @@ for (const [scenario, how] of [
             })
         }
     )
+
+test(
+    'the pool reports each connection it loses',
+    { skip: !RUN, timeout: 60_000 },
+    async () => {
+        const report = await runScenario('onclose')
+        assert.deepEqual(report, { result: { closes: 1 }, escaped: [] })
+    }
+)

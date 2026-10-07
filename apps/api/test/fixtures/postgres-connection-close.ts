@@ -171,12 +171,33 @@ const lateFinish = (error?: Error) => () =>
         return { sameTransaction: before === after }
     })
 
+// createDb's close hook: one call for the backend this process terminated.
+const onclose = async () => {
+    let closes = 0
+    const db = createDb(url, { max: 1, onClose: () => (closes += 1) })
+    const admin = postgres(url, { max: 1 })
+    try {
+        const [{ pid }] = await db.execute<{ pid: number }>(
+            drizzleSql`select pg_backend_pid() as pid`
+        )
+        await admin`select pg_terminate_backend(${pid}::int)`
+        await sleep(300)
+        return { closes }
+    } finally {
+        await Promise.all([
+            db.$client.end({ timeout: 0 }),
+            admin.end({ timeout: 0 })
+        ])
+    }
+}
+
 const scenarios: Record<string, () => Promise<unknown>> = {
     inflight,
     queued,
     'late-query': lateQuery,
     'late-commit': lateFinish(),
-    'late-rollback': lateFinish(new Error('original callback failed'))
+    'late-rollback': lateFinish(new Error('original callback failed')),
+    onclose
 }
 
 const run = scenarios[process.argv[2] ?? '']
