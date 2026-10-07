@@ -1,11 +1,11 @@
 {
     "name": "@manyfold/web",
-    "version": "2.19.0",
+    "version": "2.21.0",
     "private": true,
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "tsc --noEmit && vite build && tsx scripts/render-static.ts",
+        "build": "tsc --noEmit && vite build && vite build --ssr src/entry-server.tsx && tsx scripts/render-static.ts",
         "preview": "vite preview",
         "check": "tsc --noEmit && tsc --project tsconfig.tests.json",
         "test": "tsx --test test/*.test.ts"

@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 10.7.0
+
+### Minor Changes
+
+- [#678](https://github.com/manyfold-open/manyfold/pull/678) [`b2d915d`](https://github.com/manyfold-open/manyfold/commit/b2d915d2681533d73a78275dad1c39bc02d169e9) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox agent whose workspace sits outside its daemon's own workspace tree, such as one created under the older `~/.nca/workspaces`, gets its context file and its project MCP servers again. Configuration is written through the daemon's protected file calls, which refuse a folder the daemon does not know, so every delivery to such an agent failed on each reconnect while its turns still ran. On a hosted machine the platform now vouches for the agent's workspace on each configuration read and write, as the files view already does. A self-owned computer still accepts only the folders its own daemon registered.
+
+### Patch Changes
+
+- [#678](https://github.com/manyfold-open/manyfold/pull/678) [`b2d915d`](https://github.com/manyfold-open/manyfold/commit/b2d915d2681533d73a78275dad1c39bc02d169e9) Thanks [@yingca1](https://github.com/yingca1)! - A configuration write that fails on a machine now logs which host and agent it was for and why, in fixed words: `outside_allowed_roots`, `timeout`, `offline`, a `config_commit_*` code, or the error's class. This covers both the context file and each MCP scope. Before, the warning said only that a write had failed, and the daemon's own reason was dropped.
+
 ## 10.6.0
 
 ### Minor Changes

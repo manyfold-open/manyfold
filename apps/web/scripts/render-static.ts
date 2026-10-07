@@ -1,63 +1,27 @@
-import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
-import {
-    renderStaticPages,
-    type EditionSeoPages
-} from '../src/seo/renderStatic'
-import type { WorksWithChip } from '../src/seo/landingContent'
-import type { SeoPageDefinition } from '../src/seo/pages'
-import type { SeoSnapshotBodies } from '../src/seo/snapshots'
+import { installFirstVisit } from './prerender-environment'
+import type * as ServerEntry from '../src/entry-server'
 
 const appDir = resolve(import.meta.dirname, '..')
-
-/* The composition's indexable pages, if this is a composition build. The
-   vite overlay resolver (vite-overlay.ts) is a vite plugin, and this step
-   runs under tsx after the bundle is written, so the overlay's modules are
-   loaded by path here instead. MF_WEB_OVERLAY_DIR is the same knob, read the
-   same way: relative to this app's directory.
-
-   Two rules for an overlay module reached from here, both because tsx is
-   not vite: import core modules through `@/` but never overlay-local ones
-   (`@/` resolves into apps/web/src, where they are not), and keep the module
-   free of JSX — a .tsx outside this app is transformed with the classic
-   runtime whatever it declares, and throws on its first element. */
-const loadEditionSeo = async (): Promise<EditionSeoPages> => {
-    const empty: EditionSeoPages = { pages: [], snapshots: {} }
-    const overlay = process.env.MF_WEB_OVERLAY_DIR
-    if (!overlay) return empty
-    const overlayDir = resolve(appDir, overlay)
-    const pagesFile = resolve(overlayDir, 'seo/editionPages.ts')
-    if (!existsSync(pagesFile)) return empty
-    const { EDITION_SEO_PAGES } = (await import(
-        pathToFileURL(pagesFile).href
-    )) as { EDITION_SEO_PAGES: SeoPageDefinition[] }
-    if (EDITION_SEO_PAGES.length === 0) return empty
-    /* Snapshots are required, not optional: snapshotFor throws on a page
-       without one rather than letting it ship somebody else's body. They are
-       data, not components — see seo/snapshots.tsx for why JSX cannot cross
-       this boundary. */
-    const snapshotsFile = resolve(overlayDir, 'seo/editionSnapshots.ts')
-    const { EDITION_SNAPSHOTS } = (await import(
-        pathToFileURL(snapshotsFile).href
-    )) as { EDITION_SNAPSHOTS: SeoSnapshotBodies }
-    return { pages: EDITION_SEO_PAGES, snapshots: EDITION_SNAPSHOTS }
-}
-
-/* The composition's extra "works with" framework chips, loaded by path for
-   the same reason. Plain data, under the same two rules. */
-const loadEditionWorksWith = async (): Promise<readonly WorksWithChip[]> => {
-    const overlay = process.env.MF_WEB_OVERLAY_DIR
-    if (!overlay) return []
-    const file = resolve(appDir, overlay, 'seo/worksWithEdition.ts')
-    if (!existsSync(file)) return []
-    const { worksWithEditionFrameworks } = (await import(
-        pathToFileURL(file).href
-    )) as { worksWithEditionFrameworks: readonly WorksWithChip[] }
-    return worksWithEditionFrameworks
-}
-
-await renderStaticPages(resolve(appDir, 'dist'), {
-    ...(await loadEditionSeo()),
-    worksWithFrameworks: await loadEditionWorksWith()
+// The build writes to dist/ and dist-ssr/; a test points both elsewhere.
+const { values } = parseArgs({
+    options: { dist: { type: 'string' }, ssr: { type: 'string' } }
 })
+const distDir = resolve(values.dist ?? resolve(appDir, 'dist'))
+const ssrDir = resolve(values.ssr ?? resolve(appDir, 'dist-ssr'))
+
+const visit = installFirstVisit()
+// The bundle picks React's development or production build as it loads;
+// the client ships production.
+process.env.NODE_ENV ??= 'production'
+
+// Built by `vite build --ssr src/entry-server.tsx` with the same aliases and
+// overlay as the client, so a composition's pages render here as they boot
+// there.
+const server = (await import(
+    pathToFileURL(resolve(ssrDir, 'entry-server.js')).href
+)) as typeof ServerEntry
+
+await server.renderStaticPages(distDir, visit)

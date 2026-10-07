@@ -27,10 +27,6 @@ import {
 import { marketingLinkLanguage } from '@/seo/marketingLinks'
 import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
 
-/* Tile groups, setup labels and the display names all live in
-   seo/channelsContent: the crawler snapshot names the same apps in the same
-   groups, and it cannot do that from a second copy of the list. */
-
 /* The hero figure is a sky: the two runtimes standing on a planet at the
    bottom edge, the thirteen channels orbiting above them as bodies.
 
@@ -493,9 +489,8 @@ const Setup: FC = (): ReactNode => {
                         </span>
                     </h2>
                 </div>
-                {/* The aside on the third step — where the worry about an
-                    agent in a team's chat actually lands — rides on the
-                    shared table, so the snapshot carries it too. */}
+                {/* The aside on the third step is where the worry about an
+                    agent in a team's chat actually lands. */}
                 <LandingSteps
                     steps={CHANNEL_STEP_KEYS.map((step) => ({
                         title: t(step.title),
