@@ -294,7 +294,11 @@ export class DaemonRegistryService
     }
 
     disconnect(daemonId: string, reason = 'daemon disconnected'): void {
-        void this.disconnectAsync(daemonId, reason)
+        void this.disconnectAsync(daemonId, reason).catch((err) =>
+            this.log.warn(
+                `daemon disconnect cleanup failed daemonId=${daemonId}: ${(err as Error).message}`
+            )
+        )
     }
 
     async touchConnection(daemonId: string): Promise<void> {

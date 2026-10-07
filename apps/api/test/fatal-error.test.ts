@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { describeFatalError } from '../src/fatal-error'
+import {
+    describeFatalError,
+    recoverableDbConnectionCode
+} from '../src/fatal-error'
 
 test('an Error keeps its class, message and a stack that locates the throw site', () => {
     const detail = describeFatalError(new TypeError('db pool exhausted'))
@@ -96,4 +99,49 @@ test('an Error carrying a non-string message at runtime is still described', () 
     const detail = describeFatalError(err)
     assert.equal(detail.errorClass, 'Error')
     assert.equal(detail.errorMessage, '[object Object]')
+})
+
+// postgres.js Errors.connection: the code doubles as errno. A real one is
+// checked against a live server in postgres-connection-close.pg.test.ts.
+const postgresConnectionError = (code: string): Error =>
+    Object.assign(new Error(`write ${code} pgbouncer.fixture.internal:5432`), {
+        code,
+        errno: code,
+        address: 'pgbouncer.fixture.internal',
+        port: 5432
+    })
+
+test('postgres.js connection failures are recoverable rejections', () => {
+    for (const code of [
+        'CONNECTION_CLOSED',
+        'CONNECTION_ENDED',
+        'CONNECTION_DESTROYED',
+        'CONNECT_TIMEOUT'
+    ])
+        assert.equal(
+            recoverableDbConnectionCode(postgresConnectionError(code)),
+            code
+        )
+})
+
+test('anything else stays fatal', () => {
+    // A server-side error carries a SQLSTATE but no errno.
+    const serverError = Object.assign(new Error('terminating connection'), {
+        code: '57P01'
+    })
+    // A socket error from any client: errno is the numeric syscall error.
+    const socketError = Object.assign(new Error('read ECONNRESET'), {
+        code: 'ECONNRESET',
+        errno: -54
+    })
+    for (const reason of [
+        serverError,
+        socketError,
+        postgresConnectionError('COPY_IN_PROGRESS'),
+        new TypeError("Cannot read properties of null (reading 'write')"),
+        { code: 'CONNECTION_CLOSED', errno: 'CONNECTION_CLOSED' },
+        'CONNECTION_CLOSED',
+        undefined
+    ])
+        assert.equal(recoverableDbConnectionCode(reason), null)
 })

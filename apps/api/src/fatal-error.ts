@@ -48,3 +48,24 @@ export const describeFatalError = (error: unknown): FatalErrorDetail => {
         }
     }
 }
+
+// postgres.js raises every connection-level failure through Errors.connection,
+// which sets code and errno to the same string. Such a rejection only means
+// the queries on that connection are gone; the pool reconnects on the next
+// query, so it must not take the process (and every live turn) down with it.
+const RECOVERABLE_DB_CONNECTION_CODES = new Set([
+    'CONNECTION_CLOSED',
+    'CONNECTION_ENDED',
+    'CONNECTION_DESTROYED',
+    'CONNECT_TIMEOUT'
+])
+
+export const recoverableDbConnectionCode = (reason: unknown): string | null => {
+    if (!(reason instanceof Error)) return null
+    const { code, errno } = reason as { code?: unknown; errno?: unknown }
+    return typeof code === 'string' &&
+        code === errno &&
+        RECOVERABLE_DB_CONNECTION_CODES.has(code)
+        ? code
+        : null
+}

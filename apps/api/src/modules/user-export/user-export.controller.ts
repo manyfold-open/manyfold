@@ -41,7 +41,7 @@ export class UserExportController {
             userId,
             requestedBy: actor.userId
         })
-        void this.exports.sweep()
+        this.exports.sweepInBackground()
         return status
     }
 }

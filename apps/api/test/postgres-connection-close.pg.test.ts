@@ -51,7 +51,7 @@ const runScenario = async (name: string): Promise<Report> => {
     return JSON.parse(line.slice('RESULT '.length)) as Report
 }
 
-const closed = { outcome: 'rejected', code: 'CONNECTION_CLOSED' }
+const closed = { outcome: 'rejected', code: 'CONNECTION_CLOSED', recoverable: 'CONNECTION_CLOSED' }
 
 test(
     'a transaction whose backend dies mid-query rejects without touching the dead socket',
@@ -89,7 +89,10 @@ test(
         assert.deepEqual(report, {
             result: {
                 original: closed,
-                replacement: { code: 'CONNECTION_CLOSED' }
+                replacement: {
+                    code: 'CONNECTION_CLOSED',
+                    recoverable: 'CONNECTION_CLOSED'
+                }
             },
             escaped: []
         })

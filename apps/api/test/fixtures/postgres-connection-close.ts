@@ -5,6 +5,7 @@
 import postgres from 'postgres'
 import { sql as drizzleSql } from 'drizzle-orm'
 import { createDb } from '@manyfold/db'
+import { recoverableDbConnectionCode } from '../../src/fatal-error'
 
 const url = process.env.DATABASE_URL
 if (!url) throw new Error('DATABASE_URL is required')
@@ -23,7 +24,8 @@ const PENDING = 'pending'
 const within = <T>(promise: Promise<T>, ms: number): Promise<T | 'pending'> =>
     Promise.race([promise, sleep(ms).then(() => PENDING as 'pending')])
 const codeOf = (err: unknown) => ({
-    code: (err as { code?: string }).code ?? null
+    code: (err as { code?: string }).code ?? null,
+    recoverable: recoverableDbConnectionCode(err)
 })
 
 // The production client: drizzle over createDb, a transaction whose backend
