@@ -1,7 +1,7 @@
 import type { WeixinChannelConfig } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import type { ChannelProviderStateRow, ChannelRow } from '@manyfold/db'
 import type { ChannelsRepository } from '../src/modules/channels/channels.repository'
 import type {
@@ -852,6 +852,145 @@ test('weixin -14 keeps the full one-hour pause across reconnects', async (t) => 
     await flushPoll()
     assert.equal(polls, 2)
     assert.deepEqual(statuses, ['error', 'error', 'error'])
+})
+
+// A gateway whose session dies until `revive()`: getupdates and notifystart
+// answer -14 before it and succeed after it.
+const sessionGateway = (t: TestContext) => {
+    const calls = { polls: 0, starts: 0, stops: 0, pollTokens: [] as string[] }
+    let alive = false
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input)
+            if (url.endsWith('/notifystop')) {
+                calls.stops++
+                return jsonResponse({ ret: 0 })
+            }
+            if (url.endsWith('/notifystart')) {
+                calls.starts++
+                return jsonResponse(alive ? { ret: 0 } : { errcode: -14 })
+            }
+            calls.polls++
+            calls.pollTokens.push(
+                String(new Headers(init?.headers).get('authorization'))
+            )
+            if (!alive) return jsonResponse({ errcode: -14 })
+            return abortingResponse(init?.signal)
+        }
+    )
+    return {
+        calls,
+        revive: () => {
+            alive = true
+        }
+    }
+}
+
+const rescannedCtx = (): ChannelContext => ({
+    ...ctxFor(),
+    credentials: { ...credentials, botToken: 'weixin-bot-token-rescanned' }
+})
+
+test('weixin a successful register ends the -14 pause, so the next start polls at once', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    gateway.revive()
+    assert.equal((await provider.register(ctxFor())).ok, true)
+    const second = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => second.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a failed register keeps the -14 pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    const registered = await provider.register(ctxFor())
+    assert.equal(registered.ok, false)
+    assert.match(registered.message ?? '', /session expired/)
+    const second = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => second.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 1)
+    t.mock.timers.tick(60 * 60_000)
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a successful register wakes a poll loop parked in the pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    const parked = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => parked.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 1)
+    // The Register action re-checks the same token and restarts nothing.
+    gateway.revive()
+    assert.equal((await provider.register(ctxFor())).ok, true)
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a re-scanned token is not held by the old token pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    // The restart carrying the new token may come from the lease holder's
+    // config fingerprint check, with register() run on another instance.
+    gateway.revive()
+    const second = await provider.start(rescannedCtx(), async () => {}, () => {})
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+    assert.equal(gateway.calls.pollTokens[1], 'Bearer weixin-bot-token-rescanned')
+    await second.stop()
+    assert.equal(gateway.calls.stops, 1, 'the new token is not paused')
+})
+
+test('weixin stop inside the -14 pause sends no notifystop', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    // Each manager bounce during the pause is another stop.
+    const parked = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await parked.stop()
+    assert.equal(gateway.calls.polls, 1)
+    assert.equal(gateway.calls.stops, 0)
+})
+
+test('weixin stop outside the pause still sends notifystop', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    gateway.revive()
+    const handle = await providerFor().start(
+        ctxFor(),
+        async () => {},
+        () => {}
+    )
+    await flushPoll()
+    await handle.stop()
+    assert.equal(gateway.calls.polls, 1)
+    assert.equal(gateway.calls.stops, 1)
 })
 
 test('weixin HTTP 524 on sendMessage remains a hard failure', async (t) => {
