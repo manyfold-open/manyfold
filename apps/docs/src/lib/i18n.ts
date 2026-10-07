@@ -308,6 +308,7 @@ type SupportCopy = {
     errorGeneric: string
     errorOffline: string
     errorUnavailable: string
+    errorLimited: string
     retry: string
     jumpToLatest: string
     disclaimer: string
@@ -348,6 +349,7 @@ const supportCopy: Record<SupportLocale, SupportCopy> = {
         errorGeneric: 'Something went wrong. Please try again.',
         errorOffline: 'You appear to be offline. Check your connection.',
         errorUnavailable: 'The assistant is unavailable right now.',
+        errorLimited: 'Too many questions right now. Wait a minute, then try again.',
         retry: 'Retry',
         jumpToLatest: 'Jump to latest',
         disclaimer: 'AI answers can be wrong. Check the linked docs pages.'
@@ -385,6 +387,7 @@ const supportCopy: Record<SupportLocale, SupportCopy> = {
         errorGeneric: '出错了，请重试。',
         errorOffline: '你似乎处于离线状态，请检查网络连接。',
         errorUnavailable: '助手当前不可用。',
+        errorLimited: '提问太频繁了，请稍等一分钟再试。',
         retry: '重试',
         jumpToLatest: '回到最新',
         disclaimer: 'AI 的回答可能有误，请对照引用的文档页面核实。'

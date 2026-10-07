@@ -13,6 +13,8 @@ export interface CreateDbOptions {
     max?: number
     // shows up in pg_stat_activity.application_name for diagnostics
     applicationName?: string
+    // called once per closed pool connection
+    onClose?: () => void
 }
 
 export const createDb = (url: string, opts: CreateDbOptions = {}) => {
@@ -21,11 +23,12 @@ export const createDb = (url: string, opts: CreateDbOptions = {}) => {
         // blanket "name nothing on this client", and its reach is narrower
         // than it looks.
         //
-        // Not pooler compatibility — whether anything sits in front of the
-        // Fly Managed Postgres cluster is an OPEN question, and the way to
-        // settle it is in docs/engineering/database.md. Not what protects
-        // the partial index chat_stream_events_message_terminal_idx either,
-        // which is the next guess once the pooler story dies.
+        // Not pooler compatibility: the Fly deployments reach Postgres
+        // through the cluster's PgBouncer endpoint in session mode (inferred
+        // from LISTEN working through it, #712), where prepared statements
+        // work. Not what protects the partial index
+        // chat_stream_events_message_terminal_idx either, which is the next
+        // guess once the pooler story dies.
         //
         // Measured on local pg 17.10 [2026-08-10] against drizzle-orm 0.36.4
         // and postgres.js 3.4.9: drizzle submits DATA statements through
@@ -47,6 +50,7 @@ export const createDb = (url: string, opts: CreateDbOptions = {}) => {
         // prepare: true, and nothing at all with prepare: false.
         prepare: false,
         ...(opts.max !== undefined ? { max: opts.max } : {}),
+        ...(opts.onClose ? { onclose: opts.onClose } : {}),
         ...(opts.applicationName
             ? { connection: { application_name: opts.applicationName } }
             : {})

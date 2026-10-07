@@ -777,7 +777,13 @@ export class TerminalGateway implements OnModuleInit {
             this.log.log(
                 `terminal.closed auth_operation=${args.operationId} durationMs=${Date.now() - connectedAt}`
             )
-            void runtimeAuth.reconcileLogin(args.userId, args.operationId)
+            void runtimeAuth
+                .reconcileLogin(args.userId, args.operationId)
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `auth login reconcile failed operation=${args.operationId}: ${err.message}`
+                    )
+                )
         }
         try {
             await this.daemon.tunnelAuthLogin({

@@ -19,6 +19,7 @@ const fixtureExtensions = extensionsWith({
     channels: fixtureChannels
 }) as never
 import { LarkChannelProvider } from '../src/modules/channels/providers/lark.provider'
+import { WeixinChannelProvider } from '../src/modules/channels/providers/weixin.provider'
 
 test('ChannelsService.create activates and starts Lark websocket channels', async () => {
     let row: ChannelRow | null = null
@@ -762,4 +763,89 @@ test('switching to an archived channel session is a conflict and renames nothing
     )
     assert.deepEqual(renamed, [], 'a refused PATCH must not half-apply')
     assert.deepEqual(switched, [])
+})
+
+test('update with a pasted WeChat token keeps the international gateway unless the caller names one', async (t) => {
+    const international = 'https://ilinkai.wechat.com'
+    const crypto = {
+        encrypt: (plain: string) => ({
+            ciphertext: Buffer.from(plain).toString('base64'),
+            keyVersion: 1
+        }),
+        decrypt: ({ ciphertext }: { ciphertext: string }) =>
+            Buffer.from(ciphertext, 'base64').toString('utf8')
+    }
+    const stored = (): Record<string, unknown> =>
+        JSON.parse(crypto.decrypt({ ciphertext: row.credentialsCiphertext ?? '' }))
+    let row = makeServiceRow({
+        provider: 'weixin',
+        label: 'WeChat',
+        status: 'error',
+        configJson: { botId: 'bot@im.bot' },
+        credentialsCiphertext: crypto.encrypt(
+            JSON.stringify({
+                botToken: 'weixin-bot-token-old',
+                baseUrl: international
+            })
+        ).ciphertext
+    })
+    const repo = {
+        getById: async (id: string) => (row.id === id ? row : null),
+        getOwned: async (id: string, userId: string) =>
+            row.id === id && row.userId === userId ? row : null,
+        update: async (id: string, patch: Partial<NewChannelRow>) => {
+            if (row.id !== id) return null
+            row = { ...row, ...patch, updatedAt: new Date() } as ChannelRow
+            return row
+        },
+        listDeliveries: async (): Promise<ChannelDeliveryRow[]> => []
+    }
+    const probed: string[] = []
+    t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        probed.push(new URL(String(input)).origin)
+        return new Response(JSON.stringify({ ret: 0 }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+        })
+    })
+    const provider = new WeixinChannelProvider({} as never)
+    const service = new ChannelsService(
+        {
+            select: () => ({
+                from: () => ({
+                    where: () => ({
+                        limit: async () => [{ id: 'agent-1', name: 'Agent One' }]
+                    })
+                })
+            })
+        } as never,
+        repo as never,
+        { get: () => provider } as never,
+        crypto as never,
+        { reload: async () => undefined } as never,
+        { fork: async () => null, switchTo: async () => null } as never,
+        { reserveChannelSlot: async () => undefined } as never,
+        { get: () => undefined } as never,
+        fixtureExtensions
+    )
+
+    // The settings form sends a pasted token with baseUrl: null.
+    await service.update('user-1', 'channel-1', {
+        credentials: { botToken: 'weixin-bot-token-new', baseUrl: null }
+    })
+    assert.deepEqual(stored(), {
+        botToken: 'weixin-bot-token-new',
+        baseUrl: international
+    })
+    assert.deepEqual(probed, [international], 'register asks the bot\'s gateway')
+    assert.equal(row.status, 'active')
+
+    await service.update('user-1', 'channel-1', {
+        credentials: {
+            botToken: 'weixin-bot-token-new',
+            baseUrl: 'https://ilinkai.weixin.qq.com'
+        }
+    })
+    assert.equal(stored().baseUrl, 'https://ilinkai.weixin.qq.com')
+    assert.equal(probed[1], 'https://ilinkai.weixin.qq.com')
 })

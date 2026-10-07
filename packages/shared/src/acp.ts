@@ -382,6 +382,9 @@ export interface OpenclawTurnUsage {
     calls: number
     model: string | null
     provider: string | null
+    // Every distinct provider the summed calls name, in order: the route
+    // attestation follows a turn that one provider served, and only that.
+    providers?: string[]
 }
 
 export type OpenclawTurnUsageDecode =
@@ -448,6 +451,7 @@ export const decodeOpenclawTurnUsage = (
         model: null,
         provider: null
     }
+    const providers: string[] = []
     for (const raw of messages.slice(lastUser + 1)) {
         const m = raw as Record<string, unknown> | null
         if (m?.['role'] !== 'assistant') continue
@@ -460,10 +464,14 @@ export const decodeOpenclawTurnUsage = (
         usage.calls += 1
         if (typeof m['model'] === 'string' && m['model'])
             usage.model = m['model']
-        if (typeof m['provider'] === 'string' && m['provider'])
+        if (typeof m['provider'] === 'string' && m['provider']) {
             usage.provider = m['provider']
+            if (!providers.includes(m['provider'])) providers.push(m['provider'])
+        }
     }
-    return usage.calls === 0 ? { status: 'no_usage' } : { status: 'ok', usage }
+    return usage.calls === 0
+        ? { status: 'no_usage' }
+        : { status: 'ok', usage: { ...usage, providers } }
 }
 
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered

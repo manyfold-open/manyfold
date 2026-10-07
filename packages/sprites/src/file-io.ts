@@ -225,6 +225,11 @@ export const spriteReadFile = async (
         streamResolvedDone = resolve
         streamRejectedDone = reject
     })
+    // done rejects with the error the stream already throws to its reader. A
+    // caller that only iterates the stream must not leave it unhandled, which
+    // ends the API process. Seen on prod [2026-10-01]: a chunk short read
+    // during an MCP config read did exactly that.
+    done.catch(() => {})
 
     const stream: AsyncIterable<Buffer> = {
         [Symbol.asyncIterator]: async function* (): AsyncGenerator<Buffer> {

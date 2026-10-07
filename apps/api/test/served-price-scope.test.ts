@@ -89,6 +89,107 @@ test('an Antigravity CLI credential is priced on the Gemini route it rides', () 
     })
 })
 
+test('a Claude Code credential establishes only the scope of the provider whose key and endpoint it carries', () => {
+    const anthropicKey = randomBytes(32).toString('hex')
+    const antigravityKey = randomBytes(32).toString('hex')
+    // Two managed brands behind one gateway endpoint serve the same model at
+    // different prices; only the key the exec carries tells them apart.
+    const anthropic = {
+        id: 'fixture-anthropic',
+        source: 'managed',
+        managedBrand: 'anthropic',
+        builtInId: null,
+        inferenceProtocol: 'anthropic_messages',
+        baseUrl: 'https://fixture.invalid/claude/'
+    } as UserModelProviderRow
+    const antigravity = {
+        ...anthropic,
+        id: 'fixture-antigravity',
+        managedBrand: 'antigravity_claude'
+    } as UserModelProviderRow
+    const resolve = (
+        patch: Record<string, unknown>,
+        provider: UserModelProviderRow,
+        providerApiKey: string
+    ) =>
+        verifiedCodingPriceScope({
+            framework: 'claude-code',
+            credentials: {
+                anthropicAuthToken: anthropicKey,
+                anthropicBaseUrl: 'https://fixture.invalid/claude',
+                inferenceProtocol: 'anthropic_messages',
+                ...patch
+            },
+            provider,
+            providerApiKey
+        })
+    assert.deepEqual(resolve({}, anthropic, anthropicKey), {
+        modelProviderId: anthropic.id,
+        modelProviderBuiltInId: null,
+        modelProviderManagedBrand: 'anthropic'
+    })
+    assert.deepEqual(
+        resolve({ anthropicAuthToken: antigravityKey }, antigravity, antigravityKey),
+        {
+            modelProviderId: antigravity.id,
+            modelProviderBuiltInId: null,
+            modelProviderManagedBrand: 'antigravity_claude'
+        }
+    )
+    assert.deepEqual(
+        resolve({}, antigravity, antigravityKey),
+        UNKNOWN_PRICE_SCOPE,
+        'a binding that moved to the other brand never reprices this key'
+    )
+    assert.deepEqual(
+        resolve({ anthropicBaseUrl: 'https://other.invalid/claude' }, anthropic, anthropicKey),
+        UNKNOWN_PRICE_SCOPE
+    )
+    assert.deepEqual(
+        resolve({ anthropicBaseUrl: undefined }, anthropic, anthropicKey),
+        UNKNOWN_PRICE_SCOPE,
+        'no base URL dispatches the official endpoint, not the managed one'
+    )
+    assert.deepEqual(
+        resolve({ inferenceProtocol: 'openai_chat_completions' }, anthropic, anthropicKey),
+        UNKNOWN_PRICE_SCOPE
+    )
+    const byo = {
+        ...anthropic,
+        id: 'fixture-byo',
+        source: 'byo',
+        managedBrand: null,
+        baseUrl: null
+    } as UserModelProviderRow
+    assert.deepEqual(
+        resolve({ anthropicBaseUrl: undefined }, byo, anthropicKey),
+        {
+            modelProviderId: byo.id,
+            modelProviderBuiltInId: null,
+            modelProviderManagedBrand: null
+        },
+        'a BYO key on the official endpoint is that provider row'
+    )
+    const builtIn = {
+        ...byo,
+        id: 'fixture-netmind',
+        builtInId: 'netmind',
+        inferenceProtocol: null
+    } as UserModelProviderRow
+    assert.deepEqual(
+        resolve(
+            { anthropicBaseUrl: 'https://api.netmind.ai/inference-api/anthropic' },
+            builtIn,
+            anthropicKey
+        ),
+        {
+            modelProviderId: builtIn.id,
+            modelProviderBuiltInId: 'netmind',
+            modelProviderManagedBrand: null
+        }
+    )
+})
+
 test('a pi credential establishes the scope of the provider its key and vendor route to', () => {
     const key = randomBytes(32).toString('hex')
     const provider = {

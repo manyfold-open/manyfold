@@ -131,7 +131,7 @@ const announcementText = (view: View, state: SupportState): string => {
         case 'stopped':
             return copyOf(view.root, 'copySrStopped')
         case 'error':
-            return copyOf(view.root, 'copyErrorGeneric')
+            return errorText(view, state) || copyOf(view.root, 'copyErrorGeneric')
         default:
             return ''
     }
@@ -141,6 +141,7 @@ const errorText = (view: View, state: SupportState): string => {
     if (state.error === 'offline') return copyOf(view.root, 'copyErrorOffline')
     if (state.error === 'unavailable')
         return copyOf(view.root, 'copyErrorUnavailable')
+    if (state.error === 'limited') return copyOf(view.root, 'copyErrorLimited')
     if (state.error) return copyOf(view.root, 'copyErrorGeneric')
     return ''
 }

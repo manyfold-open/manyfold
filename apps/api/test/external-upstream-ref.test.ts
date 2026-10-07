@@ -601,3 +601,42 @@ test('abort releases a turn parked on the ref barrier without consuming another 
         await server.close()
     }
 })
+
+test('a turn cancelled while its ref write loses the fence leaves no unhandled rejection', async () => {
+    const server = await difyChatflowServer()
+    const controller = new AbortController()
+    const leaked: unknown[] = []
+    const listener = (reason: unknown): void => {
+        leaked.push(reason)
+    }
+    process.on('unhandledRejection', listener)
+    try {
+        await (async () => {
+            for await (const event of difyChatAdapter(
+                `http://127.0.0.1:${server.port}/v1`
+            ).sendMessage(
+                adapterCtx(() => {
+                    // The cancel lands first; the write then finds another
+                    // instance owns the turn.
+                    controller.abort()
+                    return new Promise<void>((_resolve, reject) =>
+                        setTimeout(
+                            () =>
+                                reject(
+                                    new TurnFenceLostError('assistant-message-1')
+                                ),
+                            10
+                        )
+                    )
+                }, controller.signal),
+                adapterUserMessage()
+            ))
+                void event
+        })().catch(() => undefined)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        assert.deepEqual(leaked, [])
+    } finally {
+        process.off('unhandledRejection', listener)
+        await server.close()
+    }
+})

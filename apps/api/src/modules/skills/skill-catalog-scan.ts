@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import {
     and,
     eq,
+    gt,
     inArray,
     isNull,
+    lte,
     notInArray,
     or,
     sql,
@@ -13,10 +15,14 @@ import {
     skillRepoScans,
     skills,
     type Database,
+    type SkillRepoScanRow,
     type SkillRow
 } from '@manyfold/db'
 import { trace, SpanStatusCode, metrics, type Span } from '@opentelemetry/api'
-import { GitHubRequestError } from '@/common/github-request-error'
+import {
+    GitHubRequestError,
+    type GitHubFailure
+} from '@/common/github-request-error'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
 import {
     withSkillRequestBudget,
@@ -41,6 +47,29 @@ export class SkillScanBusyError extends GitHubRequestError {
     }
 }
 const FRESH_MS = 6 * 60 * 60 * 1000
+export const SKILL_SCAN_RETRY_FLOOR_MS = 60_000
+export const SKILL_SCAN_RETRY_CAP_MS = 60 * 60 * 1000
+
+// How long a repository waits after its failures-th consecutive failed scan.
+// GitHub asks clients to honour Retry-After / x-ratelimit-reset and otherwise
+// wait at least a minute, longer while failures continue. The anonymous REST
+// window is an hour, so no wait exceeds the cap; the jitter only lengthens
+// it, so instances and repositories do not all return at the same instant.
+export const skillScanRetryDelayMs = (
+    failures: number,
+    retryAt: number | undefined,
+    now: number,
+    random: () => number = Math.random
+): number => {
+    const grown =
+        SKILL_SCAN_RETRY_FLOOR_MS * 2 ** Math.min(Math.max(failures - 1, 0), 6)
+    const wait = Math.min(
+        Math.max(grown, retryAt === undefined ? 0 : retryAt - now),
+        SKILL_SCAN_RETRY_CAP_MS
+    )
+    return Math.round(wait * (1 + random() * 0.2))
+}
+
 const meter = metrics.getMeter('manyfold.skills')
 const scans = meter.createCounter('skill.discovery.scans')
 const duration = meter.createHistogram('skill.discovery.duration', {
@@ -88,18 +117,22 @@ export interface SkillRepoScanStates {
     unread: DiscoveryRepo[]
     // Read, but longer ago than FRESH_MS.
     stale: DiscoveryRepo[]
+    // Unread or stale ones whose last scan failed less than its backoff ago:
+    // nothing should start a scan of them yet.
+    deferred: DiscoveryRepo[]
 }
 
 export const skillRepoScanStates = async (
     db: Database,
     repos: DiscoveryRepo[]
 ): Promise<SkillRepoScanStates> => {
-    if (!repos.length) return { unread: [], stale: [] }
+    if (!repos.length) return { unread: [], stale: [], deferred: [] }
     const states = await db
         .select({
             key: skillRepoScans.key,
             scannedAt: skillRepoScans.scannedAt,
-            publishedAliases: skillRepoScans.publishedAliases
+            publishedAliases: skillRepoScans.publishedAliases,
+            retryAt: skillRepoScans.retryAt
         })
         .from(skillRepoScans)
         .where(
@@ -110,14 +143,18 @@ export const skillRepoScanStates = async (
     const byKey = new Map(states.map((state) => [state.key, state]))
     const unread: DiscoveryRepo[] = []
     const stale: DiscoveryRepo[] = []
+    const deferred: DiscoveryRepo[] = []
     for (const repo of repos) {
         const state = byKey.get(canonicalSkillRepoKey(repo))
         if (!state?.scannedAt || !published(state.publishedAliases, repo))
             unread.push(repo)
         else if (Date.now() - state.scannedAt.getTime() > FRESH_MS)
             stale.push(repo)
+        else continue
+        if (state?.retryAt && state.retryAt.getTime() > Date.now())
+            deferred.push(repo)
     }
-    return { unread, stale }
+    return { unread, stale, deferred }
 }
 
 export const staleSkillRepos = async (
@@ -202,6 +239,8 @@ const scanAndPublish = async (
     let outcome = 'failed'
     let count = 0
     let classification = 'none'
+    let claimed: SkillRepoScanRow | undefined
+    let backoffMs: number | undefined
     try {
         const [claim] = await inScanTransaction(db, async (tx) =>
             tx
@@ -219,9 +258,15 @@ const scanAndPublish = async (
                         expiresAt: sql`clock_timestamp() + ${SKILL_SCAN_LEASE_MS} * interval '1 millisecond'`,
                         updatedAt: sql`clock_timestamp()`
                     },
-                    setWhere: or(
-                        isNull(skillRepoScans.holderId),
-                        sql`${skillRepoScans.expiresAt} <= clock_timestamp()`
+                    setWhere: and(
+                        or(
+                            isNull(skillRepoScans.holderId),
+                            sql`${skillRepoScans.expiresAt} <= clock_timestamp()`
+                        ),
+                        or(
+                            isNull(skillRepoScans.retryAt),
+                            lte(skillRepoScans.retryAt, sql`clock_timestamp()`)
+                        )
                     )
                 })
                 .returning()
@@ -229,9 +274,32 @@ const scanAndPublish = async (
         // No wait or freshness write: later requests can publish an alias
         // after the canonical owner's successful result is available.
         if (!claim) {
+            const [backoff] = await db
+                .select({
+                    retryAt: skillRepoScans.retryAt,
+                    classification: skillRepoScans.failureClassification
+                })
+                .from(skillRepoScans)
+                .where(
+                    and(
+                        eq(skillRepoScans.key, key),
+                        gt(skillRepoScans.retryAt, sql`clock_timestamp()`)
+                    )
+                )
+                .limit(1)
+            if (backoff?.retryAt) {
+                outcome = 'deferred'
+                classification = backoff.classification ?? 'upstream'
+                throw new GitHubRequestError(
+                    classification as GitHubFailure,
+                    'request',
+                    backoff.retryAt.getTime()
+                )
+            }
             outcome = 'busy'
             throw new SkillScanBusyError()
         }
+        claimed = claim
         const canonical = {
             ...repo,
             owner: repo.owner.toLowerCase(),
@@ -342,6 +410,9 @@ const scanAndPublish = async (
                             scannedAt: sql`clock_timestamp()`,
                             holderId: null,
                             expiresAt: null,
+                            retryAt: null,
+                            failureCount: 0,
+                            failureClassification: null,
                             updatedAt: sql`clock_timestamp()`
                         })
                         .where(
@@ -386,14 +457,27 @@ const scanAndPublish = async (
         }, signal)
         return result
     } catch (error) {
-        if (error instanceof SkillScanBusyError) throw error
+        if (error instanceof SkillScanBusyError || outcome === 'deferred')
+            throw error
         classification =
             error instanceof GitHubRequestError
                 ? error.classification
                 : 'upstream'
         span.setStatus({ code: SpanStatusCode.ERROR })
+        // Recorded on release, which only a still-current holder can do. A
+        // caller's own cancellation says nothing about the repository.
+        if (claimed && !signal?.aborted)
+            backoffMs = skillScanRetryDelayMs(
+                claimed.failureCount + 1,
+                error instanceof GitHubRequestError
+                    ? error.retryAt
+                    : undefined,
+                Date.now()
+            )
         throw new GitHubRequestError(
-            classification as GitHubRequestError['classification']
+            classification as GitHubFailure,
+            'request',
+            backoffMs === undefined ? undefined : Date.now() + backoffMs
         )
     } finally {
         try {
@@ -402,7 +486,14 @@ const scanAndPublish = async (
                     .update(skillRepoScans)
                     .set({
                         holderId: null,
-                        expiresAt: null
+                        expiresAt: null,
+                        ...(backoffMs === undefined
+                            ? {}
+                            : {
+                                  retryAt: sql`clock_timestamp() + ${backoffMs} * interval '1 millisecond'`,
+                                  failureCount: sql`${skillRepoScans.failureCount} + 1`,
+                                  failureClassification: classification
+                              })
                     })
                     .where(
                         and(
@@ -414,6 +505,8 @@ const scanAndPublish = async (
         } catch {
             span.setAttribute('scan.release_failed', true)
         }
+        if (backoffMs !== undefined)
+            span.setAttribute('scan.retry_after_ms', backoffMs)
         span.setAttributes({
             'scan.outcome': outcome,
             'scan.classification': classification

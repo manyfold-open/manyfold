@@ -43,7 +43,8 @@
         "fs-native-extensions": "^1.5.1",
         "kleur": "^4.1.5",
         "smol-toml": "^1.7.0",
-        "ws": "^8.18.0"
+        "ws": "^8.18.0",
+        "yaml": "^2.8.3"
     },
     "optionalDependencies": {
         "node-pty": "^1.1.0"

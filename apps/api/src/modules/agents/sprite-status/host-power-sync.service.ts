@@ -228,6 +228,10 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
             await this.tickPolled()
             await this.tickQuotaWarnings()
             await this.tickSnapshot()
+        } catch (err) {
+            // Every caller voids the tick, so a rejection here is an unhandled
+            // one, and the API exits on those.
+            this.log.warn(`sprite-status tick failed: ${describeError(err)}`)
         } finally {
             this.inflight = false
         }

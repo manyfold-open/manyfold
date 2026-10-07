@@ -714,7 +714,8 @@ test('SkillsService discover waits for a repo another process is reading', async
     const db = new FakeDb()
     db.scanClaimBusy = true
     db.tableSelectResults.set(skillRepos, [[]])
-    const states = [[], [], [freshnessRow(new Date())], [freshnessRow(new Date())]]
+    // Read states, then no backoff behind the refused claim, then the polls.
+    const states = [[], [], [], [freshnessRow(new Date())], [freshnessRow(new Date())]]
     db.tableSelectResults.set(skillRepoScans, states)
     db.tableSelectResults.set(skills, [[joinedRow({ ...skillRow, updatedAt: new Date() })]])
     const discovery = new FakeDiscovery()
@@ -752,6 +753,56 @@ test('SkillsService discover reads each new repo on its own: one failing holds u
     assert.deepEqual(
         result.pendingRepos?.map((repo) => repo.id),
         ['builtin:acme/broken@main']
+    )
+})
+
+test('SkillsService discover leaves a stale repo alone while its last scan failure backs off', async () => {
+    const db = new FakeDb()
+    db.tableSelectResults.set(skillRepos, [[]])
+    const retryAt = new Date(Date.now() + 10 * 60_000)
+    const discovery = new FakeDiscovery()
+    let resolved = 0
+    discovery.resolveRepoRevision = async () => {
+        resolved++
+        return 'fixture-revision'
+    }
+    const service = newService(db, new FakeMaterializer(), discovery)
+
+    for (let page = 0; page < 3; page++) {
+        db.tableSelectResults.set(skillRepoScans, [[{ ...freshnessRow(new Date(0)), retryAt }]])
+        db.tableSelectResults.set(skills, [[joinedRow({ ...skillRow, updatedAt: new Date() })]])
+        const result = await service.discoverPage({ userId: 'user-1' })
+        assert.equal(result.items[0]?.skillId, discovered.skillId)
+    }
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(resolved, 0, 'no scan starts inside the backoff')
+    assert.equal(discovery.scanCalls.length, 0)
+})
+
+test('SkillsService discover names an unread repo inside its backoff as pending without scanning it', async () => {
+    const db = new FakeDb()
+    db.tableSelectResults.set(skillRepos, [[]])
+    db.tableSelectResults.set(skillRepoScans, [[{
+        key: JSON.stringify([skillRow.repoOwner, skillRow.repoName, skillRow.repoBranch]),
+        publishedAliases: [],
+        scannedAt: null,
+        retryAt: new Date(Date.now() + 60_000)
+    }]])
+    db.tableSelectResults.set(skills, [[]])
+    const discovery = new FakeDiscovery()
+    let resolved = 0
+    discovery.resolveRepoRevision = async () => {
+        resolved++
+        return 'fixture-revision'
+    }
+    const service = newService(db, new FakeMaterializer(), discovery)
+
+    const result = await service.discoverPage({ userId: 'user-1' })
+
+    assert.equal(resolved, 0)
+    assert.deepEqual(
+        result.pendingRepos?.map((repo) => repo.id),
+        ['builtin:anthropics/skills@main']
     )
 })
 
@@ -1257,7 +1308,7 @@ test('the unified official skill keeps its default identity for new agents and u
 })
 
 class FakeDb {
-    scanState: Record<string, unknown> = { generation: 1, snapshot: null, revision: null, publishedAliases: [] }
+    scanState: Record<string, unknown> = { generation: 1, snapshot: null, revision: null, publishedAliases: [], failureCount: 0 }
     // Another process holds every repo's scan.
     scanClaimBusy = false
     selectResults: unknown[][] = []

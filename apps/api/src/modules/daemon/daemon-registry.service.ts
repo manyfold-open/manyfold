@@ -10,7 +10,8 @@ import {
     Injectable,
     Logger,
     OnModuleDestroy,
-    OnModuleInit
+    OnModuleInit,
+    Optional
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
@@ -18,7 +19,9 @@ import postgres from 'postgres'
 import { and, eq, gt } from 'drizzle-orm'
 import { hostDaemons, type HostDaemonRow, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { onDbConnectionClosed } from '@/db/connection-telemetry'
 import { configString } from '@/common/config-alias'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { daemonClientProcessFields } from './daemon-client-process'
 
 export interface StreamRpcCallbacks {
@@ -173,7 +176,8 @@ export class DaemonRegistryService
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly config: ConfigService
+        private readonly config: ConfigService,
+        @Optional() private readonly telemetry?: TelemetryService
     ) {
         this.instanceId =
             configString(this.config, ['MF_API_INSTANCE_ID']) ||
@@ -191,7 +195,12 @@ export class DaemonRegistryService
                 `daemon rpc lease release on boot failed: ${(err as Error).message}`
             )
         )
-        this.brokerSql = postgres(url, { max: 2, prepare: false })
+        this.brokerSql = postgres(url, {
+            max: 2,
+            prepare: false,
+            connection: { application_name: 'mf-api-broker' },
+            onclose: onDbConnectionClosed(this.telemetry, 'broker')
+        })
         const listen = await this.brokerSql.listen(this.inbox, (raw) => {
             void this.handleBrokerEnvelope(raw).catch((err) =>
                 this.log.warn(
@@ -294,7 +303,11 @@ export class DaemonRegistryService
     }
 
     disconnect(daemonId: string, reason = 'daemon disconnected'): void {
-        void this.disconnectAsync(daemonId, reason)
+        void this.disconnectAsync(daemonId, reason).catch((err) =>
+            this.log.warn(
+                `daemon disconnect cleanup failed daemonId=${daemonId}: ${(err as Error).message}`
+            )
+        )
     }
 
     async touchConnection(daemonId: string): Promise<void> {

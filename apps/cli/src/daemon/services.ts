@@ -155,6 +155,24 @@ export class ServiceSupervisor {
         await rename(`${target}.tmp`, target)
     }
 
+    // The environment a supervised service's process is given, or null for a
+    // service this supervisor does not hold.
+    async processEnv(name: string): Promise<Record<string, string> | null> {
+        if (!NAME.test(name) || !(await this.readStored(name))) return null
+        let env: Record<string, string>
+        try {
+            env = JSON.parse(
+                await readFile(this.path(name, 'env'), 'utf8')
+            ) as Record<string, string>
+        } catch {
+            return null
+        }
+        const composed: Record<string, string> = {}
+        for (const [key, value] of Object.entries(serviceEnv(env)))
+            if (typeof value === 'string') composed[key] = value
+        return composed
+    }
+
     // Starts the loop and takes over what a previous daemon left running.
     async resume(): Promise<void> {
         await mkdir(this.opts.dir, { recursive: true, mode: 0o700 })

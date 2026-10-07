@@ -342,15 +342,20 @@ export class LibrarySkillsService {
         const source = body.catalogSkillId
             ? catalogSource(body.catalogSkillId)
             : parseImportUrl(body.url as string)
+        const type = body.catalogSkillId ? 'catalog' : 'github'
         const bundle = await withSkillRequestBudget(() =>
             this.fetchGitHubBundle(source, {
-                type: body.catalogSkillId ? 'catalog' : 'github',
+                type,
                 url: source.url,
                 ...(body.catalogSkillId
                     ? { catalogSkillId: body.catalogSkillId }
                     : {})
             })
-        )
+        ).catch((error: unknown) => {
+            if (error instanceof GitHubRequestError)
+                this.warnImportFailed(type, 'fetch', error)
+            throw error
+        })
         try {
             return await this.persistImported(userId, bundle, onConflict)
         } catch (error) {
@@ -362,8 +367,22 @@ export class LibrarySkillsService {
                 error instanceof PayloadTooLargeException
             )
                 throw error
-            throw new GitHubRequestError('upstream', 'import')
+            const failure = new GitHubRequestError('upstream', 'import')
+            this.warnImportFailed(type, 'persist', failure)
+            throw failure
         }
+    }
+
+    // The 503 body carries the classification but nothing else records it;
+    // only fixed values here, never the source URL or upstream text.
+    private warnImportFailed(
+        source: 'catalog' | 'github',
+        stage: 'fetch' | 'persist',
+        error: GitHubRequestError
+    ): void {
+        this.log.warn(
+            `skill import failed: source=${source} stage=${stage} classification=${error.classification}`
+        )
     }
 
     private async importFromShare(

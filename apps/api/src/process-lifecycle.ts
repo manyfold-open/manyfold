@@ -1,6 +1,7 @@
 import { SeverityNumber, type LogAttributes } from '@opentelemetry/api-logs'
 import { otelEventsLogger } from './otel'
 import { redactCredentialValue } from './common/telemetry/redact-credentials'
+import type { FatalErrorDetail } from './fatal-error'
 
 export type ProcessExitReason =
     | 'signal'
@@ -60,3 +61,31 @@ export const emitProcessExit = (record: ProcessExitRecord): void => {
 
 export const processExitLogLine = (record: ProcessExitRecord): string =>
     `process.exit ${JSON.stringify(redactCredentialValue(record))}`
+
+// A rejection nobody handled that the process survives (see
+// recoverableDbConnectionCode). It still names the leak: whatever dropped the
+// promise needs fixing even though this one did no harm.
+export const emitRecoveredRejection = (
+    code: string,
+    detail: FatalErrorDetail
+): void => {
+    otelEventsLogger()?.emit({
+        severityNumber: SeverityNumber.WARN,
+        severityText: 'WARN',
+        body: 'process.unhandled_rejection',
+        attributes: {
+            'nca.event': 'process.unhandled_rejection',
+            outcome: 'recovered',
+            code,
+            ...detail
+        }
+    })
+}
+
+export const recoveredRejectionLogLine = (
+    code: string,
+    detail: FatalErrorDetail
+): string =>
+    `process.unhandled_rejection ${JSON.stringify(
+        redactCredentialValue({ outcome: 'recovered', code, ...detail })
+    )}`

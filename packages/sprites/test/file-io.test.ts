@@ -172,3 +172,36 @@ test('a genuine short read on an interior chunk still fails — shrink/corruptio
         await server.close()
     }
 })
+
+test('a failed read whose caller only iterates the stream leaves no unhandled rejection', async () => {
+    // Seen on prod [2026-10-01]: the MCP config reader iterated the stream,
+    // got the short-read error there, and never touched done, so done's
+    // rejection ended the API process.
+    const server = await startFileServer({
+        statSize: CHUNK + 100,
+        readBytes: Buffer.alloc(CHUNK - 50)
+    })
+    const leaked: unknown[] = []
+    const listener = (reason: unknown): void => {
+        leaked.push(reason)
+    }
+    process.on('unhandledRejection', listener)
+    try {
+        const handle = await spriteReadFile(
+            fakeClient(server.port),
+            'sprite',
+            '/f.jsonl'
+        )
+        assert.ok(handle, 'expected a read handle')
+        await assert.rejects(async () => {
+            for await (const chunk of handle.stream) void chunk
+        }, /readChunk 0 short read/)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.deepEqual(leaked, [])
+        // The caller that does wait on done still sees the failure.
+        await assert.rejects(handle.done, /readChunk 0 short read/)
+    } finally {
+        process.off('unhandledRejection', listener)
+        await server.close()
+    }
+})

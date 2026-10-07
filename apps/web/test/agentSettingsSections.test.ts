@@ -4,6 +4,7 @@ import { makeAgentSummary, makeDaemonAgentSummary } from './hostModelFixtures'
 import { listFrameworks, runtimePlacements } from '@manyfold/shared'
 import type { AgentSettingsSectionId } from '../src/lib/agentSettingsSections'
 import {
+    hasRestartableService,
     isAgentSettingsSection,
     sectionFromLegacyTab,
     sectionLabelKey,
@@ -53,22 +54,52 @@ test('a daemon coding agent gains what the platform delivers (#781)', () => {
     ])
 })
 
-test('a k8s agent still drops what nothing provisions into the pod', () => {
+test('a cloud computer coding agent gets the full set of sections (#782)', () => {
+    // A pod host's daemon spawns per exec with the same identity + connection +
+    // env text base env a sandbox runner turn carries, and context docs and MCP
+    // config go through that daemon too — so nothing is missing any more.
     const agent = makeAgent({ runtime: 'k8s' })
     assert.deepEqual(
         sectionsFor(agent).map((section) => section.id),
-        [
-            'overview',
-            'model',
-            'skills',
-            'permissions',
-            'storage',
-            'channels',
-            'a2a'
-        ]
+        sectionsFor(makeAgent()).map((section) => section.id)
     )
     for (const id of ['environment', 'connections', 'context', 'mcp'] as const)
-        assert.equal(supportsSection(agent, id), false, id)
+        assert.equal(supportsSection(agent, id), true, id)
+})
+
+test('a cloud computer openclaw agent keeps environment through its service env', () => {
+    // Unlike a self-owned computer, the platform owns this gateway service: env
+    // text is written into its service env and applied by a restart.
+    const agent = makeAgent({ runtime: 'k8s', framework: 'openclaw' })
+    assert.equal(supportsSection(agent, 'environment'), true)
+    assert.equal(sectionPreconditionKey(agent, 'environment'), null)
+    assert.equal(supportsSection(agent, 'connections'), false)
+    assert.equal(
+        sectionPreconditionKey(agent, 'connections'),
+        'web.agents.detail.connections.unavailableFramework'
+    )
+})
+
+test('a restart is offered exactly where the platform restarts a service', () => {
+    for (const runtime of ['sprites', 'k8s'] as const) {
+        assert.equal(
+            hasRestartableService(makeAgent({ runtime, framework: 'openclaw' })),
+            true,
+            runtime
+        )
+        assert.equal(
+            hasRestartableService(makeAgent({ runtime, framework: 'hermes' })),
+            true,
+            runtime
+        )
+        assert.equal(hasRestartableService(makeAgent({ runtime })), false, runtime)
+    }
+    assert.equal(
+        hasRestartableService(
+            makeDaemonAgentSummary({ hostId: 'dh_1', framework: 'hermes' })
+        ),
+        false
+    )
 })
 
 test('a daemon openclaw agent has no per-turn env channel', () => {
@@ -178,14 +209,28 @@ test('isAgentSettingsSection rejects anything not in the list', () => {
 })
 
 test('an unsupported section explains its precondition instead of 404ing', () => {
-    const k8s = makeAgent({ runtime: 'k8s' })
+    const external = makeAgent({
+        runtime: 'external',
+        runtimeId: null,
+        framework: 'dify'
+    })
     assert.equal(
-        sectionPreconditionKey(k8s, 'environment'),
+        sectionPreconditionKey(external, 'environment'),
         'web.agents.detail.environment.unavailableRuntime'
     )
     assert.equal(
-        sectionPreconditionKey(k8s, 'mcp'),
+        sectionPreconditionKey(external, 'mcp'),
         'web.agents.detail.mcp.sandboxOnly'
+    )
+    const k8s = makeAgent({ runtime: 'k8s' })
+    assert.equal(sectionPreconditionKey(k8s, 'environment'), null)
+    assert.equal(sectionPreconditionKey(k8s, 'mcp'), null)
+    assert.equal(
+        sectionPreconditionKey(
+            makeAgent({ runtime: 'k8s', framework: 'hermes' }),
+            'mcp'
+        ),
+        'web.agents.detail.mcp.unsupported'
     )
     const daemon = makeAgent({ runtime: 'daemon' })
     assert.equal(sectionPreconditionKey(daemon, 'environment'), null)
@@ -305,7 +350,11 @@ test('every legacy ?tab= entry lands inside the guard, on every shape', () => {
 })
 
 test('a section the agent does have is still named by its own label', () => {
-    const k8s = makeAgent({ runtime: 'k8s' })
+    const external = makeAgent({
+        runtime: 'external',
+        runtimeId: null,
+        framework: 'dify'
+    })
     // The rail falls back to Overview for a section it hides, but the header
     // names what the pane is actually showing.
     assert.equal(
@@ -313,7 +362,7 @@ test('a section the agent does have is still named by its own label', () => {
         'web.agentSettings.sections.environment'
     )
     assert.equal(
-        sectionsFor(k8s).some((entry) => entry.id === 'environment'),
+        sectionsFor(external).some((entry) => entry.id === 'environment'),
         false
     )
 })

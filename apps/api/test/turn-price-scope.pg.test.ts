@@ -17,6 +17,8 @@ import { ChatRepository } from '../src/modules/chat/chat.repository'
 import { TurnFenceLostError } from '../src/modules/chat/turn-fence'
 import {
     priceScopeFromMetadata,
+    routeReceiptFor,
+    routeReceiptFromMetadata,
     UNKNOWN_PRICE_SCOPE
 } from '../src/modules/usage/served-price-scope'
 
@@ -217,6 +219,143 @@ test(
                     UNKNOWN_PRICE_SCOPE
                 )
             }
+        } finally {
+            await db.delete(users).where(eq(users.id, userId))
+            await db.$client.end()
+        }
+    }
+)
+
+test(
+    'a route receipt is written once, fenced, and never through a metadata merge',
+    {
+        skip: process.env.RUN_PG_E2E !== '1' && 'RUN_PG_E2E!=1'
+    },
+    async () => {
+        const db = createDb(process.env.DATABASE_URL!)
+        const suffix = randomUUID()
+        const userId = `user_receipt_${suffix}`,
+            runtimeId = `art_receipt_${suffix}`
+        const agentId = `agt_receipt_${suffix}`,
+            sessionId = `session_receipt_${suffix}`,
+            messageId = `message_receipt_${suffix}`
+        try {
+            await db
+                .insert(users)
+                .values({ id: userId, email: `${suffix}@fixture.invalid` })
+            await db.insert(agentRuntimes).values({
+                id: runtimeId,
+                userId,
+                name: 'receipt fixture',
+                framework: 'openclaw'
+            })
+            await db.insert(agents).values({
+                id: agentId,
+                userId,
+                runtimeId,
+                name: 'receipt fixture',
+                framework: 'openclaw',
+                internalId: suffix
+            })
+            await db.insert(chatSessions).values({
+                id: sessionId,
+                userId,
+                agentId,
+                inflightMessageId: messageId
+            })
+            await db.insert(chatMessages).values({
+                id: messageId,
+                sessionId,
+                role: 'assistant',
+                contentBlocksJson: [],
+                capabilityEventsJson: { model: 'shared-model' }
+            })
+            await db.insert(turnExecutions).values({
+                messageId,
+                sessionId,
+                agentId,
+                runtime: 'daemon',
+                ownerId: 'first-owner',
+                generation: 1,
+                state: 'running',
+                leaseExpiresAt: new Date(Date.now() + 60000)
+            })
+            const repo = new ChatRepository(db)
+            const fence = { messageId, ownerId: 'first-owner', generation: 1 }
+            const receipt = routeReceiptFor({
+                nonce: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8',
+                provider: {
+                    id: 'prv_receipt',
+                    source: 'managed',
+                    managedBrand: 'antigravity',
+                    builtInId: null,
+                    inferenceProtocol: 'openai_chat_completions',
+                    baseUrl: 'https://gateway.fixture.invalid/v1'
+                } as never,
+                providerApiKey: 'fixture-route-key'
+            })
+            await repo.stampTurnRouteReceipt(messageId, sessionId, receipt, fence)
+            await repo.stampTurnRouteReceipt(messageId, sessionId, receipt, fence)
+            await assert.rejects(
+                repo.stampTurnRouteReceipt(
+                    messageId,
+                    sessionId,
+                    { ...receipt, expected: [] },
+                    fence
+                ),
+                /cannot change/
+            )
+            await assert.rejects(
+                repo.mergeMessageMetadata(
+                    messageId,
+                    sessionId,
+                    { routeReceipt: { ...receipt, expected: [] } },
+                    fence
+                ),
+                /stamped once/
+            )
+            await assert.rejects(
+                repo.stampTurnRouteReceipt(messageId, sessionId, receipt, {
+                    ...fence,
+                    ownerId: 'someone-else'
+                }),
+                TurnFenceLostError
+            )
+            const message = await repo.getMessageById(messageId)
+            assert.deepEqual(
+                routeReceiptFromMetadata(message?.capabilityEventsJson),
+                receipt
+            )
+            assert.equal(
+                JSON.stringify(message?.capabilityEventsJson).includes(
+                    'fixture-route-key'
+                ),
+                false
+            )
+            // The settled scope then stamps through the pricing path once.
+            await repo.stampTurnPriceScope(messageId, sessionId, receipt.scope!, fence)
+            assert.deepEqual(
+                priceScopeFromMetadata(
+                    (await repo.getMessageById(messageId))?.capabilityEventsJson
+                ),
+                receipt.scope
+            )
+            const closed = await repo.insertStreamEvent(
+                {
+                    messageId,
+                    sessionId,
+                    seq: 1,
+                    eventType: 'done',
+                    payloadJson: {}
+                },
+                undefined,
+                fence
+            )
+            assert.equal(closed.fenceLost, false)
+            await assert.rejects(
+                repo.stampTurnRouteReceipt(messageId, sessionId, receipt, fence),
+                TurnFenceLostError
+            )
         } finally {
             await db.delete(users).where(eq(users.id, userId))
             await db.$client.end()

@@ -1262,17 +1262,23 @@ export class SkillsService {
     // before the answer (or, while another process reads one, waited for),
     // for up to FIRST_READ_WAIT_MS; the ones still unread then are returned.
     // Repos read before refresh in the background, started after the first
-    // reads so they cannot take the scan slots from them.
+    // reads so they cannot take the scan slots from them. A repo whose last
+    // scan failed is not scanned again until its backoff ends, however many
+    // pages are read meanwhile.
     private async readForDiscover(
         repos: DiscoveryRepo[],
         wait: boolean
     ): Promise<DiscoveryRepo[]> {
-        const { unread, stale } = await skillRepoScanStates(this.db, repos)
+        const { unread, stale, deferred } = await skillRepoScanStates(
+            this.db,
+            repos
+        )
+        const due = (repo: DiscoveryRepo): boolean => !deferred.includes(repo)
         const until = Date.now() + this.firstReadWaitMs
         const reads = wait
-            ? unread.map((repo) => this.readFirst(repo, until))
+            ? unread.filter(due).map((repo) => this.readFirst(repo, until))
             : []
-        const background = wait ? stale : [...unread, ...stale]
+        const background = (wait ? stale : [...unread, ...stale]).filter(due)
         if (background.length > 0)
             void inBackgroundContext(() =>
                 this.refreshDiscoverRepos(background)
@@ -1281,7 +1287,8 @@ export class SkillsService {
                     `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
                 )
             })
-        if (reads.length === 0) return []
+        if (!wait) return []
+        if (reads.length === 0) return unread
         await settledWithin(reads, this.firstReadWaitMs)
         return (await skillRepoScanStates(this.db, unread)).unread
     }

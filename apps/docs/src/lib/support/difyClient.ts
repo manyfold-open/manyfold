@@ -2,11 +2,9 @@ const BASE_URL = 'https://dify.manyfold.ai'
 const APP_CODE = '1vLBqtzT1YrNCxD0'
 const UID_KEY = 'mf-support-uid'
 
-// The Chatflow's Start node does not declare page_* variables yet, so Dify drops
-// anything we put in `inputs`. Until it does, the same context rides along in the
-// first query as a strippable comment. Flip to false once Start declares them.
-const SEND_CONTEXT_IN_QUERY = true
-const CONTEXT_PATTERN = /\n*<!--mf-page [^>]*-->\s*$/
+// The Chatflow's Start node declares these inputs with a maximum length, and Dify
+// rejects the whole message when a value runs over, so clamp rather than fail.
+const CONTEXT_LIMITS = { page_url: 2048, page_title: 256, page_locale: 16 }
 
 export type RetrieverResource = {
     document_name?: string
@@ -156,28 +154,15 @@ export const stopTask = async (
     ).catch(() => undefined)
 }
 
-export const appendPageContext = (
-    query: string,
-    context: PageContext
-): string => {
-    if (!SEND_CONTEXT_IN_QUERY) return query
-    const payload = JSON.stringify({
-        url: context.page_url,
-        title: context.page_title,
-        locale: context.page_locale
-    })
-    return `${query}\n\n<!--mf-page ${payload}-->`
-}
-
-export const stripPageContext = (text: string): string =>
-    text.replace(CONTEXT_PATTERN, '')
-
 // Query/hash are dropped rather than sent: docs URLs carry nothing the agent
 // needs and this keeps any stray param out of a third party's logs.
 export const readPageContext = (locale: string): PageContext => ({
-    page_url: `${window.location.origin}${window.location.pathname}`,
-    page_title: document.title,
-    page_locale: locale
+    page_url: `${window.location.origin}${window.location.pathname}`.slice(
+        0,
+        CONTEXT_LIMITS.page_url
+    ),
+    page_title: document.title.slice(0, CONTEXT_LIMITS.page_title),
+    page_locale: locale.slice(0, CONTEXT_LIMITS.page_locale)
 })
 
 const readFrames = async function* (
@@ -230,12 +215,8 @@ export const streamChat = async function* (input: {
     query: string
     conversationId: string
     context: PageContext
-    isFirstMessage: boolean
     signal: AbortSignal
 }): AsyncGenerator<StreamEvent> {
-    const query = input.isFirstMessage
-        ? appendPageContext(input.query, input.context)
-        : input.query
     const res = await fetch(`${BASE_URL}/api/chat-messages`, {
         method: 'POST',
         headers: {
@@ -244,7 +225,7 @@ export const streamChat = async function* (input: {
         },
         body: JSON.stringify({
             inputs: { ...input.context },
-            query,
+            query: input.query,
             response_mode: 'streaming',
             conversation_id: input.conversationId,
             files: []

@@ -27,6 +27,7 @@ const copy = getSupportUi(locale)
     data-copy-error-generic={copy.errorGeneric}
     data-copy-error-offline={copy.errorOffline}
     data-copy-error-unavailable={copy.errorUnavailable}
+    data-copy-error-limited={copy.errorLimited}
     data-copy-retry={copy.retry}
 >
     <div class="docs-support-body">
@@ -70,11 +71,16 @@ const copy = getSupportUi(locale)
             <label class="sr-only" for={`support-input-${variant}`}>
                 {copy.composerLabel}
             </label>
+            {/*
+                The edge in front of the support service refuses a send over
+                32 KB; 4,000 characters stay under it even in CJK.
+            */}
             <textarea
                 id={`support-input-${variant}`}
                 class="docs-support-input"
                 data-support-input
                 rows="1"
+                maxlength="4000"
                 placeholder={copy.composerPlaceholder}
                 autocomplete="off"></textarea>
             <button type="submit" class="docs-support-send" data-support-send>

@@ -16,6 +16,11 @@ import { buildOpenAiUsage } from './openai-usage'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
+import type { RouteReceipt } from '@/modules/usage/served-price-scope'
+import {
+    beginRouteAttestation,
+    settleRouteAttestation
+} from './route-attestation'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import {
     ExecDriverFactory
@@ -352,6 +357,18 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         // mode. A per-message model pick routes as primary/<model>.
         const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
         const budgets = await this.streamBudgets()
+        // The gateway picks the provider from its own config, so the turn is
+        // priced by the route the daemon proves served it.
+        const receipt = await beginRouteAttestation(
+            {
+                db: this.db,
+                crypto: this.crypto,
+                chatRepo: this.chatRepo,
+                logger: this.logger
+            },
+            ctx,
+            daemonId
+        )
         const payload: DaemonOpenclawAcpTurnPayload = {
             framework: 'openclaw',
             transport: 'acp',
@@ -365,12 +382,14 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
                 ? { permissionTimeoutMs: OPENCLAW_PERMISSION_TIMEOUT_MS }
                 : {}),
             idleTimeoutMs: budgets.idleTimeoutMs,
-            maxDurationMs: budgets.maxDurationMs
+            maxDurationMs: budgets.maxDurationMs,
+            ...(receipt ? { routeNonce: receipt.nonce } : {})
         }
         yield* this.drainOpenclawAcpTurnStream(ctx, {
             daemonId,
             execRef: ctx.messageId,
             sessionKey,
+            receipt,
             rpc: {
                 method: 'turn.start',
                 payload: payload as unknown as Record<string, unknown>,
@@ -391,6 +410,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             daemonId: string
             execRef: string
             sessionKey: string
+            // The dispatch receipt on a live turn; a replay reads the stamped one.
+            receipt?: RouteReceipt | null
             rpc: {
                 method: 'turn.start' | 'exec.resume'
                 payload: Record<string, unknown>
@@ -583,6 +604,12 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         // The runner read the usage back from the gateway transcript (the ACP
         // stream carries none) and put it on the final; a miss is not fatal.
         const turnUsage = ackPayload?.['usage'] as OpenclawTurnUsage | undefined
+        const servedScope = await settleRouteAttestation(
+            { chatRepo: this.chatRepo, logger: this.logger },
+            ctx,
+            ackPayload,
+            args.receipt
+        )
         if (turnUsage) {
             yield {
                 type: 'usage',
@@ -597,7 +624,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
                     tStart,
                     firstTokenAt,
                     this.pricing,
-                    ctx
+                    servedScope
                 )
             }
         }

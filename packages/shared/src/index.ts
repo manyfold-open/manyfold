@@ -23,6 +23,11 @@ export type {
     OpenclawTurnUsageDecode
 } from './acp'
 export { HERMES_ACP_DIALECT, OPENCLAW_ACP_DIALECT } from './acp'
+export {
+    isRouteNonce,
+    normalizeRouteBaseUrl,
+    routeAttestationMessage
+} from './route-attestation'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'
 export {
     apiTokenScopes,
@@ -996,6 +1001,7 @@ export {
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_TURN_OPENCLAW,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
+    DAEMON_FEATURE_TURN_ROUTE_ATTESTATION,
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,

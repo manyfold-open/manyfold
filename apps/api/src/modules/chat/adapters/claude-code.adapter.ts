@@ -52,6 +52,7 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
+import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
 
 const CLAUDE_XHIGH_MIN_CLI_VERSION = '2.1.111'
 const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 5_000
@@ -90,6 +91,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             driver,
             hostId: carryingDaemonId,
             creds,
+            resolvePriceScope,
             runtime,
             agent
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
@@ -176,6 +178,14 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             ctx.timings.setupMs = Date.now() - tAdapterStart
             ctx.timings.execDispatchedAt = Date.now()
         }
+        // Only the platform credential this exec carries is a route the API
+        // can verify; a run on the CLI's own sign-in has no provider scope.
+        const servedScope =
+            shouldInjectPlatformCredentials && credentialEnv
+                ? ((await resolvePriceScope?.()) ?? UNKNOWN_PRICE_SCOPE)
+                : UNKNOWN_PRICE_SCOPE
+        await ctx.onServedPriceScope?.(servedScope)
+        ctx = { ...ctx, ...servedScope }
         if (ctx.abortSignal?.aborted) {
             yield { type: 'error', error: { code: 'cancelled_by_user', message: 'Cancelled by user', retryable: false } }
             return

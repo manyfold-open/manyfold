@@ -487,7 +487,10 @@ export class K8sContainerProvisioner {
             this.log.warn(
                 `pod host create failed hostId=${host.id}: ${reason}`
             )
-            const current = (await this.hosts.findById(host.id)) ?? host
+            // Nothing waits on this bring-up: a failed re-read cleans up the
+            // row we already hold rather than rejecting with no caller.
+            const current =
+                (await this.hosts.findById(host.id).catch(() => null)) ?? host
             await this.discardHost(current, provider, reason, {
                 keepRow: true
             }).catch((cleanupErr: Error) =>

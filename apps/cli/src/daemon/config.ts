@@ -29,6 +29,7 @@ export const daemonPathsFor = (profile: ProfilePaths) => {
         // once.
         updateLatchPath: join(dir, 'update-latch.json'),
         updateRollbackPath: join(dir, 'update-rollback.json'),
+        hermesSessionRoutesPath: join(dir, 'hermes-session-routes.json'),
         controlSocketPath: controlSocketPathFor(dir)
     }
 }
@@ -71,6 +72,9 @@ export const daemonPaths = {
     },
     get updateRollbackPath(): string {
         return current().updateRollbackPath
+    },
+    get hermesSessionRoutesPath(): string {
+        return current().hermesSessionRoutesPath
     },
     get controlSocketPath(): string {
         return current().controlSocketPath

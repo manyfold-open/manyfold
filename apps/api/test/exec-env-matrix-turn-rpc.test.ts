@@ -1,6 +1,8 @@
 import {
+    DAEMON_FEATURE_TURN_ROUTE_ATTESTATION,
     MF_RUNTIME_IDENTITY_ENV_KEYS,
     frameworkCapability,
+    isRouteNonce,
     listFrameworks
 } from '@manyfold/shared'
 import type { RuntimePlacement } from '@manyfold/shared'
@@ -136,6 +138,27 @@ for (const surface of execEnvSurfaces.filter(
                 false,
                 `${key}: identity is declared ${surface.identity}, but ${name} rode the payload`
             )
+    })
+
+    test(`${key} carries a fresh route nonce exactly when declared and the daemon can answer it`, async () => {
+        const answering = [
+            ...daemonFeatures(surface),
+            DAEMON_FEATURE_TURN_ROUTE_ATTESTATION
+        ]
+        const first = rpcOf(await dispatch(surface, { features: answering }), 'turn.start')
+        const second = rpcOf(await dispatch(surface, { features: answering }), 'turn.start')
+        const silent = rpcOf(await dispatch(surface), 'turn.start')
+        assert.equal('routeNonce' in silent, false, `${key}: an old daemon got a nonce`)
+        if (!surface.routeNonce) {
+            assert.equal('routeNonce' in first, false, `${key}: undeclared route nonce`)
+            return
+        }
+        assert.ok(isRouteNonce(first.routeNonce), `${key}: no route nonce`)
+        assert.ok(
+            Buffer.from(first.routeNonce as string, 'base64url').length >= 16,
+            `${key}: a nonce under 16 bytes`
+        )
+        assert.notEqual(first.routeNonce, second.routeNonce, `${key}: a nonce was reused`)
     })
 
     if (surface.capabilityCheckedAt !== 'resolution')

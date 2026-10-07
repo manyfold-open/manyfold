@@ -1,8 +1,4 @@
-import {
-    envTextFromExtras,
-    frameworkKind,
-    parseEnvText
-} from '@manyfold/shared'
+import { envTextFromExtras, parseEnvText } from '@manyfold/shared'
 import type { FC } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import type { SdkAgent } from '@manyfold/sdk'
@@ -11,6 +7,7 @@ import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { frameworkLabel } from '@/lib/frameworkMeta'
+import { hasRestartableService } from '@/lib/agentSettingsSections'
 import { useI18n, type TFn } from '@/lib/i18n'
 import {
     clearEnvPendingRestart,
@@ -65,11 +62,10 @@ export const AgentEnvVars: FC<Props> = ({ agent, onAgentUpdated }) => {
     const parsed = useMemo(() => parseEnvText(storedEnvText), [storedEnvText])
     const draftParsed = useMemo(() => parseEnvText(draft), [draft])
     // A restart is owed only where a resident service holds the old values: a
-    // sprite-hosted service framework. On a daemon every framework spawns per
-    // turn (hermes included), so env applies on the next turn (#781).
-    const needsRestart =
-        frameworkKind(agent.framework) === 'service' &&
-        agent.runtime === 'sprites'
+    // service framework on a sandbox or cloud computer. On a daemon every
+    // framework spawns per turn (hermes included), so env applies on the next
+    // turn (#781).
+    const needsRestart = hasRestartableService(agent)
 
     const pending = useMemo(
         () => readEnvPendingRestart(agent.id, agent.startedAt),
