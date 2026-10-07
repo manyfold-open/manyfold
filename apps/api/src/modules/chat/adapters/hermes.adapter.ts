@@ -195,6 +195,13 @@ const contextUsageFromUpdate = (
 @Injectable()
 export class HermesAdapter implements ApiChatAdapter {
     readonly framework: AgentFramework = 'hermes'
+    // resumeMessage replays the daemon's stdout from seq 0, re-deriving every
+    // row the dead relay already persisted under the same keys. Declared, the
+    // resume matches those rows instead of inserting them again.
+    // Seen on staging [2026-10-07]: undeclared, the first re-derived tool_call
+    // hit the dedup index, the relay stopped there, and a turn still running
+    // on the sprite was written `done` with empty content.
+    readonly resumeReplaysFromStart = true
     private readonly logger = new Logger(HermesAdapter.name)
 
     constructor(

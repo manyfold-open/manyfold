@@ -534,11 +534,16 @@ const maxOrdinalByKey = (
     return map
 }
 
+// Every keyed row a head replay can re-derive: an ask and its answer are keyed
+// like a tool result (hermes-acp-x-<n>), and one missing here would hit the
+// dedup index on replay instead of being matched.
 const REPLAYABLE_CONTENT_EVENT_TYPES = new Set([
     'token',
     'thinking',
     'tool_call',
     'tool_result',
+    'permission_request',
+    'permission_resolution',
     'replace'
 ])
 
@@ -4986,6 +4991,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let recoveryCheckpointCursor = assistantBlocks.replayedThrough
         let completed = false
         let suspended = false
+        // The event type of a write the stream refused (not a fence loss). On
+        // this path that is a row the dedup index already holds: the relay
+        // stopped reading, it did not see the turn end.
+        let writeRefused: string | null = null
         let terminalError: EmittedErrorEvent | null = null
         let managedChannelFailureSignal: ManagedChannelFailureSignal | null =
             null
@@ -5247,7 +5256,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             event as unknown as Record<string, unknown>
                         )
                     ).persisted
-                    if (!accepted) break
+                    if (!accepted) {
+                        writeRefused = event.type
+                        break
+                    }
                     if (event.type === 'token') {
                         recoveryCheckpointCursor = null
                         assistantBlocks.appendText('text', event.text)
@@ -5359,6 +5371,24 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         terminalContent
                     )
                 ).persisted
+            }
+            if (
+                writeRefused &&
+                !suspended &&
+                !completed &&
+                !terminalError &&
+                !fenceLost
+            ) {
+                // The source did not end: this relay stopped reading it. The
+                // turn may still be running where it was dispatched, so a
+                // `done` here would end it with whatever content the relay had
+                // reached. Hand it back like a suspension instead, keeping the
+                // machine's lease, and let the real final land on a later
+                // resume or adoption.
+                this.logger.warn(
+                    `resume relay for message=${assistantMessageId} stopped on a refused ${writeRefused} write; leaving the turn open`
+                )
+                suspended = true
             }
             if (!suspended && !completed && !terminalError && !fenceLost) {
                 // Mirror runAdapter: if the resume stream ends without an explicit
