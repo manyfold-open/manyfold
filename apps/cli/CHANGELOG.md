@@ -1,5 +1,11 @@
 # @manyfold/cli
 
+## 5.11.0
+
+### Minor Changes
+
+- [#688](https://github.com/manyfold-open/manyfold/pull/688) [`4a3723d`](https://github.com/manyfold-open/manyfold/commit/4a3723dd0f01e8a66f9f5c37043daae50abb41d8) Thanks [@yingca1](https://github.com/yingca1)! - The daemon answers a turn's route challenge (`turn.route-attestation.v1`): for an OpenClaw turn it follows the provider the gateway's transcript names to that provider's entry in openclaw.json, and for a Hermes turn it reads the model section of the config.yaml the ACP child loads and the provider key in its environment. It proves that route with an HMAC keyed by the provider key, so the key never leaves the machine. A route it cannot resolve the way the runtime would — profiles, credential pools, secret-manager sources, a config edited during the turn, a resumed Hermes session it did not see created — gets no proof, with a reason instead.
+
 ## 5.10.0
 
 ### Minor Changes

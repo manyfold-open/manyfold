@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.22.0
+
+### Minor Changes
+
+- [#688](https://github.com/manyfold-open/manyfold/pull/688) [`4a3723d`](https://github.com/manyfold-open/manyfold/commit/4a3723dd0f01e8a66f9f5c37043daae50abb41d8) Thanks [@yingca1](https://github.com/yingca1)! - Agent settings on a cloud computer now show Environment, Connections, Context and MCP, the same as on a sandbox. The platform already delivers all four there through the host's daemon; the settings rail was still hiding them. A service agent (OpenClaw, Hermes) on a cloud computer also gets the Restart button and the pending-restart reminder after an environment change, as the restart endpoint already allowed. The "available on …" notes, which now appear only for external agents, name cloud computers as well.
+
 ## 2.21.0
 
 ### Minor Changes
