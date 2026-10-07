@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 10.9.0
+
+### Minor Changes
+
+- [#687](https://github.com/manyfold-open/manyfold/pull/687) [`e9e514f`](https://github.com/manyfold-open/manyfold/commit/e9e514f05dd1a3ed9da17539f68c8eb5a3dbada8) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The workspace rail shows whether your own coding agent is connected to Manyfold. A chip beside the concurrency meter reads Connect agent, Connected, or In use (a request in the last 90 seconds); clicking it opens the setup prompt, or a panel with the last request, Connect another agent, Manage sign-ins and Disconnect. The setup dialog now walks through copying the prompt, approving the sign-in and connecting, and confirms on its own once the agent has signed in. Tokens minted by `mf login` are now recorded with `createdVia: 'cli-browser'`, so they can be told apart from tokens made by hand.
+
+- [#692](https://github.com/manyfold-open/manyfold/pull/692) [`5be08f8`](https://github.com/manyfold-open/manyfold/commit/5be08f8998689cd3de8e17803abc8aa6c6111d1b) Thanks [@yingca1](https://github.com/yingca1)! - OpenClaw agents start again on OpenClaw 2026.9.8 and later. The gateway config Manyfold writes no longer sets `gateway.controlUi.allowInsecureAuth`, a key OpenClaw retired in 2026.8 and that 2026.9.8 refuses at startup ("Unrecognized key", exit 78), which made every new OpenClaw agent on the latest release fail while starting its service and would have broken an existing one upgraded to it. A restart rewrites an existing agent's config without the key. The Control UI is unaffected: it is let in by `dangerouslyDisableDeviceAuth`, which stays.
+
+### Patch Changes
+
+- [#672](https://github.com/manyfold-open/manyfold/pull/672) [`6998e1b`](https://github.com/manyfold-open/manyfold/commit/6998e1b1485f178987c71bd21b42888352ecda3b) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Approving a CLI sign-in from your phone no longer stalls it. When an agent runs `mf login` on a computer and you approve from your phone (steering a Codex or Claude Code session remotely), the consent page used to redirect the phone to `127.0.0.1`, which reaches nothing, and the agent waited out the full 15 minutes before asking you to approve a second time. On a phone the page now shows the one-time `mf_auth_` code to send back instead. On a computer it still finishes on its own, and a "Not on the computer running mf?" link gets you the code when you approve from another machine. The agent setup guide (`GET /api/agent-setup.md`) tells the agent to stop waiting and redeem a code you send back with `mf login --auth-code`, which every installed `mf` already supports.
+
 ## 10.8.0
 
 ### Minor Changes
