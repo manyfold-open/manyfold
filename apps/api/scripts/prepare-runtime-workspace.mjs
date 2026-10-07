@@ -24,6 +24,14 @@ export function prepareRuntimeWorkspace(projects, name, source, destination) {
     // Root lifecycle hooks configure development tools (husky), which are not
     // installed in a production workspace. Dependency declarations stay exact.
     delete manifest.scripts
+    // A frozen install re-applies every patched dependency and refuses to run
+    // without the patch file the lockfile names.
+    for (const patch of Object.values(manifest.pnpm?.patchedDependencies ?? {})) {
+        fs.mkdirSync(path.dirname(path.join(destination, patch)), {
+            recursive: true
+        })
+        fs.copyFileSync(path.join(source, patch), path.join(destination, patch))
+    }
     fs.writeFileSync(
         path.join(destination, 'package.json'),
         JSON.stringify(manifest)

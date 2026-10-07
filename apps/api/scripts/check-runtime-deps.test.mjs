@@ -334,6 +334,35 @@ test('offline deployment preserves the entire locked graph despite newer cached 
     )
 })
 
+test('the runtime workspace carries every patch file the frozen install re-applies', (t) => {
+    const directory = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-patches-'))
+    )
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
+    const source = path.join(directory, 'source')
+    // The cloud composition names its patches through the oss/ submodule.
+    const patch = 'oss/patches/fixture-leaf@1.0.0.patch'
+    write(path.join(source, 'package.json'), {
+        name: 'fixture-root',
+        pnpm: { patchedDependencies: { 'fixture-leaf@1.0.0': patch } }
+    })
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc'])
+        write(path.join(source, file), '')
+    write(path.join(source, patch), 'fixture patch\n')
+    write(path.join(source, 'apps/api/package.json'), { name: '@fixture/api' })
+    const deployed = path.join(directory, 'deployed')
+    prepareRuntimeWorkspace(
+        [{ name: '@fixture/api', path: path.join(source, 'apps/api') }],
+        '@fixture/api',
+        source,
+        deployed
+    )
+    assert.equal(
+        fs.readFileSync(path.join(deployed, patch), 'utf8'),
+        'fixture patch\n'
+    )
+})
+
 test('the API image executes the frozen install and full graph check without network', () => {
     const dockerfile = fs.readFileSync(
         new URL('../Dockerfile', import.meta.url),
