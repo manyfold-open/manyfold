@@ -2,6 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@manyfold/sdk'
+import DialogPage from '@/components/DialogPage'
 import { useApiClient } from '@/lib/apiClient'
 import { useI18n } from '@/lib/i18n'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -36,56 +37,56 @@ const AccountDeletionRestore: FC = (): ReactNode => {
         }
     }
 
-    return (
-        <div className='text-fg bg-main flex min-h-screen items-center justify-center px-5 py-10'>
-            <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
-                <div className='space-y-5'>
-                    <h1 className='text-h1 text-fg'>
-                        {restored
-                            ? t('web.accountDeletion.restoredTitle')
-                            : t('web.accountDeletion.restoreTitle')}
-                    </h1>
-                    {restored ? (
-                        <>
-                            <p className='text-muted text-ui'>
-                                {t('web.accountDeletion.restoredBody')}
-                            </p>
-                            <Link
-                                to='/login'
-                                className='workbench-button-primary inline-flex'
-                            >
-                                {t('web.accountDeletion.goToSignIn')}
-                            </Link>
-                        </>
-                    ) : token ? (
-                        <>
-                            <p className='text-muted text-ui'>
-                                {t('web.accountDeletion.restoreBody')}
-                            </p>
-                            {error && (
-                                <p className='text-error text-ui' role='alert'>
-                                    {error}
-                                </p>
-                            )}
-                            <button
-                                type='button'
-                                className='workbench-button-primary'
-                                disabled={busy}
-                                onClick={() => void restore()}
-                            >
-                                {busy
-                                    ? t('web.accountDeletion.restoreBusy')
-                                    : t('web.accountDeletion.restoreButton')}
-                            </button>
-                        </>
-                    ) : (
-                        <p className='text-error text-ui' role='alert'>
-                            {t('web.accountDeletion.missingToken')}
-                        </p>
-                    )}
+    if (restored) {
+        return (
+            <DialogPage
+                title={t('web.accountDeletion.restoredTitle')}
+                description={t('web.accountDeletion.restoredBody')}
+                actions={
+                    <Link
+                        to='/login'
+                        className='workbench-button-primary inline-flex'
+                    >
+                        {t('web.accountDeletion.goToSignIn')}
+                    </Link>
+                }
+            />
+        )
+    }
+
+    if (!token) {
+        return (
+            <DialogPage title={t('web.accountDeletion.restoreTitle')}>
+                <div className='workbench-alert-error' role='alert'>
+                    {t('web.accountDeletion.missingToken')}
                 </div>
-            </main>
-        </div>
+            </DialogPage>
+        )
+    }
+
+    return (
+        <DialogPage
+            title={t('web.accountDeletion.restoreTitle')}
+            description={t('web.accountDeletion.restoreBody')}
+            actions={
+                <button
+                    type='button'
+                    className='workbench-button-primary'
+                    disabled={busy}
+                    onClick={() => void restore()}
+                >
+                    {busy
+                        ? t('web.accountDeletion.restoreBusy')
+                        : t('web.accountDeletion.restoreButton')}
+                </button>
+            }
+        >
+            {error && (
+                <div className='workbench-alert-error' role='alert'>
+                    {error}
+                </div>
+            )}
+        </DialogPage>
     )
 }
 

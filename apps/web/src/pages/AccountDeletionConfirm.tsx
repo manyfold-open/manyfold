@@ -2,6 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@manyfold/sdk'
+import DialogPage from '@/components/DialogPage'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { useI18n } from '@/lib/i18n'
@@ -56,63 +57,52 @@ const ConfirmContent: FC = (): ReactNode => {
 
     if (scheduledAt) {
         return (
-            <Shell title={t('web.accountDeletion.confirmedTitle')}>
-                <p className='text-muted text-ui'>
-                    {t('web.accountDeletion.confirmedBody', {
-                        date: formatDate(scheduledAt)
-                    })}
-                </p>
-            </Shell>
+            <DialogPage
+                title={t('web.accountDeletion.confirmedTitle')}
+                description={t('web.accountDeletion.confirmedBody', {
+                    date: formatDate(scheduledAt)
+                })}
+            />
+        )
+    }
+
+    if (!token) {
+        return (
+            <DialogPage title={t('web.accountDeletion.confirmTitle')}>
+                <div className='workbench-alert-error' role='alert'>
+                    {t('web.accountDeletion.missingToken')}
+                </div>
+            </DialogPage>
         )
     }
 
     return (
-        <Shell title={t('web.accountDeletion.confirmTitle')}>
-            {token ? (
-                <>
-                    <p className='text-muted text-ui'>
-                        {t('web.accountDeletion.confirmBody')}
-                    </p>
-                    <p className='text-muted text-ui'>
-                        {t('web.accountDeletion.confirmRestoreHint')}
-                    </p>
-                    {error && (
-                        <p className='text-error text-ui' role='alert'>
-                            {error}
-                        </p>
-                    )}
-                    <button
-                        type='button'
-                        className='workbench-button-danger'
-                        disabled={busy}
-                        onClick={() => void confirm()}
-                    >
-                        {busy
-                            ? t('web.accountDeletion.confirmBusy')
-                            : t('web.accountDeletion.confirmButton')}
-                    </button>
-                </>
-            ) : (
-                <p className='text-error text-ui' role='alert'>
-                    {t('web.accountDeletion.missingToken')}
-                </p>
+        <DialogPage
+            title={t('web.accountDeletion.confirmTitle')}
+            description={t('web.accountDeletion.confirmBody')}
+            actions={
+                <button
+                    type='button'
+                    className='workbench-button-danger'
+                    disabled={busy}
+                    onClick={() => void confirm()}
+                >
+                    {busy
+                        ? t('web.accountDeletion.confirmBusy')
+                        : t('web.accountDeletion.confirmButton')}
+                </button>
+            }
+        >
+            <p className='text-muted text-ui'>
+                {t('web.accountDeletion.confirmRestoreHint')}
+            </p>
+            {error && (
+                <div className='workbench-alert-error' role='alert'>
+                    {error}
+                </div>
             )}
-        </Shell>
+        </DialogPage>
     )
 }
-
-const Shell: FC<{ title: string; children: ReactNode }> = ({
-    title,
-    children
-}): ReactNode => (
-    <div className='text-fg bg-main flex min-h-screen items-center justify-center px-5 py-10'>
-        <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
-            <div className='space-y-5'>
-                <h1 className='text-h1 text-fg'>{title}</h1>
-                {children}
-            </div>
-        </main>
-    </div>
-)
 
 export default AccountDeletionConfirm

@@ -2797,8 +2797,6 @@ const en = {
                 'This permission request has expired or is no longer valid. Ask the agent to request access again.',
             requestNotFound:
                 'This permission request was not found. It may have already been handled, or it belongs to a different account.',
-            requestingAgent: 'Requesting agent',
-            capabilitiesRequested: 'Capabilities requested',
             capabilitiesHint:
                 'Choose what to grant. High-risk capabilities start unchecked — opt in only if you trust this agent.',
             selectCapability: 'Select at least one capability to grant.',
@@ -2823,7 +2821,6 @@ const en = {
             grantDoneHint:
                 'The agent will pick up its new permissions and continue. You can close this window.',
             pageTitle: 'Agent permission request',
-            pageSubtitle: 'Review what this agent is asking for',
             openRequestPage: 'Open the request page',
             wantsCapabilities: 'wants new capabilities. Review and approve to let it continue.',
             wantsCapabilitiesGeneric:
@@ -4167,19 +4164,16 @@ const en = {
         },
         cliLogin: {
             titleLogin: 'Approve sign-in from your terminal or agent',
-            subtitleLogin:
-                'The mf CLI (mf login or mf setup), run in your terminal or by your AI agent, wants to use your Manyfold account.',
             codeCheckHint:
-                'Make sure this code matches the one your terminal or agent shows:',
+                'Only approve if this code matches the one your terminal or agent shows:',
             signedInAs: 'Signed in as',
             authorize: 'Authorize sign-in',
             authorizing: 'Authorizing…',
             redirecting: 'Finishing sign-in…',
             consequence:
-                'This signs that mf CLI in as you, with access to your account.',
+                'The mf CLI will sign in as you, with full access to your account.',
             useCodeInstead:
                 'Not on the computer running mf? Authorize with a code instead',
-            safety: "Didn't just start a sign-in, yourself or through an agent? Close this page. Nothing happens until you authorize.",
             authCodeTitle: 'One last step',
             authCodeHint:
                 'Paste this code into your terminal, or send it to your agent, to finish signing in:',
@@ -4195,20 +4189,15 @@ const en = {
         },
         connectA2a: {
             title: 'Connect agents to an application',
-            subtitle:
-                'An application is asking to connect to agents in your Manyfold account.',
             codeCheckHint:
-                'Make sure this code matches the one shown in the application:',
+                'Only approve if you started this connection and the code matches the one the application shows:',
             signedInAs: 'Signed in as',
             requesterLabel: 'Requesting application',
             unverifiedNote:
                 'Name and URL are provided by the requester — Manyfold has not verified them.',
             consequence:
                 'Approving lets this application send messages to the selected agents as you and read their task results.',
-            safety: 'Only continue if you just started a connection from this application yourself. If someone sent you this link, close the page.',
             agentsLabel: 'Agents to connect',
-            agentsHint:
-                'The application receives one access token per selected agent.',
             noAgents: 'No agents in your account yet.',
             exposedBadge: 'A2A on',
             notExposedBadge: 'A2A off',
