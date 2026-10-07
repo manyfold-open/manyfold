@@ -155,7 +155,10 @@ abstract class ExternalApiChatAdapterBase implements ApiChatAdapter {
             }
         )
         if (signal.aborted) {
-            void settled
+            // Nothing waits on a cancelled turn's ref write, so a fence it
+            // loses afterwards has no caller to reach: unhandled, it would end
+            // the process.
+            void settled.catch(() => undefined)
             return false
         }
         let onAbort!: () => void

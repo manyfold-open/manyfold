@@ -79,6 +79,33 @@ test('the host power tick survives a dropped database connection', async () => {
     })
 })
 
+test('the host power tick on an old machine survives a column a migration dropped', async () => {
+    // Seen on staging [2026-09-30]: migration 0031 dropped
+    // runtime_hosts.primary_agent_id while the old machine still ran; its
+    // tick's full-column host select failed and the process exited.
+    const dropped = Object.assign(
+        new Error('column "primary_agent_id" does not exist'),
+        { name: 'PostgresError', code: '42703' }
+    )
+    const svc = new HostPowerSyncService(
+        failingDb(dropped),
+        {} as never,
+        {} as never,
+        { adapters: () => [{ kind: 'sprites', observe: () => undefined }] } as never,
+        {} as never,
+        { event: () => {} } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never
+    )
+    await withoutUnhandledRejections(async () => {
+        await assert.doesNotReject(svc.tick())
+    })
+})
+
 test('the automation scheduler tick survives a dropped database connection', async () => {
     const svc = new AutomationsService(
         failingDb(connectionError()),
