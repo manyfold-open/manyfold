@@ -347,9 +347,30 @@ test("decodeOpenclawTurnUsage sums every model call after this turn's user messa
             cacheCreationTokens: 0,
             calls: 2,
             model: 'stub-model',
-            provider: 'primary'
+            provider: 'primary',
+            providers: ['primary']
         }
     })
+})
+
+test('decodeOpenclawTurnUsage names every provider a turn mixed', () => {
+    const decoded = decodeOpenclawTurnUsage(
+        {
+            messages: [
+                transcriptUser('Say hello.'),
+                transcriptAssistant(101, 11),
+                { ...transcriptAssistant(201, 21), provider: 'fallback' },
+                transcriptAssistant(301, 31)
+            ]
+        },
+        'Say hello.',
+        { limit: 60 }
+    )
+    assert.equal(decoded.status, 'ok')
+    if (decoded.status === 'ok') {
+        assert.equal(decoded.usage.provider, 'primary')
+        assert.deepEqual(decoded.usage.providers, ['primary', 'fallback'])
+    }
 })
 
 test('decodeOpenclawTurnUsage bills only the newest turn when history is present', () => {
@@ -459,7 +480,8 @@ test('decodeOpenclawTurnUsage tolerates string content and junk counts', () => {
             cacheCreationTokens: 0,
             calls: 1,
             model: 'm',
-            provider: null
+            provider: null,
+            providers: []
         }
     })
 })

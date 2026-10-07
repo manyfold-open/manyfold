@@ -548,6 +548,9 @@ export interface DaemonHermesTurnPayload {
     // maxDuration is the only wall-clock cap.
     idleTimeoutMs?: number
     maxDurationMs?: number
+    // This turn's challenge (DAEMON_FEATURE_TURN_ROUTE_ATTESTATION): the final
+    // answers it for the provider route the child was spawned on.
+    routeNonce?: string
 }
 
 // openclaw: the daemon POSTs the prepared /v1/chat/completions request to the
@@ -599,6 +602,9 @@ export interface DaemonOpenclawAcpTurnPayload {
     handshakeTimeoutMs?: number
     idleTimeoutMs?: number
     maxDurationMs?: number
+    // This turn's challenge (DAEMON_FEATURE_TURN_ROUTE_ATTESTATION): the final
+    // answers it for the provider the transcript says served the turn.
+    routeNonce?: string
 }
 
 export type DaemonTurnStartPayload =
@@ -631,6 +637,12 @@ export interface DaemonTurnFinalPayload {
     // could not be attributed. Best-effort — its absence never fails a turn.
     usage?: OpenclawTurnUsage
     usageStatus?: string
+    // Answer to the payload's routeNonce: hex HMAC-SHA256 keyed by the served
+    // provider's API key over routeAttestationMessage. Absent when the daemon
+    // could not resolve the route, and then routeAttestationStatus says why;
+    // the API prices such a turn with no provider scope.
+    routeAttestation?: string
+    routeAttestationStatus?: string
 }
 
 export const DAEMON_FEATURE_EXEC_RESUME = 'exec.resume'
@@ -685,6 +697,11 @@ export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'
 // reports no reachable gateway with `openclaw_daemon_gateway_unavailable`.
 // The `openclaw agent --local --json` spawn it used to fall back to is gone.
 export const DAEMON_FEATURE_TURN_OPENCLAW_ACP = 'turn.openclaw.acp'
+// turn.start answers a payload's routeNonce in its final (routeAttestation):
+// the daemon resolves the provider route that served the turn the way the
+// runtime does and proves it without the key leaving the host. Absent, the
+// API sends no nonce and prices the turn with no provider scope.
+export const DAEMON_FEATURE_TURN_ROUTE_ATTESTATION = 'turn.route-attestation.v1'
 // The hello's inflightStreams field is authoritative when PRESENT (an empty
 // list really means "no streams") and unknown when ABSENT (enumeration
 // failed). This distinction is required by the protocol baseline.
@@ -867,6 +884,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
+    DAEMON_FEATURE_TURN_ROUTE_ATTESTATION,
     DAEMON_FEATURE_AUTH_PROFILES,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,

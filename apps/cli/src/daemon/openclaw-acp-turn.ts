@@ -16,6 +16,13 @@ import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
 import { permissionResponders, type TurnAck } from './acp-turn'
 import { waitForOpenclawGateway } from './openclaw-gateway'
+import {
+    openclawRouteSource,
+    openclawTurnRoute,
+    readOpenclawConfig,
+    type OpenclawRouteSource
+} from './openclaw-route'
+import { attestRoute, type RouteAttestationField } from './route-attestation'
 
 // The openclaw half of turn.start over ACP (ADR-0027). The daemon spawns
 // `openclaw acp` against the HOST's own resident gateway — discovered, never
@@ -148,6 +155,9 @@ export const runOpenclawAcpTurn = (args: {
     ctx: RpcContext
     registerChild: (child: ChildProcess, stream: ExecStream) => void
     releaseChild: () => void
+    // The gateway's own environment when this daemon started it as a
+    // service, for a provider key the config names by env reference.
+    gatewayEnv?: () => Promise<Record<string, string> | null>
 }): Promise<TurnAck> => {
     const { payload, ctx, cwd } = args
     const env = { ...process.env }
@@ -530,6 +540,16 @@ export const runOpenclawAcpTurn = (args: {
             args.releaseChild()
             return
         }
+        // The config the gateway runs on as the turn starts, to hold the
+        // transcript's provider against once it has answered.
+        let routeSource: OpenclawRouteSource | null = null
+        let configAtStart: Record<string, unknown> | string = 'config_unreadable'
+        if (payload.routeNonce !== undefined) {
+            routeSource = openclawRouteSource(
+                (await args.gatewayEnv?.().catch(() => null)) ?? null
+            )
+            configAtStart = await readOpenclawConfig(routeSource)
+        }
 
         child = spawn(ACP_CMD[0], ACP_CMD.slice(1), {
             cwd,
@@ -652,6 +672,17 @@ export const runOpenclawAcpTurn = (args: {
                 usageStatus: string
             } = await readUsageBack().catch(() => ({ usageStatus: 'error' }))
             await released
+            let routeField: RouteAttestationField | null = null
+            if (payload.routeNonce !== undefined && routeSource) {
+                const resolution = usageRead.usage
+                    ? await openclawTurnRoute({
+                          providers: usageRead.usage.providers,
+                          configAtStart,
+                          source: routeSource
+                      }).catch(() => ({ unresolved: 'route_error' }))
+                    : { unresolved: `usage_${usageRead.usageStatus}` }
+                routeField = attestRoute(payload.routeNonce, resolution)
+            }
             const final: DaemonTurnFinalPayload = {
                 stopReason:
                     result && typeof result.stopReason === 'string'
@@ -660,7 +691,8 @@ export const runOpenclawAcpTurn = (args: {
                 sessionId,
                 ...(result ? { result } : {}),
                 ...(usageRead.usage ? { usage: usageRead.usage } : {}),
-                usageStatus: usageRead.usageStatus
+                usageStatus: usageRead.usageStatus,
+                ...(routeField ?? {})
             }
             complete(final, true)
         } catch (err) {

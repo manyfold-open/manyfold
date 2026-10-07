@@ -31,6 +31,11 @@ import { buildOpenAiUsage, type OpenAIUsage } from './openai-usage'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
+import type { RouteReceipt } from '@/modules/usage/served-price-scope'
+import {
+    beginRouteAttestation,
+    settleRouteAttestation
+} from './route-attestation'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
@@ -382,6 +387,18 @@ export class HermesAdapter implements ApiChatAdapter {
         )
         const budgets = await this.turnBudgets()
         const interactive = args.permissionMode != null
+        // hermes picks the provider from its own config.yaml, so the turn is
+        // priced by the route the daemon proves the child was spawned on.
+        const receipt = await beginRouteAttestation(
+            {
+                db: this.db,
+                crypto: this.crypto,
+                chatRepo: this.chatRepo,
+                logger: this.logger
+            },
+            ctx,
+            args.daemonId
+        )
         const payload: DaemonTurnStartPayload = {
             framework: 'hermes',
             prompt: messageToPromptText(userMessage),
@@ -407,12 +424,14 @@ export class HermesAdapter implements ApiChatAdapter {
                 ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
             },
             idleTimeoutMs: budgets.idleTimeoutMs,
-            maxDurationMs: budgets.maxDurationMs
+            maxDurationMs: budgets.maxDurationMs,
+            ...(receipt ? { routeNonce: receipt.nonce } : {})
         }
         yield* this.drainTurnStream(ctx, {
             daemonId: args.daemonId,
             execRef: ctx.messageId,
             errorCode: 'hermes_daemon_acp_failed',
+            receipt,
             rpc: {
                 method: 'turn.start',
                 payload: payload as unknown as Record<string, unknown>,
@@ -439,6 +458,8 @@ export class HermesAdapter implements ApiChatAdapter {
             daemonId: string
             execRef: string
             errorCode: string
+            // The dispatch receipt on a live turn; a replay reads the stamped one.
+            receipt?: RouteReceipt | null
             rpc: {
                 method: 'turn.start' | 'exec.resume'
                 payload: Record<string, unknown>
@@ -676,6 +697,12 @@ export class HermesAdapter implements ApiChatAdapter {
         const rawResult = ackPayload?.['result']
         if (lastContextUsage)
             yield { type: 'context_usage', context: lastContextUsage }
+        const servedScope = await settleRouteAttestation(
+            { chatRepo: this.chatRepo, logger: this.logger },
+            ctx,
+            ackPayload,
+            args.receipt
+        )
         const usage = extractAcpUsage(
             rawResult && typeof rawResult === 'object'
                 ? (rawResult as Record<string, unknown>)
@@ -690,7 +717,7 @@ export class HermesAdapter implements ApiChatAdapter {
                     tStart,
                     firstTokenAt,
                     this.pricing,
-                    ctx
+                    servedScope
                 )
             }
         }

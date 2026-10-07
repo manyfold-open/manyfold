@@ -369,7 +369,11 @@ const adminSettings = {
     })
 }
 
-const chatRepo = { updateFrameworkSessionRef: async (): Promise<void> => {} }
+const chatRepo = {
+    updateFrameworkSessionRef: async (): Promise<void> => {},
+    stampTurnRouteReceipt: async (): Promise<void> => {},
+    getMessageById: async (): Promise<null> => null
+}
 const pricing = { computeCost: () => ({ costUsd: null, costSource: 'none' }) }
 const telemetry = { event: (): void => {} }
 

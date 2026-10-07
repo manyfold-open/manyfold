@@ -48,6 +48,7 @@ import {
     type GeminiCredentialFacts
 } from '@manyfold/shared'
 import { permissionResponders, runAcpTurn } from './acp-turn'
+import { HermesSessionRoutes } from './hermes-route'
 import { runOpenclawTurn } from './openclaw-turn'
 import { runOpenclawAcpTurn } from './openclaw-acp-turn'
 import type { RpcContext, RpcHandler } from './ws-client'
@@ -1017,6 +1018,18 @@ export const manualUpdateCapable = (): boolean => manualUpdateHandoff !== null
 // the one kind of daemon that runs services for the platform (ADR-0035 §6).
 let serviceSupervisor: ServiceSupervisor | null = null
 
+// One record per profile's file, so concurrent turns write it in turn.
+const sessionRouteStores = new Map<string, HermesSessionRoutes>()
+const hermesSessionRoutes = (): HermesSessionRoutes => {
+    const path = daemonPaths.hermesSessionRoutesPath
+    let store = sessionRouteStores.get(path)
+    if (!store) {
+        store = new HermesSessionRoutes(path)
+        sessionRouteStores.set(path, store)
+    }
+    return store
+}
+
 export const setServiceSupervisor = (
     supervisor: ServiceSupervisor | null
 ): void => {
@@ -1936,6 +1949,7 @@ const handlers: Partial<
                 payload: p,
                 cwd,
                 ctx,
+                sessionRoutes: hermesSessionRoutes(),
                 // Registered like an exec child so exec.abort reaches it and,
                 // more importantly, daemon.update drains around it instead of
                 // restarting mid-turn.
@@ -1965,6 +1979,10 @@ const handlers: Partial<
                     payload: p,
                     cwd,
                     ctx,
+                    gatewayEnv: async () =>
+                        serviceSupervisor
+                            ? serviceSupervisor.processEnv('openclaw')
+                            : null,
                     registerChild: (child, stream) => {
                         execChildren.set(ctx.refId, {
                             child,

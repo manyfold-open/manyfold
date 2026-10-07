@@ -10,6 +10,13 @@ import {
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
 import { fifoStdout } from './fifo-stdout'
+import {
+    hermesTurnRoute,
+    resolveHermesRoute,
+    type HermesRouteResolution,
+    type HermesSessionRoutes
+} from './hermes-route'
+import { attestRoute, type RouteAttestationField } from './route-attestation'
 
 // The daemon is the ACP client. The earlier shape — the API speaking ACP over a
 // forwarded exec pipe — could not survive an API restart BY CONSTRUCTION: ACP
@@ -77,6 +84,8 @@ export const runAcpTurn = (args: {
     ctx: RpcContext
     registerChild: (child: ChildProcess, stream: ExecStream) => void
     releaseChild: () => void
+    // The sessions this daemon saw hermes create, and on which route.
+    sessionRoutes?: HermesSessionRoutes
 }): Promise<TurnAck> => {
     const { payload, ctx, cwd } = args
     const stream = new ExecStream({
@@ -100,16 +109,26 @@ export const runAcpTurn = (args: {
     const interactivePermissions =
         payload.permissionMode === 'default' ||
         payload.permissionMode === 'acceptEdits'
+    const childEnv = {
+        ...process.env,
+        ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
+        ...(payload.env ?? {})
+    }
+    // The route this child loads, read as it is spawned.
+    let routeAtSpawn: HermesRouteResolution | null = null
+    if (payload.routeNonce !== undefined) {
+        try {
+            routeAtSpawn = resolveHermesRoute({ cmd, env: childEnv })
+        } catch {
+            routeAtSpawn = { unresolved: 'route_error' }
+        }
+    }
     const fifo = fifoStdout()
     let child: ChildProcess
     try {
         child = spawn(cmd[0], cmd.slice(1), {
             cwd,
-            env: {
-                ...process.env,
-                ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
-                ...(payload.env ?? {})
-            },
+            env: childEnv,
             stdio: ['pipe', fifo ? fifo.fd : 'pipe', 'pipe']
         })
     } finally {
@@ -537,6 +556,7 @@ export const runAcpTurn = (args: {
         }
     }
     let sessionState: SessionState | null = null
+    let resumed = false
 
     const drive = async (): Promise<void> => {
         try {
@@ -565,6 +585,7 @@ export const runAcpTurn = (args: {
                     )
                     sessionId = sessionIdFrom(res) ?? payload.sessionId
                     sessionState = decodeSessionState(res)
+                    resumed = true
                 } catch {
                     const res = await request(
                         'session/new',
@@ -644,6 +665,20 @@ export const runAcpTurn = (args: {
                 },
                 promptTimeouts
             )
+            let routeField: RouteAttestationField | null = null
+            if (payload.routeNonce !== undefined && routeAtSpawn)
+                routeField = attestRoute(
+                    payload.routeNonce,
+                    await hermesTurnRoute({
+                        atSpawn: routeAtSpawn,
+                        sessionId,
+                        resumed,
+                        prompt: payload.prompt,
+                        modelOverride: payload.modelOverride,
+                        currentModelId: sessionState?.currentModelId,
+                        sessions: args.sessionRoutes
+                    }).catch(() => ({ unresolved: 'route_error' }))
+                )
             const final: DaemonTurnFinalPayload = {
                 // A string here is the API's licence to emit `done`; the prompt
                 // call resolving IS the agent finishing, so default the reason
@@ -665,7 +700,8 @@ export const runAcpTurn = (args: {
                               modeIds: sessionState.modeIds
                           }
                       }
-                    : {})
+                    : {}),
+                ...(routeField ?? {})
             }
             stream.complete(
                 { ok: true, payload: final as unknown as Record<string, unknown> },

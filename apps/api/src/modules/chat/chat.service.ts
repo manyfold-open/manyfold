@@ -3043,10 +3043,18 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             }
             this.setTurnFence(fence)
             // A hello can carry a row read before the dispatch stamped its
-            // credential route. The successful claim is the read barrier.
+            // credential route. The successful claim is the read barrier. A
+            // runtime that attests its route (OpenClaw, Hermes) settles the
+            // scope from its final instead, during the replay; the usage row
+            // reads this same object afterwards.
             const priceScope = priceScopeFromMetadata(
                 (await this.repo.getMessageById(message.id))?.capabilityEventsJson
             )
+            const resumeFence = fence ?? undefined
+            const onServedPriceScope = async (scope: ServedPriceScope): Promise<void> => {
+                await this.repo.stampTurnPriceScope(message.id, session.id, scope, resumeFence)
+                Object.assign(priceScope, scope)
+            }
             const adapter = this.adapters.get(agentCtx.framework)
             if (!adapter.resumeMessage) {
                 // A sprite turn already has a better answer waiting: the
@@ -3128,6 +3136,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     model: agentCtx.model,
                     modelOverride: null,
                     ...priceScope,
+                    onServedPriceScope,
                     modelConfig: null,
                     claudeCodePermissionMode: null,
                     codexPermissionMode: null,

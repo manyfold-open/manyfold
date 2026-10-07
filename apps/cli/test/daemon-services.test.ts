@@ -135,3 +135,17 @@ test('a service name and spec are checked before anything is written', async (t)
     await assert.rejects(supervisor.start('missing'), /no such service/)
     assert.deepEqual(await supervisor.list(), [])
 })
+
+test("a supervised service's process env is its spec env over the daemon's own, and nothing for one it does not hold", async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'mf-services-env-'))
+    t.after(() => rm(dir, { recursive: true, force: true }))
+    const supervisor = new ServiceSupervisor({ dir, log: () => {} })
+    await supervisor.upsert(gateway(await freePort()))
+    const env = await supervisor.processEnv('fixture-gateway')
+    assert.equal(env?.FIXTURE_REPLY, 'fixture-ok')
+    assert.equal(env?.PATH, process.env.PATH)
+    // The daemon's own MF_ settings never reach a service.
+    assert.equal(Object.keys(env ?? {}).some((key) => key.startsWith('MF_')), false)
+    assert.equal(await supervisor.processEnv('not-held'), null)
+    assert.equal(await supervisor.processEnv('../escape'), null)
+})

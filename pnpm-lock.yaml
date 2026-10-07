@@ -422,6 +422,9 @@ importers:
       ws:
         specifier: ^8.18.0
         version: 8.21.3
+      yaml:
+        specifier: ^2.8.3
+        version: 2.9.0
     devDependencies:
       '@manyfold/a2a':
         specifier: workspace:*

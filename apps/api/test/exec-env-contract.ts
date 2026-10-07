@@ -117,6 +117,11 @@ export interface ExecEnvSurface {
     resume: ResumeSemantics
     // turn-rpc only: the exact env keys the RPC payload carries.
     payloadEnvKeys?: readonly string[]
+    // turn-rpc only: the payload carries a fresh routeNonce, for the daemon to
+    // prove the provider route that served the turn, exactly when the daemon
+    // advertises turn.route-attestation.v1 (the runtime picks its provider
+    // from its own config, so the binding is no receipt).
+    routeNonce?: boolean
     // Why an intentional absence or asymmetry is what it is.
     note?: string
 }
@@ -342,7 +347,8 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         gatedBy: ['daemon:turn.openclaw.acp'],
         identity: 'none', connections: 'none', extras: 'none',
         providerCreds: runtime === 'daemon' ? 'daemon-local' : 'service-env',
-        auth: 'none', path: 'not-applicable', resume: 'attach-no-env', payloadEnvKeys: []
+        auth: 'none', path: 'not-applicable', resume: 'attach-no-env', payloadEnvKeys: [],
+        routeNonce: true
     })),
     ...(['daemon', 'sprites', 'k8s'] as const).map((runtime): ExecEnvSurface => ({
         framework: 'hermes', runtime, transport: 'turn-rpc',
@@ -351,7 +357,8 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none', extras: 'per-exec',
         providerCreds: runtime === 'daemon' ? 'daemon-local' : 'per-exec',
         auth: 'none', path: 'not-applicable', resume: 'attach-no-env',
-        payloadEnvKeys: runtime === 'daemon' ? ['HERMES_YOLO_MODE'] : ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY']
+        payloadEnvKeys: runtime === 'daemon' ? ['HERMES_YOLO_MODE'] : ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY'],
+        routeNonce: true
     }))
 ]
 
