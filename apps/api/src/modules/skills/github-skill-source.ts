@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { suppressTracing } from '@sentry/opentelemetry'
 import {
     GitHubRequestError,
-    classifyGitHubResponse
+    classifyGitHubResponse,
+    githubRetryAt
 } from '@/common/github-request-error'
 
 export const SKILL_FETCH_CONCURRENCY = 8
@@ -178,12 +179,17 @@ export const fetchSkillSource = async (
                                 8192,
                                 budget
                             ).catch(() => Buffer.alloc(0))
+                            const classification = classifyGitHubResponse(
+                                response.status,
+                                response.headers,
+                                body.toString('utf8')
+                            )
                             throw new GitHubRequestError(
-                                classifyGitHubResponse(
-                                    response.status,
-                                    response.headers,
-                                    body.toString('utf8')
-                                )
+                                classification,
+                                'request',
+                                classification === 'rate_limited'
+                                    ? githubRetryAt(response.headers)
+                                    : undefined
                             )
                         }
                         return readBytes(response, maximum, budget)

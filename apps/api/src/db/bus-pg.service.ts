@@ -1,6 +1,8 @@
-import { Injectable, type OnApplicationShutdown } from '@nestjs/common'
+import { Injectable, Optional, type OnApplicationShutdown } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import postgres from 'postgres'
+import { onDbConnectionClosed } from '@/db/connection-telemetry'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 
 // Dedicated small client for the LISTEN/NOTIFY buses (chat stream,
 // sprite status). Bus signaling must not queue behind app-query pool
@@ -11,13 +13,14 @@ import postgres from 'postgres'
 export class BusPgService implements OnApplicationShutdown {
     readonly client: ReturnType<typeof postgres> | null
 
-    constructor(config: ConfigService) {
+    constructor(config: ConfigService, @Optional() telemetry?: TelemetryService) {
         const url = config.get<string>('DATABASE_URL')
         this.client = url
             ? postgres(url, {
                   max: 2,
                   prepare: false,
-                  connection: { application_name: 'mf-api-bus' }
+                  connection: { application_name: 'mf-api-bus' },
+                  onclose: onDbConnectionClosed(telemetry, 'bus')
               })
             : null
     }

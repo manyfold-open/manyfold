@@ -9,6 +9,7 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY .npmrc pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY patches ./patches
 COPY apps/api/package.json apps/api/
 COPY apps/admin/package.json apps/admin/
 COPY apps/web/package.json apps/web/

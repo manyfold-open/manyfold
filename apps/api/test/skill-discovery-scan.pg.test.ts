@@ -20,9 +20,11 @@ import {
 import {
     refreshSkillRepo,
     staleSkillRepos,
+    skillRepoScanStates,
     canonicalSkillRepoKey,
     SkillScanBusyError
 } from '../src/modules/skills/skill-catalog-scan'
+import { GitHubRequestError } from '../src/common/github-request-error'
 import { LibrarySkillsService } from '../src/modules/skills/library-skills.service'
 import {
     githubFixture,
@@ -100,6 +102,8 @@ test(
         assert.equal(after.revision, previous.revision)
         assert.deepEqual(after.scannedAt, previous.scannedAt)
         assert.equal(after.holderId, null)
+        assert.equal(after.retryAt, null, 'a caller cancel is not a repo failure')
+        assert.equal(after.failureCount, 0)
         assert.equal((await h.rows())[0].latestRevision, REVISION_A)
     }
 )
@@ -201,6 +205,205 @@ test(
             filesBefore
         )
         assert.ok((await h.rows()).some((row) => row.repoOwner === alias.owner))
+    }
+)
+
+const secondsUntil = (date: Date | null): number => {
+    assert.ok(date)
+    return (date.getTime() - Date.now()) / 1000
+}
+
+test(
+    'a rate-limited scan records the GitHub reset as a backoff every instance honours without a request',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await harness(t)
+        await refreshSkillRepo(h.db, h.discovery, h.repo)
+        const previous = await h.stateRow()
+        h.state.revision = REVISION_B
+        h.state.failPath = '/commits/'
+        h.state.failStatus = 403
+        h.state.failBody = 'API rate limit exceeded for fixture'
+        h.state.failHeaders = {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 600)
+        }
+        await assert.rejects(
+            refreshSkillRepo(h.db, h.discovery, h.repo),
+            (error: unknown) =>
+                error instanceof GitHubRequestError &&
+                error.classification === 'rate_limited' &&
+                error.retryAt !== undefined
+        )
+        const failed = await h.stateRow()
+        assert.equal(failed.failureClassification, 'rate_limited')
+        assert.equal(failed.failureCount, 1)
+        assert.equal(failed.holderId, null)
+        assert.equal(failed.revision, previous.revision)
+        assert.deepEqual(failed.scannedAt, previous.scannedAt)
+        const wait = secondsUntil(failed.retryAt)
+        assert.ok(wait > 595 && wait <= 721, `retry in ${wait}s`)
+
+        // GitHub has recovered, but the window it named has not passed.
+        h.state.failPath = ''
+        await h.db
+            .update(skillRepoScans)
+            .set({ scannedAt: new Date(0) })
+            .where(eq(skillRepoScans.key, canonicalSkillRepoKey(h.repo)))
+        const before = h.requests.length
+        const other = new SkillDiscoveryService({} as never, {} as never)
+        await assert.rejects(
+            refreshSkillRepo(h.db2, other, h.repo),
+            (error: unknown) => {
+                assert.ok(error instanceof GitHubRequestError)
+                assert.equal(error.classification, 'rate_limited')
+                const body = error.getResponse() as { retryAfterSec?: number }
+                assert.ok(
+                    body.retryAfterSec !== undefined &&
+                        body.retryAfterSec > 590,
+                    JSON.stringify(body)
+                )
+                return true
+            }
+        )
+        assert.deepEqual(
+            (await skillRepoScanStates(h.db2, [h.repo])).deferred,
+            [h.repo]
+        )
+        const service = new SkillsService(
+            h.db2,
+            other,
+            {} as never,
+            {} as never
+        )
+        Object.assign(service, { discoveryRepos: async () => [h.repo] })
+        for (let page = 0; page < 3; page++) {
+            const answer = await service.discoverPage({ userId: 'fixture' })
+            assert.equal(answer.items.length, 1)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        assert.equal(h.requests.length, before, 'no request inside the backoff')
+        assert.equal((await h.stateRow()).failureCount, 1)
+
+        await h.db
+            .update(skillRepoScans)
+            .set({ retryAt: new Date(Date.now() - 1000) })
+            .where(eq(skillRepoScans.key, canonicalSkillRepoKey(h.repo)))
+        await refreshSkillRepo(h.db2, other, h.repo)
+        const recovered = await h.stateRow()
+        assert.equal(recovered.revision, REVISION_B)
+        assert.equal(recovered.retryAt, null)
+        assert.equal(recovered.failureCount, 0)
+        assert.equal(recovered.failureClassification, null)
+        assert.deepEqual(await staleSkillRepos(h.db, [h.repo]), [])
+    }
+)
+
+test(
+    'a failure that names no time backs off a minute, doubling while failures continue',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await harness(t)
+        await refreshSkillRepo(h.db, h.discovery, h.repo)
+        h.state.revision = REVISION_B
+        h.state.failPath = '/SKILL.md'
+        h.state.failStatus = 429
+        await assert.rejects(
+            refreshSkillRepo(h.db, h.discovery, h.repo),
+            (error: unknown) =>
+                error instanceof GitHubRequestError &&
+                error.classification === 'rate_limited'
+        )
+        const first = await h.stateRow()
+        assert.equal(first.failureCount, 1)
+        const firstWait = secondsUntil(first.retryAt)
+        assert.ok(firstWait > 55 && firstWait <= 73, `retry in ${firstWait}s`)
+
+        await h.db
+            .update(skillRepoScans)
+            .set({ retryAt: new Date(Date.now() - 1000) })
+            .where(eq(skillRepoScans.key, canonicalSkillRepoKey(h.repo)))
+        const before = h.requests.length
+        await assert.rejects(
+            refreshSkillRepo(h.db2, h.discovery, h.repo),
+            GitHubRequestError
+        )
+        assert.ok(h.requests.length > before, 'an expired backoff scans again')
+        const second = await h.stateRow()
+        assert.equal(second.failureCount, 2)
+        assert.equal(second.failureClassification, 'rate_limited')
+        const secondWait = secondsUntil(second.retryAt)
+        assert.ok(
+            secondWait > 115 && secondWait <= 145,
+            `retry in ${secondWait}s`
+        )
+        assert.equal(second.revision, REVISION_A)
+    }
+)
+
+test(
+    'a foreground install inside a backoff answers with the retry time instead of busy or a request',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await harness(t)
+        const userId = createObjectId('user')
+        const runtimeId = createObjectId('agentRuntime')
+        const agentId = createObjectId('agent')
+        await h.db
+            .insert(users)
+            .values({ id: userId, email: `${userId}@example.invalid` })
+        h.cleanups.push(async () =>
+            h.db.delete(users).where(eq(users.id, userId))
+        )
+        await h.db.insert(agentRuntimes).values({
+            id: runtimeId,
+            userId,
+            name: 'fixture',
+            framework: 'codex',
+            status: 'ready'
+        })
+        await h.db.insert(agents).values({
+            id: agentId,
+            userId,
+            name: 'fixture',
+            framework: 'codex',
+            runtimeId,
+            internalId: 'fixture'
+        })
+        await refreshSkillRepo(h.db, h.discovery, h.repo)
+        h.state.failPath = '/commits/'
+        h.state.failStatus = 429
+        h.state.failHeaders = { 'retry-after': '300' }
+        const service = new SkillsService(
+            h.db2,
+            h.discovery,
+            { materializeAgent: async () => [] } as never,
+            {} as never
+        )
+        Object.assign(service, { discoveryRepos: async () => [h.repo] })
+        const skillId = `github:${h.repo.owner}/${h.repo.name}@main:skills/one`
+        await assert.rejects(
+            service.install({ userId, agentId, skillId }),
+            GitHubRequestError
+        )
+        const before = h.requests.length
+        await assert.rejects(
+            service.install({ userId, agentId, skillId }),
+            (error: unknown) => {
+                assert.ok(error instanceof GitHubRequestError)
+                assert.ok(!(error instanceof SkillScanBusyError))
+                assert.equal(error.getStatus(), 503)
+                const body = error.getResponse() as { retryAfterSec?: number }
+                assert.ok(
+                    body.retryAfterSec !== undefined &&
+                        body.retryAfterSec >= 295 &&
+                        body.retryAfterSec <= 361,
+                    JSON.stringify(body)
+                )
+                return true
+            }
+        )
+        assert.equal(h.requests.length, before)
     }
 )
 

@@ -64,6 +64,11 @@ rl.on('line', (line) => {
     if (frame.method === 'session/new') return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: 'sess_oc_1' } })
     if (frame.method === 'session/prompt') {
         promptId = frame.id
+        if (process.env.OC_REBIND_CONFIG) {
+            const c = JSON.parse(fs.readFileSync(process.env.OC_REBIND_CONFIG, 'utf8'))
+            c.models.providers.primary.apiKey = 'fixture-rebound-key'
+            fs.writeFileSync(process.env.OC_REBIND_CONFIG, JSON.stringify(c))
+        }
         if (mode === 'crash') { process.stderr.write('Aborting: provider auth failed\\n'); process.exit(3) }
         if (mode === 'hang') return
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } })
@@ -544,6 +549,100 @@ test('a cancel while waiting for the gateway ends the turn without dialling it',
         assert.deepEqual(readRecord('wait-cancel'), [])
     } finally {
         delete process.env.OC_RECORD
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+// The route attestation (DAEMON_FEATURE_TURN_ROUTE_ATTESTATION): the final
+// answers the payload's nonce for the provider the transcript names, keyed
+// by the key that provider entry holds, and refuses when it cannot tell.
+const ROUTE_NONCE = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+const routeHome = (name: string): string => {
+    const dir = join(home, `route-${name}`)
+    mkdirSync(join(dir, '.openclaw'), { recursive: true })
+    writeFileSync(
+        join(dir, '.openclaw', 'openclaw.json'),
+        JSON.stringify({
+            models: {
+                mode: 'merge',
+                providers: {
+                    primary: {
+                        baseUrl: 'https://gateway.fixture.invalid/v1',
+                        apiKey: 'fixture-route-key',
+                        api: 'openai-completions'
+                    }
+                }
+            }
+        })
+    )
+    return dir
+}
+const { createHmac } = await import('node:crypto')
+const { routeAttestationMessage } = await import('@manyfold/shared')
+const expectedAttestation = (key: string): string =>
+    createHmac('sha256', key)
+        .update(
+            routeAttestationMessage({
+                nonce: ROUTE_NONCE,
+                protocol: 'openai_chat_completions',
+                baseUrl: 'https://gateway.fixture.invalid'
+            })!
+        )
+        .digest('hex')
+
+test("a route nonce is answered for the transcript's provider with the key its entry holds", async () => {
+    process.env.OPENCLAW_HOME = routeHome('attested')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({ routeNonce: ROUTE_NONCE }),
+            cwd: home,
+            ctx: makeCtx('oc-route-1').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, true, ack.error)
+        const final = ack.payload as Record<string, unknown>
+        assert.equal(final.routeAttestation, expectedAttestation('fixture-route-key'))
+        assert.equal('routeAttestationStatus' in final, false)
+        // The key itself never rides the final.
+        assert.equal(JSON.stringify(final).includes('fixture-route-key'), false)
+
+        const plain = await runOpenclawAcpTurn({
+            payload: payloadFor(),
+            cwd: home,
+            ctx: makeCtx('oc-route-2').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal('routeAttestation' in (plain.payload as object), false)
+        assert.equal('routeAttestationStatus' in (plain.payload as object), false)
+    } finally {
+        delete process.env.OPENCLAW_HOME
+    }
+})
+
+test('a provider entry rebound while the turn ran is not attested', async () => {
+    const dir = routeHome('rebound')
+    process.env.OPENCLAW_HOME = dir
+    process.env.OC_REBIND_CONFIG = join(dir, '.openclaw', 'openclaw.json')
+    process.env.OC_PROMPT = 'say hello'
+    process.env.OC_MODE = 'happy'
+    try {
+        const ack = await runOpenclawAcpTurn({
+            payload: payloadFor({ routeNonce: ROUTE_NONCE }),
+            cwd: home,
+            ctx: makeCtx('oc-route-rebound').ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {}
+        })
+        assert.equal(ack.ok, true, ack.error)
+        const final = ack.payload as Record<string, unknown>
+        assert.equal('routeAttestation' in final, false)
+        assert.equal(final.routeAttestationStatus, 'config_changed')
+    } finally {
+        delete process.env.OC_REBIND_CONFIG
         delete process.env.OPENCLAW_HOME
     }
 })

@@ -98,9 +98,17 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
     onModuleInit(): void {
         if (process.env.NODE_ENV === 'test') return
         this.timer = setInterval(inBackgroundContext(() => {
-            void this.sweep()
+            this.sweepInBackground()
         }), SWEEP_INTERVAL_MS)
         this.timer.unref?.()
+    }
+
+    // Nothing waits on the interval sweep, so a failure has no caller to
+    // reach: a rejection would be an unhandled one, which ends the API process.
+    sweepInBackground(): void {
+        void this.sweep().catch((err) =>
+            this.log.warn(`deletion sweep failed: ${(err as Error).message}`)
+        )
     }
 
     onModuleDestroy(): void {

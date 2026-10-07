@@ -90,7 +90,12 @@ import {
     isCancelledTurnError,
     isTerminalTurnExecutionState
 } from './turn-outcome'
-import { priceScopeFromMetadata, type ServedPriceScope } from '../usage/served-price-scope'
+import {
+    priceScopeFromMetadata,
+    routeReceiptFromMetadata,
+    type RouteReceipt,
+    type ServedPriceScope
+} from '../usage/served-price-scope'
 
 // The runtimes the adoption sweep will claim and replay from a transcript. A
 // turn_executions row for any OTHER runtime exists for cross-replica ownership
@@ -552,6 +557,8 @@ export class ChatRepository {
     ): Promise<void> {
         if (Object.prototype.hasOwnProperty.call(patch, 'pricingScope'))
             throw new Error('turn pricing scope must be stamped once before dispatch')
+        if (Object.prototype.hasOwnProperty.call(patch, 'routeReceipt'))
+            throw new Error('turn route receipt must be stamped once before dispatch')
         const merged = sanitizeForJsonb(patch) as Record<string, unknown>
         const apply = async (tx: Database | DatabaseTx): Promise<void> => {
             await tx
@@ -581,6 +588,59 @@ export class ChatRepository {
         scope: ServedPriceScope,
         fence?: TurnExecutionFence
     ): Promise<void> {
+        await this.stampTurnMetadataOnce(messageId, sessionId, fence, (metadata) => {
+            if (metadata && Object.prototype.hasOwnProperty.call(metadata, 'pricingScope')) {
+                const previous = priceScopeFromMetadata(metadata)
+                const stored = metadata.pricingScope as { version?: unknown } | null
+                if (stored?.version !== 1 ||
+                    previous.modelProviderId !== scope.modelProviderId ||
+                    previous.modelProviderBuiltInId !== scope.modelProviderBuiltInId ||
+                    previous.modelProviderManagedBrand !== scope.modelProviderManagedBrand)
+                    throw new Error('turn pricing scope cannot change after dispatch')
+                return null
+            }
+            return { pricingScope: {
+                version: 1,
+                modelProviderId: scope.modelProviderId,
+                modelProviderBuiltInId: scope.modelProviderBuiltInId,
+                modelProviderManagedBrand: scope.modelProviderManagedBrand
+            } }
+        })
+    }
+
+    // What the API expected of a route attestation at dispatch, under the same
+    // fence and once-only rule as the pricing scope.
+    async stampTurnRouteReceipt(
+        messageId: string,
+        sessionId: string,
+        receipt: RouteReceipt,
+        fence?: TurnExecutionFence
+    ): Promise<void> {
+        const stamped = {
+            version: receipt.version,
+            nonce: receipt.nonce,
+            scope: receipt.scope,
+            expected: receipt.expected
+        }
+        await this.stampTurnMetadataOnce(messageId, sessionId, fence, (metadata) => {
+            if (metadata && Object.prototype.hasOwnProperty.call(metadata, 'routeReceipt')) {
+                const previous = routeReceiptFromMetadata(metadata)
+                if (!previous || JSON.stringify(previous) !== JSON.stringify(stamped))
+                    throw new Error('turn route receipt cannot change after dispatch')
+                return null
+            }
+            return { routeReceipt: stamped }
+        })
+    }
+
+    // A dispatch fact written once, on a turn that is still this carrier's and
+    // not yet terminal: `decide` returns the patch, or null for an equal stamp.
+    private async stampTurnMetadataOnce(
+        messageId: string,
+        sessionId: string,
+        fence: TurnExecutionFence | undefined,
+        decide: (metadata: Record<string, unknown> | null) => Record<string, unknown> | null
+    ): Promise<void> {
         await this.db.transaction(async (tx) => {
             await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chat_stream_events'), hashtext(${sessionId}))`)
             if (fence) {
@@ -606,25 +666,11 @@ export class ChatRepository {
                 .where(and(eq(chatStreamEvents.messageId, messageId), inArray(chatStreamEvents.eventType, ['done', 'error'])))
                 .limit(1)
             if (terminal) throw new TurnFenceLostError(messageId)
-            const metadata = message.capabilityEventsJson as Record<string, unknown> | null
-            if (metadata && Object.prototype.hasOwnProperty.call(metadata, 'pricingScope')) {
-                const previous = priceScopeFromMetadata(metadata)
-                const stored = metadata.pricingScope as { version?: unknown } | null
-                if (stored?.version !== 1 ||
-                    previous.modelProviderId !== scope.modelProviderId ||
-                    previous.modelProviderBuiltInId !== scope.modelProviderBuiltInId ||
-                    previous.modelProviderManagedBrand !== scope.modelProviderManagedBrand)
-                    throw new Error('turn pricing scope cannot change after dispatch')
-                return
-            }
+            const patch = decide(message.capabilityEventsJson as Record<string, unknown> | null)
+            if (!patch) return
             await tx.update(chatMessages).set({ capabilityEventsJson: jsonbMerge(
                 chatMessages.capabilityEventsJson,
-                { pricingScope: {
-                    version: 1,
-                    modelProviderId: scope.modelProviderId,
-                    modelProviderBuiltInId: scope.modelProviderBuiltInId,
-                    modelProviderManagedBrand: scope.modelProviderManagedBrand
-                } }
+                patch
             ) }).where(eq(chatMessages.id, messageId))
         })
     }

@@ -9,6 +9,11 @@ overrides:
   playwright: 1.60.0
   tsx: 4.21.0
 
+patchedDependencies:
+  postgres@3.4.9:
+    hash: 799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a
+    path: patches/postgres@3.4.9.patch
+
 importers:
 
   .:
@@ -307,7 +312,7 @@ importers:
         version: 0.38.53
       drizzle-orm:
         specifier: ^0.36.4
-        version: 0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9)(react@18.3.1)(sql.js@1.14.2)
+        version: 0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a))(react@18.3.1)(sql.js@1.14.2)
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
@@ -325,7 +330,7 @@ importers:
         version: 7.0.13
       postgres:
         specifier: ^3.4.5
-        version: 3.4.9
+        version: 3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -417,6 +422,9 @@ importers:
       ws:
         specifier: ^8.18.0
         version: 8.21.3
+      yaml:
+        specifier: ^2.8.3
+        version: 2.9.0
     devDependencies:
       '@manyfold/a2a':
         specifier: workspace:*
@@ -713,10 +721,10 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: ^0.36.4
-        version: 0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9)(react@18.3.1)(sql.js@1.14.2)
+        version: 0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a))(react@18.3.1)(sql.js@1.14.2)
       postgres:
         specifier: ^3.4.5
-        version: 3.4.9
+        version: 3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a)
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -16749,7 +16757,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9)(react@18.3.1)(sql.js@1.14.2):
+  drizzle-orm@0.36.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.15.6)(@types/react@18.3.31)(@types/sql.js@1.4.11)(better-sqlite3@11.10.0)(postgres@3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a))(react@18.3.1)(sql.js@1.14.2):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260702.1
       '@opentelemetry/api': 1.9.1
@@ -16758,7 +16766,7 @@ snapshots:
       '@types/react': 18.3.31
       '@types/sql.js': 1.4.11
       better-sqlite3: 11.10.0
-      postgres: 3.4.9
+      postgres: 3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a)
       react: 18.3.1
       sql.js: 1.14.2
 
@@ -19386,7 +19394,7 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  postgres@3.4.9: {}
+  postgres@3.4.9(patch_hash=799029373c03522c62c89ab4399a923c94f6443d1a541d852b25d76f7f1de59a): {}
 
   preact-render-to-string@6.6.5(preact@11.0.0-beta.0):
     dependencies:

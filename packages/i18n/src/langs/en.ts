@@ -241,7 +241,7 @@ const en = {
                     unavailableFramework:
                         '{{framework}} agents don’t use account connections — they apply to coding agents like Claude Code, Codex and Gemini CLI.',
                     unavailableRuntime:
-                        'Connections are available on sandbox and self-owned computer runtimes.'
+                        'Connections are available on sandbox, cloud computer and self-owned computer runtimes.'
                 },
                 contextDoc: {
                     currentVersion: 'Current version',
@@ -260,7 +260,7 @@ const en = {
                     unavailableFramework:
                         '{{framework}} has no instruction file for a managed context doc — it is available for coding agents like Claude Code, Codex and Gemini CLI.',
                     unavailableRuntime:
-                        'The context doc is available on sandbox and self-owned computer runtimes.',
+                        'The context doc is available on sandbox, cloud computer and self-owned computer runtimes.',
                     upToDate: 'Installed · up to date',
                     update: 'Update',
                     updateAvailable: 'Installed · update available',
@@ -317,7 +317,7 @@ const en = {
                     unavailableOpenclaw:
                         'OpenClaw on a self-owned computer has no per-turn environment channel yet — set variables in that machine’s own environment instead.',
                     unavailableRuntime:
-                        'Environment variables are available on sandbox and self-owned computer runtimes.'
+                        'Environment variables are available on sandbox, cloud computer and self-owned computer runtimes.'
                 },
                 error: 'Error',
                 files: {
@@ -354,7 +354,7 @@ const en = {
                     multiScopeHint:
                         'Each scope maps to a different config file the CLI reads.',
                     sandboxOnly:
-                        'MCP servers can be configured for agents on sandbox and self-owned computer runtimes.',
+                        'MCP servers can be configured for agents on sandbox, cloud computer and self-owned computer runtimes.',
                     scopeTitle: '{{scope}} scope',
                     servers: 'Servers',
                     syncFromRuntime: 'Sync from runtime',

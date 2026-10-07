@@ -407,6 +407,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                     )
                 }
             }
+        } catch (err) {
+            this.log.warn(
+                `automation scheduler tick failed: ${(err as Error).message}`
+            )
         } finally {
             this.ticking = false
         }

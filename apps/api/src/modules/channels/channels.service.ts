@@ -544,7 +544,9 @@ export class ChannelsService {
         if (body.config !== undefined)
             patch.configJson = nextConfig as Record<string, unknown>
         if (body.credentials !== undefined) {
-            const credentials = provider.validateCredentials(body.credentials)
+            const credentials = provider.validateCredentials(body.credentials, {
+                previous: this.decryptCredentials(existing)
+            })
             const encrypted = this.encryptCredentials(credentials)
             patch.credentialsCiphertext = encrypted?.ciphertext ?? null
             patch.keyVersion = encrypted?.keyVersion ?? 1

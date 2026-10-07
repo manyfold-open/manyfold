@@ -6,7 +6,6 @@ import {
     sendFeedback,
     stopTask,
     streamChat,
-    stripPageContext,
     type HistoryItem,
     type PageContext,
     type RetrieverResource,
@@ -34,7 +33,7 @@ export type Message = {
     failed: boolean
 }
 
-export type ErrorKey = 'generic' | 'offline' | 'unavailable' | null
+export type ErrorKey = 'generic' | 'offline' | 'unavailable' | 'limited' | null
 export type Announcement = '' | 'answering' | 'ready' | 'stopped' | 'error'
 
 export type SupportState = {
@@ -148,6 +147,11 @@ let currentTaskId = ''
 let lastQuery = ''
 let initialized = false
 
+// 429 comes from the request limits in front of Dify. The reader gets a state
+// that says so and a Retry they press themselves; nothing here retries on its own.
+const isLimited = (error: unknown): boolean =>
+    error instanceof SupportApiError && error.status === 429
+
 const ensurePassport = async (force = false): Promise<string> => {
     if (passport && !force) return passport
     passport = await fetchPassport(uid)
@@ -182,7 +186,7 @@ const expandHistory = (items: HistoryItem[]): Message[] =>
     items.flatMap((item) => [
         {
             role: 'user' as const,
-            text: stripPageContext(item.query ?? ''),
+            text: item.query ?? '',
             messageId: null,
             sources: [],
             rating: null,
@@ -226,8 +230,11 @@ export const init = async (): Promise<void> => {
     set({ status: 'loading', error: null })
     try {
         await ensurePassport()
-    } catch {
-        set({ status: 'unavailable', error: 'unavailable' })
+    } catch (error) {
+        set({
+            status: 'unavailable',
+            error: isLimited(error) ? 'limited' : 'unavailable'
+        })
         return
     }
     if (!conversationId) {
@@ -244,7 +251,7 @@ export const init = async (): Promise<void> => {
             writeStored(CONVERSATION_KEY, null)
             set({ status: 'ready', messages: [] })
         } else {
-            set({ status: 'ready', error: 'generic' })
+            set({ status: 'ready', error: isLimited(error) ? 'limited' : 'generic' })
         }
     }
     // A send that was in flight when the page unloaded still finishes server-side.
@@ -272,7 +279,12 @@ const settleHistory = async (): Promise<void> => {
         if (state.streaming) return
         try {
             await loadHistory()
-        } catch {
+        } catch (error) {
+            patchLast({ streaming: false, failed: true })
+            set({
+                error: isLimited(error) ? 'limited' : 'generic',
+                announcement: 'error'
+            })
             return
         }
         const last = state.messages[state.messages.length - 1]
@@ -341,7 +353,6 @@ const runStream = async (
             query: text,
             conversationId,
             context,
-            isFirstMessage: conversationId === '',
             signal: active.signal
         })) {
             if (active.signal.aborted) return
@@ -372,7 +383,7 @@ const runStream = async (
         patchLast({ streaming: false, failed: true })
         set({
             streaming: false,
-            error: offline ? 'offline' : 'generic',
+            error: offline ? 'offline' : isLimited(error) ? 'limited' : 'generic',
             announcement: 'error'
         })
         // Frames already arrived, so the workflow is probably still running and
@@ -414,6 +425,13 @@ export const send = async (
 }
 
 export const retry = async (context: PageContext): Promise<void> => {
+    // A panel that never got a passport has nothing to re-send; Retry starts it.
+    if (state.status === 'unavailable') {
+        initialized = false
+        passport = null
+        await init()
+        return
+    }
     if (!lastQuery || state.streaming) return
     const messages = state.messages.slice()
     while (messages.length && messages[messages.length - 1].role === 'assistant')

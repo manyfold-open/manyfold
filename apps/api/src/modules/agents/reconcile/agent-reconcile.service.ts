@@ -82,7 +82,11 @@ export class AgentReconcileService {
         @Optional() events?: AppEventsService
     ) {
         events?.on('runtime.service.ready', ({ runtimeId }) => {
-            void this.touchReadyRuntime(runtimeId)
+            void this.touchReadyRuntime(runtimeId).catch((err) =>
+                this.log.warn(
+                    `ready runtime touch failed runtimeId=${runtimeId}: ${(err as Error).message}`
+                )
+            )
         })
     }
 

@@ -615,3 +615,73 @@ test('an unanswered ask denies on the payload timeout with the reject option', a
     )
     assert.ok(stdout.some((e) => e.data.includes('perm=deny mode=default')))
 })
+
+// The route attestation (DAEMON_FEATURE_TURN_ROUTE_ATTESTATION): the final
+// answers the payload's nonce for the route the child was spawned on, and a
+// resumed session only on the route this daemon saw it created on.
+const ROUTE_NONCE = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
+const { createHmac } = await import('node:crypto')
+const { routeAttestationMessage } = await import('@manyfold/shared')
+const { HermesSessionRoutes } = await import('../src/daemon/hermes-route')
+const { mkdirSync } = await import('node:fs')
+
+test('a route nonce is answered for the spawn-time route, and a resumed session only once its creation was seen', async () => {
+    const hermesHome = join(home, 'route-hermes')
+    mkdirSync(hermesHome, { recursive: true })
+    writeFileSync(
+        join(hermesHome, 'config.yaml'),
+        [
+            'profile: default',
+            'model:',
+            '  provider: custom',
+            '  default: fixture-model',
+            '  base_url: https://gateway.fixture.invalid/v1',
+            '  api_key: fixture-route-key'
+        ].join('\n') + '\n'
+    )
+    const sessionRoutes = new HermesSessionRoutes(join(home, 'hermes-routes.json'))
+    const expected = createHmac('sha256', 'fixture-route-key')
+        .update(
+            routeAttestationMessage({
+                nonce: ROUTE_NONCE,
+                protocol: 'openai_chat_completions',
+                baseUrl: 'https://gateway.fixture.invalid'
+            })!
+        )
+        .digest('hex')
+    const turn = async (refId: string, extra: Record<string, unknown>) => {
+        const ack = await runAcpTurn({
+            payload: payloadFor('happy', {
+                routeNonce: ROUTE_NONCE,
+                env: { HERMES_HOME: hermesHome },
+                ...extra
+            }),
+            cwd: home,
+            ctx: makeCtx(refId).ctx as never,
+            registerChild: () => {},
+            releaseChild: () => {},
+            sessionRoutes
+        })
+        assert.equal(ack.ok, true, ack.error)
+        return ack.payload as Record<string, unknown>
+    }
+    // A session hermes resumed from before this daemon recorded it.
+    const unseen = await turn('turn-route-1', { sessionId: 'sess_fake_1' })
+    assert.equal('routeAttestation' in unseen, false)
+    assert.equal(unseen.routeAttestationStatus, 'hermes_session_route_unknown')
+    const created = await turn('turn-route-2', {})
+    assert.equal(created.routeAttestation, expected)
+    assert.equal(JSON.stringify(created).includes('fixture-route-key'), false)
+    const resumed = await turn('turn-route-3', { sessionId: 'sess_fake_1' })
+    assert.equal(resumed.routeAttestation, expected)
+    const plain = await runAcpTurn({
+        payload: payloadFor('happy', { env: { HERMES_HOME: hermesHome } }),
+        cwd: home,
+        ctx: makeCtx('turn-route-4').ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {},
+        sessionRoutes
+    })
+    assert.equal('routeAttestation' in (plain.payload as object), false)
+    assert.equal('routeAttestationStatus' in (plain.payload as object), false)
+})

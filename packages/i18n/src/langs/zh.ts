@@ -239,7 +239,7 @@ const zh: Translations = {
                     unavailableFramework:
                         '{{framework}} Agent 不使用账号连接 —— 连接适用于 Claude Code、Codex、Gemini CLI 等 coding Agent。',
                     unavailableRuntime:
-                        '连接支持 Sandbox 和本机（自有电脑）Runtime。'
+                        '连接支持 Sandbox、云电脑和本机（自有电脑）Runtime。'
                 },
                 contextDoc: {
                     currentVersion: '当前版本',
@@ -257,7 +257,7 @@ const zh: Translations = {
                     unavailableFramework:
                         '{{framework}} 没有可供托管上下文文档引用的指令文件 —— 该功能适用于 Claude Code、Codex、Gemini CLI 等 coding Agent。',
                     unavailableRuntime:
-                        '上下文文档支持 Sandbox 和本机（自有电脑）Runtime。',
+                        '上下文文档支持 Sandbox、云电脑和本机（自有电脑）Runtime。',
                     upToDate: '已安装 · 最新',
                     update: '更新',
                     updateAvailable: '已安装 · 可更新',
@@ -312,7 +312,7 @@ const zh: Translations = {
                     unavailableOpenclaw:
                         'OpenClaw 在本机 Runtime 上暂无每回合环境变量通道 —— 请直接在那台机器的环境中设置。',
                     unavailableRuntime:
-                        '环境变量支持 Sandbox 和本机（自有电脑）Runtime。'
+                        '环境变量支持 Sandbox、云电脑和本机（自有电脑）Runtime。'
                 },
                 error: '错误',
                 files: {
@@ -347,7 +347,7 @@ const zh: Translations = {
                         '由已关联的 Composio 连接托管并自动注入（只读；不要写入上方文本）：',
                     multiScopeHint: '每个 scope 对应 CLI 读取的不同配置文件。',
                     sandboxOnly:
-                        'MCP server 支持 Sandbox 和本机（自有电脑）Runtime 上的 Agent。',
+                        'MCP server 支持 Sandbox、云电脑和本机（自有电脑）Runtime 上的 Agent。',
                     scopeTitle: '{{scope}} scope',
                     servers: 'Servers',
                     syncFromRuntime: '从 Runtime 同步',

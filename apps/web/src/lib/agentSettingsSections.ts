@@ -45,18 +45,19 @@ const SECTIONS: AgentSettingsSection[] = [
 
 // Whether an agent of this shape has the section at all. The gate states
 // delivery truth, not policy: a section exists exactly where the platform can
-// deliver what it edits. Sprites take everything; a self-owned computer takes
-// what rides the daemon RPC — env text and connection env per turn, context
-// docs over exec, MCP config over its fs RPCs (#781) — with hermes carried by
-// its turn payload and openclaw excluded because its turn payload has no env
-// channel (#783). An external agent has no workspace at all, which leaves
-// only "who may call it" and "how it is reached".
+// deliver what it edits. Every machine — sandbox, cloud computer or
+// self-owned computer — takes env text and connection env per exec, context
+// docs and MCP config through its host daemon (#781, #782), with hermes
+// carried by its turn payload. The one gap is openclaw on a self-owned
+// computer: its env lives in the user's own gateway process, which Manyfold
+// does not restart or rewrite (#783); on a sandbox or cloud computer it rides
+// the gateway service env instead. An external agent has no workspace at all,
+// which leaves only "who may call it" and "how it is reached".
 export const supportsSection = (
     agent: SdkAgent,
     id: AgentSettingsSectionId
 ): boolean => {
-    const sprite = agent.runtime === 'sprites'
-    const deliverable = sprite || agent.runtime === 'daemon'
+    const deliverable = agent.runtime !== 'external'
     const coding = frameworkKind(agent.framework) === 'coding'
     switch (id) {
         case 'overview':
@@ -83,6 +84,15 @@ export const supportsSection = (
             return isSkillFramework(agent.framework) && !!agent.runtimeId
     }
 }
+
+// A framework's long-lived service holds its env and credentials until it
+// restarts, and the platform restarts it only on a machine it hosts — a sandbox
+// or a cloud computer, the restart endpoint's own precondition. Coding agents
+// spawn per exec, and a self-owned computer's daemon spawns hermes per turn, so
+// neither owes a restart.
+export const hasRestartableService = (agent: SdkAgent): boolean =>
+    frameworkKind(agent.framework) === 'service' &&
+    (agent.runtime === 'sprites' || agent.runtime === 'k8s')
 
 export const sectionsFor = (agent: SdkAgent): AgentSettingsSection[] =>
     SECTIONS.filter((section) => supportsSection(agent, section.id))
@@ -140,7 +150,7 @@ export const sectionPreconditionKey = (
                 ? 'web.agents.detail.contextDoc.unavailableRuntime'
                 : 'web.agents.detail.contextDoc.unavailableFramework'
         case 'mcp':
-            return agent.runtime === 'sprites' || agent.runtime === 'daemon'
+            return agent.runtime !== 'external'
                 ? 'web.agents.detail.mcp.unsupported'
                 : 'web.agents.detail.mcp.sandboxOnly'
         case 'skills':

@@ -1,13 +1,14 @@
 import type { WeixinChannelConfig } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import type { ChannelProviderStateRow, ChannelRow } from '@manyfold/db'
 import type { ChannelsRepository } from '../src/modules/channels/channels.repository'
 import type {
     NormalizedInboundEvent,
     ChannelContext
 } from '../src/modules/channels/channel-provider'
+import { ChannelManagerService } from '../src/modules/channels/channel-manager.service'
 import { WeixinChannelProvider } from '../src/modules/channels/providers/weixin.provider'
 import {
     weixinGetUpdates,
@@ -164,6 +165,41 @@ test('weixin validateConfig normalizes and validateCredentials requires token', 
     })
     assert.equal(creds?.botToken, 'weixin-bot-token-abcdef')
     assert.equal(creds?.baseUrl, 'https://idc.ilinkai.weixin.qq.com')
+})
+
+test('weixin a replacement token keeps the stored gateway unless one is named', () => {
+    const provider = providerFor()
+    const international = 'https://ilinkai.wechat.com'
+    const previous = { botToken: 'weixin-bot-token-old', baseUrl: international }
+    // The settings form sends baseUrl: null; the CLI may leave it out.
+    for (const update of [
+        { botToken: 'weixin-bot-token-new' },
+        { botToken: 'weixin-bot-token-new', baseUrl: null }
+    ])
+        assert.deepEqual(provider.validateCredentials(update, { previous }), {
+            botToken: 'weixin-bot-token-new',
+            baseUrl: international
+        })
+    assert.equal(
+        provider.validateCredentials(
+            {
+                botToken: 'weixin-bot-token-new',
+                baseUrl: 'https://ilinkai.weixin.qq.com/'
+            },
+            { previous }
+        )?.baseUrl,
+        'https://ilinkai.weixin.qq.com',
+        'a named gateway still wins'
+    )
+    // Without stored credentials (create), an unnamed gateway is the default.
+    for (const opts of [undefined, { previous: null }])
+        assert.equal(
+            provider.validateCredentials(
+                { botToken: 'weixin-bot-token-new', baseUrl: null },
+                opts
+            )?.baseUrl,
+            null
+        )
 })
 
 test('weixin computeScopeKey and evaluateInboundActor', () => {
@@ -397,8 +433,13 @@ const flushPoll = async (): Promise<void> => {
         await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-for (const initialCursor of ['', 'saved-cursor']) {
-    test(`weixin 524 boundaries preserve ${initialCursor || 'empty'} cursor until a real response`, async (t) => {
+for (const [boundaryStatus, initialCursor] of [
+    [524, ''],
+    [524, 'saved-cursor'],
+    [554, ''],
+    [554, 'saved-cursor']
+] as const) {
+    test(`weixin ${boundaryStatus} boundaries preserve ${initialCursor || 'empty'} cursor until a real response`, async (t) => {
         t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
         t.mock.method(Math, 'random', () => 0.5)
         const repo = new FakeWeixinRepo()
@@ -422,7 +463,9 @@ for (const initialCursor of ['', 'saved-cursor']) {
                 assert.ok(url.pathname.endsWith('/getupdates'))
                 cursors.push(JSON.parse(String(init?.body)).get_updates_buf)
                 if (cursors.length <= 2)
-                    return new Response('edge timeout', { status: 524 })
+                    return new Response('edge timeout', {
+                        status: boundaryStatus
+                    })
                 if (cursors.length === 3)
                     return jsonResponse({
                         ret: 0,
@@ -459,20 +502,23 @@ for (const initialCursor of ['', 'saved-cursor']) {
         )
         t.after(() => handle.stop())
         await flushPoll()
+        // A held long poll proves the session is alive, but only a real
+        // response can serve as the baseline of a channel without a cursor.
+        const afterBoundary = initialCursor ? ['connected'] : []
         assert.deepEqual(
             statuses,
-            [],
-            'a boundary is neither an error nor a successful initial sync'
+            afterBoundary,
+            'a boundary is never an error, and never a successful initial sync'
         )
         assert.equal(repo.upserts, 0)
         t.mock.timers.tick(1499)
         await flushPoll()
-        assert.equal(cursors.length, 1, 'fast 524 must not form a tight loop')
+        assert.equal(cursors.length, 1, 'fast boundaries must not form a tight loop')
         t.mock.timers.tick(1)
         await flushPoll()
         assert.deepEqual(cursors, [initialCursor, initialCursor])
         assert.equal(repo.upserts, 0)
-        assert.deepEqual(statuses, [])
+        assert.deepEqual(statuses, afterBoundary)
         t.mock.timers.tick(1500)
         await flushPoll()
         assert.deepEqual(cursors, [
@@ -488,14 +534,14 @@ for (const initialCursor of ['', 'saved-cursor']) {
                 ? ['first real batch', 'new message']
                 : ['new message']
         )
-        assert.deepEqual(statuses, ['connected'])
+        assert.deepEqual(statuses, ['connected'], 'liveness is announced once')
         assert.equal(repo.upserts, 2, 'only real responses persist state')
         assert.equal(
             (repo.stateJson as { syncBuf: string }).syncBuf,
             'next-cursor'
         )
         assert.equal(warnings.mock.callCount(), 0)
-        assert.equal(stops, 0, '524 must not stop/reconnect the provider')
+        assert.equal(stops, 0, 'boundaries must not stop/reconnect the provider')
     })
 }
 
@@ -558,7 +604,7 @@ test('weixin stopping during the 524 floor cancels the next poll', async (t) => 
     assert.deepEqual(statuses, [])
 })
 
-for (const status of [401, 500, 522]) {
+for (const status of [401, 500, 520]) {
     test(`weixin HTTP ${status} still ends polling with an error`, async (t) => {
         t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
         let polls = 0
@@ -584,6 +630,208 @@ for (const status of [401, 500, 522]) {
         assert.deepEqual(statuses, ['error'])
     })
 }
+
+test('weixin an isolated edge connect failure repolls with the same cursor', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    t.mock.method(Math, 'random', () => 0.5)
+    const repo = new FakeWeixinRepo()
+    repo.stateJson = { syncBuf: 'saved-cursor', contextTokens: {} }
+    const warnings = t.mock.method(Logger.prototype, 'warn', () => {})
+    const cursors: string[] = []
+    const statuses: string[] = []
+    const events: NormalizedInboundEvent[] = []
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+            if (String(input).endsWith('/notifystop'))
+                return jsonResponse({ ret: 0 })
+            cursors.push(JSON.parse(String(init?.body)).get_updates_buf)
+            if (cursors.length === 1)
+                return new Response('origin connect timeout', { status: 522 })
+            if (cursors.length === 2)
+                return jsonResponse({
+                    ret: 0,
+                    get_updates_buf: 'next-cursor',
+                    msgs: [textMessage('peer', 'after the blip')]
+                })
+            return abortingResponse(init?.signal)
+        }
+    )
+    const handle = await providerFor(repo).start(
+        ctxFor(),
+        async (event) => {
+            events.push(event)
+        },
+        (status) => {
+            statuses.push(status)
+        }
+    )
+    t.after(() => handle.stop())
+    await flushPoll()
+    assert.deepEqual(
+        statuses,
+        [],
+        'an unreachable gateway says nothing about the session'
+    )
+    t.mock.timers.tick(1499)
+    await flushPoll()
+    assert.equal(cursors.length, 1, 'a fast edge failure must not spin')
+    t.mock.timers.tick(1)
+    await flushPoll()
+    assert.deepEqual(cursors, ['saved-cursor', 'saved-cursor', 'next-cursor'])
+    assert.deepEqual(
+        events.map((event) => event.text),
+        ['after the blip']
+    )
+    assert.deepEqual(statuses, ['connected'])
+    assert.equal(warnings.mock.callCount(), 0)
+})
+
+for (const status of [522, 552]) {
+    test(`weixin HTTP ${status} ends polling after three consecutive edge connect failures`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+        t.mock.method(Math, 'random', () => 0.5)
+        const repo = new FakeWeixinRepo()
+        repo.stateJson = { syncBuf: 'saved-cursor', contextTokens: {} }
+        const warnings = t.mock.method(Logger.prototype, 'warn', () => {})
+        // A boundary in between proves the gateway answered, so only the
+        // three failures after it count.
+        const sequence = [status, status, 524, status, status, status]
+        let polls = 0
+        t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+            if (String(input).endsWith('/notifystop'))
+                return jsonResponse({ ret: 0 })
+            const next = sequence[polls++]
+            assert.ok(next, 'polling must stop after the error')
+            return new Response('edge failure', { status: next })
+        })
+        const statuses: Array<{ status: string; message?: string }> = []
+        const handle = await providerFor(repo).start(
+            ctxFor(),
+            async () => {},
+            (value, detail) => {
+                statuses.push({ status: value, message: detail?.message })
+            }
+        )
+        t.after(() => handle.stop())
+        await flushPoll()
+        for (let i = 0; i < sequence.length; i++) {
+            t.mock.timers.tick(1500)
+            await flushPoll()
+        }
+        t.mock.timers.tick(600_000)
+        await flushPoll()
+        assert.equal(polls, sequence.length)
+        assert.deepEqual(
+            statuses.map((entry) => entry.status),
+            ['connected', 'error']
+        )
+        assert.match(
+            statuses[1].message ?? '',
+            new RegExp(`getUpdates HTTP ${status}: edge failure`)
+        )
+        assert.equal(warnings.mock.callCount(), 1)
+        assert.equal(repo.upserts, 0)
+    })
+}
+
+test('weixin boundaries clear a restarted channel error, so the manager stops bouncing it', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
+    t.mock.method(Math, 'random', () => 0.5)
+    t.mock.method(Logger.prototype, 'log', () => {})
+    t.mock.method(Logger.prototype, 'warn', () => {})
+    const weixinRepo = new FakeWeixinRepo()
+    weixinRepo.stateJson = { syncBuf: 'saved-cursor', contextTokens: {} }
+    let polls = 0
+    let stops = 0
+    t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/notifystop')) {
+            stops++
+            return jsonResponse({ ret: 0 })
+        }
+        polls++
+        return new Response('edge timeout', { status: 524 })
+    })
+    // Seen on staging [2026-10-06]: one 554 left an international channel in
+    // error; from then on only boundaries arrived, and the manager restarted
+    // it every 600s.
+    let row = makeChannel({
+        status: 'error',
+        lastErrorAt: new Date(),
+        lastErrorMessage: 'weixin getUpdates HTTP 554: ',
+        reconnectAttempts: 818,
+        nextReconnectAt: new Date()
+    })
+    const backoff = (): Date => new Date(Date.now() + 600_000)
+    const channelRepo = {
+        listSchedulable: async () => [row],
+        renewChannelLeases: async (_holder: string, ids: string[]) => ids,
+        tryAcquireChannelLease: async () => true,
+        releaseChannelLeasesByHolder: async () => {},
+        pruneDeliveries: async () => 0,
+        markChannelConnected: async () => {
+            row = {
+                ...row,
+                status: 'active',
+                lastErrorAt: null,
+                lastErrorMessage: null,
+                reconnectAttempts: 0,
+                nextReconnectAt: null
+            }
+        },
+        markChannelError: async (_id: string, message: string) => {
+            row = {
+                ...row,
+                status: 'error',
+                lastErrorMessage: message,
+                reconnectAttempts: row.reconnectAttempts + 1,
+                nextReconnectAt: backoff()
+            }
+            return row.reconnectAttempts
+        },
+        armChannelReconnect: async () => {
+            if (row.status !== 'error') return null
+            row = {
+                ...row,
+                reconnectAttempts: row.reconnectAttempts + 1,
+                nextReconnectAt: backoff()
+            }
+            return row.reconnectAttempts
+        }
+    }
+    const bridge = {
+        buildContext: (channel: ChannelRow): ChannelContext => ({
+            ...ctxFor(channel),
+            credentials: { ...credentials, baseUrl: 'https://ilinkai.wechat.com' }
+        }),
+        handleInbound: async () => {},
+        replayRecoverableInboundEvents: async () => 0,
+        reconcilePendingReplies: async () => 0,
+        sweepOutboundDeliveries: async () => 0
+    }
+    const provider = providerFor(weixinRepo)
+    const manager = new ChannelManagerService(
+        channelRepo as never,
+        { get: () => provider } as never,
+        bridge as never,
+        { event: () => {} } as never,
+        { get: () => undefined } as never
+    )
+    manager.onModuleInit()
+    t.after(() => manager.onModuleDestroy())
+    await flushPoll()
+    // Lease ticks well past the 600s backoff the restart armed.
+    for (let i = 0; i < 50; i++) {
+        t.mock.timers.tick(15_000)
+        await flushPoll()
+    }
+    assert.equal(stops, 0, 'the manager no longer restarts the channel')
+    assert.equal(row.status, 'active')
+    assert.equal(row.reconnectAttempts, 0)
+    assert.equal(row.nextReconnectAt, null)
+    assert.ok(polls > 1, 'the first poll loop keeps polling')
+})
 
 test('weixin network errors retain the existing retry budget then report error', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
@@ -641,6 +889,145 @@ test('weixin -14 keeps the full one-hour pause across reconnects', async (t) => 
     assert.deepEqual(statuses, ['error', 'error', 'error'])
 })
 
+// A gateway whose session dies until `revive()`: getupdates and notifystart
+// answer -14 before it and succeed after it.
+const sessionGateway = (t: TestContext) => {
+    const calls = { polls: 0, starts: 0, stops: 0, pollTokens: [] as string[] }
+    let alive = false
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input)
+            if (url.endsWith('/notifystop')) {
+                calls.stops++
+                return jsonResponse({ ret: 0 })
+            }
+            if (url.endsWith('/notifystart')) {
+                calls.starts++
+                return jsonResponse(alive ? { ret: 0 } : { errcode: -14 })
+            }
+            calls.polls++
+            calls.pollTokens.push(
+                String(new Headers(init?.headers).get('authorization'))
+            )
+            if (!alive) return jsonResponse({ errcode: -14 })
+            return abortingResponse(init?.signal)
+        }
+    )
+    return {
+        calls,
+        revive: () => {
+            alive = true
+        }
+    }
+}
+
+const rescannedCtx = (): ChannelContext => ({
+    ...ctxFor(),
+    credentials: { ...credentials, botToken: 'weixin-bot-token-rescanned' }
+})
+
+test('weixin a successful register ends the -14 pause, so the next start polls at once', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    gateway.revive()
+    assert.equal((await provider.register(ctxFor())).ok, true)
+    const second = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => second.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a failed register keeps the -14 pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    const registered = await provider.register(ctxFor())
+    assert.equal(registered.ok, false)
+    assert.match(registered.message ?? '', /session expired/)
+    const second = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => second.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 1)
+    t.mock.timers.tick(60 * 60_000)
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a successful register wakes a poll loop parked in the pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    const parked = await provider.start(ctxFor(), async () => {}, () => {})
+    t.after(() => parked.stop())
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 1)
+    // The Register action re-checks the same token and restarts nothing.
+    gateway.revive()
+    assert.equal((await provider.register(ctxFor())).ok, true)
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+})
+
+test('weixin a re-scanned token is not held by the old token pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    // The restart carrying the new token may come from the lease holder's
+    // config fingerprint check, with register() run on another instance.
+    gateway.revive()
+    const second = await provider.start(rescannedCtx(), async () => {}, () => {})
+    await flushPoll()
+    assert.equal(gateway.calls.polls, 2)
+    assert.equal(gateway.calls.pollTokens[1], 'Bearer weixin-bot-token-rescanned')
+    await second.stop()
+    assert.equal(gateway.calls.stops, 1, 'the new token is not paused')
+})
+
+test('weixin stop inside the -14 pause sends no notifystop', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    const provider = providerFor()
+    const first = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await first.stop()
+    // Each manager bounce during the pause is another stop.
+    const parked = await provider.start(ctxFor(), async () => {}, () => {})
+    await flushPoll()
+    await parked.stop()
+    assert.equal(gateway.calls.polls, 1)
+    assert.equal(gateway.calls.stops, 0)
+})
+
+test('weixin stop outside the pause still sends notifystop', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const gateway = sessionGateway(t)
+    gateway.revive()
+    const handle = await providerFor().start(
+        ctxFor(),
+        async () => {},
+        () => {}
+    )
+    await flushPoll()
+    await handle.stop()
+    assert.equal(gateway.calls.polls, 1)
+    assert.equal(gateway.calls.stops, 1)
+})
+
 test('weixin HTTP 524 on sendMessage remains a hard failure', async (t) => {
     t.mock.method(
         globalThis,
@@ -675,23 +1062,48 @@ test('weixin a stop abort is not an empty getupdates result', async () => {
     )
 })
 
-test('weixin getupdates preserves the cursor in its local 524 boundary result', async (t) => {
+test('weixin getupdates preserves the cursor in its local boundary result', async (t) => {
+    let status = 0
     t.mock.method(
         globalThis,
         'fetch',
-        async () => new Response('edge timeout', { status: 524 })
+        async () => new Response('edge timeout', { status })
     )
-    for (const cursor of ['', 'saved-cursor'])
-        assert.deepEqual(
-            await weixinGetUpdates(
-                {
-                    baseUrl: 'https://ilinkai.wechat.com',
-                    token: credentials.botToken
-                },
-                cursor
-            ),
-            { kind: 'poll-boundary', msgs: [], get_updates_buf: cursor }
+    for (status of [524, 554])
+        for (const cursor of ['', 'saved-cursor'])
+            assert.deepEqual(
+                await weixinGetUpdates(
+                    {
+                        baseUrl: 'https://ilinkai.wechat.com',
+                        token: credentials.botToken
+                    },
+                    cursor
+                ),
+                { kind: 'poll-boundary', msgs: [], get_updates_buf: cursor }
+            )
+})
+
+test('weixin getupdates reports an edge connect failure as an unreachable gateway', async (t) => {
+    let status = 0
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async () => new Response('origin connect timeout', { status })
+    )
+    for (status of [522, 552]) {
+        const result = await weixinGetUpdates(
+            {
+                baseUrl: 'https://ilinkai.wechat.com',
+                token: credentials.botToken
+            },
+            'saved-cursor'
         )
+        assert.equal(result.kind, 'gateway-unreachable')
+        assert.match(
+            result.kind === 'gateway-unreachable' ? result.error.message : '',
+            new RegExp(`getUpdates HTTP ${status}: origin connect timeout`)
+        )
+    }
 })
 
 test('weixin client timeout retains the existing empty successful envelope', async (t) => {

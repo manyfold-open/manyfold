@@ -1,4 +1,5 @@
 import type {
+    ChannelCredentials,
     ChannelTestResult,
     WeixinChannelConfig,
     WeixinChannelCredentials
@@ -79,6 +80,10 @@ const WEIXIN_SESSION_PAUSE_MS = envInt(
     'MF_WEIXIN_SESSION_PAUSE_MS',
     60 * 60_000
 )
+// Consecutive polls the edge may fail to connect before the channel takes the
+// normal error + backoff path. Measured on production [2026-10-07]: 19 such
+// failures over the previous 14 days, none back to back.
+const WEIXIN_UNREACHABLE_POLL_LIMIT = 3
 const WEIXIN_SEND_RETRIES = 3
 const WEIXIN_SEND_RETRY_DELAY_MS = 500
 const WEIXIN_TYPING_REFRESH_MS = 5_000
@@ -92,6 +97,14 @@ const WEIXIN_INCOMPLETE_NOTICE = '⚠️ 消息发送不完整，剩余内容已
 interface WeixinProviderState {
     syncBuf?: string | null
     contextTokens?: Record<string, string>
+}
+
+interface WeixinSessionPause {
+    // The bot token iLink rejected with -14; any other token is not paused.
+    token: string
+    until: number
+    // Set while a poll loop is parked in this pause.
+    wake: (() => void) | null
 }
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -275,10 +288,13 @@ const itemAttachments = (
 export class WeixinChannelProvider implements ChannelProvider {
     readonly name = 'weixin' as const
     private readonly logger = new Logger(WeixinChannelProvider.name)
-    // -14 cooldown per channel; provider is a singleton so this survives the
-    // manager's stop/start reconnect bounces (the DB backoff caps at 600s,
-    // far below the hourly probe cadence this enforces).
-    private readonly pausedUntil = new Map<string, number>()
+    // -14 cooldown per channel, held against the token that hit it. The
+    // provider is a singleton so this survives the manager's stop/start
+    // reconnect bounces (the DB backoff caps at 600s, far below the hourly
+    // probe cadence this enforces). A re-scanned token is never paused: the
+    // restart that carries it can land on an instance register() did not run
+    // on.
+    private readonly sessionPauses = new Map<string, WeixinSessionPause>()
     private readonly sendQueues = new Map<string, Promise<unknown>>()
     private readonly circuitUntil = new Map<string, number>()
     private readonly typingTickets = new Map<
@@ -306,7 +322,8 @@ export class WeixinChannelProvider implements ChannelProvider {
     }
 
     validateCredentials(
-        credentials: unknown
+        credentials: unknown,
+        opts: { previous?: ChannelCredentials | null } = {}
     ): WeixinChannelCredentials | null {
         if (credentials === null || credentials === undefined) return null
         if (typeof credentials !== 'object')
@@ -315,9 +332,14 @@ export class WeixinChannelProvider implements ChannelProvider {
         const botToken = typeof c.botToken === 'string' ? c.botToken.trim() : ''
         if (botToken.length < 8 || /\s/.test(botToken))
             throw new BadRequestException('credentials.botToken is required')
+        // The gateway is the region the bot's QR login bound it to, so a
+        // replacement token keeps the stored one unless the caller names a
+        // gateway: falling back to the default would move an international
+        // bot onto the domestic host.
+        const previous = opts.previous as WeixinChannelCredentials | null
         return {
             botToken,
-            baseUrl: normalizeBaseUrl(c.baseUrl)
+            baseUrl: normalizeBaseUrl(c.baseUrl) ?? previous?.baseUrl ?? null
         }
     }
 
@@ -341,15 +363,32 @@ export class WeixinChannelProvider implements ChannelProvider {
         let hasCursor = syncBuf.length > 0
         const contextTokens = new Map(Object.entries(state.contextTokens ?? {}))
         let pollTimeoutMs = WEIXIN_LONG_POLL_TIMEOUT_MS + 5_000
+        let unreachablePolls = 0
+
+        // Fast edge responses must not spin; an ordinary long poll has
+        // already spent this 1-2s floor and re-polls immediately.
+        const repollFloor = async (pollStartedAt: number): Promise<void> => {
+            const delay =
+                1000 + Math.floor(Math.random() * 1000) -
+                (Date.now() - pollStartedAt)
+            if (delay > 0) await sleep(delay, abort.signal)
+        }
 
         const loop = async (): Promise<void> => {
-            const pauseLeft = (this.pausedUntil.get(channelId) ?? 0) - Date.now()
-            if (pauseLeft > 0) {
+            const pause = this.sessionPauses.get(channelId)
+            const pauseLeft = this.sessionPauseLeft(channelId, apiOpts.token)
+            if (pause && pauseLeft > 0) {
                 onStatus?.('error', { message: WEIXIN_SESSION_EXPIRED_MESSAGE })
-                await sleep(pauseLeft, abort.signal)
+                const wake = new AbortController()
+                pause.wake = () => wake.abort()
+                await sleep(
+                    pauseLeft,
+                    AbortSignal.any([abort.signal, wake.signal])
+                )
+                pause.wake = null
                 if (stopped) return
             }
-            this.pausedUntil.delete(channelId)
+            this.sessionPauses.delete(channelId)
 
             while (!stopped) {
                 const pollStartedAt = Date.now()
@@ -369,13 +408,29 @@ export class WeixinChannelProvider implements ChannelProvider {
                     return
                 }
                 if (stopped) return
+                if (result.kind === 'gateway-unreachable') {
+                    unreachablePolls += 1
+                    if (unreachablePolls >= WEIXIN_UNREACHABLE_POLL_LIMIT) {
+                        const message = result.error.message
+                        this.logger.warn(
+                            `weixin getupdates failed channel=${channelId}: ${message}`
+                        )
+                        onStatus?.('error', { message })
+                        return
+                    }
+                    await repollFloor(pollStartedAt)
+                    continue
+                }
+                unreachablePolls = 0
                 if (result.kind === 'poll-boundary') {
-                    // Fast edge responses must not spin; an ordinary long poll
-                    // has already spent this 1-2s floor and re-polls immediately.
-                    const delay =
-                        1000 + Math.floor(Math.random() * 1000) -
-                        (Date.now() - pollStartedAt)
-                    if (delay > 0) await sleep(delay, abort.signal)
+                    // The gateway held this session's long poll open until the
+                    // edge cut it, so the session is alive. Without a cursor
+                    // the channel still needs a real response as its baseline.
+                    if (hasCursor && !announcedConnected) {
+                        announcedConnected = true
+                        onStatus?.('connected')
+                    }
+                    await repollFloor(pollStartedAt)
                     continue
                 }
                 const resp = result.response
@@ -385,10 +440,11 @@ export class WeixinChannelProvider implements ChannelProvider {
                 )
                     pollTimeoutMs = resp.longpolling_timeout_ms + 5_000
                 if (weixinStaleSession(resp)) {
-                    this.pausedUntil.set(
-                        channelId,
-                        Date.now() + WEIXIN_SESSION_PAUSE_MS
-                    )
+                    this.sessionPauses.set(channelId, {
+                        token: apiOpts.token,
+                        until: Date.now() + WEIXIN_SESSION_PAUSE_MS,
+                        wake: null
+                    })
                     this.logger.warn(
                         `weixin session expired channel=${channelId}, pausing probes for ${Math.round(WEIXIN_SESSION_PAUSE_MS / 60_000)}min`
                     )
@@ -476,11 +532,19 @@ export class WeixinChannelProvider implements ChannelProvider {
                 for (const stop of this.typingStops.get(channelId) ?? [])
                     stop()
                 this.typingStops.delete(channelId)
+                // A paused token's session is already gone; notifystop would
+                // only spend a gateway request on it.
+                if (this.sessionPauseLeft(channelId, apiOpts.token) > 0) return
                 await weixinNotifyStop({ ...apiOpts, timeoutMs: 5_000 }).catch(
                     () => undefined
                 )
             }
         }
+    }
+
+    private sessionPauseLeft(channelId: string, token: string): number {
+        const pause = this.sessionPauses.get(channelId)
+        return pause?.token === token ? pause.until - Date.now() : 0
     }
 
     parseInbound(): NormalizedInboundEvent {
@@ -656,6 +720,14 @@ export class WeixinChannelProvider implements ChannelProvider {
     async register(ctx: ChannelContext): Promise<RegistrationResult> {
         const probe = await this.probe(ctx)
         if (!probe.ok) return probe
+        // The gateway has just accepted this token, so its -14 pause is over,
+        // including for a poll loop parked in it: a re-register that does not
+        // change the token restarts nothing.
+        const pause = this.sessionPauses.get(ctx.channel.id)
+        if (pause?.token === this.apiOptions(ctx).token) {
+            this.sessionPauses.delete(ctx.channel.id)
+            pause.wake?.()
+        }
         return {
             ok: true,
             activate: true,

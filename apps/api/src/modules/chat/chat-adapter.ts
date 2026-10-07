@@ -117,7 +117,9 @@ export interface ApiChatAdapterContext {
     modelProviderId?: string | null
     modelProviderBuiltInId?: string | null
     modelProviderManagedBrand?: string | null
-    // Server-only dispatch receipt, awaited before starting the actual exec.
+    // Server-only dispatch receipt, awaited before starting the actual exec;
+    // a runtime that attests its route (OpenClaw, Hermes) settles it from
+    // the turn's final instead, live or replayed.
     onServedPriceScope?: (scope: ServedPriceScope) => Promise<void>
     modelConfig: AgentModelConfig | null
     // Runtime-local turns keep modelConfig null (adapters read a set

@@ -232,6 +232,13 @@
       "when": 1791216469589,
       "tag": "0032_hosted_home_dir",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791343659136,
+      "tag": "0033_skill_scan_backoff",
+      "breakpoints": true
     }
   ]
 }

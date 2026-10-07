@@ -648,7 +648,8 @@ export interface MatrixChannelCredentials {
 export interface WeixinChannelCredentials {
     botToken: string
     // iLink gateway base URL bound to this token at QR login (the confirm
-    // response may point at an IDC-specific host). Null = default gateway.
+    // response may point at an IDC-specific host). Null or absent means the
+    // default gateway on create, and the stored gateway on update.
     baseUrl?: string | null
 }
 

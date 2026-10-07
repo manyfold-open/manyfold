@@ -29,11 +29,13 @@ import {
 } from '@/modules/chat/chat.service'
 import {
     emitProcessExit,
+    emitRecoveredRejection,
     processExitLogLine,
+    recoveredRejectionLogLine,
     type ProcessExitReason,
     type ProcessExitRecord
 } from './process-lifecycle'
-import { describeFatalError } from './fatal-error'
+import { describeFatalError, recoverableDbConnectionCode } from './fatal-error'
 import { FLUSH_STAGE_TIMEOUT_MS } from './flush-stage'
 
 const TURN_DRAIN_TIMEOUT_MS = 15_000
@@ -167,9 +169,15 @@ const handleFatal = (reason: ProcessExitReason, error: unknown): void => {
 process.on('uncaughtException', (error) =>
     handleFatal('uncaught_exception', error)
 )
-process.on('unhandledRejection', (reason) =>
-    handleFatal('unhandled_rejection', reason)
-)
+process.on('unhandledRejection', (reason) => {
+    const code = recoverableDbConnectionCode(reason)
+    if (code === null) return handleFatal('unhandled_rejection', reason)
+    const detail = describeFatalError(reason)
+    try {
+        emitRecoveredRejection(code, detail)
+    } catch {}
+    console.warn(recoveredRejectionLogLine(code, detail))
+})
 process.on('exit', (code) => {
     if (exitRecord) return
     console.error(

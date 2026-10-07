@@ -63,7 +63,7 @@ export class MeExportController {
         })
         // Fire-and-forget: the sweep does the slow collect/zip/upload work;
         // the interval tick (and stale-claim recovery) backstops a crash.
-        void this.exports.sweep()
+        this.exports.sweepInBackground()
         return status
     }
 

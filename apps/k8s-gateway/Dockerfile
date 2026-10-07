@@ -11,6 +11,7 @@ WORKDIR /repo
 
 FROM base AS deps
 COPY .npmrc pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY patches ./patches
 COPY apps/k8s-gateway/package.json apps/k8s-gateway/
 COPY packages/k8s-exec-core/package.json packages/k8s-exec-core/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
