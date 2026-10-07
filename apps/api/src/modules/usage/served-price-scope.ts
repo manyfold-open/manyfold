@@ -83,7 +83,12 @@ export const verifiedCodingPriceScope = (input: {
     let baseUrl: unknown
     let protocol: InferenceProtocol
     let defaultUrl: string
-    if (input.framework === 'codex') {
+    if (input.framework === 'claude-code') {
+        key = credentials.anthropicAuthToken
+        baseUrl = credentials.anthropicBaseUrl
+        protocol = 'anthropic_messages'
+        defaultUrl = OFFICIAL_PROVIDER_BASE_URL.anthropic
+    } else if (input.framework === 'codex') {
         key = credentials.openaiApiKey
         baseUrl = credentials.openaiBaseUrl
         protocol = 'openai_responses'
