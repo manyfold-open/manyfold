@@ -4138,54 +4138,20 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     flex-wrap: wrap;
 }
 
-/* "Use in your agent": one element from button to panel. The head is the
-   button's label and stays put; .lp-agent-frame behind it is the button's
-   chassis and is what grows, so a panel never sits on top of a button with
-   the button's corner and edge showing past it. The body has a fixed width
-   and the frame clips it, so nothing inside rewraps while the frame grows.
-   Sizes come from UseInAgentCta, which measures what the frame opens to.
-   The panel always floats: the hero is a pinned scene the next scroll
-   replaces, so it cannot push the page down, and where the room below the
-   button runs out the open title and frame rise together until the whole
-   panel is on screen. */
+/* "Use in your agent": the button is the copy action. The idle and done
+   labels share one grid cell, so the button keeps the width of the wider one
+   and nothing shifts when it flips; they are the same length on purpose, so
+   no dead space shows at rest. The icon swaps the same way. */
 .landing-root .lp-agent {
-    position: relative;
-    display: inline-flex;
-    vertical-align: top;
+    gap: 12px;
+    padding-inline: 16px;
 }
 
-.landing-root .lp-agent[data-open] {
-    z-index: 30;
-}
-
-.landing-root .lp-agent-head {
-    position: relative;
-    z-index: 2;
-    background: transparent;
-    color: var(--lp-ink);
-    transition: transform 160ms ease;
-}
-
-/* Open, the label slides from the button's inset to the panel's 20px (the
-   same padding ProductDialog keeps on every side), riding the frame's rise. */
-.landing-root .lp-agent[data-open] .lp-agent-head {
-    transform: translate(
-        var(--lp-agent-title-x, 0px),
-        var(--lp-agent-title-y, 0px)
-    );
-    transition-duration: 220ms;
-}
-
-.landing-root .lp-agent-head:active {
-    transform: none;
-}
-
-.landing-root .lp-agent-head:focus-visible {
+.landing-root .lp-agent:focus-visible {
     outline: none;
-}
-
-.landing-root .lp-agent[data-open] .lp-agent-head:focus-visible {
-    box-shadow: var(--lp-shadow-focus);
+    box-shadow:
+        var(--lp-shadow-button-secondary),
+        var(--lp-shadow-focus);
 }
 
 /* The marks carry an SVG <title>; without pointer events it cannot raise
@@ -4194,7 +4160,6 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 .landing-root .lp-agent-marks {
     display: inline-flex;
     gap: 6px;
-    margin-left: 2px;
     pointer-events: none;
 }
 
@@ -4202,212 +4167,86 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     display: block;
 }
 
-.landing-root .lp-agent-frame {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 1;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    border-radius: var(--lp-r-sm);
-    background: var(--lp-paper);
-    box-shadow: var(--lp-shadow-button-secondary);
-    transition:
-        width 160ms ease,
-        height 160ms ease,
-        transform 160ms ease,
-        border-radius 160ms ease,
-        background-color 160ms ease,
-        box-shadow 160ms ease;
-}
-
-.landing-root .lp-agent:not([data-open]) .lp-agent-head:hover + .lp-agent-frame {
-    background: var(--lp-bg-soft);
-}
-
-html[data-theme='dark']
-    .landing-root
-    .lp-agent:not([data-open])
-    .lp-agent-head:hover
-    + .lp-agent-frame {
-    background: var(--lp-paper-warm);
-}
-
-.landing-root
-    .lp-agent:not([data-open])
-    .lp-agent-head:focus-visible
-    + .lp-agent-frame {
-    box-shadow: var(--lp-shadow-button-secondary), var(--lp-shadow-focus);
-}
-
-.landing-root .lp-agent[data-open] .lp-agent-frame {
-    width: var(--lp-agent-open-w, 452px);
-    height: var(--lp-agent-open-h, 260px);
-    transform: translate(
-        var(--lp-agent-left, 0px),
-        var(--lp-agent-rise, 0px)
-    );
-    border-radius: var(--lp-r-md);
-    background: var(--lp-paper-warm);
-    box-shadow: var(--lp-shadow-md);
-    transition-duration: 220ms;
-}
-
-/* The visible glyph sits on the panel's 20px grid: its right edge lines up
-   with the prompt and Copy below, and it is centred on the title line. The
-   32px hover circle around it reaches into the padding (right: 20px minus
-   half the circle's 16px of slack). */
-.landing-root .lp-agent-close {
-    position: absolute;
-    top: calc(20px + var(--lp-agent-title-h, 15px) / 2 - 16px);
-    right: 12px;
-    z-index: 3;
+.landing-root .lp-agent-label {
     display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border: 0;
-    border-radius: var(--lp-r-pill);
-    background: transparent;
-    color: var(--lp-subtle);
-    cursor: pointer;
-    visibility: hidden;
-    opacity: 0;
-    transition:
-        opacity 100ms ease,
-        visibility 0s linear 100ms,
-        background 150ms ease,
-        color 150ms ease;
+    text-align: start;
 }
 
-.landing-root .lp-agent-close svg {
+.landing-root .lp-agent-label > span {
+    grid-area: 1 / 1;
+    transition:
+        opacity 160ms ease,
+        transform 200ms ease;
+}
+
+.landing-root .lp-agent-label > span:not(:first-child) {
+    opacity: 0;
+    transform: translateY(6px);
+}
+
+.landing-root .lp-agent[data-state='copied'] .lp-agent-label > :first-child,
+.landing-root .lp-agent[data-state='failed'] .lp-agent-label > :first-child {
+    opacity: 0;
+    transform: translateY(-6px);
+}
+
+.landing-root .lp-agent[data-state='copied'] .lp-agent-label > .lp-agent-done,
+.landing-root .lp-agent[data-state='failed'] .lp-agent-label > .lp-agent-fail {
+    opacity: 1;
+    transform: none;
+}
+
+.landing-root .lp-agent[data-state='copied'] .lp-agent-label > .lp-agent-done {
+    color: var(--lp-success-strong);
+}
+
+.landing-root .lp-agent-ico {
+    position: relative;
+    flex: none;
     width: 16px;
     height: 16px;
+    color: var(--lp-muted);
+    transition: color 160ms ease;
 }
 
-.landing-root .lp-agent-close:hover {
-    background: var(--lp-bg-soft);
+.landing-root .lp-agent:hover .lp-agent-ico {
     color: var(--lp-ink);
 }
 
-.landing-root .lp-agent-close:focus-visible {
-    outline: none;
-    box-shadow: var(--lp-shadow-focus);
-}
-
-.landing-root .lp-agent[data-open] .lp-agent-close {
-    visibility: visible;
-    opacity: 1;
-    transition:
-        opacity 140ms ease 80ms,
-        visibility 0s,
-        background 150ms ease,
-        color 150ms ease;
-}
-
-.landing-root .lp-agent-body {
+.landing-root .lp-agent-ico svg {
     position: absolute;
-    top: var(--lp-agent-body-top, 41px);
-    left: 0;
-    width: var(--lp-agent-open-w, 452px);
-    max-height: calc(
-        var(--lp-agent-open-h, 260px) - var(--lp-agent-body-top, 41px)
-    );
-    overflow-y: auto;
-    padding: 0 20px 20px;
-    visibility: hidden;
+    inset: 0;
+    width: 16px;
+    height: 16px;
+    transition:
+        opacity 160ms ease,
+        transform 200ms ease;
+}
+
+.landing-root .lp-agent-ico svg:last-child {
     opacity: 0;
-    transition:
-        opacity 100ms ease,
-        visibility 0s linear 100ms;
+    transform: scale(0.6);
 }
 
-.landing-root .lp-agent[data-open] .lp-agent-body {
-    visibility: visible;
+.landing-root .lp-agent[data-state='copied'] .lp-agent-ico {
+    color: var(--lp-success-strong);
+}
+
+.landing-root .lp-agent[data-state='copied'] .lp-agent-ico svg:first-child {
+    opacity: 0;
+    transform: scale(0.6);
+}
+
+.landing-root .lp-agent[data-state='copied'] .lp-agent-ico svg:last-child {
     opacity: 1;
-    transition:
-        opacity 160ms ease 60ms,
-        visibility 0s;
-}
-
-.landing-root .lp-agent-desc {
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.55;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-agent-desc a {
-    color: var(--lp-info);
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
-}
-
-.landing-root .lp-agent-desc a:hover {
-    color: var(--lp-info-strong);
-    text-decoration-thickness: 2px;
-}
-
-.landing-root .lp-agent-prompt {
-    margin: 12px 0 0;
-    padding: 12px 14px;
-    border-radius: var(--lp-r-sm);
-    background: var(--lp-bg-soft);
-    box-shadow: inset 0 0 0 1px var(--lp-line);
-    font-family: var(--lp-mono);
-    font-size: 12.5px;
-    line-height: 1.65;
-    color: var(--lp-ink-soft);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
-
-/* Bottom-aligned: the note wraps to two lines and is taller than Copy, so
-   centring would lift Copy off the panel's 20px bottom inset. */
-.landing-root .lp-agent-foot {
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
-    margin-top: 12px;
-}
-
-.landing-root .lp-agent-foot > span {
-    flex: 1;
-    min-width: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--lp-subtle);
-}
-
-.landing-root .lp-agent-copy {
-    flex: none;
-    padding: 9px 14px;
-    font-size: 13px;
-}
-
-.landing-root .lp-agent-copy:focus-visible {
-    outline: none;
-    box-shadow:
-        var(--lp-shadow-button-primary),
-        var(--lp-shadow-focus);
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-agent-copy {
-        min-height: 44px;
-        padding: 0 18px;
-    }
+    transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-agent-head,
-    .landing-root .lp-agent-frame,
-    .landing-root .lp-agent-close,
-    .landing-root .lp-agent-body {
+    .landing-root .lp-agent-label > span,
+    .landing-root .lp-agent-ico,
+    .landing-root .lp-agent-ico svg {
         transition-duration: 0s;
-        transition-delay: 0s;
     }
 }
 

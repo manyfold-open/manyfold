@@ -2038,8 +2038,9 @@ const en = {
             // every name in it is a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: 'Create your first agent',
-            useInAgentCta: 'Use in your agent',
-            useInAgentSteps: 'See the steps',
+            useInAgentCta: 'Give your agent Manyfold',
+            useInAgentPaste: 'Paste it into your agent',
+            useInAgentFailed: 'Open the guide instead',
             faqQ1: 'Is this just a wrapper around Claude Code or Codex?',
             faqA1: 'No. Each framework runs in its native form, with its own execution model, model configuration and workspace semantics. Manyfold is the layer around them: runtime, workspace, orchestration, delivery and metering. When a framework ships something new, you get it the same day.',
             faqQ2: 'How is this different from a VM with agents installed?',

@@ -11,7 +11,7 @@ export interface AgentSetupPrompt {
     guideUrl: string
     promptRef: RefObject<HTMLParagraphElement>
     copied: boolean
-    copy: () => Promise<void>
+    copy: () => Promise<boolean>
 }
 
 // The copyable prompt behind every "use Manyfold in your agent" entry, so the
@@ -42,13 +42,15 @@ export const useAgentSetupPrompt = (): AgentSetupPrompt => {
         selection.addRange(range)
     }
 
-    const copy = async (): Promise<void> => {
+    const copy = async (): Promise<boolean> => {
         try {
             if (!navigator.clipboard) throw new Error('clipboard unavailable')
             await navigator.clipboard.writeText(prompt)
             setCopied(true)
+            return true
         } catch {
             selectPrompt()
+            return false
         }
     }
 
