@@ -161,11 +161,19 @@ const weixinPost = async <T extends WeixinApiEnvelope>(
 const isTimeoutError = (err: unknown): boolean =>
     err instanceof Error && / timed out after \d+ms$/.test(err.message)
 
+// Tencent EdgeOne fronts the international gateway and answers for it with
+// paired 52x/55x statuses. 524/554: the gateway held the request past the
+// edge's 15s read timeout, which for a long poll is just where the poll ends.
+// 522/552: the edge could not open a connection to the gateway at all.
+const EDGE_READ_TIMEOUT_STATUSES: ReadonlySet<number> = new Set([524, 554])
+const EDGE_CONNECT_TIMEOUT_STATUSES: ReadonlySet<number> = new Set([522, 552])
+
 type WeixinGetUpdatesResult =
     | { kind: 'updates'; response: WeixinGetUpdatesResponse }
     | { kind: 'poll-boundary'; msgs: []; get_updates_buf: string }
+    | { kind: 'gateway-unreachable'; error: Error }
 
-// A 524 poll boundary is not a successful initial sync. Keep that distinction
+// A poll boundary is not a successful initial sync. Keep that distinction
 // local: the gateway JSON cannot manufacture the result's discriminant.
 export const weixinGetUpdates = async (
     opts: WeixinRequestOptions,
@@ -181,12 +189,20 @@ export const weixinGetUpdates = async (
         )
         return { kind: 'updates', response }
     } catch (err) {
-        if (err instanceof WeixinHttpError && err.status === 524)
+        if (
+            err instanceof WeixinHttpError &&
+            EDGE_READ_TIMEOUT_STATUSES.has(err.status)
+        )
             return {
                 kind: 'poll-boundary',
                 msgs: [],
                 get_updates_buf: getUpdatesBuf
             }
+        if (
+            err instanceof WeixinHttpError &&
+            EDGE_CONNECT_TIMEOUT_STATUSES.has(err.status)
+        )
+            return { kind: 'gateway-unreachable', error: err }
         if (isTimeoutError(err))
             return {
                 kind: 'updates',

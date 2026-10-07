@@ -79,6 +79,10 @@ const WEIXIN_SESSION_PAUSE_MS = envInt(
     'MF_WEIXIN_SESSION_PAUSE_MS',
     60 * 60_000
 )
+// Consecutive polls the edge may fail to connect before the channel takes the
+// normal error + backoff path. Measured on production [2026-10-07]: 19 such
+// failures over the previous 14 days, none back to back.
+const WEIXIN_UNREACHABLE_POLL_LIMIT = 3
 const WEIXIN_SEND_RETRIES = 3
 const WEIXIN_SEND_RETRY_DELAY_MS = 500
 const WEIXIN_TYPING_REFRESH_MS = 5_000
@@ -341,6 +345,16 @@ export class WeixinChannelProvider implements ChannelProvider {
         let hasCursor = syncBuf.length > 0
         const contextTokens = new Map(Object.entries(state.contextTokens ?? {}))
         let pollTimeoutMs = WEIXIN_LONG_POLL_TIMEOUT_MS + 5_000
+        let unreachablePolls = 0
+
+        // Fast edge responses must not spin; an ordinary long poll has
+        // already spent this 1-2s floor and re-polls immediately.
+        const repollFloor = async (pollStartedAt: number): Promise<void> => {
+            const delay =
+                1000 + Math.floor(Math.random() * 1000) -
+                (Date.now() - pollStartedAt)
+            if (delay > 0) await sleep(delay, abort.signal)
+        }
 
         const loop = async (): Promise<void> => {
             const pauseLeft = (this.pausedUntil.get(channelId) ?? 0) - Date.now()
@@ -369,13 +383,29 @@ export class WeixinChannelProvider implements ChannelProvider {
                     return
                 }
                 if (stopped) return
+                if (result.kind === 'gateway-unreachable') {
+                    unreachablePolls += 1
+                    if (unreachablePolls >= WEIXIN_UNREACHABLE_POLL_LIMIT) {
+                        const message = result.error.message
+                        this.logger.warn(
+                            `weixin getupdates failed channel=${channelId}: ${message}`
+                        )
+                        onStatus?.('error', { message })
+                        return
+                    }
+                    await repollFloor(pollStartedAt)
+                    continue
+                }
+                unreachablePolls = 0
                 if (result.kind === 'poll-boundary') {
-                    // Fast edge responses must not spin; an ordinary long poll
-                    // has already spent this 1-2s floor and re-polls immediately.
-                    const delay =
-                        1000 + Math.floor(Math.random() * 1000) -
-                        (Date.now() - pollStartedAt)
-                    if (delay > 0) await sleep(delay, abort.signal)
+                    // The gateway held this session's long poll open until the
+                    // edge cut it, so the session is alive. Without a cursor
+                    // the channel still needs a real response as its baseline.
+                    if (hasCursor && !announcedConnected) {
+                        announcedConnected = true
+                        onStatus?.('connected')
+                    }
+                    await repollFloor(pollStartedAt)
                     continue
                 }
                 const resp = result.response
