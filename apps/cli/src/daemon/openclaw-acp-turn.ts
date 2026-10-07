@@ -14,6 +14,7 @@ import {
 } from '@manyfold/shared'
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
+import { idleTimeout } from './idle-timeout'
 import { permissionResponders, type TurnAck } from './acp-turn'
 import { waitForOpenclawGateway } from './openclaw-gateway'
 import {
@@ -223,10 +224,16 @@ export const runOpenclawAcpTurn = (args: {
                 : timeouts
         const id = nextId++
         return new Promise((resolve, reject) => {
-            let idleTimer: ReturnType<typeof setTimeout> | null = null
             let maxTimer: ReturnType<typeof setTimeout> | null = null
+            const idle = idleTimeout(
+                () =>
+                    fail(
+                        `openclaw ${method} produced no output for ${idleTimeoutMs}ms`
+                    ),
+                idleTimeoutMs
+            )
             const clearTimers = (): void => {
-                if (idleTimer) clearTimeout(idleTimer)
+                idle.clear()
                 if (maxTimer) clearTimeout(maxTimer)
             }
             const fail = (message: string): void => {
@@ -234,17 +241,7 @@ export const runOpenclawAcpTurn = (args: {
                 pending.delete(id)
                 reject(new Error(message))
             }
-            const armIdle = (): void => {
-                if (idleTimer) clearTimeout(idleTimer)
-                idleTimer = setTimeout(
-                    () =>
-                        fail(
-                            `openclaw ${method} produced no output for ${idleTimeoutMs}ms`
-                        ),
-                    idleTimeoutMs
-                )
-                idleTimer.unref?.()
-            }
+            const armIdle = idle.touch
             maxTimer = setTimeout(
                 () =>
                     fail(

@@ -9,6 +9,7 @@ import {
 } from '@manyfold/shared'
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
+import { idleTimeout } from './idle-timeout'
 import { fifoStdout } from './fifo-stdout'
 import {
     hermesTurnRoute,
@@ -183,10 +184,16 @@ export const runAcpTurn = (args: {
                 : timeouts
         const id = nextId++
         return new Promise((resolve, reject) => {
-            let idleTimer: ReturnType<typeof setTimeout> | null = null
             let maxTimer: ReturnType<typeof setTimeout> | null = null
+            const idle = idleTimeout(
+                () =>
+                    fail(
+                        `hermes ${method} produced no output for ${idleTimeoutMs}ms`
+                    ),
+                idleTimeoutMs
+            )
             const clearTimers = (): void => {
-                if (idleTimer) clearTimeout(idleTimer)
+                idle.clear()
                 if (maxTimer) clearTimeout(maxTimer)
             }
             const fail = (message: string): void => {
@@ -194,17 +201,7 @@ export const runAcpTurn = (args: {
                 pending.delete(id)
                 reject(new Error(message))
             }
-            const armIdle = (): void => {
-                if (idleTimer) clearTimeout(idleTimer)
-                idleTimer = setTimeout(
-                    () =>
-                        fail(
-                            `hermes ${method} produced no output for ${idleTimeoutMs}ms`
-                        ),
-                    idleTimeoutMs
-                )
-                idleTimer.unref?.()
-            }
+            const armIdle = idle.touch
             maxTimer = setTimeout(
                 () =>
                     fail(

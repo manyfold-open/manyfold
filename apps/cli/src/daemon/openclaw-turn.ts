@@ -1,6 +1,7 @@
 import type { DaemonOpenclawTurnPayload, DaemonTurnFinalPayload } from '@manyfold/shared'
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
+import { idleTimeout } from './idle-timeout'
 import type { TurnAck } from './acp-turn'
 
 // The openclaw half of turn.start. An openclaw gateway CANCELS a run when the
@@ -59,16 +60,12 @@ export const runOpenclawTurn = (args: {
     const maxTimer = setTimeout(() => fire('max_duration'), maxDurationMs)
     headersTimer.unref?.()
     maxTimer.unref?.()
-    let idleTimer: ReturnType<typeof setTimeout> | null = null
-    const touch = (): void => {
-        if (idleTimer) clearTimeout(idleTimer)
-        idleTimer = setTimeout(() => fire('stream_idle'), idleTimeoutMs)
-        idleTimer.unref?.()
-    }
+    const idle = idleTimeout(() => fire('stream_idle'), idleTimeoutMs)
+    const touch = idle.touch
     const clearTimers = (): void => {
         clearTimeout(headersTimer)
         clearTimeout(maxTimer)
-        if (idleTimer) clearTimeout(idleTimer)
+        idle.clear()
     }
 
     const safePublish = (data: string): void => {
