@@ -452,3 +452,35 @@ test('an implicit latest npm install that fails is retried unpinned, and the ver
     )
     assert.deepEqual(asked, ['2026.9.2'], 'an asked-for version fails loud')
 })
+
+// Seen on staging [2026-10-07]: the install's socket was lost, not the
+// install. It was still running on the machine when the unpinned retry
+// started beside it, and the two deleted each other's staging dirs.
+test('an implicit latest install whose machine stopped answering is not retried beside itself', async () => {
+    const recipe = serviceFrameworkRecipe('openclaw')!
+    const asked: Array<string | null | undefined> = []
+    const fake = {
+        ...recipe,
+        install: async (_runner: unknown, request: { frameworkVersion?: string | null }) => {
+            asked.push(request.frameworkVersion)
+            throw new BootstrapError(
+                'openclaw-install-version',
+                'install openclaw@2026.9.2 failed (exit -1): daemon connection closed',
+                new Error('daemon connection closed')
+            )
+        }
+    }
+    const services = Object.create(HostServices.prototype) as {
+        log: { warn: (m: string) => void }
+        install(...args: unknown[]): Promise<string | null>
+    }
+    services.log = { warn: () => {} }
+    await assert.rejects(
+        services.install(fake, recorder().runner, HOME, {
+            frameworkVersion: '2026.9.2',
+            frameworkVersionSource: 'latest'
+        }),
+        /connection closed/
+    )
+    assert.deepEqual(asked, ['2026.9.2'])
+})

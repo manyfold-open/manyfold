@@ -92,17 +92,34 @@ export class CliVersionCatalogService {
     private async fetchStable(): Promise<string[]> {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-        try {
-            const headers: Record<string, string> = {
-                accept: 'application/vnd.github+json',
-                'user-agent': 'manyfold-api'
-            }
-            const token = this.config.get<string>('GITHUB_TOKEN')?.trim()
-            if (token) headers.authorization = `Bearer ${token}`
-            const res = await fetch(
+        const request = (token?: string): Promise<Response> =>
+            fetch(
                 `https://api.github.com/repos/${CLI_RELEASE_REPO}/releases?per_page=100`,
-                { headers, signal: controller.signal }
+                {
+                    headers: {
+                        accept: 'application/vnd.github+json',
+                        'user-agent': 'manyfold-api',
+                        ...(token ? { authorization: `Bearer ${token}` } : {})
+                    },
+                    signal: controller.signal
+                }
             )
+        try {
+            const token = this.config.get<string>('GITHUB_TOKEN')?.trim()
+            let res = await request(token)
+            if (!res.ok && token) {
+                const refused = await githubResponseError(res)
+                // The releases repository is public, so a token GitHub refuses
+                // must not hide the list. Seen on production [2026-09-30]: the
+                // org's token policy refused the platform token on every read,
+                // and the catalog fell back to the latest version alone.
+                if (
+                    refused.classification !== 'credential_policy' &&
+                    refused.classification !== 'credential_invalid'
+                )
+                    throw refused
+                res = await request()
+            }
             if (!res.ok) throw await githubResponseError(res)
             const body = (await res.json()) as Array<{ tag_name?: string }>
             return body

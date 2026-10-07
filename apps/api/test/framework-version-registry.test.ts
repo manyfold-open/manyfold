@@ -114,12 +114,14 @@ test('a latest install still requires the candidate to report some version', () 
 // ONLY line allowed to touch it is the final atomic rename; anything earlier
 // would break the running CLI on a failed install.
 test('the live PATH name is only touched by the final atomic rename', () => {
-    const touching = claudeShell
-        .split('\n')
-        .filter((line) => line.includes('.local/bin/claude'))
+    const lines = claudeShell.split('\n')
+    const touching = lines.filter((line) => line.includes('.local/bin/claude'))
     assert.deepEqual(touching, [
-        'mv -Tf "$staging.link" "$HOME/.local/bin/claude"'
+        'mv -Tf "$staging.link" "$HOME/.local/bin/claude"',
+        // After the rename, the cleanup only reads where PATH points.
+        'linked="$(readlink "$HOME/.local/bin/claude" 2>/dev/null || true)"'
     ])
+    assert.ok(lines.indexOf(touching[1]) > lines.indexOf(touching[0]))
 })
 
 // Failed installs must clean their staging copy (claude-code is ~300 MB), and
@@ -140,6 +142,33 @@ test('staging is cleaned on failure and the trap is cleared after commit', () =>
 // sprite-side runner and a framework tool's child shell (#611). This shell is
 // the one touchpoint every affected sprite already has to run, so it is what
 // carries the PATH contract to sandboxes that are already provisioned.
+// Seen on staging [2026-10-07]: two installs of one framework staged side by
+// side, and each one's cleanup deleted the other's staging dir mid-extract.
+test('an install waits its turn and leaves alone any install it did not supersede', () => {
+    const shells = [
+        buildNpmUpgradeShell(frameworkVersionDescriptor('openclaw'), '2026.9.8'),
+        buildNpmLatestInstallShell(frameworkVersionDescriptor('openclaw'))
+    ]
+    for (const shell of shells) {
+        const lines = shell.split('\n')
+        const lock = lines.indexOf('  flock 9')
+        const staging = lines.findIndex((l) => l.startsWith('staging="$(mktemp'))
+        assert.ok(lock > 0 && lock < staging, 'the per-framework lock is taken before staging')
+        assert.ok(shell.includes('exec 9>"$root/.install.lock"'))
+        assert.ok(!shell.includes('[ "$d" = "$staging" ] || rm -rf "$d"'), 'no unconditional sweep')
+        assert.ok(shell.includes('case "$linked" in "$d"/*) continue ;; esac'), 'never the install PATH resolves into')
+        assert.match(shell, /-maxdepth 0 -mmin \+60/, 'never one young enough to be running')
+    }
+})
+
+test('a latest install requires the staged package to carry its manifest', () => {
+    const shell = buildNpmLatestInstallShell(frameworkVersionDescriptor('openclaw'))
+    assert.ok(shell.includes('manifest="$root_dir/openclaw/package.json"'))
+    assert.match(shell, /has no readable manifest/)
+    const verify = shell.indexOf('has no readable manifest')
+    assert.ok(verify < shell.indexOf('mv -Tf "$staging.link"'), 'checked before PATH changes')
+})
+
 test('the install reconciles the managed PATH block after activation', () => {
     assert.ok(claudeShell.includes(buildManagedPathScript()))
     assert.ok(

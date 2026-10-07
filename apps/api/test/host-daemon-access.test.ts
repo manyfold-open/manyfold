@@ -318,6 +318,37 @@ test('an exec lost to a closed socket goes again under the same refId, with only
     assert.deepEqual(result, { exitCode: 0, stdout: 'attempt 2\n', stderr: '' })
 })
 
+// Seen on staging [2026-10-07]: two reconnects 8s apart cut an install and
+// its first reattach; giving up there read a running install as a failed one.
+test('an exec keeps following its refId across every reconnect until it answers', async () => {
+    const { run, calls } = buildExec([
+        async () => {
+            throw new Error('daemon connection closed')
+        },
+        async () => {
+            throw new Error('connection replaced')
+        },
+        async () => ({ exitCode: 0 })
+    ])
+
+    const result = await run({ cmd: ['true'], timeoutMs: 60_000 })
+
+    assert.equal(calls.length, 3)
+    assert.ok(calls.every((call) => call.refIdOverride === calls[0].refIdOverride))
+    assert.deepEqual(result, { exitCode: 0, stdout: 'attempt 3\n', stderr: '' })
+})
+
+test('an exec whose socket never settles is given up after a bounded number of sends', async () => {
+    const lost = async () => {
+        throw new Error('daemon connection closed')
+    }
+    const { run, calls } = buildExec(Array.from({ length: 8 }, () => lost))
+
+    await assert.rejects(run({ cmd: ['true'], timeoutMs: 60_000 }), /connection closed/)
+
+    assert.equal(calls.length, 5)
+})
+
 test('an exec the daemon failed, or one that timed out, is never sent twice', async () => {
     const refused = buildExec([
         async () => {

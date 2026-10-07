@@ -140,6 +140,37 @@ test('a failed latest install is fatal on a host that has no binary to keep', as
     })
 })
 
+// An install whose socket was lost may still be running on the machine; the
+// error keeps that cause so nothing starts another install beside it.
+test('an install lost to the machine connection carries that as its cause', async () => {
+    const lost = new Error('daemon connection closed')
+    const h = buildHarness({
+        version: '2.1.197',
+        source: 'latest',
+        probes: [null],
+        install: lost
+    })
+    await assert.rejects(h.run(), (err: unknown) => {
+        assert.ok(err instanceof BootstrapError)
+        assert.equal(err.cause, lost)
+        return true
+    })
+})
+
+test('an install that failed on the machine has no transport cause', async () => {
+    const h = buildHarness({
+        version: '2.1.197',
+        source: 'latest',
+        probes: [null],
+        install: { exitCode: 1, stdout: '', stderr: 'E404' } as ExecResult
+    })
+    await assert.rejects(h.run(), (err: unknown) => {
+        assert.ok(err instanceof BootstrapError)
+        assert.equal(err.cause, undefined)
+        return true
+    })
+})
+
 // Latency guard: re-installing a sprite that already runs the target wastes
 // ~30–90s on every create for claude-code alone.
 test('an already-current sprite skips the install entirely', async () => {

@@ -302,6 +302,36 @@ const envPrefix = (env: Readonly<Record<string, string>> | undefined): string =>
         .map((assignment) => `${assignment} `)
         .join('')
 
+// One install of a framework at a time on a machine: a second one waits for
+// the first to finish instead of staging beside it. flock ships with
+// util-linux on every hosted image; where it is missing, the cleanup below
+// still leaves alone any install another one may own.
+// Seen on staging [2026-10-07]: a retried openclaw install ran beside the
+// first, each deleted the other's staging dir, and the survivor went on PATH
+// with 6,897 of its 13,320 files.
+const installLockLines = (): string[] => [
+    'if command -v flock >/dev/null 2>&1; then',
+    '  exec 9>"$root/.install.lock"',
+    '  flock 9',
+    'fi'
+]
+
+// No install runs this long: each one's exec has a budget of minutes.
+const STALE_INSTALL_MINUTES = 60
+
+// Removes the installs this one superseded. A dir is kept while PATH still
+// resolves into it (another install may have committed after this one) or
+// while it is young enough to be another install still extracting.
+const staleInstallCleanupLines = (bin: string): string[] => [
+    `linked="$(readlink "$HOME/.local/bin/${bin}" 2>/dev/null || true)"`,
+    'for d in "$root"/install.*; do',
+    '  [ "$d" = "$staging" ] && continue',
+    '  case "$linked" in "$d"/*) continue ;; esac',
+    `  [ -n "$(find "$d" -maxdepth 0 -mmin +${STALE_INSTALL_MINUTES} 2>/dev/null)" ] || continue`,
+    '  rm -rf "$d"',
+    'done'
+]
+
 // What PATH resolves to. A binary's env belongs to running it at all, not
 // only to the version check: agy starts its self-updater from any command,
 // and a managed host keeps the version the platform installed, a terminal
@@ -366,6 +396,7 @@ export const buildBinaryInstallShell = (
         'export PATH="$HOME/.local/bin:$PATH"',
         `root="$HOME/.local/lib/manyfold/${bin}"`,
         'mkdir -p "$root"',
+        ...installLockLines(),
         'staging="$(mktemp -d "$root/install.XXXXXX")"',
         `trap 'rm -rf "$staging" "$staging.link"' EXIT`,
         `curl -fsSL --proto '=https' --retry 3 -o "$staging/$asset" "${base}/$asset"`,
@@ -383,7 +414,7 @@ export const buildBinaryInstallShell = (
         `mv -Tf "$staging.link" "$HOME/.local/bin/${bin}"`,
         'trap - EXIT',
         'hash -r',
-        `for d in "$root"/install.*; do [ "$d" = "$staging" ] || rm -rf "$d"; done`,
+        ...staleInstallCleanupLines(bin),
         buildManagedPathScript()
     ].join('\n')
 }
@@ -475,6 +506,9 @@ const buildNpmInstallShell = (
     // A dist-tag or range resolves registry-side so the exact version is
     // unknowable here; any parseable version proves the candidate executes. An
     // exact spec must match, or a wrong resolution would be committed silently.
+    // Either way the staged package must carry its own manifest: a bin that
+    // still answers `--version` from a half-extracted package (openclaw's has
+    // a fast path that loads nothing else) proves the install, not the files.
     //
     // The exact check reads the STAGED PACKAGE'S OWN MANIFEST rather than
     // `--version` output. `--version` is per-CLI freeform text: the previous
@@ -486,20 +520,25 @@ const buildNpmInstallShell = (
     // and leaving a placeholder bin behind (#438) — it just no longer has to
     // carry the version assertion too.
     const exact = isSemverVersionTag(spec)
+    const readManifest = [
+        // `npm root -g --prefix` is the documented way to resolve the install
+        // root; the literal layout is kept as a fallback so a future npm
+        // changing that output cannot break every install.
+        `root_dir="$(npm root -g --prefix "$staging" 2>/dev/null || true)"`,
+        `[ -d "$root_dir" ] || root_dir="$staging/lib/node_modules"`,
+        `manifest="$root_dir/${pkg}/package.json"`,
+        `installed="$(node -p "require('$manifest').version" 2>/dev/null || true)"`
+    ]
     const acceptCandidate = exact
         ? [
-              // `npm root -g --prefix` is the documented way to resolve the
-              // install root; the literal layout is kept as a fallback so a
-              // future npm changing that output cannot break every install.
-              `root_dir="$(npm root -g --prefix "$staging" 2>/dev/null || true)"`,
-              `[ -d "$root_dir" ] || root_dir="$staging/lib/node_modules"`,
-              `manifest="$root_dir/${pkg}/package.json"`,
-              `installed="$(node -p "require('$manifest').version" 2>/dev/null || true)"`,
+              ...readManifest,
               `[ "$installed" = "${stripV(spec)}" ] || { echo "staged ${pkg} reports \${installed:-no version}, expected ${stripV(spec)}" >&2; exit 1; }`
           ]
         : [
               `got="$(printf '%s\\n' "$out" | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -n1)"`,
-              `[ -n "$got" ] || { echo "candidate ${bin} reports no version: $out" >&2; exit 1; }`
+              `[ -n "$got" ] || { echo "candidate ${bin} reports no version: $out" >&2; exit 1; }`,
+              ...readManifest,
+              `printf '%s\\n' "$installed" | grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+' || { echo "staged ${pkg} has no readable manifest (\${installed:-none}); the install is incomplete" >&2; exit 1; }`
           ]
     return [
         'set -eu',
@@ -507,6 +546,7 @@ const buildNpmInstallShell = (
         'export PATH="$HOME/.local/bin:$PATH"',
         `root="$HOME/.local/lib/manyfold/${bin}"`,
         'mkdir -p "$root"',
+        ...installLockLines(),
         'staging="$(mktemp -d "$root/install.XXXXXX")"',
         `trap 'rm -rf "$staging" "$staging.link"' EXIT`,
         // quoted: a denylist-derived spec is a semver range carrying spaces,
@@ -522,7 +562,7 @@ const buildNpmInstallShell = (
             ? [buildUnshadowActivationShell(bin)]
             : []),
         'hash -r',
-        `for d in "$root"/install.*; do [ "$d" = "$staging" ] || rm -rf "$d"; done`,
+        ...staleInstallCleanupLines(bin),
         // Activation is not finished when the symlink lands: a sprite whose
         // shells resolve the image's global bin first still runs the old binary
         // from the terminal, from the sprite-side runner, and from a framework

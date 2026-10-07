@@ -7,6 +7,13 @@ import type {
     RawMessageSourcePayload
 } from '../src/modules/chat/chat-adapter'
 import { buildChatMessageSourceRow } from '../src/modules/chat/raw-message-source'
+import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
+
+// Read off the real adapter rather than restated here: whether hermes declares
+// its head replay is exactly what the hermes tests below pin.
+const dep = {} as never
+const HERMES_REPLAYS_FROM_START =
+    new HermesAdapter(dep, dep, dep, dep, dep).resumeReplaysFromStart === true
 
 // #544: a resumed turn terminalizes through runAdapterFromIterable, which used
 // to return only { suspended } — so the turn wrote a durable done/error row and
@@ -91,6 +98,9 @@ const makeHarness = (
     opts: {
         agent?: typeof agentRow
         rejectSuspended?: boolean
+        // The stream's dedup index: an event re-derived under a key and
+        // ordinal a persisted row already holds is not inserted again.
+        dedupAgainstPersisted?: boolean
         streamEvents?: Array<{
             eventType: string
             payloadJson: unknown
@@ -195,6 +205,20 @@ const makeHarness = (
             contentCheckpointEventId: bigint | null
         }
     ): Promise<{ persisted: boolean; fenceLost: boolean }> => {
+        const keyed = event as {
+            sourceEventKey?: string | null
+            sourceEventOrdinal?: number | null
+        }
+        if (
+            opts.dedupAgainstPersisted &&
+            keyed.sourceEventKey != null &&
+            (opts.streamEvents ?? []).some(
+                (row) =>
+                    row.sourceEventKey === keyed.sourceEventKey &&
+                    row.sourceEventOrdinal === keyed.sourceEventOrdinal
+            )
+        )
+            return { persisted: false, fenceLost: false }
         durable.push({
             messageId,
             type: event.type,
@@ -221,12 +245,14 @@ const makeHarness = (
     }
     const adapters = {
         // OpenclawAdapter replays its whole source on resume, as the gateway
-        // transport's adapters declare.
+        // transport's adapters declare; hermes says for itself.
         get: (framework: string) =>
             resumeMessage
                 ? {
                       resumeMessage,
-                      resumeReplaysFromStart: framework === 'openclaw'
+                      resumeReplaysFromStart:
+                          framework === 'openclaw' ||
+                          (framework === 'hermes' && HERMES_REPLAYS_FROM_START)
                   }
                 : {}
     }
@@ -724,4 +750,189 @@ test('an offline cancel reports cancelled, and a give-up reports server_restart'
     // Reconciliation writes stay out of chat.stream.error: a deploy wave of
     // them would trip the burst monitor.
     assert.equal(restarted.named('chat.stream.error').length, 0)
+})
+
+const keyedSource = (
+    framework: string,
+    externalId: string,
+    sourceSeq: number
+): { source: RawMessageSourcePayload; sourceEventKey: string } => {
+    const source: RawMessageSourcePayload = {
+        sourceRef: null,
+        sourceSeq,
+        externalId,
+        parentExternalId: null,
+        rawFormat: 'json',
+        rawJson: { externalId },
+        parserName: `${framework}-test`,
+        parserVersion: '1'
+    }
+    return {
+        source,
+        sourceEventKey: buildChatMessageSourceRow({
+            sourceKind: 'live_stream',
+            sessionId: 'session-1',
+            messageId: 'msg-1',
+            framework,
+            runtime: 'sprites',
+            source
+        }).sourceEventKey
+    }
+}
+
+const sleepCall = {
+    type: 'tool_call',
+    toolCallId: 'call-1',
+    toolName: 'bash',
+    args: { command: 'sleep 120' }
+} as const
+
+// Seen on staging [2026-10-07]: a hermes turn handed off mid-run resumed on
+// another instance, which replays the daemon's stdout from seq 0. Its first
+// re-derived row (a tool_call the dead relay had stored) hit the dedup index,
+// the relay stopped there, and the turn, still running on the sprite, was
+// written `done` with empty content.
+test('a hermes resume replaying stored rows keeps relaying to its real final', async () => {
+    const first = keyedSource('hermes', 'hermes-acp-1', 1)
+    const second = keyedSource('hermes', 'hermes-acp-2', 2)
+    const harness = makeHarness(
+        streamOf(
+            { type: 'raw_source', source: first.source },
+            sleepCall as unknown as EmittedChatEvent,
+            { type: 'raw_source', source: second.source },
+            token('slept'),
+            { type: 'done', finalMessageId: 'msg-1' } as EmittedChatEvent
+        ),
+        false,
+        {
+            agent: { ...agentRow, framework: 'hermes' },
+            dedupAgainstPersisted: true,
+            streamEvents: [
+                {
+                    eventType: 'tool_call',
+                    payloadJson: { ...sleepCall },
+                    sourceEventKey: first.sourceEventKey,
+                    sourceEventOrdinal: 0
+                }
+            ]
+        }
+    )
+
+    await resume(harness)
+
+    assert.equal(
+        harness.durable.filter((row) => row.type === 'tool_call').length,
+        0,
+        'the stored tool_call is matched, not written again'
+    )
+    assert.equal(harness.durable.at(-1)?.type, 'done')
+    // As stored: jsonb drops the block buffer's undefined fields.
+    assert.deepEqual(
+        JSON.parse(
+            JSON.stringify(harness.durable.at(-1)?.terminalContent?.contentBlocksJson)
+        ),
+        [
+            {
+                type: 'tool_call',
+                toolCallId: 'call-1',
+                toolName: 'bash',
+                args: { command: 'sleep 120' }
+            },
+            { type: 'text', text: 'slept' }
+        ]
+    )
+    const terminals = harness.named('chat.turn.terminal')
+    assert.equal(terminals.length, 1)
+    assert.equal(terminals[0].props.outcome, 'done')
+})
+
+// Whatever the adapter, a relay that stopped on a write it could not land did
+// not see the turn end. It hands the turn back instead of inventing `done`.
+test('a resume stopped by a refused write leaves the turn open instead of writing done', async () => {
+    const stored = keyedSource('codex', 'codex-line-1', 1)
+    const harness = makeHarness(
+        streamOf(
+            { type: 'raw_source', source: stored.source },
+            sleepCall as unknown as EmittedChatEvent,
+            token('still running'),
+            { type: 'done', finalMessageId: 'msg-1' } as EmittedChatEvent
+        ),
+        false,
+        {
+            dedupAgainstPersisted: true,
+            streamEvents: [
+                {
+                    eventType: 'tool_call',
+                    payloadJson: { ...sleepCall },
+                    sourceEventKey: stored.sourceEventKey,
+                    sourceEventOrdinal: 0
+                }
+            ]
+        }
+    )
+
+    await resume(harness)
+
+    assert.equal(
+        harness.durable.filter((row) => ['done', 'error'].includes(row.type))
+            .length,
+        0
+    )
+    assert.equal(harness.named('chat.turn.terminal').length, 0)
+    assert.deepEqual(harness.handedOff, [2])
+    assert.equal(harness.released.length, 0)
+    assert.equal(
+        harness.named('chat.turn.resume')[0].props.outcome,
+        'suspended_again'
+    )
+})
+
+test('a replayed permission ask is matched like any other stored row', async () => {
+    const ask = keyedSource('openclaw', 'openclaw-acp-x-1', 1)
+    const reply = keyedSource('openclaw', 'openclaw-acp-2', 2)
+    const askEvent = {
+        type: 'permission_request',
+        requestId: 'req-1',
+        toolCallId: 'call-1',
+        title: 'Run sleep 120?',
+        detail: null,
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }]
+    } as const
+    const harness = makeHarness(
+        streamOf(
+            { type: 'raw_source', source: ask.source },
+            askEvent as unknown as EmittedChatEvent,
+            { type: 'raw_source', source: reply.source },
+            token('done waiting'),
+            { type: 'done', finalMessageId: 'msg-1' } as EmittedChatEvent
+        ),
+        false,
+        {
+            agent: { ...agentRow, framework: 'openclaw' },
+            dedupAgainstPersisted: true,
+            streamEvents: [
+                {
+                    eventType: 'permission_request',
+                    payloadJson: { ...askEvent },
+                    sourceEventKey: ask.sourceEventKey,
+                    sourceEventOrdinal: 0
+                }
+            ]
+        }
+    )
+
+    await resume(harness)
+
+    assert.equal(
+        harness.durable.filter((row) => row.type === 'permission_request')
+            .length,
+        0
+    )
+    assert.equal(harness.durable.at(-1)?.type, 'done')
+    const blocks = harness.durable.at(-1)?.terminalContent
+        ?.contentBlocksJson as Array<{ type: string }>
+    assert.deepEqual(
+        blocks.map((block) => block.type),
+        ['permission_request', 'text']
+    )
 })
