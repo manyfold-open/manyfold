@@ -1,5 +1,19 @@
 # @manyfold/web
 
+## 2.23.0
+
+### Minor Changes
+
+- [#687](https://github.com/manyfold-open/manyfold/pull/687) [`e9e514f`](https://github.com/manyfold-open/manyfold/commit/e9e514f05dd1a3ed9da17539f68c8eb5a3dbada8) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The workspace rail shows whether your own coding agent is connected to Manyfold. A chip beside the concurrency meter reads Connect agent, Connected, or In use (a request in the last 90 seconds); clicking it opens the setup prompt, or a panel with the last request, Connect another agent, Manage sign-ins and Disconnect. The setup dialog now walks through copying the prompt, approving the sign-in and connecting, and confirms on its own once the agent has signed in. Tokens minted by `mf login` are now recorded with `createdVia: 'cli-browser'`, so they can be told apart from tokens made by hand.
+
+- [#673](https://github.com/manyfold-open/manyfold/pull/673) [`73f4a3f`](https://github.com/manyfold-open/manyfold/commit/73f4a3fb688cc7633f30fe8eeb4e667e4054d1d5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Approval pages now read as one dialog. Approving a CLI sign-in, connecting agents to an application, granting an agent permissions, and confirming or restoring an account deletion all share the product dialog's layout: a title, one line on what approving does, the thing to check, and the actions at the bottom right with the primary one last. Explanations that said the same thing three times are merged, so the code check now carries the safety warning. Boxes nested inside the card become a single list, and the A2A exposure switch only appears once a selected agent needs it. The permission request opened from chat uses the same layout.
+
+- The landing hero's agent button now reads "Give your agent Manyfold" and copies the setup prompt in one click, instead of opening a panel to copy it from. The button then turns into "Paste it into your agent" with a check mark. Where the clipboard is unavailable it links to the guide instead.
+
+### Patch Changes
+
+- [#672](https://github.com/manyfold-open/manyfold/pull/672) [`6998e1b`](https://github.com/manyfold-open/manyfold/commit/6998e1b1485f178987c71bd21b42888352ecda3b) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Approving a CLI sign-in from your phone no longer stalls it. When an agent runs `mf login` on a computer and you approve from your phone (steering a Codex or Claude Code session remotely), the consent page used to redirect the phone to `127.0.0.1`, which reaches nothing, and the agent waited out the full 15 minutes before asking you to approve a second time. On a phone the page now shows the one-time `mf_auth_` code to send back instead. On a computer it still finishes on its own, and a "Not on the computer running mf?" link gets you the code when you approve from another machine. The agent setup guide (`GET /api/agent-setup.md`) tells the agent to stop waiting and redeem a code you send back with `mf login --auth-code`, which every installed `mf` already supports.
+
 ## 2.22.0
 
 ### Minor Changes
