@@ -1,6 +1,5 @@
 import {
     MANYFOLD_CLI_USAGE_SKILL_ID,
-    frameworkKind,
     frameworkUpgradeMode,
     isSkillFramework,
     isUpgradeableFramework,
@@ -56,6 +55,7 @@ import { waitForSettled } from '@/lib/backupProgress'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import type { AgentSettingsSectionId } from '@/lib/agentSettingsSections'
 import {
+    hasRestartableService,
     isAgentSettingsSection,
     sectionLabelKey,
     sectionPreconditionKey,
@@ -969,13 +969,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // discover them (claude-code/codex/gemini-cli/hermes); the API resolves
     // them through the agent's runtime, so a runtime must be attached.
     const skillsSupported = supportsSection(agent, 'skills')
-    // Only a framework that runs a long-lived service has something to restart,
-    // and only on a sprite runtime can we do it — the same two preconditions the
-    // endpoint enforces. Offering the button anywhere else buys a 400 for the
-    // one lifecycle action on the page.
-    const canRestart =
-        frameworkKind(agent.framework) === 'service' &&
-        agent.runtime === 'sprites'
+    // Offering the button anywhere the endpoint refuses buys a 400 for the one
+    // lifecycle action on the page.
+    const canRestart = hasRestartableService(agent)
     const modelProviderType =
         credentials?.provider ?? defaultProviderForFramework(agent.framework)
     const usesFrameworkModelConfig = frameworkUsesModelConfig(
