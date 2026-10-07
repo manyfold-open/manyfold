@@ -92,6 +92,14 @@ const failedRequest = (status: number) => () => ({
     json: () => Promise.resolve({ code: 'internal', message: 'boom' })
 })
 
+// The request limits in front of Dify answer with nginx's own HTML page.
+const limitedRequest = () => ({
+    ok: false,
+    status: 429,
+    statusText: 'Too Many Requests',
+    json: () => Promise.reject(new SyntaxError('Unexpected token <'))
+})
+
 const encoder = new TextEncoder()
 
 const frame = (event: Record<string, unknown>): Uint8Array =>
@@ -149,14 +157,23 @@ const historyItem = (answer: string): HistoryItem => ({
     error: null
 })
 
+type ChatBody = {
+    inputs: Record<string, string>
+    query: string
+    conversation_id: string
+}
+
 type Realm = {
     chat: Conversation
     clock: ReturnType<typeof createClock>
     local: Storage
     session: Storage
     history: HistoryItem[]
+    chatBodies: ChatBody[]
     setHistory: (items: HistoryItem[]) => void
     onChat: (respond: () => unknown) => void
+    onPassport: (respond: () => unknown) => void
+    onHistory: (respond: (() => unknown) | null) => void
     emit: (type: 'pagehide' | 'pageshow', persisted: boolean) => void
 }
 
@@ -172,7 +189,10 @@ const enterRealm = async (carriedOver?: {
     const listeners = new Map<string, (() => void)[]>()
     const state = {
         history: [] as HistoryItem[],
-        chat: failedRequest(500) as () => unknown
+        chatBodies: [] as ChatBody[],
+        chat: failedRequest(500) as () => unknown,
+        passport: (() => okJson({ access_token: 'passport-1' })) as () => unknown,
+        historyResponse: null as (() => unknown) | null
     }
 
     globals.window = {
@@ -184,13 +204,18 @@ const enterRealm = async (carriedOver?: {
     }
     globals.localStorage = local
     globals.sessionStorage = session
-    globals.fetch = (url: string): Promise<unknown> => {
-        if (url.includes('/api/passport'))
-            return Promise.resolve(okJson({ access_token: 'passport-1' }))
+    globals.fetch = (url: string, init?: { body?: string }): Promise<unknown> => {
+        if (url.includes('/api/passport')) return Promise.resolve(state.passport())
         if (url.includes('/api/messages'))
-            return Promise.resolve(okJson({ data: state.history }))
-        if (url.includes('/api/chat-messages'))
+            return Promise.resolve(
+                state.historyResponse
+                    ? state.historyResponse()
+                    : okJson({ data: state.history })
+            )
+        if (url.includes('/api/chat-messages')) {
+            state.chatBodies.push(JSON.parse(init?.body ?? '{}') as ChatBody)
             return Promise.resolve(state.chat())
+        }
         throw new Error(`unrouted request: ${url}`)
     }
     Date.now = clock.now
@@ -208,11 +233,18 @@ const enterRealm = async (carriedOver?: {
         get history() {
             return state.history
         },
+        chatBodies: state.chatBodies,
         setHistory: (items) => {
             state.history = items
         },
         onChat: (respond) => {
             state.chat = respond
+        },
+        onPassport: (respond) => {
+            state.passport = respond
+        },
+        onHistory: (respond) => {
+            state.historyResponse = respond
         },
         emit: (type, persisted) => {
             const event = { persisted } as unknown as Event
@@ -477,4 +509,86 @@ test('a turn interrupted by a full navigation still recovers on the next load', 
     assert.equal(settled.streaming, false)
     assert.equal(lastMessage(arriving.chat).text, 'Run `mf login`.')
     assert.equal(lastMessage(arriving.chat).streaming, false)
+})
+
+test('every question carries the page as inputs and goes out as the reader wrote it', async (t) => {
+    t.after(leaveRealms)
+    const realm = await enterRealm()
+    await realm.chat.init()
+
+    realm.onChat(completedStream('Run `mf login`.'))
+    await realm.chat.send(QUESTION, CONTEXT)
+    await realm.chat.send('and on Linux?', CONTEXT)
+
+    // The Chatflow reads page_url / page_title / page_locale from its Start
+    // inputs on every message; nothing rides along inside the query.
+    assert.equal(realm.chatBodies.length, 2)
+    assert.deepEqual(realm.chatBodies[0].inputs, CONTEXT)
+    assert.equal(realm.chatBodies[0].query, QUESTION)
+    assert.equal(realm.chatBodies[0].conversation_id, '')
+    assert.deepEqual(realm.chatBodies[1].inputs, CONTEXT)
+    assert.equal(realm.chatBodies[1].query, 'and on Linux?')
+    assert.equal(realm.chatBodies[1].conversation_id, 'conv-1')
+})
+
+test('a limited question says so and waits for the reader to retry', async (t) => {
+    t.after(leaveRealms)
+    const realm = await enterRealm()
+    await realm.chat.init()
+
+    realm.onChat(limitedRequest)
+    await realm.chat.send(QUESTION, CONTEXT)
+
+    const limited = realm.chat.getState()
+    assert.equal(limited.error, 'limited')
+    assert.equal(limited.announcement, 'error')
+    assert.equal(limited.streaming, false)
+    assert.equal(lastMessage(realm.chat).failed, true)
+
+    // No retry of its own: a limit answered with more requests only extends it.
+    await realm.clock.advance(120000)
+    assert.equal(realm.chatBodies.length, 1)
+
+    realm.onChat(completedStream('Run `mf login`.'))
+    await realm.chat.retry(CONTEXT)
+
+    const retried = realm.chat.getState()
+    assert.equal(retried.error, null)
+    assert.equal(realm.chatBodies.length, 2)
+    assert.equal(lastMessage(realm.chat).text, 'Run `mf login`.')
+})
+
+test('a panel refused a passport can be started again with Retry', async (t) => {
+    t.after(leaveRealms)
+    const realm = await enterRealm()
+    realm.onPassport(limitedRequest)
+    await realm.chat.init()
+
+    const refused = realm.chat.getState()
+    assert.equal(refused.status, 'unavailable')
+    assert.equal(refused.error, 'limited')
+
+    realm.onPassport(() => okJson({ access_token: 'passport-2' }))
+    await realm.chat.retry(CONTEXT)
+
+    const started = realm.chat.getState()
+    assert.equal(started.status, 'ready')
+    assert.equal(started.error, null)
+    assert.equal(realm.chatBodies.length, 0)
+})
+
+test('a refused history poll ends the wait instead of thinking forever', async (t) => {
+    t.after(leaveRealms)
+    const realm = await enterRealm()
+    await interruptTurnWithFreeze(realm)
+    realm.emit('pageshow', true)
+
+    realm.onHistory(limitedRequest)
+    await realm.clock.advance(2000)
+
+    const settled = realm.chat.getState()
+    assert.equal(settled.error, 'limited')
+    assert.equal(settled.announcement, 'error')
+    assert.equal(lastMessage(realm.chat).streaming, false)
+    assert.equal(lastMessage(realm.chat).failed, true)
 })
