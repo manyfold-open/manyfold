@@ -10,7 +10,10 @@ export type GitHubFailure =
 export class GitHubRequestError extends ServiceUnavailableException {
     constructor(
         readonly classification: GitHubFailure = 'upstream',
-        readonly reason: 'request' | 'busy' | 'import' = 'request'
+        readonly reason: 'request' | 'busy' | 'import' = 'request',
+        // Epoch ms before which retrying is pointless: from GitHub's rate-limit
+        // headers, or from a skill repository's recorded scan backoff.
+        readonly retryAt?: number
     ) {
         super(
             reason === 'busy'
@@ -29,10 +32,41 @@ export class GitHubRequestError extends ServiceUnavailableException {
                   : {
                         code: 'github_source_unavailable',
                         message: `GitHub source unavailable (${classification})`,
-                        details: { classification }
+                        details: { classification },
+                        ...(retryAt === undefined
+                            ? {}
+                            : {
+                                  retryAfterSec: Math.max(
+                                      1,
+                                      Math.ceil((retryAt - Date.now()) / 1000)
+                                  )
+                              })
                     }
         )
     }
+}
+
+// GitHub's rate-limit guidance: wait out Retry-After (seconds or an HTTP
+// date); with no requests remaining, wait until x-ratelimit-reset (epoch
+// seconds). Undefined when the response names no time.
+export const githubRetryAt = (
+    headers: Headers,
+    now = Date.now()
+): number | undefined => {
+    const after = headers.get('retry-after')?.trim()
+    if (after) {
+        if (/^\d+$/.test(after)) return now + Number(after) * 1000
+        const date = Date.parse(after)
+        if (Number.isFinite(date)) return date
+    }
+    const reset = headers.get('x-ratelimit-reset')?.trim()
+    if (
+        headers.get('x-ratelimit-remaining')?.trim() === '0' &&
+        reset &&
+        /^\d+$/.test(reset)
+    )
+        return Number(reset) * 1000
+    return undefined
 }
 
 export const classifyGitHubResponse = (
