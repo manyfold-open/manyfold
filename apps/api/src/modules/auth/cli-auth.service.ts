@@ -183,7 +183,10 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
                     userId: row.userId,
                     name: `mf CLI ${now.toISOString().slice(0, 10)}`,
                     scopes: [API_TOKEN_SCOPE_FULL],
-                    expiresInDays: CLI_TOKEN_EXPIRES_DAYS
+                    expiresInDays: CLI_TOKEN_EXPIRES_DAYS,
+                    // The workbench tells an agent's sign-in apart from a
+                    // hand-made token by this, not by the generated name.
+                    createdVia: 'cli-browser'
                 },
                 tx
             )

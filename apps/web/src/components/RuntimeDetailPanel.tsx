@@ -27,6 +27,7 @@ import EmptyState from '@/components/EmptyState'
 import { Ghost, GhostSettingsRows } from '@/components/Loading'
 import OverflowMenu from '@/components/OverflowMenu'
 import { useI18n } from '@/lib/i18n'
+import { relative } from '@/lib/relativeTime'
 import {
     ControlRow,
     dashboardStateError,
@@ -65,25 +66,8 @@ export { StatusTag, type TagTone } from '@/components/Tag'
 export const formatDate = (value: string | null): string =>
     formatDateTime(value)
 
-export const relative = (value: string | null): string => {
-    if (!value) return '—'
-    // A stamp a moment ahead of this clock is skew between the runtime, the
-    // API and the browser, not an unknown time: it reads as "0s ago".
-    const sec = Math.max(
-        0,
-        Math.round((Date.now() - new Date(value).getTime()) / 1000)
-    )
-    if (sec < 60)
-        return translate('web.runtimeDetails.secondsAgo', { count: sec })
-    const min = Math.round(sec / 60)
-    if (min < 60)
-        return translate('web.runtimeDetails.minutesAgo', { count: min })
-    const hr = Math.round(min / 60)
-    if (hr < 24)
-        return translate('web.runtimeDetails.hoursAgo', { count: hr })
-    const d = Math.round(hr / 24)
-    return translate('web.runtimeDetails.daysAgo', { count: d })
-}
+// Re-exported for the runtime and token pages that import it from here.
+export { relative }
 
 // Ghost copy affordance for technical values (IDs, paths). The check
 // feedback replaces the icon for a beat instead of toasting.

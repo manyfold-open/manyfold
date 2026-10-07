@@ -24,6 +24,7 @@ class FakeDb {
         expiresAt: Date | null
         revokedAt: Date | null
         createdAt: Date
+        createdVia: string | null
     }> = []
 
     sessionRows: Array<{
@@ -94,7 +95,8 @@ class FakeQuery {
                 lastUsedAt: null,
                 expiresAt: (value.expiresAt as Date | null) ?? null,
                 revokedAt: null,
-                createdAt: (value.createdAt as Date | undefined) ?? new Date()
+                createdAt: (value.createdAt as Date | undefined) ?? new Date(),
+                createdVia: (value.createdVia as string | undefined) ?? null
             })
         }
         if (this.table === cliAuthSessions) {
@@ -415,6 +417,7 @@ test('CliAuthService exchanges auth code once for an API token', async () => {
     assert.equal(db.tokenRows.length, 1)
     assert.equal(db.sessionRows[0].tokenId, db.tokenRows[0].id)
     assert.deepEqual(db.tokenRows[0].scopes, [API_TOKEN_SCOPE_FULL])
+    assert.equal(db.tokenRows[0].createdVia, 'cli-browser')
 })
 
 test('CliAuthService rejects duplicate approve without replacing auth code', async () => {

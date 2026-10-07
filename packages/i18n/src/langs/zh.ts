@@ -907,7 +907,36 @@ const zh: Translations = {
             promptLocal:
                 '这是我本地的 Manyfold 开发环境（{{host}}）：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
             promptOther:
-                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。'
+                '这是位于 {{host}} 的 Manyfold 部署：请用只属于它的 `mf` profile 登录，不要动我其他的 `mf` 登录和已安装的 `mf`。',
+            stepPaste: '粘贴到你的 agent 里',
+            stepCopied: '已复制，粘贴到你的 agent 里',
+            stepApprove: '批准登录',
+            stepApproveHint: '你的 agent 会打开一个 Manyfold 页面或给出一个验证码，在这台电脑或手机上批准即可。',
+            stepConnected: '已连接',
+            stuck: '还没动静？看看 agent 的终端里有没有链接或验证码。',
+            waitingHint: '可以先关掉这个窗口，连接成功后侧栏会显示。',
+            connectedTitle: '你的 agent 已连接',
+            connectedDescription: '试着问它：',
+            tryPrompt: '列出我的 Manyfold agents，说说每个是做什么的。'
+        },
+        agentConnection: {
+            connect: '连接 agent',
+            connected: '已连接',
+            inUse: '使用中',
+            connectHint: '在 Claude Code、Codex 或任何编程 agent 中使用 Manyfold',
+            connectedHint: '你的 agent 已连接 Manyfold',
+            inUseHint: '你的 agent 正在使用 Manyfold',
+            panelTitle: '你的 agent',
+            lastRequest: '最近请求 {{when}}',
+            noRequests: '还没有请求',
+            signedIn: '{{when}}通过 mf login 登录',
+            signInCount: '{{count}} 个登录',
+            connectAnother: '连接另一个 agent',
+            manage: '管理登录',
+            disconnect: '断开连接',
+            disconnectConfirm: '断开你的 agent？之后它需要重新运行 mf login。',
+            disconnectConfirmMany:
+                '断开全部 {{count}} 个登录？每个 agent 都需要重新运行 mf login。'
         },
         agentSettings: {
             timing: {
