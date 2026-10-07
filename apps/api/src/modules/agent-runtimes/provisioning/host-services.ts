@@ -17,6 +17,7 @@ import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import {
     HostDaemonAccess,
     HostDaemonOfflineError,
+    isTransportLoss,
     sandboxCliTooOld,
     type HostSession
 } from '@/modules/agents/adapters/host-daemon-access'
@@ -344,7 +345,9 @@ export class HostServices {
     // has no earlier install to fall back on, and "create an agent" must not
     // hinge on the newest release installing. The version is then left
     // unknown rather than guessed; the next probe fills it in. An asked-for
-    // version fails loud.
+    // version fails loud, and so does an install whose machine stopped
+    // answering: it may still be running there, and a second one beside it
+    // would race it for the same files.
     private async install(
         recipe: ServiceFrameworkRecipe,
         runner: SessionScriptRunner,
@@ -359,7 +362,8 @@ export class HostServices {
                 !!request.frameworkVersion &&
                 request.frameworkVersionSource === 'latest' &&
                 err instanceof BootstrapError &&
-                err.step === `${recipe.framework}-install-version`
+                err.step === `${recipe.framework}-install-version` &&
+                !isTransportLoss(err.cause, false)
             if (!retryable) throw err
             this.log.warn(
                 `${recipe.framework} latest ${request.frameworkVersion} did not install, retrying unpinned: ${(err as Error).message}`
