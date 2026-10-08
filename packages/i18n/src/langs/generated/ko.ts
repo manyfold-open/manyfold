@@ -2150,7 +2150,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.primary.longerThanUsual": "평소보다 오래 걸립니다",
     "web.agentNewV4.cost.addKey": "API 키 추가",
     "web.agentNewV4.cost.testingKey": "키를 확인하고 모델을 불러오는 중…",
-    "web.agentNewV4.cost.topUp": "충전",
+    "web.agentNewV4.cost.addCredit": "충전",
     "web.agentNewV4.wait.instant": "즉시",
     "web.agentNewV4.wait.wake": "약 1분 · 먼저 깨어납니다",
     "web.agentNewV4.wait.wakesFirst": "먼저 깨어납니다",

@@ -2151,7 +2151,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'いつもより長めです',
     'web.agentNewV4.cost.addKey': 'API キーを追加',
     'web.agentNewV4.cost.testingKey': 'キーを確認してモデルを読み込んでいます…',
-    'web.agentNewV4.cost.topUp': 'チャージ',
+    'web.agentNewV4.cost.addCredit': 'チャージ',
     'web.agentNewV4.wait.instant': 'すぐ',
     'web.agentNewV4.wait.wake': '約 1 分 · 先に起動します',
     'web.agentNewV4.wait.wakesFirst': '先に起動します',

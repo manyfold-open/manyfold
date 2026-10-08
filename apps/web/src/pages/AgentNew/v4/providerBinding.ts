@@ -27,8 +27,8 @@ import type { CostChoice, RuntimeChoice } from '@/pages/AgentNew/v4/flowState'
 //
 // Seen on staging [2026-10-08]: these three cases each asked "who pays" and
 // then ignored the answer — a service joining an instance inherits that
-// instance's provider, NarraNexus takes none at create (`runtime-ui`), and a
-// connected service bills on its own side.
+// instance's provider, a framework set up in its own UI takes none at create
+// (`runtime-ui`), and a connected service bills on its own side.
 export const fixedCostFor = (
     framework: AgentFramework,
     runtime: RuntimeChoice

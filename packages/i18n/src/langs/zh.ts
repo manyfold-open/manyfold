@@ -3639,7 +3639,7 @@ const zh: Translations = {
                 balanceUnknown: '读不到余额',
                 addKey: '添加 API key',
                 testingKey: '正在检查 key 并读取它的模型…',
-                topUp: '充值'
+                addCredit: '充值'
             },
             service: {
                 connected: '你已经接入的 {{service}} 服务',

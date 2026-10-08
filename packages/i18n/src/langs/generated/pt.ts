@@ -2159,7 +2159,7 @@ const pt: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'mais do que o habitual',
     'web.agentNewV4.cost.addKey': 'Adicionar uma chave de API',
     'web.agentNewV4.cost.testingKey': 'Verificando a chave e carregando os modelos dela…',
-    'web.agentNewV4.cost.topUp': 'Recarregar',
+    'web.agentNewV4.cost.addCredit': 'Recarregar',
     'web.agentNewV4.wait.instant': 'na hora',
     'web.agentNewV4.wait.wake': 'cerca de um minuto · acorda primeiro',
     'web.agentNewV4.wait.wakesFirst': 'acorda primeiro',

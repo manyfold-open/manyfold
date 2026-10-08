@@ -3819,7 +3819,7 @@ const en = {
                 balanceUnknown: 'Balance could not be read',
                 addKey: 'Add an API key',
                 testingKey: 'Checking the key and loading its models…',
-                topUp: 'Top up'
+                addCredit: 'Top up'
             },
             service: {
                 connected: '{{service}} services you have connected',

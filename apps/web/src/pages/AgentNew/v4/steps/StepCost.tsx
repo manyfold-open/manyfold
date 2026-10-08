@@ -124,7 +124,7 @@ export const StepCost: FC<{
     onAddKey: (pick: ModelProviderCreatePick) => void
     // Opens the edition's top-up dialog; absent where there is nothing to buy
     // or nothing is owed.
-    onTopUp?: () => void
+    onAddCredit?: () => void
 }> = ({
     framework,
     authList,
@@ -141,7 +141,7 @@ export const StepCost: FC<{
     value,
     onChange,
     onAddKey,
-    onTopUp
+    onAddCredit
 }): ReactNode => {
     const { t } = useI18n()
     const vendor = vendorLabel(framework)
@@ -307,14 +307,14 @@ export const StepCost: FC<{
                 sheetTitle={t('web.modelProviders.newProvider')}
                 options={addOptions}
             />
-            {onTopUp !== undefined && (
+            {onAddCredit !== undefined && (
                 <button
                     type='button'
-                    onClick={onTopUp}
+                    onClick={onAddCredit}
                     className='text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors'
                 >
                     <BillingIcon className='h-3.5 w-3.5 shrink-0' />
-                    {t('web.agentNewV4.cost.topUp')}
+                    {t('web.agentNewV4.cost.addCredit')}
                 </button>
             )}
         </div>

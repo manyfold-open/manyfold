@@ -2160,7 +2160,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'дольше обычного',
     'web.agentNewV4.cost.addKey': 'Добавить ключ API',
     'web.agentNewV4.cost.testingKey': 'Проверяем ключ и загружаем его модели…',
-    'web.agentNewV4.cost.topUp': 'Пополнить',
+    'web.agentNewV4.cost.addCredit': 'Пополнить',
     'web.agentNewV4.wait.instant': 'сразу',
     'web.agentNewV4.wait.wake': 'около минуты · сначала просыпается',
     'web.agentNewV4.wait.wakesFirst': 'сначала просыпается',

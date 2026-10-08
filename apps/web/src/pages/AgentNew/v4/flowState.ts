@@ -60,7 +60,7 @@ export type CostChoice =
     // answer there is. `label` names the payer once it has been read.
     | { kind: 'inherited'; label: string | null; machine: string }
     // A framework that is given its models in its own settings, after it
-    // exists, and takes none from us at create (NarraNexus).
+    // exists, and takes none from us at create.
     | { kind: 'runtime-ui' }
 
 export interface CreateFlowState {
