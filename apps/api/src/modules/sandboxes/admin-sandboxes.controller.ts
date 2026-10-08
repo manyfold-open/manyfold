@@ -181,6 +181,26 @@ export class AdminSandboxesController {
         await this.sandboxes.deleteTask(user.userId, id, name, true)
     }
 
+    // The provider's health check, past the automatic switches: its verdict
+    // applies, so a problem puts the sandbox into maintenance.
+    @Post(':id/health-check')
+    @HttpCode(200)
+    checkHealth(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.checkHealth(user.userId, id, true)
+    }
+
+    @Post(':id/maintenance/end')
+    @HttpCode(200)
+    endMaintenance(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.endMaintenance(user.userId, id, true)
+    }
+
     @Post(':id/stop')
     @HttpCode(200)
     async stop(

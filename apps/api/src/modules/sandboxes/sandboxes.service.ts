@@ -106,6 +106,7 @@ import {
     updatesItself,
     type DeferredCliUpdate
 } from '@/modules/hosts/bring-up/host-cli.service'
+import { SandboxHealthService } from './health/sandbox-health.service'
 
 const DETECT_TIMEOUT_MS = 30_000
 const DAEMON_UPDATE_RPC_TIMEOUT_MS = 60_000
@@ -181,7 +182,10 @@ export class SandboxesService {
         // Same convention; absent, the switch is recorded and the keep-awake
         // reconcile (on the status-sync leader) brings the machine in line.
         @Optional()
-        private readonly keepAwake?: HostKeepAwakeService
+        private readonly keepAwake?: HostKeepAwakeService,
+        // Not @Optional: an admin's health check and maintenance exit go
+        // through it, and a module that cannot see it must fail to boot.
+        private readonly health?: SandboxHealthService
     ) {}
 
     private async latestHerdr(): Promise<string | null> {
@@ -479,6 +483,110 @@ export class SandboxesService {
                     )
                 })
         return this.get(r.host.userId, hostId)
+    }
+
+    // An admin's health check: the provider's verdict applies whatever the
+    // automatic switches say — a problem puts a ready sandbox into maintenance,
+    // healthy brings one out — and the provider may repair the machine as it
+    // checks.
+    async checkHealth(
+        userId: string,
+        hostId: string,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        if (!this.health)
+            throw new ServiceUnavailableException(
+                'sandbox health checks are not available'
+            )
+        const result = await this.health.checkNow(r.host.id)
+        await this.writeAudit(userId, auditAction.SANDBOX_HEALTH_CHECK, r.host, {
+            outcome: result.outcome,
+            verdict: result.verdict ?? null,
+            previousStatus: r.host.status
+        })
+        switch (result.outcome) {
+            case 'in_progress':
+                throw new ConflictException({
+                    message: 'a health check of this sandbox is already running',
+                    code: 'SANDBOX_HEALTH_CHECK_IN_PROGRESS'
+                })
+            case 'not_applicable':
+                throw new ConflictException({
+                    message: `only a ready sandbox or one in maintenance can be checked; this one is ${r.host.status}`,
+                    code: 'SANDBOX_HEALTH_CHECK_NOT_APPLICABLE'
+                })
+            case 'unsupported':
+                throw new ConflictException({
+                    message: "this sandbox's provider has no health check",
+                    code: 'SANDBOX_HEALTH_CHECK_UNSUPPORTED'
+                })
+            case 'gone':
+                throw new ConflictException({
+                    message: "the provider no longer has this sandbox's machine",
+                    code: 'SANDBOX_MACHINE_GONE'
+                })
+            case 'error':
+                throw new ServiceUnavailableException({
+                    message: `the provider's health check failed: ${result.error ?? 'unknown error'}`,
+                    code: 'SANDBOX_HEALTH_CHECK_FAILED'
+                })
+        }
+        return this.get(r.host.userId, hostId)
+    }
+
+    // An admin taking a sandbox out of maintenance by hand, for when they know
+    // better than the last verdict. A check still in flight cannot put it back.
+    async endMaintenance(
+        userId: string,
+        hostId: string,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const r = await this.requireSandbox(userId, hostId, isAdmin)
+        if (!this.health)
+            throw new ServiceUnavailableException(
+                'sandbox health checks are not available'
+            )
+        const ended = await this.health.endMaintenance(r.host.id)
+        if (!ended)
+            throw new ConflictException({
+                message: `this sandbox is ${r.host.status}, not in maintenance`,
+                code: 'SANDBOX_NOT_IN_MAINTENANCE'
+            })
+        await this.writeAudit(
+            userId,
+            auditAction.SANDBOX_MAINTENANCE_END,
+            r.host,
+            {
+                reason: r.host.failureReason,
+                since: r.host.maintenanceSince?.toISOString() ?? null
+            }
+        )
+        return this.get(r.host.userId, hostId)
+    }
+
+    private async writeAudit(
+        actorId: string,
+        action: string,
+        host: RuntimeHostRow,
+        meta: Record<string, unknown>
+    ): Promise<void> {
+        try {
+            await this.db.insert(auditLogs).values({
+                id: randomUUID(),
+                actorId,
+                action,
+                subject: host.id,
+                meta: {
+                    ...meta,
+                    onBehalfOf: host.userId !== actorId ? host.userId : null
+                }
+            })
+        } catch (err) {
+            this.log.warn(
+                `audit write failed for ${action} host=${host.id}: ${(err as Error).message}`
+            )
+        }
     }
 
     // Everything inside the machine goes through its daemon (R6), and every
