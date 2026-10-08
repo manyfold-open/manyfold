@@ -17,6 +17,7 @@ import {
     SANDBOX_EXEC_UNAVAILABLE_CODE,
     SPRITE_EXEC_TERMINAL_EVENT
 } from '../src/modules/chat/sprite-exec-terminal'
+import { SANDBOX_MAINTENANCE_CODE } from '../src/modules/chat/sandbox-maintenance-terminal'
 import type {
     SpriteExecAdmission,
     SpriteExecDecision
@@ -491,6 +492,67 @@ test('the terminal exposes no host, sprite, endpoint or command — to the user 
     }
 })
 
+// A sandbox in maintenance: the provider's health check found its machine
+// broken. A turn on it must cost nothing beyond its own refusal — no channel
+// or exec probe, no runner, no wake, nothing a fresh instance could adopt —
+// and must say so with a code no retry loop mistakes for a runner outage.
+// Asserted against a ready twin, because 0 is also what a broken harness reports.
+test('a sandbox in maintenance refuses the turn before anything touches it', async () => {
+    const quiet = await startExitingServer()
+    const ok = await startExitingServer()
+    const refused = makeHarness({
+        port: quiet.port,
+        runner: true,
+        hostStatus: 'maintenance',
+        hostPower: 'stopped'
+    })
+    const control = makeHarness({ port: ok.port, hostPower: 'stopped' })
+    try {
+        await refused.send()
+        await control.send()
+
+        assert.equal(refused.terminals.length, 1)
+        assert.equal(refused.terminals[0].error?.code, SANDBOX_MAINTENANCE_CODE)
+        assert.equal(refused.terminals[0].error?.retryable, false)
+        assert.match(refused.terminals[0].error?.message ?? '', /maintenance/i)
+        assert.equal(quiet.upgrades, 0)
+        assert.equal(refused.adapterCalls.length, 0)
+        assert.deepEqual(refused.health, [])
+        assert.equal(refused.calls.forAgent, 0)
+        assert.equal(refused.calls.upsertTurnExecution, 0)
+        assert.equal(refused.calls.stampedResumeRef, 0)
+        assert.deepEqual(refused.openHolds(), [])
+        assert.equal(refused.calls.markHostRunning, 0)
+
+        assert.equal(control.adapterCalls.length, 1)
+        assert.deepEqual(
+            control.health.map((c) => c.method),
+            ['admit']
+        )
+        assert.equal(control.calls.forAgent, 1)
+        assert.equal(control.calls.markHostRunning, 1)
+    } finally {
+        await quiet.close()
+        await ok.close()
+    }
+})
+
+test('prewarm leaves a sandbox in maintenance alone', async () => {
+    const server = await startExitingServer()
+    const refused = makeHarness({ port: server.port, hostStatus: 'maintenance' })
+    const control = makeHarness({ port: server.port })
+    try {
+        await refused.prewarm()
+        await control.prewarm()
+
+        assert.equal(refused.calls.forAgent, 0)
+        assert.deepEqual(refused.health, [])
+        assert.equal(control.calls.forAgent, 1)
+    } finally {
+        await server.close()
+    }
+})
+
 interface HarnessOptions {
     port: number
     decision?: SpriteExecDecision
@@ -502,6 +564,9 @@ interface HarnessOptions {
     stampFails?: boolean
     // The budget a probe admission hands out.
     probeTimeoutMs?: number
+    // The agent's machine as the turn reads it; defaults to a running, ready one.
+    hostStatus?: (typeof HOST)['status']
+    hostPower?: (typeof HOST)['powerState']
 }
 
 interface Harness {
@@ -517,6 +582,7 @@ interface Harness {
         stampedResumeRef: number
         forAgent: number
         probeTimeouts: number[]
+        markHostRunning: number
     }
     lease: Date
     // Awake holds taken and not yet released or detached, by reason.
@@ -527,7 +593,12 @@ interface Harness {
 }
 
 const makeHarness = (opts: HarnessOptions): Harness => {
-    const currentAgent = { ...agentRow }
+    const host = {
+        ...HOST,
+        status: opts.hostStatus ?? HOST.status,
+        powerState: opts.hostPower ?? HOST.powerState
+    }
+    const currentAgent = { ...agentRow, host }
     const insertedMessages: Array<{ id: string; role: string }> = []
     let latestInflight: string | null = null
     const events: Array<{ name: string; props: Record<string, unknown> }> = []
@@ -539,7 +610,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         upsertTurnExecution: 0,
         stampedResumeRef: 0,
         forAgent: 0,
-        probeTimeouts: [] as number[]
+        probeTimeouts: [] as number[],
+        markHostRunning: 0
     }
     const lease = new Date(Date.now() + 20_000)
     let turnFinishedResolve!: () => void
@@ -729,13 +801,13 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     const execDrivers = {
         probeExecForAgent: async (_agentId: string, timeoutMs: number) => {
             calls.probeTimeouts.push(timeoutMs)
-            return runnerManager.probeExec(HOST, timeoutMs)
+            return runnerManager.probeExec(host, timeoutMs)
         },
         resolveTurnDaemon: async () => {
             calls.forAgent += 1
             if (!opts.runner) return { daemonId: HOST_ID }
             const resolution = await runnerManager.ensureHostDaemon({
-                host: HOST,
+                host,
                 agentId: AGENT_ID,
                 firstExecTimeoutMs: 1000
             })
@@ -787,8 +859,8 @@ const makeHarness = (opts: HarnessOptions): Harness => {
     }
     const runnerManager = new TestRunnerManager(
         {
-            findById: async () => HOST,
-            patch: async () => HOST,
+            findById: async () => host,
+            patch: async () => host,
             bumpGeneration: async () => 1
         } as never,
         { findByHostId: async () => null } as never,
@@ -821,7 +893,12 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         { get: () => adapter } as never,
         {} as never,
         { build: async () => ({ root: { id: 'workspace' } }) } as never,
-        { publishStatus: () => {} } as never,
+        {
+            publishStatus: () => {},
+            markHostRunning: async () => {
+                calls.markHostRunning += 1
+            }
+        } as never,
         telemetry as never,
         { registerHandler: () => {} } as never,
         undefined as never,
@@ -854,7 +931,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
                     userId: 'user-1',
                     hostId: HOST_ID
                 }),
-                host: HOST,
+                host,
                 daemon: null
             })
         ) as never

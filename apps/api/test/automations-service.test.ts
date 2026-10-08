@@ -208,6 +208,29 @@ test('AutomationsService fails a scheduled run at admission when the agent compu
     assert.equal(db.insertedRuns[0]?.errorMessage, 'agent is offline')
 })
 
+// A sandbox in maintenance failed its provider's health check. The run fails
+// at admission in milliseconds, with no session and no wake, and says why in
+// words its owner can act on rather than a raw availability value.
+test('AutomationsService fails a scheduled run at admission when the sandbox is in maintenance', async () => {
+    const db = new FakeDb()
+    db.selectResults.push(
+        [],
+        [],
+        [{ automation: automationRow, agent: agentRow, quotaRevision: 'fixture-revision' }],
+        []
+    )
+    const chat = new FakeChat()
+
+    await runSchedulerTick(makeGatedService(db, chat, 'maintenance'))
+
+    assert.deepEqual(chat.createdSessions, [])
+    assert.deepEqual(chat.sentMessages, [])
+    assert.equal(db.insertedRuns[0]?.status, 'failed')
+    const errorMessage = String(db.insertedRuns[0]?.errorMessage ?? '')
+    assert.match(errorMessage, /under maintenance/)
+    assert.doesNotMatch(errorMessage, /agent is maintenance/)
+})
+
 test('AutomationsService admits a scheduled run on a sleeping sandbox, which the turn wakes', async () => {
     const db = new FakeDb()
     db.selectResults.push(

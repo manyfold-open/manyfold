@@ -9,9 +9,15 @@ import { and, count, eq, inArray, ne, or, sql } from 'drizzle-orm'
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 
 // A hosted host that still occupies provider capacity: being created, usable,
-// or waiting for its destroy to be confirmed. `failed` never got (or has
-// already lost) its machine; `retired` is a local-host state.
-export const HOSTED_LIVE_STATUSES = ['provisioning', 'ready', 'deleting'] as const
+// in maintenance (its machine still exists, it just failed the provider's
+// health check), or waiting for its destroy to be confirmed. `failed` never
+// got (or has already lost) its machine; `retired` is a local-host state.
+export const HOSTED_LIVE_STATUSES = [
+    'provisioning',
+    'ready',
+    'maintenance',
+    'deleting'
+] as const
 
 // Composable predicates over runtime_hosts (ADR-0037 R1): a host's placement
 // is its kind plus its provider's kind, never a column of its own.
@@ -32,8 +38,8 @@ export const runningHostedHosts = (kind: RuntimeProviderKind) =>
     and(liveHostedHosts(kind), eq(runtimeHosts.powerState, 'running'))
 
 // The raw-SQL twins, for scalar subqueries that alias runtime_hosts as `h`.
-// Keep them in step with the builders above.
-export const LIVE_SPRITES_HOST_SQL = `h.kind = 'hosted' and h.status in ('provisioning', 'ready', 'deleting') and exists (select 1 from runtime_providers p where p.id = h.provider_id and p.kind = 'sprites')`
+// The status list is derived, so the twins cannot drift from the builders.
+export const LIVE_SPRITES_HOST_SQL = `h.kind = 'hosted' and h.status in (${HOSTED_LIVE_STATUSES.map((status) => `'${status}'`).join(', ')}) and exists (select 1 from runtime_providers p where p.id = h.provider_id and p.kind = 'sprites')`
 
 export const RUNNING_SPRITES_HOST_SQL = `${LIVE_SPRITES_HOST_SQL} and h.power_state = 'running'`
 

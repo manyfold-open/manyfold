@@ -26,7 +26,8 @@ const AVAILABILITY_TONE: Record<RuntimeAvailability, TagTone> = {
     available: 'success',
     wakeable: 'warning',
     offline: 'idle',
-    unavailable: 'error'
+    unavailable: 'error',
+    maintenance: 'error'
 }
 
 const LIFECYCLE_TONE: Record<RuntimeHostStatus, TagTone> = {
@@ -34,7 +35,8 @@ const LIFECYCLE_TONE: Record<RuntimeHostStatus, TagTone> = {
     ready: 'success',
     failed: 'error',
     deleting: 'warning',
-    retired: 'idle'
+    retired: 'idle',
+    maintenance: 'error'
 }
 
 // The dot a tone draws.
@@ -122,7 +124,11 @@ const SANDBOX_LEGEND: readonly LegendRow[] = [
         machine: hostedIn('provisioning', 'unknown', false),
         meaning: 'provisioning'
     },
-    { machine: hostedIn('failed', 'unknown', false), meaning: 'failed' }
+    { machine: hostedIn('failed', 'unknown', false), meaning: 'failed' },
+    {
+        machine: hostedIn('maintenance', 'stopped', false),
+        meaning: 'maintenance'
+    }
 ]
 
 interface LegendEntry {

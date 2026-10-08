@@ -279,6 +279,19 @@ test('an offline self-owned computer stays blocked with honest copy', () => {
     )
 })
 
+// Unlike an asleep sandbox, one in maintenance must not be sent to: the turn
+// is refused at once, and nothing a send does can bring the machine back. The
+// composer says so up front, in the same words the refusal would.
+test('a sandbox agent in maintenance is blocked with copy that says why', () => {
+    const availability = getAgentChatAvailability(
+        agent({ availability: 'maintenance', powerState: 'stopped' })
+    )
+
+    assert.equal(availability.ready, false)
+    assert.equal(availability.code, 'status')
+    assert.match(availability.reason ?? '', /maintenance/)
+})
+
 test('a failed agent stays blocked', () => {
     const availability = getAgentChatAvailability(
         agent({ status: 'failed', availability: 'unavailable' })

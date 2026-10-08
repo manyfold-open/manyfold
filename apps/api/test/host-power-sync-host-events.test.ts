@@ -134,6 +134,41 @@ test('syncHosts broadcasts a host-update when the listing state changes', async 
     assert.equal(hostEmits[0]?.update.powerState, 'suspended')
 })
 
+// A sandbox entering or leaving maintenance changes outside the power pass. Its
+// owner's lists key their badge on the status and the composer on each agent's
+// availability, and neither may wait for a refetch. A plain power change keeps
+// saying nothing about the lifecycle.
+test("announcing a lifecycle change carries the status and each agent's availability", async () => {
+    const db = makeDb(
+        [fakeHost({ powerState: 'running' })],
+        [
+            {
+                agent: { id: 'agent-1', userId: 'u-1', status: 'ready' },
+                runtime: { status: 'ready' },
+                daemon: null
+            }
+        ]
+    )
+    const { svc, hostEmits, agentEmits } = makeService(
+        db,
+        makeClient({ sprites: [{ name: HOST_SPRITE, status: 'warm' }] })
+    )
+    await sync(svc)
+    assert.equal('status' in (hostEmits[0]?.update ?? {}), false)
+
+    ;(
+        svc as unknown as {
+            hosts: { findById: (id: string) => Promise<unknown> }
+        }
+    ).hosts.findById = async () =>
+        fakeHost({ status: 'maintenance', powerState: 'stopped' })
+    await svc.announceHostState('host-1')
+
+    assert.equal(hostEmits[1]?.update.status, 'maintenance')
+    assert.equal(hostEmits[1]?.update.powerState, 'stopped')
+    assert.equal(agentEmits[1]?.availability, 'maintenance')
+})
+
 // WHY: a sprite that goes warm freezes its daemon, whose last heartbeat stays
 // inside the 45s presence window. Seen on a local stack [2026-09-28]: the
 // broadcast derived the agent from the row as it was before the write (still

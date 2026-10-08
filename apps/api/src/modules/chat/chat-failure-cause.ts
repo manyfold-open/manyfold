@@ -7,6 +7,7 @@ import {
     isDaemonOfflineTransportError
 } from '@/modules/chat/chat-adapter'
 import { SANDBOX_EXEC_UNAVAILABLE_CODE } from '@/modules/chat/sprite-exec-terminal'
+import { SANDBOX_MAINTENANCE_CODE } from '@/modules/chat/sandbox-maintenance-terminal'
 import { A2A_TURN_TIMEOUT_CODE } from '@/modules/chat/turn-abort-reason'
 import { UPSTREAM_RATE_LIMIT_SIGNATURE } from '@/modules/chat/upstream-rate-limit-signal'
 import {
@@ -37,6 +38,9 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // turns this spares are counted with the one that proved the endpoint dead
     // instead of opening a second incident beside it.
     [SANDBOX_EXEC_UNAVAILABLE_CODE]: 'exec_handshake_failed',
+    // Its own cause: the platform refused the turn on purpose, after the
+    // provider's health check, so it must not count as a runner outage.
+    [SANDBOX_MAINTENANCE_CODE]: 'sandbox_maintenance',
     turn_idle_timeout: 'inactivity_timeout',
     openclaw_no_response: 'inactivity_timeout',
     openclaw_stream_stall: 'inactivity_timeout',

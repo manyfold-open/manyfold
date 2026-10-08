@@ -12,7 +12,8 @@ export const chatFailureCauses = [
     'empty_response',
     'inactivity_timeout',
     'turn_duration_exceeded',
-    'unsupported_capability'
+    'unsupported_capability',
+    'sandbox_maintenance'
 ] as const
 
 export type ChatFailureCause = (typeof chatFailureCauses)[number]

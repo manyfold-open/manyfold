@@ -1274,7 +1274,12 @@ export interface NcaClient {
             | 'listTasks'
             | 'deleteTask'
             | 'stop'
-        >
+        > & {
+            // The provider's health check; its verdict applies (a problem puts
+            // the sandbox into maintenance). Admin only.
+            checkHealth: (id: string) => Promise<SandboxSummary>
+            endMaintenance: (id: string) => Promise<SandboxSummary>
+        }
         channels: Pick<
             ChannelsClient,
             'list' | 'get' | 'update' | 'delete' | 'test' | 'register'
@@ -4179,6 +4184,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 stop: (id) =>
                     request<SandboxStopResponse>(
                         apiPaths.ADMIN_SANDBOX_STOP(id),
+                        { method: 'POST' }
+                    ),
+                checkHealth: (id) =>
+                    request<SandboxSummary>(
+                        apiPaths.ADMIN_SANDBOX_HEALTH_CHECK(id),
+                        { method: 'POST' }
+                    ),
+                endMaintenance: (id) =>
+                    request<SandboxSummary>(
+                        apiPaths.ADMIN_SANDBOX_MAINTENANCE_END(id),
                         { method: 'POST' }
                     )
             },

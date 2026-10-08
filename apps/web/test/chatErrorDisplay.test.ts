@@ -201,3 +201,27 @@ test('old and unknown causes retain the fallback without guessing from pool word
         })
     }
 })
+
+// The platform refused the turn on purpose: the sandbox's machine failed the
+// provider's health check. The friendly line says so and what happens next; the
+// API's English copy says the same, so it is not repeated underneath.
+test('a sandbox in maintenance gets its own copy, by code or by cause', () => {
+    for (const error of [
+        {
+            code: 'sandbox_maintenance',
+            retryable: false,
+            message: "This agent's sandbox is under maintenance."
+        },
+        {
+            code: 'something_else',
+            cause: 'sandbox_maintenance' as const,
+            retryable: false,
+            message: 'refused'
+        }
+    ])
+        assert.deepEqual(resolveChatErrorDisplay(error, t), {
+            kind: 'sandbox_maintenance',
+            title: 'web.chat.error.sandboxMaintenance',
+            detail: null
+        })
+})

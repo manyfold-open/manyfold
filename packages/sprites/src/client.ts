@@ -10,6 +10,7 @@ import type {
     ServiceObject,
     ServiceStopOptions,
     Sprite,
+    SpriteHealthCheck,
     SpritesClientOptions,
     SpritesLogger
 } from './types'
@@ -34,6 +35,11 @@ export interface SpritesClient {
     readonly accountSlug?: string
     createSprite(input: { name: string; [k: string]: unknown }): Promise<Sprite>
     getSprite(name: string): Promise<Sprite>
+    /**
+     * The provider's health check (SpriteHealthCheck). Not read-only: it can
+     * restart a stopped machine, so callers treat it like a wake.
+     */
+    checkSprite(name: string): Promise<SpriteHealthCheck>
     updateSprite(name: string, patch: Record<string, unknown>): Promise<Sprite>
     listSprites(): Promise<ListSpritesResponse>
     deleteSprite(name: string): Promise<void>
@@ -229,6 +235,8 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
         createSprite: (input) => request('POST', '/sprites', input),
         getSprite: (name) =>
             request('GET', `/sprites/${encodeURIComponent(name)}`),
+        checkSprite: (name) =>
+            request('GET', `/sprites/${encodeURIComponent(name)}/check`),
         updateSprite: (name, patch) =>
             request('PUT', `/sprites/${encodeURIComponent(name)}`, patch),
         listSprites: () => listAllSprites(),

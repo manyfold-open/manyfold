@@ -4,6 +4,7 @@ import type {
     HostPowerStatusUpdate
 } from '@manyfold/shared'
 import type { SdkAgent } from '@manyfold/sdk'
+import { t } from '@manyfold/i18n'
 import { docsHref } from '@/lib/docsLinks'
 
 const timeValue = (value: string): number => {
@@ -182,6 +183,14 @@ export const getAgentChatAvailability = (
         return {
             ready: false,
             reason: "This agent's runtime is not available right now.",
+            code: 'status'
+        }
+    // The provider's health check found the sandbox's machine broken; a send
+    // would be refused at once, so the composer says why instead.
+    if (agent.availability === 'maintenance')
+        return {
+            ready: false,
+            reason: t('web.chat.error.sandboxMaintenance'),
             code: 'status'
         }
     if (agent.daemonNeedsUpgrade) {

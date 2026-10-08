@@ -15,12 +15,25 @@ export type RuntimeHostStatus =
     | 'failed'
     | 'deleting'
     | 'retired'
+    | 'maintenance'
 
 export type RuntimeHostPowerState =
     | 'running'
     | 'suspended'
     | 'stopped'
     | 'unknown'
+
+// A provider health check's verdict on a hosted machine. Anything but `healthy`
+// is a problem: it puts a ready host into maintenance and keeps one there.
+// `unknown` is a status the provider answered that we don't recognise.
+export type SandboxHealthVerdict =
+    | 'healthy'
+    | 'unhealthy'
+    | 'needs_repair'
+    | 'repaired'
+    | 'unknown'
+
+export type SandboxHealthCheckSource = 'manual' | 'failure' | 'recheck' | 'sweep'
 
 export type RuntimeProviderKind = 'sprites' | 'k8s'
 
@@ -95,6 +108,9 @@ export type RuntimeAvailability =
     | 'offline'
     // not installed, failed, or the host is not in a usable lifecycle state
     | 'unavailable'
+    // a hosted machine its provider's health check reported broken: nothing
+    // wakes it until a re-check passes or an admin ends the maintenance
+    | 'maintenance'
 
 export interface AvailabilityRuntime {
     status: 'installing' | 'ready' | 'failed'
@@ -118,6 +134,7 @@ export const runtimeAvailability = (args: {
 }): RuntimeAvailability => {
     if (args.runtime.status !== 'ready') return 'unavailable'
     if (args.host === null) return 'available'
+    if (args.host.status === 'maintenance') return 'maintenance'
     if (args.host.status !== 'ready') return 'unavailable'
     // A suspended or stopped VM holds a frozen daemon whose last heartbeat can
     // still sit inside the presence window. Read as `available`, that showed

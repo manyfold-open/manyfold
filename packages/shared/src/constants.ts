@@ -92,6 +92,8 @@ export const auditAction = {
     AGENT_DELETE_FAILED: 'agent.delete.failed',
     AGENT_SANDBOX_STOP: 'agent.sandbox.stop',
     SANDBOX_STOP: 'sandbox.stop',
+    SANDBOX_HEALTH_CHECK: 'sandbox.health_check',
+    SANDBOX_MAINTENANCE_END: 'sandbox.maintenance.end',
     AGENT_RUNTIME_CONTROL_UI_TOGGLED: 'agent_runtime.control_ui.toggled',
     AGENT_RUNTIME_CONTROL_UI_TOGGLE_FAILED:
         'agent_runtime.control_ui.toggle_failed',

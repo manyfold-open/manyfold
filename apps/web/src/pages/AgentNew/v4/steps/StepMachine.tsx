@@ -48,11 +48,13 @@ const machineDetail = (
             other: row.blockedBy !== undefined ? frameworkLabel(row.blockedBy) : ''
         })
     if (row.state === 'unavailable')
-        return row.unavailableReason !== 'failed'
-            ? t('web.agentNewV4.machine.podHostStarting')
-            : row.hostKind === 'sprites'
-              ? t('web.agentNewV4.machine.sandboxFailed')
-              : t('web.agentNewV4.machine.podHostFailed')
+        return row.unavailableReason === 'maintenance'
+            ? t('web.agentNewV4.machine.sandboxMaintenance')
+            : row.unavailableReason !== 'failed'
+              ? t('web.agentNewV4.machine.podHostStarting')
+              : row.hostKind === 'sprites'
+                ? t('web.agentNewV4.machine.sandboxFailed')
+                : t('web.agentNewV4.machine.podHostFailed')
     return row.agentsCount > 0
         ? t('web.agentNewV4.machine.readyWithAgents', {
               cli,
