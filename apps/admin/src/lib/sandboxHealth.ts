@@ -2,14 +2,15 @@ import type { SandboxHealthVerdict, SandboxSummary } from '@manyfold/shared'
 import type { BadgeTone } from '@/ui'
 
 // The provider health check's verdict as the Sandboxes page draws it: a
-// machine that failed to start is the error, one the provider repaired or
-// wants repaired needs attention, and a status the platform does not know
-// stays neutral — its literal is in the reason.
+// machine that failed to start is the error. A sleeping machine answers
+// needs_repair and a stopped one repaired, which is how every idle sandbox
+// looks, so both stay neutral, as does a status the platform does not know
+// (its literal is in the reason).
 const HEALTH_TONE: Record<SandboxHealthVerdict, BadgeTone> = {
     healthy: 'success',
     unhealthy: 'error',
-    needs_repair: 'warning',
-    repaired: 'warning',
+    needs_repair: 'neutral',
+    repaired: 'neutral',
     unknown: 'neutral'
 }
 

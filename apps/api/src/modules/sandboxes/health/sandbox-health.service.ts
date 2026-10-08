@@ -105,12 +105,14 @@ type Recorded = {
 // drives. A check is asked after a machine fails to come up (when the toggle is
 // on), by a daily sweep of machines nothing has proven alive (its own toggle),
 // on a backoff for every sandbox already in maintenance (always: it is the only
-// way out), and by an admin. Any verdict but healthy puts a ready sandbox into
-// maintenance, where nothing wakes it and every turn on it is refused at once.
+// way out), and by an admin. Only an `unhealthy` verdict, a machine that failed
+// to start, puts a ready sandbox into maintenance, where nothing wakes it and
+// every turn on it is refused at once; any other verdict but an unrecognised
+// one brings it out.
 //
 // The check itself can act on the machine (sprites restarts a stopped one), so
-// it is never asked about a machine whose daemon is connected, and every claim
-// is a compare-and-set: one check per machine across instances, and a verdict
+// an automatic check never asks about a ready machine whose daemon is
+// connected, and every claim is a compare-and-set: one check per machine across instances, and a verdict
 // that comes back after its lease was taken or cleared is dropped.
 @Injectable()
 export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
@@ -465,7 +467,7 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
             if (!row) return { outcome: 'lost' }
             let budgetLeft = true
             if (
-                report.verdict !== 'healthy' &&
+                report.verdict === 'unhealthy' &&
                 row.status === 'ready' &&
                 source !== 'manual' &&
                 autoEnter
@@ -530,7 +532,7 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
                         : { outcome: 'recorded', previousStatus }
                 }
                 case 'enter': {
-                    const retryInMs = recheckDelayMs(report.verdict, 1)
+                    const retryInMs = recheckDelayMs(1)
                     const [entered] = await tx
                         .update(runtimeHosts)
                         .set({
@@ -554,7 +556,7 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
                 }
                 case 'stay': {
                     const failures = row.healthFailureCount + 1
-                    const retryInMs = recheckDelayMs(report.verdict, failures)
+                    const retryInMs = recheckDelayMs(failures)
                     const [stayed] = await tx
                         .update(runtimeHosts)
                         .set({
@@ -598,7 +600,7 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
                     ? {
                           healthCheckNextAt: new Date(
                               now.getTime() +
-                                  recheckDelayMs(null, host.healthFailureCount)
+                                  recheckDelayMs(host.healthFailureCount)
                           )
                       }
                     : {}),
