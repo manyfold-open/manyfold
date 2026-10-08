@@ -3,6 +3,7 @@ import {
     brandFor,
     buildClaudeCodeDefaultModelConfig,
     buildCodexDefaultModelConfig,
+    credentialsManagedByRuntime,
     frameworkCapability,
     managedChannelFor as rankedManagedChannelFor,
     piProviderForProtocol,
@@ -18,7 +19,56 @@ import type {
 } from '@manyfold/shared'
 import { optionalWorkspace } from '@/lib/agentCreateDraft'
 import { managedChannelRank } from '@/lib/agentCreate/managedRank'
-import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
+import type { CostChoice, RuntimeChoice } from '@/pages/AgentNew/v4/flowState'
+
+// Step ③'s answer when there is nothing to choose, or null when there is.
+// A step with nothing to decide is answered here and passed over rather than
+// shown: the user would only have read a note and pressed Next.
+//
+// Seen on staging [2026-10-08]: these three cases each asked "who pays" and
+// then ignored the answer — a service joining an instance inherits that
+// instance's provider, NarraNexus takes none at create (`runtime-ui`), and a
+// connected service bills on its own side.
+export const fixedCostFor = (
+    framework: AgentFramework,
+    runtime: RuntimeChoice
+): CostChoice | null => {
+    if (runtime.kind === 'external') return { kind: 'external' }
+    if (credentialsManagedByRuntime(framework)) return { kind: 'runtime-ui' }
+    if (
+        frameworkCapability(framework).kind === 'service' &&
+        runtime.runtimeId !== null
+    )
+        return { kind: 'inherited', label: null, machine: runtime.hostLabel }
+    return null
+}
+
+// A connected service's create, the body v1 and v3 send. Only Langflow names
+// something on the service: a Dify key and an A2A card each address one app
+// already.
+export const externalCreateBody = (args: {
+    framework: AgentFramework
+    providerId: string
+    remoteRef: string
+    name: string
+}): CreateAgentBody => {
+    const base = {
+        name: args.name.trim(),
+        framework: args.framework,
+        runtime: 'external' as const
+    }
+    if (args.framework === 'langflow')
+        return {
+            ...base,
+            langflowBinding: {
+                providerId: args.providerId,
+                flowId: args.remoteRef.trim()
+            }
+        }
+    if (args.framework === 'a2a')
+        return { ...base, a2aBinding: { providerId: args.providerId } }
+    return { ...base, difyBinding: { providerId: args.providerId } }
+}
 
 // The two service frameworks that are handed a model provider at install.
 // One whose runtime manages its own providers takes nothing from us; the

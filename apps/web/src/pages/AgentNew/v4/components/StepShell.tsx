@@ -8,6 +8,7 @@ import { Spinner } from '@/components/Loading'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useI18n } from '@/lib/i18n'
 import { StepBar } from '@/pages/AgentNew/v4/components/StepBar'
+import { enterAdvances } from '@/pages/AgentNew/v4/components/enterKey'
 import type { StepValues } from '@/pages/AgentNew/v4/components/StepBar'
 import type { CreateStepId } from '@/pages/AgentNew/v4/flowState'
 
@@ -73,14 +74,26 @@ export const StepShell: FC<{
 }): ReactNode => {
     const { t } = useI18n()
     const blocked = primary.blockedReason !== undefined
-    // Enter advances from anywhere in the step. Picking a row focuses it, so
-    // the whole flow is arrow keys and Enter — which is where the speed of
-    // "one click per step" belongs, rather than in making some rows advance
-    // themselves and others not.
+    // Enter advances from a text field and from the picked row — so the
+    // speed of "one click per step" is pick, then Enter, rather than making
+    // some rows advance themselves and others not. Everything else keeps its
+    // own Enter (see `enterAdvances`).
     const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
         if (event.key !== 'Enter' || busy || blocked) return
         const target = event.target as HTMLElement
-        if (target.tagName === 'TEXTAREA') return
+        // A dialog opened from a step is portalled out of this element but
+        // still bubbles through it in React's tree; its Enter is its own.
+        if (!event.currentTarget.contains(target)) return
+        if (
+            !enterAdvances({
+                tagName: target.tagName,
+                type:
+                    target instanceof HTMLInputElement ? target.type : undefined,
+                role: target.getAttribute('role'),
+                ariaChecked: target.getAttribute('aria-checked')
+            })
+        )
+            return
         event.preventDefault()
         onNext()
     }

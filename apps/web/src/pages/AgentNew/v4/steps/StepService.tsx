@@ -15,6 +15,7 @@ import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
+import { needsRemoteRef } from '@/pages/AgentNew/v4/frameworkCatalog'
 
 // Step ② for Dify / Langflow / A2A. Same step, same position in the flow, one
 // different question: which app on which service you already run. The backend
@@ -92,7 +93,7 @@ export const StepService: FC<{
             {error !== null && (
                 <p className='workbench-alert-error mt-4'>{error}</p>
             )}
-            {selectedProviderId !== null && (
+            {selectedProviderId !== null && needsRemoteRef(framework) && (
                 <div className='mt-6 px-3'>
                     <label
                         className='workbench-field-label'

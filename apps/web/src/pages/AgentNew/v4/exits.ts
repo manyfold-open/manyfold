@@ -19,3 +19,7 @@ import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 export const EXIT_RENT_CLOUD_COMPUTER =
     NEW_RUNTIME_OPTIONS.find((option) => option.kind === 'k8s')?.to ??
     '/settings/runtimes'
+
+// Where sandboxes are deleted, linked beside a full quota. Not a row: the user
+// follows it on purpose, knowing this flow is left behind.
+export const EXIT_MANAGE_SANDBOXES = '/settings/runtimes'

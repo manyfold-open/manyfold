@@ -3531,7 +3531,7 @@ const zh: Translations = {
                 runtime: '登录是跟着机器走的，所以每一行都写清楚要花多少代价，包括之后要不要再登录一次。',
                 cost: '厂商登录写在那台机器的磁盘上，只在那台有效；账户级的额度跟着你走，所有机器通用。agent 建好之后随时可以改。',
                 name: '确认一下，然后就建好了。',
-                type: '十种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
+                type: '选一种。agent 建好后类型不能改，但可以再建一个别的类型。'
             },
             blocked: {
                 type: '选一种才能继续',
@@ -3570,8 +3570,8 @@ const zh: Translations = {
                 sandbox: '有状态沙箱',
                 ownComputer: '自有计算机',
                 cloudComputer: '云端计算机',
-                readyWithAgents: '已装 {{cli}} 并已跑起来 · {{count}} 个 agent',
-                readyNoAgents: '已装 {{cli}}，还没登录',
+                readyWithAgents: '已装 {{cli}} · {{count}} 个 agent',
+                readyNoAgents: '已装 {{cli}} · 还没有 agent',
                 needsInstall: '要先装 {{cli}}',
                 needsInstallIdle: '要先装 {{cli}}；这台上面什么都没有',
                 notInstallable: '你电脑上没有 {{cli}}。自己装好之后 daemon 约五分钟内会发现它',
@@ -3580,7 +3580,9 @@ const zh: Translations = {
                 podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
                 sandboxFailed: '启动失败；请在 设置 › 运行时 中重试或删除它',
                 sandboxMaintenance: '维护中：托管服务商报告其机器有问题',
-                podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
+                podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行',
+                readyWithOneAgent: '已装 {{cli}} · 1 个 agent',
+                daemonOffline: '离线 · 在那台电脑上运行 mf daemon start 让它重新连上'
             },
             newMachine: {
                 sandbox: '新建沙箱',
@@ -3591,13 +3593,13 @@ const zh: Translations = {
                 cloudComputer: '云端计算机',
                 cloudComputerDetail: '常驻不休眠，适合要长期在线的 agent',
                 quota: '已用 {{used}} / {{limit}}',
-                needsPlan: '需订阅'
+                sandboxFull: '已有 {{used}} 台沙箱，上限 {{limit}} 台 · 不能再建',
+                sandboxFullHint: '想腾出位置，删掉一台不再用的沙箱。空着的会标着「这台上面什么都没有」。',
+                manageSandboxes: '管理沙箱',
+                ownComputerUnsupported: '{{cli}} 不能在你自己的电脑上运行',
+                cloudComputerOff: '你的账户还没有开通'
             },
             cost: {
-                noSignIn: '秒开 · 不用再登录',
-                signInNextStep: '下一步要登录',
-                signInAfter: '之后要登录一次',
-                signInOnThatComputer: '那台电脑登过就不用再登',
                 onThisMachine: '这台机器上',
                 accountLevel: '你的账户上',
                 managed: 'Manyfold 托管',
@@ -3606,13 +3608,11 @@ const zh: Translations = {
                 preparingAccount: '正在准备你的账户…',
                 managedUnavailable: '暂不可用',
                 ownKeyDetail: '由厂商计费',
-                installAtCreate: '创建时安装 · 不用登录',
                 managedNoChannel: '还没有 {{cli}} 能用的托管模型',
                 providerIncompatible: '{{cli}} 用不了这个 provider',
                 providerUntested: '还没测过模型 · 先去设置里测一次',
                 signedIn: '已登录',
                 inUseBy: '{{count}} 个 agent 在用',
-                sharedAccount: '这台机器上已有 {{count}} 个 agent，其中按账户计费的会一并改用你在这里选的方式。',
                 expired: '凭据过期，选它需要重新登录',
                 aboutAMinute: '约 1 分钟',
                 signInTo: '你的 {{vendor}} 账号',
@@ -3621,12 +3621,25 @@ const zh: Translations = {
                 signInAnotherDetail: '凭据目录隔离',
                 loadingAccounts: '正在读这台机器上的账号…',
                 asleep: '这台机器在休眠，下面是上次检查到的值。不会为了回答这个列表去唤醒它。',
-                noSubscriptionFor: '{{vendor}} 调模型 API，不走 CLI 登录，所以没有订阅这条路。上面两种都是账户级的，换机器通用。',
-                backToType: '回第一步换一种',
                 externalBilled: '这种 agent 的模型由你自己的 {{service}} 服务调用和计费，和机器无关。Manyfold 不参与，也拿不到它的用量；要改模型请到那边改。',
                 externalShort: '由你自己的服务计费',
                 subscriptionOf: '你的 {{vendor}} 订阅',
-                externalSummary: '由你自己的 {{service}} 服务计费'
+                externalSummary: '由你自己的 {{service}} 服务计费',
+                switchesShared: '这台机器上按账户计费的 {{count}} 个 agent 也会一起改用它',
+                inheritedNote: '{{machine}} 上的 {{cli}} 已经配好了模型，新 agent 会沿用它。要改的话，打开这台机器上任一 agent 的模型设置。',
+                inheritedShort: '沿用 {{machine}}',
+                inheritedFull: '与 {{machine}} 上的其它 agent 相同',
+                runtimeUiNote: '{{service}} 的模型在它自己的设置里选，不在这里。建好后打开它的面板，在 Settings › Providers 里绑定。',
+                runtimeUiShort: '在 {{service}} 里设置',
+                runtimeUiSummary: '建好后在 {{service}} 面板里选模型',
+                currentKey: '这台机器上现有的 key',
+                inUseByOne: '1 个 agent 在用',
+                expiredLastChecked: '上次检查时已过期，选它需要重新登录',
+                balanceEmpty: '余额已用完 · 充值前无法回复',
+                balanceUnknown: '读不到余额',
+                addKey: '添加 API key',
+                testingKey: '正在检查 key 并读取它的模型…',
+                topUp: '充值'
             },
             service: {
                 connected: '你已经接入的 {{service}} 服务',
@@ -3642,7 +3655,7 @@ const zh: Translations = {
                 label: '名字',
                 workspaceLabel: '工作区',
                 chosen: '你选的',
-                workspaceHint: '留空就用上面这个路径。agent 只能读写这个目录，且与这台机器上的其它 agent 隔离。'
+                workspaceHint: '留空就用上面的路径。自己填的路径必须在那台机器上已经存在。'
             },
             preparing: {
                 newMachine: '一台新机器',
@@ -3653,23 +3666,27 @@ const zh: Translations = {
             error: {
                 machineNotReady: '先选一个运行环境。',
                 serviceNotReady: '先选一个已接入的服务，并填上它上面的 app。',
-                externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。',
                 noModel: '这个 provider 选不出模型。换一种付费方式。'
+            },
+            wait: {
+                instant: '秒开',
+                wake: '约 1 分钟 · 先要唤醒',
+                wakesFirst: '先要唤醒',
+                install: '装 {{cli}} 约 {{min}}–{{max}} 分钟',
+                installAtCreate: '{{cli}} 在创建时安装',
+                build: '约 2 分钟 · 建一台机器并装好 {{cli}}',
+                buildService: '约 1 分钟 · {{cli}} 在创建时安装',
+                connect: '几分钟 · 在那台电脑上运行一条命令',
+                createInstall: '约 {{min}}–{{max}} 分钟 · 先装 {{cli}}'
             },
             primary: {
                 goToSettings: '去设置',
                 leavesFlow: '会离开这条流程',
                 buildAndInstall: '建一台并装 {{cli}}',
                 retryBuildAndInstall: '重试 {{machine}} 并装 {{cli}}',
-                buildFine: '约 2 分钟 · 之后要登录一次 · 已用 {{used}} / {{limit}}',
                 installOn: '在 {{machine}} 上装 {{cli}}',
-                installFine: '约 1–2 分钟 · 之后要登录一次',
                 build: '建一台',
                 retryBuild: '重试 {{machine}}',
-                buildFineService: '约一分钟 · {{cli}} 在创建时安装 · 已用 {{used}} / {{limit}}',
-                installsAtCreate: '{{cli}} 在创建时安装 · 那时约 1–2 分钟',
-                createFineInstall: '约 1–2 分钟 · 先装 {{cli}}',
-                createFineInstallAsleep: '约 2–3 分钟 · 这台机器要先唤醒，再装 {{cli}}',
                 signIn: '登录 {{vendor}} 账号',
 
                 createFine: '几秒',
@@ -3678,7 +3695,8 @@ const zh: Translations = {
                 tookLonger: '比平常久了 · 失败不会留下半个 agent',
                 building: '正在准备机器…',
                 installing: '正在安装 {{cli}}…',
-                longerThanUsual: '比平常久了'
+                longerThanUsual: '比平常久了',
+                connectComputer: '连接一台电脑'
             }
         },
         agentNew: {

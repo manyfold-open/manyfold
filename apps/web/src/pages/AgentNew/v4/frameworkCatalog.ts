@@ -7,6 +7,7 @@ import {
 } from '@manyfold/shared'
 import type { AgentFramework, RuntimePlacement } from '@manyfold/shared'
 import {
+    frameworkPresentation,
     listFrameworkPresentations,
     presentedWorkspacePath,
     spliceAfterCodingClis,
@@ -206,3 +207,30 @@ export const canUseSubscription = (framework: AgentFramework): boolean =>
 // `cannot resolve base_url for openclaw provider ''`.
 export const installsAtCreate = (framework: AgentFramework): boolean =>
     frameworkCapability(framework).kind === 'service'
+
+// Whether a connected service needs to be told which thing on it to call.
+// Langflow serves many flows behind one key; a Dify key and an A2A card each
+// address one app already, and v1 and v3 never sent anything else for them.
+// Seen on staging [2026-10-08]: A2A was asked for a "Dify app ID".
+export const needsRemoteRef = (framework: AgentFramework): boolean =>
+    framework === 'langflow'
+
+// How long an install usually takes, as the button promises it. The core
+// frameworks were measured at one to two minutes; an edition's framework says
+// its own (NarraNexus builds a web app and takes several).
+// Measured on staging [2026-09-15]: an OpenClaw install is 1–2 minutes.
+export const installMinutes = (
+    framework: AgentFramework
+): readonly [number, number] =>
+    frameworkPresentation(framework)?.installMinutes ?? [1, 2]
+
+// Whether the agent being created would be the first on a service
+// framework's runtime. That agent is the gateway's own built-in profile, which
+// the API refuses a workspace for, so the field is not offered.
+export const firstServiceAgent = (
+    framework: AgentFramework,
+    runtimeId: string | null,
+    agentsOnRuntime: number
+): boolean =>
+    frameworkCapability(framework).kind === 'service' &&
+    (runtimeId === null || agentsOnRuntime === 0)

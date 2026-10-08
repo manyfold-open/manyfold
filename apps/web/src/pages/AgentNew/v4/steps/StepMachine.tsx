@@ -1,6 +1,13 @@
 import type { FC, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import type { AgentFramework } from '@manyfold/shared'
-import { BoxIcon, CloudComputerIcon, LocalDaemonIcon, PlusIcon } from '@/components/icons'
+import {
+    BoxIcon,
+    CloudComputerIcon,
+    InfoIcon,
+    LocalDaemonIcon,
+    PlusIcon
+} from '@/components/icons'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
@@ -11,19 +18,18 @@ import {
 import type {
     MachineOption,
     NewMachineKind,
-    NewMachineOption,
-    SignInCost
+    NewMachineOption
 } from '@/pages/AgentNew/v4/machineOptions'
-import { MACHINE_KIND_KEY } from '@/pages/AgentNew/v4/summaryLabels'
-import { installsAtCreate } from '@/pages/AgentNew/v4/frameworkCatalog'
-
-const SIGN_IN_KEY: Record<SignInCost, string> = {
-    none: 'web.agentNewV4.cost.noSignIn',
-    'next-step': 'web.agentNewV4.cost.signInNextStep',
-    after: 'web.agentNewV4.cost.signInAfter',
-    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer',
-    'install-at-create': 'web.agentNewV4.cost.installAtCreate'
-}
+import {
+    MACHINE_KIND_KEY,
+    newMachineWaitLabel,
+    waitLabel
+} from '@/pages/AgentNew/v4/summaryLabels'
+import {
+    installMinutes,
+    installsAtCreate
+} from '@/pages/AgentNew/v4/frameworkCatalog'
+import { EXIT_MANAGE_SANDBOXES } from '@/pages/AgentNew/v4/exits'
 
 // The second line of a machine row: what is on it, in terms of the framework
 // the user picked in step ①. Naming the CLI is only possible because the type
@@ -48,19 +54,25 @@ const machineDetail = (
             other: row.blockedBy !== undefined ? frameworkLabel(row.blockedBy) : ''
         })
     if (row.state === 'unavailable')
-        return row.unavailableReason === 'maintenance'
-            ? t('web.agentNewV4.machine.sandboxMaintenance')
-            : row.unavailableReason !== 'failed'
-              ? t('web.agentNewV4.machine.podHostStarting')
-              : row.hostKind === 'sprites'
-                ? t('web.agentNewV4.machine.sandboxFailed')
-                : t('web.agentNewV4.machine.podHostFailed')
-    return row.agentsCount > 0
-        ? t('web.agentNewV4.machine.readyWithAgents', {
+        return row.unavailableReason === 'offline'
+            ? t('web.agentNewV4.machine.daemonOffline')
+            : row.unavailableReason === 'maintenance'
+              ? t('web.agentNewV4.machine.sandboxMaintenance')
+              : row.unavailableReason !== 'failed'
+                ? t('web.agentNewV4.machine.podHostStarting')
+                : row.hostKind === 'sprites'
+                  ? t('web.agentNewV4.machine.sandboxFailed')
+                  : t('web.agentNewV4.machine.podHostFailed')
+    // What is installed and how many agents it carries — not whether it is
+    // "working" or "signed in", which this list cannot know without waking it.
+    if (row.agentsCount === 0)
+        return t('web.agentNewV4.machine.readyNoAgents', { cli })
+    return row.agentsCount === 1
+        ? t('web.agentNewV4.machine.readyWithOneAgent', { cli })
+        : t('web.agentNewV4.machine.readyWithAgents', {
               cli,
               count: String(row.agentsCount)
           })
-        : t('web.agentNewV4.machine.readyNoAgents', { cli })
 }
 
 const NEW_MACHINE_ICON: Record<NewMachineKind, typeof PlusIcon> = {
@@ -80,16 +92,38 @@ const NEW_MACHINE_TITLE: Record<NewMachineKind, string> = {
     cloudComputer: 'web.agentNewV4.newMachine.cloudComputer'
 }
 
-const NEW_MACHINE_DETAIL: Record<NewMachineKind, string> = {
-    sandbox: 'web.agentNewV4.newMachine.sandboxDetail',
-    ownComputer: 'web.agentNewV4.newMachine.ownComputerDetail',
-    cloudComputer: 'web.agentNewV4.newMachine.cloudComputerDetail'
+// A new machine's second line: what picking it builds — or, when it cannot be
+// picked, why not. Decision R asks every disabled row for its reason.
+const newMachineDetail = (
+    option: NewMachineOption,
+    framework: AgentFramework,
+    t: TFn
+): string => {
+    const cli = frameworkLabel(framework)
+    if (option.kind === 'sandbox')
+        return option.disabled
+            ? t('web.agentNewV4.newMachine.sandboxFull', {
+                  used: String(option.used ?? 0),
+                  limit: String(option.limit ?? 0)
+              })
+            : installsAtCreate(framework)
+              ? t('web.agentNewV4.newMachine.sandboxDetailService', { cli })
+              : t('web.agentNewV4.newMachine.sandboxDetail', { cli })
+    if (option.kind === 'ownComputer')
+        return option.disabled
+            ? t('web.agentNewV4.newMachine.ownComputerUnsupported', { cli })
+            : t('web.agentNewV4.newMachine.ownComputerDetail', { cli })
+    return t('web.agentNewV4.newMachine.cloudComputerDetail')
 }
 
 // Step ② for anything that needs a machine from us. Two groups: what the user
 // already has, and a new one. Installing a CLI is NOT a row here — it is what
 // picking a machine that lacks it does, which is why "new" has three entries
 // rather than four.
+//
+// The right-hand column says what picking a row costs in waiting, and
+// nothing about signing in: that depends on how the agent is paid for, which
+// is step ③'s question.
 export const StepMachine: FC<{
     framework: AgentFramework
     machines: MachineOption[]
@@ -113,6 +147,10 @@ export const StepMachine: FC<{
 }): ReactNode => {
     const { t } = useI18n()
     const cli = frameworkLabel(framework)
+    const minutes = installMinutes(framework)
+    const sandboxFull = newMachines.some(
+        (option) => option.kind === 'sandbox' && option.disabled
+    )
     return (
         <>
             {machines.length > 0 && (
@@ -138,7 +176,7 @@ export const StepMachine: FC<{
                                     </span>
                                     {!row.disabled && (
                                         <span className='text-muted block'>
-                                            {t(SIGN_IN_KEY[row.signInCost])}
+                                            {waitLabel(row.wait, cli, minutes, t)}
                                         </span>
                                     )}
                                 </>
@@ -158,37 +196,41 @@ export const StepMachine: FC<{
                     <OptionRow
                         key={option.kind}
                         title={t(NEW_MACHINE_TITLE[option.kind], { cli })}
-                        detail={t(
-                            option.kind === 'sandbox' &&
-                                installsAtCreate(framework)
-                                ? 'web.agentNewV4.newMachine.sandboxDetailService'
-                                : NEW_MACHINE_DETAIL[option.kind],
-                            { cli }
-                        )}
+                        detail={newMachineDetail(option, framework, t)}
                         mark={<NewMachineMark kind={option.kind} />}
                         meta={
-                            <>
-                                {option.kind === 'sandbox' &&
-                                    option.limit !== undefined && (
-                                        <span className='block'>
-                                            {t('web.agentNewV4.newMachine.quota', {
-                                                used: String(option.used ?? 0),
-                                                limit: String(option.limit)
-                                            })}
-                                        </span>
-                                    )}
-                                {option.kind === 'cloudComputer' &&
-                                    option.disabled && (
-                                        <span className='block'>
-                                            {t(
-                                                'web.agentNewV4.newMachine.needsPlan'
-                                            )}
-                                        </span>
-                                    )}
-                                <span className='text-muted block'>
-                                    {t(SIGN_IN_KEY[option.signInCost])}
-                                </span>
-                            </>
+                            option.disabled ? (
+                                option.kind === 'cloudComputer' ? (
+                                    t('web.agentNewV4.newMachine.cloudComputerOff')
+                                ) : undefined
+                            ) : (
+                                <>
+                                    {option.kind === 'sandbox' &&
+                                        option.limit !== undefined && (
+                                            <span className='block'>
+                                                {t(
+                                                    'web.agentNewV4.newMachine.quota',
+                                                    {
+                                                        used: String(
+                                                            option.used ?? 0
+                                                        ),
+                                                        limit: String(
+                                                            option.limit
+                                                        )
+                                                    }
+                                                )}
+                                            </span>
+                                        )}
+                                    <span className='text-muted block'>
+                                        {newMachineWaitLabel(
+                                            option.kind,
+                                            cli,
+                                            installsAtCreate(framework),
+                                            t
+                                        )}
+                                    </span>
+                                </>
+                            )
                         }
                         selected={selectedId === 'new:' + option.kind}
                         disabled={
@@ -199,6 +241,26 @@ export const StepMachine: FC<{
                     />
                 ))}
             </OptionGroup>
+            {/* A full quota is the one disabled row with a way out the user
+                controls, so it gets one: the page where sandboxes are
+                deleted. It is a link they choose, not a row that leaves. */}
+            {sandboxFull && (
+                <p className='text-caption text-subtle mt-2 flex items-start gap-2 px-3'>
+                    <InfoIcon
+                        className='mt-0.5 h-3.5 w-3.5 shrink-0'
+                        aria-hidden='true'
+                    />
+                    <span>
+                        {t('web.agentNewV4.newMachine.sandboxFullHint')}{' '}
+                        <Link
+                            to={EXIT_MANAGE_SANDBOXES}
+                            className='text-link underline-offset-2 hover:underline'
+                        >
+                            {t('web.agentNewV4.newMachine.manageSandboxes')}
+                        </Link>
+                    </span>
+                </p>
+            )}
         </>
     )
 }

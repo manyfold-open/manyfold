@@ -5,10 +5,18 @@ import type {
     SandboxSummary,
     UserExternalAgentProviderSummary
 } from '@manyfold/shared'
-import { stepsFor } from '@manyfold/shared'
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { providerRowVerdict, stepsFor } from '@manyfold/shared'
+import type { ModelProviderCreatePick } from '@/components/ModelProviderCreateDialog'
+import {
+    Suspense,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState
+} from 'react'
 import type { FC, ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { optionalWorkspace } from '@/lib/agentCreateDraft'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -31,11 +39,15 @@ import type { StepPrimary } from '@/pages/AgentNew/v4/components/StepShell'
 import type { StepValues } from '@/pages/AgentNew/v4/components/StepBar'
 import {
     advanceBlockedKey,
+    answeredSteps,
     initialFlowState,
     nextStep,
     previousStep,
+    sameRuntime,
     withFramework,
-    withRuntime
+    withRuntime,
+    withSuggestedName,
+    withTypedName
 } from '@/pages/AgentNew/v4/flowState'
 import type {
     CreateFlowState,
@@ -45,37 +57,55 @@ import type {
 import { EXIT_RENT_CLOUD_COMPUTER } from '@/pages/AgentNew/v4/exits'
 import {
     defaultWorkspacePath,
+    firstServiceAgent,
+    frameworkGroups,
     hasWorkspace,
+    installMinutes,
     installsAtCreate,
+    needsRemoteRef,
     runsOnOurMachine
 } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     bindsModelAfterJoin,
     bindsModelAtCreate,
+    externalCreateBody,
+    fixedCostFor,
     joinBindingFor,
     serviceCreateBody,
     withBinding
 } from '@/pages/AgentNew/v4/providerBinding'
+import { machineBillingFrom } from '@/pages/AgentNew/v4/machineBilling'
+import type { MachineBilling } from '@/pages/AgentNew/v4/machineBilling'
 import {
     costFull,
     costShort,
+    createBudgetSeconds,
+    createWaitLabel,
     creatingPrimary,
+    newMachineWaitLabel,
     preparingPrimary,
     runtimeFull,
-    runtimeShort
+    runtimeShort,
+    waitLabel
 } from '@/pages/AgentNew/v4/summaryLabels'
 import type { PreparePhase } from '@/pages/AgentNew/v4/summaryLabels'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import {
     buildMachineOptions,
     buildNewMachineOptions,
+    choiceWithoutWork,
     sandboxLeftFailed,
     sandboxToRetry
 } from '@/pages/AgentNew/v4/machineOptions'
+import {
+    canStandOn,
+    hostIdOfRow,
+    readUrl,
+    writeUrl
+} from '@/pages/AgentNew/v4/urlState'
 import type {
     MachineOption,
-    NewMachineOption,
-    SignInCost
+    NewMachineOption
 } from '@/pages/AgentNew/v4/machineOptions'
 
 // Each step's standing explanation, shown from the info mark on its question
@@ -86,18 +116,9 @@ const STEP_HINT_KEY: Record<CreateStepId, string> = {
     cost: 'web.agentNewV4.help.cost',
     name: 'web.agentNewV4.help.name'
 }
-
-// The chosen row's cost, restated beside the button so the two never drift.
-const SIGN_IN_FINE_KEY: Record<SignInCost, string> = {
-    none: 'web.agentNewV4.cost.noSignIn',
-    'next-step': 'web.agentNewV4.cost.signInNextStep',
-    after: 'web.agentNewV4.cost.signInAfter',
-    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer',
-    'install-at-create': 'web.agentNewV4.cost.installAtCreate'
-}
 import {
     StepCost,
-    StepCostExternal,
+    StepCostFixed,
     costChoiceFor
 } from '@/pages/AgentNew/v4/steps/StepCost'
 import type { CostPick } from '@/pages/AgentNew/v4/steps/StepCost'
@@ -118,6 +139,10 @@ const ExternalProviderDialog = lazyChunk(
 
 const ConnectDaemonDialog = lazyChunk(
     () => import('@/components/ConnectDaemonDialog')
+)
+
+const ModelProviderCreateDialog = lazyChunk(
+    () => import('@/components/ModelProviderCreateDialog')
 )
 
 // The three connected kinds are named the same on both sides; the flow's
@@ -143,9 +168,37 @@ const AgentNewV4: FC = (): ReactNode => {
     const navigate = useNavigate()
     const create = useAgentCreate()
     const managed = useManagedCreditGate()
-    const { refreshAgents } = useAppShellContext()
+    const { agents, refreshAgents } = useAppShellContext()
+    const [searchParams, setSearchParams] = useSearchParams()
 
-    const [flow, setFlow] = useState<CreateFlowState>(initialFlowState)
+    // What the address bar brought in — a reload, or a link that names a type
+    // or a machine. Read once; the answers it holds are applied as the lists
+    // they refer to arrive (see `pendingUrl`).
+    const [arrival] = useState(() =>
+        readUrl(searchParams, (value) =>
+            frameworkGroups().some((group) =>
+                group.entries.some((entry) => entry.framework === value)
+            )
+        )
+    )
+    const [flow, setFlow] = useState<CreateFlowState>(() =>
+        arrival.framework === null
+            ? initialFlowState()
+            : {
+                  ...withFramework(initialFlowState(), arrival.framework),
+                  step: arrival.step === 'type' ? 'type' : 'runtime'
+              }
+    )
+    // The machine or service the address names, until its row is listed.
+    const [pendingUrl, setPendingUrl] = useState(() => ({
+        host: arrival.host,
+        service: arrival.service,
+        ref: arrival.ref,
+        // How far the address had got: past step ②, a machine that needs
+        // nothing done to it is rejoined rather than only highlighted.
+        beyondMachine:
+            arrival.step === 'cost' || arrival.step === 'name'
+    }))
     // Which row is highlighted in step ②. Held apart from `flow.runtime`
     // because a highlighted row is not yet a resource — the machine is only
     // built when the step is left.
@@ -196,12 +249,36 @@ const AgentNewV4: FC = (): ReactNode => {
     const [connectingDaemon, setConnectingDaemon] = useState(false)
     // Connecting a Dify / Langflow / A2A service, likewise in place.
     const [connecting, setConnecting] = useState(false)
-    const [reached, setReached] = useState<Set<CreateStepId>>(
-        () => new Set<CreateStepId>(['type'])
-    )
+    // Adding an API key in step ③, in place: the provider form being shown,
+    // then the key's test, then the new row picked once the list has it.
+    const [addKey, setAddKey] = useState<ModelProviderCreatePick | null>(null)
+    const [testingKey, setTestingKey] = useState(false)
+    const [pickWhenListed, setPickWhenListed] = useState<string | null>(null)
+    const [topUpOpen, setTopUpOpen] = useState(false)
+    // The machine's current account-level payer, keyed by the runtime it was
+    // read for so a stale answer never labels another machine.
+    const [billing, setBilling] = useState<{
+        runtimeId: string
+        value: MachineBilling | null
+    } | null>(null)
 
     const framework = flow.framework
     const onMachine = framework !== null && runsOnOurMachine(framework)
+    // What the bar may offer as a way back: the answered steps, derived from
+    // the answers themselves, plus the one being looked at.
+    const reached = useMemo((): Set<CreateStepId> => {
+        const steps = answeredSteps(flow)
+        steps.add(flow.step)
+        return steps
+    }, [flow])
+    // Step ③ when there is nothing to choose; the flow passes over it.
+    const fixedCost = useMemo(
+        () =>
+            framework === null || flow.runtime === null
+                ? null
+                : fixedCostFor(framework, flow.runtime),
+        [framework, flow.runtime]
+    )
 
     const machines = useMemo(
         () =>
@@ -240,20 +317,25 @@ const AgentNewV4: FC = (): ReactNode => {
 
     // A sleeping sandbox wakes before it can take the agent, which is the
     // difference between "a few seconds" and "about a minute" — the button
-    // should not promise the first when it owes the second.
+    // should not promise the first when it owes the second. Read from the
+    // same row step ② labelled, so the two steps cannot disagree about it.
     const machineAsleep = useMemo((): boolean => {
-        const sandboxId =
-            machines.find((row) => row.id === machinePick)?.sandboxId ?? null
-        if (sandboxId === null) return false
-        const power = create.sandboxes.find((row) => row.id === sandboxId)
-            ?.powerState
-        return power === 'suspended' || power === 'stopped'
-    }, [machinePick, machines, create.sandboxes])
+        const wait = machines.find((row) => row.id === machinePick)?.wait
+        if (wait === undefined) return false
+        return wait.kind === 'wake' || (wait.kind !== 'instant' && wait.asleep)
+    }, [machinePick, machines])
+    const minutes = useMemo(
+        (): readonly [number, number] =>
+            framework === null ? [1, 2] : installMinutes(framework),
+        [framework]
+    )
 
     // Where the agent's files land if step ④'s field is left empty. Null when
-    // there is nothing to say: a connected service has no machine of ours, and
-    // hermes has no project directory. The daemon case needs the machine's own
-    // home, which only the host row knows.
+    // there is nothing to say: a connected service has no machine of ours,
+    // hermes has no project directory, and a service framework's first agent
+    // on a machine is its gateway's own profile, which the API refuses a
+    // workspace for. The daemon case needs the machine's own home, which only
+    // the host row knows.
     const defaultWorkspace = useMemo((): string | null => {
         const machine = flow.runtime
         if (flow.framework === null || machine?.kind !== 'runtime') return null
@@ -261,6 +343,14 @@ const AgentNewV4: FC = (): ReactNode => {
         const row = create.runtimes.find(
             (item) => item.id === machine.runtimeId
         )
+        if (
+            firstServiceAgent(
+                flow.framework,
+                machine.runtimeId,
+                row?.agentsCount ?? 0
+            )
+        )
+            return null
         const host = create.daemonHosts.find(
             (item) => item.id === row?.hostId
         )
@@ -291,6 +381,98 @@ const AgentNewV4: FC = (): ReactNode => {
             : (create.runtimes.find((row) => row.id === runtimeId)
                   ?.agentsCount ?? 0)
 
+    // Read what the picked machine already pays with, through one of the
+    // agents on it. A daemon is left out: an agent joining one defaults to the
+    // machine's own sign-in, so "keep what it has" would not mean what it says.
+    const peerAgentId = useMemo(
+        () =>
+            runtimeId === null
+                ? null
+                : (agents.find((agent) => agent.runtimeId === runtimeId)?.id ??
+                  null),
+        [agents, runtimeId]
+    )
+    const pickedHostKind =
+        flow.runtime?.kind === 'runtime' ? flow.runtime.hostKind : null
+    const { providers } = create
+    useEffect(() => {
+        if (
+            runtimeId === null ||
+            peerAgentId === null ||
+            pickedHostKind === 'daemon'
+        )
+            return
+        let cancelled = false
+        void (async () => {
+            try {
+                const view = await client.agents.credentials.get(peerAgentId)
+                if (!cancelled)
+                    setBilling({
+                        runtimeId,
+                        value: machineBillingFrom(view, providers)
+                    })
+            } catch {
+                if (!cancelled) setBilling({ runtimeId, value: null })
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [client, runtimeId, peerAgentId, pickedHostKind, providers])
+    const machineBilling =
+        billing !== null && billing.runtimeId === runtimeId
+            ? billing.value
+            : null
+
+    // A key added from step ③. It is tested at once — a coding CLI can only
+    // be bound to a provider with tested models, and an untested row would
+    // land disabled — and then picked, as the answer the user was giving.
+    const { refetchProviders } = create
+    const addedKey = useCallback(
+        async (id: string): Promise<void> => {
+            setAddKey(null)
+            setTestingKey(true)
+            try {
+                await refetchProviders()
+                try {
+                    await client.modelProviders.test(id)
+                } catch {
+                    // The row says it is untested and how to fix that.
+                }
+                await refetchProviders()
+                setPickWhenListed(id)
+            } finally {
+                setTestingKey(false)
+            }
+        },
+        [client, refetchProviders]
+    )
+    useEffect(() => {
+        if (pickWhenListed === null || framework === null) return
+        const row = providers.find((p) => p.id === pickWhenListed)
+        if (row === undefined) return
+        setPickWhenListed(null)
+        if (bindsModel && providerRowVerdict(framework, row) !== 'usable') return
+        setCostPick({ kind: 'provider', id: row.id, label: row.providerName })
+    }, [pickWhenListed, providers, framework, bindsModel])
+
+    // A service joining an instance keeps that instance's payer; once it has
+    // been read, the answer carries its name instead of a generic "same as".
+    useEffect(() => {
+        if (machineBilling === null) return
+        const label =
+            machineBilling.kind === 'managed'
+                ? t('web.agentNewV4.cost.managed')
+                : machineBilling.kind === 'provider'
+                  ? machineBilling.label
+                  : t('web.agentNewV4.cost.currentKey')
+        setFlow((prev) =>
+            prev.cost?.kind === 'inherited' && prev.cost.label === null
+                ? { ...prev, cost: { ...prev.cost, label } }
+                : prev
+        )
+    }, [machineBilling, t])
+
     // Loading the external provider list is the one fetch that depends on the
     // type, so it waits until a type that needs it has been chosen.
     const { loadExternalProviders } = create
@@ -302,7 +484,6 @@ const AgentNewV4: FC = (): ReactNode => {
     const goTo = useCallback((step: CreateStepId): void => {
         setStepError(null)
         setFlow((prev) => ({ ...prev, step }))
-        setReached((prev) => new Set(prev).add(step))
     }, [])
 
     // A build that fails leaves its sandbox behind as `failed`, and the next
@@ -343,31 +524,14 @@ const AgentNewV4: FC = (): ReactNode => {
     // null `runtimeId`.
     const commitMachine = useCallback(async (): Promise<RuntimeChoice | null> => {
         if (framework === null) return null
-        const deferred = installsAtCreate(framework)
         const row = machines.find((m) => m.id === machinePick)
-        if (row !== undefined && row.runtimeId !== null)
-            return {
-                kind: 'runtime',
-                runtimeId: row.runtimeId,
-                sandboxId: row.sandboxId,
-                hostKind: row.hostKind,
-                hostLabel: row.title,
-                ownComputer: row.ownComputer
-            }
+        const ready = row === undefined ? null : choiceWithoutWork(row, framework)
+        if (ready !== null) return ready
         try {
             // A cloud computer gets the framework installed on it here, as a
-            // sandbox does — or, for a service framework, at create.
+            // sandbox does — or, for a service framework, at create, which
+            // `choiceWithoutWork` has already answered.
             if (row !== undefined && row.podHostId !== null) {
-                if (deferred)
-                    return {
-                        kind: 'runtime',
-                        runtimeId: null,
-                        sandboxId: null,
-                        podHostId: row.podHostId,
-                        hostKind: 'k8s',
-                        hostLabel: row.title,
-                        ownComputer: false
-                    }
                 setPreparing({ machine: row.title, phase: 'install' })
                 const runtime = await client.podHosts.prepareRuntime(
                     row.podHostId,
@@ -384,15 +548,6 @@ const AgentNewV4: FC = (): ReactNode => {
                 }
             }
             if (row !== undefined && row.sandboxId !== null) {
-                if (deferred)
-                    return {
-                        kind: 'runtime',
-                        runtimeId: null,
-                        sandboxId: row.sandboxId,
-                        hostKind: 'sprites',
-                        hostLabel: row.title,
-                        ownComputer: false
-                    }
                 setPreparing({ machine: row.title, phase: 'install' })
                 const runtime = await client.sandboxes.prepareRuntime(
                     row.sandboxId,
@@ -411,7 +566,7 @@ const AgentNewV4: FC = (): ReactNode => {
             if (machinePick === 'new:sandbox') {
                 const sandbox = await buildSandbox()
                 setFailedBuildId(null)
-                if (deferred) {
+                if (installsAtCreate(framework)) {
                     await create.refetchSandboxes()
                     return {
                         kind: 'runtime',
@@ -455,7 +610,14 @@ const AgentNewV4: FC = (): ReactNode => {
         const provider = create.externalProviders.find(
             (p: UserExternalAgentProviderSummary) => p.id === serviceProviderId
         )
-        if (provider === undefined || remoteRef.trim() === '') {
+        const ref =
+            framework !== null && needsRemoteRef(framework)
+                ? remoteRef.trim()
+                : ''
+        if (
+            provider === undefined ||
+            (framework !== null && needsRemoteRef(framework) && ref === '')
+        ) {
             setStepError(t('web.agentNewV4.error.serviceNotReady'))
             return null
         }
@@ -463,15 +625,35 @@ const AgentNewV4: FC = (): ReactNode => {
             kind: 'external',
             providerId: provider.id,
             providerLabel: provider.label,
-            remoteRef: remoteRef.trim(),
-            remoteLabel: remoteRef.trim()
+            remoteRef: ref,
+            remoteLabel: ref
         }
-    }, [create.externalProviders, remoteRef, serviceProviderId, t])
+    }, [create.externalProviders, framework, remoteRef, serviceProviderId, t])
 
     const submit = useCallback(async (): Promise<void> => {
-        if (flow.runtime === null || flow.framework === null) return
-        if (flow.runtime.kind !== 'runtime') {
-            setStepError(t('web.agentNewV4.error.externalNotSupportedYet'))
+        // The button is disabled for the same reason, so this only catches a
+        // state that got here some other way — and says so rather than doing
+        // nothing, which is indistinguishable from a dead control.
+        const missing = advanceBlockedKey(flow)
+        if (missing !== null || flow.runtime === null || flow.framework === null) {
+            setStepError(t(missing ?? 'web.agentNewV4.blocked.runtime'))
+            return
+        }
+        // A connected service is one request with its binding, the body v1
+        // and v3 send.
+        if (flow.runtime.kind === 'external') {
+            const made = await create.submitCreateStream({
+                body: externalCreateBody({
+                    framework: flow.framework,
+                    providerId: flow.runtime.providerId,
+                    remoteRef: flow.runtime.remoteRef,
+                    name: flow.name
+                }),
+                steps: stepsFor(flow.framework, 'external')
+            })
+            if (made === null) return
+            await refreshAgents()
+            navigate('/agents/' + made.id + '/chat')
             return
         }
         const target = flow.runtime
@@ -731,14 +913,34 @@ const AgentNewV4: FC = (): ReactNode => {
             // something they had already done. Each commit now says its own
             // failure and the caller does not guess.
             const choice = onMachine ? await commitMachine() : commitService()
-            if (choice === null) return
-            setFlow((prev) => withRuntime(prev, choice))
-            // A connected service settles its own billing, so step ③ has
-            // nothing to ask — but it still appears, so every run of the flow
-            // is the same four steps.
-            if (choice.kind === 'external')
-                setFlow((prev) => ({ ...prev, cost: { kind: 'external' } }))
-            goTo('cost')
+            if (choice === null || framework === null) return
+            // A step ③ pick belongs to the machine it was made on. Carried
+            // over, a sign-in from machine A became an answer on machine B
+            // that no row on B showed as picked.
+            if (!sameRuntime(flow.runtime, choice)) setCostPick(null)
+            // Nothing to choose in step ③ — a connected service, a framework
+            // configured in its own UI, a service joining its instance — so
+            // it is answered here and passed over.
+            const fixed = fixedCostFor(framework, choice)
+            setFlow((prev) => {
+                const next = withRuntime(prev, choice)
+                if (fixed === null) return next
+                return withSuggestedName(
+                    {
+                        ...next,
+                        cost:
+                            next.cost?.kind === fixed.kind ? next.cost : fixed
+                    },
+                    randomAgentName
+                )
+            })
+            goTo(fixed === null ? 'cost' : 'name')
+            return
+        }
+        // Reached from the bar on a step with nothing to choose: it only
+        // explains, and moves on.
+        if (flow.step === 'cost' && fixedCost !== null) {
+            goTo('name')
             return
         }
         if (flow.step === 'name') {
@@ -778,13 +980,14 @@ const AgentNewV4: FC = (): ReactNode => {
             setFlow((prev) => ({ ...prev, cost: bound }))
         }
         if (flow.step === 'cost' && flow.name.trim() === '')
-            setFlow((prev) => ({ ...prev, name: randomAgentName() }))
+            setFlow((prev) => withSuggestedName(prev, randomAgentName))
         goTo(nextStep(flow.step))
     }, [
         flow.step,
         flow.name,
         flow.runtime,
         framework,
+        fixedCost,
         onMachine,
         machinePick,
         costPick,
@@ -813,8 +1016,24 @@ const AgentNewV4: FC = (): ReactNode => {
     // While the account is still being provisioned the line says so rather
     // than staying blank and gaining a number a second later, which reads as
     // a late-arriving surprise on a row the user may already have chosen.
+    //
+    // A service framework installed with the agent is handed one fixed model,
+    // and for OpenClaw and Hermes the managed family narrows to its OpenAI
+    // channel — so the row names that model where it is picked, rather than
+    // leaving it to surface first on step ④.
+    const managedModel = useMemo((): string | undefined => {
+        if (framework === null || !bindsModelAtCreate(framework) || !bindsModel)
+            return undefined
+        const bound = withBinding(
+            { kind: 'platform' },
+            framework,
+            create.providers
+        )
+        return bound?.kind === 'platform' ? bound.model : undefined
+    }, [framework, bindsModel, create.providers])
     const managedDetail = useMemo((): string => {
         const base = t('web.agentNewV4.cost.managedDetail')
+        const model = managedModel === undefined ? '' : ` · ${managedModel}`
         if (managed.phase === 'ready' && managed.balance !== null)
             return `${base} · ${t('web.agentNewV4.cost.balance', {
                 // A balance, not a per-turn cost: two decimals, the way
@@ -822,11 +1041,23 @@ const AgentNewV4: FC = (): ReactNode => {
                 // four, which is right for what one turn spent and wrong for
                 // what is left.
                 amount: fmtNetmindMoney(managed.balance)
-            })}`
+            })}${model}`
         if (managed.phase === 'pending')
-            return `${base} · ${t('web.agentNewV4.cost.preparingAccount')}`
-        return base
-    }, [managed.phase, managed.balance, t])
+            return `${base} · ${t('web.agentNewV4.cost.preparingAccount')}${model}`
+        if (managed.phase === 'error')
+            return `${base} · ${t('web.agentNewV4.cost.balanceUnknown')}${model}`
+        return `${base}${model}`
+    }, [managed.phase, managed.balance, managedModel, t])
+    // Picking managed with nothing left makes an agent that cannot reply:
+    // the API does not check the balance at create, and the first turn then
+    // fails upstream. That is the price of the pick, so it goes where prices
+    // go — the row's right-hand column, and beside the button once picked.
+    const managedWarning =
+        managed.phase === 'ready' &&
+        managed.balance !== null &&
+        managed.balance <= 0
+            ? t('web.agentNewV4.cost.balanceEmpty')
+            : null
 
     // What the bar shows under each step name. These are the labels the flow
     // already carries, not second copies written for display — a value that
@@ -837,8 +1068,17 @@ const AgentNewV4: FC = (): ReactNode => {
         const out: StepValues = {}
         if (flow.framework !== null) out.type = frameworkLabel(flow.framework)
         if (flow.runtime !== null) out.runtime = runtimeShort(flow.runtime)
-        if (flow.cost !== null) out.cost = costShort(flow.cost, t)
-        if (flow.name.trim() !== '') out.name = flow.name.trim()
+        if (flow.cost !== null)
+            out.cost = costShort(
+                flow.cost,
+                t,
+                flow.framework !== null ? frameworkLabel(flow.framework) : ''
+            )
+        // Only answered steps show a value: a name kept from an earlier run
+        // through the steps is not an answer while those steps are empty.
+        // Seen on staging [2026-10-08]: after a type change emptied ② and
+        // ③, the bar still read "Name glowing-ermine-3509".
+        if (answeredSteps(flow).has('name')) out.name = flow.name.trim()
         return out
     }, [flow.framework, flow.runtime, flow.cost, flow.name, t])
 
@@ -861,10 +1101,12 @@ const AgentNewV4: FC = (): ReactNode => {
                     label: next,
                     blockedReason: t('web.agentNewV4.blocked.runtime')
                 }
+            // Connecting a computer happens right here, in a dialog — the
+            // button used to say "Go to settings · leaves this flow" over it.
             if (machinePick === 'new:ownComputer')
                 return {
-                    label: t('web.agentNewV4.primary.goToSettings'),
-                    fine: t('web.agentNewV4.primary.leavesFlow')
+                    label: t('web.agentNewV4.primary.connectComputer'),
+                    fine: newMachineWaitLabel('ownComputer', cli, false, t)
                 }
             if (machinePick === 'new:cloudComputer')
                 return {
@@ -877,8 +1119,14 @@ const AgentNewV4: FC = (): ReactNode => {
             const deferred = framework !== null && installsAtCreate(framework)
             if (machinePick === 'new:sandbox') {
                 const quota = newMachines.find((o) => o.kind === 'sandbox')
-                const used = String(quota?.used ?? 0)
-                const limit = String(quota?.limit ?? 0)
+                // The same two lines the row shows, in the row's order.
+                const fine = `${newMachineWaitLabel('sandbox', cli, deferred, t)} · ${t(
+                    'web.agentNewV4.newMachine.quota',
+                    {
+                        used: String(quota?.used ?? 0),
+                        limit: String(quota?.limit ?? 0)
+                    }
+                )}`
                 return deferred
                     ? {
                           label:
@@ -887,11 +1135,7 @@ const AgentNewV4: FC = (): ReactNode => {
                                         machine: retryTarget.name
                                     })
                                   : t('web.agentNewV4.primary.build'),
-                          fine: t('web.agentNewV4.primary.buildFineService', {
-                              cli,
-                              used,
-                              limit
-                          })
+                          fine
                       }
                     : {
                           label:
@@ -903,43 +1147,33 @@ const AgentNewV4: FC = (): ReactNode => {
                                   : t('web.agentNewV4.primary.buildAndInstall', {
                                         cli
                                     }),
-                          fine: t('web.agentNewV4.primary.buildFine', {
-                              used,
-                              limit
-                          })
+                          fine
                       }
             }
             const row = machines.find((m) => m.id === machinePick)
-            if (row !== undefined && row.runtimeId === null)
-                return deferred
-                    ? {
-                          label: next,
-                          fine: t('web.agentNewV4.primary.installsAtCreate', {
-                              cli
-                          })
-                      }
-                    : {
-                          label: t('web.agentNewV4.primary.installOn', {
-                              cli,
-                              machine: row.title
-                          }),
-                          fine: t('web.agentNewV4.primary.installFine')
-                      }
-            return {
-                label: next,
-                fine:
-                    row !== undefined
-                        ? t(SIGN_IN_FINE_KEY[row.signInCost])
-                        : undefined
-            }
+            if (row === undefined) return { label: next }
+            const fine = waitLabel(row.wait, cli, minutes, t)
+            if (row.runtimeId === null && !deferred)
+                return {
+                    label: t('web.agentNewV4.primary.installOn', {
+                        cli,
+                        machine: row.title
+                    }),
+                    fine
+                }
+            return { label: next, fine }
         }
         if (flow.step === 'runtime')
-            return serviceProviderId === null || remoteRef.trim() === ''
+            return serviceProviderId === null ||
+                (framework !== null &&
+                    needsRemoteRef(framework) &&
+                    remoteRef.trim() === '')
                 ? {
                       label: next,
                       blockedReason: t('web.agentNewV4.blocked.runtime')
                   }
                 : { label: next }
+        if (flow.step === 'cost' && fixedCost !== null) return { label: next }
         if (flow.step === 'cost' && onMachine) {
             if (costPick === null)
                 return {
@@ -971,6 +1205,26 @@ const AgentNewV4: FC = (): ReactNode => {
                     // described. What is left is what it costs.
                     fine: t('web.agentNewV4.cost.aboutAMinute')
                 }
+            // Switching the machine's account-level payer moves every agent
+            // on it billed that way, not only this one. That is the price of
+            // this press, so it is said beside the button (decision M).
+            const pickedManaged =
+                costPick.kind === 'platform' ||
+                (costPick.kind === 'current' &&
+                    machineBilling?.kind === 'managed')
+            if (managedWarning !== null && pickedManaged)
+                return { label: next, fine: managedWarning }
+            if (
+                machineBilling !== null &&
+                sharedWith > 0 &&
+                (costPick.kind === 'platform' || costPick.kind === 'provider')
+            )
+                return {
+                    label: next,
+                    fine: t('web.agentNewV4.cost.switchesShared', {
+                        count: String(sharedWith)
+                    })
+                }
             return { label: next }
         }
         if (flow.step === 'cost') return { label: next }
@@ -987,13 +1241,8 @@ const AgentNewV4: FC = (): ReactNode => {
             installsAtCreate(framework) &&
             flow.runtime?.kind === 'runtime' &&
             flow.runtime.runtimeId === null
-        const cost = installing
-            ? machineAsleep
-                ? t('web.agentNewV4.primary.createFineInstallAsleep', { cli })
-                : t('web.agentNewV4.primary.createFineInstall', { cli })
-            : machineAsleep
-              ? t('web.agentNewV4.primary.createFineAsleep')
-              : t('web.agentNewV4.primary.createFine')
+        const wait = { installing, asleep: machineAsleep, cli, minutes }
+        const cost = createWaitLabel(wait, t)
         if (unbound !== null)
             return { label: t('web.shell.openAgent', { name: unbound.name }) }
         // The button does not claim to know WHICH phase it is in — the server
@@ -1004,15 +1253,10 @@ const AgentNewV4: FC = (): ReactNode => {
         if (creating)
             return creatingPrimary(
                 waitedFor,
-                installing
-                    ? machineAsleep
-                        ? 210
-                        : 150
-                    : machineAsleep
-                      ? 75
-                      : 15,
+                createBudgetSeconds(wait),
                 cost,
-                t
+                t,
+                installing
             )
         return blockedKey !== null
             ? {
@@ -1023,6 +1267,10 @@ const AgentNewV4: FC = (): ReactNode => {
     }, [
         flow,
         framework,
+        fixedCost,
+        machineBilling,
+        managedWarning,
+        sharedWith,
         onMachine,
         machinePick,
         machines,
@@ -1035,6 +1283,7 @@ const AgentNewV4: FC = (): ReactNode => {
         creating,
         waitedFor,
         machineAsleep,
+        minutes,
         unbound,
         t
     ])
@@ -1043,20 +1292,31 @@ const AgentNewV4: FC = (): ReactNode => {
     // showed before the press and only its label moves. The budget is that
     // line's promise plus the slack the create allows its own: "about a
     // minute" for a build alone, "about 2 minutes" for a build and the
-    // install, "about 1–2 minutes" for an install.
+    // install, the framework's own install time for an install.
     const preparingButton = useMemo((): StepPrimary | null => {
         if (preparing === null || framework === null) return null
         return preparingPrimary(
             preparing.phase,
             frameworkLabel(framework),
             waitedFor,
-            machinePick === 'new:sandbox' && installsAtCreate(framework)
-                ? 75
-                : 150,
+            machinePick === 'new:sandbox'
+                ? installsAtCreate(framework)
+                    ? 75
+                    : 150
+                : minutes[1] * 60 + 30 + (machineAsleep ? 60 : 0),
             primary.fine ?? '',
             t
         )
-    }, [preparing, framework, waitedFor, machinePick, primary.fine, t])
+    }, [
+        preparing,
+        framework,
+        waitedFor,
+        machinePick,
+        machineAsleep,
+        minutes,
+        primary.fine,
+        t
+    ])
 
     const question = useMemo((): string => {
         if (flow.step === 'type') return t('web.agentNewV4.question.type')
@@ -1077,6 +1337,150 @@ const AgentNewV4: FC = (): ReactNode => {
                 : t('web.agentNewV4.question.costExternal')
         return t('web.agentNewV4.question.name')
     }, [flow.step, flow.runtime, framework, onMachine, t])
+
+    // ---- The address bar (see `urlState`) ----
+    //
+    // Set when the next write should rewrite the current entry rather than
+    // add one: the first write, and a step the address itself restored.
+    const replaceUrlNext = useRef(true)
+    // Set when an in-app step back went through history, so the entry it
+    // landed on is brought up to date with the answers given since.
+    const resyncAfterPop = useRef(false)
+    // The steps this visit has pushed, to tell an in-app step back that
+    // matches the browser's previous entry from one that does not.
+    const stepHistory = useRef<CreateStepId[]>([flow.step])
+
+    // The machine the address names, once its row is listed for the type.
+    // A link from a connected computer names only the machine, so this waits
+    // for a type to be picked; a row that type cannot use leaves it waiting
+    // for one that can.
+    useEffect(() => {
+        const host = pendingUrl.host
+        if (host === null || framework === null || !onMachine) return
+        const row = machines.find((item) => item.id === hostKey(host))
+        if (row === undefined || row.disabled) return
+        setPendingUrl((prev) => ({ ...prev, host: null }))
+        setMachinePick(row.id)
+        const choice = pendingUrl.beyondMachine
+            ? choiceWithoutWork(row, framework)
+            : null
+        if (choice === null) return
+        const fixed = fixedCostFor(framework, choice)
+        replaceUrlNext.current = true
+        setFlow((prev) => {
+            const next = withRuntime(prev, choice)
+            return fixed === null
+                ? { ...next, step: 'cost' }
+                : {
+                      ...withSuggestedName(
+                          { ...next, cost: fixed },
+                          randomAgentName
+                      ),
+                      step: 'name'
+                  }
+        })
+    }, [pendingUrl, framework, onMachine, machines])
+
+    // The connected service the address names, once the list has it.
+    useEffect(() => {
+        const service = pendingUrl.service
+        if (service === null || framework === null || onMachine) return
+        if (!create.externalProviders.some((row) => row.id === service)) return
+        setPendingUrl((prev) => ({ ...prev, service: null }))
+        setServiceProviderId(service)
+        if (needsRemoteRef(framework)) setRemoteRef(pendingUrl.ref)
+    }, [pendingUrl, framework, onMachine, create.externalProviders])
+
+    const desiredUrl = useMemo(
+        () =>
+            writeUrl({
+                step: flow.step,
+                framework: flow.framework,
+                host: hostIdOfRow(machinePick) ?? pendingUrl.host,
+                service: onMachine
+                    ? null
+                    : (serviceProviderId ?? pendingUrl.service),
+                ref:
+                    framework !== null && needsRemoteRef(framework)
+                        ? remoteRef.trim()
+                        : ''
+            }),
+        [
+            flow.step,
+            flow.framework,
+            framework,
+            machinePick,
+            onMachine,
+            serviceProviderId,
+            remoteRef,
+            pendingUrl
+        ]
+    )
+    const urlNow = useRef(searchParams)
+    urlNow.current = searchParams
+    const desiredNow = useRef(desiredUrl)
+    desiredNow.current = desiredUrl
+    const standing = useRef({ flow, locked: false })
+    standing.current = { flow, locked: busy || busySignIn || signIn !== null }
+    // Both change identity whenever the address does, so an effect keyed on
+    // them would run again on Back with the step it was about to leave.
+    const writeAddress = useRef({ navigate, setSearchParams })
+    writeAddress.current = { navigate, setSearchParams }
+
+    // Flow → address. Moving to another step is a new history entry, so the
+    // browser's Back and Forward walk the steps; any other change rewrites
+    // the current entry. Keyed on the answers alone (see `writeAddress`).
+    useEffect(() => {
+        const current = urlNow.current
+        if (desiredUrl.toString() === current.toString()) return
+        const from = current.get('step') ?? 'type'
+        const to = desiredUrl.get('step') ?? 'type'
+        const pushed = stepHistory.current
+        const step = standing.current.flow.step
+        if (replaceUrlNext.current || from === to) {
+            replaceUrlNext.current = false
+            pushed[pushed.length - 1] = step
+            writeAddress.current.setSearchParams(desiredUrl, { replace: true })
+            return
+        }
+        if (pushed.length >= 2 && pushed[pushed.length - 2] === to) {
+            pushed.pop()
+            resyncAfterPop.current = true
+            writeAddress.current.navigate(-1)
+            return
+        }
+        pushed.push(step)
+        writeAddress.current.setSearchParams(desiredUrl)
+    }, [desiredUrl])
+
+    // Address → flow: the browser's Back and Forward. A step the flow cannot
+    // stand on — one whose earlier answers are gone — or any step while a
+    // request is running puts the address back instead.
+    useEffect(() => {
+        const step = readUrl(searchParams, () => false).step
+        const { flow: now, locked } = standing.current
+        if (step !== now.step) {
+            if (locked || !canStandOn(step, answeredSteps(now))) {
+                writeAddress.current.setSearchParams(desiredNow.current, {
+                    replace: true
+                })
+                return
+            }
+            const pushed = stepHistory.current
+            if (pushed.length >= 2 && pushed[pushed.length - 2] === step)
+                pushed.pop()
+            else pushed.push(step)
+            setStepError(null)
+            setFlow((prev) => ({ ...prev, step }))
+            return
+        }
+        if (!resyncAfterPop.current) return
+        resyncAfterPop.current = false
+        if (desiredNow.current.toString() !== searchParams.toString())
+            writeAddress.current.setSearchParams(desiredNow.current, {
+                replace: true
+            })
+    }, [searchParams])
 
     return (
         <StepShell
@@ -1101,14 +1505,18 @@ const AgentNewV4: FC = (): ReactNode => {
                       ? t('web.agentNewV4.preparing.signIn', {
                             machine: flow.runtime.hostLabel
                         })
-                      : undefined
+                      : testingKey
+                        ? t('web.agentNewV4.cost.testingKey')
+                        : undefined
             }
             onBack={
                 signIn !== null
                     ? () => void finishSignIn()
                     : flow.step === 'type'
                       ? undefined
-                      : () => goTo(previousStep(flow.step))
+                      : flow.step === 'name' && fixedCost !== null
+                        ? () => goTo('runtime')
+                        : () => goTo(previousStep(flow.step))
             }
             error={stepError ?? create.error}
             onJump={goTo}
@@ -1120,7 +1528,16 @@ const AgentNewV4: FC = (): ReactNode => {
                 <StepType
                     value={flow.framework}
                     onChange={(next: AgentFramework) => {
-                        setMachinePick(null)
+                        if (next !== flow.framework) {
+                            // Every pick below this one was made for the
+                            // old type. The step ③ pick in particular used
+                            // to survive and reappear checked on a type
+                            // and machine it was never made for.
+                            setMachinePick(null)
+                            setCostPick(null)
+                            setServiceProviderId(null)
+                            setRemoteRef('')
+                        }
                         setFlow((prev) => withFramework(prev, next))
                     }}
                 />
@@ -1132,12 +1549,14 @@ const AgentNewV4: FC = (): ReactNode => {
                     newMachines={newMachines}
                     selectedId={machinePick}
                     locked={preparing !== null}
-                    onSelectMachine={(row: MachineOption) =>
+                    onSelectMachine={(row: MachineOption) => {
+                        setPendingUrl((prev) => ({ ...prev, host: null }))
                         setMachinePick(row.id)
-                    }
-                    onSelectNew={(option: NewMachineOption) =>
+                    }}
+                    onSelectNew={(option: NewMachineOption) => {
+                        setPendingUrl((prev) => ({ ...prev, host: null }))
                         setMachinePick('new:' + option.kind)
-                    }
+                    }}
                 />
             )}
             {flow.step === 'runtime' && framework !== null && !onMachine && (
@@ -1170,7 +1589,16 @@ const AgentNewV4: FC = (): ReactNode => {
                 )}
             {flow.step === 'cost' &&
                 framework !== null &&
+                fixedCost !== null && (
+                    <StepCostFixed
+                        cost={flow.cost ?? fixedCost}
+                        framework={framework}
+                    />
+                )}
+            {flow.step === 'cost' &&
+                framework !== null &&
                 onMachine &&
+                fixedCost === null &&
                 signIn === null && (
                 <StepCost
                     framework={framework}
@@ -1182,15 +1610,27 @@ const AgentNewV4: FC = (): ReactNode => {
                     managedUnavailableReason={t(
                         'web.agentNewV4.cost.managedUnavailable'
                     )}
+                    managedWarning={managedWarning}
                     bindsModel={bindsModel}
                     sharedWith={sharedWith}
+                    current={
+                        bindsModelAfterJoin(framework) ? machineBilling : null
+                    }
+                    machine={
+                        flow.runtime?.kind === 'runtime'
+                            ? flow.runtime.hostLabel
+                            : ''
+                    }
                     value={costPick}
                     onChange={setCostPick}
-                    onBackToType={() => goTo('type')}
+                    onAddKey={setAddKey}
+                    onTopUp={
+                        managed.TopUpDialog !== undefined &&
+                        managedWarning !== null
+                            ? () => setTopUpOpen(true)
+                            : undefined
+                    }
                 />
-            )}
-            {flow.step === 'cost' && framework !== null && !onMachine && (
-                <StepCostExternal framework={framework} />
             )}
             {flow.step === 'name' && framework !== null && (
                 <StepName
@@ -1204,7 +1644,7 @@ const AgentNewV4: FC = (): ReactNode => {
                     )}
                     name={flow.name}
                     onChangeName={(value: string) =>
-                        setFlow((prev) => ({ ...prev, name: value }))
+                        setFlow((prev) => withTypedName(prev, value))
                     }
                     defaultWorkspace={defaultWorkspace}
                     workspace={flow.workspace}
@@ -1235,6 +1675,26 @@ const AgentNewV4: FC = (): ReactNode => {
                         }}
                     />
                 </Suspense>
+            )}
+            {addKey !== null && (
+                <Suspense fallback={null}>
+                    <ModelProviderCreateDialog
+                        pick={addKey}
+                        onClose={() => setAddKey(null)}
+                        onCreated={addedKey}
+                    />
+                </Suspense>
+            )}
+            {topUpOpen && managed.TopUpDialog !== undefined && (
+                <managed.TopUpDialog
+                    balance={managed.balance}
+                    onClose={() => {
+                        setTopUpOpen(false)
+                        // The gate polls the account again, so the row's
+                        // balance and its warning follow the top-up.
+                        managed.retry()
+                    }}
+                />
             )}
             {connecting && framework !== null && !onMachine && (
                 <Suspense fallback={null}>
