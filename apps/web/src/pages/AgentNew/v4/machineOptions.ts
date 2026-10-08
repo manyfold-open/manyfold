@@ -49,8 +49,8 @@ export type MachineState =
     | 'needs-install'
     | 'service-slot-taken'
     | 'not-installable'
-    // A cloud computer that cannot take an agent right now: still starting
-    // (or still installing this framework), or failed to start.
+    // A machine that cannot take an agent right now: still starting (or still
+    // installing this framework), failed to start, or a sandbox in maintenance.
     | 'unavailable'
 
 // One row per machine (ADR-0037): `id` is the host key, whatever the row
@@ -74,7 +74,7 @@ export interface MachineOption {
     // at something deletable instead of only saying "full".
     idle: boolean
     blockedBy?: AgentFramework
-    unavailableReason?: 'starting' | 'failed'
+    unavailableReason?: 'starting' | 'failed' | 'maintenance'
     disabled: boolean
 }
 
@@ -117,13 +117,21 @@ export const buildMachineOptions = (args: {
     for (const target of computeSpriteTargets(runtimes, framework, sandboxes)) {
         if (target.type === 'reuse') {
             const runtime = target.runtime
+            // A sandbox the provider's health check found broken takes no new
+            // agent until it is out of maintenance; it stays listed, saying so.
+            const inMaintenance =
+                sandboxes.find((s) => s.id === target.hostId)?.status ===
+                'maintenance'
             rows.push({
                 id: hostKey(target.hostId),
                 title:
                     sandboxes.find((s) => s.id === target.hostId)?.name ??
                     runtime.hostName ??
                     runtime.name,
-                state: 'ready',
+                state: inMaintenance ? 'unavailable' : 'ready',
+                ...(inMaintenance
+                    ? { unavailableReason: 'maintenance' as const }
+                    : {}),
                 runtimeId: runtime.id,
                 sandboxId: target.hostId,
                 podHostId: null,
@@ -132,7 +140,7 @@ export const buildMachineOptions = (args: {
                 agentsCount: runtime.agentsCount,
                 signInCost: runtime.agentsCount > 0 ? 'none' : 'next-step',
                 idle: false,
-                disabled: false
+                disabled: inMaintenance
             })
             continue
         }
@@ -149,7 +157,9 @@ export const buildMachineOptions = (args: {
                     ? 'failed'
                     : status === 'provisioning'
                       ? 'starting'
-                      : undefined
+                      : status === 'maintenance'
+                        ? 'maintenance'
+                        : undefined
             rows.push({
                 id: hostKey(target.hostId),
                 title: target.name ?? target.hostId,

@@ -2822,6 +2822,8 @@ const en = {
                     'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
                 turnDurationExceeded:
                     'The agent ran past its time limit for this message and was stopped. What it produced so far is kept; send a follow-up to continue.',
+                sandboxMaintenance:
+                    "This agent's sandbox is under maintenance: its hosting provider reported a problem with the machine. It is checked again automatically and comes back on its own once the machine is healthy.",
                 updateKey: 'Update key',
                 switchToPlatform: 'Switch to platform credits',
                 switching: 'Switching…',
@@ -3756,6 +3758,8 @@ const en = {
                 podHostStarting: 'Still starting — it can take an agent once it is ready',
                 podHostFailed: 'Failed to start; delete it under Settings › Cloud computers',
                 sandboxFailed: 'Failed to start; retry or delete it under Settings › Runtimes',
+                sandboxMaintenance:
+                    'Under maintenance: its hosting provider reported a problem with the machine',
                 podHostNoService: '{{cli}} cannot run on a cloud computer yet'
             },
             newMachine: {
@@ -4866,6 +4870,9 @@ const en = {
             machineOfflineDetail: 'The daemon is not connected. Agents on it cannot run until it reconnects.',
             machineOfflineSeen: 'The daemon is not connected — last seen {{time}}. Agents on it cannot run until it reconnects.',
             hostFailed: 'Machine failed',
+            hostMaintenance: 'Under maintenance',
+            hostMaintenanceDetail:
+                'Its hosting provider reported a problem with the machine, so its agents refuse messages and scheduled runs. It is checked again automatically and comes back on its own once the machine is healthy.',
             hostProvisioning: 'Starting the machine…',
             hostDeleting: 'Deleting the machine…',
             removingAgents: 'Delete its agents first',

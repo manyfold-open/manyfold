@@ -2728,6 +2728,7 @@ const zh: Translations = {
                     '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
                 turnDurationExceeded:
                     'Agent 处理这条消息超过了时长上限，已被停止。已产出的内容会保留；发送一条后续消息即可继续。',
+                sandboxMaintenance: '这个 Agent 的沙箱正在维护：托管服务商报告其机器有问题。系统会自动重新检查，机器恢复正常后会自动恢复。',
                 updateKey: '更新 key',
                 switchToPlatform: '改用平台额度',
                 switching: '切换中…',
@@ -3578,6 +3579,7 @@ const zh: Translations = {
                 podHostStarting: '还在启动，就绪后才能加入 agent',
                 podHostFailed: '启动失败；请在 设置 › 云电脑 中删除它',
                 sandboxFailed: '启动失败；请在 设置 › 运行时 中重试或删除它',
+                sandboxMaintenance: '维护中：托管服务商报告其机器有问题',
                 podHostNoService: '{{cli}} 暂时还不能在云端计算机上运行'
             },
             newMachine: {
@@ -4631,6 +4633,8 @@ const zh: Translations = {
             machineOfflineDetail: 'daemon 未连接。在它重新连接之前，其上的 Agent 无法运行。',
             machineOfflineSeen: 'daemon 未连接 — 最后在线 {{time}}。在它重新连接之前，其上的 Agent 无法运行。',
             hostFailed: '机器故障',
+            hostMaintenance: '维护中',
+            hostMaintenanceDetail: '托管服务商报告这台机器有问题，因此其上的 Agent 会拒绝消息和定时运行。系统会自动重新检查，机器恢复正常后会自动恢复。',
             hostProvisioning: '正在启动机器…',
             hostDeleting: '正在删除机器…',
             removingAgents: '请先删除其上的 Agent',
