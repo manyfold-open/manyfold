@@ -1,5 +1,15 @@
 # @manyfold/admin
 
+## 2.11.0
+
+### Minor Changes
+
+- [#706](https://github.com/manyfold-open/manyfold/pull/706) [`0057559`](https://github.com/manyfold-open/manyfold/commit/00575590e739da0b494c6e81f8e87f230df8aeef) Thanks [@yingca1](https://github.com/yingca1)! - Only a machine that fails to start puts a sandbox into maintenance. On staging, every sleeping sprite answered the provider's health check with `needs_repair` ("machine in suspended state"), and a stopped one answered `repaired` after the check restarted it. Counting anything but `healthy` as a problem therefore sent idle sandboxes into a maintenance they could not leave: nothing wakes a sandbox in maintenance, and a sleeping machine never answers `healthy`.
+
+    - Now only `unhealthy` ("failed to start machine") puts a sandbox in maintenance or keeps it there.
+    - `healthy`, `needs_repair` and `repaired` bring a sandbox out, and an unrecognised status changes nothing.
+    - Admin › Sandboxes shows `needs_repair` and `repaired` in neutral.
+
 ## 2.10.0
 
 ### Minor Changes
