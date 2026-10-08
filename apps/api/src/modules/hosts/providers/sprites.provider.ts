@@ -283,8 +283,8 @@ export const spritePowerState = (status: string | null | undefined): RuntimeHost
 }
 
 // The statuses sprites.dev's health check answers, in the host vocabulary.
-// Anything else is `unknown` — a problem until a check says healthy — rather
-// than a guess at what an unseen literal means.
+// Anything else is `unknown`, which moves no host either way, rather than a
+// guess at what an unseen literal means.
 export const spriteHealthVerdict = (
     status: string | null | undefined
 ): SandboxHealthVerdict => {

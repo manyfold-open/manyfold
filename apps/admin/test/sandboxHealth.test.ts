@@ -11,14 +11,14 @@ import {
 const NOW = Date.parse('2026-10-08T12:00:00Z')
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString()
 
-// A broken machine reads as the error, a repair as needing attention, and an
-// unrecognised status stays neutral rather than borrowing a colour it has not
-// earned.
+// A machine that failed to start reads as the error. A sleeping or restarted
+// one is how every idle sandbox answers, and an unrecognised status has not
+// earned a colour, so all three stay neutral.
 test('each verdict has its tone and a readable label', () => {
     assert.equal(healthTone('healthy'), 'success')
     assert.equal(healthTone('unhealthy'), 'error')
-    assert.equal(healthTone('needs_repair'), 'warning')
-    assert.equal(healthTone('repaired'), 'warning')
+    assert.equal(healthTone('needs_repair'), 'neutral')
+    assert.equal(healthTone('repaired'), 'neutral')
     assert.equal(healthTone('unknown'), 'neutral')
     assert.equal(healthLabel('needs_repair'), 'needs repair')
 })

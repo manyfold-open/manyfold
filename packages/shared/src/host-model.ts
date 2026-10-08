@@ -23,8 +23,10 @@ export type RuntimeHostPowerState =
     | 'stopped'
     | 'unknown'
 
-// A provider health check's verdict on a hosted machine. Anything but `healthy`
-// is a problem: it puts a ready host into maintenance and keeps one there.
+// A provider health check's verdict on a hosted machine. Only `unhealthy`, a
+// machine that failed to start, is a problem: it puts a ready host into
+// maintenance and keeps one there. A sleeping machine answers `needs_repair`
+// and a stopped one `repaired`; like `healthy`, both bring a host out.
 // `unknown` is a status the provider answered that we don't recognise.
 export type SandboxHealthVerdict =
     | 'healthy'

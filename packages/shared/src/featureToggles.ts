@@ -62,14 +62,14 @@ export const FEATURE_TOGGLES: readonly FeatureToggleDefinition[] = Object.freeze
         key: FEATURE_TOGGLE_KEYS.SANDBOX_HEALTH_CHECKS,
         label: 'Sandbox health checks after failures',
         description:
-            'When a sprites sandbox fails to wake or its daemon does not come up, ask the provider\'s health check about that machine, at most once per 10 minutes per sandbox. The check can repair the machine (for example restart a stopped one), so it never runs on a sandbox whose daemon is online. Verdicts are recorded and shown in admin; whether a bad verdict puts the sandbox into maintenance is the separate automatic-maintenance switch.',
+            'When a sprites sandbox fails to wake or its daemon does not come up, ask the provider\'s health check about that machine, at most once per 10 minutes per sandbox. The check can repair the machine (for example restart a stopped one), so it never runs on a sandbox whose daemon is online. Verdicts are recorded and shown in admin; whether an unhealthy verdict puts the sandbox into maintenance is the separate automatic-maintenance switch.',
         defaultEnabled: false
     },
     {
         key: FEATURE_TOGGLE_KEYS.SANDBOX_MAINTENANCE_AUTO,
         label: 'Automatic sandbox maintenance',
         description:
-            'Lets an automatic health check put a sandbox whose verdict is anything but healthy into maintenance: chat turns, A2A tasks and automation runs on it fail at once with sandbox_maintenance instead of spending minutes on wake retries, and it is re-checked on a backoff until a healthy verdict returns it to ready. A capped number of sandboxes may enter per hour. When off, automatic verdicts are only recorded; an admin\'s manual check always applies its verdict.',
+            'Lets an automatic health check put a sandbox whose machine failed to start (an unhealthy verdict) into maintenance: chat turns, A2A tasks and automation runs on it fail at once instead of spending minutes on wake retries, and it is re-checked on a backoff until a verdict other than unhealthy returns it to ready. A sleeping machine answers needs_repair and a stopped one repaired; neither counts as a problem. A capped number of sandboxes may enter per hour. When off, automatic verdicts are only recorded; an admin\'s manual check always applies its verdict.',
         defaultEnabled: false
     },
     {
