@@ -25,6 +25,10 @@ export interface FrameworkPresentation {
     // standing in for the id that does not exist yet. Absent: the platform's
     // own workspace path.
     defaultWorkspacePath?: (hostKind: RuntimePlacement) => string
+    // How long installing it onto a machine usually takes, in minutes, as
+    // the create flow promises it beside the button. Absent: the core
+    // frameworks' one to two.
+    installMinutes?: readonly [number, number]
 }
 
 const presentations = new Map<AgentFramework, FrameworkPresentation>()

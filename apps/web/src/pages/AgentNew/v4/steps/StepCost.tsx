@@ -12,18 +12,27 @@ import {
     PlusIcon,
     ProviderIcon
 } from '@/components/icons'
+import { CreateMenu } from '@/components/CreateMenu'
+import {
+    modelProviderCreateOptions,
+    type ModelProviderCreatePick
+} from '@/components/ModelProviderCreateDialog'
 import { useI18n } from '@/lib/i18n'
 import { profileNeedsSignIn } from '@/lib/runtimeAuth'
+import { modelProviderForFramework } from '@/lib/agentCreateDraft'
+import {
+    builtInEntriesFor,
+    customProtocolsFor,
+    providerFamiliesFor
+} from '@/lib/agentCreate/providerSource'
 import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
-import {
-    bindsModelAfterJoin,
-    managedChannelFor
-} from '@/pages/AgentNew/v4/providerBinding'
+import { managedChannelFor } from '@/pages/AgentNew/v4/providerBinding'
+import type { MachineBilling } from '@/pages/AgentNew/v4/machineBilling'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
 
@@ -37,6 +46,8 @@ export type CostPick =
     | { kind: 'platform' }
     | { kind: 'provider'; id: string; label: string }
     | { kind: 'signin' }
+    // The account-level payer the machine already has, kept as it is.
+    | { kind: 'current'; label: string; machine: string }
 
 export const costChoiceFor = (pick: CostPick): CostChoice | null => {
     if (pick.kind === 'profile')
@@ -48,6 +59,8 @@ export const costChoiceFor = (pick: CostPick): CostChoice | null => {
     if (pick.kind === 'platform') return { kind: 'platform' }
     if (pick.kind === 'provider')
         return { kind: 'provider', providerId: pick.id, label: pick.label }
+    if (pick.kind === 'current')
+        return { kind: 'inherited', label: pick.label, machine: pick.machine }
     return null
 }
 
@@ -81,6 +94,9 @@ export const StepCost: FC<{
     // usage", plus the balance once it is known.
     managedDetail: string
     managedUnavailableReason: string | null
+    // What picking managed would leave the agent unable to do — a balance at
+    // zero — or null. Shown in the row's price column.
+    managedWarning: string | null
     // True when the pick decides which provider the agent is bound to: a
     // service framework INSTALLED with it at create, or a coding CLI bound
     // right after it joins (see `bindsModelAfterJoin`). The API needs a
@@ -90,14 +106,25 @@ export const StepCost: FC<{
     // why. When a service agent joins an instance that already runs, it
     // inherits that instance's provider and every row is pickable as before.
     bindsModel: boolean
-    // How many agents already run on the machine picked in step ②. A coding
-    // CLI's account-level credential belongs to the machine, not to one
-    // agent, so picking one here moves those agents too — said once, under
-    // the rows it applies to.
+    // How many agents already run on the machine picked in step ②.
     sharedWith: number
+    // What that machine already pays with at the account level, once read —
+    // null when it has nothing there or it could not be read. A coding CLI's
+    // account-level credential belongs to the runtime, not to one agent, so
+    // the row that matches it is the one answer that leaves those agents
+    // alone; any other moves them too, which the button says.
+    current: MachineBilling | null
+    // The machine's name, for the answer that keeps its payer.
+    machine: string
     value: CostPick | null
     onChange: (pick: CostPick) => void
-    onBackToType: () => void
+    // Adds a key in place, with the settings page's own forms. A user with no
+    // saved key used to have to leave for settings — and the flow keeps no
+    // progress (decision D), so that cost them every answer already given.
+    onAddKey: (pick: ModelProviderCreatePick) => void
+    // Opens the edition's top-up dialog; absent where there is nothing to buy
+    // or nothing is owed.
+    onAddCredit?: () => void
 }> = ({
     framework,
     authList,
@@ -106,11 +133,15 @@ export const StepCost: FC<{
     managedAvailable,
     managedDetail,
     managedUnavailableReason,
+    managedWarning,
     bindsModel,
     sharedWith,
+    current,
+    machine,
     value,
     onChange,
-    onBackToType
+    onAddKey,
+    onAddCredit
 }): ReactNode => {
     const { t } = useI18n()
     const vendor = vendorLabel(framework)
@@ -126,26 +157,85 @@ export const StepCost: FC<{
         : bindsModel && managedChannelFor(framework, providers) === null
           ? t('web.agentNewV4.cost.managedNoChannel', { cli })
           : null
+    const inUseBy = (count: number): string =>
+        count === 1
+            ? t('web.agentNewV4.cost.inUseByOne')
+            : t('web.agentNewV4.cost.inUseBy', { count: String(count) })
+    const inUse = inUseBy(sharedWith)
+    // A sleeping machine's accounts are what it last reported, so an
+    // expiry read from them is a past observation, not a present fact.
+    const asleep = authList?.availability === 'sandbox-asleep'
+    const keep = (label: string): CostPick => ({
+        kind: 'current',
+        label,
+        machine
+    })
+    const managedIsCurrent = current?.kind === 'managed'
+    // A key on the machine that matches none of the rows below — pasted
+    // inline, or saved and since deleted — still gets a row, or keeping it
+    // would not be an answer anyone could give.
+    const currentElsewhere =
+        current !== null &&
+        (current.kind === 'key' ||
+            (current.kind === 'provider' &&
+                !ownKeys.some((p) => p.id === current.providerId)))
+    const currentElsewhereLabel =
+        current?.kind === 'provider'
+            ? current.label
+            : t('web.agentNewV4.cost.currentKey')
     const accountLevel = (
         <OptionGroup title={t('web.agentNewV4.cost.accountLevel')}>
+            {currentElsewhere && (
+                <OptionRow
+                    title={currentElsewhereLabel}
+                    detail={inUse}
+                    mark={<ProviderIcon className='h-5 w-5' />}
+                    selected={samePick(value, keep(currentElsewhereLabel))}
+                    onSelect={() => onChange(keep(currentElsewhereLabel))}
+                />
+            )}
             <OptionRow
                 title={t('web.agentNewV4.cost.managed')}
-                detail={managedDetail}
+                detail={
+                    managedIsCurrent ? `${managedDetail} · ${inUse}` : managedDetail
+                }
                 mark={<BillingIcon className='h-5 w-5' />}
-                meta={managedBlocked ?? undefined}
-                selected={samePick(value, { kind: 'platform' })}
-                disabled={managedBlocked !== null}
-                onSelect={() => onChange({ kind: 'platform' })}
+                meta={
+                    (managedIsCurrent ? null : managedBlocked) ??
+                    managedWarning ??
+                    undefined
+                }
+                selected={
+                    managedIsCurrent
+                        ? samePick(value, keep(t('web.agentNewV4.cost.managed')))
+                        : samePick(value, { kind: 'platform' })
+                }
+                disabled={!managedIsCurrent && managedBlocked !== null}
+                onSelect={() =>
+                    onChange(
+                        managedIsCurrent
+                            ? keep(t('web.agentNewV4.cost.managed'))
+                            : { kind: 'platform' }
+                    )
+                }
             />
             {ownKeys.map((provider) => {
-                const verdict = bindsModel
-                    ? providerRowVerdict(framework, provider)
-                    : 'usable'
+                const isCurrent =
+                    current?.kind === 'provider' &&
+                    current.providerId === provider.id
+                const verdict =
+                    bindsModel && !isCurrent
+                        ? providerRowVerdict(framework, provider)
+                        : 'usable'
                 return (
                     <OptionRow
                         key={provider.id}
                         title={provider.providerName}
-                        detail={t('web.agentNewV4.cost.ownKeyDetail')}
+                        detail={
+                            isCurrent
+                                ? `${t('web.agentNewV4.cost.ownKeyDetail')} · ${inUse}`
+                                : t('web.agentNewV4.cost.ownKeyDetail')
+                        }
                         mark={<ProviderIcon className='h-5 w-5' />}
                         meta={
                             verdict === 'incompatible'
@@ -156,58 +246,89 @@ export const StepCost: FC<{
                                   ? t('web.agentNewV4.cost.providerUntested')
                                   : undefined
                         }
-                        selected={samePick(value, {
-                            kind: 'provider',
-                            id: provider.id,
-                            label: provider.providerName
-                        })}
+                        selected={
+                            isCurrent
+                                ? samePick(value, keep(provider.providerName))
+                                : samePick(value, {
+                                      kind: 'provider',
+                                      id: provider.id,
+                                      label: provider.providerName
+                                  })
+                        }
                         disabled={verdict !== 'usable'}
                         onSelect={() =>
-                            onChange({
-                                kind: 'provider',
-                                id: provider.id,
-                                label: provider.providerName
-                            })
+                            onChange(
+                                isCurrent
+                                    ? keep(provider.providerName)
+                                    : {
+                                          kind: 'provider',
+                                          id: provider.id,
+                                          label: provider.providerName
+                                      }
+                            )
                         }
                     />
                 )
             })}
         </OptionGroup>
     )
-    // Outside the radio group: it is a consequence of the rows above, not one
-    // more thing to pick, and it reads the same whichever of them is chosen.
-    const sharedNote = bindsModelAfterJoin(framework) && sharedWith > 0 && (
-        <p className='text-caption text-subtle mt-2 flex items-start gap-2 px-3'>
-            <InfoIcon
-                className='mt-0.5 h-3.5 w-3.5 shrink-0'
-                aria-hidden='true'
+    // The providers this framework can be given, as the add menu offers
+    // them: the same catalog subset v1's add chip showed.
+    const families = providerFamiliesFor(
+        framework,
+        modelProviderForFramework(framework)
+    )
+    const addOptions = modelProviderCreateOptions(
+        t,
+        [
+            ...new Map(
+                families
+                    .flatMap((family) => builtInEntriesFor(framework, family))
+                    .map((entry) => [entry.id, entry])
+            ).values()
+        ],
+        [
+            ...new Set(
+                families.flatMap((family) =>
+                    customProtocolsFor(framework, family)
+                )
+            )
+        ],
+        onAddKey
+    )
+    // Actions, not answers: outside the radio group, and each opens a dialog
+    // that finishes here.
+    const accountActions = (
+        <div className='mt-2 flex flex-wrap gap-2'>
+            <CreateMenu
+                variant='chip'
+                align='left'
+                triggerLabel={t('web.agentNewV4.cost.addKey')}
+                sheetTitle={t('web.modelProviders.newProvider')}
+                options={addOptions}
             />
-            <span>
-                {t('web.agentNewV4.cost.sharedAccount', {
-                    count: String(sharedWith)
-                })}
-            </span>
-        </p>
+            {onAddCredit !== undefined && (
+                <button
+                    type='button'
+                    onClick={onAddCredit}
+                    className='text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors'
+                >
+                    <BillingIcon className='h-3.5 w-3.5 shrink-0' />
+                    {t('web.agentNewV4.cost.addCredit')}
+                </button>
+            )}
+        </div>
     )
     // A framework that calls a model API rather than carrying its own sign-in
-    // has no subscription path at all. Say that in as many words and offer the
-    // way back, instead of rendering three greyed-out rows that look like a
-    // bug.
+    // has no subscription path, and the list simply has no row for one.
+    // Seen on staging [2026-10-08]: an alert here explaining the absence, with
+    // a link back to step ①, read as an error on the type the user had just
+    // chosen on purpose.
     if (!subscriptionPossible)
         return (
             <>
                 {accountLevel}
-                {sharedNote}
-                <Note>
-                    {t('web.agentNewV4.cost.noSubscriptionFor', { vendor })}
-                    <button
-                        type='button'
-                        className='text-link ml-1.5 underline-offset-2 hover:underline'
-                        onClick={onBackToType}
-                    >
-                        {t('web.agentNewV4.cost.backToType')}
-                    </button>
-                </Note>
+                {accountActions}
             </>
         )
     return (
@@ -219,11 +340,11 @@ export const StepCost: FC<{
                         title={profile.identity?.email ?? profile.label}
                         detail={
                             profileNeedsSignIn(profile)
-                                ? t('web.agentNewV4.cost.expired')
+                                ? asleep
+                                    ? t('web.agentNewV4.cost.expiredLastChecked')
+                                    : t('web.agentNewV4.cost.expired')
                                 : profile.agentCount > 0
-                                  ? t('web.agentNewV4.cost.inUseBy', {
-                                        count: String(profile.agentCount)
-                                    })
+                                  ? inUseBy(profile.agentCount)
                                   : t('web.agentNewV4.cost.signedIn')
                         }
                         mark={<AccountIcon className='h-5 w-5' />}
@@ -278,13 +399,13 @@ export const StepCost: FC<{
                 )}
             </OptionGroup>
             {accountLevel}
-            {sharedNote}
+            {accountActions}
             {/* A sleeping sandbox reports what it last knew rather than being
                 woken to answer this list — waking one starts its billed running
                 time, and nobody asked for that by arriving on this step.
                 It is a read-out, not a warning: a filled alert box would make
                 the quietest fact on the screen its heaviest element. */}
-            {authList?.availability === 'sandbox-asleep' && (
+            {asleep && (
                 <p className='text-caption text-subtle mt-4 flex items-start gap-2 px-3'>
                     <InfoIcon
                         className='mt-0.5 h-3.5 w-3.5 shrink-0'
@@ -297,18 +418,26 @@ export const StepCost: FC<{
     )
 }
 
-// The step still appears for a connected service, with nothing to pick. Every
-// run of the flow is then the same four steps, so nobody has to remember that
-// one kind of agent is shorter.
-export const StepCostExternal: FC<{ framework: AgentFramework }> = ({
-    framework
-}): ReactNode => {
+// Step ③ when there is nothing to choose (`fixedCostFor`). The flow passes
+// over it, so this is only seen by someone who goes back to it from the bar —
+// and then it says where the model comes from instead of offering rows whose
+// answer would be ignored.
+export const StepCostFixed: FC<{
+    cost: CostChoice
+    framework: AgentFramework
+}> = ({ cost, framework }): ReactNode => {
     const { t } = useI18n()
+    const service = frameworkLabel(framework)
     return (
         <Note>
-            {t('web.agentNewV4.cost.externalBilled', {
-                service: frameworkLabel(framework)
-            })}
+            {cost.kind === 'inherited'
+                ? t('web.agentNewV4.cost.inheritedNote', {
+                      cli: service,
+                      machine: cost.machine
+                  })
+                : cost.kind === 'runtime-ui'
+                  ? t('web.agentNewV4.cost.runtimeUiNote', { service })
+                  : t('web.agentNewV4.cost.externalBilled', { service })}
         </Note>
     )
 }
