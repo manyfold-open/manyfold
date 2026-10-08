@@ -356,7 +356,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'أطول من المعتاد',
     'web.agentNewV4.cost.addKey': 'إضافة مفتاح API',
     'web.agentNewV4.cost.testingKey': 'جارٍ فحص المفتاح وتحميل نماذجه…',
-    'web.agentNewV4.cost.topUp': 'إعادة الشحن',
+    'web.agentNewV4.cost.addCredit': 'إعادة الشحن',
     'web.agentNewV4.wait.instant': 'فوري',
     'web.agentNewV4.wait.wake': 'نحو دقيقة · يستيقظ أولًا',
     'web.agentNewV4.wait.wakesFirst': 'يستيقظ أولًا',

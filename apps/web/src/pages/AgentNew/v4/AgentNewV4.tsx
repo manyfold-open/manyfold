@@ -254,7 +254,7 @@ const AgentNewV4: FC = (): ReactNode => {
     const [addKey, setAddKey] = useState<ModelProviderCreatePick | null>(null)
     const [testingKey, setTestingKey] = useState(false)
     const [pickWhenListed, setPickWhenListed] = useState<string | null>(null)
-    const [topUpOpen, setTopUpOpen] = useState(false)
+    const [addCreditOpen, setAddCreditOpen] = useState(false)
     // The machine's current account-level payer, keyed by the runtime it was
     // read for so a stale answer never labels another machine.
     const [billing, setBilling] = useState<{
@@ -1624,10 +1624,10 @@ const AgentNewV4: FC = (): ReactNode => {
                     value={costPick}
                     onChange={setCostPick}
                     onAddKey={setAddKey}
-                    onTopUp={
-                        managed.TopUpDialog !== undefined &&
+                    onAddCredit={
+                        managed.AddCreditDialog !== undefined &&
                         managedWarning !== null
-                            ? () => setTopUpOpen(true)
+                            ? () => setAddCreditOpen(true)
                             : undefined
                     }
                 />
@@ -1685,11 +1685,11 @@ const AgentNewV4: FC = (): ReactNode => {
                     />
                 </Suspense>
             )}
-            {topUpOpen && managed.TopUpDialog !== undefined && (
-                <managed.TopUpDialog
+            {addCreditOpen && managed.AddCreditDialog !== undefined && (
+                <managed.AddCreditDialog
                     balance={managed.balance}
                     onClose={() => {
-                        setTopUpOpen(false)
+                        setAddCreditOpen(false)
                         // The gate polls the account again, so the row's
                         // balance and its warning follow the top-up.
                         managed.retry()

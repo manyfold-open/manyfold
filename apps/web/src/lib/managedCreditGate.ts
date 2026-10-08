@@ -15,10 +15,10 @@ export interface ManagedCreditGate {
     balance: number | null
     creditGrant: ManagedCreditGrantView | null
     retry: () => void
-    // The edition's own top-up dialog, so a create flow that finds no balance
-    // can offer one in place instead of sending the user to billing. Absent
-    // where there is nothing to buy.
-    TopUpDialog?: FC<{ balance: number | null; onClose: () => void }>
+    // The edition's own dialog for adding credit, so a create flow that finds
+    // no balance can offer one in place instead of sending the user to
+    // billing. Absent where there is nothing to buy.
+    AddCreditDialog?: FC<{ balance: number | null; onClose: () => void }>
 }
 
 export const useManagedCreditGate = (): ManagedCreditGate => ({

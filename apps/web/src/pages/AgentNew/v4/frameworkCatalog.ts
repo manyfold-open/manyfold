@@ -217,7 +217,7 @@ export const needsRemoteRef = (framework: AgentFramework): boolean =>
 
 // How long an install usually takes, as the button promises it. The core
 // frameworks were measured at one to two minutes; an edition's framework says
-// its own (NarraNexus builds a web app and takes several).
+// its own (one that builds a web app takes several).
 // Measured on staging [2026-09-15]: an OpenClaw install is 1–2 minutes.
 export const installMinutes = (
     framework: AgentFramework

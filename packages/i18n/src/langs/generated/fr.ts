@@ -2159,7 +2159,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'plus long que d\'habitude',
     'web.agentNewV4.cost.addKey': 'Ajouter une clé d’API',
     'web.agentNewV4.cost.testingKey': 'Vérification de la clé et chargement de ses modèles…',
-    'web.agentNewV4.cost.topUp': 'Recharger',
+    'web.agentNewV4.cost.addCredit': 'Recharger',
     'web.agentNewV4.wait.instant': 'immédiat',
     'web.agentNewV4.wait.wake': 'environ une minute · se réveille d’abord',
     'web.agentNewV4.wait.wakesFirst': 'se réveille d’abord',

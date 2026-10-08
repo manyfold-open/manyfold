@@ -2157,7 +2157,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.primary.longerThanUsual': 'सामान्य से अधिक समय',
     'web.agentNewV4.cost.addKey': 'API कुंजी जोड़ें',
     'web.agentNewV4.cost.testingKey': 'कुंजी जाँची जा रही है और उसके मॉडल लोड हो रहे हैं…',
-    'web.agentNewV4.cost.topUp': 'रिचार्ज करें',
+    'web.agentNewV4.cost.addCredit': 'रिचार्ज करें',
     'web.agentNewV4.wait.instant': 'तुरंत',
     'web.agentNewV4.wait.wake': 'लगभग एक मिनट · पहले जागेगी',
     'web.agentNewV4.wait.wakesFirst': 'पहले जागेगी',

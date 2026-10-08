@@ -1197,7 +1197,7 @@ test('keeping the machine\'s payer binds nothing after the join', () => {
     assert.equal(costShort(unread, tt), 'web.agentNewV4.cost.inheritedShort(sandbox-002)')
     assert.equal(costFull(unread, 'Claude', 'OpenClaw', tt), 'web.agentNewV4.cost.inheritedFull(sandbox-002)')
     const own = { kind: 'runtime-ui' } as const
-    assert.notEqual(costShort(own, tt, 'NarraNexus'), costFull(own, '', 'NarraNexus', tt))
+    assert.notEqual(costShort(own, tt, 'FixtureService'), costFull(own, '', 'FixtureService', tt))
 })
 
 test('step ② and step ④ word the same wait the same way', () => {
@@ -1216,8 +1216,8 @@ test('step ② and step ④ word the same wait the same way', () => {
     for (const kind of ['sandbox', 'ownComputer', 'cloudComputer'] as const)
         assert.doesNotMatch(newMachineWaitLabel(kind, 'Codex', false, tt), /signIn/)
     assert.equal(
-        createWaitLabel({ installing: true, asleep: false, cli: 'NarraNexus', minutes: [5, 7] }, tt),
-        'web.agentNewV4.wait.createInstall(NarraNexus,5,7)'
+        createWaitLabel({ installing: true, asleep: false, cli: 'FixtureService', minutes: [5, 7] }, tt),
+        'web.agentNewV4.wait.createInstall(FixtureService,5,7)'
     )
     assert.equal(
         createWaitLabel({ installing: false, asleep: true, cli: 'Codex', minutes: two }, tt),
