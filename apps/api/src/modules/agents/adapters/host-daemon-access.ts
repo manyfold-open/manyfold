@@ -144,6 +144,14 @@ export class HostDaemonAccess {
     ) {}
 
     async ensure(args: EnsureHostDaemonArgs): Promise<EnsureHostDaemonResult> {
+        // A sandbox in maintenance takes no work, even on a daemon that is
+        // still connected: the provider's check found the machine broken.
+        if (args.host.kind === 'hosted' && args.host.status === 'maintenance')
+            return {
+                daemon: args.daemon ?? null,
+                online: false,
+                fallbackReason: 'sandbox_maintenance'
+            }
         if (
             args.host.kind === 'hosted' &&
             args.wake !== false &&
@@ -224,6 +232,9 @@ export class HostDaemonAccess {
         args: WithHostArgs,
         work: (session: HostSession) => Promise<T>
     ): Promise<T> {
+        // Refused before the hold, which would itself wake the machine.
+        if (args.host.kind === 'hosted' && args.host.status === 'maintenance')
+            throw new HostDaemonOfflineError(args.host, 'sandbox_maintenance')
         if (args.wake === false) await this.assertUp(args)
         const hold = this.hold(args.host, args.reason)
         try {
@@ -401,7 +412,9 @@ export class HostDaemonOfflineError extends Error {
     ) {
         const cliVersion = cli.refusal?.cliVersion ?? cli.cliVersion ?? null
         super(
-            reason === 'runner_updating'
+            reason === 'sandbox_maintenance'
+                ? `${host.name} is under maintenance: its hosting provider reported a problem with the machine`
+                : reason === 'runner_updating'
                 ? `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
                 : reason === 'runner_cli_too_old'
                 ? host.kind === 'local'

@@ -58,6 +58,7 @@ import {
 } from '@/modules/hosts/bring-up/host-bring-up.service'
 import type { AwakeHold } from '@/modules/hosts/host-awake.service'
 import { TurnDaemonError, type TurnDaemon } from '@/modules/chat/turn-daemon'
+import { SANDBOX_MAINTENANCE_CODE } from '@/modules/chat/sandbox-maintenance-terminal'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
@@ -234,6 +235,10 @@ export class ExecDriverFactory {
             throw new TurnDaemonError(placement, 'runtime owner mismatch')
         if (ctx.availability === 'unavailable')
             throw new TurnDaemonError(placement, 'runtime unavailable')
+        // Before the active slot: reserving it opens metering and marks the
+        // machine running, and nothing may wake a sandbox in maintenance.
+        if (ctx.availability === 'maintenance')
+            throw new TurnDaemonError(placement, SANDBOX_MAINTENANCE_CODE)
         const runnerFacts = frameworkDefinition(agent.framework)?.runner
         const roots = turnRoots(agent, placement)
         // A root the daemon does not own by construction (the agent's

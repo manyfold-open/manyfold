@@ -477,6 +477,31 @@ test('RuntimeAccessService.reserveActiveSlot counts a shared sprite as one sandb
     assert.equal(result.activeCount, 1)
 })
 
+// The backstop under every wake path: a sandbox in maintenance failed its
+// provider's health check, so no slot is reserved and no metering opens for it.
+test('RuntimeAccessService.reserveActiveSlot refuses a sandbox in maintenance before reserving anything', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow({ planId: 'free' }))
+    db.hostRows.push(
+        hostRow({ id: 'host-broken', status: 'maintenance', powerState: 'stopped' })
+    )
+    const service = makeService(db)
+
+    await assert.rejects(
+        () =>
+            service.reserveActiveSlot({
+                userId: 'user-1',
+                hostId: 'host-broken'
+            }),
+        (err) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'SANDBOX_MAINTENANCE'
+    )
+    assert.equal(db.lockCount, 0)
+    assert.equal(db.hostRows[0].activeAccrualSince, null)
+})
+
 test('RuntimeAccessService.reserveActiveSlot excludes the target host from its own count', async () => {
     const db = new FakeRuntimeAccessDb()
     db.users.push(userRow({ planId: 'free' }))

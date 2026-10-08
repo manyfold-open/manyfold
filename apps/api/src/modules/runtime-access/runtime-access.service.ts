@@ -1578,6 +1578,7 @@ export class RuntimeAccessService {
         // suspended re-checks everything.
         const [existing] = await this.db
             .select({
+                status: runtimeHosts.status,
                 powerState: runtimeHosts.powerState,
                 activeAccrualSince: runtimeHosts.activeAccrualSince
             })
@@ -1589,6 +1590,13 @@ export class RuntimeAccessService {
                 )
             )
             .limit(1)
+        // The backstop for every wake path: a slot is never reserved for a
+        // sandbox in maintenance, whose provider found the machine broken.
+        if (existing?.status === 'maintenance')
+            throw new ConflictException({
+                message: 'this sandbox is under maintenance: its hosting provider reported a problem with the machine',
+                code: 'SANDBOX_MAINTENANCE'
+            })
         if (
             existing?.powerState === 'running' &&
             existing.activeAccrualSince

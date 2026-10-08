@@ -168,6 +168,7 @@ import {
     SPRITE_EXEC_TERMINAL_EVENT,
     type SpriteExecTerminal
 } from '@/modules/chat/sprite-exec-terminal'
+import { sandboxMaintenanceStream } from '@/modules/chat/sandbox-maintenance-terminal'
 import { ChatCancelBus } from '@/modules/chat/chat-cancel-bus'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
@@ -1967,6 +1968,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         try {
             const agentCtx = await this.resolveAgentContext(agentId)
             if (agentCtx.runtime !== 'sprites') return
+            if (agentCtx.host?.status === 'maintenance') return
             // A VM known to be refusing exec cannot be prewarmed, and one focus
             // event per composer against a 502ing endpoint is how #730 multiplied
             // the wasted handshakes. READ-ONLY: prewarm never claims the fleet's
@@ -5741,6 +5743,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                       workspacePath: agent.workspacePath ?? null
                   }
                 : await this.resolveAgentContext(session.agentId)
+        // A sandbox in maintenance — its provider's health check reported the
+        // machine broken — is refused before anything here touches it: no
+        // channel probe, no exec probe, no runner, no wake. Every one of those
+        // would be spent rediscovering what the check already established.
+        const maintenance = agentCtx.host?.status === 'maintenance'
         // Decided BEFORE any runner, daemon or CLI work: when a managed
         // channel's shared upstream account pool is known empty, every one of
         // those steps is spent rediscovering it — minutes per turn (#660) — and
@@ -5752,7 +5759,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // Match adapter precedence: modelConfig selects platform credentials,
         // otherwise even an empty runtimeLocalTuning selects native sign-in.
         const admission =
-            !modelConfig && runtimeLocalTuning
+            maintenance || (!modelConfig && runtimeLocalTuning)
                 ? null
                 : ((await this.managedChannelBreaker?.admitTurn(
                       {
@@ -5774,13 +5781,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // same way after paying both budgets. Consulted here so a blocked turn
         // costs one indexed read instead of a handshake — and before the runner,
         // because the inspect IS the turn's first exec.
-        const blockedTerminal = fastFail
-            ? null
-            : await this.gateSpriteExec({
-                  agentId: session.agentId,
-                  runtime: agentCtx.runtime,
-                  hostId: agentCtx.hostId
-              })
+        const blockedTerminal =
+            fastFail || maintenance
+                ? null
+                : await this.gateSpriteExec({
+                      agentId: session.agentId,
+                      runtime: agentCtx.runtime,
+                      hostId: agentCtx.hostId
+                  })
         // The daemon-exec bookkeeping is what makes a turn resumable: the
         // reverse-WS resume path finds an orphan by (daemon_id, daemon_exec_ref).
         // A runner turn needs the same row, so resolve the runner FIRST and stamp
@@ -5788,7 +5796,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let runner: TurnDaemon | null = null
         let runnerFailure: EmittedErrorEvent | null = null
         let runnerExecFailure: TurnDaemonError['execFailure']
-        if (!fastFail && !blockedTerminal && agentCtx.runtime !== 'external') {
+        if (
+            !maintenance &&
+            !fastFail &&
+            !blockedTerminal &&
+            agentCtx.runtime !== 'external'
+        ) {
             const resolved = await this.resolveTurnRunner({
                 agent: agent ?? session.agentId,
                 agentId: session.agentId,
@@ -5852,7 +5865,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // no second writer to arbitrate with, so no row.
             (agentCtx.runtime === 'k8s' && carryingDaemonId !== null) ||
             (agentCtx.runtime === 'daemon' && carryingDaemonId !== null)
-        if (stampedRuntime && this.turnAdoption && !fastFail && !execTerminal && !runnerFailure) {
+        if (stampedRuntime && this.turnAdoption && !maintenance && !fastFail && !execTerminal && !runnerFailure) {
             const ownerId = this.turnAdoption.ownerId
             try {
                 turnFence = await this.repo.upsertTurnExecution({
@@ -6017,19 +6030,21 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // dedupe, same observer/SSE, same inflight-claim release, same
             // exactly-once terminal telemetry — and no invariant below has to
             // learn that this turn is special.
-            const sparedStream = fastFail
-                ? managedChannelFastFailStream(
-                      this.managedChannelBreaker?.channelLabel(
-                          fastFail.brand
-                      ) ?? null
-                  )
-                : execTerminal
-                  ? sandboxExecUnavailableStream(execTerminal)
-                  : runnerFailure
-                    ? (async function* (): AsyncIterable<EmittedChatEvent> {
-                          yield runnerFailure!
-                      })()
-                    : null
+            const sparedStream = maintenance
+                ? sandboxMaintenanceStream()
+                : fastFail
+                  ? managedChannelFastFailStream(
+                        this.managedChannelBreaker?.channelLabel(
+                            fastFail.brand
+                        ) ?? null
+                    )
+                  : execTerminal
+                    ? sandboxExecUnavailableStream(execTerminal)
+                    : runnerFailure
+                      ? (async function* (): AsyncIterable<EmittedChatEvent> {
+                            yield runnerFailure!
+                        })()
+                      : null
             const adapterStream =
                 sparedStream ??
                 adapter.sendMessage(
@@ -6724,6 +6739,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             const machine = await this.runtimeContext?.forAgent(agentId)
             const host = machine?.host
             if (machine?.placement !== 'sprites' || !host) return
+            // Nothing wakes a sandbox in maintenance; the turn is refused.
+            if (host.status === 'maintenance') return
             // Over-quota users must not re-open the accrual watermark via
             // this fire-and-forget wake: a running power write would let the
             // turn hit reserveActiveSlot's fast path unchecked. Skipping

@@ -960,6 +960,18 @@ test('a host that is failed, deleting or retired is never brought up', async () 
     }
 })
 
+// The provider's health check found this sandbox's machine broken. The hold
+// is itself a wake, so the refusal comes before it, and with a reason no
+// retry loop takes for a runner that is merely slow to come up.
+test('a sandbox in maintenance is refused before any hold or provider call', async () => {
+    const h = buildHarness({ host: { status: 'maintenance' } })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'sandbox_maintenance')
+    assert.deepEqual(h.calls, [])
+    assert.deepEqual(h.holds, [])
+})
+
 test('the floor the bring-up enforces is the shared minimum', () => {
     assert.ok(DAEMON_MIN_CLI_VERSION.length > 0)
 })

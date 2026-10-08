@@ -152,6 +152,9 @@ export type BringUpFallbackReason =
     | 'runner_cli_too_old'
     // the host's daemon updates once the work it has finishes: retry soon.
     | 'runner_updating'
+    // the provider's health check reported the machine broken: nothing may
+    // wake it until a re-check passes, so this is never worth retrying.
+    | 'sandbox_maintenance'
 
 // How the machine's exec endpoint refused the inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run
@@ -341,6 +344,9 @@ export class HostBringUpService {
             host.status === 'failed'
         )
             return unavailable('runner_unavailable')
+        // Refused before the hold: the hold is itself a wake.
+        if (host.status === 'maintenance')
+            return unavailable('sandbox_maintenance')
         const hold = this.awake.hold(host, `ensure-${args.agentId ?? host.id}`)
         try {
             // Awaited, not returned: the admission can update the daemon, and

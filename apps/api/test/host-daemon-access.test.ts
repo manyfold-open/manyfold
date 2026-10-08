@@ -209,6 +209,28 @@ test('withHost that must not wake still works on a running machine it holds a so
     assert.deepEqual(events, ['hold:mcp-import', 'release:mcp-import'])
 })
 
+// The provider's health check found this sandbox's machine broken: no work
+// runs on it, not even on a daemon that is still connected, and no hold is
+// taken, because a hold is itself a wake.
+test('a sandbox in maintenance takes no work and no hold, whatever its daemon says', async () => {
+    const { access, events } = build()
+    const broken = host({ status: 'maintenance', powerState: 'running' })
+    await assert.rejects(
+        access.withHost(
+            { host: broken, daemon: null, placement: 'sprites', reason: 'files' },
+            async () => 'never'
+        ),
+        (err: unknown) =>
+            err instanceof HostDaemonOfflineError &&
+            err.reason === 'sandbox_maintenance' &&
+            /maintenance/.test(err.message)
+    )
+    const ensured = await access.ensure({ host: broken, daemon: null, placement: 'sprites' })
+    assert.equal(ensured.online, false)
+    assert.equal(ensured.fallbackReason, 'sandbox_maintenance')
+    assert.deepEqual(events, [])
+})
+
 test('an RPC lost to a closed or replaced socket is retried once on the fresh lease', async () => {
     let attempts = 0
     const { access, events } = build({
