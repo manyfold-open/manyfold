@@ -12,6 +12,7 @@ import {
     profilePaths
 } from '@manyfold/shared'
 import { Injectable, Logger, Optional } from '@nestjs/common'
+import { AppEventsService } from '@/common/events/app-events.service'
 import type {
     HostDaemonRow,
     RuntimeHostRow,
@@ -189,6 +190,9 @@ interface BringUpOutcome {
     handle: BringUpHandle | null
     execFailure?: ExecEndpointFailure
     registerFailure?: string
+    // A failure that says nothing about the machine's health: it is gone, or
+    // a newer generation took the bring-up over.
+    quiet?: boolean
 }
 
 type BringUpInspection =
@@ -309,7 +313,11 @@ export class HostBringUpService {
         private readonly awake: HostAwakeService,
         // Appended last + @Optional so positional test construction keeps
         // working; absent, a daemon lacking a feature is refused as too old.
-        @Optional() private readonly hostCli?: HostCliService
+        @Optional() private readonly hostCli?: HostCliService,
+        // Not @Optional: it carries the failure signal the health check
+        // hangs off, so a module that cannot see it must fail to boot. The TS
+        // `?` is for positional test construction only.
+        private readonly appEvents?: AppEventsService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -416,7 +424,13 @@ export class HostBringUpService {
             return res.exitCode === 0 ? 'ok' : 'inconclusive'
         } catch (err) {
             const facts = adapter?.describeError?.(err) ?? null
-            if (facts?.execFailure) return facts.execFailure.failureClass
+            if (facts?.execFailure) {
+                this.appEvents?.emit('host.failure_observed', {
+                    hostId: host.id,
+                    cause: 'exec_probe'
+                })
+                return facts.execFailure.failureClass
+            }
             this.logger.warn(
                 `exec probe inconclusive hostId=${host.id} class=${facts?.errorClass ?? errorClass(err)}`
             )
@@ -563,6 +577,15 @@ export class HostBringUpService {
             this.bringUps.delete(args.host.id)
         })
         this.bringUps.set(args.host.id, attempt)
+        // Once per real attempt: the turns that joined it share its outcome.
+        // A register failure is the CLI's, not the machine's.
+        void attempt.then((outcome) => {
+            if (!outcome.handle && !outcome.registerFailure && !outcome.quiet)
+                this.appEvents?.emit('host.failure_observed', {
+                    hostId: args.host.id,
+                    cause: 'bring_up'
+                })
+        })
         return attempt
     }
 
@@ -592,7 +615,7 @@ export class HostBringUpService {
             const power = await adapter.power({ host, provider })
             if (power === 'gone') {
                 this.logger.warn(`daemon bring-up found the machine gone ${tag}`)
-                return { handle: null }
+                return { handle: null, quiet: true }
             }
             await recordPower(this.hosts, host.id, power)
             const asleep = power === 'suspended' || power === 'stopped'
@@ -670,12 +693,13 @@ export class HostBringUpService {
             this.logger.log(`daemon online ${tag} generation=${generation}`)
             return { handle: online }
         } catch (err) {
-            if (err instanceof StaleGenerationError)
+            if (err instanceof StaleGenerationError) {
                 this.logger.log(`daemon bring-up superseded ${tag}`)
-            else
-                this.logger.warn(
-                    `daemon bring-up failed ${tag} class=${errorClass(err)}`
-                )
+                return { handle: null, quiet: true }
+            }
+            this.logger.warn(
+                `daemon bring-up failed ${tag} class=${errorClass(err)}`
+            )
             return { handle: null }
         }
     }

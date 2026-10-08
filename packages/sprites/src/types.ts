@@ -11,6 +11,22 @@ export interface Sprite {
     [key: string]: unknown
 }
 
+// GET /sprites/{name}/check, which the public OpenAPI does not list. It takes
+// the sprite's name (its id answers 404), and it is not read-only: it repairs
+// what it can, restarting a stopped machine for one.
+// Seen on prod [2026-10-08]: `unhealthy` ("failed to start machine"),
+// `repaired` ("restarted stopped machine") and `needs_repair` ("machine in
+// suspended state"), each in about a second.
+export interface SpriteHealthCheck {
+    status: string
+    reason?: string | null
+    sprite_name?: string
+    sprite_id?: string
+    elapsed?: number
+    checked_at?: string
+    [key: string]: unknown
+}
+
 export type ServiceStatus =
     | 'stopped'
     | 'starting'

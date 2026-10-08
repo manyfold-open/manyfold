@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import type {
     RuntimeProviderKind,
+    SandboxHealthVerdict,
     SandboxServiceStatus
 } from '@manyfold/shared'
 import type {
@@ -74,6 +75,16 @@ export interface CredentialHealth {
 // What the provider reports about a machine's power: the host vocabulary,
 // or `gone` when the provider has no such machine any more.
 export type ProviderPowerState = RuntimeHostPowerState | 'gone'
+
+// The provider's own verdict on a machine. `rawStatus` is what it answered,
+// kept verbatim because a status the adapter does not know maps to `unknown`
+// and someone has to be able to read what it was.
+export interface ProviderHealthReport {
+    verdict: SandboxHealthVerdict
+    rawStatus: string
+    reason: string | null
+    elapsedMs: number | null
+}
 
 // One control-plane read of every machine a provider account holds, waking
 // none of them: each host's listed power by host id — a host the listing does
@@ -203,6 +214,13 @@ export interface SandboxProvider {
     destroy(args: ProviderCall): Promise<void>
     // The machine's power from the provider's control plane; never wakes it.
     power(args: Omit<ProviderCall, 'generation'>): Promise<ProviderPowerState>
+    // The provider's health check on one machine, or `gone` when it has no
+    // such machine. Unlike power(), it can act: a provider may repair what it
+    // finds (sprites restarts a stopped machine), so it counts as a wake and
+    // is never called on a machine that is working.
+    checkHealth?(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<ProviderHealthReport | 'gone'>
     // A provider whose account lists all its machines in one read offers it,
     // and the power sync reads that instead of one power() per host.
     observe?(args: {
