@@ -1,5 +1,24 @@
 # @manyfold/api
 
+## 10.10.0
+
+### Minor Changes
+
+- [#696](https://github.com/manyfold-open/manyfold/pull/696) [`fde1962`](https://github.com/manyfold-open/manyfold/commit/fde19627f4494b2cf4d0aa011f23dbf0201ebc9c) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox stays awake while a turn handed to another API instance finishes. When an instance handed a live turn on and then held the same sandbox again (the daemon reconnecting to it while it drained), letting go of that later hold deleted the handed-off turn's keep-awake task and the sandbox could go to sleep under the turn. A handed-off task now lapses only by its TTL, and later holds on that machine use their own task.
+
+- [#696](https://github.com/manyfold-open/manyfold/pull/696) [`fde1962`](https://github.com/manyfold-open/manyfold/commit/fde19627f4494b2cf4d0aa011f23dbf0201ebc9c) Thanks [@yingca1](https://github.com/yingca1)! - The mf CLI version list ("Change version…" on a sandbox, and the versions the update flows offer) lists every stable release again. When GitHub refuses the platform's token for the public releases repository, through an organization token policy or an invalid token, the API now reads the list without the token instead of falling back to the latest version alone.
+
+- [#696](https://github.com/manyfold-open/manyfold/pull/696) [`fde1962`](https://github.com/manyfold-open/manyfold/commit/fde19627f4494b2cf4d0aa011f23dbf0201ebc9c) Thanks [@yingca1](https://github.com/yingca1)! - A framework install on a sandbox or cloud computer no longer ends with a broken CLI when the machine's connection drops while it runs. The platform now follows the running install across every reconnect instead of giving up after the first, and it never retries an install whose machine stopped answering alongside the one still running. On the machine, installs of one framework run one at a time, the cleanup after an install only removes installs it superseded (never one still extracting or the one PATH points into), and an install whose package arrives without its own manifest is rejected before it reaches PATH, for a latest install as well as an exact one.
+
+- [#696](https://github.com/manyfold-open/manyfold/pull/696) [`fde1962`](https://github.com/manyfold-open/manyfold/commit/fde19627f4494b2cf4d0aa011f23dbf0201ebc9c) Thanks [@yingca1](https://github.com/yingca1)! - A Hermes turn handed to another API instance mid-run (a deploy or restart) now resumes to its real answer. The resume replays the daemon's output from the start, and its first already-stored row used to stop the relay and mark the turn finished with empty content while it was still running; the real answer, with its usage, was then dropped. Hermes now declares that replay, so stored rows are matched rather than written again, and a replayed permission ask is matched the same way. Any resume that stops on a write it cannot land now leaves the turn open for its real final instead of declaring it done.
+
+- [#697](https://github.com/manyfold-open/manyfold/pull/697) [`2e08e83`](https://github.com/manyfold-open/manyfold/commit/2e08e83221a6331a5f4a818ddeeff206988e9723) Thanks [@yingca1](https://github.com/yingca1)! - Hosted sandboxes have a health check and a maintenance stage. When the sandbox provider's own health check reports a sandbox's machine broken, the sandbox goes into maintenance. Chat turns and A2A tasks on its agents end at once with `sandbox_maintenance`, and automation runs fail at once saying why, instead of spending minutes on wake retries. Nothing wakes the machine: requests that would take an active sandbox slot for it answer 409 `SANDBOX_MAINTENANCE`. It is checked again on a backoff — 2 minutes, 10, 30, then hourly — and returns to ready as soon as a check comes back healthy.
+
+    - Admin › Sandboxes shows each sandbox's last verdict with a Check now button (`POST /api/admin/sandboxes/:id/health-check`). A sandbox in maintenance shows how long it has been there and when it is checked next, and offers End maintenance (`POST /api/admin/sandboxes/:id/maintenance/end`). Both are audited.
+    - Three switches under Admin › Feature toggles, all off by default: a check after a sandbox fails to wake (`sandbox_health_checks`), automatic entry into maintenance (`sandbox_maintenance_auto`; while it is off, verdicts are only recorded), and a daily sweep of sandboxes no daemon has proven alive (`sandbox_health_sweep`). An admin's own check always applies its verdict, and automatic entries are capped per hour.
+    - The web shows the status wherever a sandbox's state appears, blocks the composer with the reason, and explains a refused turn.
+    - `runtime_hosts` gains the health-check columns (migration 0034). `SandboxSummary` gains `health` and `maintenanceSince`, and the host status and agent availability gain `maintenance`.
+
 ## 10.9.0
 
 ### Minor Changes

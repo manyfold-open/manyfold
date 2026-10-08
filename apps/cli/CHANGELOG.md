@@ -1,5 +1,11 @@
 # @manyfold/cli
 
+## 5.12.0
+
+### Minor Changes
+
+- [#696](https://github.com/manyfold-open/manyfold/pull/696) [`fde1962`](https://github.com/manyfold-open/manyfold/commit/fde19627f4494b2cf4d0aa011f23dbf0201ebc9c) Thanks [@yingca1](https://github.com/yingca1)! - A Hermes or OpenClaw turn no longer fails with "produced no output" the moment its sandbox wakes from a pause. The daemon's inactivity budgets now count only time the machine was running, so a turn whose sandbox slept mid-run keeps the whole budget after it wakes.
+
 ## 5.11.0
 
 ### Minor Changes
