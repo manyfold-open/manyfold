@@ -214,6 +214,7 @@ export type {
     AgentRuntimeSummary,
     CliUpdateDeferred,
     SandboxSummary,
+    SandboxHealthSummary,
     CliVersionCatalog,
     CliUpgradeBody,
     InstallSandboxFrameworkBody,
@@ -1339,7 +1340,9 @@ export type {
     RuntimeHostKind,
     RuntimeHostPowerState,
     RuntimeHostStatus,
-    RuntimeProviderKind
+    RuntimeProviderKind,
+    SandboxHealthCheckSource,
+    SandboxHealthVerdict
 } from './host-model'
 export type {
     RuntimeProviderSummary,

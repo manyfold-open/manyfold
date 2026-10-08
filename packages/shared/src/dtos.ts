@@ -3,7 +3,8 @@ import type {
     RuntimeHostKind,
     RuntimeHostPowerState,
     RuntimeHostStatus,
-    RuntimeProviderKind
+    RuntimeProviderKind,
+    SandboxHealthVerdict
 } from './host-model'
 import type {
     AgentFramework,
@@ -2023,6 +2024,9 @@ export interface HostPowerStatusUpdate {
     hostId: string
     powerState: RuntimeHostPowerState | null
     daemonOnline: boolean
+    // Set only when the host's lifecycle changed (maintenance entered or
+    // ended, machine gone or restored); absent on a plain power transition.
+    status?: RuntimeHostStatus
     at: string
 }
 
@@ -2439,8 +2443,23 @@ export interface SandboxSummary {
     // millisecond-based formatDuration(seconds * 1000).
     activeSecondsThisPeriod: number
     emptiedAt: string | null
+    // Set while status is `maintenance`: when the provider's health check
+    // first reported the machine broken.
+    maintenanceSince: string | null
+    // The provider's last health-check verdict; null until one is checked.
+    health: SandboxHealthSummary | null
     createdAt: string
     updatedAt: string
+}
+
+export interface SandboxHealthSummary {
+    status: SandboxHealthVerdict
+    reason: string | null
+    checkedAt: string
+    // When a sandbox in maintenance is re-checked next; null otherwise.
+    nextCheckAt: string | null
+    // Consecutive problem verdicts since the sandbox entered maintenance.
+    failureCount: number
 }
 
 export type SandboxServiceStatus =

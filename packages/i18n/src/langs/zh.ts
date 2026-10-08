@@ -602,14 +602,16 @@ const zh: Translations = {
                 wakeable: '休眠中',
                 offline: '离线',
                 unavailable: '不可用',
-                notConnected: '未连接'
+                notConnected: '未连接',
+                maintenance: '维护中'
             },
             lifecycle: {
                 provisioning: '准备中',
                 ready: '就绪',
                 failed: '失败',
                 deleting: '删除中',
-                retired: '已退役'
+                retired: '已退役',
+                maintenance: '维护中'
             },
             daemon: {
                 online: '在线',
@@ -637,7 +639,8 @@ const zh: Translations = {
                 notConnected: '已开机，但 daemon 未连接：刚被唤醒，或 daemon 已停止。下一条消息会重新连接。计入运行时间。',
                 deleting: '正在删除，其上的所有内容会一并删除。',
                 provisioning: '正在创建。',
-                failed: '未能创建，或其机器已不存在。原因见下方。'
+                failed: '未能创建，或其机器已不存在。原因见下方。',
+                maintenance: '它的机器没有通过托管服务商的健康检查。在重新检查确认正常之前，消息和定时运行都会被拒绝；重新检查会自动进行。'
             }
         },
         controlRow: {
@@ -5053,7 +5056,8 @@ const zh: Translations = {
                 available: '可用',
                 wakeable: '休眠中',
                 offline: '离线',
-                unavailable: '不可用'
+                unavailable: '不可用',
+                maintenance: '维护中'
             },
             power: {
                 running: '运行中',
@@ -5066,7 +5070,8 @@ const zh: Translations = {
                 ready: '就绪',
                 failed: '失败',
                 deleting: '删除中',
-                retired: '已退役'
+                retired: '已退役',
+                maintenance: '维护中'
             },
             daemon: {
                 online: '在线',

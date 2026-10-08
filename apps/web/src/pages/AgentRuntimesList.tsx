@@ -206,7 +206,8 @@ const AVAILABILITY_EFF: Record<RuntimeAvailability, EffStatus> = {
     available: 'ready',
     wakeable: 'asleep',
     offline: 'offline',
-    unavailable: 'offline'
+    unavailable: 'offline',
+    maintenance: 'offline'
 }
 
 const effStatus = (r: AgentRuntimeSummary): EffStatus =>

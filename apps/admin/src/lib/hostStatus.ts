@@ -13,7 +13,8 @@ const AVAILABILITY_TONE: Record<RuntimeAvailability, BadgeTone> = {
     available: 'success',
     wakeable: 'warning',
     offline: 'neutral',
-    unavailable: 'error'
+    unavailable: 'error',
+    maintenance: 'warning'
 }
 
 const LIFECYCLE_TONE: Record<RuntimeHostStatus, BadgeTone> = {
@@ -21,7 +22,8 @@ const LIFECYCLE_TONE: Record<RuntimeHostStatus, BadgeTone> = {
     ready: 'success',
     failed: 'error',
     deleting: 'warning',
-    retired: 'neutral'
+    retired: 'neutral',
+    maintenance: 'warning'
 }
 
 export const availabilityTone = (

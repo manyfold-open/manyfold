@@ -25,6 +25,7 @@ import type {
     CreateSandboxBody,
     DetectedFramework,
     MfCliChannel,
+    SandboxHealthSummary,
     SandboxServiceSummary,
     SandboxStopResponse,
     SandboxSummary,
@@ -1338,10 +1339,30 @@ const toSandboxSummary = (
         herdrFrameworks: herdrVersion !== null ? herdrFrameworks : [],
         activeSecondsThisPeriod,
         emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
+        maintenanceSince: host.maintenanceSince
+            ? host.maintenanceSince.toISOString()
+            : null,
+        health: toSandboxHealthSummary(host),
         createdAt: host.createdAt.toISOString(),
         updatedAt: host.updatedAt.toISOString()
     }
 }
+
+const toSandboxHealthSummary = (
+    host: RuntimeHostRow
+): SandboxHealthSummary | null =>
+    host.healthStatus && host.healthCheckedAt
+        ? {
+              status: host.healthStatus,
+              reason: host.healthReason,
+              checkedAt: host.healthCheckedAt.toISOString(),
+              nextCheckAt:
+                  host.status === 'maintenance' && host.healthCheckNextAt
+                      ? host.healthCheckNextAt.toISOString()
+                      : null,
+              failureCount: host.healthFailureCount
+          }
+        : null
 
 const toServiceSummary = (s: ProviderService): SandboxServiceSummary => ({
     ...s,

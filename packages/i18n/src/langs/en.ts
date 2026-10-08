@@ -612,14 +612,16 @@ const en = {
                 wakeable: 'Asleep',
                 offline: 'Offline',
                 unavailable: 'Unavailable',
-                notConnected: 'Not connected'
+                notConnected: 'Not connected',
+                maintenance: 'Maintenance'
             },
             lifecycle: {
                 provisioning: 'Provisioning',
                 ready: 'Ready',
                 failed: 'Failed',
                 deleting: 'Deleting',
-                retired: 'Retired'
+                retired: 'Retired',
+                maintenance: 'Maintenance'
             },
             daemon: {
                 online: 'Online',
@@ -653,7 +655,9 @@ const en = {
                 deleting: 'Being deleted, along with everything on it.',
                 provisioning: 'Being created.',
                 failed:
-                    "It couldn't be created, or its machine is gone. The reason is shown below."
+                    "It couldn't be created, or its machine is gone. The reason is shown below.",
+                maintenance:
+                    "Its machine failed the hosting provider's health check. Messages and scheduled runs are refused until a re-check finds it healthy, which happens automatically."
             }
         },
         controlRow: {
@@ -5301,7 +5305,8 @@ const en = {
                 available: 'Available',
                 wakeable: 'Asleep',
                 offline: 'Offline',
-                unavailable: 'Unavailable'
+                unavailable: 'Unavailable',
+                maintenance: 'Maintenance'
             },
             power: {
                 running: 'Running',
@@ -5314,7 +5319,8 @@ const en = {
                 ready: 'Ready',
                 failed: 'Failed',
                 deleting: 'Deleting',
-                retired: 'Retired'
+                retired: 'Retired',
+                maintenance: 'Maintenance'
             },
             daemon: {
                 online: 'Online',

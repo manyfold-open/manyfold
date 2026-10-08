@@ -47,12 +47,25 @@ export type RuntimeHostKind = 'local' | 'hosted'
 //   deleting:     remote destroy requested but not yet confirmed
 //   retired:      the user revoked it — token revoked, registration and
 //                 WebSocket refused, only permanent deletion is left
+//   maintenance:  hosted-only; was ready until its provider's health check
+//                 reported the machine broken (failure_reason says why).
+//                 Nothing wakes it; a passing re-check or an admin returns
+//                 it to ready
 export type RuntimeHostStatus =
     | 'provisioning'
     | 'ready'
     | 'failed'
     | 'deleting'
     | 'retired'
+    | 'maintenance'
+
+// The provider health check's verdict; anything but `healthy` is a problem.
+export type SandboxHealthVerdict =
+    | 'healthy'
+    | 'unhealthy'
+    | 'needs_repair'
+    | 'repaired'
+    | 'unknown'
 
 // hosted-only power observation as the provider adapter maps it (sprites:
 // running / warm / cold → running / suspended / stopped).
@@ -113,7 +126,14 @@ export const runtimeHosts = pgTable(
         // (`sandbox-NNN`), local to what the daemon reported.
         name: text('name').notNull(),
         status: text('status', {
-            enum: ['provisioning', 'ready', 'failed', 'deleting', 'retired']
+            enum: [
+                'provisioning',
+                'ready',
+                'failed',
+                'deleting',
+                'retired',
+                'maintenance'
+            ]
         })
             .notNull()
             .$type<RuntimeHostStatus>(),
@@ -178,6 +198,28 @@ export const runtimeHosts = pgTable(
         storageLeaseUntil: timestamp('storage_lease_until', { withTimezone: true }),
         storageRetryAt: timestamp('storage_retry_at', { withTimezone: true }),
         storageFailureCount: integer('storage_failure_count').notNull().default(0),
+        // hosted-only: the provider health check. attempted_at stamps every
+        // claim, a failed call included, so it is what the rate limits read;
+        // the lease is the in-flight claim's token (precision 3: it is
+        // compared back against a JS Date); next_at schedules the re-check of
+        // a host in maintenance and failure_count is its backoff step.
+        healthStatus: text('health_status', {
+            enum: ['healthy', 'unhealthy', 'needs_repair', 'repaired', 'unknown']
+        }).$type<SandboxHealthVerdict>(),
+        healthReason: text('health_reason'),
+        healthCheckedAt: timestamp('health_checked_at', { withTimezone: true }),
+        healthCheckAttemptedAt: timestamp('health_check_attempted_at', {
+            withTimezone: true
+        }),
+        healthCheckLeaseUntil: timestamp('health_check_lease_until', {
+            withTimezone: true,
+            precision: 3
+        }),
+        healthCheckNextAt: timestamp('health_check_next_at', {
+            withTimezone: true
+        }),
+        healthFailureCount: integer('health_failure_count').notNull().default(0),
+        maintenanceSince: timestamp('maintenance_since', { withTimezone: true }),
         createdAt: timestamp('created_at', { withTimezone: true })
             .notNull()
             .defaultNow(),
@@ -188,6 +230,7 @@ export const runtimeHosts = pgTable(
     (table) => ({
         storageAttemptLease: check('runtime_hosts_storage_attempt_lease', sql`(${table.storageAttemptId} is null) = (${table.storageLeaseUntil} is null)`),
         storageFailuresNonnegative: check('runtime_hosts_storage_failures_nonnegative', sql`${table.storageFailureCount} >= 0`),
+        healthFailuresNonnegative: check('runtime_hosts_health_failures_nonnegative', sql`${table.healthFailureCount} >= 0`),
         // Only hosted hosts carry a provider; a local host never does.
         providerByKind: check(
             'runtime_hosts_provider_by_kind',

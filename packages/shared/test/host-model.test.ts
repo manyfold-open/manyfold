@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { runtimeAvailability } from '../src/host-model'
+import { isRuntimeUsable, runtimeAvailability } from '../src/host-model'
 import type { RuntimeHostPowerState } from '../src/host-model'
 
 const ready = { status: 'ready' as const }
@@ -77,5 +77,29 @@ test('a self-owned computer answers to its daemon alone', () => {
     assert.equal(
         runtimeAvailability({ runtime: ready, host: local, daemonOnline: false }),
         'offline'
+    )
+})
+
+// Maintenance means the provider's health check found the machine broken:
+// nothing may wake it, so neither a fresh heartbeat nor a running power
+// reading can make it look usable.
+test('a machine in maintenance is refused whatever its power or daemon say', () => {
+    for (const powerState of ['running', 'suspended', 'stopped', null] as const)
+        for (const daemonOnline of [true, false]) {
+            const availability = runtimeAvailability({
+                runtime: ready,
+                host: { kind: 'hosted', status: 'maintenance', powerState },
+                daemonOnline
+            })
+            assert.equal(availability, 'maintenance')
+            assert.equal(isRuntimeUsable(availability), false)
+        }
+    assert.equal(
+        runtimeAvailability({
+            runtime: { status: 'installing' },
+            host: { kind: 'hosted', status: 'maintenance', powerState: 'running' },
+            daemonOnline: true
+        }),
+        'unavailable'
     )
 })
