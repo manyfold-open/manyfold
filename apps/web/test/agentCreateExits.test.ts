@@ -4,7 +4,10 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NEW_RUNTIME_OPTIONS } from '../src/lib/newRuntimeOptions'
-import { EXIT_RENT_CLOUD_COMPUTER } from '../src/pages/AgentNew/v4/exits'
+import {
+    EXIT_MANAGE_SANDBOXES,
+    EXIT_RENT_CLOUD_COMPUTER
+} from '../src/pages/AgentNew/v4/exits'
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
@@ -44,7 +47,7 @@ const resolves = (path: string): boolean =>
 // Renting a cloud computer is the only row left that leaves: it ends in a
 // purchase, on a surface the cloud edition owns. Signing in, connecting your
 // own computer and connecting a service all finish inside their own step now.
-const EXITS = [EXIT_RENT_CLOUD_COMPUTER]
+const EXITS = [EXIT_RENT_CLOUD_COMPUTER, EXIT_MANAGE_SANDBOXES]
 
 // Seen on staging [2026-09-15]: every one of these was a hand-written URL that
 // matched no route, so picking "Connect my computer", "Cloud computer" or

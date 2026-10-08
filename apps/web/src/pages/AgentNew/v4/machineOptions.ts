@@ -10,39 +10,35 @@ import type {
 } from '@manyfold/shared'
 import { computeSpriteTargets } from '@/lib/agentCreate/spriteTargets'
 import { hostKey } from '@/lib/hostStatus'
+import type { RuntimeChoice } from '@/pages/AgentNew/v4/flowState'
 
-// What picking this row costs. Time alone is not the cost: a fresh sandbox is
-// two minutes AND a sign-in, while reusing a machine that already runs agents
-// is neither. Showing only the minutes lets the user believe a new machine is
-// two minutes more expensive when it is really two minutes plus a trip to a
-// vendor's website — so the hidden half is promoted to the moment of choice.
-export type SignInCost =
-    // Already proven working: this runtime runs agents today, so a new one
-    // inherits whatever makes them work. We cannot know WHICH credential that
-    // is without waking the machine (step ③ shows that, on purpose, without a
-    // wake), but "nothing more to set up" is true either way.
-    | 'none'
-    // A runtime that exists but has never run an agent — a machine prepared in
-    // an earlier, abandoned run of this flow. It reappears here as an ordinary
-    // option, with no "last time" marker on it.
-    | 'next-step'
-    | 'after'
-    // A daemon host signs in on the user's own computer, so it is already done
-    // if they have ever signed in there.
-    | 'already-if-signed-in'
-    // A service framework such as OpenClaw or Hermes never signs in —
-    // it is handed its provider when installed, and in this flow that install
-    // happens at step ④ with the agent (`installsAtCreate`). Its rows owe no
-    // sign-in, so the cost column says what they owe instead.
-    | 'install-at-create'
+// What picking this row costs in waiting, which is all step ② can know.
+// Whether a sign-in follows depends on how the user pays, and that is step
+// ③'s question: a row that promised "sign in once afterwards" was wrong for
+// everyone about to pick Manyfold managed or a key, and one that promised "no
+// sign-in needed" because the machine already ran agents was wrong whenever
+// those agents' credentials had expired.
+// Seen on staging [2026-10-08]: sandbox-002 read "instant · no sign-in
+// needed" in step ② — it was asleep, and step ③ then listed both of its
+// accounts as expired.
+export type MachineWait =
+    // Awake and ready for this framework.
+    | { kind: 'instant' }
+    // Ready, but asleep: it wakes before the agent can join.
+    | { kind: 'wake' }
+    // The framework is installed onto it when step ② is left.
+    | { kind: 'install'; asleep: boolean }
+    // A service framework, installed with the agent at step ④
+    // (`installsAtCreate`).
+    | { kind: 'install-at-create'; asleep: boolean }
 
-const forFramework = (
+const installWait = (
     framework: AgentFramework,
-    cost: SignInCost
-): SignInCost => {
-    if (frameworkCapability(framework).kind !== 'service') return cost
-    return cost === 'after' ? 'install-at-create' : 'none'
-}
+    asleep: boolean
+): MachineWait =>
+    frameworkCapability(framework).kind === 'service'
+        ? { kind: 'install-at-create', asleep }
+        : { kind: 'install', asleep }
 
 export type MachineState =
     | 'ready'
@@ -50,7 +46,8 @@ export type MachineState =
     | 'service-slot-taken'
     | 'not-installable'
     // A machine that cannot take an agent right now: still starting (or still
-    // installing this framework), failed to start, or a sandbox in maintenance.
+    // installing this framework), failed to start, a sandbox in maintenance,
+    // or your own computer while its daemon is not connected.
     | 'unavailable'
 
 // One row per machine (ADR-0037): `id` is the host key, whatever the row
@@ -69,12 +66,12 @@ export interface MachineOption {
     hostKind: RuntimePlacement
     ownComputer: boolean
     agentsCount: number
-    signInCost: SignInCost
+    wait: MachineWait
     // A sandbox holding nothing at all: flagged so the quota warning can point
     // at something deletable instead of only saying "full".
     idle: boolean
     blockedBy?: AgentFramework
-    unavailableReason?: 'starting' | 'failed' | 'maintenance'
+    unavailableReason?: 'starting' | 'failed' | 'maintenance' | 'offline'
     disabled: boolean
 }
 
@@ -86,8 +83,10 @@ export interface NewMachineOption {
     // Quota read-out for the sandbox row: "2 of 5 used".
     used?: number
     limit?: number
-    signInCost: SignInCost
 }
+
+const sleeping = (sandbox: SandboxSummary | undefined): boolean =>
+    sandbox?.powerState === 'suspended' || sandbox?.powerState === 'stopped'
 
 const daemonHasFramework = (
     runtimes: AgentRuntimeSummary[],
@@ -115,19 +114,16 @@ export const buildMachineOptions = (args: {
     const { framework, runtimes, sandboxes, daemonHosts, podHosts } = args
     const rows: MachineOption[] = []
     for (const target of computeSpriteTargets(runtimes, framework, sandboxes)) {
+        const sandbox = sandboxes.find((s) => s.id === target.hostId)
+        const asleep = sleeping(sandbox)
         if (target.type === 'reuse') {
             const runtime = target.runtime
             // A sandbox the provider's health check found broken takes no new
             // agent until it is out of maintenance; it stays listed, saying so.
-            const inMaintenance =
-                sandboxes.find((s) => s.id === target.hostId)?.status ===
-                'maintenance'
+            const inMaintenance = sandbox?.status === 'maintenance'
             rows.push({
                 id: hostKey(target.hostId),
-                title:
-                    sandboxes.find((s) => s.id === target.hostId)?.name ??
-                    runtime.hostName ??
-                    runtime.name,
+                title: sandbox?.name ?? runtime.hostName ?? runtime.name,
                 state: inMaintenance ? 'unavailable' : 'ready',
                 ...(inMaintenance
                     ? { unavailableReason: 'maintenance' as const }
@@ -138,7 +134,7 @@ export const buildMachineOptions = (args: {
                 hostKind: 'sprites',
                 ownComputer: false,
                 agentsCount: runtime.agentsCount,
-                signInCost: runtime.agentsCount > 0 ? 'none' : 'next-step',
+                wait: asleep ? { kind: 'wake' } : { kind: 'instant' },
                 idle: false,
                 disabled: inMaintenance
             })
@@ -151,7 +147,7 @@ export const buildMachineOptions = (args: {
             // listed with the reason, as a cloud computer in that state does.
             // Seen on a local stack [2026-09-27]: the sandbox left behind by
             // a failed build was offered as an empty machine to install onto.
-            const status = sandboxes.find((s) => s.id === target.hostId)?.status
+            const status = sandbox?.status
             const unavailableReason =
                 status === 'failed'
                     ? 'failed'
@@ -173,7 +169,7 @@ export const buildMachineOptions = (args: {
                 hostKind: 'sprites',
                 ownComputer: false,
                 agentsCount: 0,
-                signInCost: 'after',
+                wait: installWait(framework, asleep),
                 idle: target.runtimeCount === 0,
                 ...(unavailableReason !== undefined
                     ? { unavailableReason }
@@ -192,7 +188,7 @@ export const buildMachineOptions = (args: {
             hostKind: 'sprites',
             ownComputer: false,
             agentsCount: 0,
-            signInCost: 'after',
+            wait: { kind: 'instant' },
             idle: false,
             blockedBy: target.blockedBy,
             disabled: true
@@ -216,32 +212,35 @@ export const buildMachineOptions = (args: {
                 hostKind: 'daemon',
                 ownComputer: true,
                 agentsCount: 0,
-                signInCost: 'already-if-signed-in',
+                wait: { kind: 'instant' },
                 idle: false,
                 disabled: true
             })
             continue
         }
+        // Joining needs the daemon connected — it creates the workspace on
+        // that machine — so an offline computer is listed with the way to
+        // bring it back rather than offered and refused at create.
         rows.push({
             id: hostKey(host.id),
             title: host.name,
-            state: 'ready',
+            state: host.online ? 'ready' : 'unavailable',
             runtimeId: runtime.id,
             sandboxId: null,
             podHostId: null,
             hostKind: 'daemon',
             ownComputer: true,
             agentsCount: runtime.agentsCount,
-            signInCost:
-                runtime.agentsCount > 0 ? 'none' : 'already-if-signed-in',
+            wait: { kind: 'instant' },
             idle: false,
-            disabled: false
+            ...(host.online ? {} : { unavailableReason: 'offline' as const }),
+            disabled: !host.online
         })
     }
     // A cloud computer (ADR-0035) runs whatever is installed on it: a runtime
     // for this framework is joined, a ready one without it gets it installed
     // (a service framework at create, with its provider), and the rest stay
-    // listed with the reason they cannot.
+    // listed with the reason they cannot. It never sleeps.
     const podInstallable = supportsRuntime(framework, 'k8s')
     for (const host of podHosts) {
         const runtime = host.runtimes.find(
@@ -262,7 +261,7 @@ export const buildMachineOptions = (args: {
                 runtimeId: runtime.id,
                 podHostId: null,
                 agentsCount: runtime.agentsCount,
-                signInCost: runtime.agentsCount > 0 ? 'none' : 'next-step',
+                wait: { kind: 'instant' },
                 disabled: false
             })
             continue
@@ -283,15 +282,12 @@ export const buildMachineOptions = (args: {
             runtimeId: null,
             podHostId: host.id,
             agentsCount: 0,
-            signInCost: 'after',
+            wait: installWait(framework, false),
             ...(unavailableReason !== undefined ? { unavailableReason } : {}),
             disabled: !podInstallable || unavailableReason !== undefined
         })
     }
-    return rows.map((row) => ({
-        ...row,
-        signInCost: forFramework(framework, row.signInCost)
-    }))
+    return rows
 }
 
 export const buildNewMachineOptions = (args: {
@@ -299,32 +295,72 @@ export const buildNewMachineOptions = (args: {
     access: RuntimeAccessSummary | null
 }): NewMachineOption[] => {
     const { framework, access } = args
-    const remaining = access?.statefulSandboxRemaining ?? null
+    // Until the quota is known the row cannot honestly be offered: a build
+    // started over a full quota is refused by the server two minutes later.
+    const remaining =
+        access === null ? 0 : (access.statefulSandboxRemaining ?? null)
     const options: NewMachineOption[] = [
         {
             kind: 'sandbox',
             disabled: remaining !== null && remaining <= 0,
             used: access?.statefulSandboxUsage,
-            limit: access?.statefulSandboxLimit,
-            signInCost: forFramework(framework, 'after')
+            limit: access?.statefulSandboxLimit
         },
         {
             kind: 'ownComputer',
             // Not every framework runs on a daemon host. Ask the capability
             // matrix rather than restating it, so the row follows the
             // backend if that changes.
-            disabled: !supportsRuntime(framework, 'daemon'),
-            signInCost: 'already-if-signed-in'
+            disabled: !supportsRuntime(framework, 'daemon')
         }
     ]
-    // A cloud computer that has not been bought reads as "needs a plan", not
-    // as a missing row — a disappearing option teaches the user nothing.
+    // A cloud computer that is not enabled for this account stays listed with
+    // that reason — a disappearing option teaches the user nothing.
     options.push({
         kind: 'cloudComputer',
-        disabled: access?.cloudComputerEnabled !== true,
-        signInCost: 'after'
+        disabled: access?.cloudComputerEnabled !== true
     })
     return options
+}
+
+// The answer step ② gives for a row that needs nothing done to it now: a
+// runtime that already exists, or a machine a service framework will be
+// installed onto at create. Null when leaving the step on this row builds or
+// installs something first.
+export const choiceWithoutWork = (
+    row: MachineOption,
+    framework: AgentFramework
+): RuntimeChoice | null => {
+    if (row.runtimeId !== null)
+        return {
+            kind: 'runtime',
+            runtimeId: row.runtimeId,
+            sandboxId: row.sandboxId,
+            hostKind: row.hostKind,
+            hostLabel: row.title,
+            ownComputer: row.ownComputer
+        }
+    if (frameworkCapability(framework).kind !== 'service') return null
+    if (row.podHostId !== null)
+        return {
+            kind: 'runtime',
+            runtimeId: null,
+            sandboxId: null,
+            podHostId: row.podHostId,
+            hostKind: 'k8s',
+            hostLabel: row.title,
+            ownComputer: false
+        }
+    if (row.sandboxId !== null)
+        return {
+            kind: 'runtime',
+            runtimeId: null,
+            sandboxId: row.sandboxId,
+            hostKind: 'sprites',
+            hostLabel: row.title,
+            ownComputer: false
+        }
+    return null
 }
 
 // The sandbox a failed build in step ② left behind: the row that was not in

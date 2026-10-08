@@ -6,6 +6,7 @@ import {
     providerRowVerdict
 } from '@manyfold/shared'
 import type {
+    AgentCredentialsView,
     AgentRuntimeSummary,
     DaemonHostSummary,
     PodHostSummary,
@@ -15,16 +16,33 @@ import type {
 } from '@manyfold/shared'
 import {
     advanceBlockedKey,
+    answeredSteps,
     initialFlowState,
     nextStep,
     previousStep,
+    sameRuntime,
     withFramework,
-    withRuntime
+    withRuntime,
+    withSuggestedName,
+    withTypedName
 } from '../src/pages/AgentNew/v4/flowState'
+import { enterAdvances } from '../src/pages/AgentNew/v4/components/enterKey'
+import {
+    canStandOn,
+    furthestStep,
+    hostIdOfRow,
+    readUrl,
+    writeUrl
+} from '../src/pages/AgentNew/v4/urlState'
+import { machineBillingFrom } from '../src/pages/AgentNew/v4/machineBilling'
 import type { RuntimeChoice } from '../src/pages/AgentNew/v4/flowState'
 import {
     costFull,
     costShort,
+    createBudgetSeconds,
+    createWaitLabel,
+    newMachineWaitLabel,
+    waitLabel,
     creatingPrimary,
     preparingPrimary,
     runtimeFull,
@@ -33,11 +51,16 @@ import {
 import {
     frameworkGroups,
     canUseSubscription,
+    firstServiceAgent,
     hasWorkspace,
+    installMinutes,
     installsAtCreate,
+    needsRemoteRef,
     runsOnOurMachine
 } from '../src/pages/AgentNew/v4/frameworkCatalog'
 import {
+    externalCreateBody,
+    fixedCostFor,
     joinBindingFor,
     managedChannelFor,
     serviceCreateBody,
@@ -46,6 +69,7 @@ import {
 import {
     buildMachineOptions,
     buildNewMachineOptions,
+    choiceWithoutWork,
     sandboxLeftFailed,
     sandboxToRetry
 } from '../src/pages/AgentNew/v4/machineOptions'
@@ -191,23 +215,30 @@ test('steps clamp at both ends', () => {
     assert.equal(nextStep('type'), 'runtime')
 })
 
-test('a machine already running agents costs no sign-in; a prepared one does', () => {
+// Seen on staging [2026-10-08]: rows promised "instant · no sign-in needed"
+// from the agent count alone, on a sandbox that was asleep and whose accounts
+// had expired. A row now says what it costs in waiting, read from its power
+// state; whether a sign-in follows is step ③'s to say.
+test('a machine says what it costs in waiting, read from whether it is awake', () => {
     const rows = buildMachineOptions({
         framework: 'claude-code',
         runtimes: [
             runtime({ id: 'r1', hostId: 'h1', agentsCount: 3 }),
             runtime({ id: 'r2', hostId: 'h2', agentsCount: 0 })
         ],
-        sandboxes: [sandbox('h1', 'dev-box'), sandbox('h2', 'sandbox-a1b2')],
+        sandboxes: [
+            sandbox('h1', 'dev-box'),
+            { ...sandbox('h2', 'sandbox-a1b2'), powerState: 'stopped' }
+        ],
         daemonHosts: [],
         podHosts: []
     })
     const working = rows.find((r) => r.title === 'dev-box')
     const prepared = rows.find((r) => r.title === 'sandbox-a1b2')
-    assert.equal(working?.signInCost, 'none')
+    assert.deepEqual(working?.wait, { kind: 'instant' })
     // The machine left behind by an abandoned run comes back as an ordinary
     // row — same shape as any other, no "last time" marker.
-    assert.equal(prepared?.signInCost, 'next-step')
+    assert.deepEqual(prepared?.wait, { kind: 'wake' })
     assert.equal(prepared?.disabled, false)
 })
 
@@ -221,7 +252,7 @@ test('a sandbox without the CLI offers to install it, and flags an empty one', (
     })
     assert.equal(rows.length, 1)
     assert.equal(rows[0].state, 'needs-install')
-    assert.equal(rows[0].signInCost, 'after')
+    assert.deepEqual(rows[0].wait, { kind: 'install', asleep: false })
     assert.equal(rows[0].idle, true)
 })
 
@@ -356,7 +387,7 @@ test('a cloud computer runs whatever is installed on it', () => {
     assert.equal(joined?.state, 'ready')
     assert.equal(joined?.runtimeId, 'r1')
     assert.equal(joined?.hostKind, 'k8s')
-    assert.equal(joined?.signInCost, 'none')
+    assert.deepEqual(joined?.wait, { kind: 'instant' })
     const install = rows.find((r) => r.id === 'host:pdh_2')
     assert.equal(install?.state, 'needs-install')
     assert.equal(install?.podHostId, 'pdh_2')
@@ -373,7 +404,7 @@ test('a service framework installs onto a cloud computer at create', () => {
     })
     assert.equal(row.state, 'needs-install')
     assert.equal(row.podHostId, 'pdh_1')
-    assert.equal(row.signInCost, 'install-at-create')
+    assert.deepEqual(row.wait, { kind: 'install-at-create', asleep: false })
 })
 
 test('a cloud computer that cannot take the agent stays listed with its reason', () => {
@@ -570,7 +601,15 @@ test('the working directory is offered on every framework that has one', () => {
 
 test('a working directory the API would reject blocks the button first', () => {
     const named = {
-        ...initialFlowState(),
+        ...withRuntime(withFramework(initialFlowState(), 'claude-code'), {
+            kind: 'runtime',
+            runtimeId: 'r1',
+            sandboxId: 'h1',
+            hostKind: 'sprites',
+            hostLabel: 'dev-box',
+            ownComputer: false
+        }),
+        cost: { kind: 'platform' } as const,
         step: 'name' as const,
         name: 'alert-firefly-5493'
     }
@@ -647,7 +686,7 @@ test('step ② names the request in flight and counts across both', () => {
 // step ④, with the agent, because the install needs the provider step ③ has
 // not asked yet. Seen on staging [2026-09-16]: installing OpenClaw at step ②
 // answered 500, `cannot resolve base_url for openclaw provider ''`.
-test('a service framework installs at create, and its rows owe no sign-in', () => {
+test('a service framework installs at create', () => {
     for (const fw of ['openclaw', 'hermes', FIXTURE_FRAMEWORK])
         assert.equal(installsAtCreate(fw), true, fw)
     for (const fw of ['claude-code', 'codex', 'gemini-cli', 'pi'] as const)
@@ -661,16 +700,12 @@ test('a service framework installs at create, and its rows owe no sign-in', () =
         daemonHosts: [],
         podHosts: []
     })
-    assert.equal(rows.find((r) => r.id === 'host:h2')?.signInCost, 'install-at-create')
-    // Joining the instance that already runs costs nothing more — and never
-    // a sign-in, which this kind of framework does not have.
-    assert.equal(rows.find((r) => r.id === 'host:h1')?.signInCost, 'none')
-    const fresh = (fw: 'openclaw' | 'claude-code') =>
-        buildNewMachineOptions({ framework: fw, access: access({}) }).find(
-            (o) => o.kind === 'sandbox'
-        )?.signInCost
-    assert.equal(fresh('openclaw'), 'install-at-create')
-    assert.equal(fresh('claude-code'), 'after')
+    assert.deepEqual(rows.find((r) => r.id === 'host:h2')?.wait, {
+        kind: 'install-at-create',
+        asleep: false
+    })
+    // Joining the instance that already runs costs nothing more.
+    assert.deepEqual(rows.find((r) => r.id === 'host:h1')?.wait, { kind: 'instant' })
 })
 
 const providerRow = (
@@ -953,4 +988,397 @@ test('step ④ names the model the install will be given, and only then', () => 
         costFull({ kind: 'platform' }, 'Claude', 'Dify', tt),
         'web.agentNewV4.cost.managed · web.agentNewV4.cost.managedDetail'
     )
+})
+
+// Seen on staging [2026-10-08]: Claude Code to step ④, back to ①, Hermes —
+// and the bar still offered ③ and ④, where a Create button over an empty
+// summary did nothing when pressed.
+test('a step counts as answered only while every step before it is', () => {
+    const machine: RuntimeChoice = {
+        kind: 'runtime',
+        runtimeId: 'r1',
+        sandboxId: 'h1',
+        hostKind: 'sprites',
+        hostLabel: 'dev-box',
+        ownComputer: false
+    }
+    const done = {
+        ...withRuntime(withFramework(initialFlowState(), 'claude-code'), machine),
+        cost: { kind: 'platform' } as const,
+        name: 'alert-firefly-5493',
+        step: 'name' as const
+    }
+    assert.deepEqual([...answeredSteps(done)], ['type', 'runtime', 'cost', 'name'])
+    const switched = withFramework(done, 'hermes')
+    // The name survives a type change, but nothing past ① is answered any
+    // more, so nothing past ① may be jumped to.
+    assert.equal(switched.name, 'alert-firefly-5493')
+    assert.deepEqual([...answeredSteps(switched)], ['type'])
+})
+
+test('step ④ refuses to create while an earlier answer is missing', () => {
+    const orphan = {
+        ...withFramework(initialFlowState(), 'hermes'),
+        step: 'name' as const,
+        name: 'alert-firefly-5493'
+    }
+    assert.equal(advanceBlockedKey(orphan), 'web.agentNewV4.blocked.runtime')
+    assert.equal(
+        advanceBlockedKey({ ...orphan, framework: null }),
+        'web.agentNewV4.blocked.type'
+    )
+})
+
+test('leaving step ② on the machine already chosen keeps step ③', () => {
+    const a: RuntimeChoice = {
+        kind: 'runtime',
+        runtimeId: 'r1',
+        sandboxId: 'h1',
+        hostKind: 'sprites',
+        hostLabel: 'dev-box',
+        ownComputer: false
+    }
+    const b: RuntimeChoice = { ...a, runtimeId: 'r2', sandboxId: 'h2' }
+    const answered = {
+        ...withRuntime(withFramework(initialFlowState(), 'claude-code'), a),
+        cost: { kind: 'platform' } as const
+    }
+    assert.ok(sameRuntime(a, { ...a }))
+    assert.deepEqual(withRuntime(answered, { ...a }).cost, { kind: 'platform' })
+    assert.equal(sameRuntime(a, b), false)
+    assert.equal(withRuntime(answered, b).cost, null)
+    const dify: RuntimeChoice = {
+        kind: 'external',
+        providerId: 'p1',
+        providerLabel: 'dify.mycorp.com',
+        remoteRef: '',
+        remoteLabel: ''
+    }
+    assert.equal(sameRuntime(a, dify), false)
+    assert.ok(sameRuntime(dify, { ...dify }))
+})
+
+// Seen on staging [2026-10-08]: Enter on Back moved the flow forward.
+test('Enter moves the flow on only from a text field or the picked row', () => {
+    const el = (
+        tagName: string,
+        over: { type?: string; role?: string; ariaChecked?: string } = {}
+    ) => ({
+        tagName,
+        type: over.type,
+        role: over.role ?? null,
+        ariaChecked: over.ariaChecked ?? null
+    })
+    assert.ok(enterAdvances(el('INPUT', { type: 'text' })))
+    assert.ok(enterAdvances(el('BUTTON', { role: 'radio', ariaChecked: 'true' })))
+    // Back, Change, the bar's cells: Enter keeps its own meaning.
+    assert.equal(enterAdvances(el('BUTTON')), false)
+    assert.equal(enterAdvances(el('A')), false)
+    // A row not yet picked: Enter picks it, it does not advance past it.
+    assert.equal(
+        enterAdvances(el('BUTTON', { role: 'radio', ariaChecked: 'false' })),
+        false
+    )
+    assert.equal(enterAdvances(el('INPUT', { type: 'checkbox' })), false)
+    assert.equal(enterAdvances(el('TEXTAREA')), false)
+})
+
+// Seen on staging [2026-10-08]: each of these asked "who pays" and then
+// ignored the answer.
+test('step ③ is answered and passed over where there is nothing to choose', () => {
+    const fresh: RuntimeChoice = {
+        kind: 'runtime',
+        runtimeId: null,
+        sandboxId: 'h1',
+        hostKind: 'sprites',
+        hostLabel: 'sandbox-006',
+        ownComputer: false
+    }
+    const joined: RuntimeChoice = { ...fresh, runtimeId: 'r9', hostLabel: 'sandbox-002' }
+    const service: RuntimeChoice = {
+        kind: 'external',
+        providerId: 'p1',
+        providerLabel: 'dify.mycorp.com',
+        remoteRef: '',
+        remoteLabel: ''
+    }
+    assert.deepEqual(fixedCostFor('dify', service), { kind: 'external' })
+    // A framework given its models in its own UI takes none at create,
+    // whether it is installed now or already runs there.
+    assert.deepEqual(fixedCostFor(FIXTURE_FRAMEWORK, fresh), { kind: 'runtime-ui' })
+    assert.deepEqual(fixedCostFor(FIXTURE_FRAMEWORK, joined), { kind: 'runtime-ui' })
+    // Joining an instance inherits its provider; installing one is a choice.
+    assert.deepEqual(fixedCostFor('openclaw', joined), {
+        kind: 'inherited',
+        label: null,
+        machine: 'sandbox-002'
+    })
+    assert.equal(fixedCostFor('openclaw', fresh), null)
+    assert.equal(fixedCostFor('hermes', fresh), null)
+    // A coding CLI always has something to choose.
+    assert.equal(fixedCostFor('claude-code', joined), null)
+})
+
+test('a connected service is created with the binding v1 and v3 send', () => {
+    assert.deepEqual(
+        externalCreateBody({ framework: 'dify', providerId: 'p1', remoteRef: '', name: ' support ' }),
+        { name: 'support', framework: 'dify', runtime: 'external', difyBinding: { providerId: 'p1' } }
+    )
+    assert.deepEqual(
+        externalCreateBody({ framework: 'langflow', providerId: 'p2', remoteRef: ' flow-1 ', name: 'lf' }),
+        {
+            name: 'lf',
+            framework: 'langflow',
+            runtime: 'external',
+            langflowBinding: { providerId: 'p2', flowId: 'flow-1' }
+        }
+    )
+    assert.deepEqual(
+        externalCreateBody({ framework: 'a2a', providerId: 'p3', remoteRef: '', name: 'peer' }),
+        { name: 'peer', framework: 'a2a', runtime: 'external', a2aBinding: { providerId: 'p3' } }
+    )
+    // Only Langflow names something on the service; A2A was being asked for
+    // a "Dify app ID".
+    assert.ok(needsRemoteRef('langflow'))
+    assert.equal(needsRemoteRef('dify'), false)
+    assert.equal(needsRemoteRef('a2a'), false)
+    const bare: RuntimeChoice = {
+        kind: 'external',
+        providerId: 'p1',
+        providerLabel: 'dify.mycorp.com',
+        remoteRef: '',
+        remoteLabel: ''
+    }
+    assert.equal(runtimeFull(bare, tt), 'dify.mycorp.com')
+})
+
+test('the machine\'s current payer is read from its credential view', () => {
+    const view = (over: Partial<AgentCredentialsView>): AgentCredentialsView =>
+        ({
+            framework: 'claude-code',
+            provider: 'anthropic',
+            apiKeyMasked: 'sk-…abcd',
+            baseUrl: null,
+            savedProvider: null,
+            extras: {},
+            updatedAt: '',
+            ...over
+        }) as AgentCredentialsView
+    const managed = providerRow({ id: 'm1', providerName: 'Managed Anthropic', source: 'managed' })
+    const netmind = providerRow({ id: 'p1', providerName: 'NetMind API' })
+    const rows = [managed, netmind]
+    assert.deepEqual(
+        machineBillingFrom(view({ savedProvider: { id: 'm1', providerName: 'Managed Anthropic' } }), rows),
+        { kind: 'managed' }
+    )
+    assert.deepEqual(
+        machineBillingFrom(view({ savedProvider: { id: 'p1', providerName: 'NetMind API' } }), rows),
+        { kind: 'provider', providerId: 'p1', label: 'NetMind API' }
+    )
+    // A pasted key that matches no saved row is still a payer to keep.
+    assert.deepEqual(machineBillingFrom(view({}), rows), { kind: 'key' })
+    // Nothing stored, a daemon's own sign-in, or a framework with its own
+    // UI: there is no account-level payer to keep.
+    assert.equal(machineBillingFrom(view({ apiKeyMasked: null }), rows), null)
+    assert.equal(machineBillingFrom(view({ localManaged: true }), rows), null)
+    assert.equal(machineBillingFrom(view({ unsupported: true }), rows), null)
+})
+
+test('keeping the machine\'s payer binds nothing after the join', () => {
+    const kept = { kind: 'inherited', label: 'NetMind API', machine: 'sandbox-002' } as const
+    assert.equal(joinBindingFor('claude-code', kept, []), null)
+    assert.equal(withBinding(kept, 'claude-code', []), kept)
+    assert.equal(costShort(kept, tt), 'NetMind API')
+    assert.equal(
+        costFull(kept, 'Claude', 'Claude Code', tt),
+        'NetMind API · web.agentNewV4.cost.inheritedFull(sandbox-002)'
+    )
+    const unread = { kind: 'inherited', label: null, machine: 'sandbox-002' } as const
+    assert.equal(costShort(unread, tt), 'web.agentNewV4.cost.inheritedShort(sandbox-002)')
+    assert.equal(costFull(unread, 'Claude', 'OpenClaw', tt), 'web.agentNewV4.cost.inheritedFull(sandbox-002)')
+    const own = { kind: 'runtime-ui' } as const
+    assert.notEqual(costShort(own, tt, 'NarraNexus'), costFull(own, '', 'NarraNexus', tt))
+})
+
+test('step ② and step ④ word the same wait the same way', () => {
+    const two = [1, 2] as const
+    assert.equal(waitLabel({ kind: 'instant' }, 'Codex', two, tt), 'web.agentNewV4.wait.instant')
+    assert.equal(waitLabel({ kind: 'wake' }, 'Codex', two, tt), 'web.agentNewV4.wait.wake')
+    assert.equal(
+        waitLabel({ kind: 'install', asleep: true }, 'Codex', [5, 7], tt),
+        'web.agentNewV4.wait.install(Codex,5,7) · web.agentNewV4.wait.wakesFirst'
+    )
+    assert.equal(
+        waitLabel({ kind: 'install-at-create', asleep: false }, 'OpenClaw', two, tt),
+        'web.agentNewV4.wait.installAtCreate(OpenClaw)'
+    )
+    // Nothing about signing in: that is step ③'s, once the payer is known.
+    for (const kind of ['sandbox', 'ownComputer', 'cloudComputer'] as const)
+        assert.doesNotMatch(newMachineWaitLabel(kind, 'Codex', false, tt), /signIn/)
+    assert.equal(
+        createWaitLabel({ installing: true, asleep: false, cli: 'NarraNexus', minutes: [5, 7] }, tt),
+        'web.agentNewV4.wait.createInstall(NarraNexus,5,7)'
+    )
+    assert.equal(
+        createWaitLabel({ installing: false, asleep: true, cli: 'Codex', minutes: two }, tt),
+        'web.agentNewV4.primary.createFineAsleep'
+    )
+    // The overrun line waits as long as the promise, plus a wake.
+    assert.equal(createBudgetSeconds({ installing: true, asleep: true, minutes: [5, 7] }), 510)
+    assert.equal(createBudgetSeconds({ installing: false, asleep: false, minutes: two }), 15)
+})
+
+test('an install takes the time its framework says, one to two minutes by default', () => {
+    assert.deepEqual(installMinutes('openclaw'), [1, 2])
+    assert.deepEqual(installMinutes(FIXTURE_FRAMEWORK), [1, 2])
+})
+
+test('your own computer that is offline is listed with how to bring it back', () => {
+    const rows = buildMachineOptions({
+        framework: 'claude-code',
+        runtimes: [runtime({ id: 'r1', kind: 'daemon', hostId: 'd1', agentsCount: 1 })],
+        sandboxes: [],
+        daemonHosts: [{ ...daemon('d1', 'laptop'), online: false }],
+        podHosts: []
+    })
+    assert.equal(rows[0].state, 'unavailable')
+    assert.equal(rows[0].unavailableReason, 'offline')
+    assert.equal(rows[0].disabled, true)
+})
+
+test('a new sandbox is offered only once the quota says there is room', () => {
+    const sandboxRow = (a: RuntimeAccessSummary | null) =>
+        buildNewMachineOptions({ framework: 'codex', access: a }).find(
+            (o) => o.kind === 'sandbox'
+        )
+    // Seen on staging [2026-10-08]: "4 of 3 used" — a build started then is
+    // refused by the server minutes later.
+    assert.equal(sandboxRow(access({ statefulSandboxUsage: 4, statefulSandboxLimit: 3, statefulSandboxRemaining: 0 }))?.disabled, true)
+    assert.equal(sandboxRow(null)?.disabled, true)
+    assert.equal(sandboxRow(access({}))?.disabled, false)
+})
+
+test('a service framework\'s first agent on a machine takes no workspace', () => {
+    assert.equal(firstServiceAgent('openclaw', null, 0), true)
+    assert.equal(firstServiceAgent('openclaw', 'r1', 0), true)
+    assert.equal(firstServiceAgent('openclaw', 'r1', 2), false)
+    assert.equal(firstServiceAgent('claude-code', null, 0), false)
+})
+
+// Seen on staging [2026-10-08]: Back left the flow, a reload started again at
+// step ①, and "+ Create agent" beside a connected computer (`?hostId=`)
+// opened the flow with nothing chosen.
+test('the address bar keeps the step, the type and the machine', () => {
+    const known = (value: string) => value === 'codex'
+    const read = (query: string) => readUrl(new URLSearchParams(query), known)
+    assert.deepEqual(read(''), { step: 'type', framework: null, host: null, service: null, ref: '' })
+    assert.deepEqual(read('step=cost&framework=codex&host=sbx_1'), {
+        step: 'cost',
+        framework: 'codex',
+        host: 'sbx_1',
+        service: null,
+        ref: ''
+    })
+    // What the connected-computer link sends.
+    assert.equal(read('hostId=dmn_1').host, 'dmn_1')
+    // Anything the flow cannot check is dropped, not trusted.
+    assert.equal(read('framework=unknown').framework, null)
+    assert.equal(read('step=elsewhere').step, 'type')
+    // The first step and empty answers leave no trace.
+    assert.equal(writeUrl(read('')).toString(), '')
+    assert.equal(
+        writeUrl(read('step=cost&framework=codex&host=sbx_1')).toString(),
+        'step=cost&framework=codex&host=sbx_1'
+    )
+    assert.equal(hostIdOfRow('host:sbx_1'), 'sbx_1')
+    assert.equal(hostIdOfRow('new:sandbox'), null)
+})
+
+test('Back and Forward land only on a step whose earlier answers still hold', () => {
+    const answered = new Set(['type', 'runtime'] as const)
+    assert.equal(furthestStep(answered), 'cost')
+    assert.ok(canStandOn('cost', answered))
+    assert.ok(canStandOn('type', answered))
+    assert.equal(canStandOn('name', answered), false)
+    assert.equal(furthestStep(new Set()), 'type')
+})
+
+test('a machine that needs nothing done to it is rejoined without work', () => {
+    const [ready] = buildMachineOptions({
+        framework: 'codex',
+        runtimes: [runtime({ id: 'r1', framework: 'codex', hostId: 'h1', agentsCount: 1 })],
+        sandboxes: [sandbox('h1', 'dev-box')],
+        daemonHosts: [],
+        podHosts: []
+    })
+    assert.equal(choiceWithoutWork(ready, 'codex')?.kind, 'runtime')
+    const [bare] = buildMachineOptions({
+        framework: 'codex',
+        runtimes: [],
+        sandboxes: [sandbox('h2', 'scratch')],
+        daemonHosts: [],
+        podHosts: []
+    })
+    // Codex would have to be installed first: that is work, so no answer.
+    assert.equal(choiceWithoutWork(bare, 'codex'), null)
+    const [service] = buildMachineOptions({
+        framework: 'openclaw',
+        runtimes: [],
+        sandboxes: [sandbox('h2', 'scratch')],
+        daemonHosts: [],
+        podHosts: []
+    })
+    // A service framework installs at create, so the machine is the answer.
+    assert.deepEqual(choiceWithoutWork(service, 'openclaw'), {
+        kind: 'runtime',
+        runtimeId: null,
+        sandboxId: 'h2',
+        hostKind: 'sprites',
+        hostLabel: 'scratch',
+        ownComputer: false
+    })
+})
+
+// Seen on staging [2026-10-08]: after a type change emptied ② and ③, the bar
+// still showed the name made up on the way to ④.
+test('a made-up name goes with the answers it was made for; a typed one stays', () => {
+    const a: RuntimeChoice = {
+        kind: 'runtime',
+        runtimeId: 'r1',
+        sandboxId: 'h1',
+        hostKind: 'sprites',
+        hostLabel: 'dev-box',
+        ownComputer: false
+    }
+    const b: RuntimeChoice = { ...a, runtimeId: 'r2', sandboxId: 'h2' }
+    const atFour = withSuggestedName(
+        {
+            ...withRuntime(withFramework(initialFlowState(), 'claude-code'), a),
+            cost: { kind: 'platform' } as const,
+            step: 'name' as const
+        },
+        () => 'brave-otter-0001'
+    )
+    assert.equal(atFour.name, 'brave-otter-0001')
+    assert.equal(atFour.nameAuto, true)
+    // Only looking back keeps it: nothing it depends on changed.
+    assert.equal(withRuntime(atFour, { ...a }).name, 'brave-otter-0001')
+    // Another type, or another machine, drops it.
+    assert.equal(withFramework(atFour, 'codex').name, '')
+    assert.equal(withRuntime(atFour, b).name, '')
+    // And a fresh one is offered on the way back to ④.
+    assert.equal(
+        withSuggestedName(withFramework(atFour, 'codex'), () => 'calm-heron-0002').name,
+        'calm-heron-0002'
+    )
+    // A name the user typed is theirs, whatever changes before it.
+    const typed = withTypedName(atFour, 'billing-bot')
+    assert.equal(typed.nameAuto, false)
+    assert.equal(withFramework(typed, 'codex').name, 'billing-bot')
+    assert.equal(withRuntime(typed, b).name, 'billing-bot')
+    // Keeping a typed name does not make it an answer: the bar shows it only
+    // once the steps before it are answered again.
+    assert.equal(answeredSteps(withFramework(typed, 'codex')).has('name'), false)
+    // Emptying the field is typing too: it is not refilled behind the user.
+    assert.equal(withTypedName(atFour, '').nameAuto, false)
 })

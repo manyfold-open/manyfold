@@ -3710,7 +3710,7 @@ const en = {
                 runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
                 cost: 'A vendor sign-in is written to that machine\'s disk and only works there; an account-level allowance follows you to every machine. You can change this once the agent exists.',
                 name: 'Check it over, and it is built.',
-                type: 'Ten of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
+                type: 'Pick one. The type cannot be changed once the agent exists, but you can create another agent of a different type.'
             },
             blocked: {
                 type: 'Pick one to continue',
@@ -3749,8 +3749,8 @@ const en = {
                 sandbox: 'Stateful sandbox',
                 ownComputer: 'Your own computer',
                 cloudComputer: 'Cloud computer',
-                readyWithAgents: '{{cli}} installed and working · {{count}} agents',
-                readyNoAgents: '{{cli}} installed, not signed in yet',
+                readyWithAgents: '{{cli}} installed · {{count}} agents',
+                readyNoAgents: '{{cli}} installed · no agents yet',
                 needsInstall: '{{cli}} has to be installed first',
                 needsInstallIdle: '{{cli}} has to be installed first; nothing on this machine yet',
                 notInstallable: 'Your computer does not have {{cli}}. Install it there and the daemon finds it within about five minutes',
@@ -3760,7 +3760,9 @@ const en = {
                 sandboxFailed: 'Failed to start; retry or delete it under Settings › Runtimes',
                 sandboxMaintenance:
                     'Under maintenance: its hosting provider reported a problem with the machine',
-                podHostNoService: '{{cli}} cannot run on a cloud computer yet'
+                podHostNoService: '{{cli}} cannot run on a cloud computer yet',
+                readyWithOneAgent: '{{cli}} installed · 1 agent',
+                daemonOffline: 'Offline · run mf daemon start on it to bring it back'
             },
             newMachine: {
                 sandbox: 'New sandbox',
@@ -3771,13 +3773,13 @@ const en = {
                 cloudComputer: 'Cloud computer',
                 cloudComputerDetail: 'Always on, never sleeps — for an agent that has to stay reachable',
                 quota: '{{used}} of {{limit}} used',
-                needsPlan: 'Needs a plan'
+                sandboxFull: '{{used}} sandboxes against a limit of {{limit}} · no room for another',
+                sandboxFullHint: 'To make room, delete a sandbox you no longer use. An empty one is marked “nothing on this machine yet”.',
+                manageSandboxes: 'Manage sandboxes',
+                ownComputerUnsupported: '{{cli}} cannot run on your own computer',
+                cloudComputerOff: 'Not enabled for your account'
             },
             cost: {
-                noSignIn: 'instant · no sign-in needed',
-                signInNextStep: 'sign in on the next step',
-                signInAfter: 'sign in once afterwards',
-                signInOnThatComputer: 'no sign-in if you signed in on that computer',
                 onThisMachine: 'On this machine',
                 accountLevel: 'On your account',
                 managed: 'Manyfold managed',
@@ -3786,13 +3788,11 @@ const en = {
                 preparingAccount: 'Preparing your account…',
                 managedUnavailable: 'Not available',
                 ownKeyDetail: 'Billed by the vendor',
-                installAtCreate: 'installs when you create · no sign-in',
                 managedNoChannel: 'No managed model {{cli}} can use yet',
                 providerIncompatible: '{{cli}} cannot talk to this provider',
                 providerUntested: 'No tested models yet · test it in Settings first',
                 signedIn: 'Signed in',
                 inUseBy: 'In use by {{count}} agents',
-                sharedAccount: 'This machine already runs {{count}} agents; those billed to your account switch to what you pick here.',
                 expired: 'Credentials expired — picking this needs a new sign-in',
                 aboutAMinute: 'about a minute',
                 signInTo: 'Your {{vendor}} account',
@@ -3801,12 +3801,25 @@ const en = {
                 signInAnotherDetail: 'Separate credentials',
                 loadingAccounts: 'Reading the accounts on this machine…',
                 asleep: 'This machine is asleep, so these are the last known values. It is not woken just to answer this list.',
-                noSubscriptionFor: '{{vendor}} calls a model API rather than carrying its own sign-in, so there is no subscription route for it. Both options above follow your account.',
-                backToType: 'Go back and pick another type',
                 externalBilled: 'The model for this agent is called and billed by your own {{service}} service, with no machine involved. Manyfold takes no part in it and cannot see its usage — change the model over there.',
                 externalShort: 'Billed on your own service',
                 subscriptionOf: 'Your {{vendor}} subscription',
-                externalSummary: 'Billed by your own {{service}} service'
+                externalSummary: 'Billed by your own {{service}} service',
+                switchesShared: 'Also switches the {{count}} agents here billed to your account',
+                inheritedNote: '{{cli}} on {{machine}} already has its model set, and a new agent there uses the same one. To change it, open the model settings of any agent on that machine.',
+                inheritedShort: 'Same as {{machine}}',
+                inheritedFull: 'Same as the other agents on {{machine}}',
+                runtimeUiNote: '{{service}} picks its models in its own settings, not here. Once it is created, open its dashboard and bind them under Settings › Providers.',
+                runtimeUiShort: 'Set in {{service}}',
+                runtimeUiSummary: 'Picked in the {{service}} dashboard after it is created',
+                currentKey: 'The key already on this machine',
+                inUseByOne: 'In use by 1 agent',
+                expiredLastChecked: 'Expired when last checked — picking this needs a new sign-in',
+                balanceEmpty: 'No balance left · it cannot reply until you top up',
+                balanceUnknown: 'Balance could not be read',
+                addKey: 'Add an API key',
+                testingKey: 'Checking the key and loading its models…',
+                topUp: 'Top up'
             },
             service: {
                 connected: '{{service}} services you have connected',
@@ -3821,7 +3834,7 @@ const en = {
             name: {
                 label: 'Name',
                 workspaceLabel: 'Workspace',
-                workspaceHint: 'Leave it empty for the path shown. The agent can only read and write inside it.',
+                workspaceHint: 'Leave it empty to use the path shown. A path you type must already exist on that machine.',
                 chosen: 'What you picked'
             },
             preparing: {
@@ -3833,23 +3846,27 @@ const en = {
             error: {
                 machineNotReady: 'Pick a machine first.',
                 serviceNotReady: 'Pick a service and name the app on it first.',
-                externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.',
                 noModel: 'No model could be chosen for that provider. Pick another way to pay.'
+            },
+            wait: {
+                instant: 'instant',
+                wake: 'about a minute · wakes up first',
+                wakesFirst: 'wakes up first',
+                install: 'about {{min}}–{{max}} minutes to install {{cli}}',
+                installAtCreate: '{{cli}} installs when you create',
+                build: 'about 2 minutes · builds a machine and installs {{cli}}',
+                buildService: 'about a minute · {{cli}} installs when you create',
+                connect: 'a few minutes · run one command on that computer',
+                createInstall: 'about {{min}}–{{max}} minutes · installs {{cli}} first'
             },
             primary: {
                 goToSettings: 'Go to settings',
                 leavesFlow: 'leaves this flow',
                 buildAndInstall: 'Build one and install {{cli}}',
                 retryBuildAndInstall: 'Retry {{machine}} and install {{cli}}',
-                buildFine: 'about 2 minutes · sign in once afterwards · {{used}} of {{limit}} used',
                 installOn: 'Install {{cli}} on {{machine}}',
-                installFine: 'about 1–2 minutes · sign in once afterwards',
                 build: 'Build one',
                 retryBuild: 'Retry {{machine}}',
-                buildFineService: 'about a minute · {{cli}} installs when you create · {{used}} of {{limit}} used',
-                installsAtCreate: '{{cli}} installs when you create · about 1–2 minutes then',
-                createFineInstall: 'about 1–2 minutes · installs {{cli}} first',
-                createFineInstallAsleep: 'about 2–3 minutes · this machine has to wake up, then {{cli}} installs',
                 signIn: 'Sign in to {{vendor}}',
 
                 createFine: 'a few seconds',
@@ -3858,7 +3875,8 @@ const en = {
                 tookLonger: 'longer than usual · a failure leaves nothing half-made',
                 building: 'Building…',
                 installing: 'Installing {{cli}}…',
-                longerThanUsual: 'longer than usual'
+                longerThanUsual: 'longer than usual',
+                connectComputer: 'Connect a computer'
             }
         },
         agentNew: {
