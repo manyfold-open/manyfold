@@ -52,22 +52,10 @@ export const RECHECK_LADDER_MS: readonly number[] = [
     60 * 60_000
 ]
 
-// A `repaired` verdict means the provider just changed something; whether it
-// worked is worth knowing within minutes, not after the ladder's next step.
-export const REPAIRED_RECHECK_MS = 2 * 60_000
-
-export const recheckDelayMs = (
-    verdict: SandboxHealthVerdict | null,
-    failureCount: number
-): number =>
-    verdict === 'repaired'
-        ? REPAIRED_RECHECK_MS
-        : RECHECK_LADDER_MS[
-              Math.min(
-                  Math.max(failureCount - 1, 0),
-                  RECHECK_LADDER_MS.length - 1
-              )
-          ]
+export const recheckDelayMs = (failureCount: number): number =>
+    RECHECK_LADDER_MS[
+        Math.min(Math.max(failureCount - 1, 0), RECHECK_LADDER_MS.length - 1)
+    ]
 
 export type HealthTransition =
     | { action: 'exit' }
@@ -75,10 +63,18 @@ export type HealthTransition =
     | { action: 'stay' }
     | { action: 'none'; suppressed?: 'shadow' | 'capped' }
 
-// What a verdict does to a host. Healthy is the only way out of maintenance;
-// anything else keeps a host there, and puts a ready host in — always when an
-// admin asked, and for an automatic check only while automatic entry is on and
-// the hourly budget has room. Otherwise the verdict is only recorded.
+// What a verdict does to a host. Only `unhealthy`, a machine that failed to
+// start, is a problem. A sleeping machine answers `needs_repair` and a stopped
+// one `repaired` (the check restarted it), so both bring a host out of
+// maintenance as `healthy` does, and an unrecognised status moves nothing.
+// `unhealthy` keeps a host in, and puts a ready host in: always when an admin
+// asked, and for an automatic check only while automatic entry is on and the
+// hourly budget has room. Otherwise the verdict is only recorded.
+// Measured on staging [2026-10-08]: a running machine answered `healthy`
+// ("machine is running"), 37 sleeping ones `needs_repair` ("machine in
+// suspended state") and a stopped one `repaired` ("restarted stopped
+// machine"). Seen on prod [2026-10-08]: a machine that could not start
+// answered `unhealthy` ("failed to start machine").
 export const decideTransition = (args: {
     verdict: SandboxHealthVerdict
     status: RuntimeHostStatus
@@ -86,7 +82,11 @@ export const decideTransition = (args: {
     autoEnter: boolean
     budgetLeft: boolean
 }): HealthTransition => {
-    if (args.verdict === 'healthy')
+    if (args.verdict === 'unknown')
+        return args.status === 'maintenance'
+            ? { action: 'stay' }
+            : { action: 'none' }
+    if (args.verdict !== 'unhealthy')
         return args.status === 'maintenance'
             ? { action: 'exit' }
             : { action: 'none' }

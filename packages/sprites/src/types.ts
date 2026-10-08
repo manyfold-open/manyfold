@@ -17,6 +17,9 @@ export interface Sprite {
 // Seen on prod [2026-10-08]: `unhealthy` ("failed to start machine"),
 // `repaired` ("restarted stopped machine") and `needs_repair` ("machine in
 // suspended state"), each in about a second.
+// Measured on staging [2026-10-08]: a running machine answers `healthy`
+// ("machine is running"), every sleeping one `needs_repair`, and a stopped
+// one `repaired` after the check restarts it.
 export interface SpriteHealthCheck {
     status: string
     reason?: string | null

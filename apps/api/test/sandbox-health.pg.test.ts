@@ -35,7 +35,8 @@ import { RECHECK_LADDER_MS } from '../src/modules/sandboxes/health/sandbox-healt
 //     comes back after an admin ended the maintenance cannot put it back;
 //   * automatic entry is shadowed while its switch is off and capped per hour
 //     while it is on; an admin's check always applies;
-//   * a healthy re-check is the way out, and anything else backs off;
+//   * only a machine that failed to start is kept in; a re-check with any
+//     other known verdict is the way out;
 //   * the sweep never asks about a machine a daemon proved alive.
 //
 // Each test creates, migrates and drops a throwaway database. Run per-file:
@@ -278,26 +279,54 @@ test(
         })
 )
 
+// Measured on staging [2026-10-08]: a sleeping sprite answers needs_repair
+// and a stopped one repaired. Neither is a fault, so each brings a sandbox out
+// of maintenance, and with automatic entry on neither puts a ready one in.
 test(
-    'a repaired machine is checked again within minutes, whatever its step',
+    'a sleeping or restarted machine leaves maintenance, and no automatic check puts one in',
     { skip: !RUN },
     async () =>
         withHarness(async (h) => {
-            const id = await h.host('repaired')
-            await h.first.health.checkNow(id)
-            await h.set(id, {
-                healthFailureCount: 3,
-                healthCheckNextAt: new Date(Date.now() - 1_000)
-            })
+            for (const [name, verdict, reason] of [
+                ['asleep', 'needs_repair', 'machine in suspended state'],
+                ['restarted', 'repaired', 'restarted stopped machine']
+            ] as const) {
+                h.script.current = async () =>
+                    report('unhealthy', 'failed to start machine')
+                const id = await h.host(name)
+                await h.first.health.checkNow(id)
+                assert.equal((await h.row(id)).status, 'maintenance')
+
+                await h.set(id, {
+                    healthCheckNextAt: new Date(Date.now() - 1_000)
+                })
+                h.script.current = async () => report(verdict, reason)
+                await h.first.health.tick()
+
+                const row = await h.row(id)
+                assert.equal(row.status, 'ready', name)
+                assert.equal(row.maintenanceSince, null)
+                assert.equal(row.healthFailureCount, 0)
+                assert.equal(row.healthStatus, verdict)
+            }
+            assert.equal(h.named(SANDBOX_MAINTENANCE_EXITED_EVENT).length, 2)
+
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_HEALTH_CHECKS] = true
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_MAINTENANCE_AUTO] = true
             h.script.current = async () =>
-                report('repaired', 'restarted stopped machine')
+                report('needs_repair', 'machine in suspended state')
+            const idle = await h.host('idle')
+            await afterFailure(h.first, idle)
 
-            await h.first.health.tick()
-
-            const row = await h.row(id)
-            assert.equal(row.status, 'maintenance')
-            assert.equal(row.healthFailureCount, 4)
-            assert.ok(within(row.healthCheckNextAt, 2 * 60_000))
+            const row = await h.row(idle)
+            assert.equal(row.status, 'ready')
+            assert.equal(row.healthStatus, 'needs_repair')
+            const checked = h
+                .named(SANDBOX_HEALTH_CHECKED_EVENT)
+                .filter((event) => event.attrs.hostId === idle)
+            assert.equal(checked.length, 1)
+            assert.equal(checked[0].attrs.outcome, 'recorded')
+            assert.equal(h.named(SANDBOX_MAINTENANCE_ENTERED_EVENT).length, 2)
         })
 )
 

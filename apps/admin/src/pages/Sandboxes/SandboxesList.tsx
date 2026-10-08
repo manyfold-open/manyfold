@@ -235,13 +235,13 @@ const SandboxesList: FC = (): ReactNode => {
         }
     }
 
-    // The provider's check, with its verdict applied: a problem puts the
-    // sandbox into maintenance, healthy brings it out. Merged in place, like
-    // the status refresh.
+    // The provider's check, with its verdict applied: a machine that failed
+    // to start puts the sandbox into maintenance, any other known verdict
+    // brings it out. Merged in place, like the status refresh.
     const checkHealth = async (r: SandboxSummary): Promise<void> => {
         if (
             !window.confirm(
-                `Ask the provider to check ${r.name}'s machine now? The check can restart a stopped machine. Any verdict but healthy puts the sandbox into maintenance: its agents refuse messages and scheduled runs until a re-check finds it healthy.`
+                `Ask the provider to check ${r.name}'s machine now? The check can restart a stopped machine. If the machine fails to start, the sandbox goes into maintenance: its agents refuse messages and scheduled runs until a re-check finds the machine starting again.`
             )
         )
             return
