@@ -349,6 +349,10 @@ export const apiPaths = {
     ADMIN_SANDBOX_TASK_BY_NAME: (id: string, name: string) =>
         `/admin/sandboxes/${id}/tasks/${encodeURIComponent(name)}`,
     ADMIN_SANDBOX_STOP: (id: string) => `/admin/sandboxes/${id}/stop`,
+    ADMIN_SANDBOX_HEALTH_CHECK: (id: string) =>
+        `/admin/sandboxes/${id}/health-check`,
+    ADMIN_SANDBOX_MAINTENANCE_END: (id: string) =>
+        `/admin/sandboxes/${id}/maintenance/end`,
     ADMIN_CHANNELS: '/admin/channels',
     ADMIN_CHANNEL_BY_ID: (id: string) => `/admin/channels/${id}`,
     ADMIN_CHANNEL_TEST: (id: string) => `/admin/channels/${id}/test`,

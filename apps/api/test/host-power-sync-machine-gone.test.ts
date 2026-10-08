@@ -203,6 +203,45 @@ test('elapsed window + getSprite not_found fails a host that still has agents', 
     )
 })
 
+// A sandbox in maintenance still has a machine, so it is still watched: when
+// the machine vanishes it is failed like any other, and leaves maintenance for
+// good — there is nothing left to re-check, and a revival returns it to ready.
+test('a sandbox in maintenance whose machine is gone is failed and leaves maintenance', async () => {
+    const db = makeDb(
+        [
+            fakeHost({
+                status: 'maintenance',
+                maintenanceSince: new Date(Date.now() - 3_600_000),
+                healthCheckNextAt: new Date(Date.now() + 600_000),
+                healthFailureCount: 3
+            })
+        ],
+        2
+    )
+    const client = makeClient({
+        sprites: [],
+        getSprite: async () => {
+            throw new SpritesError('not_found', 'gone', 404)
+        }
+    })
+    const { svc, events } = makeService(db, client)
+    missingSince(svc).set('host-1', Date.now() - 121_000)
+
+    await sync(svc)
+
+    const [host] = hostUpdates(db)
+    assert.equal(host.set.status, 'failed')
+    assert.equal(host.set.failureReason, GONE_REASON)
+    assert.equal(host.set.maintenanceSince, null)
+    assert.equal(host.set.healthCheckNextAt, null)
+    assert.equal(host.set.healthCheckLeaseUntil, null)
+    assert.equal(host.set.healthFailureCount, 0)
+    assert.deepEqual(
+        events.map((e) => e.name),
+        ['host.sprite_deleted']
+    )
+})
+
 // WHY: an empty host whose VM is gone has nothing left to protect — it goes
 // through the one host delete path (R8) rather than lingering as failed.
 test('elapsed window + getSprite not_found deletes an agent-less host', async () => {

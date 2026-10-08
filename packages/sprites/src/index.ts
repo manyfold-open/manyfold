@@ -23,6 +23,7 @@ export { parseServiceLogStream } from './services'
 export type { ServiceLogEvent } from './services'
 export type {
     Sprite,
+    SpriteHealthCheck,
     ListSpritesResponse,
     NetworkPolicy,
     NetworkPolicyRule,

@@ -113,11 +113,11 @@ export interface HostSession {
     // replaced or frozen socket waits for the fresh lease and goes once more.
     rpc: (args: HostRpcArgs) => Promise<Record<string, unknown> | undefined>
     // A command on the machine, under the same hold. The refId is minted once:
-    // a command whose socket was lost is sent again on the fresh lease under
+    // a command whose socket was lost is sent again on each fresh lease under
     // that refId, and the daemon attaches to it, or replays it if it finished,
     // instead of running it twice (exec.start is idempotent by refId,
-    // ADR-0029 §4). A timeout is never retried; a long command must not be
-    // doubled.
+    // ADR-0029 §4) — until it answers, or its own deadline passes. A timeout
+    // is never retried; a long command must not be doubled.
     exec: (req: HostExecRequest) => Promise<HostExecResult>
     stream: (args: HostStreamArgs) => HostStream
 }
@@ -144,6 +144,14 @@ export class HostDaemonAccess {
     ) {}
 
     async ensure(args: EnsureHostDaemonArgs): Promise<EnsureHostDaemonResult> {
+        // A sandbox in maintenance takes no work, even on a daemon that is
+        // still connected: the provider's check found the machine broken.
+        if (args.host.kind === 'hosted' && args.host.status === 'maintenance')
+            return {
+                daemon: args.daemon ?? null,
+                online: false,
+                fallbackReason: 'sandbox_maintenance'
+            }
         if (
             args.host.kind === 'hosted' &&
             args.wake !== false &&
@@ -224,6 +232,9 @@ export class HostDaemonAccess {
         args: WithHostArgs,
         work: (session: HostSession) => Promise<T>
     ): Promise<T> {
+        // Refused before the hold, which would itself wake the machine.
+        if (args.host.kind === 'hosted' && args.host.status === 'maintenance')
+            throw new HostDaemonOfflineError(args.host, 'sandbox_maintenance')
         if (args.wake === false) await this.assertUp(args)
         const hold = this.hold(args.host, args.reason)
         try {
@@ -339,19 +350,34 @@ export class HostDaemonAccess {
                 stderr: stderr.join('')
             }
         }
-        const since = new Date()
-        try {
-            return await attempt()
-        } catch (err) {
-            if (!isTransportLoss(err, false)) throw err
-            const back = this.bringUp
-                ? await this.bringUp.awaitReconnect(host, since)
-                : null
-            if (!back) throw err
-            return attempt()
+        // A command outlives the socket that started it, so every lost socket
+        // is followed onto the next one rather than only the first: a reattach
+        // can itself be cut by a second reconnect, and giving up there reads a
+        // still-running command as failed.
+        // Seen on staging [2026-10-07]: two reconnects 8s apart cut an
+        // openclaw install and its one reattach; the provisioner took that
+        // for a failed install and ran a second one alongside it, and the two
+        // left a half-extracted package on PATH.
+        const deadline = Date.now() + req.timeoutMs + 5_000
+        for (let sent = 1; ; sent += 1) {
+            const since = new Date()
+            try {
+                return await attempt()
+            } catch (err) {
+                if (!isTransportLoss(err, false)) throw err
+                if (sent >= EXEC_MAX_SENDS || Date.now() >= deadline) throw err
+                const back = this.bringUp
+                    ? await this.bringUp.awaitReconnect(host, since)
+                    : null
+                if (!back) throw err
+            }
         }
     }
 }
+
+// How many times one command is sent under its refId: a socket that keeps
+// flapping past this is a machine to report, not to keep following.
+const EXEC_MAX_SENDS = 5
 
 // The registry surfaces a lost generation in a few fixed shapes: a socket that
 // closed or was replaced mid-flight, no socket at all, a stale peer lease, or
@@ -386,7 +412,9 @@ export class HostDaemonOfflineError extends Error {
     ) {
         const cliVersion = cli.refusal?.cliVersion ?? cli.cliVersion ?? null
         super(
-            reason === 'runner_updating'
+            reason === 'sandbox_maintenance'
+                ? `${host.name} is under maintenance: its hosting provider reported a problem with the machine`
+                : reason === 'runner_updating'
                 ? `${host.name} is updating its Manyfold CLI once its current work finishes; retry in a few minutes`
                 : reason === 'runner_cli_too_old'
                 ? host.kind === 'local'

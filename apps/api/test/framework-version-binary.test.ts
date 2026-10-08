@@ -127,6 +127,14 @@ test('staging is cleaned on failure and the trap cleared after commit', () => {
     assert.ok(shell.indexOf('trap - EXIT') > shell.indexOf('mv -Tf'))
 })
 
+test('a binary install takes the same lock and spares a running or linked install', () => {
+    const lines = shell.split('\n')
+    assert.ok(lines.indexOf('  flock 9') < lines.findIndex((l) => l.startsWith('staging="$(mktemp')))
+    assert.ok(!shell.includes('[ "$d" = "$staging" ] || rm -rf "$d"'))
+    assert.ok(shell.includes('case "$linked" in "$d"/*) continue ;; esac'))
+    assert.match(shell, /-maxdepth 0 -mmin \+60/)
+})
+
 test('a v-prefixed tag keeps its URL segment but checks the bare version', () => {
     const tagged = buildBinaryInstallShell(descriptor, 'v2.0.0', artifacts)
     assert.ok(tagged.includes('/releases/download/v2.0.0/$asset'))

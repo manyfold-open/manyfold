@@ -17,6 +17,7 @@ import { SandboxesController } from './sandboxes.controller'
 import { AdminSandboxesController } from './admin-sandboxes.controller'
 import { SandboxesService } from './sandboxes.service'
 import { ActiveHoursEnforcementService } from './active-hours-enforcement.service'
+import { SandboxHealthService } from './health/sandbox-health.service'
 
 @Module({
     imports: [
@@ -38,6 +39,7 @@ import { ActiveHoursEnforcementService } from './active-hours-enforcement.servic
         SandboxesService,
         AdminGuard,
         ActiveHoursEnforcementService,
+        SandboxHealthService,
         ServiceLeaseService
     ]
 })

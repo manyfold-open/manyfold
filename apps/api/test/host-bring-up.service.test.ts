@@ -73,6 +73,8 @@ interface HarnessOptions {
     rpc?: (args: { method: string; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>
     // The CLI update an admission asks for when the daemon lacks a feature.
     hostCli?: { ensure: (host: RuntimeHostRow, need: { features?: readonly string[] }) => Promise<HostDaemonRow> }
+    // Who hears that a machine failed to come up.
+    appEvents?: { emit: (event: string, payload: unknown) => void }
 }
 
 const hostRow = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
@@ -338,7 +340,8 @@ const buildHarness = (opts: HarnessOptions = {}) => {
             onConnected: () => () => {}
         } as never,
         awake as never,
-        opts.hostCli as never
+        opts.hostCli as never,
+        opts.appEvents as never
     )
 
     return { service, state, adapter, execs, calls, powers, mints, revoked, rpcs, holds, releases, supervised, bumps: () => bumps, dialIn }
@@ -958,6 +961,84 @@ test('a host that is failed, deleting or retired is never brought up', async () 
         assert.equal(res.handle, null)
         assert.deepEqual(h.calls, [])
     }
+})
+
+// The provider's health check found this sandbox's machine broken. The hold
+// is itself a wake, so the refusal comes before it, and with a reason no
+// retry loop takes for a runner that is merely slow to come up.
+test('a sandbox in maintenance is refused before any hold or provider call', async () => {
+    const h = buildHarness({ host: { status: 'maintenance' } })
+    const res = await h.service.ensureHostDaemon({ host: h.state.host })
+    assert.equal(res.handle, null)
+    assert.equal(res.fallbackReason, 'sandbox_maintenance')
+    assert.deepEqual(h.calls, [])
+    assert.deepEqual(h.holds, [])
+})
+
+const heard = () => {
+    const events: Array<{ event: string; payload: unknown }> = []
+    return {
+        events,
+        emit: (event: string, payload: unknown) => events.push({ event, payload })
+    }
+}
+
+// What the health check hangs off: a machine that failed to come up for real
+// work, said once per attempt however many turns were waiting on it.
+test('a bring-up that ends without a daemon reports the machine failed, once per attempt', async () => {
+    const ear = heard()
+    const h = buildHarness({ registered: true, connects: false, appEvents: ear })
+    await Promise.all([
+        h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 }),
+        h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    ])
+    assert.deepEqual(ear.events, [
+        { event: 'host.failure_observed', payload: { hostId: 'sbx_1', cause: 'bring_up' } }
+    ])
+})
+
+// None of these says anything about the machine's health: a machine that is
+// gone is the gone detector's, a failed register is the CLI's, and a bring-up
+// a newer generation took over is that one's to report.
+test('a gone machine, a failed register, a superseded or a successful bring-up report nothing', async () => {
+    for (const opts of [
+        { power: 'gone' as never },
+        { registered: false, registerExit: 1, registerOutput: 'api unreachable' },
+        { registered: false }
+    ]) {
+        const ear = heard()
+        const h = buildHarness({ ...opts, appEvents: ear })
+        await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 50 })
+        assert.deepEqual(ear.events, [], JSON.stringify(opts))
+    }
+    const ear = heard()
+    const h = buildHarness({ registered: true, appEvents: ear })
+    const original = h.adapter.bootstrap
+    h.adapter.bootstrap = async (args) => {
+        if (args.script.includes('echo installed='))
+            h.state.host = { ...h.state.host, generation: h.state.host.generation + 1 }
+        return original(args)
+    }
+    await h.service.ensureHostDaemon({ host: h.state.host, waitOnlineMs: 20 })
+    assert.deepEqual(ear.events, [])
+})
+
+test('an exec probe that proves the endpoint dead reports the machine failed', async () => {
+    const ear = heard()
+    const h = buildHarness({ appEvents: ear })
+    h.adapter.bootstrap = async () => {
+        throw new SpritesError(
+            'transient',
+            'execSpriteStream handshake failed: HTTP 502',
+            502,
+            undefined,
+            { execPhase: 'pre_open' }
+        )
+    }
+    assert.equal(await h.service.probeExec(h.state.host, 1000), 'handshake_5xx')
+    assert.deepEqual(ear.events, [
+        { event: 'host.failure_observed', payload: { hostId: 'sbx_1', cause: 'exec_probe' } }
+    ])
 })
 
 test('the floor the bring-up enforces is the shared minimum', () => {

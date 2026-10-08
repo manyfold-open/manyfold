@@ -171,7 +171,8 @@ test("a sandbox's legend covers every badge it can show", () => {
         'provisioning',
         'ready',
         'failed',
-        'deleting'
+        'deleting',
+        'maintenance'
     ] as const)
         for (const powerState of POWER)
             for (const daemonOnline of [true, false]) {

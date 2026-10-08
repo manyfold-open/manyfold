@@ -99,6 +99,8 @@ export const makeSandboxSummary = (
         herdrFrameworks: [],
         activeSecondsThisPeriod: 0,
         emptiedAt: null,
+        maintenanceSince: null,
+        health: null,
         createdAt: '2026-08-01T00:00:00.000Z',
         updatedAt: '2026-08-01T00:00:00.000Z',
         ...over

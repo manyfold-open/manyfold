@@ -9,6 +9,7 @@ export type ChatErrorKind =
     | 'runner_upgrade_required'
     | 'account_pool_empty'
     | 'turn_duration_exceeded'
+    | 'sandbox_maintenance'
     | null
 
 export interface ChatErrorDisplay {
@@ -32,6 +33,16 @@ export const resolveChatErrorDisplay = (
             kind: upgrade ? 'runner_upgrade_required' : 'runner_unavailable',
             title: t(upgrade ? 'web.chat.error.runnerUpgradeRequired' : 'web.chat.error.runnerUnavailable'),
             detail: message || null
+        }
+    }
+    if (
+        error.code === 'sandbox_maintenance' ||
+        error.cause === 'sandbox_maintenance'
+    ) {
+        return {
+            kind: 'sandbox_maintenance',
+            title: t('web.chat.error.sandboxMaintenance'),
+            detail: null
         }
     }
     if (error.cause === 'account_pool_empty') {

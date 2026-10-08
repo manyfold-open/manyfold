@@ -4,7 +4,10 @@ import {
     shouldInstallFrameworkVersion,
     type FrameworkInstallSource
 } from '@manyfold/shared'
-import type { HostExecResult } from '@/modules/agents/adapters/host-daemon-access'
+import {
+    isTransportLoss,
+    type HostExecResult
+} from '@/modules/agents/adapters/host-daemon-access'
 import { BootstrapError } from '@/modules/agents/bootstrap/framework-bootstrap'
 import {
     buildNpmLatestInstallShell,
@@ -85,7 +88,8 @@ export const installFrameworkVersionOn = async (
         if (result.exitCode !== 0)
             throw new BootstrapError(
                 `${framework}-install-version`,
-                `install ${framework}@latest failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
+                `install ${framework}@latest failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`,
+                result.lost
             )
         return probe()
     }
@@ -120,7 +124,8 @@ export const installFrameworkVersionOn = async (
             asked,
             target,
             installed,
-            detail: `install ${framework}@${target} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
+            detail: `install ${framework}@${target} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`,
+            cause: result.lost
         })
 
     const effective = await probe()
@@ -151,10 +156,15 @@ const failOrDegrade = (
         target: string
         installed: string | null
         detail: string
+        cause?: unknown
     }
 ): string | null => {
     if (info.asked || !info.installed)
-        throw new BootstrapError(`${framework}-install-version`, info.detail)
+        throw new BootstrapError(
+            `${framework}-install-version`,
+            info.detail,
+            info.cause
+        )
     runner.warn(`${framework}.install.latest.failed`, {
         target: info.target,
         installed: info.installed,
@@ -164,19 +174,25 @@ const failOrDegrade = (
 }
 
 // Normalises a rejected exec (transport error / timeout) into a non-zero result
-// so both failure policies below read one shape.
+// so both failure policies below read one shape. A lost socket is kept as
+// `lost`: the install may still be running on the machine, so nothing may
+// treat it as an install that ended.
 const runInstall = async (
     runner: HostScriptRunner,
     request: FrameworkInstallRequest,
     shell: string
-): Promise<{ exitCode: number; stderr: string }> => {
+): Promise<{ exitCode: number; stderr: string; lost?: unknown }> => {
     try {
         return await runner.run(
             shell,
             Math.max(request.execTimeoutMs ?? 0, INSTALL_TIMEOUT_MS)
         )
     } catch (err) {
-        return { exitCode: -1, stderr: (err as Error).message }
+        return {
+            exitCode: -1,
+            stderr: (err as Error).message,
+            ...(isTransportLoss(err, false) ? { lost: err } : {})
+        }
     }
 }
 

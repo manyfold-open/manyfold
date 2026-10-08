@@ -2819,7 +2819,12 @@ const AppShell: FC = (): ReactNode => {
                             ? {
                                   ...s,
                                   powerState: update.powerState,
-                                  daemonOnline: update.daemonOnline
+                                  daemonOnline: update.daemonOnline,
+                                  // Only a lifecycle change (maintenance
+                                  // entered or ended) carries the status.
+                                  ...(update.status
+                                      ? { status: update.status }
+                                      : {})
                               }
                             : s
                     )

@@ -206,7 +206,8 @@ const AVAILABILITY_EFF: Record<RuntimeAvailability, EffStatus> = {
     available: 'ready',
     wakeable: 'asleep',
     offline: 'offline',
-    unavailable: 'offline'
+    unavailable: 'offline',
+    maintenance: 'offline'
 }
 
 const effStatus = (r: AgentRuntimeSummary): EffStatus =>
@@ -1284,6 +1285,13 @@ const HostDetailPanel: FC<{
                     }
                 />
             )}
+            {vm.hostStatus === 'maintenance' && (
+                <NoticeRow
+                    tone='danger'
+                    title={t('web.agentRuntimesList.hostMaintenance')}
+                    detail={t('web.agentRuntimesList.hostMaintenanceDetail')}
+                />
+            )}
             {(vm.hostStatus === 'provisioning' ||
                 vm.hostStatus === 'deleting') && (
                 <NoticeRow
@@ -1996,14 +2004,20 @@ const AgentRuntimesList: FC = (): ReactNode => {
                             ? {
                                   ...s,
                                   powerState: update.powerState,
-                                  daemonOnline: update.daemonOnline
+                                  daemonOnline: update.daemonOnline,
+                                  ...(update.status
+                                      ? { status: update.status }
+                                      : {})
                               }
                             : s
                     )
                 )
+                // A lifecycle change moves every runtime on the machine, and
+                // runtime rows are not pushed: read them again.
+                if (update.status) refresh()
             }
         })
-    }, [client])
+    }, [client, refresh])
 
     const loadSandboxServices = useCallback(
         (hostId: string): Promise<SandboxServiceSummary[]> =>

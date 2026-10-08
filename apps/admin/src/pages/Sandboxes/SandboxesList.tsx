@@ -11,6 +11,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApiClient } from '@/lib/apiClient'
 import { useCurrentUser } from '@/lib/useCurrentUser'
+import {
+    canCheckHealth,
+    checkedAgo,
+    healthLabel,
+    healthTone,
+    maintenanceLine
+} from '@/lib/sandboxHealth'
 import { adminRoutes } from '@/routes'
 import { Badge, Button, Card, Heading, type BadgeTone } from '@/ui'
 
@@ -228,6 +235,55 @@ const SandboxesList: FC = (): ReactNode => {
         }
     }
 
+    // The provider's check, with its verdict applied: a problem puts the
+    // sandbox into maintenance, healthy brings it out. Merged in place, like
+    // the status refresh.
+    const checkHealth = async (r: SandboxSummary): Promise<void> => {
+        if (
+            !window.confirm(
+                `Ask the provider to check ${r.name}'s machine now? The check can restart a stopped machine. Any verdict but healthy puts the sandbox into maintenance: its agents refuse messages and scheduled runs until a re-check finds it healthy.`
+            )
+        )
+            return
+        setBusyId(r.id)
+        setError(null)
+        try {
+            const updated = await client.admin.sandboxes.checkHealth(r.id)
+            setRows((prev) =>
+                prev
+                    ? prev.map((x) => (x.id === updated.id ? updated : x))
+                    : prev
+            )
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    const endMaintenance = async (r: SandboxSummary): Promise<void> => {
+        if (
+            !window.confirm(
+                `End maintenance for ${r.name}? Its agents take messages and scheduled runs again, and the next one wakes the machine. If the machine is still broken, that failure has it checked again.`
+            )
+        )
+            return
+        setBusyId(r.id)
+        setError(null)
+        try {
+            const updated = await client.admin.sandboxes.endMaintenance(r.id)
+            setRows((prev) =>
+                prev
+                    ? prev.map((x) => (x.id === updated.id ? updated : x))
+                    : prev
+            )
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
     const stop = async (r: SandboxSummary): Promise<void> => {
         if (
             !window.confirm(
@@ -316,6 +372,9 @@ const SandboxesList: FC = (): ReactNode => {
                                         Status
                                     </th>
                                     <th className='px-2 py-1.5 font-normal'>
+                                        Health
+                                    </th>
+                                    <th className='px-2 py-1.5 font-normal'>
                                         Agents
                                     </th>
                                     <th className='px-2 py-1.5 font-normal'>
@@ -374,10 +433,97 @@ const SandboxesList: FC = (): ReactNode => {
                                                     daemon {daemonLabel(r)}
                                                 </span>
                                             </div>
-                                            {r.failureReason && (
-                                                <p className='text-caption-sm text-accent-ruby mt-1 max-w-md truncate font-mono'>
-                                                    {r.failureReason}
+                                            {/* In maintenance the reason is the
+                                                verdict the Health cell shows. */}
+                                            {r.failureReason &&
+                                                r.status !== 'maintenance' && (
+                                                    <p className='text-caption-sm text-accent-ruby mt-1 max-w-md truncate font-mono'>
+                                                        {r.failureReason}
+                                                    </p>
+                                                )}
+                                            {r.status === 'maintenance' && (
+                                                <p className='text-caption-sm text-body mt-1'>
+                                                    {maintenanceLine(r)}
                                                 </p>
+                                            )}
+                                        </td>
+                                        <td className='px-2 py-1.5'>
+                                            {r.health ? (
+                                                <div
+                                                    title={new Date(
+                                                        r.health.checkedAt
+                                                    ).toLocaleString()}
+                                                >
+                                                    <Badge
+                                                        tone={healthTone(
+                                                            r.health.status
+                                                        )}
+                                                    >
+                                                        {healthLabel(
+                                                            r.health.status
+                                                        )}
+                                                    </Badge>
+                                                    {r.health.reason && (
+                                                        <p
+                                                            className='text-caption-sm text-body mt-1 max-w-[14rem] truncate font-mono'
+                                                            title={r.health.reason}
+                                                        >
+                                                            {r.health.reason}
+                                                        </p>
+                                                    )}
+                                                    <p className='text-caption-sm text-body mt-1'>
+                                                        {checkedAgo(
+                                                            r.health.checkedAt
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <span className='text-caption-sm text-body'>
+                                                    never checked
+                                                </span>
+                                            )}
+                                            {isAdmin && (
+                                                <div className='mt-1 flex flex-wrap gap-1'>
+                                                    <Button
+                                                        variant='ghost'
+                                                        size='sm'
+                                                        disabled={
+                                                            busyId === r.id ||
+                                                            !canCheckHealth(
+                                                                r.status
+                                                            )
+                                                        }
+                                                        title={
+                                                            canCheckHealth(
+                                                                r.status
+                                                            )
+                                                                ? 'The provider checks the machine and may repair it'
+                                                                : `A ${r.status} sandbox has no machine to check`
+                                                        }
+                                                        onClick={(): void => {
+                                                            void checkHealth(r)
+                                                        }}
+                                                    >
+                                                        Check now
+                                                    </Button>
+                                                    {r.status ===
+                                                        'maintenance' && (
+                                                        <Button
+                                                            variant='ghost'
+                                                            size='sm'
+                                                            disabled={
+                                                                busyId === r.id
+                                                            }
+                                                            onClick={(): void => {
+                                                                void endMaintenance(
+                                                                    r
+                                                                )
+                                                            }}
+                                                        >
+                                                            End maintenance
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             )}
                                         </td>
                                         <td className='px-2 py-1.5'>
@@ -481,7 +627,7 @@ const SandboxesList: FC = (): ReactNode => {
                                             className='bg-surface-subtle'
                                         >
                                             <td
-                                                colSpan={isAdmin ? 10 : 9}
+                                                colSpan={isAdmin ? 11 : 10}
                                                 className='px-2 py-2'
                                             >
                                                 <div className='text-caption-sm text-body mb-1'>

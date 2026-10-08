@@ -307,7 +307,12 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                         hostedOnProviderKind('sprites'),
                         or(
                             and(
-                                eq(runtimeHosts.status, 'ready'),
+                                // An empty sandbox in maintenance is still a
+                                // billed machine nobody will use.
+                                inArray(runtimeHosts.status, [
+                                    'ready',
+                                    'maintenance'
+                                ]),
                                 isNotNull(runtimeHosts.emptiedAt),
                                 lte(runtimeHosts.emptiedAt, cutoff)
                             ),
@@ -732,7 +737,9 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                 and(
                     eq(runtimeHosts.providerId, providerId),
                     eq(runtimeHosts.kind, 'hosted'),
-                    inArray(runtimeHosts.status, ['ready', 'failed'])
+                    // A sandbox in maintenance keeps its power, accrual and
+                    // vanished-machine tracking: its machine still exists.
+                    inArray(runtimeHosts.status, ['ready', 'failed', 'maintenance'])
                 )
             )
         const seen = await adapter.observe({ provider, hosts })
@@ -969,10 +976,19 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                 status: 'failed',
                 failureReason: reason,
                 powerState: 'unknown',
+                // A vanished machine leaves maintenance for good: there is
+                // nothing left to re-check, and a revival returns it to ready.
+                maintenanceSince: null,
+                healthCheckNextAt: null,
+                healthCheckLeaseUntil: null,
+                healthFailureCount: 0,
                 updatedAt: now
             })
             .where(
-                and(eq(runtimeHosts.id, host.id), eq(runtimeHosts.status, 'ready'))
+                and(
+                    eq(runtimeHosts.id, host.id),
+                    inArray(runtimeHosts.status, ['ready', 'maintenance'])
+                )
             )
             .returning({ id: runtimeHosts.id })
         if (won.length === 0) return
@@ -982,7 +998,8 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
         await this.broadcastPower(
             { ...host, status: 'failed', failureReason: reason },
             'unknown',
-            now
+            now,
+            { announceStatus: true }
         )
         this.telemetry.event('host.sprite_deleted', {
             hostId: host.id,
@@ -1019,8 +1036,20 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
         await this.broadcastPower(
             { ...host, status: 'ready', failureReason: null },
             host.powerState ?? 'unknown',
-            now
+            now,
+            { announceStatus: true }
         )
+    }
+
+    // A host's lifecycle changed outside the power pass (a sandbox entered or
+    // left maintenance): its owner's surfaces hear the new status, and each of
+    // its agents its new availability, from the row as it now stands.
+    async announceHostState(hostId: string): Promise<void> {
+        const host = await this.hosts.findById(hostId)
+        if (!host) return
+        await this.broadcastPower(host, host.powerState ?? 'unknown', new Date(), {
+            announceStatus: true
+        })
     }
 
     private async syncPolledHost(host: RuntimeHostRow): Promise<void> {
@@ -1061,7 +1090,10 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
     private async broadcastPower(
         host: RuntimeHostRow,
         powerState: RuntimeHostPowerState,
-        now: Date
+        now: Date,
+        // The host's lifecycle changed too: say so, so a list that keys its
+        // badge on the status updates without a refetch.
+        opts: { announceStatus?: boolean } = {}
     ): Promise<void> {
         const rows = await this.db
             .select({
@@ -1078,6 +1110,7 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
             hostId: host.id,
             powerState,
             daemonOnline: online,
+            ...(opts.announceStatus ? { status: host.status } : {}),
             at: now.toISOString()
         })
         for (const row of rows) {

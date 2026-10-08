@@ -471,7 +471,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 throw new BadRequestException(`agent is ${row.agent.status}`)
             const ctx = await this.runtimeContext?.forAgent(row.agent.id)
             if (ctx && !isRuntimeUsable(ctx.availability))
-                throw new BadRequestException(`agent is ${ctx.availability}`)
+                throw new BadRequestException(
+                    ctx.availability === 'maintenance'
+                        ? "this agent's sandbox is under maintenance: its hosting provider reported a problem with the machine, so this run was skipped. The sandbox is re-checked automatically."
+                        : `agent is ${ctx.availability}`
+                )
             // The caller's row may predate a concurrent delete (a scheduler
             // tick holding a stale due list, or runNow racing DELETE).
             // Re-check right before dispatch: a tombstone committed by now

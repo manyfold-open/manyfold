@@ -250,6 +250,37 @@ test('a sandbox that failed or is still building cannot be installed onto', () =
     )
 })
 
+// A sandbox in maintenance failed its provider's health check. Neither the
+// framework already on it nor a fresh install can take a new agent until it
+// is back, and the row says so rather than vanishing.
+test('a sandbox in maintenance stays listed, unavailable, with its reason', () => {
+    const rows = buildMachineOptions({
+        framework: 'claude-code',
+        runtimes: [
+            runtime({
+                id: 'rt1',
+                hostId: 'h1',
+                hostName: 'sandbox-001',
+                availability: 'maintenance',
+                hostStatus: 'maintenance'
+            })
+        ],
+        sandboxes: [
+            { ...sandbox('h1', 'sandbox-001'), status: 'maintenance' },
+            { ...sandbox('h2', 'sandbox-002'), status: 'maintenance' }
+        ],
+        daemonHosts: [],
+        podHosts: []
+    })
+    assert.deepEqual(
+        rows.map((row) => [row.title, row.state, row.unavailableReason, row.disabled]),
+        [
+            ['sandbox-001', 'unavailable', 'maintenance', true],
+            ['sandbox-002', 'unavailable', 'maintenance', true]
+        ]
+    )
+})
+
 test('your own computer is never installed onto, and says so in place', () => {
     const rows = buildMachineOptions({
         framework: 'gemini-cli',

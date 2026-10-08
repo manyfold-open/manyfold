@@ -9,6 +9,14 @@ export interface AppEvents {
     // A runtime's service answered its health check after Manyfold started
     // or restarted it.
     'runtime.service.ready': { runtimeId: string; framework: string }
+    // A hosted machine failed to come up for real work: its daemon bring-up
+    // ended without a daemon, or its exec endpoint failed the breaker probe.
+    // Emitted once per attempt, never for a machine that is gone or a bring-up
+    // a newer generation superseded.
+    'host.failure_observed': {
+        hostId: string
+        cause: 'bring_up' | 'exec_probe'
+    }
 }
 
 type Handler<K extends keyof AppEvents> = (payload: AppEvents[K]) => void

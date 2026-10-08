@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
-import { SANDBOX_PORT_SERVICE } from '@manyfold/shared'
+import {
+    SANDBOX_PORT_SERVICE,
+    type SandboxHealthVerdict
+} from '@manyfold/shared'
 import {
     SpritesError,
     parseTaskList,
@@ -35,6 +38,7 @@ import {
     type PreparedCredential,
     type ProviderErrorFacts,
     type ProviderExecResult,
+    type ProviderHealthReport,
     type ProviderObservation,
     type ProviderPowerState,
     type ProviderService,
@@ -278,6 +282,26 @@ export const spritePowerState = (status: string | null | undefined): RuntimeHost
     }
 }
 
+// The statuses sprites.dev's health check answers, in the host vocabulary.
+// Anything else is `unknown` — a problem until a check says healthy — rather
+// than a guess at what an unseen literal means.
+export const spriteHealthVerdict = (
+    status: string | null | undefined
+): SandboxHealthVerdict => {
+    switch (status?.trim().toLowerCase()) {
+        case 'healthy':
+            return 'healthy'
+        case 'unhealthy':
+            return 'unhealthy'
+        case 'needs_repair':
+            return 'needs_repair'
+        case 'repaired':
+            return 'repaired'
+        default:
+            return 'unknown'
+    }
+}
+
 // The sprites.dev adapter (ADR-0037): a hosted host on a sprites organisation
 // is one sprite VM. Its provider_ref is { spriteName, spriteId }; the
 // organisation credential is the provider row's.
@@ -433,6 +457,33 @@ export class SpritesProvider implements SandboxProvider {
         try {
             const sprite = await this.client(args).getSprite(ref.spriteName)
             return spritePowerState(sprite.status)
+        } catch (err) {
+            if (isSpritesNotFound(err)) return 'gone'
+            throw err
+        }
+    }
+
+    // GET /sprites/{name}/check, by name: the id answers 404. It repairs what
+    // it can as it checks, so the caller treats it as a wake.
+    async checkHealth(
+        args: Omit<ProviderCall, 'generation'>
+    ): Promise<ProviderHealthReport | 'gone'> {
+        const ref = this.ref(args)
+        // Not made yet: there is no machine to ask about, which is not `gone`.
+        if (!ref) throw new Error(`host ${args.host.id} has no sprite to check`)
+        try {
+            const check = await this.client(args).checkSprite(ref.spriteName)
+            const rawStatus = String(check.status ?? '')
+            return {
+                verdict: spriteHealthVerdict(rawStatus),
+                rawStatus,
+                reason:
+                    typeof check.reason === 'string' && check.reason !== ''
+                        ? check.reason
+                        : null,
+                elapsedMs:
+                    typeof check.elapsed === 'number' ? check.elapsed : null
+            }
         } catch (err) {
             if (isSpritesNotFound(err)) return 'gone'
             throw err

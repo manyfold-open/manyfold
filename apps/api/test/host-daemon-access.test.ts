@@ -209,6 +209,28 @@ test('withHost that must not wake still works on a running machine it holds a so
     assert.deepEqual(events, ['hold:mcp-import', 'release:mcp-import'])
 })
 
+// The provider's health check found this sandbox's machine broken: no work
+// runs on it, not even on a daemon that is still connected, and no hold is
+// taken, because a hold is itself a wake.
+test('a sandbox in maintenance takes no work and no hold, whatever its daemon says', async () => {
+    const { access, events } = build()
+    const broken = host({ status: 'maintenance', powerState: 'running' })
+    await assert.rejects(
+        access.withHost(
+            { host: broken, daemon: null, placement: 'sprites', reason: 'files' },
+            async () => 'never'
+        ),
+        (err: unknown) =>
+            err instanceof HostDaemonOfflineError &&
+            err.reason === 'sandbox_maintenance' &&
+            /maintenance/.test(err.message)
+    )
+    const ensured = await access.ensure({ host: broken, daemon: null, placement: 'sprites' })
+    assert.equal(ensured.online, false)
+    assert.equal(ensured.fallbackReason, 'sandbox_maintenance')
+    assert.deepEqual(events, [])
+})
+
 test('an RPC lost to a closed or replaced socket is retried once on the fresh lease', async () => {
     let attempts = 0
     const { access, events } = build({
@@ -316,6 +338,37 @@ test('an exec lost to a closed socket goes again under the same refId, with only
     assert.ok(calls[0].refIdOverride)
     assert.equal(calls[1].refIdOverride, calls[0].refIdOverride)
     assert.deepEqual(result, { exitCode: 0, stdout: 'attempt 2\n', stderr: '' })
+})
+
+// Seen on staging [2026-10-07]: two reconnects 8s apart cut an install and
+// its first reattach; giving up there read a running install as a failed one.
+test('an exec keeps following its refId across every reconnect until it answers', async () => {
+    const { run, calls } = buildExec([
+        async () => {
+            throw new Error('daemon connection closed')
+        },
+        async () => {
+            throw new Error('connection replaced')
+        },
+        async () => ({ exitCode: 0 })
+    ])
+
+    const result = await run({ cmd: ['true'], timeoutMs: 60_000 })
+
+    assert.equal(calls.length, 3)
+    assert.ok(calls.every((call) => call.refIdOverride === calls[0].refIdOverride))
+    assert.deepEqual(result, { exitCode: 0, stdout: 'attempt 3\n', stderr: '' })
+})
+
+test('an exec whose socket never settles is given up after a bounded number of sends', async () => {
+    const lost = async () => {
+        throw new Error('daemon connection closed')
+    }
+    const { run, calls } = buildExec(Array.from({ length: 8 }, () => lost))
+
+    await assert.rejects(run({ cmd: ['true'], timeoutMs: 60_000 }), /connection closed/)
+
+    assert.equal(calls.length, 5)
 })
 
 test('an exec the daemon failed, or one that timed out, is never sent twice', async () => {

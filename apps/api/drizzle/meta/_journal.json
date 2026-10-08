@@ -239,6 +239,13 @@
       "when": 1791343659136,
       "tag": "0033_skill_scan_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791471474753,
+      "tag": "0034_sandbox_health_maintenance",
+      "breakpoints": true
     }
   ]
 }

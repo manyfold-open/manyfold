@@ -7,6 +7,7 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 import { TurnDaemonError } from '../src/modules/chat/turn-daemon'
+import { SANDBOX_MAINTENANCE_CODE } from '../src/modules/chat/sandbox-maintenance-terminal'
 import { ChatService } from '../src/modules/chat/chat.service'
 import {
     contextOf,
@@ -376,6 +377,24 @@ for (const [label, error] of [
         assert.deepEqual(retryWarns(h), [])
     })
 }
+
+// Maintenance is a verdict, not an outage: the provider's health check found
+// the machine broken, and no wait inside the turn can change that. An
+// automation run must end at once rather than spend its retry delays on it.
+test('a sandbox in maintenance ends the turn with its own code and is not asked again', async () => {
+    const h = makeHarness({
+        outcomes: [new TurnDaemonError('sprites', SANDBOX_MAINTENANCE_CODE), 'ok']
+    })
+    await h.start([0, 0])
+    await h.finished
+
+    assert.equal(h.resolves(), 1)
+    assert.equal(h.adapterCalls(), 0)
+    assert.deepEqual(h.terminals, [
+        { type: 'error', code: SANDBOX_MAINTENANCE_CODE }
+    ])
+    assert.deepEqual(retryWarns(h), [])
+})
 
 test('a cancel during the wait ends the turn cancelled without asking again', async () => {
     const h = makeHarness({ outcomes: [unavailable(), 'ok'] })
