@@ -1,9 +1,9 @@
 import type { FC, ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { ArrowUpRight } from 'lucide-react'
 import { requestConsentPrompt } from '@/lib/analyticsConsent'
 import { GithubMono } from '@/lib/brandIcons'
 import { DiscordMark, XMark } from '@/lib/brandMarks'
-import { CHALLENGE_PATH } from '@/lib/challengeConfig'
 import { analyticsConfigured } from '@/lib/googleAnalytics'
 import { useI18n } from '@/lib/i18n'
 import {
@@ -17,6 +17,8 @@ import {
 } from '@/seo/marketingLinks'
 import { MarketingBrand, withStay } from '@/components/marketing/MarketingNav'
 import { CloudFooterLink } from '@/components/marketing/CloudNavLink'
+import { editionNavMenus } from '@/components/marketing/editionNavMenus'
+import type { NavMenuLink } from '@/components/marketing/navMenus'
 import { useAppAuth } from '@/lib/auth'
 import type { MarketingLinks } from '@/seo/marketingLinks'
 
@@ -35,11 +37,26 @@ const routeTo = (
     hrefs: MarketingLinks,
     signedIn: boolean
 ): string | null => {
-    if (key === 'challenge') return CHALLENGE_PATH
     if (key === 'channels') return hrefs.channels
     if (key === 'pricing')
         return withStay(`${hrefs.home}#lp-pricing`, signedIn)
     return null
+}
+
+/* A composition's column lists another site of its own beside its pages, so a
+   link here may leave the site: that one opens a new tab and says so, the way
+   it does in the nav's menus. */
+const EditionFooterLink: FC<{ link: NavMenuLink }> = ({ link }): ReactNode => {
+    if (link.external)
+        return (
+            <a href={link.href} target='_blank' rel='noopener noreferrer'>
+                {link.label}
+                <ArrowUpRight className='lp-foot-ext' aria-hidden='true' />
+            </a>
+        )
+    if (link.href.startsWith('/'))
+        return <Link to={link.href}>{link.label}</Link>
+    return <a href={link.href}>{link.label}</a>
 }
 
 export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
@@ -48,9 +65,9 @@ export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
     const { t, language } = useI18n()
     const { pathname } = useLocation()
     const { isSignedIn } = useAppAuth()
-    const hrefs = marketingLinksFor(
-        marketingLinkLanguage(pathname, language)
-    )
+    const linkLanguage = marketingLinkLanguage(pathname, language)
+    const hrefs = marketingLinksFor(linkLanguage)
+    const editionColumn = editionNavMenus(linkLanguage).footerColumn
     /* Three columns rather than one row of eight. A row ranks nothing: it put
        Cloud and "Cookie settings" at the same weight, which is a worse answer
        than leaving the page out of the footer altogether. */
@@ -66,11 +83,7 @@ export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
     const resources: FooterLink[] = [
         { key: 'docs', label: t('web.landing.footerDocs') },
         { key: 'changelog', label: t('web.landing.footerChangelog') },
-        { key: 'status', label: t('web.landing.footerStatus') },
-        /* Permanent, campaign state or not: one address for the series is what
-           lets links to it accumulate across editions. It sits with the
-           resources because it is an event, not a line of the product. */
-        { key: 'challenge', label: t('web.landing.footerChallenge') }
+        { key: 'status', label: t('web.landing.footerStatus') }
     ]
     const legal: FooterLink[] = [
         { key: 'privacy', label: t('web.landing.footerPrivacy') },
@@ -91,7 +104,13 @@ export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
     return (
         <footer className='lp-foot'>
             <div className='lp-container'>
-                <div className='lp-foot-grid'>
+                <div
+                    className={
+                        editionColumn
+                            ? 'lp-foot-grid lp-foot-grid-wide'
+                            : 'lp-foot-grid'
+                    }
+                >
                     <div className='lp-foot-brand'>
                         <MarketingBrand badge={badge} homeTo={hrefs.home} />
                         {/* Kept here as well as in the nav: the nav catches
@@ -140,6 +159,16 @@ export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
                         <CloudFooterLink />
                         {product.map(renderLink)}
                     </nav>
+                    {editionColumn ? (
+                        <nav className='lp-foot-col'>
+                            <p className='lp-foot-col-title'>
+                                {editionColumn.title}
+                            </p>
+                            {editionColumn.links.map((link) => (
+                                <EditionFooterLink key={link.key} link={link} />
+                            ))}
+                        </nav>
+                    ) : null}
                     <nav className='lp-foot-col'>
                         <p className='lp-foot-col-title'>
                             {t('web.landing.footerGroupResources')}

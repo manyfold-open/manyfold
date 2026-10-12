@@ -775,8 +775,6 @@ const zh: Translations = {
         marketing: {
             toggleTheme: '切换主题',
             menu: '菜单',
-            lightMode: '浅色模式',
-            darkMode: '深色模式',
             beta: 'Beta',
             language: '语言',
             followX: '在 X 上关注',
@@ -2009,11 +2007,12 @@ const zh: Translations = {
             stepCtaStep2: '第二步',
             navPricing: '价格',
             navDocs: '文档',
-            navChallenge: '挑战赛',
             navChannels: '渠道',
-            // The folded nav menu has room for a gloss the bar does not;
-            // every name in it is a product, so nothing here is translated.
+            // The gloss under Channels in the nav menus; every name in it is
+            // a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
+            navProduct: '产品',
+            navSelfHostGloss: '开源，部署在你自己的服务器上',
             heroPrimaryCta: '创建你的第一个 Agent',
             useInAgentCta: '让你的 agent 用上 Manyfold',
             useInAgentPaste: '粘贴给你的 agent',
@@ -2033,7 +2032,6 @@ const zh: Translations = {
                 '可以。点页面顶部的「在你的 agent 中使用」，把提示词贴给你的 agent。它会安装 mf CLI，打开一次浏览器让你登录或注册，并添加 Manyfold 插件。适用于 Claude Code、Codex，以及任何能运行 shell 命令的 agent。',
             footerLegal: '© 2026 Manyfold',
             footerDocs: '文档',
-            footerChallenge: 'Agent 挑战赛',
             footerChangelog: '更新日志',
             footerStatus: '状态',
             footerPrivacy: '隐私',
