@@ -1,25 +1,26 @@
 import type { FC, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
+    ArrowRight,
+    ArrowUpRight,
     BookOpen,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
-    Globe,
     Menu,
-    MessageSquare,
     Moon,
     Sun,
     Tag
 } from 'lucide-react'
 import { BrandMark } from '@/components/Brand'
-import ChallengeNavLink, {
-    ChallengeNavMenuItem
-} from '@/components/challenge/ChallengeNavLink'
-import CloudNavLink, {
-    CloudNavMenuItem
-} from '@/components/marketing/CloudNavLink'
+import {
+    groupHasPage,
+    useMarketingNavMenus,
+    type MarketingNavMenus,
+    type NavMenuGroup,
+    type NavMenuLink
+} from '@/components/marketing/navMenus'
 import { useAppAuth } from '@/lib/auth'
 import { GithubMono } from '@/lib/brandIcons'
 import { DiscordMark, XMark } from '@/lib/brandMarks'
@@ -33,7 +34,6 @@ import {
     marketingLinkLanguage,
     marketingLinksFor
 } from '@/seo/marketingLinks'
-import { seoPageForPath } from '@/seo/pages'
 import { useTheme } from '@/lib/theme'
 import {
     marketingLanguageMenuItems,
@@ -238,23 +238,285 @@ const SocialLinks: FC = (): ReactNode => {
     )
 }
 
+/* A menu link goes three ways: a page of this site through the router, the
+   docs in the same tab (they are part of the product, like the bar's own Docs
+   link), and another site in a new tab. */
+const MenuLink: FC<{
+    link: NavMenuLink
+    className: string
+    current?: boolean
+    role?: 'menuitem'
+    onClick?: () => void
+    children: ReactNode
+}> = ({ link, className, current, role, onClick, children }): ReactNode => {
+    if (link.external)
+        return (
+            <a
+                className={className}
+                href={link.href}
+                target='_blank'
+                rel='noopener noreferrer'
+                role={role}
+                onClick={onClick}
+            >
+                {children}
+            </a>
+        )
+    if (link.href.startsWith('/'))
+        return (
+            <Link
+                className={className}
+                to={link.href}
+                aria-current={current ? 'page' : undefined}
+                role={role}
+                onClick={onClick}
+            >
+                {children}
+            </Link>
+        )
+    return (
+        <a className={className} href={link.href} role={role} onClick={onClick}>
+            {children}
+        </a>
+    )
+}
+
+const ExternalMark: FC = (): ReactNode => (
+    <ArrowUpRight className='lp-nav-ext' aria-hidden='true' />
+)
+
+/* The way out at the foot of a group: everything in it. Its own arrow, → for
+   a page here and ↗ for another site, always shown — it is the row's whole
+   affordance. */
+const MoreArrow: FC<{ link: NavMenuLink }> = ({ link }): ReactNode =>
+    link.external ? (
+        <ExternalMark />
+    ) : (
+        <ArrowRight className='lp-nav-ext' aria-hidden='true' />
+    )
+
+/* The desktop panel. The trigger stays a text link of the bar's own tier —
+   open is its hover fill held, plus the caret turned — and the panel is the
+   folded menu's paper, so the bar gains a behaviour, not a new look. Inside,
+   a row is a name and one line saying what it is, nothing else: a lead
+   sentence, a framed icon per row, ↗ on every row and a tinted footer were
+   four layers on top of the list, and read as a busier menu than three links
+   need. ↗ shows where the pointer or focus is, which is when it matters. */
+const NavDropdown: FC<{
+    group: NavMenuGroup
+    current: string | undefined
+    open: boolean
+    onPointerEnter: () => void
+    onPointerLeave: () => void
+    onToggle: () => void
+    onClose: () => void
+}> = ({
+    group,
+    current,
+    open,
+    onPointerEnter,
+    onPointerLeave,
+    onToggle,
+    onClose
+}): ReactNode => {
+    const panelId = useId()
+    const active = groupHasPage(group, current)
+    const marked = group.links.some((link) => link.image || link.icon)
+    return (
+        <div
+            className='lp-nav-dd'
+            onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') onPointerEnter()
+            }}
+            onPointerLeave={(event) => {
+                if (event.pointerType === 'mouse') onPointerLeave()
+            }}
+        >
+            <button
+                type='button'
+                className={
+                    active
+                        ? 'lp-nav-link lp-nav-trigger lp-nav-link-active'
+                        : 'lp-nav-link lp-nav-trigger'
+                }
+                aria-expanded={open}
+                aria-controls={open ? panelId : undefined}
+                data-menu-trigger={group.key}
+                onClick={onToggle}
+            >
+                <span>{group.label}</span>
+                <ChevronDown className='lp-nav-caret' aria-hidden='true' />
+            </button>
+            {open ? (
+                <div
+                    id={panelId}
+                    className={
+                        marked ? 'lp-nav-pop lp-nav-pop-marked' : 'lp-nav-pop'
+                    }
+                >
+                    {group.links.map((link) => {
+                        const Icon = link.icon
+                        const here =
+                            link.page !== undefined && link.page === current
+                        return (
+                            <MenuLink
+                                key={link.key}
+                                link={link}
+                                current={here}
+                                className={
+                                    here
+                                        ? 'lp-nav-pop-item lp-nav-pop-item-active'
+                                        : 'lp-nav-pop-item'
+                                }
+                                onClick={onClose}
+                            >
+                                {marked ? (
+                                    <span
+                                        className='lp-nav-pop-mark'
+                                        aria-hidden='true'
+                                    >
+                                        {link.image ? (
+                                            <img
+                                                src={link.image}
+                                                alt=''
+                                                width={20}
+                                                height={20}
+                                            />
+                                        ) : Icon ? (
+                                            <Icon />
+                                        ) : null}
+                                    </span>
+                                ) : null}
+                                <span className='lp-nav-pop-text'>
+                                    <span className='lp-nav-pop-title'>
+                                        {link.label}
+                                        {link.external ? (
+                                            <ExternalMark />
+                                        ) : null}
+                                    </span>
+                                    {link.gloss ? (
+                                        <span className='lp-nav-pop-gloss'>
+                                            {link.gloss}
+                                        </span>
+                                    ) : null}
+                                </span>
+                            </MenuLink>
+                        )
+                    })}
+                    {group.more ? (
+                        <>
+                            <div
+                                className='lp-nav-pop-sep'
+                                aria-hidden='true'
+                            />
+                            <MenuLink
+                                link={group.more}
+                                current={group.more.page === current}
+                                className='lp-nav-pop-more'
+                                onClick={onClose}
+                            >
+                                <span>{group.more.label}</span>
+                                <MoreArrow link={group.more} />
+                                {group.more.meta ? (
+                                    <span className='lp-nav-pop-meta'>
+                                        {group.more.meta}
+                                    </span>
+                                ) : null}
+                            </MenuLink>
+                        </>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+/* One menu group in the folded menu, opening in place. Not a drill-down like
+   the languages: those are a picker you leave as soon as you choose, while a
+   page group is three to six rows you want to read beside the others. Its
+   links are text only — the indent already says whose they are, and there is
+   no pointer to reveal a ↗ for. */
+const FoldGroup: FC<{
+    group: NavMenuGroup
+    current: string | undefined
+    open: boolean
+    onToggle: () => void
+    close: () => void
+}> = ({ group, current, open, onToggle, close }): ReactNode => {
+    const kidsId = useId()
+    const Icon = group.icon
+    return (
+        <>
+            <button
+                type='button'
+                role='menuitem'
+                className='lp-nav-menu-item lp-nav-menu-group'
+                aria-expanded={open}
+                aria-controls={open ? kidsId : undefined}
+                onClick={onToggle}
+            >
+                <Icon />
+                <span>{group.label}</span>
+                <ChevronDown className='lp-nav-menu-caret' aria-hidden='true' />
+            </button>
+            {open ? (
+                <div id={kidsId} className='lp-nav-menu-kids'>
+                    {group.links.map((link) => {
+                        const here =
+                            link.page !== undefined && link.page === current
+                        return (
+                            <MenuLink
+                                key={link.key}
+                                link={link}
+                                current={here}
+                                role='menuitem'
+                                className={
+                                    here
+                                        ? 'lp-nav-menu-kid lp-nav-menu-kid-active'
+                                        : 'lp-nav-menu-kid'
+                                }
+                                onClick={close}
+                            >
+                                <span>{link.label}</span>
+                                {link.foldGloss && link.gloss ? (
+                                    <span className='lp-nav-menu-item-sub'>
+                                        {link.gloss}
+                                    </span>
+                                ) : null}
+                            </MenuLink>
+                        )
+                    })}
+                    {group.more ? (
+                        <MenuLink
+                            link={group.more}
+                            current={group.more.page === current}
+                            role='menuitem'
+                            className='lp-nav-menu-kid lp-nav-menu-kid-more'
+                            onClick={close}
+                        >
+                            <span>{group.more.label}</span>
+                            <MoreArrow link={group.more} />
+                            {group.more.meta ? (
+                                <span className='lp-nav-pop-meta'>
+                                    {group.more.meta}
+                                </span>
+                            ) : null}
+                        </MenuLink>
+                    ) : null}
+                </div>
+            ) : null}
+        </>
+    )
+}
+
 const NavOverflow: FC<{
-    channelsCurrent: boolean
-    channelsTo: string
+    menus: MarketingNavMenus
     docsHref: string
     renderCta?: (close: () => void) => ReactNode
     languagePaths?: MarketingLanguagePaths
     pricingTo: string
-}> = ({
-    channelsCurrent,
-    channelsTo,
-    docsHref,
-    renderCta,
-    languagePaths,
-    pricingTo
-}): ReactNode => {
+}> = ({ menus, docsHref, renderCta, languagePaths, pricingTo }): ReactNode => {
     const { t, language, setLanguage } = useI18n()
-    const { theme, toggleTheme } = useTheme()
     const { search } = useLocation()
     const { isSignedIn } = useAppAuth()
     const [open, setOpen] = useState(false)
@@ -264,8 +526,14 @@ const NavOverflow: FC<{
        by 89px — before considering a shorter one. Drilled down it is 422px,
        and one row replaces the two the locales used to take. */
     const [view, setView] = useState<'root' | 'lang'>('root')
+    /* The group holding the page you are on opens with the menu, so the
+       current page is visible without a tap; elsewhere every group starts
+       closed, one open at a time. */
+    const currentGroup =
+        menus.groups.find((group) => groupHasPage(group, menus.current))?.key ??
+        null
+    const [openGroup, setOpenGroup] = useState<string | null>(currentGroup)
     const rootRef = useRef<HTMLDivElement | null>(null)
-    const ThemeIcon = theme === 'dark' ? Moon : Sun
     const menuItems = marketingLanguageMenuItems(languagePaths, search)
     const selected =
         languageOptions.find((option) => option.code === language) ??
@@ -274,8 +542,10 @@ const NavOverflow: FC<{
     // Closing returns to the root view: reopening on the language list would
     // have lost the page group the menu was opened for.
     useEffect(() => {
-        if (!open) setView('root')
-    }, [open])
+        if (open) return
+        setView('root')
+        setOpenGroup(currentGroup)
+    }, [open, currentGroup])
 
     useEffect(() => {
         if (!open) return
@@ -389,32 +659,22 @@ const NavOverflow: FC<{
                     ) : (
                         <>
                             {renderCta?.(() => setOpen(false))}
-                            <CloudNavMenuItem close={() => setOpen(false)} />
-                            {/* The folded menu is the one place with room to
-                                say what "Channels" means to someone who has
-                                not used the product; the bar itself keeps a
-                                single text tier. */}
-                            <Link
-                                className={
-                                    channelsCurrent
-                                        ? 'lp-nav-menu-item lp-nav-menu-item-2l lp-nav-menu-item-active'
-                                        : 'lp-nav-menu-item lp-nav-menu-item-2l'
-                                }
-                                to={channelsTo}
-                                aria-current={
-                                    channelsCurrent ? 'page' : undefined
-                                }
-                                role='menuitem'
-                                onClick={() => setOpen(false)}
-                            >
-                                <MessageSquare />
-                                <span className='lp-nav-menu-item-text'>
-                                    <span>{t('web.landing.navChannels')}</span>
-                                    <span className='lp-nav-menu-item-sub'>
-                                        {t('web.landing.navChannelsApps')}
-                                    </span>
-                                </span>
-                            </Link>
+                            {menus.groups.map((group) => (
+                                <FoldGroup
+                                    key={group.key}
+                                    group={group}
+                                    current={menus.current}
+                                    open={openGroup === group.key}
+                                    onToggle={() =>
+                                        setOpenGroup((value) =>
+                                            value === group.key
+                                                ? null
+                                                : group.key
+                                        )
+                                    }
+                                    close={() => setOpen(false)}
+                                />
+                            ))}
                             <a
                                 className='lp-nav-menu-item'
                                 href={withStay(pricingTo, isSignedIn)}
@@ -432,87 +692,75 @@ const NavOverflow: FC<{
                                 <BookOpen />
                                 <span>{t('web.landing.navDocs')}</span>
                             </a>
-                            <ChallengeNavMenuItem
-                                close={() => setOpen(false)}
-                            />
-                            <div
-                                className='lp-nav-menu-sep'
-                                role='separator'
-                            />
-                            {/* Their own group between the pages and the
-                                preferences: "which page" and "which site" are
-                                different questions, and the icon column keeps
-                                them scannable as a set. */}
-                            <a
-                                className='lp-nav-menu-item'
-                                href={SOCIAL_GITHUB_URL}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                role='menuitem'
-                                onClick={() => setOpen(false)}
-                            >
-                                <GithubMono />
-                                <span>{t('web.marketing.sourceGithub')}</span>
-                            </a>
-                            <a
-                                className='lp-nav-menu-item'
-                                href={SOCIAL_X_URL}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                role='menuitem'
-                                onClick={() => setOpen(false)}
-                            >
-                                <XMark />
-                                <span>{t('web.marketing.followX')}</span>
-                            </a>
-                            <a
-                                className='lp-nav-menu-item'
-                                href={SOCIAL_DISCORD_URL}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                role='menuitem'
-                                onClick={() => setOpen(false)}
-                            >
-                                <DiscordMark mono />
-                                <span>{t('web.marketing.joinDiscord')}</span>
-                            </a>
-                            <div
-                                className='lp-nav-menu-sep'
-                                role='separator'
-                            />
-                            {/* Language and theme are one group — both answer
-                                "how should this page be shown to me" — so no
-                                rule divides them. */}
-                            <button
-                                type='button'
-                                role='menuitem'
-                                className='lp-nav-menu-item'
-                                aria-haspopup='menu'
-                                onClick={() => setView('lang')}
-                            >
-                                <Globe />
-                                <span>{t('web.marketing.language')}</span>
-                                <span className='lp-nav-menu-value'>
-                                    {selected.nativeName}
-                                    <ChevronRight aria-hidden='true' />
+                            <div className='lp-nav-menu-sep' role='separator' />
+                            {/* The bar's utility cluster, verbatim and in one
+                                row: controls the bar itself shows as 16px
+                                glyphs were five full rows here. Measured on
+                                local dev at 390x844 [2026-10-12]: those rows
+                                took 178px, the one row takes 34px, and the
+                                whole menu is 320px with every group closed,
+                                483px with the longest open. The language chip
+                                still opens the list view; the rule still
+                                separates leaving the site from changing this
+                                page. */}
+                            <div className='lp-nav-menu-utils'>
+                                <span className='lp-nav-menu-utils-group'>
+                                    <a
+                                        className='lp-nav-ico'
+                                        href={SOCIAL_GITHUB_URL}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        role='menuitem'
+                                        aria-label={t(
+                                            'web.marketing.sourceGithub'
+                                        )}
+                                    >
+                                        <GithubMono />
+                                    </a>
+                                    <a
+                                        className='lp-nav-ico'
+                                        href={SOCIAL_X_URL}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        role='menuitem'
+                                        aria-label={t('web.marketing.followX')}
+                                    >
+                                        <XMark />
+                                    </a>
+                                    <a
+                                        className='lp-nav-ico'
+                                        href={SOCIAL_DISCORD_URL}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        role='menuitem'
+                                        aria-label={t(
+                                            'web.marketing.joinDiscord'
+                                        )}
+                                    >
+                                        <DiscordMark mono />
+                                    </a>
                                 </span>
-                            </button>
-                            <button
-                                type='button'
-                                role='menuitem'
-                                className='lp-nav-menu-item'
-                                onClick={() => {
-                                    toggleTheme()
-                                    setOpen(false)
-                                }}
-                            >
-                                <ThemeIcon />
-                                <span>
-                                    {theme === 'dark'
-                                        ? t('web.marketing.lightMode')
-                                        : t('web.marketing.darkMode')}
+                                <span className='lp-nav-menu-utils-group'>
+                                    <span
+                                        className='lp-nav-sep'
+                                        aria-hidden='true'
+                                    />
+                                    <button
+                                        type='button'
+                                        role='menuitem'
+                                        className='lp-nav-ico lp-nav-ico-text'
+                                        aria-label={t('web.marketing.language')}
+                                        aria-haspopup='menu'
+                                        onClick={() => setView('lang')}
+                                    >
+                                        <span>
+                                            {selected.code.toUpperCase()}
+                                        </span>
+                                        <ChevronRight aria-hidden='true' />
+                                    </button>
+                                    <ThemeToggle />
                                 </span>
-                            </button>
+                            </div>
                         </>
                     )}
                 </div>
@@ -536,6 +784,76 @@ export interface MarketingNavProps {
     pricingTo?: string
 }
 
+/* Which desktop panel is open, shared so that only one ever is. A mouse opens
+   a panel by pointing and closes it a moment after leaving — 180ms, long
+   enough to cross the gap down into the panel or slide over to the next
+   trigger, short enough not to linger. Touch and keyboard go by click: a tap
+   on a touch screen also fires pointerenter, and toggling on both would open
+   and shut the panel in one gesture. */
+const useNavDropdowns = () => {
+    const { pathname } = useLocation()
+    const [open, setOpen] = useState<string | null>(null)
+    const openedByHover = useRef(false)
+    const closeTimer = useRef<number | undefined>(undefined)
+    const rootRef = useRef<HTMLElement | null>(null)
+
+    useEffect(() => {
+        setOpen(null)
+    }, [pathname])
+
+    useEffect(() => () => window.clearTimeout(closeTimer.current), [])
+
+    useEffect(() => {
+        if (open === null) return
+        const onDown = (event: PointerEvent): void => {
+            if (!rootRef.current?.contains(event.target as Node)) setOpen(null)
+        }
+        const onKey = (event: KeyboardEvent): void => {
+            if (event.key !== 'Escape') return
+            rootRef.current
+                ?.querySelector<HTMLButtonElement>(
+                    `[data-menu-trigger='${open}']`
+                )
+                ?.focus()
+            setOpen(null)
+        }
+        window.addEventListener('pointerdown', onDown)
+        window.addEventListener('keydown', onKey)
+        return () => {
+            window.removeEventListener('pointerdown', onDown)
+            window.removeEventListener('keydown', onKey)
+        }
+    }, [open])
+
+    return {
+        rootRef,
+        open,
+        bind: (key: string) => ({
+            open: open === key,
+            onPointerEnter: () => {
+                window.clearTimeout(closeTimer.current)
+                openedByHover.current = true
+                setOpen(key)
+            },
+            onPointerLeave: () => {
+                window.clearTimeout(closeTimer.current)
+                closeTimer.current = window.setTimeout(() => setOpen(null), 180)
+            },
+            /* A click on a panel the pointer has just opened keeps it open
+               instead of shutting it: the person was reaching for it. */
+            onToggle: () => {
+                if (open === key && openedByHover.current) {
+                    openedByHover.current = false
+                    return
+                }
+                openedByHover.current = false
+                setOpen(open === key ? null : key)
+            },
+            onClose: () => setOpen(null)
+        })
+    }
+}
+
 export const MarketingNav: FC<MarketingNavProps> = ({
     badge,
     cta,
@@ -550,11 +868,8 @@ export const MarketingNav: FC<MarketingNavProps> = ({
     const links = marketingLinksFor(
         marketingLinkLanguage(pathname, language)
     )
-    /* Only a page of our own can be the current one. Docs leaves for the docs
-       site and Pricing is a section of the landing page, so neither has a
-       state to be in — marking Pricing active on the home page would claim
-       the visitor is standing on a section they may not have scrolled to. */
-    const channelsCurrent = seoPageForPath(pathname)?.def.key === 'channels'
+    const menus = useMarketingNavMenus()
+    const dropdowns = useNavDropdowns()
     const pricingHref = pricingTo ?? `${links.home}#lp-pricing`
     return (
         <header className='lp-nav'>
@@ -566,25 +881,25 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                     <MarketingBrand badge={badge} homeTo={homeTo} />
                 </div>
                 {/* Product first, then price, then documentation: what a
-                    visitor can get, what it costs, how to work it. Docs held
-                    the leftmost slot for historical reasons, which put the
-                    surface written for people who have already committed
-                    ahead of the two pages arguing that they should. Challenge
-                    trails the group because it is a campaign, not a permanent
-                    line of the product. */}
-                <nav className='lp-nav-center'>
-                    <CloudNavLink />
-                    <Link
-                        className={
-                            channelsCurrent
-                                ? 'lp-nav-link lp-nav-link-active'
-                                : 'lp-nav-link'
-                        }
-                        to={links.channels}
-                        aria-current={channelsCurrent ? 'page' : undefined}
-                    >
-                        {t('web.landing.navChannels')}
-                    </Link>
+                    visitor can get, what it costs, how to work it. The pages
+                    of the product sit in menus rather than on the bar: one
+                    flat link each stopped fitting once a composition had a
+                    showcase as well as the product to point at, and a menu
+                    can say in a line what a bare word like "Channels" means.
+                    Pricing and Docs stay single links — one destination
+                    each, nothing to choose between. Only a page of our own
+                    can be the current one: Docs leaves for the docs site and
+                    Pricing is a section of the landing page, so neither has a
+                    state to be in. */}
+                <nav className='lp-nav-center' ref={dropdowns.rootRef}>
+                    {menus.groups.map((group) => (
+                        <NavDropdown
+                            key={group.key}
+                            group={group}
+                            current={menus.current}
+                            {...dropdowns.bind(group.key)}
+                        />
+                    ))}
                     <a
                         className='lp-nav-link'
                         href={withStay(pricingHref, isSignedIn)}
@@ -594,7 +909,6 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                     <a className='lp-nav-link' href={links.docs}>
                         {t('web.landing.navDocs')}
                     </a>
-                    <ChallengeNavLink />
                 </nav>
                 <div className='lp-nav-actions'>
                     <div className='lp-nav-desktop'>
@@ -605,8 +919,7 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                     </div>
                     <div className='lp-nav-mobile'>
                         <NavOverflow
-                            channelsCurrent={channelsCurrent}
-                            channelsTo={links.channels}
+                            menus={menus}
                             docsHref={links.docs}
                             renderCta={overflowCta}
                             languagePaths={languagePaths}

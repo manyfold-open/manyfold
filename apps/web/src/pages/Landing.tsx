@@ -14,6 +14,7 @@ import {
     Cloud,
     HardDrive,
     Laptop,
+    LogIn,
     Plus,
     Sparkle
 } from 'lucide-react'
@@ -157,12 +158,15 @@ const LandingOverflowCta: FC<{ close: () => void }> = ({
                         <ArrowRight />
                         <span>{t('web.landing.heroPrimaryCta')}</span>
                     </Link>
+                    {/* With an icon like every other row, or its label is
+                        the one that starts a column further left. */}
                     <Link
                         to='/login'
                         className='lp-nav-menu-item'
                         role='menuitem'
                         onClick={close}
                     >
+                        <LogIn />
                         <span>{t('web.landing.signIn')}</span>
                     </Link>
                 </SignedOut>
@@ -192,6 +196,7 @@ const LandingOverflowCta: FC<{ close: () => void }> = ({
                             gate.openGate()
                         }}
                     >
+                        <LogIn />
                         <span>{t('web.landing.signIn')}</span>
                     </button>
                 </SignedOut>

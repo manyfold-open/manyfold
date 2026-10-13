@@ -3382,10 +3382,11 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     margin-left: auto;
 }
 
-/* Overflow menu (mobile More button): wider min, with a separator
-   token between groups of menu items. */
+/* Overflow menu (mobile More button), with a separator token between groups
+   of menu items. A fixed width rather than the content's: a group opening in
+   place would otherwise widen the panel under the reader's thumb. */
 .landing-root .lp-nav-menu-overflow {
-    min-width: 240px;
+    width: 272px;
 }
 
 .landing-root .lp-nav-menu-sep {
@@ -3399,47 +3400,13 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     text-decoration: none;
 }
 
-/* Overflow items that carry a second line. Only the folded menu gets them:
-   the bar runs one text tier, and the row there has no room for a gloss. */
-.landing-root .lp-nav-menu-item-2l {
-    align-items: flex-start;
-    padding: 7px 10px;
-}
-
-.landing-root .lp-nav-menu-item-2l > svg:first-child {
-    margin-top: 2px;
-}
-
-.landing-root .lp-nav-menu-item-text {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-}
-
+/* The gloss under a folded-menu row, for a name that does not explain
+   itself. */
 .landing-root .lp-nav-menu-item-sub {
     font-size: 11.5px;
     font-weight: 400;
     color: var(--lp-muted);
     letter-spacing: 0;
-}
-
-/* The current value on a row that opens a panel, chevron included. */
-.landing-root .lp-nav-menu-value {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    font-weight: 400;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-nav-menu-value svg {
-    width: 13px;
-    height: 13px;
-    margin: 0;
-    opacity: 0.7;
 }
 
 /* Title and back control in one row, at the head of a drilled-down panel. */
@@ -3524,6 +3491,279 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta {
 html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     background: #d4d8dc;
     color: #0f1114;
+}
+
+/* === Nav menus ===
+   Product / Apps / Data as dropdown panels on the bar and as accordion groups
+   in the folded menu, both from one description (navMenus.ts). */
+
+.landing-root .lp-nav-dd {
+    position: relative;
+    display: inline-flex;
+}
+
+/* The trigger is a bar link: the button only needs the UA chrome gone. The
+   background is reset at element specificity so the link's own hover and
+   active fills still win over it. */
+.landing-root button.lp-nav-link {
+    border: 0;
+    font-family: inherit;
+    cursor: pointer;
+}
+button.lp-nav-trigger {
+    background: transparent;
+}
+
+.landing-root .lp-nav-trigger {
+    gap: 4px;
+    padding: 0 10px 0 12px;
+}
+
+/* Open is the hover fill held, plus the caret turned — the same object in a
+   held state, not a new treatment. */
+.landing-root .lp-nav-trigger[aria-expanded='true'] {
+    color: var(--lp-ink);
+    background: rgba(10, 12, 15, 0.05);
+}
+html[data-theme='dark'] .landing-root .lp-nav-trigger[aria-expanded='true'] {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.landing-root .lp-nav-caret {
+    width: 12px;
+    height: 12px;
+    opacity: 0.6;
+    transition: transform 160ms ease;
+}
+.landing-root .lp-nav-trigger[aria-expanded='true'] .lp-nav-caret {
+    transform: rotate(180deg);
+}
+
+/* The folded menu's paper, centred under its trigger. */
+.landing-root .lp-nav-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    z-index: 60;
+    width: 320px;
+    padding: 8px;
+    text-align: left;
+    background: var(--lp-paper);
+    border-radius: var(--lp-r-md);
+    box-shadow: var(--lp-shadow-md);
+    transform: translateX(-50%);
+    animation: lp-nav-pop-in 150ms ease-out;
+}
+/* A group with marks gives them a 20px column, so its glosses keep the line
+   they have without. */
+.landing-root .lp-nav-pop-marked {
+    width: 340px;
+}
+@keyframes lp-nav-pop-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -4px);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .landing-root .lp-nav-pop {
+        animation: none;
+    }
+}
+
+.landing-root .lp-nav-pop-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    color: var(--lp-ink-soft);
+    text-decoration: none;
+    transition: background 120ms ease;
+}
+.landing-root .lp-nav-pop-item:hover,
+.landing-root .lp-nav-pop-item-active {
+    background: var(--lp-bg-soft);
+}
+html[data-theme='dark'] .landing-root .lp-nav-pop-item:hover,
+html[data-theme='dark'] .landing-root .lp-nav-pop-item-active {
+    background: var(--lp-paper-warm);
+}
+
+/* The mark sits on the title's line, in a column of its own so every title
+   starts at the same x. No frame: a site's image brings its own rounded
+   ground, and a line glyph needs none. */
+.landing-root .lp-nav-pop-mark {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    color: var(--lp-ink-soft);
+}
+.landing-root .lp-nav-pop-mark img {
+    display: block;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+}
+.landing-root .lp-nav-pop-mark svg {
+    width: 16px;
+    height: 16px;
+}
+
+.landing-root .lp-nav-pop-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.landing-root .lp-nav-pop-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13.5px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-nav-pop-gloss {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--lp-muted);
+}
+
+/* ↗ on a link to another site, and → on a way out that stays here. */
+.landing-root .lp-nav-ext {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    color: var(--lp-subtle);
+}
+/* On a row, ↗ is there when the pointer or focus is — the moment the row is
+   about to be followed. */
+.landing-root .lp-nav-pop-item .lp-nav-ext {
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+.landing-root .lp-nav-pop-item:hover .lp-nav-ext,
+.landing-root .lp-nav-pop-item:focus-visible .lp-nav-ext {
+    opacity: 1;
+}
+
+.landing-root .lp-nav-pop-sep {
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--lp-line-soft);
+}
+
+/* The panel's foot, not one more entry: it starts at the panel's edge like
+   the rule above it rather than under the titles. */
+.landing-root .lp-nav-pop-more {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--lp-muted);
+    text-decoration: none;
+}
+.landing-root .lp-nav-pop-more:hover {
+    color: var(--lp-ink);
+    background: var(--lp-bg-soft);
+}
+html[data-theme='dark'] .landing-root .lp-nav-pop-more:hover {
+    background: var(--lp-paper-warm);
+}
+
+.landing-root .lp-nav-pop-meta {
+    margin-left: auto;
+    font-family: var(--lp-mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--lp-subtle);
+    white-space: nowrap;
+}
+
+/* Folded menu: a group row opens its links in place, one group at a time. */
+.landing-root .lp-nav-menu-caret {
+    margin-left: auto;
+    transition: transform 160ms ease;
+}
+.landing-root .lp-nav-menu-group[aria-expanded='true'] {
+    color: var(--lp-ink);
+}
+.landing-root .lp-nav-menu-group[aria-expanded='true'] .lp-nav-menu-caret {
+    transform: rotate(180deg);
+}
+
+/* The links sit on the parent's label column, with a hairline down the icon
+   column so the last of them does not read as the first of the next rows. */
+.landing-root .lp-nav-menu-kids {
+    position: relative;
+    padding-bottom: 6px;
+}
+.landing-root .lp-nav-menu-kids::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    bottom: 8px;
+    left: 16px;
+    width: 1px;
+    background: var(--lp-line);
+}
+
+.landing-root .lp-nav-menu-kid {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 10px 6px 32px;
+    border-radius: 10px;
+    font-size: 13px;
+    letter-spacing: -0.005em;
+    color: var(--lp-ink-soft);
+    text-decoration: none;
+}
+.landing-root .lp-nav-menu-kid:hover,
+.landing-root .lp-nav-menu-kid-active {
+    background: var(--lp-bg-soft);
+    color: var(--lp-ink);
+}
+html[data-theme='dark'] .landing-root .lp-nav-menu-kid:hover,
+html[data-theme='dark'] .landing-root .lp-nav-menu-kid-active {
+    background: var(--lp-paper-warm);
+}
+.landing-root .lp-nav-menu-kid-more {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--lp-muted);
+}
+
+/* The bar's utility cluster as the menu's last row. */
+.landing-root .lp-nav-menu-utils {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0 0 2px;
+}
+.landing-root .lp-nav-menu-utils-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+.landing-root .lp-nav-menu-utils .lp-nav-sep {
+    margin: 0 4px;
 }
 
 /* === Pricing === */
@@ -3890,6 +4130,24 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 40px;
     align-items: start;
+}
+
+/* A composition's own column makes five, at a tighter gap: at 1200 the four
+   link columns still clear their longest title. */
+.landing-root .lp-foot-grid-wide {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 32px;
+}
+
+/* Inline-block against preflight's block svg, which put the mark on a line
+   of its own under the label. */
+.landing-root .lp-foot-ext {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    margin-left: 4px;
+    vertical-align: -1px;
+    opacity: 0.6;
 }
 
 .landing-root .lp-foot-brand {
