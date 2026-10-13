@@ -128,6 +128,12 @@ export interface PageHtmlOptions {
     bodyHtml: string
     env: WebEnv
     preloadTags?: string
+    /* A lazy route's own stylesheets. They go at the end of the head, after
+       the app's, which is where Vite links them when the route loads in the
+       browser: link order is cascade order, so a page opened by URL has to
+       settle its ties with the app's styles the way it does after in-app
+       navigation. Linked up front, every route rule lost those ties. */
+    stylesheetTags?: string
 }
 
 // The vite-emitted index.html is the shell: it already carries the hashed
@@ -137,7 +143,7 @@ export interface PageHtmlOptions {
 // when it boots (ADR-0042).
 export const buildPageHtml = (
     shell: string,
-    { entry, bodyHtml, env, preloadTags }: PageHtmlOptions
+    { entry, bodyHtml, env, preloadTags, stylesheetTags }: PageHtmlOptions
 ): string => {
     assertPristineShell(shell, true)
     const head = [
@@ -156,6 +162,10 @@ export const buildPageHtml = (
         .replace(
             TITLE_TAG,
             head + (preloadTags ? `\n        ${preloadTags}` : '')
+        )
+        .replace(
+            '</head>',
+            stylesheetTags ? `    ${stylesheetTags}\n    </head>` : '</head>'
         )
         .replace(ROOT_DIV, `<div id="root" data-prerendered="">${bodyHtml}</div>`)
 }
