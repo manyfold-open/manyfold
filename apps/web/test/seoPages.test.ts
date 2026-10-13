@@ -291,6 +291,33 @@ test('marketing HTML starts the app after its first paint; app.html loads it wit
     )
 })
 
+// Link order is cascade order. In the browser a lazy route's stylesheet is
+// linked when its chunk loads, after the app's; linked ahead of it in the
+// prerendered page, the route lost every tie with the shared landing rules
+// and looked different opened by URL than reached by a link.
+test("a route's stylesheets follow the app's, fonts still lead", () => {
+    const shell = SHELL.replace(
+        '    </head>',
+        '        <link rel="stylesheet" crossorigin href="/assets/index-owned.css">\n    </head>'
+    )
+    const html = buildPageHtml(shell, {
+        entry: entries[0],
+        bodyHtml: '<main>body</main>',
+        env: 'production',
+        preloadTags:
+            '<link rel="preload" as="font" type="font/woff2" crossorigin href="/assets/font-owned.woff2" />',
+        stylesheetTags:
+            '<link rel="stylesheet" crossorigin href="/assets/Route-owned.css" />'
+    })
+    const font = html.indexOf('/assets/font-owned.woff2')
+    const app = html.indexOf('/assets/index-owned.css')
+    const route = html.indexOf('/assets/Route-owned.css')
+    assert.ok(font !== -1 && app !== -1 && route !== -1)
+    assert.ok(font < app, 'font preloads stay at the top of the head')
+    assert.ok(app < route, "the route's stylesheet comes after the app's")
+    assert.ok(route < html.indexOf('</head>'))
+})
+
 test('a shell without its module entry fails the page build', () => {
     assert.throws(
         () =>
