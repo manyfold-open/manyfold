@@ -134,13 +134,13 @@ export const renderStaticPages = async (
             entry,
             bodyHtml: await renderMarketingPage(entry.path, entry.language),
             env,
-            preloadTags: [
-                fontPreloadTags(assets, MARKETING_FONTS),
-                ...stylesheets.map(
+            preloadTags: fontPreloadTags(assets, MARKETING_FONTS),
+            stylesheetTags: stylesheets
+                .map(
                     (file) =>
                         `<link rel="stylesheet" crossorigin href="/${file}" />`
                 )
-            ].join('\n        ')
+                .join('\n        ')
         })
         const target =
             entry.path === '/'

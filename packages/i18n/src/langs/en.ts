@@ -792,8 +792,6 @@ const en = {
         marketing: {
             toggleTheme: 'Toggle theme',
             menu: 'Menu',
-            lightMode: 'Light mode',
-            darkMode: 'Dark mode',
             beta: 'Beta',
             // Carries what the dropped globe icon used to say — the visible
             // label is only the two-letter code.
@@ -2070,11 +2068,12 @@ const en = {
             stepCtaStep2: 'Step 2',
             navPricing: 'Pricing',
             navDocs: 'Docs',
-            navChallenge: 'Challenge',
             navChannels: 'Channels',
-            // The folded nav menu has room for a gloss the bar does not;
-            // every name in it is a product, so nothing here is translated.
+            // The gloss under Channels in the nav menus; every name in it is
+            // a product, so nothing here is translated.
             navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
+            navProduct: 'Product',
+            navSelfHostGloss: 'Open source, on your own servers',
             heroPrimaryCta: 'Create your first agent',
             useInAgentCta: 'Give your agent Manyfold',
             useInAgentPaste: 'Paste it into your agent',
@@ -2094,7 +2093,6 @@ const en = {
                 'Yes. Open "Use in your agent" at the top of this page and paste the prompt into your agent. It installs the mf CLI, opens your browser once so you can sign in or create an account, and adds the Manyfold plugin. Works with Claude Code, Codex and any agent that can run shell commands.',
             footerLegal: '© 2026 Manyfold',
             footerDocs: 'Docs',
-            footerChallenge: 'Agent Challenge',
             footerChangelog: 'Changelog',
             footerStatus: 'Status',
             footerPrivacy: 'Privacy',
