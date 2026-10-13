@@ -1,5 +1,15 @@
 # @manyfold/web
 
+## 2.26.0
+
+### Minor Changes
+
+- [#710](https://github.com/manyfold-open/manyfold/pull/710) [`ea9a5e9`](https://github.com/manyfold-open/manyfold/commit/ea9a5e907f11fb678ff24018cbf2b9aaf99a757c) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The marketing site's nav groups its pages into menus. The bar reads Product · Pricing · Docs, with Product opening a panel of Channels and Self-host, each with a line saying what it is; a composition can lead that menu with its own pages and add whole groups after it through the new `editionNavMenus` slot, which also lets it add one footer column. On phones the folded menu opens the same groups in place, one at a time, and puts the GitHub, X, Discord, language and theme controls in a single row instead of five, so the whole menu fits well inside the first screen; the Sign in row gets an icon so its label lines up with the rest. The Challenge entries leave the nav and the footer, and with them the `ChallengeNavLink` slot; the `CloudNavLink` slot keeps only its footer and landing-tour entrances. `/apps` is routed as a new editions slot page that redirects home here.
+
+### Patch Changes
+
+- [#711](https://github.com/manyfold-open/manyfold/pull/711) [`a350d67`](https://github.com/manyfold-open/manyfold/commit/a350d67598e5f5e431286319af9011309993b234) Thanks [@yingca1](https://github.com/yingca1)! - A prerendered marketing page now links a lazy route's own stylesheets after the app's, where the browser puts them when the route loads from another page, so the page looks the same opened by URL as reached by a link. Linked first, the route's rules lost every tie with the shared landing styles: a composition page whose header makes room for the floating nav lost that room when opened directly, and sat under the nav.
+
 ## 2.25.0
 
 ### Minor Changes
