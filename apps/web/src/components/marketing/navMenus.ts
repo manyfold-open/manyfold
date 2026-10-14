@@ -57,6 +57,8 @@ export interface MarketingFooterColumn {
 }
 
 export interface MarketingNavMenus {
+    /* Direct links ahead of the menus; the folded menu lists them first too. */
+    barLinks: NavMenuLink[]
     groups: NavMenuGroup[]
     footerColumn: MarketingFooterColumn | null
     current: string | undefined
@@ -102,6 +104,7 @@ export const useMarketingNavMenus = (): MarketingNavMenus => {
         ]
     }
     return {
+        barLinks: edition.barLinks ?? [],
         groups: [product, ...edition.groups],
         footerColumn: edition.footerColumn,
         current: seoPageForPath(pathname)?.def.key

@@ -16,6 +16,7 @@ const importCustomizeLayout = () => import('@/pages/Customize/CustomizeLayout')
 const ChannelsLanding = lazyChunk(() => import('@/pages/ChannelsLanding'))
 const CloudLanding = lazyChunk(() => import('@/pages/CloudLanding'))
 const AppsLanding = lazyChunk(() => import('@/pages/AppsLanding'))
+const SolutionsLanding = lazyChunk(() => import('@/pages/SolutionsLanding'))
 
 // The lazy marketing routes (the landing is in the entry already). Each one's
 // prerendered page loads the route chunk before it hydrates (lazyChunk's
@@ -36,6 +37,11 @@ const LAZY_MARKETING_ROUTES = [
         path: '/apps',
         module: 'pages/AppsLanding.tsx',
         component: AppsLanding
+    },
+    {
+        path: '/ai-solutions',
+        module: 'pages/SolutionsLanding.tsx',
+        component: SolutionsLanding
     }
 ]
 
@@ -217,6 +223,11 @@ const App: FC = (): ReactNode => {
                 <Route path='/zh/hosted-agents' element={<CloudLanding />} />
                 <Route path='/apps' element={<AppsLanding />} />
                 <Route path='/zh/apps' element={<AppsLanding />} />
+                <Route path='/ai-solutions' element={<SolutionsLanding />} />
+                <Route
+                    path='/zh/ai-solutions'
+                    element={<SolutionsLanding />}
+                />
                 <Route path='/challenge' element={<Challenge />} />
                 {/* Public on purpose: the signed-out state is one of the
                     states this page renders, so a route guard would bounce
