@@ -352,7 +352,10 @@ test('every app route in App.tsx is served by an SPA route prefix', () => {
            SPA prefix, because @spa rewrites ahead of try_files and stamps
            noindex, which would bury the page it is meant to reach. */
         .filter(
-            (segment) => segment !== '/hosted-agents' && segment !== '/apps'
+            (segment) =>
+                segment !== '/hosted-agents' &&
+                segment !== '/apps' &&
+                segment !== '/ai-solutions'
         )
     for (const segment of new Set(topLevel))
         assert.ok(
