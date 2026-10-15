@@ -18,6 +18,7 @@ import {
     Plus,
     Sparkle
 } from 'lucide-react'
+import { EditionBand } from '@/components/landing/EditionBand'
 import { ScrollyStage } from '@/components/landing/ScrollyStage'
 import UseInAgentCta from '@/components/landing/UseInAgentCta'
 import { MarketingFooter } from '@/components/marketing/MarketingFooter'
@@ -833,6 +834,7 @@ const Landing: FC = (): ReactNode => {
                         <ScrollyStage cta={<HeroCta />} />
                         <WorksWith />
                         <Observability />
+                        <EditionBand />
                         <Pricing />
                         <Faq />
                     </main>

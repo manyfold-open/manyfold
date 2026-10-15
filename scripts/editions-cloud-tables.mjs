@@ -55,7 +55,9 @@ export const CLOUD_TABLE_CONTRACT = [
     // Promotional credit (2026-09-04): campaigns and the grants they issue.
     // Commercial end to end — an OSS database has no campaigns to run.
     { table: 'credit_campaigns', dbExport: 'creditCampaigns' },
-    { table: 'credit_grants', dbExport: 'creditGrants' }
+    { table: 'credit_grants', dbExport: 'creditGrants' },
+    // AI Solutions leads (2026-10-14): commercial sales intake.
+    { table: 'solutions_inquiries', dbExport: 'solutionsInquiries' }
 ]
 
 export const CLOUD_TABLE_DB_EXPORTS = CLOUD_TABLE_CONTRACT.map(

@@ -659,6 +659,27 @@ const NavOverflow: FC<{
                     ) : (
                         <>
                             {renderCta?.(() => setOpen(false))}
+                            {menus.barLinks.map((link) => {
+                                const Icon = link.icon
+                                const current = link.page === menus.current
+                                return (
+                                    <MenuLink
+                                        key={link.key}
+                                        link={link}
+                                        className={
+                                            current
+                                                ? 'lp-nav-menu-item lp-nav-menu-item-active'
+                                                : 'lp-nav-menu-item'
+                                        }
+                                        current={current}
+                                        role='menuitem'
+                                        onClick={() => setOpen(false)}
+                                    >
+                                        {Icon && <Icon />}
+                                        <span>{link.label}</span>
+                                    </MenuLink>
+                                )
+                            })}
                             {menus.groups.map((group) => (
                                 <FoldGroup
                                     key={group.key}
@@ -876,7 +897,13 @@ export const MarketingNav: FC<MarketingNavProps> = ({
             {/* Three columns rather than two: the destinations now sit in the
                 middle, which leaves the right edge to utilities and the CTA
                 alone and stops the CTA from being crowded by page links. */}
-            <div className='lp-nav-inner lp-nav-inner-tri'>
+            <div
+                className={
+                    menus.barLinks.length > 0
+                        ? 'lp-nav-inner lp-nav-inner-tri lp-nav-inner-wide'
+                        : 'lp-nav-inner lp-nav-inner-tri'
+                }
+            >
                 <div className='lp-nav-inner-left'>
                     <MarketingBrand badge={badge} homeTo={homeTo} />
                 </div>
@@ -890,8 +917,24 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                     each, nothing to choose between. Only a page of our own
                     can be the current one: Docs leaves for the docs site and
                     Pricing is a section of the landing page, so neither has a
-                    state to be in. */}
+                    state to be in. A composition's own direct links come
+                    first: they lead to a page for a reader the menus are not
+                    written for. */}
                 <nav className='lp-nav-center' ref={dropdowns.rootRef}>
+                    {menus.barLinks.map((link) => (
+                        <MenuLink
+                            key={link.key}
+                            link={link}
+                            className={
+                                link.page === menus.current
+                                    ? 'lp-nav-link lp-nav-link-active'
+                                    : 'lp-nav-link'
+                            }
+                            current={link.page === menus.current}
+                        >
+                            {link.label}
+                        </MenuLink>
+                    ))}
                     {menus.groups.map((group) => (
                         <NavDropdown
                             key={group.key}
