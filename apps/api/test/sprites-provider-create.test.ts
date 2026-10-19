@@ -98,6 +98,43 @@ test('a create that stays failed gives up after its polls, for the rollback to c
     assert.deepEqual(h.refs, [])
 })
 
+test('a host whose create never recorded its sprite still has it destroyed', async () => {
+    const deleted: string[] = []
+    const adapter = new NoWait(
+        { register: () => {} } as never,
+        { findById: async () => host } as never,
+        {
+            spritesClientForProvider: () => ({
+                deleteSprite: async (name: string) => {
+                    deleted.push(name)
+                    if (deleted.length > 1)
+                        throw new SpritesError(
+                            'not_found',
+                            'sprite not found',
+                            404
+                        )
+                }
+            }),
+            spritesLoggerFor: () => ({
+                debug() {},
+                info() {},
+                warn() {},
+                error() {}
+            })
+        } as never
+    )
+    const destroy = () =>
+        adapter.destroy({
+            host: host as never,
+            provider: provider as never,
+            generation: 3
+        })
+    await destroy()
+    // A second destroy finds nothing left, which is what it was asked for.
+    await destroy()
+    assert.deepEqual(deleted, ['sbx-1', 'sbx-1'])
+})
+
 test('a create sprites.dev refused outright is not waited on', async () => {
     const h = build({
         createError: new SpritesError('permanent', 'name taken', 422),
