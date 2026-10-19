@@ -3,9 +3,11 @@ import {
     ApiTokenScope
 } from '@manyfold/shared'
 import {
+    HttpException,
     Injectable,
     InternalServerErrorException,
     Logger,
+    ServiceUnavailableException,
     UnauthorizedException,
     type CanActivate,
     type ExecutionContext
@@ -64,7 +66,15 @@ export class AuthGuard implements CanActivate {
                     'Authentication store is not migrated'
                 )
             }
-            throw new UnauthorizedException((error as Error).message)
+            if (error instanceof HttpException) throw error
+            // Not a verdict on the token: the store could not be read. A 401
+            // here signs a browser out and tells a client its token is bad.
+            this.log.error(
+                `bearer verification unavailable: ${(error as Error).message}`
+            )
+            throw new ServiceUnavailableException(
+                'Authentication is temporarily unavailable'
+            )
         }
 
         const requireAuthSession =

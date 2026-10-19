@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { HttpException, HttpStatus, NotFoundException } from '@nestjs/common'
+import {
+    HttpException,
+    HttpStatus,
+    NotFoundException,
+    UnauthorizedException
+} from '@nestjs/common'
 import type { AuthPrincipal } from '../src/modules/auth/auth-principal'
 import { OpenAiChatCompletionsController } from '../src/modules/openai-compat/openai-chat-completions.controller'
 import {
@@ -357,6 +362,29 @@ test('OpenAI-compatible controller rejects non-nca bearer tokens', async () => {
     assert.equal(res.body.error.code, 'invalid_api_key')
 })
 
+test('OpenAI-compatible controller answers 503, not invalid_api_key, when the token store cannot be read', async () => {
+    const harness = makeHarness()
+    const res = makeReply()
+
+    await harness.controller.create(
+        makeRequest('Bearer nca_store_down'),
+        res as never,
+        {
+            model: 'agt_abc',
+            messages: [{ role: 'user', content: 'hello' }]
+        }
+    )
+
+    assert.equal(res.statusCode, 503)
+    assert.deepEqual(res.body, {
+        error: {
+            message: 'authentication is temporarily unavailable',
+            type: 'api_error',
+            code: 'auth_unavailable'
+        }
+    })
+})
+
 test('OpenAI-compatible controller returns invalid API key for bad nca token', async () => {
     const harness = makeHarness()
     const res = makeReply()
@@ -600,7 +628,9 @@ const makeHarness = (
                     tokenId: 'pat_3',
                     scopes: []
                 }
-            throw new Error('api token not found')
+            if (token === 'nca_store_down')
+                throw new Error('cannot execute UPDATE in a read-only transaction')
+            throw new UnauthorizedException('api token not found')
         }
     }
     const apiQuota = {

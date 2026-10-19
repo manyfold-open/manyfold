@@ -109,6 +109,22 @@ test('verify round-trips a freshly minted token with its binding', async () => {
     assert.ok(db.rows[0].lastUsedAt instanceof Date)
 })
 
+// A read-only primary during a Postgres failover must not refuse the daemon
+// as if its token were revoked: the last-used write is best-effort.
+test('verify still accepts the token when the database refuses the last-used write', async () => {
+    const db = new FakeDb()
+    const svc = new DaemonTokenService(db as unknown as Database)
+    const minted = await svc.mint({ userId: 'u1', name: 'laptop' })
+    db.update = (() => ({
+        set: () => ({
+            where: async () => {
+                throw new Error('cannot execute UPDATE in a read-only transaction')
+            }
+        })
+    })) as never
+    assert.equal((await svc.verify(minted.plaintext)).userId, 'u1')
+})
+
 // The whole trust boundary (ADR-0037 R5): only provisioning code passes a
 // host, and the register path trusts the binding, never anything the
 // daemon says. A request-shaped mint carries no host whatever its name.
