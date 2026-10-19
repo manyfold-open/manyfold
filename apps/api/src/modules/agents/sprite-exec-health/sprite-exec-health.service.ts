@@ -321,6 +321,9 @@ export class SpriteExecHealthService {
                     // a JS Date interpolated into a sql`` fragment as text and
                     // crashes in Buffer.byteLength.
                     execCooldownUntil: sql`greatest(${runtimeHosts.execCooldownUntil}, ${until.toISOString()}::timestamptz)`,
+                    // Kept from the first failure: how long the endpoint has
+                    // been down is what the sandbox health check weighs.
+                    execFailingSince: sql`coalesce(${runtimeHosts.execFailingSince}, now())`,
                     updatedAt: new Date()
                 })
                 .where(
@@ -366,6 +369,9 @@ export class SpriteExecHealthService {
                     execCooldownUntil: result.ok
                         ? null
                         : new Date(Date.now() + cooldownMs),
+                    execFailingSince: result.ok
+                        ? null
+                        : sql`coalesce(${runtimeHosts.execFailingSince}, now())`,
                     updatedAt: new Date()
                 })
                 .where(
@@ -396,6 +402,25 @@ export class SpriteExecHealthService {
             // turn.
             this.warn('probe', result.hostId, err)
             return { outcome: 'unavailable', retryAt: null }
+        }
+    }
+
+    // A probe outside the turn path (the sandbox health check) got a command
+    // through: the endpoint is no longer failing. Leaves the cooldown alone —
+    // a turn may hold the probe lease right now, and its own probe settles it.
+    async clearFailingSince(hostId: string): Promise<void> {
+        try {
+            await this.db
+                .update(runtimeHosts)
+                .set({ execFailingSince: null, updatedAt: new Date() })
+                .where(
+                    and(
+                        eq(runtimeHosts.id, hostId),
+                        eq(runtimeHosts.kind, 'hosted')
+                    )
+                )
+        } catch (err) {
+            this.warn('recovered', hostId, err)
         }
     }
 

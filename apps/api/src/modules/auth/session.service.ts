@@ -103,10 +103,21 @@ export class SessionService {
         const expiresAt = new Date(
             now.getTime() + DEFAULT_SESSION_TTL_DAYS * 86_400_000
         )
-        await this.db
-            .update(userSessions)
-            .set({ lastUsedAt: now, expiresAt })
-            .where(eq(userSessions.id, row.id))
+        // Best-effort: the read above already proved the session. A write the
+        // database refuses must not turn a valid session into a 401.
+        // Seen on prod [2026-10-16]: a 1.7 s read-only window during a Postgres
+        // failover turned every valid credential into a 401 — browsers were
+        // signed out and daemons backed off as if their tokens were revoked.
+        try {
+            await this.db
+                .update(userSessions)
+                .set({ lastUsedAt: now, expiresAt })
+                .where(eq(userSessions.id, row.id))
+        } catch (err) {
+            this.log.warn(
+                `session last-used write skipped: ${(err as Error).message}`
+            )
+        }
         return {
             userId: row.userId,
             email: row.email,

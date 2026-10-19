@@ -1,3 +1,4 @@
+import { UnauthorizedException } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import type { AuthPrincipal } from '@/modules/auth/auth-principal'
@@ -71,11 +72,20 @@ export const authenticateOpenAiRequest = async (
         return user
     } catch (err) {
         if (err instanceof OpenAiCompatError) throw err
+        if (err instanceof UnauthorizedException)
+            throw new OpenAiCompatError(
+                401,
+                err.message,
+                'authentication_error',
+                'invalid_api_key'
+            )
+        // Not a verdict on the key: `invalid_api_key` would make an SDK
+        // client treat a working key as revoked.
         throw new OpenAiCompatError(
-            401,
-            (err as Error).message,
-            'authentication_error',
-            'invalid_api_key'
+            503,
+            'authentication is temporarily unavailable',
+            'api_error',
+            'auth_unavailable'
         )
     }
 }

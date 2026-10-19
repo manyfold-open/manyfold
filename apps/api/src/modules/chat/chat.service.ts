@@ -1544,11 +1544,20 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // Durable turn state for observers that outlive the in-process stream
     // (channel bridge reconcile): reads the persisted terminal event instead
     // of relying on an in-memory ChatTurnObserver callback.
+    //
+    // Terminal first, then the message: insertStreamEvent commits the terminal
+    // row and the message's final content in one transaction, so a message
+    // read AFTER the terminal is visible always carries that content. Read the
+    // other way round, a terminal that commits between the two reads pairs
+    // `done` with the content as it was before it — empty for any reply under
+    // the 8 KB / 60 s checkpoint thresholds.
+    // Seen on prod [2026-10-15..17]: A2A tasks completed with an empty artifact
+    // while the message held the reply (via=durable_chat_result, ~1 a day).
     async getTurnOutcome(assistantMessageId: string): Promise<ChatTurnOutcome> {
-        const message = await this.repo.getMessageById(assistantMessageId)
-        if (!message) return { state: 'missing' }
         const terminal =
             await this.repo.findTerminalStreamEvent(assistantMessageId)
+        const message = await this.repo.getMessageById(assistantMessageId)
+        if (!message) return { state: 'missing' }
         if (!terminal) return { state: 'running' }
         if (terminal.eventType === 'done') {
             const blocks =

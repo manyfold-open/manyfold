@@ -24,6 +24,7 @@ import {
     SandboxHealthService
 } from '../src/modules/sandboxes/health/sandbox-health.service'
 import { RECHECK_LADDER_MS } from '../src/modules/sandboxes/health/sandbox-health-policy'
+import { SpriteExecHealthService } from '../src/modules/agents/sprite-exec-health/sprite-exec-health.service'
 
 // The maintenance stage is a state machine on runtime_hosts, and the API runs
 // on more than one instance. What makes it safe is SQL, so it is proven here
@@ -70,6 +71,8 @@ interface Harness {
     named: (name: string) => TelemetryEvent[]
     script: { current: Script }
     toggles: Record<string, boolean>
+    // What the no-op exec probe answers, and the hosts it was run on.
+    probe: { current: string; on: string[] }
 }
 
 const report = (
@@ -101,6 +104,7 @@ const withHarness = async (
         const script: { current: Script } = {
             current: async () => report('unhealthy', 'failed to start machine')
         }
+        const probe: { current: string; on: string[] } = { current: 'ok', on: [] }
         const sfx = randomBytes(6).toString('hex')
         const ids = {
             plan: `plan_pgtest_${sfx}`,
@@ -132,7 +136,17 @@ const withHarness = async (
                     announceHostState: async (hostId: string) => {
                         announced.push(hostId)
                     }
-                } as never
+                } as never,
+                undefined,
+                undefined,
+                undefined,
+                {
+                    probeExec: async (host: RuntimeHostRow) => {
+                        probe.on.push(host.id)
+                        return probe.current
+                    }
+                } as never,
+                new SpriteExecHealthService(db)
             )
             return { db, health }
         }
@@ -200,7 +214,8 @@ const withHarness = async (
                 announced,
                 named: (name) => log.filter((event) => event.name === name),
                 script,
-                toggles
+                toggles,
+                probe
             })
         } finally {
             for (const instance of fleet) await closeDb(instance.db)
@@ -509,5 +524,83 @@ test(
             await afterFailure(h.first, id)
 
             assert.deepEqual(h.asked, [])
+        })
+)
+
+// Seen on prod [2026-10-08 → 2026-10-16]: a sprite refused every command for
+// eight days while 264 checks answered `healthy` ("machine is running").
+const execFailingFor = (ms: number): Date => new Date(Date.now() - ms)
+
+test(
+    'a machine that runs but has refused every command for half an hour goes into maintenance',
+    { skip: !RUN },
+    async () =>
+        withHarness(async (h) => {
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_HEALTH_CHECKS] = true
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_MAINTENANCE_AUTO] = true
+            h.script.current = async () => report('healthy', 'machine is running')
+            h.probe.current = 'handshake_5xx'
+            const id = await h.host('execdead', { execFailingSince: execFailingFor(40 * 60_000) })
+
+            await afterFailure(h.first, id)
+
+            const row = await h.row(id)
+            assert.deepEqual(h.probe.on, [id])
+            assert.equal(row.status, 'maintenance')
+            assert.match(row.failureReason ?? '', /Health check: unhealthy — the machine is running but has taken no command since .* \(handshake_5xx\)/)
+            assert.deepEqual(h.announced, [id])
+        })
+)
+
+test(
+    'a shorter exec outage, or a probe that gets through, leaves the machine ready',
+    { skip: !RUN },
+    async () =>
+        withHarness(async (h) => {
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_HEALTH_CHECKS] = true
+            h.toggles[FEATURE_TOGGLE_KEYS.SANDBOX_MAINTENANCE_AUTO] = true
+            h.script.current = async () => report('healthy', 'machine is running')
+
+            h.probe.current = 'timeout'
+            const recent = await h.host('blip', { execFailingSince: execFailingFor(5 * 60_000) })
+            await afterFailure(h.first, recent)
+            assert.equal((await h.row(recent)).status, 'ready')
+            assert.ok((await h.row(recent)).execFailingSince, 'still failing, still marked')
+
+            h.probe.current = 'ok'
+            const back = await h.host('back', { execFailingSince: execFailingFor(40 * 60_000) })
+            await afterFailure(h.first, back)
+            const row = await h.row(back)
+            assert.equal(row.status, 'ready')
+            assert.equal(row.execFailingSince, null)
+
+            const clean = await h.host('clean')
+            await afterFailure(h.first, clean)
+            assert.equal(h.probe.on.includes(clean), false, 'no exec failures, no probe')
+        })
+)
+
+test(
+    'in maintenance for refusing commands, only a probe that gets through lets it out',
+    { skip: !RUN },
+    async () =>
+        withHarness(async (h) => {
+            h.script.current = async () => report('healthy', 'machine is running')
+            h.probe.current = 'timeout'
+            const id = await h.host('stuck', {
+                status: 'maintenance',
+                maintenanceSince: new Date(),
+                healthFailureCount: 1,
+                execFailingSince: execFailingFor(60 * 60_000)
+            })
+
+            assert.equal((await h.first.health.checkNow(id)).outcome, 'stayed')
+            assert.equal((await h.row(id)).status, 'maintenance')
+
+            h.probe.current = 'ok'
+            assert.equal((await h.first.health.checkNow(id)).outcome, 'exited')
+            const row = await h.row(id)
+            assert.equal(row.status, 'ready')
+            assert.equal(row.execFailingSince, null)
         })
 )

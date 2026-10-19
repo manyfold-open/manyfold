@@ -5,7 +5,11 @@ import type {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import {
+    BadRequestException,
+    NotFoundException,
+    UnauthorizedException
+} from '@nestjs/common'
 import type { AuthPrincipal } from '../src/modules/auth/auth-principal'
 import { OpenAiConversationsController } from '../src/modules/openai-compat/openai-conversations.controller'
 import { OpenAiConversationsService } from '../src/modules/openai-compat/openai-conversations.service'
@@ -466,7 +470,7 @@ const makeHarness = (
                     tokenId: 'pat_none',
                     scopes: []
                 }
-            throw new Error('api token not found')
+            throw new UnauthorizedException('api token not found')
         }
     }
     const service = new OpenAiConversationsService(chat as never)

@@ -2,7 +2,12 @@ import type { ApiTokenScope } from '@manyfold/shared'
 import 'reflect-metadata'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ForbiddenException, type ExecutionContext } from '@nestjs/common'
+import {
+    ForbiddenException,
+    ServiceUnavailableException,
+    UnauthorizedException,
+    type ExecutionContext
+} from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { AuthGuard } from '../src/common/guards/auth.guard'
 import { REQUIRED_API_TOKEN_SCOPES_META } from '../src/common/decorators/require-api-token-scope.decorator'
@@ -457,5 +462,30 @@ test('AuthGuard surfaces auth store migration errors as 500', async () => {
     await assert.rejects(
         () => guard.canActivate(makeCtx(makeRequest('whatever'))),
         /Authentication store is not migrated/
+    )
+})
+
+// Seen on prod [2026-10-16]: a read-only window during a Postgres failover
+// made verification throw a database error, which this guard turned into a
+// 401 — and a 401 signs a browser out.
+test('AuthGuard answers 503, not 401, when the token store cannot be read', async () => {
+    const guard = guardWith(async () => {
+        throw new Error('cannot execute UPDATE in a read-only transaction')
+    })
+    await assert.rejects(
+        () => guard.canActivate(makeCtx(makeRequest('whatever'))),
+        (err: unknown) =>
+            err instanceof ServiceUnavailableException &&
+            !/read-only/.test((err as Error).message)
+    )
+})
+
+test('AuthGuard keeps a rejected token a 401', async () => {
+    const guard = guardWith(async () => {
+        throw new UnauthorizedException('api token revoked')
+    })
+    await assert.rejects(
+        () => guard.canActivate(makeCtx(makeRequest('whatever'))),
+        (err: unknown) => err instanceof UnauthorizedException
     )
 })

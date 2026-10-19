@@ -685,10 +685,17 @@ export class ApiTokenService {
                 throw new UnauthorizedException('api token revoked')
             if (runtimeRow.expiresAt && runtimeRow.expiresAt < new Date())
                 throw new UnauthorizedException('api token expired')
-            await this.db
-                .update(agentRuntimeTokens)
-                .set({ lastUsedAt: new Date() })
-                .where(eq(agentRuntimeTokens.id, runtimeRow.id))
+            // Best-effort, like the api_tokens write below.
+            try {
+                await this.db
+                    .update(agentRuntimeTokens)
+                    .set({ lastUsedAt: new Date() })
+                    .where(eq(agentRuntimeTokens.id, runtimeRow.id))
+            } catch (err) {
+                this.log.warn(
+                    `runtime token last-used write skipped: ${(err as Error).message}`
+                )
+            }
             // Identity only — authorization is resolved per request from
             // agent_permissions (auth.guard). The principal carries no scopes
             // or enforcement: those fields don't exist on the agent-runtime arm.
@@ -730,10 +737,21 @@ export class ApiTokenService {
         const createdVia = isTokenCreatedVia(apiRow.createdVia)
             ? apiRow.createdVia
             : null
-        await this.db
-            .update(apiTokens)
-            .set({ lastUsedAt: new Date() })
-            .where(eq(apiTokens.id, apiRow.id))
+        // Best-effort: the read above already proved the token. A write the
+        // database refuses must not turn a valid token into a 401.
+        // Seen on prod [2026-10-16]: a 1.7 s read-only window during a Postgres
+        // failover turned every valid credential into a 401 — browsers were
+        // signed out and daemons backed off as if their tokens were revoked.
+        try {
+            await this.db
+                .update(apiTokens)
+                .set({ lastUsedAt: new Date() })
+                .where(eq(apiTokens.id, apiRow.id))
+        } catch (err) {
+            this.log.warn(
+                `api token last-used write skipped: ${(err as Error).message}`
+            )
+        }
 
         return apiRow.agentId
             ? {
