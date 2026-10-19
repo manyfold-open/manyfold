@@ -12,6 +12,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { t } from '@manyfold/i18n'
 import { useApiClient } from '@/lib/apiClient'
 import { adminRoutes } from '@/routes'
+import { RuntimeProviderHeader } from './RuntimeProviderHeader'
 import {
     Breadcrumbs,
     Button,
@@ -179,26 +180,32 @@ const RuntimeProviderForm: FC = (): ReactNode => {
 
     return (
         <DetailPage>
-            <Breadcrumbs
-                items={[
-                    {
-                        label: t('admin.nav.runtimeProviders'),
-                        to: adminRoutes.runtimeProviders
-                    },
-                    {
-                        label: isEdit
-                            ? (loaded?.name ??
-                              id ??
-                              t('admin.runtimeProviders.form.titleEdit'))
-                            : t('admin.runtimeProviders.form.titleCreate')
-                    }
-                ]}
-            />
-            <Heading level={2} className='mb-2'>
-                {isEdit
-                    ? t('admin.runtimeProviders.form.titleEdit')
-                    : t('admin.runtimeProviders.form.titleCreate')}
-            </Heading>
+            {isEdit && id ? (
+                <RuntimeProviderHeader
+                    providerId={id}
+                    provider={loaded}
+                    active='settings'
+                />
+            ) : (
+                <>
+                    <Breadcrumbs
+                        items={[
+                            {
+                                label: t('admin.nav.runtimeProviders'),
+                                to: adminRoutes.runtimeProviders
+                            },
+                            {
+                                label: t(
+                                    'admin.runtimeProviders.form.titleCreate'
+                                )
+                            }
+                        ]}
+                    />
+                    <Heading level={2} className='mb-2'>
+                        {t('admin.runtimeProviders.form.titleCreate')}
+                    </Heading>
+                </>
+            )}
 
             <Card elevation='elevated'>
                 <CardBody>

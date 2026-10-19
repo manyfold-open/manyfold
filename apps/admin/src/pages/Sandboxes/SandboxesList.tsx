@@ -401,7 +401,20 @@ const SandboxesList: FC = (): ReactNode => {
                                         <td className='px-2 py-1.5'>
                                             {r.name}
                                             <div className='text-caption-sm text-body mt-1 font-mono'>
-                                                {r.providerRefLabel ?? r.id}
+                                                {r.providerId &&
+                                                r.providerRefLabel ? (
+                                                    <Link
+                                                        to={adminRoutes.runtimeProviderMachine(
+                                                            r.providerId,
+                                                            r.providerRefLabel
+                                                        )}
+                                                        className='text-brand hover:text-brand-hover'
+                                                    >
+                                                        {r.providerRefLabel}
+                                                    </Link>
+                                                ) : (
+                                                    (r.providerRefLabel ?? r.id)
+                                                )}
                                             </div>
                                         </td>
                                         {isAdmin && (

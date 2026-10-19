@@ -335,6 +335,7 @@ jobs:
             - run: pnpm test:browser-settings
             - run: pnpm test:browser-chat-sse
             - run: pnpm test:browser-admin-outcome
+            - run: pnpm test:browser-admin-inventory
 
     secret-scan:
         needs: prepare

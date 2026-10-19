@@ -261,6 +261,20 @@ const RuntimeProvidersList: FC = (): ReactNode => {
                                             ).toLocaleString(getLocale())}
                                         </td>
                                         <td className='px-2 py-1.5 text-right whitespace-nowrap'>
+                                            {p.capabilities.inventory && (
+                                                <ButtonLink
+                                                    variant='ghost'
+                                                    size='sm'
+                                                    className='mr-2'
+                                                    to={adminRoutes.runtimeProviderInventory(
+                                                        p.id
+                                                    )}
+                                                >
+                                                    {t(
+                                                        'admin.runtimeProviders.actions.inventory'
+                                                    )}
+                                                </ButtonLink>
+                                            )}
                                             <Button
                                                 variant='ghost'
                                                 size='sm'

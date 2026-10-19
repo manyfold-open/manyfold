@@ -229,7 +229,7 @@ Admin URLs follow the sidebar's operator-task hierarchy. Canonical paths are dec
 | Area | Canonical paths |
 | --- | --- |
 | Operations | `/agents`, `/runtimes`, `/sandboxes`, `/channels`, `/model-providers` |
-| Infrastructure | `/infrastructure/clusters`, `/infrastructure/sandbox-accounts`, `/infrastructure/self-owned-computers/*`, `/infrastructure/container-skus`, `/infrastructure/sandbox-capacity` |
+| Infrastructure | `/infrastructure/runtime-providers/*` (a provider's settings, its `inventory`, and `inventory/:name` for one machine), `/infrastructure/self-owned-computers/*`, `/infrastructure/container-skus`, `/infrastructure/sandbox-capacity` |
 | Users & billing | `/accounts/users`, `/accounts/waitlist`, `/billing/subscriptions`, `/billing/invoices`, `/billing/payments` |
 | Catalogs | `/catalog/frameworks/*`, `/catalog/skills/*`, `/catalog/mcp/*` |
 | Platform settings | `/platform/authentication`, `/platform/email`, `/platform/notification-webhooks`, `/platform/turn-policies`, `/platform/rollouts/*` |
