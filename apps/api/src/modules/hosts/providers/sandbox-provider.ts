@@ -107,6 +107,102 @@ export interface ProviderCapacity {
     suspendedLimit: number | null
 }
 
+// A machine as its provider's account lists it, whether or not a host here
+// points at it: what an admin sees in a provider's inventory.
+export interface ProviderMachine {
+    name: string
+    id: string | null
+    // The provider's own word for its state, and that state as power.
+    status: string
+    power: RuntimeHostPowerState
+    version: string | null
+    environmentVersion: string | null
+    labels: string[]
+    url: string | null
+    urlAuth: string | null
+    urlPrivateAccess: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    lastRunningAt: string | null
+}
+
+export interface ProviderMachineListing {
+    machines: ProviderMachine[]
+    // False when the provider stopped listing before the end.
+    complete: boolean
+    capacity: ProviderCapacity | null
+}
+
+export interface MachineUpgradeRequest {
+    // None is the newest build the provider offers this machine.
+    version?: string
+    allowStorageMigration?: boolean
+}
+
+// How watching an upgrade ended. `unconfirmed` saw no end: the upgrade may
+// still be running at the provider, which carries on without a watcher.
+export interface MachineUpgradeOutcome {
+    outcome: 'completed' | 'failed' | 'skipped' | 'unconfirmed'
+    targetVersion: string | null
+    message: string | null
+    lastStep: string | null
+}
+
+export type ProviderMachineErrorKind =
+    | 'not_found'
+    // The provider has the machine but not the operation.
+    | 'unsupported'
+    | 'refused'
+    | 'storage_migration_required'
+    | 'rate_limited'
+    | 'auth'
+    | 'unavailable'
+
+// What an inventory call failed with, in the core's terms. The message is the
+// provider's own words, redacted and capped by the adapter.
+export class ProviderMachineError extends Error {
+    constructor(
+        readonly kind: ProviderMachineErrorKind,
+        message: string,
+        readonly retryAfterMs?: number
+    ) {
+        super(message)
+        this.name = 'ProviderMachineError'
+    }
+}
+
+// Every machine in a provider's account, addressed by the provider's own name
+// rather than by a host. A machine with a host is still the host's: deleting
+// it goes through the host lifecycle, never through here.
+export interface ProviderInventory {
+    // Provider rows with the same key list the same machines.
+    accountKey(provider: RuntimeProvider): string
+    // The name a host's machine has, or would have, in its account.
+    machineNameOf(host: Pick<RuntimeHostRow, 'id' | 'providerRef'>): string
+    list(provider: RuntimeProvider): Promise<ProviderMachineListing>
+    // Never wakes the machine; null when the account has no such machine.
+    get(
+        provider: RuntimeProvider,
+        name: string
+    ): Promise<ProviderMachine | null>
+    // A machine already gone counts as destroyed.
+    destroy(provider: RuntimeProvider, name: string): Promise<void>
+    restart?(
+        provider: RuntimeProvider,
+        name: string
+    ): Promise<{ message: string | null }>
+    upgrade?(
+        provider: RuntimeProvider,
+        name: string,
+        request: MachineUpgradeRequest,
+        watch?: {
+            onAccepted?: () => void
+            onStep?: (step: string) => void
+            signal?: AbortSignal
+        }
+    ): Promise<MachineUpgradeOutcome>
+}
+
 // A provider-native exec session nothing is attached to any more, ended.
 export interface ReapedSession {
     sessionId: string
@@ -196,6 +292,8 @@ export interface SupervisedProcess {
 export interface SandboxProvider {
     readonly kind: RuntimeProviderKind
     readonly capabilities: SandboxProviderCapabilities
+    // A provider whose account can be listed whole offers its inventory.
+    readonly inventory?: ProviderInventory
     // The admin surface for provider rows (ADR-0037): how a credential splits
     // into secret and config and whether it works, before any row exists; the
     // config an admin's patch leaves; whether a row's credential still works;

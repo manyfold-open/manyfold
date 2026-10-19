@@ -1,6 +1,7 @@
 import {
     createObjectId,
     type CreateRuntimeProviderBody,
+    type RuntimeProviderCapabilities,
     type RuntimeProviderProbeResult,
     type RuntimeProviderSummary,
     type UpdateRuntimeProviderBody
@@ -20,7 +21,10 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
-import { SandboxProviderRegistry } from '@/modules/hosts/providers/sandbox-provider'
+import {
+    SandboxProviderRegistry,
+    type SandboxProvider
+} from '@/modules/hosts/providers/sandbox-provider'
 import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
 
 const isUniqueViolation = (err: unknown): boolean =>
@@ -60,12 +64,12 @@ export class RuntimeProvidersAdminService {
                 desc(runtimeProviders.priority),
                 asc(runtimeProviders.createdAt)
             )
-        return rows.map((r) => toSummary(r.provider, Number(r.hostCount)))
+        return rows.map((r) => this.summary(r.provider, Number(r.hostCount)))
     }
 
     async get(id: string): Promise<RuntimeProviderSummary> {
         const row = await this.findOrThrow(id)
-        return toSummary(row, await this.hostCount(id))
+        return this.summary(row, await this.hostCount(id))
     }
 
     async create(body: CreateRuntimeProviderBody): Promise<RuntimeProviderSummary> {
@@ -94,7 +98,7 @@ export class RuntimeProvidersAdminService {
                     updatedAt: now
                 })
                 .returning()
-            return toSummary(row, 0)
+            return this.summary(row, 0)
         } catch (err) {
             if (isUniqueViolation(err))
                 throw new ConflictException(
@@ -140,7 +144,7 @@ export class RuntimeProvidersAdminService {
                 .where(eq(runtimeProviders.id, id))
                 .returning()
             this.hostProviders.invalidate(row)
-            return toSummary(row, await this.hostCount(id))
+            return this.summary(row, await this.hostCount(id))
         } catch (err) {
             if (isUniqueViolation(err))
                 throw new ConflictException(
@@ -197,6 +201,16 @@ export class RuntimeProvidersAdminService {
         return Number(row?.n ?? 0)
     }
 
+    private summary(
+        row: RuntimeProvider,
+        hostCount: number
+    ): RuntimeProviderSummary {
+        const adapter = this.registry.has(row.kind)
+            ? this.registry.for(row.kind)
+            : null
+        return toSummary(row, hostCount, capabilitiesOf(adapter))
+    }
+
     private async findOrThrow(id: string): Promise<RuntimeProvider> {
         const [row] = await this.db
             .select()
@@ -210,7 +224,8 @@ export class RuntimeProvidersAdminService {
 
 const toSummary = (
     row: RuntimeProvider,
-    hostCount: number
+    hostCount: number,
+    capabilities: RuntimeProviderCapabilities
 ): RuntimeProviderSummary => ({
     id: row.id,
     kind: row.kind,
@@ -223,6 +238,17 @@ const toSummary = (
     lastHealthMessage: row.lastHealthMessage,
     lastHealthCheckedAt: row.lastHealthCheckedAt?.toISOString() ?? null,
     hostCount,
+    capabilities,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
+})
+
+// What the kind's adapter offers; a kind with no adapter registered offers
+// nothing, rather than failing the listing.
+const capabilitiesOf = (
+    adapter: SandboxProvider | null
+): RuntimeProviderCapabilities => ({
+    inventory: !!adapter?.inventory,
+    restartMachine: !!adapter?.inventory?.restart,
+    upgradeMachine: !!adapter?.inventory?.upgrade
 })

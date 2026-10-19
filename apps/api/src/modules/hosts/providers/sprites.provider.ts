@@ -6,7 +6,9 @@ import {
 import {
     SpritesError,
     parseTaskList,
+    redact,
     type ExecSessionInfo,
+    type ListSpritesResponse,
     type ServiceDef,
     type NetworkPolicy,
     type ServiceListResponse,
@@ -36,9 +38,16 @@ import {
     type HostCreateSpec,
     type ProviderCall,
     type PreparedCredential,
+    ProviderMachineError,
+    type ProviderCapacity,
     type ProviderErrorFacts,
     type ProviderExecResult,
     type ProviderHealthReport,
+    type ProviderInventory,
+    type ProviderMachine,
+    type ProviderMachineListing,
+    type MachineUpgradeOutcome,
+    type MachineUpgradeRequest,
     type ProviderObservation,
     type ProviderPowerState,
     type ProviderService,
@@ -173,6 +182,107 @@ export const spritesErrorFacts = (err: unknown): ProviderErrorFacts | null =>
 // would clamp the org cap to zero and block every wake.
 const vendorLimit = (raw: unknown): number | null =>
     typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null
+
+// Usage is counted over every sprite listed rather than the envelope's own
+// running/warm/cold, which describe only the page they came with; the limits
+// are account-level.
+const accountCapacity = (list: ListSpritesResponse): ProviderCapacity => {
+    const counts = { running: 0, suspended: 0, stopped: 0 }
+    for (const sprite of list.sprites) {
+        if (typeof (sprite as { name?: unknown }).name !== 'string') continue
+        const power = spritePowerState(sprite.status)
+        if (power === 'running') counts.running += 1
+        else if (power === 'suspended') counts.suspended += 1
+        else if (power === 'stopped') counts.stopped += 1
+    }
+    return {
+        ...counts,
+        runningLimit: vendorLimit(list.running_limit),
+        suspendedLimit: vendorLimit(list.warm_limit)
+    }
+}
+
+const text = (value: unknown): string | null =>
+    typeof value === 'string' && value !== '' ? value : null
+
+// A listed sprite as an inventory shows it; null for an entry with no name.
+export const spriteMachine = (sprite: Sprite): ProviderMachine | null => {
+    const name = text(sprite.name)
+    if (!name) return null
+    return {
+        name,
+        id: text(sprite.id),
+        status: text(sprite.status) ?? 'unknown',
+        power: spritePowerState(sprite.status),
+        version: text(sprite.version),
+        environmentVersion: text(sprite.environment_version),
+        labels: Array.isArray(sprite.labels)
+            ? sprite.labels.filter((l): l is string => typeof l === 'string')
+            : [],
+        url: text(sprite.url),
+        urlAuth: text(sprite.url_settings?.auth),
+        urlPrivateAccess: text(sprite.url_settings?.private_access),
+        createdAt: text(sprite.created_at),
+        updatedAt: text(sprite.updated_at),
+        lastRunningAt: text(sprite.last_running_at)
+    }
+}
+
+const PROVIDER_MESSAGE_CHARS = 512
+
+const capped = (message: string): string =>
+    redact(message).slice(0, PROVIDER_MESSAGE_CHARS)
+
+// Measured on local [2026-10-19]: an upgrade that would move a sprite's
+// storage is refused with 409 {error, from_variant, to_variant} unless
+// allow_storage_migration is set.
+const movesStorage = (body: unknown): boolean => {
+    const variants = body as { from_variant?: unknown; to_variant?: unknown }
+    return (
+        typeof variants?.from_variant === 'string' &&
+        typeof variants?.to_variant === 'string'
+    )
+}
+
+// An inventory call's failure in the core's terms, worded as sprites.dev put
+// it when it said anything.
+export const machineError = (err: unknown): ProviderMachineError => {
+    if (err instanceof ProviderMachineError) return err
+    if (!(err instanceof SpritesError))
+        return new ProviderMachineError(
+            'unavailable',
+            capped((err as Error)?.message ?? String(err))
+        )
+    const said = (err.body as { error?: unknown } | undefined)?.error
+    const message = capped(
+        typeof said === 'string' && said.trim() ? said.trim() : err.message
+    )
+    switch (err.code) {
+        case 'not_found':
+            return new ProviderMachineError('not_found', message)
+        case 'auth':
+            return new ProviderMachineError('auth', message)
+        case 'quota':
+            return err.status === 429
+                ? new ProviderMachineError(
+                      'rate_limited',
+                      message,
+                      err.retryAfterMs
+                  )
+                : new ProviderMachineError('refused', message)
+        case 'conflict':
+            return new ProviderMachineError(
+                movesStorage(err.body)
+                    ? 'storage_migration_required'
+                    : 'refused',
+                message
+            )
+        case 'permanent':
+            return new ProviderMachineError('refused', message)
+        default:
+            return new ProviderMachineError('unavailable', message)
+    }
+}
 
 // sprites.dev reports "no activity recorded" as the zero time rather than
 // omitting the field, and it is genuinely absent on some sprites — a session
@@ -313,6 +423,28 @@ export class SpritesProvider implements SandboxProvider {
         publicService: true
     }
     private readonly log = new Logger(SpritesProvider.name)
+
+    // Every sprite of the organisation by its name. Two provider rows on one
+    // organisation list the same sprites, so the organisation is the account.
+    readonly inventory: ProviderInventory = {
+        accountKey: (provider) => {
+            const orgId = (provider.config as SpritesProviderConfig | null)
+                ?.orgId
+            return orgId ? `sprites:${orgId}` : `provider:${provider.id}`
+        },
+        machineNameOf: (host) => {
+            const ref = host.providerRef
+            return ref && ref.kind === 'sprites'
+                ? ref.spriteName
+                : spriteNameForHost(host.id)
+        },
+        list: (provider) => this.listMachines(provider),
+        get: (provider, name) => this.getMachine(provider, name),
+        destroy: (provider, name) => this.destroyMachine(provider, name),
+        restart: (provider, name) => this.restartMachine(provider, name),
+        upgrade: (provider, name, request, watch) =>
+            this.upgradeMachine(provider, name, request, watch)
+    }
 
     constructor(
         registry: SandboxProviderRegistry,
@@ -493,9 +625,7 @@ export class SpritesProvider implements SandboxProvider {
         }
     }
 
-    // One listing for the whole organisation. Usage is counted from the fully
-    // paginated listing rather than the envelope's own running/warm/cold, which
-    // describe only the page they came with; the limits are account-level.
+    // One listing for the whole organisation.
     async observe(args: {
         provider: RuntimeProvider
         hosts: RuntimeHostRow[]
@@ -505,15 +635,10 @@ export class SpritesProvider implements SandboxProvider {
             .listSprites()
         if (!list) throw new Error('sprites listing answered nothing')
         const byName = new Map<string, RuntimeHostPowerState>()
-        const counts = { running: 0, suspended: 0, stopped: 0 }
         for (const sprite of list.sprites) {
             const name = (sprite as { name?: unknown }).name
             if (typeof name !== 'string') continue
-            const power = spritePowerState(sprite.status)
-            byName.set(name, power)
-            if (power === 'running') counts.running += 1
-            else if (power === 'suspended') counts.suspended += 1
-            else if (power === 'stopped') counts.stopped += 1
+            byName.set(name, spritePowerState(sprite.status))
         }
         const power = new Map<string, RuntimeHostPowerState>()
         for (const host of args.hosts) {
@@ -522,12 +647,132 @@ export class SpritesProvider implements SandboxProvider {
         }
         return {
             power,
-            capacity: {
-                ...counts,
-                runningLimit: vendorLimit(list.running_limit),
-                suspendedLimit: vendorLimit(list.warm_limit)
-            },
+            capacity: accountCapacity(list),
             complete: list.truncated !== true
+        }
+    }
+
+    private async listMachines(
+        provider: RuntimeProvider
+    ): Promise<ProviderMachineListing> {
+        let list: Awaited<ReturnType<SpritesClient['listSprites']>>
+        try {
+            list = await this.client({ provider }).listSprites()
+        } catch (err) {
+            throw machineError(err)
+        }
+        const machines: ProviderMachine[] = []
+        for (const sprite of list.sprites) {
+            const machine = spriteMachine(sprite)
+            if (machine) machines.push(machine)
+        }
+        return {
+            machines,
+            complete: list.truncated !== true,
+            capacity: accountCapacity(list)
+        }
+    }
+
+    private async getMachine(
+        provider: RuntimeProvider,
+        name: string
+    ): Promise<ProviderMachine | null> {
+        try {
+            return spriteMachine(
+                await this.client({ provider }).getSprite(name)
+            )
+        } catch (err) {
+            if (isSpritesNotFound(err)) return null
+            throw machineError(err)
+        }
+    }
+
+    // Seen on staging [2026-09-29]: a delete that outlasted the client's
+    // timeout had already gone through, so a timeout asks before it reports.
+    private async destroyMachine(
+        provider: RuntimeProvider,
+        name: string
+    ): Promise<void> {
+        try {
+            await this.client({ provider }).deleteSprite(name)
+        } catch (err) {
+            if (isSpritesNotFound(err)) return
+            if (
+                err instanceof SpritesError &&
+                err.code === 'transient' &&
+                (await this.getMachine(provider, name).catch(
+                    () => undefined
+                )) === null
+            )
+                return
+            throw machineError(err)
+        }
+    }
+
+    // A 404 from a route the public API does not list means no such sprite or
+    // no such route; whether the sprite is there tells them apart.
+    private async unlistedRouteError(
+        provider: RuntimeProvider,
+        name: string,
+        err: unknown
+    ): Promise<ProviderMachineError> {
+        if (!isSpritesNotFound(err)) return machineError(err)
+        const machine = await this.getMachine(provider, name).catch(() => null)
+        return machine
+            ? new ProviderMachineError(
+                  'unsupported',
+                  `sprites.dev does not offer this for ${name}`
+              )
+            : machineError(err)
+    }
+
+    private async restartMachine(
+        provider: RuntimeProvider,
+        name: string
+    ): Promise<{ message: string | null }> {
+        try {
+            const restart = await this.client({ provider }).restartSprite(name)
+            const said = text(restart?.message)
+            return { message: said ? capped(said) : null }
+        } catch (err) {
+            throw await this.unlistedRouteError(provider, name, err)
+        }
+    }
+
+    private async upgradeMachine(
+        provider: RuntimeProvider,
+        name: string,
+        request: MachineUpgradeRequest,
+        watch?: {
+            onAccepted?: () => void
+            onStep?: (step: string) => void
+            signal?: AbortSignal
+        }
+    ): Promise<MachineUpgradeOutcome> {
+        try {
+            const result = await this.client({ provider }).upgradeSprite(
+                name,
+                {
+                    version: request.version,
+                    allow_storage_migration: request.allowStorageMigration
+                },
+                {
+                    onAccepted: watch?.onAccepted,
+                    onEvent: (event) => watch?.onStep?.(event.type),
+                    signal: watch?.signal
+                }
+            )
+            return {
+                outcome:
+                    result.outcome === 'incomplete'
+                        ? 'unconfirmed'
+                        : result.outcome,
+                targetVersion: result.targetVersion,
+                message: result.message,
+                lastStep: result.lastEvent
+            }
+        } catch (err) {
+            throw await this.unlistedRouteError(provider, name, err)
         }
     }
 
