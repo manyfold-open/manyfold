@@ -1,5 +1,19 @@
 # @manyfold/api
 
+## 10.12.0
+
+### Minor Changes
+
+- [#719](https://github.com/manyfold-open/manyfold/pull/719) [`370ca98`](https://github.com/manyfold-open/manyfold/commit/370ca984c07d1cf7b9df6a9610653273c87ec84b) Thanks [@yingca1](https://github.com/yingca1)! - A brief database hiccup no longer looks like a bad credential. Sessions, API tokens and daemon tokens keep working while the database cannot take writes (for example for a moment during a failover), and a credential that cannot be checked right now is answered `503` — `api_error` / `auth_unavailable` on the OpenAI-compatible API, WebSocket close `1011` for daemons and terminals — instead of `401`. Browsers stay signed in, daemons reconnect on their normal schedule instead of backing off as if their token were revoked, and the database's error text is no longer sent to A2A callers.
+
+- [#719](https://github.com/manyfold-open/manyfold/pull/719) [`370ca98`](https://github.com/manyfold-open/manyfold/commit/370ca984c07d1cf7b9df6a9610653273c87ec84b) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox whose machine keeps running but has accepted no command for 30 minutes now goes into maintenance, so its owner is told and its turns are refused at once instead of each one failing after a wait. The health check used to look only at whether the machine was powered on, so a machine stuck that way read as healthy indefinitely. A sandbox in maintenance for this reason leaves it as soon as a command gets through again. Operators can tune the threshold with `MF_SANDBOX_EXEC_DEAD_AFTER_MS`.
+
+### Patch Changes
+
+- [#719](https://github.com/manyfold-open/manyfold/pull/719) [`370ca98`](https://github.com/manyfold-open/manyfold/commit/370ca984c07d1cf7b9df6a9610653273c87ec84b) Thanks [@yingca1](https://github.com/yingca1)! - A2A tasks no longer complete with an empty result. When a turn finished at the moment the task's background check looked at it, the task could be closed with the reply missing, and the caller received an empty answer while the chat itself showed the full reply.
+
+- [#719](https://github.com/manyfold-open/manyfold/pull/719) [`370ca98`](https://github.com/manyfold-open/manyfold/commit/370ca984c07d1cf7b9df6a9610653273c87ec84b) Thanks [@yingca1](https://github.com/yingca1)! - A turn no longer hangs for half an hour when its sandbox reconnects to a different API instance mid-dispatch. The instance the daemon reconnects to now hands the turn straight to the existing recovery (re-dispatch or resume on the new connection) instead of waiting for word from the instance that held the old connection, and an instance whose internal message channel goes quiet after a database failover rebuilds it within about a minute and a half.
+
 ## 10.11.0
 
 ### Minor Changes
