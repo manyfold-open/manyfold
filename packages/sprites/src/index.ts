@@ -3,7 +3,7 @@ export type { SpritesClient } from './client'
 export { execSprite } from './exec'
 export { execSpriteStream } from './exec-stream'
 export type { ExecStreamHandle } from './exec-stream'
-export { SpritesError, classifyHttpStatus } from './errors'
+export { SpritesError, classifyHttpStatus, retryAfterMs } from './errors'
 export type { SpritesErrorCode, SpritesFailureReason } from './errors'
 export { spriteWriteFile, spriteReadFile, spriteStatFile } from './file-io'
 export type { SpriteWriteFileArgs, SpriteReadFileResult } from './file-io'
@@ -26,6 +26,11 @@ export type {
     SpriteHealthCheck,
     ListSpritesResponse,
     SpriteListing,
+    SpriteRestart,
+    SpriteUpgradeEvent,
+    SpriteUpgradeOptions,
+    SpriteUpgradeRequest,
+    SpriteUpgradeResult,
     NetworkPolicy,
     NetworkPolicyRule,
     ExecOptions,

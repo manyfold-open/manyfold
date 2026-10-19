@@ -1,5 +1,6 @@
-import { classifyHttpStatus, SpritesError } from './errors'
+import { classifyHttpStatus, retryAfterMs, SpritesError } from './errors'
 import { redact, redactHeaders } from './redaction'
+import { watchUpgrade } from './stream'
 import type {
     ExecSessionInfo,
     ListSpritesResponse,
@@ -12,6 +13,10 @@ import type {
     Sprite,
     SpriteHealthCheck,
     SpriteListing,
+    SpriteRestart,
+    SpriteUpgradeOptions,
+    SpriteUpgradeRequest,
+    SpriteUpgradeResult,
     SpritesClientOptions,
     SpritesLogger
 } from './types'
@@ -21,6 +26,14 @@ const DEFAULT_WS_BASE_URL = 'wss://api.sprites.dev/v1'
 const DEFAULT_TIMEOUT_MS = 15_000
 // The most sprites.dev returns per page; it pages by 50 unless asked.
 const SPRITE_PAGE_SIZE = 500
+// Under the 60 s a proxy in front of the caller allows an idle request.
+// Measured on local [2026-10-19]: a restart was accepted in about 4 s.
+const RESTART_TIMEOUT_MS = 45_000
+// How long an upgrade is watched, in all and without a line.
+// Measured on local [2026-10-19]: moving an empty sprite's storage sent
+// nothing for 329 s after starting_machine, then completed.
+const UPGRADE_TIMEOUT_MS = 30 * 60_000
+const UPGRADE_IDLE_TIMEOUT_MS = 15 * 60_000
 // Runaway guard for listSprites pagination — an account has O(hundreds) of
 // sprites at most, so 50 pages (25k) is far past any real listing.
 const MAX_SPRITE_PAGES = 50
@@ -44,6 +57,22 @@ export interface SpritesClient {
      */
     checkSprite(name: string): Promise<SpriteHealthCheck>
     updateSprite(name: string, patch: Record<string, unknown>): Promise<Sprite>
+    /**
+     * POST /sprites/{name}/restart, which the public OpenAPI does not list.
+     * sprites.dev accepts at once (202) and reboots the machine shortly after.
+     */
+    restartSprite(name: string): Promise<SpriteRestart>
+    /**
+     * POST /sprites/{name}/upgrade, which the public OpenAPI does not list. A
+     * refusal (a storage migration not allowed, say) rejects like any request;
+     * an accepted upgrade is watched to its terminal event. Watching less than
+     * all of it does not stop the upgrade.
+     */
+    upgradeSprite(
+        name: string,
+        body?: SpriteUpgradeRequest,
+        opts?: SpriteUpgradeOptions
+    ): Promise<SpriteUpgradeResult>
     /**
      * Every sprite in the account, merged across pages. `truncated` says the
      * listing stopped before its last page, so a sprite missing from it may
@@ -131,11 +160,13 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
     const request = async <T>(
         method: string,
         path: string,
-        body?: unknown
+        body?: unknown,
+        opts: { timeoutMs?: number } = {}
     ): Promise<T> => {
         const url = `${baseUrl}${path}`
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        const callTimeoutMs = opts.timeoutMs ?? timeoutMs
+        const timer = setTimeout(() => controller.abort(), callTimeoutMs)
         const headers: Record<string, string> = {
             Authorization: authHeader,
             Accept: 'application/json'
@@ -171,7 +202,12 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
                     code,
                     message,
                     res.status,
-                    parsed ?? text
+                    parsed ?? text,
+                    {
+                        retryAfterMs: retryAfterMs(
+                            res.headers?.get?.('retry-after')
+                        )
+                    }
                 )
             }
             return (parsed ?? (undefined as unknown)) as T
@@ -181,7 +217,7 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
             throw new SpritesError(
                 'transient',
                 isAbort
-                    ? `sprites.dev ${method} ${path} timed out after ${timeoutMs}ms`
+                    ? `sprites.dev ${method} ${path} timed out after ${callTimeoutMs}ms`
                     : `sprites.dev ${method} ${path} network error: ${(err as Error).message}`
             )
         } finally {
@@ -263,6 +299,32 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
             request('GET', `/sprites/${encodeURIComponent(name)}/check`),
         updateSprite: (name, patch) =>
             request('PUT', `/sprites/${encodeURIComponent(name)}`, patch),
+        restartSprite: (name) =>
+            request(
+                'POST',
+                `/sprites/${encodeURIComponent(name)}/restart`,
+                undefined,
+                { timeoutMs: RESTART_TIMEOUT_MS }
+            ),
+        upgradeSprite: (name, body = {}, opts = {}) => {
+            const path = `/sprites/${encodeURIComponent(name)}/upgrade`
+            const sent = Object.fromEntries(
+                Object.entries(body).filter(([, value]) => value !== undefined)
+            )
+            return watchUpgrade({
+                url: `${baseUrl}${path}`,
+                path,
+                authHeader,
+                body: Object.keys(sent).length > 0 ? sent : undefined,
+                onAccepted: opts.onAccepted,
+                onEvent: opts.onEvent,
+                signal: opts.signal,
+                connectTimeoutMs: timeoutMs,
+                timeoutMs: opts.timeoutMs ?? UPGRADE_TIMEOUT_MS,
+                idleTimeoutMs: opts.idleTimeoutMs ?? UPGRADE_IDLE_TIMEOUT_MS,
+                logger
+            })
+        },
         listSprites: () => listAllSprites(),
         deleteSprite: async (name) => {
             await request('DELETE', `/sprites/${encodeURIComponent(name)}`)
