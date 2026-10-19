@@ -43,11 +43,17 @@ import { providerRefLabel } from '@/modules/agent-runtimes/host-ref'
 import { HostPowerSyncService } from '@/modules/agents/sprite-status/host-power-sync.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { HostProviderResolver } from '@/modules/hosts/providers/host-provider-resolver.service'
+import { HostBringUpService } from '@/modules/hosts/bring-up/host-bring-up.service'
+import {
+    SpriteExecHealthService,
+    spriteExecHealthConfig
+} from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import type { ProviderHealthReport } from '@/modules/hosts/providers/sandbox-provider'
 import { hostedOnProviderKind } from '@/modules/runtime-access/runtime-usage-counts'
 import {
     HEALTH_CHECK_LEASE_MS,
     decideTransition,
+    judgeExec,
     maintenanceReasonText,
     recheckDelayMs,
     sandboxHealthConfig,
@@ -105,10 +111,13 @@ type Recorded = {
 // drives. A check is asked after a machine fails to come up (when the toggle is
 // on), by a daily sweep of machines nothing has proven alive (its own toggle),
 // on a backoff for every sandbox already in maintenance (always: it is the only
-// way out), and by an admin. Only an `unhealthy` verdict, a machine that failed
-// to start, puts a ready sandbox into maintenance, where nothing wakes it and
-// every turn on it is refused at once; any other verdict but an unrecognised
-// one brings it out.
+// way out), and by an admin. Only an `unhealthy` verdict puts a ready sandbox
+// into maintenance, where nothing wakes it and every turn on it is refused at
+// once; any other verdict but an unrecognised one brings it out. Unhealthy is
+// a machine that failed to start, or one that runs but has taken no command
+// for `execDeadAfterMs` (withExecVerdict / judgeExec): the provider's check
+// sees power, so a machine the exec breaker has seen failing also gets one
+// no-op exec probe, and only a probe that gets through lets it out again.
 //
 // The check itself can act on the machine (sprites restarts a stopped one), so
 // an automatic check never asks about a ready machine whose daemon is
@@ -137,7 +146,11 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
         // TS only, for positional test construction.
         private readonly appEvents?: AppEventsService,
         private readonly serviceLeases?: ServiceLeaseService,
-        private readonly registry?: DaemonRegistryService
+        private readonly registry?: DaemonRegistryService,
+        // The exec probe and the breaker it reads: without them a machine that
+        // runs but takes no command would count as healthy.
+        private readonly bringUp?: HostBringUpService,
+        private readonly spriteExecHealth?: SpriteExecHealthService
     ) {}
 
     onModuleInit(): void {
@@ -360,6 +373,7 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
             })
             return { outcome: 'gone' }
         }
+        report = await this.withExecVerdict(claimed, report)
         const recorded = await this.record(claimed, lease, report, source)
         const reason = truncateReason(report.reason)
         this.telemetry.event(SANDBOX_HEALTH_CHECKED_EVENT, {
@@ -397,6 +411,34 @@ export class SandboxHealthService implements OnModuleInit, OnModuleDestroy {
             await this.announce(claimed.id)
         }
         return { outcome: recorded.outcome, verdict: report.verdict, reason }
+    }
+
+    // Only for a machine whose exec endpoint the breaker has seen failing: one
+    // no-op `true`, on the cold budget because nothing else woke the machine.
+    private async withExecVerdict(
+        host: RuntimeHostRow,
+        report: ProviderHealthReport
+    ): Promise<ProviderHealthReport> {
+        if (!host.execFailingSince || !this.bringUp) return report
+        if (report.verdict === 'unhealthy' || report.verdict === 'unknown')
+            return report
+        const probe = await this.bringUp.probeExec(
+            host,
+            spriteExecHealthConfig().coldProbeTimeoutMs
+        )
+        if (probe === 'ok')
+            await this.spriteExecHealth?.clearFailingSince(host.id)
+        return {
+            ...report,
+            ...judgeExec({
+                report,
+                status: host.status,
+                failingSince: host.execFailingSince,
+                probe,
+                now: Date.now(),
+                execDeadAfterMs: sandboxHealthConfig().execDeadAfterMs
+            })
+        }
     }
 
     private async claim(

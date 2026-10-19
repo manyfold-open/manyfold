@@ -1,0 +1,1 @@
+ALTER TABLE "runtime_hosts" ADD COLUMN "exec_failing_since" timestamp with time zone;

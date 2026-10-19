@@ -4,6 +4,7 @@ import type { SandboxHealthVerdict } from '@manyfold/shared'
 import {
     RECHECK_LADDER_MS,
     decideTransition,
+    judgeExec,
     maintenanceReasonText,
     recheckDelayMs,
     truncateReason
@@ -160,4 +161,64 @@ test('the reason names the verdict, and an unknown status keeps its literal', ()
     const long = 'x'.repeat(2_000)
     assert.equal(truncateReason(long)?.length, 512)
     assert.equal(truncateReason(null), null)
+})
+
+// Seen on prod [2026-10-08 → 2026-10-16]: a sprite refused every command for
+// eight days while its health check answered `healthy` ("machine is
+// running"), so it never entered maintenance.
+const running = { verdict: 'healthy' as const, rawStatus: 'healthy', reason: 'machine is running' }
+const NOW = Date.UTC(2026, 9, 16, 12)
+const MIN = 60_000
+const judged = (args: {
+    probe: string
+    status?: 'ready' | 'maintenance'
+    failingForMs: number
+    report?: { verdict: SandboxHealthVerdict; rawStatus: string; reason: string | null }
+}) =>
+    judgeExec({
+        report: args.report ?? running,
+        status: args.status ?? 'ready',
+        failingSince: new Date(NOW - args.failingForMs),
+        probe: args.probe,
+        now: NOW,
+        execDeadAfterMs: 30 * MIN
+    })
+
+test('a running machine that has taken no command for 30 minutes is unhealthy', () => {
+    const verdict = judged({ probe: 'handshake_5xx', failingForMs: 31 * MIN })
+    assert.equal(verdict.verdict, 'unhealthy')
+    assert.match(verdict.reason ?? '', /running but has taken no command since .* \(handshake_5xx\)/)
+    assert.equal(
+        decideTransition({ verdict: verdict.verdict, status: 'ready', source: 'failure', autoEnter: true, budgetLeft: true }).action,
+        'enter'
+    )
+})
+
+test('a shorter outage, or a probe that gets through, leaves the provider verdict', () => {
+    assert.deepEqual(judged({ probe: 'timeout', failingForMs: 10 * MIN }), running)
+    assert.deepEqual(judged({ probe: 'ok', failingForMs: 8 * 60 * MIN }), running)
+    assert.deepEqual(judged({ probe: 'inconclusive', failingForMs: 8 * 60 * MIN }), running)
+})
+
+test('in maintenance, only a probe that gets through lets the machine out', () => {
+    const still = judged({ probe: 'timeout', status: 'maintenance', failingForMs: MIN })
+    assert.equal(still.verdict, 'unhealthy')
+    assert.equal(
+        decideTransition({ verdict: still.verdict, status: 'maintenance', source: 'recheck', autoEnter: true, budgetLeft: true }).action,
+        'stay'
+    )
+    const unsure = judged({ probe: 'inconclusive', status: 'maintenance', failingForMs: MIN })
+    assert.equal(unsure.verdict, 'unknown')
+    assert.equal(
+        decideTransition({ verdict: unsure.verdict, status: 'maintenance', source: 'recheck', autoEnter: true, budgetLeft: true }).action,
+        'stay'
+    )
+    assert.equal(judged({ probe: 'ok', status: 'maintenance', failingForMs: MIN }).verdict, 'healthy')
+})
+
+test("the provider's own unhealthy or unknown verdict is never overridden", () => {
+    const broken = { verdict: 'unhealthy' as const, rawStatus: 'unhealthy', reason: 'failed to start machine' }
+    assert.deepEqual(judged({ probe: 'ok', failingForMs: 60 * MIN, report: broken }), broken)
+    const odd = { verdict: 'unknown' as const, rawStatus: 'weird', reason: null }
+    assert.deepEqual(judged({ probe: 'timeout', failingForMs: 60 * MIN, report: odd }), odd)
 })

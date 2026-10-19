@@ -19,6 +19,7 @@ export const sandboxHealthConfig = (): {
     sweepIntervalMs: number
     sweepBatch: number
     maxAutoEntriesPerHour: number
+    execDeadAfterMs: number
 } => ({
     // A machine that keeps failing is asked about at most this often.
     failureIntervalMs: envNumber(
@@ -35,8 +36,45 @@ export const sandboxHealthConfig = (): {
     maxAutoEntriesPerHour: envNumber(
         'MF_SANDBOX_MAINTENANCE_MAX_AUTO_ENTRIES_PER_HOUR',
         5
-    )
+    ),
+    // How long a running machine may refuse every command before it counts as
+    // unhealthy: well past a sprites.dev 502 storm, which clears in minutes.
+    execDeadAfterMs: envNumber('MF_SANDBOX_EXEC_DEAD_AFTER_MS', 30 * 60_000)
 })
+
+// The provider's check reports power, not whether the machine takes a
+// command. A machine whose exec endpoint has failed since `failingSince` and
+// failed `probe` again is unhealthy once that has lasted `execDeadAfterMs`,
+// and stays so while it is in maintenance; a probe that got through, or one
+// that proved nothing, leaves the provider's verdict as it is — except that
+// an inconclusive probe cannot let a machine out of maintenance.
+// Seen on prod [2026-10-08 → 2026-10-16]: a sprite refused every command for
+// eight days (~4,600 failed turns) while 264 checks answered `healthy`
+// ("machine is running"), so it never entered maintenance and its owner was
+// never told.
+export const judgeExec = (args: {
+    report: { verdict: SandboxHealthVerdict; rawStatus: string; reason: string | null }
+    status: RuntimeHostStatus
+    failingSince: Date
+    probe: 'ok' | 'inconclusive' | string
+    now: number
+    execDeadAfterMs: number
+}): { verdict: SandboxHealthVerdict; rawStatus: string; reason: string | null } => {
+    const { report, status, failingSince, probe } = args
+    if (report.verdict === 'unhealthy' || report.verdict === 'unknown') return report
+    if (probe === 'ok') return report
+    if (probe === 'inconclusive')
+        return status === 'maintenance'
+            ? { verdict: 'unknown', rawStatus: 'exec_probe_inconclusive', reason: report.reason }
+            : report
+    if (status !== 'maintenance' && args.now - failingSince.getTime() < args.execDeadAfterMs)
+        return report
+    return {
+        verdict: 'unhealthy',
+        rawStatus: report.rawStatus,
+        reason: `the machine is running but has taken no command since ${failingSince.toISOString()} (${probe})`
+    }
+}
 
 // How long a claim may run before another instance may take the host over:
 // the check answers in about a second, the lease only has to outlive a slow one.
