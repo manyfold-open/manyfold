@@ -443,3 +443,120 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
     }
     assert.fail('condition was not met')
 }
+
+// Seen on prod [2026-10-16]: with this instance's broker LISTEN detached by a
+// Postgres failover, the peer's `connection replaced` NOTIFY never arrived and
+// two turns whose rpc had been routed to that peer hung for 30 minutes while
+// the daemon sat connected here. Its arrival here is the same proof.
+test('a daemon that reconnects here fails the rpcs this instance routed to its previous socket', async () => {
+    const published: PublishedBrokerMessage[] = []
+    const registry = makeRegistry(published)
+
+    const routed = registry.streamRpc({
+        daemonId: 'dh-1',
+        method: 'exec.start',
+        payload: { cmd: ['claude'] },
+        timeoutMs: 60_000,
+        onEvent: () => undefined
+    })
+    const failure: Promise<Error> = routed.result.then(
+        () => new Error('resolved'),
+        (err) => err as Error
+    )
+    const other = registry.streamRpc({
+        daemonId: 'dh-2',
+        method: 'exec.start',
+        payload: { cmd: ['codex'] },
+        timeoutMs: 60_000,
+        onEvent: () => undefined
+    })
+    let otherSettled = false
+    void other.result.then(
+        () => (otherSettled = true),
+        () => (otherSettled = true)
+    )
+    await waitFor(() => published.length >= 2)
+
+    await registry.register({
+        daemonId: 'dh-1',
+        userId: 'user-1',
+        cliVersion: '0.0.1',
+        hostname: 'laptop.local',
+        socket: { close: () => undefined } as unknown as WsClient
+    })
+
+    assert.match((await failure).message, /connection replaced/)
+    assert.equal(registry.isOnline('dh-1'), true)
+    await waitFor(() =>
+        published.some((p) => {
+            const message = decodeBrokerMessage([p.payload]) as {
+                type: string
+                daemonId?: string
+            }
+            return message.type === 'cancel' && message.daemonId === 'dh-1'
+        })
+    )
+    assert.equal(otherSettled, false, 'another daemon’s rpc is not touched')
+    other.cancel()
+})
+
+interface BrokerPrivate {
+    inbox: string
+    brokerUrl: string | null
+    brokerHeardAt: number
+    brokerUnlisten: (() => Promise<void>) | null
+    openBroker(url: string): Promise<void>
+    checkBrokerLiveness(now?: number): Promise<void>
+    handleBrokerEnvelope(raw: string): Promise<void>
+}
+
+test('the broker pings its own inbox, and a ping that arrives keeps it as it is', async () => {
+    const published: PublishedBrokerMessage[] = []
+    const registry = makeRegistry(published)
+    const internal = registry as unknown as BrokerPrivate
+    let reopened = 0
+    internal.openBroker = async () => {
+        reopened += 1
+    }
+    const now = Date.now()
+    internal.brokerHeardAt = now
+
+    await internal.checkBrokerLiveness(now + 30_000)
+
+    assert.equal(published.length, 1)
+    assert.equal(published[0].channel, internal.inbox)
+    assert.equal(
+        (decodeBrokerMessage([published[0].payload]) as { type: string }).type,
+        'ping'
+    )
+    internal.brokerHeardAt = 0
+    await internal.handleBrokerEnvelope(published[0].payload)
+    assert.ok(internal.brokerHeardAt >= now)
+    assert.equal(reopened, 0)
+})
+
+// Seen on prod [2026-10-16]: after a Postgres primary failover one instance's
+// LISTEN heard nothing for 11 minutes without its connection closing.
+test('a broker that has heard nothing, not even its own pings, is rebuilt', async () => {
+    const registry = makeRegistry([])
+    const internal = registry as unknown as BrokerPrivate & {
+        brokerSql: { end(): Promise<void> } | null
+    }
+    const calls: string[] = []
+    internal.brokerUrl = 'postgres://broker.test/db'
+    internal.brokerUnlisten = async () => {
+        calls.push('unlisten')
+    }
+    ;(internal.brokerSql as unknown as { end(): Promise<void> }).end = async () => {
+        calls.push('end')
+    }
+    internal.openBroker = async (url: string) => {
+        calls.push(`open ${url}`)
+    }
+    const now = Date.now()
+    internal.brokerHeardAt = now - 91_000
+
+    await internal.checkBrokerLiveness(now)
+
+    assert.deepEqual(calls, ['unlisten', 'end', 'open postgres://broker.test/db'])
+})
