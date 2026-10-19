@@ -25,6 +25,7 @@ export type {
     Sprite,
     SpriteHealthCheck,
     ListSpritesResponse,
+    SpriteListing,
     NetworkPolicy,
     NetworkPolicyRule,
     ExecOptions,

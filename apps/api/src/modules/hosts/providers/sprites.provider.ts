@@ -360,9 +360,12 @@ export class SpritesProvider implements SandboxProvider {
         try {
             const sprites = await this.client({ provider }).listSprites()
             const n = sprites.sprites?.length ?? 0
+            const listed = `${n} sprite${n === 1 ? '' : 's'}`
             return {
                 ok: true,
-                message: `reachable (listed ${n} sprite${n === 1 ? '' : 's'})`
+                message: sprites.truncated
+                    ? `reachable (listed at least ${listed}; the listing stopped early)`
+                    : `reachable (listed ${listed})`
             }
         } catch (err) {
             return {
@@ -523,7 +526,8 @@ export class SpritesProvider implements SandboxProvider {
                 ...counts,
                 runningLimit: vendorLimit(list.running_limit),
                 suspendedLimit: vendorLimit(list.warm_limit)
-            }
+            },
+            complete: list.truncated !== true
         }
     }
 

@@ -89,10 +89,12 @@ export interface ProviderHealthReport {
 // One control-plane read of every machine a provider account holds, waking
 // none of them: each host's listed power by host id — a host the listing does
 // not show is absent — and the account's capacity where the provider reports
-// one.
+// one. `complete: false` is a listing that stopped before its end: an absence
+// in it proves nothing, and its counts cover only what it saw.
 export interface ProviderObservation {
     power: Map<string, RuntimeHostPowerState>
     capacity: ProviderCapacity | null
+    complete?: boolean
 }
 
 // Counted over everything the account lists, ours or not; a limit the

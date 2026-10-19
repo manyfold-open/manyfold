@@ -83,6 +83,12 @@ export interface ListSpritesResponse {
     next_continuation_token?: string | null
 }
 
+// The whole account's listing, merged across pages. `truncated` is true when
+// it stopped before its last page, so a sprite missing from it may exist.
+export interface SpriteListing extends ListSpritesResponse {
+    truncated: boolean
+}
+
 export interface NetworkPolicyRule {
     domain: string
     action: 'allow' | 'deny'

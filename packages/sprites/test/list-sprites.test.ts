@@ -100,15 +100,21 @@ test('listSprites follows next_continuation_token across pages', async () => {
             res.sprites.some((s) => s.name === 'sbx-target'),
             'page-2 target sprite must be present'
         )
+        assert.equal(res.truncated, false)
+        assert.equal(res.has_more, false)
         const gets = mock.calls.filter((c) => c.method === 'GET')
         assert.equal(gets.length, 2)
         assert.match(gets[1].path, /continuation_token=tok-2/)
+        // The largest page sprites.dev serves, so a big account is few reads.
+        for (const get of gets)
+            assert.match(get.path, /[?&]max_results=500(&|$)/)
     } finally {
         await mock.close()
     }
 })
 
-// has_more without a usable cursor must terminate, not spin.
+// has_more without a usable cursor must terminate, not spin, and say the
+// listing is not the whole account.
 test('listSprites stops when has_more is true but the token is null', async () => {
     const mock = await startMock((method, url) => {
         if (method === 'GET' && url.startsWith('/sprites'))
@@ -128,6 +134,7 @@ test('listSprites stops when has_more is true but the token is null', async () =
     try {
         const res = await clientFor(mock.port).listSprites()
         assert.equal(res.sprites.length, 3)
+        assert.equal(res.truncated, true)
         assert.equal(mock.calls.filter((c) => c.method === 'GET').length, 1)
     } finally {
         await mock.close()
@@ -147,6 +154,31 @@ test('listSprites terminates on a repeated continuation token', async () => {
         // page 1 + one continuation, then the repeat is detected
         assert.equal(mock.calls.filter((c) => c.method === 'GET').length, 2)
         assert.equal(res.sprites.length, 4)
+        assert.equal(res.truncated, true)
+        assert.equal(res.has_more, true)
+    } finally {
+        await mock.close()
+    }
+})
+
+// A listing that hits the page cap is still returned, marked as cut short:
+// what it shows is true, what it leaves out is unknown.
+test('listSprites marks a listing cut off at the page cap as truncated', async () => {
+    let served = 0
+    const mock = await startMock((method, url) => {
+        if (method !== 'GET' || !url.startsWith('/sprites'))
+            return { status: 404, body: '' }
+        served += 1
+        return {
+            status: 200,
+            body: page(makeSprites(`p${served}`, 1), `tok-${served}`)
+        }
+    })
+    try {
+        const res = await clientFor(mock.port).listSprites()
+        assert.equal(mock.calls.filter((c) => c.method === 'GET').length, 50)
+        assert.equal(res.sprites.length, 50)
+        assert.equal(res.truncated, true)
     } finally {
         await mock.close()
     }

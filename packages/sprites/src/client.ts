@@ -11,6 +11,7 @@ import type {
     ServiceStopOptions,
     Sprite,
     SpriteHealthCheck,
+    SpriteListing,
     SpritesClientOptions,
     SpritesLogger
 } from './types'
@@ -18,8 +19,10 @@ import type {
 const DEFAULT_BASE_URL = 'https://api.sprites.dev/v1'
 const DEFAULT_WS_BASE_URL = 'wss://api.sprites.dev/v1'
 const DEFAULT_TIMEOUT_MS = 15_000
+// The most sprites.dev returns per page; it pages by 50 unless asked.
+const SPRITE_PAGE_SIZE = 500
 // Runaway guard for listSprites pagination — an account has O(hundreds) of
-// sprites at most, so 50 pages (~2.5k) is far past any real listing.
+// sprites at most, so 50 pages (25k) is far past any real listing.
 const MAX_SPRITE_PAGES = 50
 
 const silentLogger: SpritesLogger = {
@@ -41,7 +44,12 @@ export interface SpritesClient {
      */
     checkSprite(name: string): Promise<SpriteHealthCheck>
     updateSprite(name: string, patch: Record<string, unknown>): Promise<Sprite>
-    listSprites(): Promise<ListSpritesResponse>
+    /**
+     * Every sprite in the account, merged across pages. `truncated` says the
+     * listing stopped before its last page, so a sprite missing from it may
+     * still exist.
+     */
+    listSprites(): Promise<SpriteListing>
     deleteSprite(name: string): Promise<void>
     getNetworkPolicy(name: string): Promise<NetworkPolicy>
     setNetworkPolicy(name: string, policy: NetworkPolicy): Promise<void>
@@ -181,38 +189,54 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
         }
     }
 
-    // sprites.dev paginates GET /sprites (~50 per page). A single request drops
-    // every sprite past page 1, which makes the status-sync account listing
-    // falsely treat page-2+ sprites as deleted. Follow next_continuation_token
-    // to the end. A whole page failing propagates — a partial listing would
-    // re-create the false-missing bug, so callers must see all-or-error.
-    const listAllSprites = async (): Promise<ListSpritesResponse> => {
-        const first = await request<ListSpritesResponse>('GET', '/sprites')
+    // sprites.dev paginates GET /sprites. A single request drops every sprite
+    // past page 1, which makes the status-sync account listing falsely treat
+    // page-2+ sprites as deleted. Follow next_continuation_token to the end. A
+    // whole page failing propagates; a listing that stops early for any other
+    // reason (a cursor that repeats, the page cap, has_more without a cursor)
+    // says so in `truncated`, so no caller reads an absence in it as gone.
+    const listAllSprites = async (): Promise<SpriteListing> => {
+        const pageOf = (token: string | null) =>
+            request<ListSpritesResponse>(
+                'GET',
+                `/sprites?max_results=${SPRITE_PAGE_SIZE}${
+                    token
+                        ? `&continuation_token=${encodeURIComponent(token)}`
+                        : ''
+                }`
+            )
+        const cursorOf = (page: ListSpritesResponse): string | null =>
+            page.has_more ? (page.next_continuation_token ?? null) : null
+        const first = await pageOf(null)
         const sprites = [...first.sprites]
         const seen = new Set<string>()
-        let token = first.has_more ? (first.next_continuation_token ?? null) : null
+        let token = cursorOf(first)
+        let truncated = first.has_more === true && !token
         let pages = 1
-        while (token && pages < MAX_SPRITE_PAGES) {
+        while (token) {
             if (seen.has(token)) {
                 logger.warn('sprites.listSprites.repeated_token', { pages })
+                truncated = true
+                break
+            }
+            if (pages >= MAX_SPRITE_PAGES) {
+                logger.warn('sprites.listSprites.page_cap', { pages })
+                truncated = true
                 break
             }
             seen.add(token)
-            const page = await request<ListSpritesResponse>(
-                'GET',
-                `/sprites?continuation_token=${encodeURIComponent(token)}`
-            )
+            const page = await pageOf(token)
             for (const sprite of page.sprites) sprites.push(sprite)
             pages += 1
-            token = page.has_more ? (page.next_continuation_token ?? null) : null
+            token = cursorOf(page)
+            if (page.has_more === true && !token) truncated = true
         }
-        if (token && pages >= MAX_SPRITE_PAGES)
-            logger.warn('sprites.listSprites.page_cap', { pages })
         return {
             ...first,
             sprites,
-            has_more: false,
-            next_continuation_token: null
+            has_more: truncated,
+            next_continuation_token: null,
+            truncated
         }
     }
 
