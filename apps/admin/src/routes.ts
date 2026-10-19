@@ -33,6 +33,14 @@ export const adminRoutes = {
     runtimeProviderDetail: '/infrastructure/runtime-providers/:id',
     runtimeProvider: (id: string): string =>
         `/infrastructure/runtime-providers/${encodePathSegment(id)}`,
+    runtimeProviderInventoryDetail:
+        '/infrastructure/runtime-providers/:id/inventory',
+    runtimeProviderInventory: (id: string): string =>
+        `/infrastructure/runtime-providers/${encodePathSegment(id)}/inventory`,
+    runtimeProviderMachineDetail:
+        '/infrastructure/runtime-providers/:id/inventory/:name',
+    runtimeProviderMachine: (id: string, name: string): string =>
+        `/infrastructure/runtime-providers/${encodePathSegment(id)}/inventory/${encodePathSegment(name)}`,
     selfOwnedComputers: '/infrastructure/self-owned-computers',
     selfOwnedComputerMachines:
         '/infrastructure/self-owned-computers/machines',

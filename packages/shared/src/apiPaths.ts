@@ -482,6 +482,16 @@ export const apiPaths = {
         `/admin/runtime-providers/${encodeURIComponent(id)}`,
     ADMIN_RUNTIME_PROVIDER_PROBE: (id: string) =>
         `/admin/runtime-providers/${encodeURIComponent(id)}/probe`,
+    ADMIN_RUNTIME_PROVIDER_MACHINES: (id: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/machines`,
+    ADMIN_RUNTIME_PROVIDER_MACHINE: (id: string, name: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/machines/${encodeURIComponent(name)}`,
+    ADMIN_RUNTIME_PROVIDER_MACHINE_ACTIONS: (id: string, name: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/machines/${encodeURIComponent(name)}/actions`,
+    ADMIN_RUNTIME_PROVIDER_MACHINE_RESTART: (id: string, name: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/machines/${encodeURIComponent(name)}/restart`,
+    ADMIN_RUNTIME_PROVIDER_MACHINE_UPGRADE: (id: string, name: string) =>
+        `/admin/runtime-providers/${encodeURIComponent(id)}/machines/${encodeURIComponent(name)}/upgrade`,
     FRAMEWORK_CATALOG: (framework: string) => `/framework-catalog/${framework}`,
     ADMIN_FRAMEWORK_CATALOG: (framework: string) =>
         `/admin/framework-catalog/${framework}`,

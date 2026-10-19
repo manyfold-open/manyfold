@@ -1,5 +1,6 @@
-import { classifyHttpStatus, SpritesError } from './errors'
+import { classifyHttpStatus, retryAfterMs, SpritesError } from './errors'
 import { redact, redactHeaders } from './redaction'
+import { watchUpgrade } from './stream'
 import type {
     ExecSessionInfo,
     ListSpritesResponse,
@@ -11,6 +12,11 @@ import type {
     ServiceStopOptions,
     Sprite,
     SpriteHealthCheck,
+    SpriteListing,
+    SpriteRestart,
+    SpriteUpgradeOptions,
+    SpriteUpgradeRequest,
+    SpriteUpgradeResult,
     SpritesClientOptions,
     SpritesLogger
 } from './types'
@@ -18,8 +24,18 @@ import type {
 const DEFAULT_BASE_URL = 'https://api.sprites.dev/v1'
 const DEFAULT_WS_BASE_URL = 'wss://api.sprites.dev/v1'
 const DEFAULT_TIMEOUT_MS = 15_000
+// The most sprites.dev returns per page; it pages by 50 unless asked.
+const SPRITE_PAGE_SIZE = 500
+// Under the 60 s a proxy in front of the caller allows an idle request.
+// Measured on local [2026-10-19]: a restart was accepted in about 4 s.
+const RESTART_TIMEOUT_MS = 45_000
+// How long an upgrade is watched, in all and without a line.
+// Measured on local [2026-10-19]: moving an empty sprite's storage sent
+// nothing for 329 s after starting_machine, then completed.
+const UPGRADE_TIMEOUT_MS = 30 * 60_000
+const UPGRADE_IDLE_TIMEOUT_MS = 15 * 60_000
 // Runaway guard for listSprites pagination — an account has O(hundreds) of
-// sprites at most, so 50 pages (~2.5k) is far past any real listing.
+// sprites at most, so 50 pages (25k) is far past any real listing.
 const MAX_SPRITE_PAGES = 50
 
 const silentLogger: SpritesLogger = {
@@ -41,7 +57,28 @@ export interface SpritesClient {
      */
     checkSprite(name: string): Promise<SpriteHealthCheck>
     updateSprite(name: string, patch: Record<string, unknown>): Promise<Sprite>
-    listSprites(): Promise<ListSpritesResponse>
+    /**
+     * POST /sprites/{name}/restart, which the public OpenAPI does not list.
+     * sprites.dev accepts at once (202) and reboots the machine shortly after.
+     */
+    restartSprite(name: string): Promise<SpriteRestart>
+    /**
+     * POST /sprites/{name}/upgrade, which the public OpenAPI does not list. A
+     * refusal (a storage migration not allowed, say) rejects like any request;
+     * an accepted upgrade is watched to its terminal event. Watching less than
+     * all of it does not stop the upgrade.
+     */
+    upgradeSprite(
+        name: string,
+        body?: SpriteUpgradeRequest,
+        opts?: SpriteUpgradeOptions
+    ): Promise<SpriteUpgradeResult>
+    /**
+     * Every sprite in the account, merged across pages. `truncated` says the
+     * listing stopped before its last page, so a sprite missing from it may
+     * still exist.
+     */
+    listSprites(): Promise<SpriteListing>
     deleteSprite(name: string): Promise<void>
     getNetworkPolicy(name: string): Promise<NetworkPolicy>
     setNetworkPolicy(name: string, policy: NetworkPolicy): Promise<void>
@@ -123,11 +160,13 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
     const request = async <T>(
         method: string,
         path: string,
-        body?: unknown
+        body?: unknown,
+        opts: { timeoutMs?: number } = {}
     ): Promise<T> => {
         const url = `${baseUrl}${path}`
         const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        const callTimeoutMs = opts.timeoutMs ?? timeoutMs
+        const timer = setTimeout(() => controller.abort(), callTimeoutMs)
         const headers: Record<string, string> = {
             Authorization: authHeader,
             Accept: 'application/json'
@@ -163,7 +202,12 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
                     code,
                     message,
                     res.status,
-                    parsed ?? text
+                    parsed ?? text,
+                    {
+                        retryAfterMs: retryAfterMs(
+                            res.headers?.get?.('retry-after')
+                        )
+                    }
                 )
             }
             return (parsed ?? (undefined as unknown)) as T
@@ -173,7 +217,7 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
             throw new SpritesError(
                 'transient',
                 isAbort
-                    ? `sprites.dev ${method} ${path} timed out after ${timeoutMs}ms`
+                    ? `sprites.dev ${method} ${path} timed out after ${callTimeoutMs}ms`
                     : `sprites.dev ${method} ${path} network error: ${(err as Error).message}`
             )
         } finally {
@@ -181,38 +225,54 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
         }
     }
 
-    // sprites.dev paginates GET /sprites (~50 per page). A single request drops
-    // every sprite past page 1, which makes the status-sync account listing
-    // falsely treat page-2+ sprites as deleted. Follow next_continuation_token
-    // to the end. A whole page failing propagates — a partial listing would
-    // re-create the false-missing bug, so callers must see all-or-error.
-    const listAllSprites = async (): Promise<ListSpritesResponse> => {
-        const first = await request<ListSpritesResponse>('GET', '/sprites')
+    // sprites.dev paginates GET /sprites. A single request drops every sprite
+    // past page 1, which makes the status-sync account listing falsely treat
+    // page-2+ sprites as deleted. Follow next_continuation_token to the end. A
+    // whole page failing propagates; a listing that stops early for any other
+    // reason (a cursor that repeats, the page cap, has_more without a cursor)
+    // says so in `truncated`, so no caller reads an absence in it as gone.
+    const listAllSprites = async (): Promise<SpriteListing> => {
+        const pageOf = (token: string | null) =>
+            request<ListSpritesResponse>(
+                'GET',
+                `/sprites?max_results=${SPRITE_PAGE_SIZE}${
+                    token
+                        ? `&continuation_token=${encodeURIComponent(token)}`
+                        : ''
+                }`
+            )
+        const cursorOf = (page: ListSpritesResponse): string | null =>
+            page.has_more ? (page.next_continuation_token ?? null) : null
+        const first = await pageOf(null)
         const sprites = [...first.sprites]
         const seen = new Set<string>()
-        let token = first.has_more ? (first.next_continuation_token ?? null) : null
+        let token = cursorOf(first)
+        let truncated = first.has_more === true && !token
         let pages = 1
-        while (token && pages < MAX_SPRITE_PAGES) {
+        while (token) {
             if (seen.has(token)) {
                 logger.warn('sprites.listSprites.repeated_token', { pages })
+                truncated = true
+                break
+            }
+            if (pages >= MAX_SPRITE_PAGES) {
+                logger.warn('sprites.listSprites.page_cap', { pages })
+                truncated = true
                 break
             }
             seen.add(token)
-            const page = await request<ListSpritesResponse>(
-                'GET',
-                `/sprites?continuation_token=${encodeURIComponent(token)}`
-            )
+            const page = await pageOf(token)
             for (const sprite of page.sprites) sprites.push(sprite)
             pages += 1
-            token = page.has_more ? (page.next_continuation_token ?? null) : null
+            token = cursorOf(page)
+            if (page.has_more === true && !token) truncated = true
         }
-        if (token && pages >= MAX_SPRITE_PAGES)
-            logger.warn('sprites.listSprites.page_cap', { pages })
         return {
             ...first,
             sprites,
-            has_more: false,
-            next_continuation_token: null
+            has_more: truncated,
+            next_continuation_token: null,
+            truncated
         }
     }
 
@@ -239,6 +299,32 @@ export const createClient = (opts: SpritesClientOptions): SpritesClient => {
             request('GET', `/sprites/${encodeURIComponent(name)}/check`),
         updateSprite: (name, patch) =>
             request('PUT', `/sprites/${encodeURIComponent(name)}`, patch),
+        restartSprite: (name) =>
+            request(
+                'POST',
+                `/sprites/${encodeURIComponent(name)}/restart`,
+                undefined,
+                { timeoutMs: RESTART_TIMEOUT_MS }
+            ),
+        upgradeSprite: (name, body = {}, opts = {}) => {
+            const path = `/sprites/${encodeURIComponent(name)}/upgrade`
+            const sent = Object.fromEntries(
+                Object.entries(body).filter(([, value]) => value !== undefined)
+            )
+            return watchUpgrade({
+                url: `${baseUrl}${path}`,
+                path,
+                authHeader,
+                body: Object.keys(sent).length > 0 ? sent : undefined,
+                onAccepted: opts.onAccepted,
+                onEvent: opts.onEvent,
+                signal: opts.signal,
+                connectTimeoutMs: timeoutMs,
+                timeoutMs: opts.timeoutMs ?? UPGRADE_TIMEOUT_MS,
+                idleTimeoutMs: opts.idleTimeoutMs ?? UPGRADE_IDLE_TIMEOUT_MS,
+                logger
+            })
+        },
         listSprites: () => listAllSprites(),
         deleteSprite: async (name) => {
             await request('DELETE', `/sprites/${encodeURIComponent(name)}`)

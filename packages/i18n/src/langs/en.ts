@@ -5266,6 +5266,7 @@ const en = {
                 unknown: 'Not checked'
             },
             actions: {
+                inventory: 'Inventory',
                 edit: 'Edit',
                 probe: 'Test connection',
                 enable: 'Enable',
@@ -5278,9 +5279,159 @@ const en = {
                 deleteBlocked:
                     'This provider cannot be deleted while machines are still placed on it. Delete those machines first.'
             },
+            tabs: {
+                label: 'Runtime provider sections',
+                settings: 'Settings',
+                inventory: 'Inventory'
+            },
+            inventory: {
+                subtitle:
+                    "Every machine in this provider's account, read live from the provider, whether or not a sandbox here uses it.",
+                sharedNotice:
+                    'One account can serve several deployments, such as production, staging and local stacks. A machine marked Untracked has no sandbox here, but another deployment may still be using it.',
+                sharedWith: 'Also registered here as: {{providers}}',
+                incomplete:
+                    'The provider stopped listing before the end, so some machines are missing from this page.',
+                listedAt: 'Listed {{time}}',
+                refresh: 'Refresh',
+                empty: 'This account has no machines.',
+                noMatches: 'No machines match these filters.',
+                unsupported: 'This kind of provider cannot list its machines.',
+                tracked: 'Tracked',
+                untracked: 'Untracked',
+                tiles: {
+                    total: 'Machines',
+                    split: '{{tracked}} tracked · {{untracked}} untracked',
+                    ofLimit: 'of {{limit}}'
+                },
+                filters: {
+                    search: 'Search',
+                    searchPlaceholder: 'Name, sandbox or owner email',
+                    tracking: 'Tracking',
+                    power: 'Power',
+                    all: 'All'
+                },
+                cols: {
+                    name: 'Name',
+                    status: 'Power',
+                    sandbox: 'Sandbox',
+                    agents: 'Agents',
+                    version: 'Version',
+                    lastRunning: 'Last running',
+                    created: 'Created'
+                }
+            },
+            machine: {
+                notFound: 'There is no machine named {{name}} in this account.',
+                overview: 'Machine',
+                inDeployment: 'In this deployment',
+                tracked: 'It runs sandbox {{sandbox}} of {{owner}}.',
+                untrackedShort:
+                    'No sandbox here uses it. Another deployment that shares this account may.',
+                untrackedExplain:
+                    "No sandbox in this deployment uses this machine. It may be left over from one, belong to another deployment that shares the account, or have been made by hand; the provider's listing cannot tell which.",
+                recentlyRan:
+                    'It ran in the last 24 hours, so it may be in use somewhere else.',
+                disruptsSandbox:
+                    "Turns running on its agents fail, and a machine that was asleep starts and counts toward its owner's active hours.",
+                fields: {
+                    status: 'Power',
+                    id: 'Provider ID',
+                    version: 'Version',
+                    environmentVersion: 'Environment version',
+                    labels: 'Labels',
+                    url: 'URL',
+                    urlAccess: 'URL access',
+                    created: 'Created',
+                    updated: 'Updated',
+                    lastRunning: 'Last running',
+                    sandbox: 'Sandbox',
+                    owner: 'Owner',
+                    hostStatus: 'Sandbox status',
+                    agents: 'Agents',
+                    provider: 'Registered under'
+                },
+                actions: {
+                    restart: 'Restart',
+                    upgrade: 'Upgrade',
+                    delete: 'Delete'
+                },
+                restart: {
+                    title: 'Restart {{name}}?',
+                    body: 'The provider reboots the machine. Its processes stop and start again, and open sessions end.',
+                    confirm: 'Restart',
+                    pending: 'Restarting…',
+                    done: 'Restart requested. {{message}}'
+                },
+                upgrade: {
+                    title: 'Upgrade {{name}}?',
+                    body: 'The provider moves the machine to a newer runtime, and the machine restarts once.',
+                    current:
+                        'Current version: {{version}}. It is saved with this action, because the provider does not keep it and a rollback needs it.',
+                    versionUnknown:
+                        "The provider has not reported this machine's version yet; it does once the machine has started. Without it, this upgrade cannot be rolled back from the record here.",
+                    versionLabel: 'Version (optional)',
+                    versionHint:
+                        'Leave empty for the newest. Enter an earlier version to roll back.',
+                    storageLabel: 'Allow a storage migration',
+                    storageWarning:
+                        'Some upgrades and rollbacks move the machine to different storage by copying its disk. The first start afterwards takes minutes, checkpoints from before can no longer be restored, and after a rollback the machine must not be upgraded again.',
+                    storageRequired:
+                        'This upgrade moves the machine\'s storage, which only happens when you allow it. Read the warning, tick "Allow a storage migration" and confirm again. ({{message}})',
+                    confirm: 'Upgrade',
+                    pending: 'Starting…',
+                    running: 'Upgrading: {{step}}…',
+                    completed: 'Upgraded from {{from}} to {{to}}.',
+                    skipped: 'Nothing to upgrade. {{message}}',
+                    failed: 'The upgrade failed: {{message}}',
+                    unconfirmed:
+                        'The upgrade was still running when this page stopped following it (last step: {{step}}). The provider finishes it on its own; the version above changes when it does.'
+                },
+                delete: {
+                    title: 'Delete {{name}}?',
+                    bodyTracked:
+                        'This deletes sandbox {{sandbox}} of {{owner}} and its machine, with its disk. This cannot be undone.',
+                    bodyUntracked:
+                        'This deletes the machine at the provider, with its disk and checkpoints. This cannot be undone. No sandbox here uses it, but another deployment that shares this account may.',
+                    blocked:
+                        'Its sandbox still has {{count}} agent(s). Delete them first.',
+                    confirm: 'Delete',
+                    pending: 'Deleting…'
+                },
+                history: {
+                    title: 'Recent actions',
+                    empty: 'No admin has acted on this machine yet.',
+                    when: 'When',
+                    action: 'Action',
+                    by: 'By',
+                    detail: 'Detail',
+                    restarted: 'Restarted',
+                    upgradeStarted: 'Upgrade started',
+                    upgradeSucceeded: 'Upgraded',
+                    upgradeSkipped: 'Upgrade skipped',
+                    upgradeFailed: 'Upgrade failed',
+                    deleted: 'Deleted',
+                    storageMigration: 'storage migration allowed',
+                    withSandbox: 'with its sandbox'
+                },
+                errors: {
+                    rateLimited:
+                        'The provider is limiting requests. Wait a moment and try again.',
+                    authFailed:
+                        "The provider rejected this account's credential. Check it under Settings.",
+                    unavailable: 'The provider did not answer: {{message}}',
+                    notFound: 'This machine is no longer in the account.',
+                    unsupported:
+                        'The provider does not offer this for this machine.',
+                    refused: 'The provider refused: {{message}}',
+                    hostBusy:
+                        'Its sandbox is being created or deleted. Try again when that finishes.',
+                    hostNotEmpty:
+                        'Its sandbox still has agents. Delete them first.'
+                }
+            },
             form: {
                 titleCreate: 'Add runtime provider',
-                titleEdit: 'Edit runtime provider',
                 kindLabel: 'Kind',
                 kindHint: 'Fixed once the provider is created.',
                 nameLabel: 'Name',

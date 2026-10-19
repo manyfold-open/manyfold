@@ -21,6 +21,8 @@ export class SpritesError extends Error {
     readonly reason?: SpritesFailureReason
     readonly execSessionId?: string
     readonly execPhase?: SpritesExecFailurePhase
+    // How long sprites.dev asked the caller to wait, when it said.
+    readonly retryAfterMs?: number
 
     constructor(
         code: SpritesErrorCode,
@@ -31,6 +33,7 @@ export class SpritesError extends Error {
             reason?: SpritesFailureReason
             execSessionId?: string
             execPhase?: SpritesExecFailurePhase
+            retryAfterMs?: number
         }
     ) {
         super(message)
@@ -41,6 +44,7 @@ export class SpritesError extends Error {
         this.reason = extra?.reason
         this.execSessionId = extra?.execSessionId
         this.execPhase = extra?.execPhase
+        this.retryAfterMs = extra?.retryAfterMs
     }
 
     get retryable(): boolean {
@@ -55,4 +59,17 @@ export const classifyHttpStatus = (status: number): SpritesErrorCode => {
     if (status === 402 || status === 429) return 'quota'
     if (status >= 500) return 'transient'
     return 'permanent'
+}
+
+// `Retry-After` in seconds or as an HTTP date; undefined when absent or
+// unreadable.
+export const retryAfterMs = (
+    value: string | null | undefined,
+    now = Date.now()
+): number | undefined => {
+    const after = value?.trim()
+    if (!after) return undefined
+    if (/^\d+$/.test(after)) return Number(after) * 1000
+    const date = Date.parse(after)
+    return Number.isFinite(date) ? Math.max(0, date - now) : undefined
 }

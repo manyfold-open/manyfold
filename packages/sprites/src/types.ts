@@ -3,11 +3,16 @@ export interface Sprite {
     name: string
     status: string
     url?: string
+    url_settings?: { auth?: string; private_access?: string }
     created_at?: string
     updated_at?: string
     last_running_at?: string | null
     last_warming_at?: string | null
+    // The sprite's runtime; what an upgrade moves.
+    version?: string | null
     environment_version?: string | null
+    // Measured on local [2026-10-19]: absent on every sprite of the account.
+    labels?: unknown
     [key: string]: unknown
 }
 
@@ -81,6 +86,64 @@ export interface ListSpritesResponse {
     warm_limit?: number
     has_more?: boolean
     next_continuation_token?: string | null
+}
+
+// The whole account's listing, merged across pages. `truncated` is true when
+// it stopped before its last page, so a sprite missing from it may exist.
+export interface SpriteListing extends ListSpritesResponse {
+    truncated: boolean
+}
+
+// POST /sprites/{name}/restart, which the public OpenAPI does not list.
+// Measured on local [2026-10-19]: 202 in about 4 s with these fields; the
+// sprite then read cold, then warm, as its machine rebooted.
+export interface SpriteRestart {
+    message?: string
+    machine_id?: string
+    sprite_name?: string
+    [key: string]: unknown
+}
+
+// The body of POST /sprites/{name}/upgrade. No version is the newest build of
+// the sprite's release lane; one that would change its storage is refused
+// unless allow_storage_migration says to.
+export interface SpriteUpgradeRequest {
+    version?: string
+    allow_storage_migration?: boolean
+}
+
+// One line of the upgrade's NDJSON stream.
+// Measured on local [2026-10-19]: started, machine_found,
+// strategy_determined, updating_machine, config_updated, starting_machine,
+// machine_started, update_complete, then completed; a sprite already on its
+// target ends at already_current, then skipped.
+export interface SpriteUpgradeEvent {
+    type: string
+    data?: Record<string, unknown>
+    time?: string
+}
+
+export interface SpriteUpgradeOptions {
+    // The upgrade was accepted: a 2xx with a stream to follow.
+    onAccepted?: () => void
+    onEvent?: (event: SpriteUpgradeEvent) => void
+    signal?: AbortSignal
+    // How long to watch the stream, in all and without a line. Leaving it
+    // early does not stop the upgrade, which sprites.dev carries on with.
+    timeoutMs?: number
+    idleTimeoutMs?: number
+}
+
+// How the watch ended. `incomplete` saw no terminal event: the upgrade may
+// still be running, and the sprite's version says when it has applied.
+export interface SpriteUpgradeResult {
+    outcome: 'completed' | 'failed' | 'skipped' | 'incomplete'
+    targetVersion: string | null
+    // The terminal event's own words, redacted and capped.
+    message: string | null
+    // The last event seen, for an incomplete one: where it stopped.
+    lastEvent: string | null
+    stoppedBecause?: 'ended' | 'idle' | 'timeout' | 'aborted' | 'too_large'
 }
 
 export interface NetworkPolicyRule {

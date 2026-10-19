@@ -111,6 +111,19 @@ test('usage is counted from the full sprite list, not the page-scoped envelope c
     })
 })
 
+// A listing that stopped early counts only the sprites it reached; recording
+// that would under-report usage to admission until the next full listing.
+test('a listing that stopped early records no capacity', async () => {
+    const { svc, records } = makeService({
+        running_limit: 10,
+        warm_limit: 10,
+        sprites: [{ name: 's1', status: 'running' }],
+        truncated: true
+    })
+    await sync(svc)
+    assert.deepEqual(records, [])
+})
+
 // A vendor response missing the limit fields must persist "unknown", never 0 —
 // effectiveSpritesCap would otherwise clamp the org cap to zero and 503 every
 // wake on the platform.

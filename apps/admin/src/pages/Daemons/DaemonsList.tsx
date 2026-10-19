@@ -3,11 +3,19 @@ import type {
     DetectedFramework
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useApiClient } from '@/lib/apiClient'
 import { useShellPolling } from '@/lib/useShellPolling'
 import { useTableSort, type SortAccessors } from '@/lib/useTableSort'
-import { Badge, Button, Card, Heading, SortHeader, type BadgeTone } from '@/ui'
+import {
+    Badge,
+    Button,
+    Card,
+    ConfirmDialog,
+    Heading,
+    SortHeader,
+    type BadgeTone
+} from '@/ui'
 
 type DaemonsSortKey = 'name' | 'owner' | 'status' | 'lastSeenAt' | 'createdAt'
 
@@ -41,7 +49,7 @@ const DaemonsList: FC = (): ReactNode => {
     const [busyId, setBusyId] = useState<string | null>(null)
     const [deleteTarget, setDeleteTarget] =
         useState<AdminDaemonHostSummary | null>(null)
-    const [deleteName, setDeleteName] = useState('')
+    const [deleteError, setDeleteError] = useState<string | null>(null)
     const [ownerFilter, setOwnerFilter] = useState<string>('')
     const [frameworkFilter, setFrameworkFilter] = useState<
         Set<DetectedFramework['framework']>
@@ -58,18 +66,6 @@ const DaemonsList: FC = (): ReactNode => {
     )
 
     const refreshNow = useShellPolling(refresh, REFRESH_INTERVAL_MS)
-
-    useEffect(() => {
-        if (!deleteTarget) return
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape' && busyId !== deleteTarget.id) {
-                setDeleteTarget(null)
-                setDeleteName('')
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [busyId, deleteTarget])
 
     const upgradeHost = async (r: AdminDaemonHostSummary): Promise<void> => {
         if (
@@ -95,16 +91,15 @@ const DaemonsList: FC = (): ReactNode => {
     }
 
     const deleteHost = async (): Promise<void> => {
-        if (!deleteTarget || deleteName !== deleteTarget.name) return
+        if (!deleteTarget) return
         setBusyId(deleteTarget.id)
-        setError(null)
+        setDeleteError(null)
         try {
             await client.admin.daemons.deleteHost(deleteTarget.id)
             setDeleteTarget(null)
-            setDeleteName('')
             refreshNow()
         } catch (e) {
-            setError((e as Error).message)
+            setDeleteError((e as Error).message)
         } finally {
             setBusyId(null)
         }
@@ -447,7 +442,7 @@ const DaemonsList: FC = (): ReactNode => {
                                                         className='!border-accent-ruby !text-accent-ruby hover:!bg-accent-ruby/5'
                                                         onClick={(): void => {
                                                             setDeleteTarget(r)
-                                                            setDeleteName('')
+                                                            setDeleteError(null)
                                                         }}
                                                     >
                                                         Delete
@@ -463,78 +458,29 @@ const DaemonsList: FC = (): ReactNode => {
                 </>
             )}
 
-            {deleteTarget && (
-                <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4'>
-                    <div
-                        role='dialog'
-                        aria-modal='true'
-                        aria-labelledby='delete-machine-title'
-                        className='border-border shadow-deep w-full max-w-md rounded-lg border bg-white p-4'
-                    >
-                        <Heading
-                            id='delete-machine-title'
-                            level={3}
-                            className='mb-2'
-                        >
-                            Delete machine
-                        </Heading>
-                        <p className='text-caption text-body'>
-                            Permanently delete the {deleteTarget.name} machine
-                            registration, its bound daemon tokens, and its agent
-                            and runtime records from Manyfold. Workspace data on
-                            the machine is kept. This cannot be undone.
-                        </p>
-                        <label
-                            htmlFor='delete-machine-name'
-                            className='text-caption text-label mt-3 block'
-                        >
-                            Type{' '}
-                            <code className='text-heading font-mono'>
-                                {deleteTarget.name}
-                            </code>{' '}
-                            to confirm
-                        </label>
-                        <input
-                            id='delete-machine-name'
-                            value={deleteName}
-                            onChange={(event): void =>
-                                setDeleteName(event.target.value)
-                            }
-                            className='border-border text-caption text-heading focus:border-brand focus:ring-brand mt-1 block h-8 w-full rounded border bg-white px-2 font-mono transition-colors focus:outline-none focus:ring-1'
-                            spellCheck={false}
-                            autoComplete='off'
-                            autoFocus
-                        />
-                        <div className='mt-4 flex justify-end gap-2'>
-                            <Button
-                                variant='neutral'
-                                disabled={busyId === deleteTarget.id}
-                                onClick={(): void => {
-                                    setDeleteTarget(null)
-                                    setDeleteName('')
-                                }}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                variant='neutral'
-                                disabled={
-                                    busyId === deleteTarget.id ||
-                                    deleteName !== deleteTarget.name
-                                }
-                                className='!border-accent-ruby !bg-accent-ruby hover:!bg-accent-ruby/90 !text-white'
-                                onClick={(): void => {
-                                    void deleteHost()
-                                }}
-                            >
-                                {busyId === deleteTarget.id
-                                    ? 'Deleting…'
-                                    : 'Delete machine'}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ConfirmDialog
+                open={deleteTarget !== null}
+                title='Delete machine'
+                requireMatch={deleteTarget?.name}
+                confirmLabel='Delete machine'
+                pendingLabel='Deleting…'
+                tone='danger'
+                pending={deleteTarget !== null && busyId === deleteTarget.id}
+                error={deleteError}
+                onConfirm={(): void => {
+                    void deleteHost()
+                }}
+                onCancel={(): void => setDeleteTarget(null)}
+            >
+                {deleteTarget && (
+                    <p>
+                        Permanently delete the {deleteTarget.name} machine
+                        registration, its bound daemon tokens, and its agent and
+                        runtime records from Manyfold. Workspace data on the
+                        machine is kept. This cannot be undone.
+                    </p>
+                )}
+            </ConfirmDialog>
         </div>
     )
 }

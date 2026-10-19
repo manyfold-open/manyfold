@@ -94,6 +94,16 @@ export const auditAction = {
     SANDBOX_STOP: 'sandbox.stop',
     SANDBOX_HEALTH_CHECK: 'sandbox.health_check',
     SANDBOX_MAINTENANCE_END: 'sandbox.maintenance.end',
+    RUNTIME_PROVIDER_MACHINE_RESTARTED: 'runtime_provider.machine.restarted',
+    RUNTIME_PROVIDER_MACHINE_UPGRADE_STARTED:
+        'runtime_provider.machine.upgrade.started',
+    RUNTIME_PROVIDER_MACHINE_UPGRADE_SUCCEEDED:
+        'runtime_provider.machine.upgrade.succeeded',
+    RUNTIME_PROVIDER_MACHINE_UPGRADE_SKIPPED:
+        'runtime_provider.machine.upgrade.skipped',
+    RUNTIME_PROVIDER_MACHINE_UPGRADE_FAILED:
+        'runtime_provider.machine.upgrade.failed',
+    RUNTIME_PROVIDER_MACHINE_DELETED: 'runtime_provider.machine.deleted',
     AGENT_RUNTIME_CONTROL_UI_TOGGLED: 'agent_runtime.control_ui.toggled',
     AGENT_RUNTIME_CONTROL_UI_TOGGLE_FAILED:
         'agent_runtime.control_ui.toggle_failed',

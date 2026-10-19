@@ -69,6 +69,7 @@ const makeDb = (
 
 interface FakeClientSpec {
     sprites?: Array<{ name: string; status: string }>
+    truncated?: boolean
     listError?: Error
     getSprite?: (name: string) => Promise<unknown>
 }
@@ -79,7 +80,7 @@ const makeClient = (spec: FakeClientSpec) => {
         getSpriteCalls,
         listSprites: async () => {
             if (spec.listError) throw spec.listError
-            return { sprites: spec.sprites ?? [] }
+            return { sprites: spec.sprites ?? [], truncated: spec.truncated }
         },
         getSprite: async (name: string) => {
             getSpriteCalls.push(name)
@@ -333,6 +334,32 @@ test('listSprites failure rejects syncProvider and leaves tracking untouched', a
 
     await assert.rejects(() => sync(svc), /vendor 500/)
     assert.equal(missingSince(svc).has('host-1'), false)
+    assert.equal(db.updates.length, 0)
+})
+
+// WHY: a listing that stopped early leaves the machines it never reached
+// unknown, so an absence in it is not evidence of anything.
+test('a listing that stopped early neither arms nor confirms a missing machine', async () => {
+    const db = makeDb([fakeHost()], 0)
+    const client = makeClient({
+        sprites: [],
+        truncated: true,
+        getSprite: async () => {
+            throw new SpritesError('not_found', 'gone', 404)
+        }
+    })
+    const { svc, deleted } = makeService(db, client)
+
+    await sync(svc)
+    assert.equal(missingSince(svc).has('host-1'), false)
+
+    // Armed by an earlier full listing and past the window: still no
+    // confirmation read and no delete while the listing is cut short.
+    missingSince(svc).set('host-1', Date.now() - 121_000)
+    await sync(svc)
+
+    assert.equal(client.getSpriteCalls.length, 0)
+    assert.deepEqual(deleted, [])
     assert.equal(db.updates.length, 0)
 })
 

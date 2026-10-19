@@ -764,8 +764,17 @@ export interface RuntimeProviderSummary {
     lastHealthCheckedAt: string | null
     // Hosts currently placed on this provider.
     hostCount: number
+    capabilities: RuntimeProviderCapabilities
     createdAt: string
     updatedAt: string
+}
+
+// What the provider's adapter offers beyond placing hosts: listing every
+// machine in its account (its inventory), and acting on one by name.
+export interface RuntimeProviderCapabilities {
+    inventory: boolean
+    restartMachine: boolean
+    upgradeMachine: boolean
 }
 
 export interface CreateRuntimeProviderBody {
@@ -793,6 +802,103 @@ export interface RuntimeProviderProbeResult {
     ok: boolean
     message: string
     checkedAt: string
+}
+
+// The host in this deployment whose machine it is.
+export interface ProviderMachineHost {
+    id: string
+    name: string
+    status: RuntimeHostStatus
+    userId: string
+    ownerEmail: string | null
+    agentsCount: number
+    // The provider row the host is placed on; another row on the same account
+    // lists the same machine.
+    providerId: string
+    providerName: string
+}
+
+// One machine of a provider's account, as the provider lists it.
+export interface ProviderMachineSummary {
+    name: string
+    id: string | null
+    status: string
+    power: RuntimeHostPowerState
+    version: string | null
+    environmentVersion: string | null
+    labels: string[]
+    url: string | null
+    urlAuth: string | null
+    urlPrivateAccess: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    lastRunningAt: string | null
+    // Null: no host here points at it. It may be an orphan of this
+    // deployment, another deployment's machine on a shared account, or made
+    // by hand; the listing cannot tell which.
+    host: ProviderMachineHost | null
+}
+
+export interface ProviderMachineCapacity {
+    running: number
+    suspended: number
+    stopped: number
+    runningLimit: number | null
+    suspendedLimit: number | null
+}
+
+export interface ProviderMachineList {
+    providerId: string
+    // Other provider rows on the same account.
+    sharedWith: Array<{ id: string; name: string }>
+    // False when the provider stopped listing before the end.
+    complete: boolean
+    listedAt: string
+    capacity: ProviderMachineCapacity | null
+    machines: ProviderMachineSummary[]
+}
+
+export interface ProviderMachineRestartResult {
+    message: string | null
+}
+
+export interface UpgradeProviderMachineBody {
+    // None is the newest build the provider offers the machine.
+    version?: string
+    allowStorageMigration?: boolean
+}
+
+// `unconfirmed`: the watch ended before the provider said; the upgrade may
+// still be running, and the machine's version says when it has applied.
+export type ProviderMachineUpgradeOutcome =
+    | 'completed'
+    | 'failed'
+    | 'skipped'
+    | 'unconfirmed'
+
+export interface ProviderMachineUpgradeResult {
+    outcome: ProviderMachineUpgradeOutcome
+    message: string | null
+    fromVersion: string | null
+    targetVersion: string | null
+    lastStep: string | null
+}
+
+// The NDJSON lines of POST …/machines/:name/upgrade, after the provider
+// accepted it. A refusal before that is a plain HTTP error.
+export type ProviderMachineUpgradeEvent =
+    | { type: 'accepted'; fromVersion: string | null }
+    | { type: 'step'; step: string }
+    | { type: 'complete'; result: ProviderMachineUpgradeResult }
+    | { type: 'error'; code: string; status: number; message: string }
+
+// An admin action on a machine, from the audit log.
+export interface ProviderMachineAction {
+    id: string
+    action: string
+    actorEmail: string | null
+    createdAt: string
+    meta: Record<string, unknown>
 }
 
 

@@ -128,6 +128,9 @@ const MACHINE_MISSING_STALE_MS = 5 * MACHINE_MISSING_CONFIRM_MS
 // Create → listing visibility may lag; freshly provisioned hosts never enter
 // the missing-machine window.
 const MACHINE_PROVISION_GRACE_MS = 10 * 60_000
+// A listing that stops before its end repeats every tick until the provider
+// pages properly again; one warning per provider per window says so.
+const INCOMPLETE_LISTING_WARN_MS = 10 * 60_000
 
 interface FailureState {
     count: number
@@ -155,6 +158,7 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
     // hostId → epoch ms of the first listing missing the host's machine.
     // In-memory only: a restart just restarts the confirmation window.
     private readonly hostMissingSince = new Map<string, number>()
+    private readonly incompleteListingWarnedAt = new Map<string, number>()
     private nextSnapshotAt = 0
     private nextKeepAliveReconcileAt = 0
     private nextReaperAt = 0
@@ -743,16 +747,31 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                 )
             )
         const seen = await adapter.observe({ provider, hosts })
-        if (seen.capacity)
+        // A listing that stopped early still says which machines it saw run,
+        // but not which are gone, nor how full the account is.
+        const complete = seen.complete !== false
+        if (!complete) this.warnIncompleteListing(provider)
+        else if (seen.capacity)
             await this.recordVendorCapacity(provider, seen.capacity)
         const anyHostRunning = await this.syncHosts(
             provider,
             adapter,
             hosts,
             seen.power,
-            new Date()
+            new Date(),
+            complete
         )
         return (seen.capacity?.running ?? 0) > 0 || anyHostRunning
+    }
+
+    private warnIncompleteListing(provider: RuntimeProvider): void {
+        const now = Date.now()
+        const last = this.incompleteListingWarnedAt.get(provider.id) ?? 0
+        if (now - last < INCOMPLETE_LISTING_WARN_MS) return
+        this.incompleteListingWarnedAt.set(provider.id, now)
+        this.log.warn(
+            `provider ${provider.name} listing stopped before its end; no machine is marked missing and capacity is not recorded until a full listing`
+        )
     }
 
     /**
@@ -829,7 +848,8 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
         adapter: SandboxProvider,
         hosts: RuntimeHostRow[],
         listedPower: Map<string, RuntimeHostPowerState>,
-        now: Date
+        now: Date,
+        complete: boolean
     ): Promise<boolean> {
         const heartbeats = await this.lastHeartbeats(hosts)
         const missing: RuntimeHostRow[] = []
@@ -846,6 +866,8 @@ export class HostPowerSyncService implements OnModuleInit, OnModuleDestroy {
                 continue
             }
             const listed = listedPower.get(host.id)
+            // Left out of a listing that stopped early: nothing is known.
+            if (!listed && !complete) continue
             if (!listed) {
                 // Machine vanished from the listing: settle any open running
                 // interval now so the dangling watermark can't mis-accrue if the
