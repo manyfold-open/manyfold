@@ -18,6 +18,7 @@ import { AdminSandboxesController } from './admin-sandboxes.controller'
 import { SandboxesService } from './sandboxes.service'
 import { ActiveHoursEnforcementService } from './active-hours-enforcement.service'
 import { SandboxHealthService } from './health/sandbox-health.service'
+import { SpriteExecHealthModule } from '@/modules/agents/sprite-exec-health/sprite-exec-health.module'
 
 @Module({
     imports: [
@@ -32,7 +33,8 @@ import { SandboxHealthService } from './health/sandbox-health.service'
         RuntimeAccessModule,
         HostBringUpModule,
         FrameworkVersionsModule,
-        SecretsModule
+        SecretsModule,
+        SpriteExecHealthModule
     ],
     controllers: [SandboxesController, AdminSandboxesController],
     providers: [

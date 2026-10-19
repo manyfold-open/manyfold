@@ -1,5 +1,5 @@
 import { randomBytes, createHash, randomUUID } from 'node:crypto'
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common'
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { and, eq, isNull, notExists } from 'drizzle-orm'
 import { daemonTokens, runtimeHosts, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -28,6 +28,8 @@ export interface MintedToken {
 
 @Injectable()
 export class DaemonTokenService {
+    private readonly log = new Logger(DaemonTokenService.name)
+
     constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
     async mint(
@@ -89,10 +91,18 @@ export class DaemonTokenService {
         if (row.expiresAt && row.expiresAt < new Date())
             throw new UnauthorizedException('token expired')
 
-        await this.db
-            .update(daemonTokens)
-            .set({ lastUsedAt: new Date() })
-            .where(eq(daemonTokens.id, row.id))
+        // Best-effort: a write the database refuses (a read-only primary
+        // during a failover) must not refuse the daemon as if revoked.
+        try {
+            await this.db
+                .update(daemonTokens)
+                .set({ lastUsedAt: new Date() })
+                .where(eq(daemonTokens.id, row.id))
+        } catch (err) {
+            this.log.warn(
+                `daemon token last-used write skipped: ${(err as Error).message}`
+            )
+        }
 
         return {
             tokenId: row.id,

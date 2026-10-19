@@ -3,7 +3,8 @@ import {
     BadRequestException,
     Injectable,
     Logger,
-    OnModuleInit
+    OnModuleInit,
+    UnauthorizedException
 } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -164,7 +165,15 @@ export class TerminalGateway implements OnModuleInit {
         try {
             auth = await this.bearerAuth.verifyBearerToken(token)
         } catch (err) {
-            sendError(socket, `auth failed: ${(err as Error).message}`)
+            if (!(err instanceof UnauthorizedException)) {
+                this.log.error(
+                    `terminal auth unavailable: ${(err as Error).message}`
+                )
+                sendError(socket, 'authentication is temporarily unavailable')
+                socket.close(1011, 'auth unavailable')
+                return
+            }
+            sendError(socket, `auth failed: ${err.message}`)
             socket.close(4401, 'unauthorized')
             return
         }

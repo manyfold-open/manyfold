@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { BearerAuthService } from '../src/modules/auth/bearer-auth.service'
 import {
@@ -284,6 +285,52 @@ test('non-nca, non-ticket token → A2aHttpError(401)', async () => {
             err instanceof A2aHttpError &&
             err.status === 401 &&
             /invalid api token/.test(err.message)
+    )
+})
+
+// Seen on prod [2026-10-16]: a database error during a Postgres failover was
+// answered 401 with the raw error text, telling a caller to drop a good token.
+test('a token store that cannot be read → A2aHttpError(503), without its text', async () => {
+    await assert.rejects(
+        () =>
+            authenticateA2aRequest(
+                {
+                    verifyBearerToken: async () => {
+                        throw new Error(
+                            'cannot execute UPDATE in a read-only transaction'
+                        )
+                    }
+                } as unknown as BearerAuthService,
+                reqWith('nca_valid_token'),
+                'agt_target',
+                ticketSvc(),
+                tokensAllowing(true)
+            ),
+        (err: unknown) =>
+            err instanceof A2aHttpError &&
+            err.status === 503 &&
+            !/read-only/.test(err.message)
+    )
+})
+
+test('a token the store rejects → A2aHttpError(401) with its reason', async () => {
+    await assert.rejects(
+        () =>
+            authenticateA2aRequest(
+                {
+                    verifyBearerToken: async () => {
+                        throw new UnauthorizedException('api token revoked')
+                    }
+                } as unknown as BearerAuthService,
+                reqWith('nca_revoked_token'),
+                'agt_target',
+                ticketSvc(),
+                tokensAllowing(true)
+            ),
+        (err: unknown) =>
+            err instanceof A2aHttpError &&
+            err.status === 401 &&
+            /api token revoked/.test(err.message)
     )
 })
 

@@ -179,6 +179,14 @@ export const runtimeHosts = pgTable(
         execCooldownUntil: timestamp('exec_cooldown_until', {
             withTimezone: true
         }),
+        // hosted-only: since when the exec endpoint has failed with no
+        // successful probe in between. Set when the breaker first arms, cleared
+        // by a passing probe. The health check reads it: a machine that runs
+        // but has taken no command for long is not healthy, whatever the
+        // provider's check says.
+        execFailingSince: timestamp('exec_failing_since', {
+            withTimezone: true
+        }),
         // hosted-only: watermark = start of the still-unaccrued `running`
         // interval for active-duration metering. Compare-and-swapped so
         // concurrent API instances don't double-count. precision 3 is

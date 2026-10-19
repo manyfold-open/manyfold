@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
-import { Logger } from '@nestjs/common'
+import { Logger, UnauthorizedException } from '@nestjs/common'
 import { WebSocket } from 'ws'
 import { DaemonGateway } from '../src/modules/daemon/daemon.gateway'
 import { CLI_AT_FLOOR, CLI_BELOW_FLOOR } from './helpers/cli-floor'
@@ -26,8 +26,13 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         {
             verify: async (token: string) => {
                 verified.push(token)
+                // A database that cannot be read is not a verdict on the token.
+                if (token === 'fixture-store-down')
+                    throw new Error(
+                        'cannot execute UPDATE in a read-only transaction'
+                    )
                 if (token !== 'fixture-header' && token !== 'fixture-query')
-                    throw new Error('unauthorized')
+                    throw new UnauthorizedException('token not found')
                 return {
                     tokenId: 'ldt_test',
                     userId: 'u_test',
@@ -142,6 +147,10 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     assert.equal(await connect('?token=a&token=b'), 4400)
     assert.equal(registered.length, 2)
     assert.deepEqual(verified, ['fixture-header', 'fixture-header', 'invalid'])
+    // 1011, not 4401: the daemon reconnects on its normal schedule instead of
+    // backing off for minutes as if its token were revoked.
+    assert.equal(await connect('', 'Bearer fixture-store-down'), 1011)
+    verified.pop()
     for (const version of [CLI_BELOW_FLOOR, null, 'unknown']) {
         cliVersion = version
         assert.equal(await connect('', 'Bearer fixture-header'), 4406)

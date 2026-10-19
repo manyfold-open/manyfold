@@ -286,6 +286,27 @@ test('ApiTokenService verifies tokens, returns user context and scopes, and touc
     assert.ok(db.tokenRows[0].lastUsedAt instanceof Date)
 })
 
+// Seen on prod [2026-10-16]: during a Postgres failover the primary was
+// read-only for 1.7 s; the last-used write failed and took the whole
+// verification with it, so every valid token was answered 401.
+test('ApiTokenService still verifies a token when the database refuses the last-used write', async () => {
+    const db = new FakeDb()
+    const svc = new ApiTokenService(db as unknown as Database)
+    const minted = await svc.mint({ userId: 'user-1', name: 'cli' })
+    db.update = (() => ({
+        set: () => ({
+            where: async () => {
+                throw new Error('cannot execute UPDATE in a read-only transaction')
+            }
+        })
+    })) as never
+
+    const auth = await svc.verify(minted.plaintext)
+
+    assert.equal(auth.userId, 'user-1')
+    assert.equal(db.tokenRows[0].lastUsedAt ?? null, null)
+})
+
 test('ApiTokenService rejects revoked tokens', async () => {
     const db = new FakeDb()
     const svc = new ApiTokenService(db as unknown as Database)

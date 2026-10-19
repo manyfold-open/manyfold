@@ -6,7 +6,12 @@ import {
     DaemonClientProcess,
     DaemonWsFrame
 } from '@manyfold/shared'
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import {
+    Injectable,
+    Logger,
+    OnModuleInit,
+    UnauthorizedException
+} from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
@@ -96,7 +101,16 @@ export class DaemonGateway implements OnModuleInit {
         try {
             auth = await this.tokens.verify(token)
         } catch (err) {
-            this.log.warn(`daemon.ws.auth_failed ${(err as Error).message}`)
+            // 4401 makes the daemon back off for minutes as if its token were
+            // revoked; a store it could not read is a normal reconnect.
+            if (!(err instanceof UnauthorizedException)) {
+                this.log.error(
+                    `daemon.ws.auth_unavailable ${(err as Error).message}`
+                )
+                socket.close(1011, 'auth unavailable')
+                return
+            }
+            this.log.warn(`daemon.ws.auth_failed ${err.message}`)
             socket.close(4401, 'unauthorized')
             return
         }

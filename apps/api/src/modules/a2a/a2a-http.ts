@@ -1,3 +1,4 @@
+import { Logger, UnauthorizedException } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import { A2aError, A2aErrorCode, type JsonRpcErrorBody } from '@manyfold/a2a'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
@@ -12,6 +13,8 @@ import { A2aTicketError, A2aTicketService } from './a2a-ticket.service'
 
 // Auth/transport failures map to HTTP status (A2A §4), NOT a JSON-RPC error
 // body — only method/param/task errors go in the JSON-RPC envelope.
+const log = new Logger('A2aHttp')
+
 export class A2aHttpError extends Error {
     constructor(
         readonly status: number,
@@ -66,7 +69,12 @@ export const authenticateA2aRequest = async (
     try {
         user = await auth.verifyBearerToken(token)
     } catch (err) {
-        throw new A2aHttpError(401, (err as Error).message)
+        if (err instanceof UnauthorizedException)
+            throw new A2aHttpError(401, err.message)
+        // Not a verdict on the token, and not text for the caller: a 401
+        // would tell an A2A client to drop a credential that is fine.
+        log.error(`a2a bearer verification unavailable: ${(err as Error).message}`)
+        throw new A2aHttpError(503, 'authentication is temporarily unavailable')
     }
     if (!apiTokenHasScope(user, API_TOKEN_SCOPE_A2A))
         throw new A2aHttpError(403, 'token missing a2a:edit scope')

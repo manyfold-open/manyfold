@@ -73,6 +73,7 @@ export const storedConfigConnectionToken = (
 }
 
 interface RemotePendingRpc {
+    daemonId: string
     resolve: (payload: Record<string, unknown> | undefined) => void
     reject: (err: Error) => void
     timer: NodeJS.Timeout
@@ -139,6 +140,10 @@ type BrokerMessage =
           daemonId: string
           reason: string
       }
+    | {
+          type: 'ping'
+          sentAt: number
+      }
 
 export interface BrokerAdapter {
     isOnline(daemonId: string): boolean | Promise<boolean>
@@ -163,6 +168,10 @@ export class DaemonRegistryService
     private readonly inbox: string
     private brokerSql: ReturnType<typeof postgres> | null = null
     private brokerUnlisten: (() => Promise<void>) | null = null
+    private brokerUrl: string | null = null
+    private brokerHeardAt = 0
+    private brokerReopening = false
+    private brokerPingTimer: NodeJS.Timeout | null = null
     private readonly connectionRetirementListeners = new Set<
         (daemonId: string, connectionToken: string) => void
     >()
@@ -195,6 +204,16 @@ export class DaemonRegistryService
                 `daemon rpc lease release on boot failed: ${(err as Error).message}`
             )
         )
+        this.brokerUrl = url
+        await this.openBroker(url)
+        this.brokerPingTimer = setInterval(
+            () => void this.checkBrokerLiveness(),
+            BROKER_PING_INTERVAL_MS
+        )
+        this.brokerPingTimer.unref()
+    }
+
+    private async openBroker(url: string): Promise<void> {
         this.brokerSql = postgres(url, {
             max: 2,
             prepare: false,
@@ -209,13 +228,57 @@ export class DaemonRegistryService
             )
         })
         this.brokerUnlisten = () => listen.unlisten()
+        this.brokerHeardAt = Date.now()
         this.log.log(
             `daemon rpc broker listening instance=${this.instanceId} inbox=${this.inbox}`
         )
     }
 
+    // A LISTEN connection can outlive the backend it was listening on and stay
+    // open while hearing nothing: every rpc routed to this instance and every
+    // reply to one it sent is then silently lost. Pinging its own inbox proves
+    // the path end to end; one that stays quiet is rebuilt.
+    // Seen on prod [2026-10-16]: after a Postgres primary failover one
+    // instance's broker went deaf for 11 minutes without its connection closing.
+    private async checkBrokerLiveness(now = Date.now()): Promise<void> {
+        if (this.stopping || !this.brokerSql || this.brokerReopening) return
+        if (now - this.brokerHeardAt > BROKER_DEAF_AFTER_MS) {
+            this.log.error(
+                `daemon rpc broker heard nothing for ${now - this.brokerHeardAt}ms instance=${this.instanceId}; re-listening`
+            )
+            await this.reopenBroker()
+            return
+        }
+        await this.publishBrokerMessage(this.inbox, {
+            type: 'ping',
+            sentAt: now
+        }).catch((err) =>
+            this.log.warn(
+                `daemon rpc broker ping failed: ${(err as Error).message}`
+            )
+        )
+    }
+
+    private async reopenBroker(): Promise<void> {
+        if (!this.brokerUrl) return
+        this.brokerReopening = true
+        const previous = { unlisten: this.brokerUnlisten, sql: this.brokerSql }
+        try {
+            await previous.unlisten?.().catch(() => {})
+            await previous.sql?.end({ timeout: 5 }).catch(() => {})
+            await this.openBroker(this.brokerUrl)
+        } catch (err) {
+            this.log.error(
+                `daemon rpc broker re-listen failed: ${(err as Error).message}`
+            )
+        } finally {
+            this.brokerReopening = false
+        }
+    }
+
     async onModuleDestroy(): Promise<void> {
         this.stopping = true
+        if (this.brokerPingTimer) clearInterval(this.brokerPingTimer)
         for (const conn of this.conns.values())
             this.notifyConnectionRetired(conn)
         this.connectionRetirementListeners.clear()
@@ -252,6 +315,7 @@ export class DaemonRegistryService
             } catch {}
             this.failPending(existing, 'connection replaced')
         }
+        this.failRemotePending(args.daemonId, 'connection replaced')
         this.conns.set(args.daemonId, {
             token: randomUUID(),
             helloOrder: 0,
@@ -730,6 +794,7 @@ export class DaemonRegistryService
                         }).catch(() => {})
                 }, timeoutMs)
                 this.remotePending.set(requestId, {
+                    daemonId: args.daemonId,
                     resolve,
                     reject,
                     timer,
@@ -874,6 +939,7 @@ export class DaemonRegistryService
     }
 
     private async handleBrokerEnvelope(raw: string): Promise<void> {
+        this.brokerHeardAt = Date.now()
         const envelope = JSON.parse(raw) as BrokerEnvelope
         if (envelope.version !== 1) return
         let buffer = this.brokerChunks.get(envelope.id)
@@ -917,6 +983,8 @@ export class DaemonRegistryService
                 return
             case 'cancel':
                 this.forwardedStreams.get(message.requestId)?.cancel()
+                return
+            case 'ping':
                 return
             case 'disconnect': {
                 const token = this.conns.get(message.daemonId)?.token
@@ -1083,6 +1151,31 @@ export class DaemonRegistryService
         }
     }
 
+    // The daemon keeps one socket at a time, and it now lives HERE, so an rpc
+    // this instance routed to the peer holding its previous socket can no
+    // longer be answered. That peer fails it over the broker when the old
+    // socket closes; when that NOTIFY is lost the carrier waits out the rpc's
+    // own timeout. Failing it here with the verdict a local predecessor's
+    // pending rpcs get hands it to fenced dispatch, which probes this new
+    // generation and re-dispatches or resumes.
+    // Seen on prod [2026-10-16]: with this instance's broker LISTEN detached
+    // by a Postgres failover, two turns whose rpc had gone to the peer hung
+    // for the full 30-minute idle budget while the daemon sat connected here.
+    private failRemotePending(daemonId: string, reason: string): void {
+        for (const [requestId, pending] of this.remotePending) {
+            if (pending.daemonId !== daemonId) continue
+            clearTimeout(pending.timer)
+            this.remotePending.delete(requestId)
+            pending.reject(new Error(reason))
+            if (pending.ownerInbox)
+                void this.publishBrokerMessage(pending.ownerInbox, {
+                    type: 'cancel',
+                    requestId,
+                    daemonId
+                }).catch(() => {})
+        }
+    }
+
     private failPending(conn: DaemonConnection, reason: string): void {
         for (const [refId, p] of conn.pending) {
             clearTimeout(p.timer)
@@ -1111,6 +1204,10 @@ const RELEASED_RPC_LEASE = (): {
 const DAEMON_RPC_LEASE_MS = 45_000
 const BROKER_CHUNK_BYTES = 4500
 const BROKER_CHUNK_TTL_MS = 30_000
+// The broker pings its own inbox this often, and is rebuilt once its inbox
+// has heard nothing (not even its own pings) for three of them.
+const BROKER_PING_INTERVAL_MS = 30_000
+const BROKER_DEAF_AFTER_MS = 3 * BROKER_PING_INTERVAL_MS
 
 const brokerChannel = (value: string): string =>
     `nca_daemon_rpc_${createHash('sha256').update(value).digest('hex').slice(0, 32)}`
