@@ -3048,6 +3048,11 @@ test('outbound files: agent-linked workspace file is attached and persisted', as
     await promise
 
     const captures = harness.fakeProvider.drainOutbound('chn-1')
+    const final = captures.find(
+        (c) => c.kind === 'final' || c.kind === 'preview-finish'
+    )
+    assert.ok(final && 'text' in final)
+    assert.equal(final.text, 'Here is the plot: chart')
     const attach = captures.find((c) => c.kind === 'attachments')
     assert.ok(attach && 'files' in attach)
     assert.deepEqual(attach.files, [
@@ -3083,6 +3088,11 @@ test('outbound files: disabled channel does not attach', async () => {
 
     assert.equal(readCalled, false)
     const captures = harness.fakeProvider.drainOutbound('chn-1')
+    const final = captures.find(
+        (c) => c.kind === 'final' || c.kind === 'preview-finish'
+    )
+    assert.ok(final && 'text' in final)
+    assert.equal(final.text, 'Here is the plot: [chart](sine.png)')
     assert.equal(captures.filter((c) => c.kind === 'attachments').length, 0)
     assert.equal(harness.appendedAttachments.length, 0)
 })
