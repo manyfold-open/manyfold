@@ -112,7 +112,7 @@ Messages from a workspace other than the registered one are rejected, so registe
 
 - Text and Slack file shares can drive the agent; a file-only message is accepted.
 - Incoming files use Slack's authenticated download URLs. Manyfold accepts up to 10 files, 25 MB per file, and 100 MB total per message; unsupported or oversized files are skipped while the remaining message continues.
-- When **Attach files the agent links** is on, a workspace file linked in the final answer is uploaded to the same channel or thread.
+- When **Attach files the agent links** is on, a workspace file linked in the final answer is uploaded to the same channel or thread. The link itself reads as its label in the text reply, since the file follows it.
 - Long replies are split into chunks. Continuation chunks stay in the active Slack thread.
 - Slack markdown links and basic emphasis are rendered in Slack's native format.
 

@@ -58,7 +58,7 @@ Registration verifies the token against the gateway and activates the channel. T
 - Long answers are split into chunks (2,000 characters by default) sent in order with a short pause between them.
 - If the gateway rate-limits sending (error code `-2`), the channel briefly pauses outbound sends and retries; a chunk that still fails after the first one is delivered leaves a short "message truncated" note instead of resending the earlier text.
 - Voice notes are delivered as their WeChat transcription when one is present; audio and video arrive as a short placeholder because those formats are outside the attachment policy.
-- Inbound images and whitelisted document types are downloaded, decrypted, and passed to the agent as attachments. When the agent links a workspace file in its reply, images are sent as images and other files as file messages.
+- Inbound images and whitelisted document types are downloaded, decrypted, and passed to the agent as attachments. When the agent links a workspace file in its reply, images are sent as images and other files as file messages. The link itself reads as its label in the text reply, since the file follows it.
 - A quoted (referenced) message is passed to the agent as a short `[Replying to: …]` context line.
 - A typing indicator is shown while the agent works.
 

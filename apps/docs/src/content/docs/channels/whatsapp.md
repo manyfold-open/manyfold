@@ -60,7 +60,7 @@ Since WhatsApp's move to per-chat identifiers, the same person can appear either
 - **Share session in channel** decides whether a group has one shared conversation or one per sender. Off by default, so each participant gets their own thread of context.
 - Long answers are split into chunks of about 4,000 characters, sent in order with a short pause between them. If a later chunk fails after earlier ones were delivered, the channel appends a short truncation notice rather than resending text the reader already saw.
 - Inbound images and whitelisted document types are downloaded, decrypted, and passed to the agent as attachments. Voice notes and video arrive as a short placeholder because those formats are outside the attachment policy.
-- When the agent links a workspace file in its reply, images are sent as images and other files as documents.
+- When the agent links a workspace file in its reply, images are sent as images and other files as documents. The link itself reads as its label in the text reply, since the file follows it.
 - Your own outgoing messages, status updates, newsletters, and broadcasts never drive the agent.
 
 ## Agent-initiated sends

@@ -75,7 +75,10 @@ import {
 } from './channels.repository'
 import { ChannelSlashDispatcher } from './slash/slash-dispatcher.service'
 import { buildHelpText } from './slash/commands'
-import { extractWorkspaceFileRefs } from './workspace-file-refs'
+import {
+    extractWorkspaceFileRefs,
+    stripWorkspaceFileRefs
+} from './workspace-file-refs'
 
 const PREVIEW_THROTTLE_MS = 800
 // Consecutive preview-update failures before updates are disabled for the
@@ -151,6 +154,16 @@ const attachmentDegradeNotice = (
         return '⚠ Your attachment(s) could not be processed — continuing without them.'
     return '⚠ Attachments could not be processed — continuing with text only.'
 }
+
+// One condition for both halves of linked-file delivery: the reply drops a
+// file's link only on a channel that then sends the file.
+const sendsOutboundFiles = (
+    provider: ChannelProvider,
+    ctx: ChannelContext
+): provider is ChannelProvider &
+    Required<Pick<ChannelProvider, 'sendAttachments'>> =>
+    typeof provider.sendAttachments === 'function' &&
+    (ctx.config as { outboundFiles?: boolean }).outboundFiles !== false
 
 const attachmentDropNotice = (
     reason: AttachmentDegradeReason | false
@@ -1821,7 +1834,15 @@ export class ChannelBridgeService {
         inboundMessageId?: string | null
         hud?: ReplyHudStats
     }): Promise<void> {
-        const { channel, ctx, provider, scopeKey, preview, text } = opts
+        const { channel, ctx, provider, scopeKey, preview } = opts
+        // A file the reply links is sent after it, so the link itself is
+        // left out of what the channel shows.
+        const text = sendsOutboundFiles(provider, ctx)
+            ? stripWorkspaceFileRefs(
+                  opts.text,
+                  extractWorkspaceFileRefs(opts.text)
+              )
+            : opts.text
         const base = text.length === 0 ? '(empty response)' : text
         // Append the usage footer INSIDE finalText (before the outbox row is
         // written) so a retry re-delivers it too.
@@ -1973,9 +1994,7 @@ export class ChannelBridgeService {
         text: string
     }): Promise<void> {
         const { channel, ctx, provider, scopeKey } = opts
-        if (typeof provider.sendAttachments !== 'function') return
-        if ((ctx.config as { outboundFiles?: boolean }).outboundFiles === false)
-            return
+        if (!sendsOutboundFiles(provider, ctx)) return
         const refs = extractWorkspaceFileRefs(opts.text)
         if (refs.length === 0) return
         let files: OutboundFile[]

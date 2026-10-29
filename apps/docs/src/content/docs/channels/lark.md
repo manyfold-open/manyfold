@@ -130,7 +130,7 @@ For webhook security, configure either a Verification Token or Encrypt Key in bo
 
 Text and rich-text (post) messages reach the agent as text, including post titles, links, and mentions. Images and files are downloaded and attached to the conversation. Voice and video messages arrive as placeholders (`[voice message]`, `[video: name]`); a video's cover image is attached when available.
 
-In the other direction, when the agent links a workspace file in its reply (for example a generated chart), the file is uploaded and sent as a native image or file message. Turn this off with the "Attach files the agent links" channel setting.
+In the other direction, when the agent links a workspace file in its reply (for example a generated chart), the file is uploaded and sent as a native image or file message. The link itself reads as its label in the text reply, since the file follows it. Turn this off with the "Attach files the agent links" channel setting.
 
 For inbound attachments, Manyfold accepts up to 10 files, 25 MB per file, and 100 MB total per message. Unsupported or oversized files are skipped while the remaining text and valid files continue.
 
