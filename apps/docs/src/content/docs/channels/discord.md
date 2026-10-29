@@ -93,7 +93,7 @@ Discord does not use the Manyfold inbound URL. Registration reads the bot/applic
 - Manyfold accepts up to 10 files, 25 MB per file, and 100 MB total per inbound message. Unsupported or oversized files are skipped while the rest of the message continues.
 - Replying to a Discord message includes a short quoted context with its author, text, and image attachments. In mention-only servers, use reply-with-ping or add an @mention.
 - Server replies use Discord's native message reference. DMs stay uncluttered and do not add a reply reference.
-- When **Attach files the agent links** is enabled, generated workspace files linked in the final answer are sent as Discord attachments.
+- When **Attach files the agent links** is enabled, generated workspace files linked in the final answer are sent as Discord attachments. The link itself reads as its label in the text reply, since the file follows it.
 - File input depends on the selected agent framework supporting attachments.
 
 ## Server context and threads

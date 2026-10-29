@@ -22,7 +22,7 @@ const SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/
 const WORKSPACE_ALIASES = ['/workspace']
 
 // Markdown links and images: [label](target) and ![alt](target).
-const MD_LINK_RE = /!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+const MD_LINK_RE = /!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 // Bare file:// URLs that appear outside markdown link syntax.
 const FILE_URL_RE = /\bfile:\/\/\S+/g
 
@@ -37,7 +37,7 @@ const FILE_URL_RE = /\bfile:\/\/\S+/g
 export const extractWorkspaceFileRefs = (text: string): WorkspaceFileRef[] => {
     if (!text) return []
     const candidates: string[] = []
-    for (const match of text.matchAll(MD_LINK_RE)) candidates.push(match[1])
+    for (const match of text.matchAll(MD_LINK_RE)) candidates.push(match[2])
     for (const match of text.matchAll(FILE_URL_RE)) candidates.push(match[0])
 
     const seen = new Set<string>()
@@ -53,6 +53,55 @@ export const extractWorkspaceFileRefs = (text: string): WorkspaceFileRef[] => {
 
     refs.sort((a, b) => imageRank(a.name) - imageRank(b.name))
     return refs.slice(0, MAX_OUTBOUND_REFS)
+}
+
+const REMOVED = '\u0000'
+
+/**
+ * The reply text a channel shows when it also sends `refs` as attachments.
+ * Each reference to one of those files reads as its label instead (an image
+ * with no alt text as nothing, a bare `file://` URL as the file name): the
+ * file arrives right after the text, and a workspace path means nothing to
+ * someone outside Manyfold. A line left empty by this is dropped. Text with
+ * nothing left keeps its references, so a reply never goes out blank.
+ */
+export const stripWorkspaceFileRefs = (
+    text: string,
+    refs: readonly WorkspaceFileRef[]
+): string => {
+    if (refs.length === 0) return text
+    const sent = new Set(refs.map((ref) => ref.relPath))
+    const isSent = (target: string): boolean => {
+        const relPath = resolveRelPath(target)
+        return relPath !== null && sent.has(relPath)
+    }
+    let changed = false
+    const marked = text
+        .replace(MD_LINK_RE, (whole, label: string, target: string) => {
+            if (!isSent(target)) return whole
+            changed = true
+            return label || REMOVED
+        })
+        .replace(FILE_URL_RE, (url) => {
+            const relPath = resolveRelPath(url)
+            if (relPath === null || !sent.has(relPath)) return url
+            changed = true
+            return relPath.slice(relPath.lastIndexOf('/') + 1)
+        })
+    if (!changed) return text
+    const shown = marked
+        .split('\n')
+        .filter(
+            (line) =>
+                !line.includes(REMOVED) ||
+                line.replaceAll(REMOVED, '').trim() !== ''
+        )
+        .join('\n')
+        .replaceAll(` ${REMOVED}`, '')
+        .replaceAll(REMOVED, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/\s+$/, '')
+    return shown.trim() ? shown : text
 }
 
 const imageRank = (name: string): number =>

@@ -91,7 +91,7 @@ Matrix IDs must be entered in their full form, such as `!room:example.org` and `
 - Reactions, stickers, text edits (`m.replace`), and encrypted events do not start agent turns.
 - Replies include a best-effort snippet of the referenced event. Sender display names and recent room or thread history are also resolved best-effort and fall back without blocking the message.
 - Long answers are split at 3,900 characters before each chunk is rendered as Matrix HTML. Preview mode edits the initial `thinking...` event and falls back to a fresh message if editing fails. Replies preserve native Matrix reply and thread relations, and the bot refreshes its typing indicator while the turn runs.
-- When **Attach files the agent links** is on, files referenced by the final agent answer are uploaded as image, file, audio, or video messages after the text reply. Upload failure leaves the text reply intact.
+- When **Attach files the agent links** is on, files referenced by the final agent answer are uploaded as image, file, audio, or video messages after the text reply. The link itself reads as its label in the text reply, since the file follows it. Upload failure leaves the text reply intact.
 
 ## Agent-initiated sends
 
