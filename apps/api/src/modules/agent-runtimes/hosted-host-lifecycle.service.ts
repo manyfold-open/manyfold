@@ -147,8 +147,12 @@ export class HostedHostLifecycleService {
         })
     }
 
+    // A host whose create failed before it recorded its machine can still
+    // have one (a sprite that came up after its create timed out), so the
+    // adapter is asked even without a provider_ref: it knows the name it
+    // would have used, and one it never made answers as already gone.
     private async destroy(host: RuntimeHostRow): Promise<void> {
-        if (!host.providerId || !host.providerRef) return
+        if (!host.providerId) return
         const provider = await this.providers.findById(host.providerId)
         if (!provider)
             throw new Error(`runtime provider ${host.providerId} not found`)

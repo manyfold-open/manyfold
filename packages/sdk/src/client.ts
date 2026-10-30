@@ -5,7 +5,7 @@ import {
     apiPaths,
     isObjectId
 } from '@manyfold/shared'
-import { apiErrorFromStreamEvent, buildApiError } from './errors.js'
+import { ApiError, apiErrorFromStreamEvent, buildApiError } from './errors.js'
 import type {
     CapabilitiesResponse,
     A2aExposure,
@@ -186,6 +186,13 @@ import type {
     SharedChatSessionPreview,
     SharedChatMessagesPage,
     RuntimeProviderProbeResult,
+    ProviderMachineAction,
+    ProviderMachineList,
+    ProviderMachineRestartResult,
+    ProviderMachineSummary,
+    ProviderMachineUpgradeEvent,
+    ProviderMachineUpgradeResult,
+    UpgradeProviderMachineBody,
     RuntimeProviderSummary,
     CreateRuntimeProviderBody,
     UpdateRuntimeProviderBody,
@@ -1407,6 +1414,38 @@ export interface NcaClient {
             // 409 while hosts are still placed on the provider.
             delete: (id: string) => Promise<void>
             probe: (id: string) => Promise<RuntimeProviderProbeResult>
+            // Every machine of the provider's account, tracked here or not.
+            machines: {
+                // `refresh` reads past the API's short listing cache.
+                list: (
+                    id: string,
+                    opts?: { refresh?: boolean }
+                ) => Promise<ProviderMachineList>
+                get: (
+                    id: string,
+                    name: string
+                ) => Promise<ProviderMachineSummary>
+                // The admin actions on it, newest first.
+                actions: (
+                    id: string,
+                    name: string
+                ) => Promise<ProviderMachineAction[]>
+                restart: (
+                    id: string,
+                    name: string
+                ) => Promise<ProviderMachineRestartResult>
+                // NDJSON once the provider accepts; a refusal before that
+                // (409 PROVIDER_MACHINE_STORAGE_MIGRATION_REQUIRED, say) throws.
+                upgrade: (
+                    id: string,
+                    name: string,
+                    body: UpgradeProviderMachineBody,
+                    onEvent: (event: ProviderMachineUpgradeEvent) => void
+                ) => Promise<ProviderMachineUpgradeResult>
+                // A machine with a host is deleted as its sandbox: 409
+                // HOST_NOT_EMPTY while agents remain on it.
+                delete: (id: string, name: string) => Promise<void>
+            }
         }
         notificationWebhooks: {
             list: () => Promise<SdkNotificationWebhookSummary[]>
@@ -2546,6 +2585,61 @@ export const createClient = (options: ClientOptions): NcaClient => {
             return completed
         }
     })
+
+    // Like upgradeFrameworkStream, with the API's error event kept as an
+    // ApiError so a caller can branch on its code.
+    const upgradeMachineStream = async (
+        id: string,
+        name: string,
+        body: UpgradeProviderMachineBody,
+        onEvent: (event: ProviderMachineUpgradeEvent) => void
+    ): Promise<ProviderMachineUpgradeResult> => {
+        const token = await resolveToken(options.token)
+        const headers = new Headers()
+        headers.set('Content-Type', 'application/json')
+        headers.set('Accept', 'application/x-ndjson')
+        if (token) headers.set('Authorization', `Bearer ${token}`)
+        const res = await fetchImpl(
+            `${baseUrl}${apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINE_UPGRADE(id, name)}`,
+            { method: 'POST', headers, body: JSON.stringify(body) }
+        )
+        if (!res.ok || !res.body) throw await buildApiError(res)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let result: ProviderMachineUpgradeResult | null = null
+        let failure: ApiError | null = null
+        const dispatch = (line: string): void => {
+            if (!line) return
+            const event = JSON.parse(line) as ProviderMachineUpgradeEvent
+            onEvent(event)
+            if (event.type === 'complete') result = event.result
+            if (event.type === 'error')
+                failure = new ApiError({
+                    status: event.status,
+                    statusText: '',
+                    code: event.code,
+                    message: event.message,
+                    serverMessage: event.message,
+                    body: line
+                })
+        }
+        while (true) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            let nl = buffer.indexOf('\n')
+            while (nl !== -1) {
+                dispatch(buffer.slice(0, nl).trim())
+                buffer = buffer.slice(nl + 1)
+                nl = buffer.indexOf('\n')
+            }
+        }
+        if (buffer.trim()) dispatch(buffer.trim())
+        if (failure) throw failure
+        if (!result) throw new Error('stream ended without complete event')
+        return result
+    }
 
     const buildBackupsClient = (paths: {
         list: string
@@ -4455,7 +4549,40 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     request<RuntimeProviderProbeResult>(
                         apiPaths.ADMIN_RUNTIME_PROVIDER_PROBE(id),
                         { method: 'POST' }
-                    )
+                    ),
+                machines: {
+                    list: (id, opts) =>
+                        request<ProviderMachineList>(
+                            `${apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINES(id)}${
+                                opts?.refresh ? '?refresh=1' : ''
+                            }`
+                        ),
+                    get: (id, name) =>
+                        request<ProviderMachineSummary>(
+                            apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINE(id, name)
+                        ),
+                    actions: (id, name) =>
+                        request<ProviderMachineAction[]>(
+                            apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINE_ACTIONS(
+                                id,
+                                name
+                            )
+                        ),
+                    restart: (id, name) =>
+                        request<ProviderMachineRestartResult>(
+                            apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINE_RESTART(
+                                id,
+                                name
+                            ),
+                            { method: 'POST' }
+                        ),
+                    upgrade: (id, name, body, onEvent) =>
+                        upgradeMachineStream(id, name, body, onEvent),
+                    delete: (id, name) =>
+                        deleteNoBody(
+                            apiPaths.ADMIN_RUNTIME_PROVIDER_MACHINE(id, name)
+                        )
+                }
             },
             notificationWebhooks: {
                 list: () =>

@@ -5016,6 +5016,7 @@ const zh: Translations = {
                 unknown: '未检测'
             },
             actions: {
+                inventory: '机器清单',
                 edit: '编辑',
                 probe: '测试连通性',
                 enable: '启用',
@@ -5027,9 +5028,153 @@ const zh: Translations = {
                 deleteBlocked:
                     '该供应商上仍有机器，无法删除。请先删除这些机器。'
             },
+            tabs: {
+                label: '运行环境供应商分区',
+                settings: '设置',
+                inventory: '机器清单'
+            },
+            inventory: {
+                subtitle:
+                    '直接从供应商读取这个账号里的全部机器，不论本部署是否有 sandbox 在用。',
+                sharedNotice:
+                    '一个账号可能同时服务多个部署，比如生产、staging 和本地环境。标为「未追踪」的机器在本部署没有对应的 sandbox，但其他部署可能还在用。',
+                sharedWith: '在这里还登记为：{{providers}}',
+                incomplete: '供应商没有列完，这一页缺了部分机器。',
+                listedAt: '读取于 {{time}}',
+                refresh: '刷新',
+                empty: '这个账号里没有机器。',
+                noMatches: '没有符合筛选条件的机器。',
+                unsupported: '这类供应商无法列出它的机器。',
+                tracked: '已追踪',
+                untracked: '未追踪',
+                tiles: {
+                    total: '机器',
+                    split: '已追踪 {{tracked}} · 未追踪 {{untracked}}',
+                    ofLimit: '上限 {{limit}}'
+                },
+                filters: {
+                    search: '搜索',
+                    searchPlaceholder: '名称、sandbox 或所有者邮箱',
+                    tracking: '追踪',
+                    power: '电源',
+                    all: '全部'
+                },
+                cols: {
+                    name: '名称',
+                    status: '电源',
+                    sandbox: 'Sandbox',
+                    agents: 'Agent 数',
+                    version: '版本',
+                    lastRunning: '最近运行',
+                    created: '创建时间'
+                }
+            },
+            machine: {
+                notFound: '这个账号里没有名为 {{name}} 的机器。',
+                overview: '机器',
+                inDeployment: '在本部署中',
+                tracked: '它承载 {{owner}} 的 sandbox {{sandbox}}。',
+                untrackedShort:
+                    '本部署没有 sandbox 用它。共用这个账号的其他部署可能在用。',
+                untrackedExplain:
+                    '本部署没有 sandbox 用这台机器。它可能是本部署留下的，可能属于共用这个账号的其他部署，也可能是手工创建的；供应商的列表分辨不出是哪一种。',
+                recentlyRan: '它在最近 24 小时内运行过，可能正在别处使用。',
+                disruptsSandbox:
+                    '它的 agent 上正在进行的对话会失败；休眠中的机器会被启动，并计入所有者的活跃时长。',
+                fields: {
+                    status: '电源',
+                    id: '供应商 ID',
+                    version: '版本',
+                    environmentVersion: '环境版本',
+                    labels: '标签',
+                    url: 'URL',
+                    urlAccess: 'URL 访问',
+                    created: '创建时间',
+                    updated: '更新时间',
+                    lastRunning: '最近运行',
+                    sandbox: 'Sandbox',
+                    owner: '所有者',
+                    hostStatus: 'Sandbox 状态',
+                    agents: 'Agent 数',
+                    provider: '登记在'
+                },
+                actions: {
+                    restart: '重启',
+                    upgrade: '升级',
+                    delete: '删除'
+                },
+                restart: {
+                    title: '重启 {{name}}？',
+                    body: '供应商会重启这台机器。上面的进程会停止后重新启动，打开的会话会结束。',
+                    confirm: '重启',
+                    pending: '重启中…',
+                    done: '已请求重启。{{message}}'
+                },
+                upgrade: {
+                    title: '升级 {{name}}？',
+                    body: '供应商会把这台机器换到更新的运行时，机器会重启一次。',
+                    current:
+                        '当前版本：{{version}}。它会随这次操作保存下来，因为供应商不保留旧版本，回滚时需要它。',
+                    versionUnknown:
+                        '供应商还没有报告这台机器的版本，机器启动过一次之后才会有。没有它，这次升级无法依据这里的记录回滚。',
+                    versionLabel: '版本（可选）',
+                    versionHint:
+                        '留空表示升级到最新版本。填写更早的版本可以回滚。',
+                    storageLabel: '允许迁移存储',
+                    storageWarning:
+                        '有些升级和回滚需要把机器换到另一种存储，会复制整块磁盘。之后第一次启动要几分钟；之前的 checkpoint 不能再恢复；回滚之后不要再升级这台机器。',
+                    storageRequired:
+                        '这次升级要迁移机器的存储，只有你允许时才会进行。请阅读下方警告，勾选「允许迁移存储」后再次确认。（{{message}}）',
+                    confirm: '升级',
+                    pending: '启动中…',
+                    running: '升级中：{{step}}…',
+                    completed: '已从 {{from}} 升级到 {{to}}。',
+                    skipped: '无需升级。{{message}}',
+                    failed: '升级失败：{{message}}',
+                    unconfirmed:
+                        '这个页面停止跟踪时升级仍在进行（最后一步：{{step}}）。供应商会自己完成升级；完成后上面显示的版本会更新。'
+                },
+                delete: {
+                    title: '删除 {{name}}？',
+                    bodyTracked:
+                        '这会删除 {{owner}} 的 sandbox {{sandbox}} 及其机器和磁盘，且无法撤销。',
+                    bodyUntracked:
+                        '这会在供应商那里删除这台机器及其磁盘和 checkpoint，且无法撤销。本部署没有 sandbox 用它，但共用这个账号的其他部署可能在用。',
+                    blocked:
+                        '它的 sandbox 上还有 {{count}} 个 agent，请先删除。',
+                    confirm: '删除',
+                    pending: '删除中…'
+                },
+                history: {
+                    title: '最近操作',
+                    empty: '还没有管理员操作过这台机器。',
+                    when: '时间',
+                    action: '操作',
+                    by: '操作人',
+                    detail: '详情',
+                    restarted: '已重启',
+                    upgradeStarted: '开始升级',
+                    upgradeSucceeded: '已升级',
+                    upgradeSkipped: '跳过升级',
+                    upgradeFailed: '升级失败',
+                    deleted: '已删除',
+                    storageMigration: '允许迁移存储',
+                    withSandbox: '连同其 sandbox'
+                },
+                errors: {
+                    rateLimited: '供应商正在限流，请稍后再试。',
+                    authFailed:
+                        '供应商拒绝了这个账号的凭据，请在「设置」中检查。',
+                    unavailable: '供应商没有响应：{{message}}',
+                    notFound: '这台机器已经不在这个账号里了。',
+                    unsupported: '供应商不支持对这台机器做这个操作。',
+                    refused: '供应商拒绝了：{{message}}',
+                    hostBusy: '它的 sandbox 正在创建或删除中，完成后再试。',
+                    hostNotEmpty: '它的 sandbox 上还有 agent，请先删除。'
+                }
+            },
             form: {
                 titleCreate: '添加运行环境供应商',
-                titleEdit: '编辑运行环境供应商',
                 kindLabel: '类型',
                 kindHint: '创建后不可更改。',
                 nameLabel: '名称',

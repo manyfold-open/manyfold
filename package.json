@@ -33,6 +33,7 @@
         "test:browser-settings": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/agent-settings-requests.test.mts",
         "test:browser-chat-sse": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/chat-sse-convergence.test.mts",
         "test:browser-admin-outcome": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/admin exec tsx --test test/chat-session-outcome.test.mts",
+        "test:browser-admin-inventory": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/admin exec tsx --test test/runtime-provider-inventory.test.mts",
         "db:generate": "pnpm --filter @manyfold/api db:generate",
         "db:migrate": "pnpm --filter @manyfold/api db:migrate",
         "db:studio": "pnpm --filter @manyfold/api db:studio",

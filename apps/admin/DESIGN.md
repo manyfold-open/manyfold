@@ -120,6 +120,10 @@ Tones: `success` (healthy), `error` (failed/degraded), `warning` (attention), `n
 
 `h-8`, `border-border`, 13px text, 13px label (`text-caption text-label font-normal`). Focus shifts the border to `border-brand` and adds a 1px brand ring. Errors swap border/ring to `accent-ruby` and surface a 12px message under the field.
 
+### Dialogs (`ConfirmDialog.tsx`)
+
+Irreversible or disruptive actions confirm in `ConfirmDialog`, not `window.confirm`: a native `<dialog>` (`shadow-deep`, `rounded-lg`, `p-4`) with a level-3 heading and the consequences in full sentences. `requireMatch` makes the admin type the entity's name first; use it for anything that cannot be undone or may belong to someone else. `tone='danger'` composes ruby onto the confirm button. Escape cancels unless the action is running, a backdrop click does nothing, Tab stays inside, focus returns to the button that opened it, and a failure stays in the dialog as a `role='alert'` line.
+
 ### Tables (compact by default)
 
 Tables are the most important admin component. Use the same class strings everywhere:
@@ -225,7 +229,7 @@ Admin URLs follow the sidebar's operator-task hierarchy. Canonical paths are dec
 | Area | Canonical paths |
 | --- | --- |
 | Operations | `/agents`, `/runtimes`, `/sandboxes`, `/channels`, `/model-providers` |
-| Infrastructure | `/infrastructure/clusters`, `/infrastructure/sandbox-accounts`, `/infrastructure/self-owned-computers/*`, `/infrastructure/container-skus`, `/infrastructure/sandbox-capacity` |
+| Infrastructure | `/infrastructure/runtime-providers/*` (a provider's settings, its `inventory`, and `inventory/:name` for one machine), `/infrastructure/self-owned-computers/*`, `/infrastructure/container-skus`, `/infrastructure/sandbox-capacity` |
 | Users & billing | `/accounts/users`, `/accounts/waitlist`, `/billing/subscriptions`, `/billing/invoices`, `/billing/payments` |
 | Catalogs | `/catalog/frameworks/*`, `/catalog/skills/*`, `/catalog/mcp/*` |
 | Platform settings | `/platform/authentication`, `/platform/email`, `/platform/notification-webhooks`, `/platform/turn-policies`, `/platform/rollouts/*` |

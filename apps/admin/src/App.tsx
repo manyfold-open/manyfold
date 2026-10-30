@@ -14,6 +14,8 @@ import SandboxesList from '@/pages/Sandboxes/SandboxesList'
 import SandboxNew from '@/pages/Sandboxes/SandboxNew'
 import RuntimeProvidersList from '@/pages/RuntimeProviders/RuntimeProvidersList'
 import RuntimeProviderForm from '@/pages/RuntimeProviders/RuntimeProviderForm'
+import ProviderInventory from '@/pages/RuntimeProviders/ProviderInventory'
+import ProviderMachineDetail from '@/pages/RuntimeProviders/ProviderMachineDetail'
 import NotificationWebhooksList from '@/pages/NotificationWebhooks/NotificationWebhooksList'
 import NotificationWebhookForm from '@/pages/NotificationWebhooks/NotificationWebhookForm'
 import UserDetail from '@/pages/Users/UserDetail'
@@ -385,6 +387,14 @@ const App: FC = (): ReactNode => {
                 <Route
                     path={adminRoutes.runtimeProviderDetail}
                     element={<RuntimeProviderForm />}
+                />
+                <Route
+                    path={adminRoutes.runtimeProviderInventoryDetail}
+                    element={<ProviderInventory />}
+                />
+                <Route
+                    path={adminRoutes.runtimeProviderMachineDetail}
+                    element={<ProviderMachineDetail />}
                 />
                 <Route
                     path={adminRoutes.selfOwnedComputers}

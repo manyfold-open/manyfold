@@ -65,12 +65,16 @@ const makeDb = (existing = row()) => {
     }
 }
 
-const build = (adapter: Record<string, unknown>, db = makeDb()) => {
+const build = (
+    adapter: Record<string, unknown>,
+    db = makeDb(),
+    registered = true
+) => {
     const invalidated: string[] = []
     const svc = new RuntimeProvidersAdminService(
         db as never,
         { encrypt: (plain: string) => ({ ciphertext: `enc:${plain}`, keyVersion: 1 }) } as never,
-        { for: () => adapter } as never,
+        { for: () => adapter, has: () => registered } as never,
         {
             invalidate: (provider: { id: string }) => {
                 invalidated.push(provider.id)
@@ -129,6 +133,28 @@ test('a probe records what the adapter found', async () => {
     assert.equal(result.message, 'reachable (listed 3 sprites)')
     const update = db.writes[0].update as Record<string, unknown>
     assert.equal(update.lastHealthStatus, 'ok')
+})
+
+test("a summary says what the kind's adapter offers beyond placing hosts", async () => {
+    const listing = build({
+        inventory: { list: async () => null, restart: async () => null }
+    })
+    assert.deepEqual((await listing.svc.get('rtp_1')).capabilities, {
+        inventory: true,
+        restartMachine: true,
+        upgradeMachine: false
+    })
+
+    const plain = build({})
+    assert.deepEqual((await plain.svc.get('rtp_1')).capabilities, {
+        inventory: false,
+        restartMachine: false,
+        upgradeMachine: false
+    })
+
+    // A kind no adapter registered for is listed, offering nothing.
+    const unknown = build({}, makeDb(), false)
+    assert.equal((await unknown.svc.get('rtp_1')).capabilities.inventory, false)
 })
 
 test('a sprites credential splits into its ids and the whole token', async () => {
