@@ -15,7 +15,7 @@ Model providers give agents access to the models they need. You can save provide
 | Anthropic, OpenAI, Google Gemini | Pi |
 | OpenRouter | Model routing and compatible model access |
 
-Your workspace may also have managed model access. If it does, the creation flow can offer provider options without requiring you to paste a personal API key.
+Your workspace may also have managed model access. If it does, the creation flow can offer provider options without requiring you to paste a personal API key. Managed access is used through your agents: its keys stay with Manyfold and cannot be revealed or copied.
 
 ## Use your own subscription
 
