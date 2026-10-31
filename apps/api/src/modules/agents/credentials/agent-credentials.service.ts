@@ -46,7 +46,10 @@ import {
 import type { RuntimeContext } from '@/modules/hosts/runtime-context.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
-import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
+import {
+    ModelProvidersService,
+    managedKeyRevealRefused
+} from '@/modules/model-providers/model-providers.service'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import type {
@@ -168,6 +171,11 @@ export class AgentCredentialsService {
             throw new NotFoundException(
                 `agent ${agent.id} has no api key stored — rebuild the agent`
             )
+        const saved = await this.modelProviders.findByApiKey({
+            userId: agent.userId,
+            apiKey
+        })
+        if (saved?.source === 'managed') throw managedKeyRevealRefused()
         await this.audit(
             callerUserId,
             auditAction.AGENT_CREDENTIALS_REVEALED,
