@@ -15,6 +15,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import {
     ConflictException,
+    ForbiddenException,
     Inject,
     Injectable,
     Logger,
@@ -76,6 +77,17 @@ export const maskApiKey = (raw: string): string => {
     const tail = trimmed.slice(-4)
     return `${prefix}***${tail}`
 }
+
+// A managed key draws on platform-funded credit and works anywhere once
+// copied, so it only ever leaves the platform inside an agent's runtime.
+// Seen on prod [2026-10-31]: scripted accounts revealed every managed key
+// through the reveal routes and spent that credit outside Manyfold.
+export const managedKeyRevealRefused = (): ForbiddenException =>
+    new ForbiddenException({
+        code: 'managed_key_not_revealable',
+        message:
+            'managed provider keys are platform-controlled and cannot be revealed'
+    })
 
 export const toModelProviderSummary = (
     row: UserModelProviderRow,
@@ -587,6 +599,7 @@ export class ModelProvidersService {
 
     async reveal(userId: string, id: string): Promise<{ apiKey: string }> {
         const row = await this.getOwned(userId, id)
+        if (row.source === 'managed') throw managedKeyRevealRefused()
         const apiKey = this.crypto.decrypt({
             ciphertext: row.apiKeyCiphertext,
             keyVersion: row.keyVersion

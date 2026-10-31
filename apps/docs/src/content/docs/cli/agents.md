@@ -160,7 +160,8 @@ mf agent credentials update agt_xxx --body @credentials.json
 
 `get` returns metadata without secrets. `reveal` is masked unless `--show` is
 passed. Plaintext reveal output is sensitive: do not send it to logs, chat,
-issue trackers, or shell history.
+issue trackers, or shell history. An agent on managed model access has no key
+to reveal: `reveal` is refused, because managed keys stay with Manyfold.
 
 The update body uses the framework-specific `UpdateAgentCredentialsBody`.
 Inspect the current metadata and command help before changing it. Some

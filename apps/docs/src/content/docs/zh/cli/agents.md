@@ -141,6 +141,7 @@ mf agent credentials update agt_xxx --body @credentials.json
 
 `get` 只返回 metadata，不返回 secret。`reveal` 默认 mask，只有 `--show` 才显示
 plaintext。不要把 plaintext 输出写进日志、聊天、issue tracker 或 shell history。
+使用托管模型额度的 agent 没有可显示的 key：托管 key 留在 Manyfold，`reveal` 会被拒绝。
 
 Update body 使用 framework-specific `UpdateAgentCredentialsBody`。修改前先检查当前
 metadata 和 command help。部分 gateway-style framework 的 credential 变更需要

@@ -15,7 +15,7 @@ order: 4
 | Anthropic、OpenAI、Google Gemini | Pi |
 | OpenRouter | 模型路由和兼容模型访问 |
 
-你的工作区也可能有托管模型额度。如果有，创建流程会展示可用选项，而不要求你粘贴个人 API key。
+你的工作区也可能有托管模型额度。如果有，创建流程会展示可用选项，而不要求你粘贴个人 API key。托管额度只能通过你的 agent 使用：它的 key 留在 Manyfold，不能被显示或复制。
 
 ## 使用自己的订阅
 
