@@ -209,9 +209,13 @@ test(
         const h = await buildHarness()
         try {
             // Move the activity into last month: the calendar-month period of
-            // a subscription-less user must exclude it.
-            const lastMonth = new Date()
-            lastMonth.setUTCMonth(lastMonth.getUTCMonth() - 1)
+            // a subscription-less user must exclude it. Day 1, because
+            // stepping today's date back a month overflows on the 29th–31st
+            // (Seen on CI [2026-10-31]: "September 31" became October 1).
+            const now = new Date()
+            const lastMonth = new Date(
+                Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)
+            )
             await h.db
                 .update(sandboxActiveDurationDays)
                 .set({ day: lastMonth.toISOString().slice(0, 10) })
