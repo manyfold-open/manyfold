@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 10.13.0
+
+### Minor Changes
+
+- [#728](https://github.com/manyfold-open/manyfold/pull/728) [`9cbef2f`](https://github.com/manyfold-open/manyfold/commit/9cbef2f0c1b1c9b1a2276a1f270b4d96a0ac89b3) Thanks [@yingca1](https://github.com/yingca1)! - Platform-managed provider keys can no longer be revealed. `GET /api/model-providers/:id/reveal` on a managed provider, and `GET /api/agents/:id/credentials/reveal` for an agent whose key belongs to one, now answer 403 with code `managed_key_not_revealable`. A managed key draws on platform-funded credit, so it is only used inside an agent's runtime; keys you added yourself can be revealed as before.
+
 ## 10.12.1
 
 ### Patch Changes
