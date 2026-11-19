@@ -2383,3 +2383,422 @@ test('the placeholder stays a normal message on a user-built matrix channel', ()
         'outside a mirror this is just text someone typed'
     )
 })
+
+test('matrix normalizeMessage ignores group messages from Narra agent accounts even when mentioning the bot', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                chatType?: string
+                senderId?: string
+                text?: string
+                isMention?: boolean
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({
+            mentionOnly: true,
+            freeResponseRoomIds: ['!room:matrix.example.org']
+        }),
+        credentials
+    }
+
+    const fromAgent = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$agent-group-msg',
+            sender: '@agent-54ebea3a:matrix.netmind.chat',
+            content: {
+                msgtype: 'm.text',
+                body: '@Matrix Bot hello there',
+                'm.mentions': {
+                    user_ids: ['@bot:matrix.example.org']
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(fromAgent, null)
+
+    const fromHuman = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$human-group-msg',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: '@Matrix Bot hello there',
+                'm.mentions': {
+                    user_ids: ['@bot:matrix.example.org']
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(fromHuman?.chatType, 'group')
+    assert.equal(fromHuman?.senderId, '@alice:matrix.example.org')
+    assert.equal(fromHuman?.isMention, true)
+})
+
+test('matrix normalizeMessage still accepts private DMs from Narra agent accounts', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                chatType?: string
+                senderId?: string
+                text?: string
+                isMention?: boolean
+                replyTargetId?: string | null
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ mentionOnly: true }),
+        credentials
+    }
+
+    const dm = normalize(
+        ctx,
+        '!dm:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$agent-dm-msg',
+            sender: '@agent-54ebea3a:matrix.netmind.chat',
+            content: {
+                msgtype: 'm.text',
+                body: 'peer agent direct request'
+            }
+        },
+        new Set(['!dm:matrix.example.org'])
+    )
+    assert.equal(dm?.chatType, 'private')
+    assert.equal(dm?.senderId, '@agent-54ebea3a:matrix.netmind.chat')
+    assert.equal(dm?.text, 'peer agent direct request')
+    assert.equal(dm?.isMention, true)
+    assert.equal(dm?.replyTargetId, null)
+})
+
+test('matrix normalizeMessage keeps autoThread false quotes flat while preserving native threads', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                threadId?: string | null
+                threadFresh?: boolean
+                replyToMessageId?: string | null
+                replyTargetId?: string | null
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ autoThread: false }),
+        credentials
+    }
+
+    const quoted = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$user-msg',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: 'replying to penny',
+                'm.relates_to': {
+                    'm.in_reply_to': { event_id: '$penny-msg' }
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(quoted?.threadId, null)
+    assert.equal(quoted?.threadFresh, undefined)
+    assert.equal(quoted?.replyToMessageId, '$penny-msg')
+    assert.equal(quoted?.replyTargetId, '$user-msg')
+
+    const nativeThread = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$user-thread-reply',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: 'inside native thread',
+                'm.relates_to': {
+                    rel_type: 'm.thread',
+                    event_id: '$root',
+                    'm.in_reply_to': { event_id: '$prev' }
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(nativeThread?.threadId, '$root')
+    assert.equal(nativeThread?.threadFresh, undefined)
+})
+
+test('matrix smart quoting omits in_reply_to when trigger is still latest room event', async (t) => {
+    const provider = providerFor()
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+        globalThis.fetch = originalFetch
+    })
+    const bodies: Array<Record<string, unknown>> = []
+    globalThis.fetch = (async (
+        _input: RequestInfo | URL,
+        init?: RequestInit
+    ) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return jsonResponse({ event_id: '$bot-reply-1' })
+    }) as typeof fetch
+
+    const dispatch = (
+        provider as unknown as {
+            dispatchJoinedEvents: (
+                ctx: unknown,
+                sync: unknown,
+                directRooms: Set<string>,
+                onInbound: (event: unknown) => Promise<void>
+            ) => Promise<void>
+        }
+    ).dispatchJoinedEvents.bind(provider)
+
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ autoThread: false, mentionOnly: true }),
+        credentials
+    }
+
+    await dispatch(
+        ctx,
+        {
+            rooms: {
+                join: {
+                    '!room:matrix.example.org': {
+                        timeline: {
+                            events: [
+                                {
+                                    type: 'm.room.message',
+                                    event_id: '$evt1',
+                                    sender: '@alice:matrix.example.org',
+                                    content: {
+                                        msgtype: 'm.text',
+                                        body: '@Matrix Bot hi',
+                                        'm.mentions': {
+                                            user_ids: [
+                                                '@bot:matrix.example.org'
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        new Set<string>(),
+        async () => undefined
+    )
+
+    await provider.sendText(
+        ctx,
+        'matrix:room:!room%3Amatrix.example.org:user:%40alice%3Amatrix.example.org',
+        'answer',
+        { replyToProviderMessageId: '$evt1' }
+    )
+
+    assert.equal(bodies.length, 1)
+    assert.equal(bodies[0]?.['m.relates_to'], undefined)
+})
+
+test('matrix smart quoting keeps in_reply_to when another message or ignored agent intervened', async (t) => {
+    const provider = providerFor()
+    const originalFetch = globalThis.fetch
+    t.after(() => {
+        globalThis.fetch = originalFetch
+    })
+    const bodies: Array<Record<string, unknown>> = []
+    globalThis.fetch = (async (
+        _input: RequestInfo | URL,
+        init?: RequestInit
+    ) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return jsonResponse({ event_id: '$bot-reply-2' })
+    }) as typeof fetch
+
+    const dispatch = (
+        provider as unknown as {
+            dispatchJoinedEvents: (
+                ctx: unknown,
+                sync: unknown,
+                directRooms: Set<string>,
+                onInbound: (event: unknown) => Promise<void>
+            ) => Promise<void>
+        }
+    ).dispatchJoinedEvents.bind(provider)
+
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ autoThread: false, mentionOnly: true }),
+        credentials
+    }
+
+    await dispatch(
+        ctx,
+        {
+            rooms: {
+                join: {
+                    '!room:matrix.example.org': {
+                        timeline: {
+                            events: [
+                                {
+                                    type: 'm.room.message',
+                                    event_id: '$evt1',
+                                    sender: '@alice:matrix.example.org',
+                                    content: {
+                                        msgtype: 'm.text',
+                                        body: '@Matrix Bot hi',
+                                        'm.mentions': {
+                                            user_ids: [
+                                                '@bot:matrix.example.org'
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    type: 'm.room.message',
+                                    event_id: '$agent-evt2',
+                                    sender: '@agent-54ebea3a:matrix.netmind.chat',
+                                    content: {
+                                        msgtype: 'm.text',
+                                        body: 'Penny intervening message'
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        new Set<string>(),
+        async () => undefined
+    )
+
+    await provider.sendText(
+        ctx,
+        'matrix:room:!room%3Amatrix.example.org:user:%40alice%3Amatrix.example.org',
+        'answer',
+        { replyToProviderMessageId: '$evt1' }
+    )
+
+    assert.equal(bodies.length, 1)
+    assert.deepEqual(bodies[0]?.['m.relates_to'], {
+        'm.in_reply_to': { event_id: '$evt1' }
+    })
+})
+
+test('matrix structured m.mentions.user_ids targeting another user suppresses display-name substring false positive', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                isMention?: boolean
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ mentionOnly: true }),
+        credentials
+    }
+
+    const otherUserOnly = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$m1',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: '@Penny check Matrix Bot',
+                'm.mentions': {
+                    user_ids: ['@agent-54ebea3a:matrix.netmind.chat']
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(otherUserOnly?.isMention, false)
+
+    const unstructuredFallback = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$m2',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: '@Penny check Matrix Bot'
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(unstructuredFallback?.isMention, true)
+
+    const includesBot = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$m3',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: '@Penny check Matrix Bot',
+                'm.mentions': {
+                    user_ids: [
+                        '@agent-54ebea3a:matrix.netmind.chat',
+                        '@bot:matrix.example.org'
+                    ]
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(includesBot?.isMention, true)
+})

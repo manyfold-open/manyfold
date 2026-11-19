@@ -1835,14 +1835,59 @@ export class ChannelBridgeService {
         hud?: ReplyHudStats
     }): Promise<void> {
         const { channel, ctx, provider, scopeKey, preview } = opts
+        const outboundFileRefs = sendsOutboundFiles(provider, ctx)
+            ? extractWorkspaceFileRefs(opts.text)
+            : []
+        const hasOutboundFiles = outboundFileRefs.length > 0
         // A file the reply links is sent after it, so the link itself is
         // left out of what the channel shows.
-        const text = sendsOutboundFiles(provider, ctx)
-            ? stripWorkspaceFileRefs(
-                  opts.text,
-                  extractWorkspaceFileRefs(opts.text)
-              )
+        const text = hasOutboundFiles
+            ? stripWorkspaceFileRefs(opts.text, outboundFileRefs)
             : opts.text
+        if (
+            !hasOutboundFiles &&
+            (isSilentChannelReply(text) ||
+                (channel.provider === 'matrix' && text.trim().length === 0))
+        ) {
+            const suppressedPatch = {
+                status: 'dropped' as const,
+                errorMessage: 'silent_reply',
+                summaryText: '',
+                eventJson: { terminal: 'final' as const, suppressed: true },
+                nextAttemptAt: null
+            }
+            if (opts.pendingDeliveryId !== null) {
+                const resolved = await this.repo.resolvePendingDelivery(
+                    opts.pendingDeliveryId,
+                    suppressedPatch
+                )
+                if (!resolved) return
+            } else {
+                await this.repo.insertDelivery({
+                    channelId: channel.id,
+                    chatSessionId: opts.chatSessionId,
+                    chatMessageId: opts.assistantMessageId,
+                    direction: 'outbound',
+                    scopeKey,
+                    providerEventId: null,
+                    providerMessageId: null,
+                    ...suppressedPatch,
+                    createdAt: new Date()
+                })
+            }
+            if (preview && provider.deleteMessage) {
+                try {
+                    await provider.deleteMessage(
+                        ctx,
+                        scopeKey,
+                        preview.providerMessageId
+                    )
+                } catch {
+                    // Best-effort preview cleanup when suppressing a silent reply.
+                }
+            }
+            return
+        }
         const base = text.length === 0 ? '(empty response)' : text
         // Append the usage footer INSIDE finalText (before the outbox row is
         // written) so a retry re-delivers it too.
@@ -2819,6 +2864,12 @@ export const buildReplyHud = (hud: ReplyHudStats): string => {
     if (parts.length === 0) return ''
     return `⎿ ${parts.join(' · ')}`
 }
+
+const SILENT_CHANNEL_REPLY_RE =
+    /^\s*(?:\[(?:no[_\s-]?reply|silent)\]|\((?:no[_\s-]?reply|silent)\))\s*$/i
+
+export const isSilentChannelReply = (text: string): boolean =>
+    SILENT_CHANNEL_REPLY_RE.test(text)
 
 const summarizeInbound = (event: NormalizedInboundEvent): string => {
     if (event.text.length > 0) return event.text
