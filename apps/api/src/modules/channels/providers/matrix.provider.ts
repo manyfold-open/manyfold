@@ -63,6 +63,7 @@ const MATRIX_MEDIA_MSGTYPES = new Set([
     'm.audio',
     'm.video'
 ])
+const NARRA_AGENT_USER_RE = /^@agent-[0-9a-f]+:/i
 
 // A framework whose own Matrix client speaks a message dialect registers it
 // (FrameworkChannels.matrixDialect). Matrix has no room-level capability
@@ -944,6 +945,11 @@ export class MatrixChannelProvider implements ChannelProvider {
         if (!event.event_id || !event.sender) return null
         if (config.botUserId && event.sender === config.botUserId) return null
         if (!this.roomAllowed(roomId, config)) return null
+        const chatType = directRooms.has(roomId) ? 'private' : 'group'
+        // Drop messages from other Narra agent accounts in shared rooms to
+        // prevent bot-to-bot reply loops while preserving direct A2A DMs.
+        if (chatType === 'group' && NARRA_AGENT_USER_RE.test(event.sender))
+            return null
         if (matrixIsReplacement(content)) return null
         const msgtype = typeof content.msgtype === 'string' ? content.msgtype : ''
         const body = typeof content.body === 'string' ? content.body : ''
@@ -979,7 +985,6 @@ export class MatrixChannelProvider implements ChannelProvider {
             text = stripMatrixMention(caption, config).trim()
             attachments = [attachment]
         } else return null
-        const chatType = directRooms.has(roomId) ? 'private' : 'group'
         const isMention =
             chatType === 'private' ||
             config.freeResponseRoomIds.includes(roomId) ||

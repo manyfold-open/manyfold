@@ -15,7 +15,8 @@ import type {
 } from '@manyfold/db'
 import {
     ChannelBridgeService,
-    buildReplyHud
+    buildReplyHud,
+    isSilentChannelReply
 } from '../src/modules/channels/channel-bridge.service'
 import { ChannelSendError } from '../src/modules/channels/channel-send-error'
 import {
@@ -4696,5 +4697,223 @@ test('startTyping learns the chat session for a session deep link', async () => 
         (typing as { chatSessionId?: string | null }).chatSessionId,
         harness.deliveries.find((d) => d.direction === 'outbound')
             ?.chatSessionId
+    )
+})
+
+test('isSilentChannelReply matches only exact silent sentinels', () => {
+    for (const token of [
+        '[NO_REPLY]',
+        '  [no_reply]\n',
+        '[no-reply]',
+        '[no reply]',
+        '[noreply]',
+        '[silent]',
+        '(NO_REPLY)',
+        '(silent)'
+    ]) {
+        assert.equal(
+            isSilentChannelReply(token),
+            true,
+            `expected silent match for ${JSON.stringify(token)}`
+        )
+    }
+    for (const text of [
+        '',
+        '   ',
+        'hello',
+        '[NO_REPLY] extra text',
+        'prefix [silent]',
+        'nothing to report'
+    ]) {
+        assert.equal(
+            isSilentChannelReply(text),
+            false,
+            `expected non-silent for ${JSON.stringify(text)}`
+        )
+    }
+})
+
+test('finalizeSuccess suppresses silent sentinel replies, deletes preview, and drops delivery', async () => {
+    const harness = makeHarness()
+
+    const promise = harness.bridge.handleInbound(baseChannel, inboundEvent())
+    await harness.flushAdapter('[NO_REPLY]')
+    await promise
+
+    const outbound = harness.deliveries.find((d) => d.direction === 'outbound')
+    assert.equal(outbound?.status, 'dropped')
+    assert.equal(outbound?.errorMessage, 'silent_reply')
+    assert.equal(outbound?.summaryText, '')
+    assert.deepEqual(outbound?.eventJson, {
+        terminal: 'final',
+        suppressed: true
+    })
+    assert.equal(outbound?.nextAttemptAt, null)
+
+    const captures = harness.fakeProvider.drainOutbound('chn-1')
+    const previewStart = captures.find((c) => c.kind === 'preview-start')
+    const deleted = captures.find((c) => c.kind === 'delete')
+    assert.ok(previewStart, 'preview was started before terminal text arrived')
+    assert.ok(deleted, 'preview should be cleaned up when reply is suppressed')
+    assert.equal(
+        (deleted as { id: string }).id,
+        (previewStart as { id: string }).id
+    )
+    assert.equal(captures.filter((c) => c.kind === 'final').length, 0)
+    assert.equal(
+        captures.filter((c) => c.kind === 'preview-finish').length,
+        0
+    )
+})
+
+test('finalizeSuccess suppresses [silent] in final progress mode and tolerates preview delete failure', async () => {
+    const silentFinal = makeHarness()
+    const promise1 = silentFinal.bridge.handleInbound(
+        finalModeChannel,
+        inboundEvent()
+    )
+    await silentFinal.flushAdapter('[silent]')
+    await promise1
+
+    const outbound1 = silentFinal.deliveries.find(
+        (d) => d.direction === 'outbound'
+    )
+    assert.equal(outbound1?.status, 'dropped')
+    assert.equal(outbound1?.errorMessage, 'silent_reply')
+    assert.equal(outbound1?.summaryText, '')
+    assert.deepEqual(outbound1?.eventJson, {
+        terminal: 'final',
+        suppressed: true
+    })
+    const captures1 = silentFinal.fakeProvider.drainOutbound('chn-1')
+    assert.equal(captures1.filter((c) => c.kind === 'final').length, 0)
+    assert.equal(
+        captures1.filter((c) => c.kind === 'preview-finish').length,
+        0
+    )
+    assert.equal(captures1.filter((c) => c.kind === 'delete').length, 0)
+
+    const deleteFails = makeHarness()
+    deleteFails.fakeProvider.deleteMessage = async () => {
+        throw new Error('delete unsupported')
+    }
+    const promise2 = deleteFails.bridge.handleInbound(
+        baseChannel,
+        inboundEvent()
+    )
+    await deleteFails.flushAdapter('[NO_REPLY]')
+    await promise2
+
+    const outbound2 = deleteFails.deliveries.find(
+        (d) => d.direction === 'outbound'
+    )
+    assert.equal(outbound2?.status, 'dropped')
+    assert.equal(outbound2?.errorMessage, 'silent_reply')
+    const captures2 = deleteFails.fakeProvider.drainOutbound('chn-1')
+    assert.equal(captures2.filter((c) => c.kind === 'final').length, 0)
+    assert.equal(
+        captures2.filter((c) => c.kind === 'preview-finish').length,
+        0
+    )
+})
+
+test('finalizeSuccess suppresses empty Matrix text without attachments while preserving (empty response) for non-matrix providers', async () => {
+    const matrixPreview = makeHarness()
+    const matrixChannel: ChannelRow = {
+        ...baseChannel,
+        provider: 'matrix'
+    }
+    const p1 = matrixPreview.bridge.handleInbound(matrixChannel, inboundEvent())
+    await matrixPreview.flushAdapter('   ')
+    await p1
+
+    const matrixOutbound1 = matrixPreview.deliveries.find(
+        (d) => d.direction === 'outbound'
+    )
+    assert.equal(matrixOutbound1?.status, 'dropped')
+    assert.equal(matrixOutbound1?.errorMessage, 'silent_reply')
+    assert.equal(matrixOutbound1?.summaryText, '')
+    assert.deepEqual(matrixOutbound1?.eventJson, {
+        terminal: 'final',
+        suppressed: true
+    })
+    const matrixCaptures1 = matrixPreview.fakeProvider.drainOutbound('chn-1')
+    assert.equal(
+        matrixCaptures1.filter((c) => c.kind === 'delete').length,
+        1
+    )
+    assert.equal(matrixCaptures1.filter((c) => c.kind === 'final').length, 0)
+    assert.equal(
+        matrixCaptures1.filter((c) => c.kind === 'preview-finish').length,
+        0
+    )
+
+    const matrixFinal = makeHarness()
+    const matrixFinalChannel: ChannelRow = {
+        ...finalModeChannel,
+        provider: 'matrix'
+    }
+    const p2 = matrixFinal.bridge.handleInbound(
+        matrixFinalChannel,
+        inboundEvent()
+    )
+    await matrixFinal.flushAdapter('')
+    await p2
+
+    const matrixOutbound2 = matrixFinal.deliveries.find(
+        (d) => d.direction === 'outbound'
+    )
+    assert.equal(matrixOutbound2?.status, 'dropped')
+    assert.equal(matrixOutbound2?.errorMessage, 'silent_reply')
+    const matrixCaptures2 = matrixFinal.fakeProvider.drainOutbound('chn-1')
+    assert.equal(matrixCaptures2.filter((c) => c.kind === 'final').length, 0)
+    assert.equal(
+        matrixCaptures2.filter((c) => c.kind === 'preview-finish').length,
+        0
+    )
+
+    const nonMatrix = makeHarness()
+    const p3 = nonMatrix.bridge.handleInbound(finalModeChannel, inboundEvent())
+    await nonMatrix.flushAdapter('')
+    await p3
+
+    const nonMatrixOutbound = nonMatrix.deliveries.find(
+        (d) => d.direction === 'outbound'
+    )
+    assert.equal(nonMatrixOutbound?.status, 'sent')
+    const nonMatrixCaptures = nonMatrix.fakeProvider.drainOutbound('chn-1')
+    const final = nonMatrixCaptures.find((c) => c.kind === 'final')
+    assert.equal((final as { text: string } | undefined)?.text, '(empty response)')
+})
+
+test('finalizeSuccess still delivers Matrix replies that reference workspace attachments', async () => {
+    const harness = makeHarness()
+    const matrixChannel: ChannelRow = {
+        ...baseChannel,
+        provider: 'matrix'
+    }
+    harness.apiFilesHook.readWorkspaceFiles = async (_agentId, refs) => {
+        assert.deepEqual(refs, [{ relPath: 'plot.png', name: 'plot.png' }])
+        return [
+            {
+                name: 'plot.png',
+                relPath: 'plot.png',
+                contentType: 'image/png',
+                bytes: Buffer.from('PNG')
+            }
+        ]
+    }
+
+    const promise = harness.bridge.handleInbound(matrixChannel, inboundEvent())
+    await harness.flushAdapter('![](plot.png)')
+    await promise
+
+    const outbound = harness.deliveries.find((d) => d.direction === 'outbound')
+    assert.equal(outbound?.status, 'sent')
+    const captures = harness.fakeProvider.drainOutbound('chn-1')
+    assert.equal(captures.filter((c) => c.kind === 'attachments').length, 1)
+    assert.equal(
+        captures.filter((c) => c.kind === 'preview-finish').length,
+        1
     )
 })

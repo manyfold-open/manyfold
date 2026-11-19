@@ -2383,3 +2383,115 @@ test('the placeholder stays a normal message on a user-built matrix channel', ()
         'outside a mirror this is just text someone typed'
     )
 })
+
+test('matrix normalizeMessage ignores group messages from Narra agent accounts even when mentioning the bot', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                chatType?: string
+                senderId?: string
+                text?: string
+                isMention?: boolean
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({
+            mentionOnly: true,
+            freeResponseRoomIds: ['!room:matrix.example.org']
+        }),
+        credentials
+    }
+
+    const fromAgent = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$agent-group-msg',
+            sender: '@agent-54ebea3a:matrix.netmind.chat',
+            content: {
+                msgtype: 'm.text',
+                body: '@Matrix Bot hello there',
+                'm.mentions': {
+                    user_ids: ['@bot:matrix.example.org']
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(fromAgent, null)
+
+    const fromHuman = normalize(
+        ctx,
+        '!room:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$human-group-msg',
+            sender: '@alice:matrix.example.org',
+            content: {
+                msgtype: 'm.text',
+                body: '@Matrix Bot hello there',
+                'm.mentions': {
+                    user_ids: ['@bot:matrix.example.org']
+                }
+            }
+        },
+        new Set<string>()
+    )
+    assert.equal(fromHuman?.chatType, 'group')
+    assert.equal(fromHuman?.senderId, '@alice:matrix.example.org')
+    assert.equal(fromHuman?.isMention, true)
+})
+
+test('matrix normalizeMessage still accepts private DMs from Narra agent accounts', () => {
+    const provider = providerFor()
+    const normalize = (
+        provider as unknown as {
+            normalizeMessage: (
+                ctx: unknown,
+                roomId: string,
+                event: unknown,
+                directRooms: Set<string>
+            ) => {
+                chatType?: string
+                senderId?: string
+                text?: string
+                isMention?: boolean
+                replyTargetId?: string | null
+            } | null
+        }
+    ).normalizeMessage.bind(provider)
+    const ctx = {
+        channel: makeChannel(),
+        config: baseConfig({ mentionOnly: true }),
+        credentials
+    }
+
+    const dm = normalize(
+        ctx,
+        '!dm:matrix.example.org',
+        {
+            type: 'm.room.message',
+            event_id: '$agent-dm-msg',
+            sender: '@agent-54ebea3a:matrix.netmind.chat',
+            content: {
+                msgtype: 'm.text',
+                body: 'peer agent direct request'
+            }
+        },
+        new Set(['!dm:matrix.example.org'])
+    )
+    assert.equal(dm?.chatType, 'private')
+    assert.equal(dm?.senderId, '@agent-54ebea3a:matrix.netmind.chat')
+    assert.equal(dm?.text, 'peer agent direct request')
+    assert.equal(dm?.isMention, true)
+    assert.equal(dm?.replyTargetId, null)
+})
